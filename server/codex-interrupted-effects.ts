@@ -192,7 +192,7 @@ export async function observeNativeRecoveryTurn(
               throw Error('Native terminal host tool effects remain unknown');
             const toolName = z.string().min(1).parse(item.tool);
             const args = z.record(z.string(), z.unknown()).parse(item.arguments);
-            if (threadId !== target.threadId && !isIntrinsicRecoveryRead(toolName))
+            if (threadId !== target.threadId && !isIntrinsicRecoveryRead(toolName, args))
               throw new SessionRuntimeError('recovery_effects_unverified');
             calls.push({
               threadId,
@@ -203,7 +203,7 @@ export async function observeNativeRecoveryTurn(
               arguments: args,
               isError: !item.success,
               readOnly: isReadOnlyBuiltinToolCall(toolName, args),
-              intrinsicRead: isIntrinsicRecoveryRead(toolName),
+              intrinsicRead: isIntrinsicRecoveryRead(toolName, args),
             });
             break;
           }

@@ -43,7 +43,8 @@ vi.mock('../native-responses-runner.js', () => ({
     waitUntilIdle = async () => {};
   },
 }));
-vi.mock('../codex-mcp-tools.js', () => ({
+vi.mock('../codex-mcp-tools.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../codex-mcp-tools.js')>()),
   connectCodexMcpTools: vi.fn(async () => ({
     definitions: [],
     close: async () => {},

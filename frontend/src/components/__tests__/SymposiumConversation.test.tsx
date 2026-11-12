@@ -566,7 +566,7 @@ describe('SymposiumConversation', () => {
       expect(onSend).not.toHaveBeenCalled();
       expect(localStorage.getItem('mitzo-queue-session')).toBe(queued);
       finish(json({ sessionId: 'session', config: null, seats: [] }));
-      await screen.findByRole('button', { name: '1 queued message' });
+      await screen.findByRole('region', { name: 'Up next' });
       reviewQueue();
       expect(queuedText('queued follow-up')).toBeTruthy();
       expect(onSend).not.toHaveBeenCalled();

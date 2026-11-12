@@ -1,4 +1,9 @@
-import { codexToolFailureResult, CodexToolFailure } from './codex-tool-failure.js';
+import {
+  codexToolFailureResult,
+  CodexToolFailure,
+  withCodexToolCleanup,
+} from './codex-tool-failure.js';
+import { createLogger } from './logger.js';
 import {
   freezeNativeReadExclusions,
   type NativeAnchoredReadRequest,
@@ -123,10 +128,25 @@ export function nativeRepositoryReadRootUnion(roots: readonly string[]): readonl
 function assertSynchronous(assertion: () => unknown) {
   const result = assertion();
   if (result === undefined) return;
-  void Promise.resolve(result).catch(() => {});
+  void Promise.resolve(result).catch((error: unknown) => {
+    const projected = JSON.parse(codexToolFailureResult(error, false).content);
+    createLogger('local-repository-tools').warn(
+      'Asynchronous repository owner assertion rejected',
+      {
+        diagnosticId: projected.diagnosticId,
+        toolFailureCode: projected.error,
+        diagnostic: projected.diagnostic,
+      },
+    );
+  });
   throw Error('Current local repository owner required');
 }
 const unavailable = () => codexToolFailureResult(new CodexToolFailure('stale_owner'), false);
+const staleOwner = (cause: unknown) => {
+  const failure = new CodexToolFailure('stale_owner');
+  failure.cause = cause;
+  return failure;
+};
 
 /** Private read adapter only. Runtime registration supplies existing owners;
  * neither request JSON nor successful discovery can change workspace custody. */
@@ -156,7 +176,8 @@ export function sessionLocalRepositoryTools(
       callSignal: AbortSignal,
     ): Promise<{ content: string; isError: boolean } | undefined> {
       if (!Object.hasOwn(localRepositoryToolSchemas, name)) return undefined;
-      if (!supplied() || callSignal.aborted) return unavailable();
+      if (callSignal.aborted) return codexToolFailureResult(callSignal.reason, true);
+      if (!supplied()) return unavailable();
       let context: NativeHostToolContext | undefined;
       let reader: Awaited<ReturnType<typeof captureNativeLocalRepositoryReader>> | undefined;
       let assertOriginal: NativeHostToolContext['assertCurrentSync'] | undefined;
@@ -353,60 +374,88 @@ export function sessionLocalRepositoryTools(
         } catch (error) {
           try {
             current();
-            if (!policy) return unavailable();
-            if (error instanceof LocalRepositoryGitInspectionError)
-              return {
-                content: JSON.stringify({
-                  state: error.kind === 'access' ? 'access-required' : 'inspection-unavailable',
-                  reason: error.reason,
-                  needed:
-                    error.kind === 'access'
-                      ? ['read-access']
-                      : error.kind === 'limit'
-                        ? ['narrower-search']
-                        : [],
-                }),
-                isError: true,
-              };
-          } catch {
-            /* Expired authority cannot expose a partially read result. */
+          } catch (cause) {
+            // Withhold facts after authority loss while retaining the original
+            // read failure separately from the failed currentness check.
+            return await withCodexToolCleanup(async () => {
+              throw error;
+            }, [
+              () => {
+                throw staleOwner(cause);
+              },
+            ]);
           }
-          return unavailable();
+          if (error instanceof LocalRepositoryGitInspectionError)
+            return {
+              content: JSON.stringify({
+                state: error.kind === 'access' ? 'access-required' : 'inspection-unavailable',
+                reason: error.reason,
+                needed:
+                  error.kind === 'access'
+                    ? ['read-access']
+                    : error.kind === 'limit'
+                      ? ['narrower-search']
+                      : [],
+              }),
+              isError: true,
+            };
+          throw error;
         }
       }; // Capture failures and read refusals return only the bounded error projection.
-      let result: Awaited<ReturnType<typeof run>>;
-      let cleanupCurrent = true;
+      let cleanupFailed = false;
       let cleanupSettled = false;
       try {
-        result = await run();
-      } finally {
-        try {
-          if (reader) {
-            const closed: unknown = await reader.dispose();
-            if (closed !== undefined) cleanupCurrent = false;
-            else cleanupSettled = nativeRepositoryReadCleanupSettled(reader);
-          }
-          // Cleanup is an await: only the genuine still-current original call
-          // may receive facts, independently of the now-disposed reader.
-          if (cleanupCurrent && nativeOwner && context) await currentAsync();
-        } catch {
-          cleanupCurrent = false;
-        } finally {
-          if (context && disposeOriginal) {
+        return await withCodexToolCleanup(run, [
+          async () => {
+            if (!reader) return;
+            try {
+              const closed: unknown = await reader.dispose();
+              if (closed !== undefined) throw Error('Native reader cleanup did not settle');
+              cleanupSettled = nativeRepositoryReadCleanupSettled(reader);
+            } catch (error) {
+              cleanupFailed = true;
+              throw error;
+            }
+          },
+          async () => {
+            // Recheck after cleanup even when another cleanup failed. Never
+            // deliver partially read facts under a replaced native owner.
+            if (!nativeOwner || !context) return;
+            try {
+              await currentAsync();
+            } catch (cause) {
+              cleanupFailed = true;
+              throw staleOwner(cause);
+            }
+          },
+          () => {
+            if (!context || !disposeOriginal) return;
             try {
               assertSynchronous(() => disposeOriginal!.call(context!));
-            } catch {
-              cleanupCurrent = false;
+            } catch (error) {
+              cleanupFailed = true;
               cleanupSettled = false;
+              throw error;
             }
-          }
-        }
+          },
+        ]);
+      } catch (error) {
+        const refusal = codexToolFailureResult(error, callSignal.aborted || !!signal?.aborted);
+        const projected = JSON.parse(refusal.content);
+        createLogger('local-repository-tools').warn('Local repository read failed', {
+          toolName: name,
+          conversationId: context?.conversationId,
+          callId: context?.callId,
+          turnId: context?.turnId,
+          diagnosticId: projected.diagnosticId,
+          toolFailureCode: projected.error,
+          diagnostic: projected.diagnostic,
+        });
+        // Only physical joined cleanup can prove settlement after a failed fence.
+        return cleanupFailed && cleanupSettled
+          ? retainCallbackOutcome(refusal, 'settled')
+          : refusal;
       }
-      if (cleanupCurrent) return result;
-      // Expired authority still withholds every partially read fact. Only the
-      // original physical reader's joined cleanup can settle this bounded refusal.
-      const refusal = unavailable();
-      return cleanupSettled ? retainCallbackOutcome(refusal, 'settled') : refusal;
     },
   };
 }
