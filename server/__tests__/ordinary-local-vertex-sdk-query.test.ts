@@ -35,7 +35,7 @@ it('restores current user policy for every successor while retaining frozen comm
   const selection = { model: 'original-model', permission: { mode: 'ask', revision: 0 } } as const;
   try {
     await owner.apply(selection as never);
-    for (mode of ['default', 'plan', 'default']) await owner.apply(selection as never);
+    for (mode of ['default', 'plan', 'default'] as const) await owner.apply(selection as never);
     expect(modes).toEqual(['plan', 'default', 'plan', 'default']);
     expect(selection.permission).toEqual({ mode: 'ask', revision: 0 });
   } finally {
