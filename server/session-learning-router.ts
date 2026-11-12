@@ -56,13 +56,11 @@ export function createSessionLearningRouter(events: EventStore) {
         code: conflict ? 'revision_conflict' : 'policy_save_failed',
         sessionId: req.params.id,
       });
-      return res
-        .status(conflict ? 409 : 503)
-        .json({
-          error: conflict
-            ? 'Learning settings changed; refresh and retry with the current revision'
-            : 'Learning setting was not confirmed; refresh before retrying',
-        });
+      return res.status(conflict ? 409 : 503).json({
+        error: conflict
+          ? 'Learning settings changed; refresh and retry with the current revision'
+          : 'Learning setting was not confirmed; refresh before retrying',
+      });
     }
   });
   return router;

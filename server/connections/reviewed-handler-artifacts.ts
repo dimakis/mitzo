@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-learning-tools.ts':
     '126d48479375be6e689bbed9433169f28189f0d72cc53f117e3435dff94695fb',
   '../session-learning-router.ts':
-    '718c158f5eb42c111f1e112cf6d9a790d2b7c654549d14268e0a75e8c897d27b',
+    'f1bdcfd63d9165b516330b89688b224f4766cc3f2f1f4d9f231dcc818ea5e26d',
   '../../packages/protocol/src/session-learning.ts':
     '3d9c05d98149e7cde5503acd65bd566379f23b18000102d15fe728d5f0582cc2',
   '../../packages/protocol/src/session-learning-store.ts':
