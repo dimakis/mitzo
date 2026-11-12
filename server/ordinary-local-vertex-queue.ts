@@ -6,7 +6,9 @@ export function readOwnedVertexQueue(events: EventStore, sessionId: string, conn
     selection = events.getLatestOrdinaryCommandAdmission(sessionId)?.selection;
   if (
     !meta?.accountBinding ||
-    !['anthropic-vertex', 'anthropic-claude'].includes(meta.accountBinding.provider)
+    !['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(
+      meta.accountBinding.provider,
+    )
   )
     throw Error('Original SDK queue unavailable');
   return {

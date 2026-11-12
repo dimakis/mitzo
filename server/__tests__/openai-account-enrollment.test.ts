@@ -632,6 +632,50 @@ it('preserves callback failures and releases the gate without returning a custod
   expect(await f.service.resolveKey(account.id, AbortSignal.timeout(1000))).toBe(f.input.apiKey);
 });
 
+it('enrolls Anthropic Messages with the shared journal and Keychain without an OpenAI gateway', async () => {
+  const f = fixture();
+  const connection = {
+    endpoint: 'https://api.enmaas.example',
+    protocol: 'messages' as const,
+    authentication: 'bearer' as const,
+    qualification: {
+      source: 'operator' as const,
+      streaming: true,
+      toolCalls: true,
+      continuation: true,
+      cancellation: true,
+    },
+  };
+  const account = await f.service.enroll(
+    { ...f.input, connection, models: [{ id: 'hosted/sonnet', label: 'Hosted Sonnet' }] },
+    AbortSignal.timeout(1000),
+  );
+  expect(account.state).toBe('ready');
+  const row = f.store.account(account.id)!;
+  expect(f.store.readyProfiles()).toEqual([
+    expect.objectContaining({
+      provider: 'anthropic-api',
+      connection,
+      credentialVersion: row.operationId,
+    }),
+  ]);
+  expect(f.validateKey).not.toHaveBeenCalled();
+  expect(f.gateway.create).not.toHaveBeenCalled();
+  expect(await f.service.resolveHostKey(account.id, AbortSignal.timeout(1000))).toBe(
+    f.input.apiKey,
+  );
+  expect(readFileSync(f.path).includes(Buffer.from(f.input.apiKey))).toBe(false);
+  await expect(
+    f.service.enroll(
+      {
+        ...f.input,
+        connection: { ...connection, authentication: 'api-key' },
+        models: [{ id: 'hosted/sonnet', label: 'Hosted Sonnet' }],
+      },
+      AbortSignal.timeout(1000),
+    ),
+  ).rejects.toThrow('Enrollment request changed');
+});
 it('rejects cancellation after the custody callback without exposing provider errors', async () => {
   const f = fixture();
   const account = await f.service.enroll(f.input, AbortSignal.timeout(1000));

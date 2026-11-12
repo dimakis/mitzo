@@ -223,12 +223,16 @@ export class OrdinaryWorkspaceCustody {
     input.signal.throwIfAborted();
     if (
       !(selected.runOn === 'local'
-        ? ['openai-codex', 'openai', 'anthropic-vertex', 'anthropic-claude'].includes(
-            binding.provider,
-          )
+        ? [
+            'openai-codex',
+            'openai',
+            'anthropic-vertex',
+            'anthropic-claude',
+            'anthropic-api',
+          ].includes(binding.provider)
         : ['openai', 'openai-codex'].includes(binding.provider)) ||
       selected.runtime.harness !==
-        (['anthropic-vertex', 'anthropic-claude'].includes(binding.provider)
+        (['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(binding.provider)
           ? 'claude-sdk'
           : 'codex')
     )
@@ -404,7 +408,7 @@ export class OrdinaryWorkspaceCustody {
     if (
       settings.workspace.preparationId !== selected.preparationId ||
       settings.binding.harness.implementation !==
-        (['anthropic-vertex', 'anthropic-claude'].includes(binding.provider)
+        (['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(binding.provider)
           ? 'claude-sdk'
           : 'codex') ||
       settings.selection.context.source !== 'none' ||

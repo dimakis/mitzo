@@ -1,5 +1,6 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { createHash } from 'node:crypto';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AccountProfiles } from '../account-profiles.js';
 import { credentials } from '../credentials.js';
 
@@ -21,9 +22,11 @@ const connection = {
     cancellation: true,
   },
 };
+beforeEach(resetOfflineUserEnvironment);
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 it('preserves official defaults and routing identity without reading credentials', () => {

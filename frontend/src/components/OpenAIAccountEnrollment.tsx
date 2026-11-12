@@ -51,6 +51,8 @@ export function OpenAIAccountEnrollment({
   const [projectLabel, setProjectLabel] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [provider, setProvider] = useState('openai');
+  const [protocol, setProtocol] = useState<'responses' | 'messages'>('responses');
+  const [authentication, setAuthentication] = useState<'api-key' | 'bearer'>('api-key');
   const [endpoint, setEndpoint] = useState('');
   const [catalog, setCatalog] = useState<{ id: string; label: string }[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -131,7 +133,12 @@ export function OpenAIAccountEnrollment({
     setBillingConfirmed(false);
     setMessage('');
     try {
-      const result = await discoverApiModels({ csrf, endpoint: endpoint.trim(), apiKey });
+      const result = await discoverApiModels({
+        csrf,
+        endpoint: endpoint.trim(),
+        apiKey,
+        ...(protocol === 'messages' ? { protocol, authentication } : {}),
+      });
       if (!mounted.current || generation !== discoveryGeneration.current) return;
       setCatalog(result.models);
       setSelected([]);
@@ -183,7 +190,8 @@ export function OpenAIAccountEnrollment({
           ? {
               connection: {
                 endpoint: endpoint.trim(),
-                protocol: 'responses',
+                protocol,
+                ...(protocol === 'messages' ? { authentication } : {}),
                 qualification: {
                   source: 'operator',
                   streaming: true,
@@ -266,6 +274,8 @@ export function OpenAIAccountEnrollment({
                 const value = event.target.value;
                 resetDiscovery();
                 setProvider(value);
+                setProtocol('responses');
+                setAuthentication(value === 'enmaas' ? 'bearer' : 'api-key');
                 setEndpoint(value === 'enmaas' ? 'https://api.enmaas.devshift.net/v1' : '');
                 setExplicitModels(value === 'enmaas' ? enmaasModels.join('\n') : '');
                 setApiKey('');
@@ -273,9 +283,50 @@ export function OpenAIAccountEnrollment({
             >
               <option value="openai">OpenAI</option>
               <option value="enmaas">EnMaaS</option>
-              <option value="custom">Custom Responses API</option>
+              <option value="custom">Custom API</option>
             </select>
           </label>
+          {custom && (
+            <label className="connections-field">
+              Model API
+              <select
+                value={protocol}
+                disabled={busy || discovering}
+                onChange={(event) => {
+                  const next = event.target.value as 'responses' | 'messages';
+                  resetDiscovery();
+                  setProtocol(next);
+                  setExplicitModels(
+                    provider === 'enmaas' && next === 'responses' ? enmaasModels.join('\n') : '',
+                  );
+                  if (provider === 'enmaas')
+                    setEndpoint(
+                      'https://api.enmaas.devshift.net' + (next === 'responses' ? '/v1' : ''),
+                    );
+                  setApiKey('');
+                }}
+              >
+                <option value="responses">Responses · Codex</option>
+                <option value="messages">Anthropic Messages · Claude</option>
+              </select>
+            </label>
+          )}
+          {custom && protocol === 'messages' && (
+            <label className="connections-field">
+              Key authentication
+              <select
+                value={authentication}
+                disabled={busy || discovering}
+                onChange={(event) => {
+                  resetDiscovery();
+                  setAuthentication(event.target.value as 'api-key' | 'bearer');
+                }}
+              >
+                <option value="api-key">Anthropic API key</option>
+                <option value="bearer">Bearer token</option>
+              </select>
+            </label>
+          )}
           {custom && (
             <label className="connections-field">
               API base URL
@@ -337,8 +388,11 @@ export function OpenAIAccountEnrollment({
                 Use a public HTTPS provider hostname without credentials, query or fragment.
               </p>
               <p className="workspace-muted">
-                Uses the Codex engine with a Responses-compatible API. Get models sends this key to
-                the selected provider for a catalog read; it makes no inference call.
+                {protocol === 'messages'
+                  ? 'Uses the existing Claude Agent SDK engine with the selected provider’s API key. Enter the provider base URL before /v1/messages; Google Vertex authentication is disabled.'
+                  : 'Uses the Codex engine with a Responses-compatible API.'}{' '}
+                Get models sends this key to the selected provider for a catalog read; it makes no
+                inference call.
               </p>
               <button
                 type="button"
@@ -391,14 +445,15 @@ export function OpenAIAccountEnrollment({
               </label>
               <p className="workspace-muted">
                 Catalogs may omit working models. Explicit IDs are saved without a model call or key
-                validation. Confirm that the selected models support Codex Responses streaming,
-                tools, follow-up turns and cancellation.
+                validation. Confirm that the selected models support{' '}
+                {protocol === 'messages' ? 'Claude Messages' : 'Codex Responses'} streaming, tools,
+                follow-up turns and cancellation.
               </p>
               {provider === 'enmaas' && (
                 <p className="workspace-muted">
-                  The two hosted models are prefilled. Other catalog models may incur charges. GLM
-                  compatibility with Codex tools needs separate verification. Anthropic models
-                  require the Claude engine and are a follow-on.
+                  {protocol === 'messages'
+                    ? 'Choose your permitted Anthropic models from the catalog or enter their exact model IDs. These models may incur charges.'
+                    : 'The two hosted models are prefilled. Other catalog models may incur charges. GLM compatibility with Codex tools needs separate verification.'}
                 </p>
               )}
             </>
@@ -418,7 +473,7 @@ export function OpenAIAccountEnrollment({
             />
             <span>
               {custom
-                ? 'I authorize sending this key to the selected endpoint and confirm the selected models support the Codex features listed above.'
+                ? `I authorize sending this key to the selected endpoint and confirm the selected models support the ${protocol === 'messages' ? 'Claude' : 'Codex'} features listed above.`
                 : 'I authorize this validation charge to the project associated with this key.'}
             </span>
           </label>

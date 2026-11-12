@@ -112,17 +112,23 @@ export function localVertexCapabilities(
     deployment: 'ordinary',
     enabledHarnesses: ['claude-sdk'],
     accounts: accounts.map(({ account }) =>
-      account.provider === 'anthropic-claude'
+      account.provider === 'anthropic-api'
         ? {
             ...account,
-            provider: 'anthropic-claude' as const,
-            auth: { kind: 'claude-host-login' as const },
+            provider: 'anthropic-api' as const,
+            auth: { kind: 'anthropic-api-key' as const },
           }
-        : {
-            ...account,
-            provider: 'anthropic-vertex' as const,
-            auth: { kind: 'vertex-adc' as const },
-          },
+        : account.provider === 'anthropic-claude'
+          ? {
+              ...account,
+              provider: 'anthropic-claude' as const,
+              auth: { kind: 'claude-host-login' as const },
+            }
+          : {
+              ...account,
+              provider: 'anthropic-vertex' as const,
+              auth: { kind: 'vertex-adc' as const },
+            },
     ),
     targets: targets.map(({ targetId, targetRevision, location }) => ({
       targetId,
