@@ -10,6 +10,9 @@ import {
   CollaborationPromptReviewRequestSchema,
   CollaborationPromptReviewResultSchema,
   CollaborationDurableTranscriptSchema,
+  CollaborationForwardPrepareRequestSchema,
+  CollaborationForwardConfirmRequestSchema,
+  CollaborationForwardReadSchema,
 } from '../../packages/protocol/src/index';
 import {
   sharedConversationView,
@@ -143,6 +146,8 @@ for (const theme of ['dark', 'light'])
       let sends = 0;
       let original: unknown;
       let reviewCount = 0;
+      let forward: ReturnType<typeof CollaborationForwardReadSchema.parse> | undefined;
+      let forwards = 0;
       let attachedSnapshot: { snapshotId: string; sha256: string };
       const sourceText = 'Exact saved design context for this prompt.';
       const artifactText =
@@ -208,6 +213,43 @@ for (const theme of ['dark', 'light'])
           });
         if (path === '/api/sessions/architect/messages' && route.request().method() === 'GET')
           return route.fulfill({ json: source });
+        if (path.endsWith('/forwards/prepare')) {
+          const { selection, note } = CollaborationForwardPrepareRequestSchema.parse(
+            route.request().postDataJSON(),
+          );
+          forward = CollaborationForwardReadSchema.parse({
+            version: 1,
+            forwardId: uuid(900),
+            requestId: selection.requestId,
+            selection,
+            note,
+            selectionFingerprint: 'a'.repeat(64),
+            packetSha256: 'b'.repeat(64),
+            state: 'prepared',
+            confirmation: null,
+            deliveries: [],
+          });
+          return route.fulfill({ json: forward });
+        }
+        if (path.endsWith('/forwards/confirm')) {
+          const input = CollaborationForwardConfirmRequestSchema.parse(
+            route.request().postDataJSON(),
+          );
+          expect(input.requestReply).toBe(false);
+          forwards++;
+          forward!.state = 'confirmed';
+          forward!.deliveries = [{ ...sharedPrompt.deliveries[2], sessionId: 'reviewer' }];
+          forward!.confirmation = {
+            version: 1,
+            requestId: input.requestId,
+            forward: input.forward,
+            messageId: uuid(901),
+            deliveries: forward!.deliveries,
+          };
+          return route.fulfill({ json: forward!.confirmation });
+        }
+        if (path.includes('/forwards/') || path.includes('/forward-preparations/'))
+          return route.fulfill({ json: forward ?? null });
         if (path.endsWith('/prompt-reviews')) {
           const input = CollaborationPromptReviewRequestSchema.parse(
             route.request().postDataJSON(),
@@ -236,7 +278,9 @@ for (const theme of ['dark', 'light'])
             summary: null,
             capacity: { status: 'unverified', reason: 'Offline capacity is unverified' },
           };
-          attachedSnapshot = { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 };
+          // Original-forward reinspection must not replace this prompt's attachment.
+          if (!forward)
+            attachedSnapshot = { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 };
           return route.fulfill({
             json: CollaborationPromptReviewResultSchema.parse({
               snapshot,
@@ -371,8 +415,53 @@ for (const theme of ['dark', 'light'])
       await expect(artifactPreview).toHaveText(artifactText);
       expect(await artifactPreview.textContent()).toBe(artifactText);
       await expect(artifactPreview.locator('script')).toHaveCount(0);
+      await artifactPreview.scrollIntoViewIfNeeded();
+      await expect(artifactPreview).toBeInViewport();
+      await page.screenshot({
+        path: info.outputPath('forward-context-review-frozen-' + theme + '.png'),
+        fullPage: true,
+      });
       expect(sends).toBe(0);
       expect(reviewCount).toBe(2);
+      const prepareForward = context.getByRole('button', { name: 'Prepare context forward' });
+      await prepareForward.click();
+      const confirmForward = context.getByRole('button', { name: 'Confirm context forward' });
+      await expect(confirmForward).toBeEnabled();
+      await context.getByRole('button', { name: 'Inspect original context' }).click();
+      const originalContext = context.getByRole('region', { name: 'Original forward context' });
+      // Future discussion readers receive context even when only Reviewer replies.
+      expect(forward!.selection.target.sessionIds).toEqual(['reader', 'reviewer']);
+      await expect(originalContext.getByText('reader, Reviewer', { exact: true })).toBeVisible();
+      expect(await originalContext.getByLabel('Saved contents, version 2').textContent()).toBe(
+        artifactText,
+      );
+      const originalArtifact = originalContext.getByLabel('Saved contents, version 2');
+      await originalArtifact.scrollIntoViewIfNeeded();
+      await expect(originalArtifact).toBeInViewport();
+      await page.screenshot({
+        path: info.outputPath('forward-context-review-recovered-' + theme + '.png'),
+        fullPage: true,
+      });
+      await expect(confirmForward).toBeEnabled();
+      expect(reviewCount).toBe(3);
+      if (isMobile) expect((await confirmForward.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await page.screenshot({
+        path: info.outputPath('forward-context-review-' + theme + '.png'),
+        fullPage: true,
+      });
+      await confirmForward.click();
+      await expect(
+        context.getByText('Forward recorded. Delivery remains visible in the conversation.'),
+      ).toBeVisible();
+      expect(forwards).toBe(1);
+      expect(sends).toBe(0);
+      expect(forward!.selection.artifacts).toEqual([
+        { ...artifactPin, kind: 'transcript_reference' },
+      ]);
+      expect(forward!.selection.messages[0].blocks[0].sha256).toBe(
+        source.messages[0].blocks[0].sha256,
+      );
+      await expect(input).toHaveValue('Review this exact discussion.');
       expect(await context.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
       if (isMobile) expect((await attach.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       await page.screenshot({
