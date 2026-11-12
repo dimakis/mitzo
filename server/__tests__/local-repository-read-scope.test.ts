@@ -125,10 +125,20 @@ async function syntheticRead(request: NativeAnchoredReadRequest, signal: AbortSi
 }
 function ancestorChurn() {
   let observations = 0;
+  const trace: string[] = [];
   return {
     count: () => observations,
+    trace: () => trace.join('\n'),
     read: async (request: NativeAnchoredReadRequest, signal: AbortSignal) => {
-      const result = await syntheticRead(request, signal);
+      const operation = `${request.operation} ${request.file_path.replace(root, '<fixture>')}`;
+      trace.push(operation);
+      let result;
+      try {
+        result = await syntheticRead(request, signal);
+      } catch (error) {
+        trace.push(`${operation} failed: ${String(error)}`);
+        throw error;
+      }
       if (request.operation === 'ListDirectory' && request.file_path === '/') {
         observations++;
         if (observations > 1) {
@@ -353,5 +363,5 @@ it('refuses changed unrelated ancestor listings during full host-wide verificati
       executeReadOperation: churn.read,
     }),
   ).rejects.toMatchObject({ kind: 'unsafe', reason: 'anchored-read-unavailable' });
-  expect(churn.count()).toBe(2);
+  expect(churn.count(), churn.trace()).toBe(2);
 });
