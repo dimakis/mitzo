@@ -1,4 +1,6 @@
 import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
+import type { SubagentDiagnostic } from '@mitzo/protocol';
+import { bindClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { ToolFailureSchema, toolFailureAction } from '@mitzo/protocol';
 import { observeSessionActivity } from './session-activity-events.js';
 import { randomUUID } from 'node:crypto';
@@ -337,16 +339,20 @@ async function _runQueryLoopInner(
   const toolIdToBlockId = new Map<string, string>();
   // Results may arrive after a newer assistant message has started thinking.
   const toolIdToMessageId = new Map<string, string>();
-  const parentMessageByBlock = new Map<string, string>();
+  const parentMessageByChild = new Map<string, string>();
+  const uncorrelatedChildren = new Set<string>();
   const agentToolIds = new Set<string>();
   const startedSubagents = new Set<string>();
   const completedTasks = new Set<string>();
   const terminalSubagents = new Set<string>();
+  const childDiagnostics = new Map<string, SubagentDiagnostic>();
 
   function startTaskChild(toolId: string, taskId: string) {
     const parentBlockId = toolIdToBlockId.get(toolId);
     if (!parentBlockId || startedSubagents.has(toolId)) return;
     startedSubagents.add(toolId);
+    const parentMessageId = toolIdToMessageId.get(toolId);
+    if (parentMessageId) parentMessageByChild.set(`task-${taskId}`, parentMessageId);
     emit(
       v2('subagent_start', {
         parentBlockId,
@@ -360,17 +366,21 @@ async function _runQueryLoopInner(
     toolId: string,
     status: 'completed' | 'failed' | 'cancelled' | 'unavailable',
     taskId?: string,
+    diagnostic?: SubagentDiagnostic,
   ) {
     const parentBlockId = toolIdToBlockId.get(toolId);
     if (!parentBlockId || terminalSubagents.has(toolId)) return;
     if (!startedSubagents.has(toolId)) startTaskChild(toolId, taskId ?? toolId);
     const sub = activeSubagents.get(toolId);
+    if (diagnostic && !childDiagnostics.has(toolId)) childDiagnostics.set(toolId, diagnostic);
+    const retainedDiagnostic = status === 'unavailable' ? childDiagnostics.get(toolId) : undefined;
     emit(
       v2('subagent_end', {
         parentBlockId,
         parentToolId: toolId,
         status,
         taskId,
+        ...(retainedDiagnostic ? { diagnostic: retainedDiagnostic } : {}),
         subagentMessageId: sub?.subagentMessageId ?? `task-${taskId ?? toolId}`,
         usage: sub?.usage ?? undefined,
       }),
@@ -547,10 +557,45 @@ async function _runQueryLoopInner(
   // store so reconnecting clients can reconstruct the full message.
   const preSessionBuffer: Record<string, unknown>[] = [];
 
+  const runtimeOwner = ownedSession?.queryInstance;
+  const unbindChildDiagnostic = runtimeOwner
+    ? bindClaudeChildDiagnostic(runtimeOwner, (taskId, toolId, diagnostic) => {
+        if (currentOwnerSession() !== ownedSession || ownedSession?.queryInstance !== runtimeOwner)
+          return;
+        if (ownedSession.activeTaskIds.get(taskId) !== toolId) return;
+        finishTaskChild(toolId, 'unavailable', taskId, diagnostic);
+      })
+    : undefined;
+
+  function reportUncorrelatedChild(toolId: string) {
+    if (uncorrelatedChildren.has(toolId)) return;
+    uncorrelatedChildren.add(toolId);
+    const diagnostic = { code: 'claude_child_parent_unavailable', correlationId: randomUUID() };
+    log.warn('subagent parent correlation unavailable', {
+      stage: 'child_correlation',
+      clientId,
+      sessionId: resolvedSessionId,
+      toolId,
+      ...diagnostic,
+    });
+    emit(
+      v2('error', {
+        nonfatal: true,
+        ...diagnostic,
+        error: `Subagent activity could not be linked to a verified parent. Retained activity remains available; check the parent conversation before retrying. Reference: ${diagnostic.correlationId}`,
+      }),
+    );
+  }
+
   /** Wrapper that auto-injects store + sessionId + connRegistry into sendOrBuffer */
   function emit(data: Record<string, unknown>, eventSessionId = resolvedSessionId) {
     if (String(data.type).startsWith('subagent_') && typeof data.parentBlockId === 'string') {
-      const messageId = parentMessageByBlock.get(data.parentBlockId);
+      const messageId =
+        typeof data.parentToolId === 'string'
+          ? toolIdToMessageId.get(data.parentToolId)
+          : typeof data.subagentMessageId === 'string'
+            ? parentMessageByChild.get(data.subagentMessageId)
+            : undefined;
       if (messageId) data = { ...data, messageId };
     }
     if (options?.onEvent && ownedSession && currentOwnerSession() === ownedSession) {
@@ -740,36 +785,9 @@ async function _runQueryLoopInner(
         if (msg.type === 'assistant') {
           const parentToolUseId = msg.parent_tool_use_id as string | undefined;
 
-          // An assistant envelope can contain pending tool calls; close only after their results.
-          if (parentToolUseId) {
-            const subagent = activeSubagents.get(parentToolUseId);
-            if (
-              subagent &&
-              subagent.toolSpans.size === 0 &&
-              !subagent.taskId &&
-              ![...(currentSession.activeTaskIds?.values() ?? [])].includes(parentToolUseId)
-            ) {
-              const durationMs = Date.now() - subagent.startedAt;
-              endSubagentSpans(subagent, SpanStatusCode.OK);
-
-              emit(
-                v2('subagent_end', {
-                  parentBlockId: subagent.parentBlockId,
-                  subagentMessageId: subagent.subagentMessageId,
-                  usage: subagent.usage ?? undefined,
-                }),
-              );
-              log.info('subagent completed', {
-                clientId,
-                parentToolId: parentToolUseId,
-                subagentMessageId: subagent.subagentMessageId,
-                usage: subagent.usage,
-                durationMs,
-              });
-              activeSubagents.delete(parentToolUseId);
-            }
-            continue;
-          }
+          // An assistant envelope ends one model message, not the task. The
+          // foreground Agent result or SDK task notification establishes outcome.
+          if (parentToolUseId) continue;
 
           // Turn complete — defer message_end until all blocks are closed.
           if (messageState.messageId) {
@@ -1124,7 +1142,9 @@ async function _runQueryLoopInner(
               const apiMsg = evt.message as Record<string, unknown> | undefined;
               const subagentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
 
-              if (parentBlockId) {
+              if (parentBlockId && agentToolIds.has(parentToolUseId)) {
+                const parentMessageId = toolIdToMessageId.get(parentToolUseId);
+                if (parentMessageId) parentMessageByChild.set(subagentMessageId, parentMessageId);
                 const existing = activeSubagents.get(parentToolUseId);
 
                 if (existing) {
@@ -1208,7 +1228,7 @@ async function _runQueryLoopInner(
                   subagentMessageId,
                   ...(existing ? { turnIndex: existing.turnIndex } : {}),
                 });
-              }
+              } else reportUncorrelatedChild(parentToolUseId);
               // Don't process parent turn logic for subagent message_start
               continue;
             }
@@ -1326,6 +1346,7 @@ async function _runQueryLoopInner(
           } else if (evt?.type === 'content_block_start') {
             const parentToolUseId = msg.parent_tool_use_id as string | undefined;
             const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
+            if (parentToolUseId && !subagent) continue;
 
             // Subagent content_block_start
             if (subagent) {
@@ -1429,7 +1450,6 @@ async function _runQueryLoopInner(
               if (toolName === 'Agent' || toolName === 'Task') agentToolIds.add(toolId);
               if (messageState.messageId) {
                 toolIdToMessageId.set(toolId, messageState.messageId);
-                parentMessageByBlock.set(blockId, messageState.messageId);
               }
 
               // Start tool child span under the current turn span
@@ -1463,6 +1483,7 @@ async function _runQueryLoopInner(
           } else if (evt?.type === 'content_block_delta') {
             const parentToolUseId = msg.parent_tool_use_id as string | undefined;
             const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
+            if (parentToolUseId && !subagent) continue;
 
             // Subagent content_block_delta
             if (subagent) {
@@ -1535,6 +1556,7 @@ async function _runQueryLoopInner(
           } else if (evt?.type === 'content_block_stop') {
             const parentToolUseId = msg.parent_tool_use_id as string | undefined;
             const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
+            if (parentToolUseId && !subagent) continue;
 
             // Subagent content_block_stop
             if (subagent) {
@@ -1773,8 +1795,12 @@ async function _runQueryLoopInner(
               const subagent = activeSubagents.get(toolUseId);
               if (subagent) subagent.taskId = taskId;
               log.info('subagent task started', { clientId, taskId, toolUseId });
-            } else {
-              log.debug('task_started missing fields', { clientId, taskId, toolUseId });
+            } else if (
+              taskId &&
+              !completedTasks.has(taskId) &&
+              !agentToolIds.has(toolUseId ?? '')
+            ) {
+              reportUncorrelatedChild(toolUseId ?? `task:${taskId}`);
             }
           } else if (subtype === 'task_notification') {
             const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
@@ -1799,6 +1825,10 @@ async function _runQueryLoopInner(
                 taskId,
               );
               log.info('subagent task finished', { clientId, taskId, toolUseId, status });
+            } else if (taskId && !toolUseId && !completedTasks.has(taskId)) {
+              reportUncorrelatedChild(
+                typeof msg.tool_use_id === 'string' ? msg.tool_use_id : `task:${taskId}`,
+              );
             }
           }
         } else if (msg.type === 'user') {
@@ -1810,6 +1840,7 @@ async function _runQueryLoopInner(
           // replay them as user bubbles on session rejoin.
           const content = (msg.message as unknown as Record<string, unknown>)?.content;
           const parentToolUseId = msg.parent_tool_use_id as string | undefined;
+          if (parentToolUseId && !activeSubagents.has(parentToolUseId)) continue;
           if (
             (parentToolUseId === null || parentToolUseId === undefined) &&
             typeof msg.uuid === 'string' &&
@@ -1923,6 +1954,15 @@ async function _runQueryLoopInner(
                     ...(imageRefs ? { images: imageRefs } : {}),
                   }),
                 );
+                if (
+                  agentToolIds.has(block.tool_use_id) &&
+                  ![...(currentSession.activeTaskIds?.values() ?? [])].includes(block.tool_use_id)
+                ) {
+                  finishTaskChild(
+                    block.tool_use_id,
+                    block.is_error === true ? 'failed' : 'completed',
+                  );
+                }
               }
             }
           }
@@ -2010,7 +2050,20 @@ async function _runQueryLoopInner(
           ...activeSubagents.keys(),
           ...(finalSession.activeTaskIds?.values() ?? []),
         ]);
-        for (const toolId of pendingChildren) finishTaskChild(toolId, 'unavailable');
+        for (const toolId of pendingChildren) {
+          const diagnostic = {
+            code: 'claude_child_outcome_unavailable' as const,
+            correlationId: randomUUID(),
+          };
+          log.warn('subagent outcome unavailable at query close', {
+            stage: 'query_close',
+            clientId,
+            sessionId: finalSession.sessionId,
+            toolId,
+            ...diagnostic,
+          });
+          finishTaskChild(toolId, 'unavailable', undefined, diagnostic);
+        }
         // Abort may remove registry ownership before the iterator unwinds. Use
         // the same exact-session fence as session_end for durable/watch delivery.
         closeUnconfirmedCompaction(finalSession.sessionId ?? resolvedSessionId);
@@ -2071,6 +2124,7 @@ async function _runQueryLoopInner(
         );
       }
       activeSubagents.clear();
+      unbindChildDiagnostic?.();
       // Clean up any open tool spans
       for (const [, ts] of toolSpans) {
         ts.setAttribute(

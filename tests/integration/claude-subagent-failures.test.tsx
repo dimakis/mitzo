@@ -16,6 +16,7 @@ import {
   messagesReducer,
 } from '../../packages/client/src/slices/messages.js';
 import { SubagentCard } from '../../frontend/src/components/SubagentCard';
+import { reportClaudeChildDiagnostic } from '../../server/claude-child-diagnostics.js';
 
 afterEach(cleanup);
 
@@ -64,7 +65,7 @@ const childOutput = () => [
   stream({ type: 'content_block_stop', index: 0 }, 'agent-call'),
 ];
 
-async function run(events: Record<string, unknown>[]) {
+async function run(events: Array<Record<string, unknown> | ((runtime: object) => void)>) {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-claude-child-'));
   const store = new EventStore(join(directory, 'events.db'));
   const sent: Record<string, unknown>[] = [];
@@ -82,6 +83,7 @@ async function run(events: Record<string, unknown>[]) {
     mode: 'agent',
     observers: new Set(),
     activeTaskIds: new Map<string, string>(),
+    queryInstance: { interrupt: vi.fn(), stopTask: vi.fn(), close: vi.fn() },
   };
   const registry = {
     get: () => session,
@@ -92,8 +94,20 @@ async function run(events: Record<string, unknown>[]) {
     remove: vi.fn(),
   } as unknown as SessionRegistry;
   try {
+    const echo = {
+      v: 2,
+      type: 'user_message',
+      sessionId: 'test-session',
+      messageId: 'input-1',
+      text: 'Continue',
+    };
+    store.append('test-session', 'user_message', echo);
+    sent.push(echo);
     async function* source() {
-      yield* events;
+      for (const event of events) {
+        if (typeof event === 'function') event(session.queryInstance);
+        else yield event;
+      }
     }
     await runQueryLoop(source(), 'test-client', registry, new AbortController(), store);
     let state = INITIAL_MESSAGES_STATE;
@@ -164,8 +178,12 @@ describe('Claude task outcomes through adapter, client, replay and inline UI', (
     async (status) => {
       const { state, replay } = await run([...parentEvents(), taskStarted, notification(status)]);
       const expected = status === 'stopped' ? 'cancelled' : status;
-      expect(state.messages[0].blocks[0].subagent).toMatchObject({ status: expected, blocks: [] });
-      expect(replay[0].blocks[0].subagent).toMatchObject({ status: expected, blocks: [] });
+      expect(
+        state.messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent,
+      ).toMatchObject({ status: expected, blocks: [] });
+      expect(
+        replay.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent,
+      ).toMatchObject({ status: expected, blocks: [] });
     },
   );
 
@@ -181,8 +199,12 @@ describe('Claude task outcomes through adapter, client, replay and inline UI', (
       start('late-child', 'agent-call'),
       notification('completed'),
     ]);
-    expect(state.messages[0].blocks[0].subagent).toMatchObject({ status: 'failed' });
-    expect(replay[0].blocks[0].subagent).toMatchObject({ status: 'failed' });
+    expect(
+      state.messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent,
+    ).toMatchObject({ status: 'failed' });
+    expect(replay.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent).toMatchObject({
+      status: 'failed',
+    });
     expect(sent.filter((event) => event.type === 'subagent_end')).toHaveLength(1);
     expect(session.activeTaskIds.size).toBe(0);
     expect(JSON.stringify(sent)).not.toContain('private provider diagnostic');
@@ -215,7 +237,135 @@ describe('Claude task outcomes through adapter, client, replay and inline UI', (
 
   it('retains activity as unavailable if the query ends without a task outcome', async () => {
     const { state, replay } = await run([...parentEvents(), taskStarted, ...childOutput()]);
-    expect(state.messages[0].blocks[0].subagent).toMatchObject({ status: 'unavailable' });
-    expect(replay[0].blocks[0].subagent).toMatchObject({ status: 'unavailable' });
+    expect(
+      state.messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent,
+    ).toMatchObject({ status: 'unavailable' });
+    expect(replay.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent).toMatchObject({
+      status: 'unavailable',
+    });
+  });
+
+  it('retains rejected stop uncertainty through the adapter, replay and inline UI', async () => {
+    const diagnostic = {
+      code: 'claude_child_stop_failed' as const,
+      correlationId: 'stop-reference',
+    };
+    const { state, replay } = await run([
+      ...parentEvents(),
+      taskStarted,
+      ...childOutput(),
+      (runtime) => {
+        expect(reportClaudeChildDiagnostic(runtime, 'task-1', 'agent-call', diagnostic)).toBe(true);
+      },
+    ]);
+    for (const messages of [state.messages, replay]) {
+      const subagent = messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent;
+      expect(subagent).toMatchObject({ status: 'unavailable', diagnostic });
+      render(
+        <MemoryRouter>
+          <SubagentCard subagent={subagent as never} />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('Status unavailable')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      expect(screen.getByText('stop-reference')).toBeTruthy();
+      expect(screen.getByText('Retained public output')).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it('does not infer task success from an assistant envelope before its failed notification', async () => {
+    const { state, replay } = await run([
+      ...parentEvents(),
+      ...childOutput(),
+      { type: 'assistant', parent_tool_use_id: 'agent-call' },
+      notification('failed'),
+    ]);
+    for (const messages of [state.messages, replay])
+      expect(
+        messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent,
+      ).toMatchObject({ status: 'failed' });
+  });
+
+  it.each([false, true])(
+    'uses the foreground Agent result as outcome (error=%s)',
+    async (isError) => {
+      const { state, replay, session } = await run([
+        ...parentEvents(),
+        ...childOutput(),
+        { type: 'assistant', parent_tool_use_id: 'agent-call' },
+        {
+          type: 'user',
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'agent-call',
+                content: 'Finished',
+                is_error: isError,
+              },
+            ],
+          },
+        },
+      ]);
+      for (const messages of [state.messages, replay])
+        expect(
+          messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent,
+        ).toMatchObject({ status: isError ? 'failed' : 'completed' });
+      expect(
+        reportClaudeChildDiagnostic(session.queryInstance, 'task-1', 'agent-call', {
+          code: 'claude_child_stop_failed',
+          correlationId: 'expired',
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it('keeps late output on its original parent when a newer turn reuses block IDs', async () => {
+    const { state, replay } = await run([
+      ...parentEvents(),
+      taskStarted,
+      ...childOutput(),
+      { type: 'assistant' },
+      start('new-parent'),
+      stream({
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'tool_use', name: 'Read', id: 'new-call' },
+      }),
+      stream({ type: 'content_block_stop', index: 0 }),
+      notification('failed'),
+    ]);
+    for (const messages of [state.messages, replay]) {
+      expect(
+        messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent,
+      ).toMatchObject({ status: 'failed' });
+      expect(
+        messages.find((m) => m.messageId === 'new-parent')?.blocks[0].subagent,
+      ).toBeUndefined();
+    }
+  });
+
+  it('reports an unknown parent once and never projects its child output as parent output', async () => {
+    const { state, replay, sent } = await run([
+      { type: 'user', uuid: 'input-1', message: { content: 'Continue' } },
+      start('parent-message'),
+      ...childOutput(),
+      ...childOutput(),
+      stream({ type: 'content_block_start', index: 0, content_block: { type: 'text' } }),
+      stream({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'Parent still works' },
+      }),
+      stream({ type: 'content_block_stop', index: 0 }),
+    ]);
+    expect(sent.filter((e) => e.code === 'claude_child_parent_unavailable')).toHaveLength(1);
+    expect(sent.filter((e) => e.type === 'subagent_start')).toHaveLength(0);
+    for (const messages of [state.messages, replay]) {
+      expect(JSON.stringify(messages)).not.toContain('Retained public output');
+      expect(JSON.stringify(messages)).toContain('Parent still works');
+      expect(JSON.stringify(messages)).toContain('Subagent activity could not be linked');
+    }
   });
 });

@@ -672,10 +672,11 @@ export function parseServerMessage(
     case 'error': {
       const errorMsg = msg.error as string;
 
-      callbacks.setWsRunning?.(poolKey, false);
+      if (msg.nonfatal !== true) callbacks.setWsRunning?.(poolKey, false);
       result.messagesActions.push({
-        type: 'ERROR',
+        type: msg.nonfatal === true ? 'CONTROL_REJECTED' : 'ERROR',
         error: errorMsg || 'Unknown error',
+        ...(typeof msg.seq === 'number' ? { retainedFailureSeq: msg.seq } : {}),
       });
       break;
     }

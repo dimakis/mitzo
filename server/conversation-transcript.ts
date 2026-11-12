@@ -223,7 +223,8 @@ function replaySubagents(events: StoredEvent[]) {
     }
     const parentId = p.parentBlockId as string;
     if (event.type === 'subagent_start' && typeof p.subagentMessageId === 'string') {
-      const parentMessageId = parentMessageByBlock.get(parentId);
+      const parentMessageId =
+        typeof p.messageId === 'string' ? p.messageId : parentMessageByBlock.get(parentId);
       if (!parentMessageId) continue;
       const scope = key(parentMessageId, parentId);
       activeStateByParent.set(parentId, scope);
@@ -237,7 +238,11 @@ function replaySubagents(events: StoredEvent[]) {
       });
       continue;
     }
-    const state = states.get(activeStateByParent.get(parentId) ?? '');
+    const state = states.get(
+      typeof p.messageId === 'string'
+        ? key(p.messageId, parentId)
+        : (activeStateByParent.get(parentId) ?? ''),
+    );
     if (!state) continue;
     if (state.status && ['completed', 'failed', 'cancelled'].includes(state.status)) continue;
     if (event.type === 'subagent_block_start' && typeof p.blockId === 'string') {
@@ -613,7 +618,8 @@ function replaySingleEventsToTranscript(
         if (failure) {
           const nextUser = nextReplayUser(messages, failure.clientMsgId);
           // A late failure for A must not terminate the typed current turn B.
-          if (nextUser < 0 || (turn && turn.index < nextUser)) finishTurn();
+          if (payload.nonfatal !== true && (nextUser < 0 || (turn && turn.index < nextUser)))
+            finishTurn();
           messages.push({
             messageId: `${failure.prefix}-${event.seq}`,
             role: 'assistant',
@@ -1003,7 +1009,12 @@ export function replayEventsToMessages(
         const failure = replayError(evt, acceptedSessions);
         if (failure) {
           const olderCommand = nextReplayUser(messages, failure.clientMsgId) >= 0;
-          if (!olderCommand && failure.prefix === 'runtime-error' && currentMsg) {
+          if (
+            p.nonfatal !== true &&
+            !olderCommand &&
+            failure.prefix === 'runtime-error' &&
+            currentMsg
+          ) {
             // Preserve incomplete blocks without changing legacy completed-block metadata.
             currentMsg.blocks = [
               ...[...scopedBlocks.values()].map(
@@ -1012,7 +1023,7 @@ export function replayEventsToMessages(
               ...currentMsg.blocks.filter((block) => !scopedBlocks.has(block.blockId)),
             ];
           }
-          if (!olderCommand) {
+          if (p.nonfatal !== true && !olderCommand) {
             if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
             currentMsg = null;
           }

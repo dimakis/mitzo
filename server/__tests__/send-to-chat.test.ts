@@ -402,6 +402,76 @@ describe('interruptChat emits user_message via transport', () => {
     expect(interruptSpy).toHaveBeenCalledTimes(1);
   });
 
+  it.each([false, true])(
+    'retains a sanitized child stop failure and still interrupts (sync=%s)',
+    async (sync) => {
+      const transport = mockTransport();
+      registry.register(CLIENT_ID, {
+        transport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      const session = registry.get(CLIENT_ID)!;
+      const sessionId = `stop-failure-${sync}-${Date.now()}`;
+      session.sessionId = sessionId;
+      session.inputQueue = { push: vi.fn(), close: vi.fn() };
+      const interrupt = vi.fn().mockResolvedValue(undefined);
+      session.queryInstance = {
+        interrupt,
+        close: vi.fn(),
+        stopTask: vi.fn(() => {
+          if (sync) throw new Error('private provider detail');
+          return Promise.reject(new Error('private provider detail'));
+        }),
+      };
+      session.activeTaskIds.set('failing-child', 'agent-call');
+      expect(await interruptChat(CLIENT_ID, 'Stop')).toBe(true);
+      expect(interrupt).toHaveBeenCalledTimes(1);
+      expect(session.activeTaskIds.get('failing-child')).toBe('agent-call');
+      const failure = transport._sent.find((e) => e.code === 'claude_child_stop_failed');
+      expect(failure).toMatchObject({
+        type: 'error',
+        nonfatal: true,
+        taskId: 'failing-child',
+        error: expect.stringContaining('Subagent cancellation could not be confirmed'),
+      });
+      expect(JSON.stringify(failure)).not.toContain('private provider detail');
+      expect(
+        eventStore
+          .getSessionEvents(sessionId)
+          .some((e) => e.payload.code === 'claude_child_stop_failed'),
+      ).toBe(true);
+    },
+  );
+
+  it('does not interrupt a replacement runtime after a child stop settles', async () => {
+    const transport = mockTransport();
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `stop-owner-${Date.now()}`;
+    session.inputQueue = { push: vi.fn(), close: vi.fn() };
+    const replacement = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    const original = {
+      interrupt: vi.fn(),
+      close: vi.fn(),
+      stopTask: vi.fn(async () => {
+        session.queryInstance = replacement;
+      }),
+    };
+    session.queryInstance = original;
+    session.activeTaskIds.set('child', 'agent-call');
+    expect(await interruptChat(CLIENT_ID, 'Stop')).toBe(false);
+    expect(replacement.interrupt).not.toHaveBeenCalled();
+    expect(original.interrupt).not.toHaveBeenCalled();
+    expect(session.inputQueue.push).not.toHaveBeenCalled();
+  });
+
   it('rejects an active Anthropic model switch before interrupting or persisting it', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();
