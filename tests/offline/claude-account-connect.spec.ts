@@ -173,7 +173,11 @@ for (const theme of ['dark', 'light'] as const) {
     expect(codes).toBe(1);
     await checkControls();
     const failure = page.getByRole('alert');
-    await failure.scrollIntoViewIfNeeded();
+    // Center explicitly: an "if needed" check may leave fractional text bounds
+    // at the scrollport edge after device-pixel rounding in Chromium.
+    await failure.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
     const failureBounds = (await failure.boundingBox())!;
     const scrollBounds = (await page.locator('.connections-page').boundingBox())!;
     expect(failureBounds.y).toBeGreaterThanOrEqual(scrollBounds.y);
