@@ -1,9 +1,35 @@
 # Symposium: current direction and source guide
 
-Updated 11 November 2026. Start here for Symposium product work.
+Updated 12 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
+
+## Source-acceptance checkpoint — 12 November 2026
+
+GitHub merge receipts were checked on 12 November. The table updates source
+acceptance; the dated checkpoints below retain their original test results,
+qualification limits and preparation-stage wording.
+
+| Behavior                                                                                 | Source change and checked state                                                                                                                                          |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Fresh Local Codex joining, directed replies and long-history delivery                    | Accepted #1261 (`878317bd`), #1276 (`8978f4a1`) and #1279 (`048b3e05`).                                                                                                  |
+| Multiple responders, independent outcomes, ordinary Stop and attributed streaming        | Accepted #1280 (`14fb28b0`).                                                                                                                                             |
+| Reviewed one-prompt context and frozen artifact preview                                  | Accepted #1281 (`0b8b94f1`).                                                                                                                                             |
+| Exact saved-artifact selection, UTF-8 delivery and recovery/navigation                   | Accepted [#1282](https://github.com/dimakis/mitzo/pull/1282), `d61ae5b25677df50a8b00470f9c01e4a15aaa661`, after green combined CI and final exact-head Centaur approval. |
+| Context-only forwarding from the current discussion                                      | [#1284](https://github.com/dimakis/mitzo/pull/1284), current candidate `cd2dada9`; accepted-parent integration is prepared and final CI/review are pending.              |
+| Personal Claude through the ordinary SDK owner, alongside a separate API-key participant | Source in this change, [#1289](https://github.com/dimakis/mitzo/pull/1289); its current CI/review and eventual merge receipt govern source acceptance.                   |
+
+Production application fixtures exercise real authentication, stores, routing and
+ordinary owners with external execution/account effects replaced at their boundary.
+Intercepted browser fixtures establish UI behavior and rendering separately. The
+[living evidence map](../evidence/symposium-integration-acceptance.md) records their
+sources and limits. These increments do not by themselves close every milestone
+criterion or unfinished child.
+
+Other-conversation and separate Telos-artifact picker UI remain beyond the current
+forwarding controls. Full live account/runtime parity, OpenShell qualification,
+physical iOS acceptance and production activation remain separate work.
 
 ## Personal Claude alongside an API-key participant — source candidate
 
@@ -19,6 +45,9 @@ claims are retained privately against the original ordinary command. Late events
 from a retired SDK run cannot acquire a queued successor's identity. Unknown tool
 effects remain uncertain; a cancellation acknowledgment does not prove settlement.
 Final synchronous authorization follows asynchronous credential/source checks.
+Recovered shared commands without their original source-authorization observer
+are refused before admission and final SDK input. Their retained context cannot
+silently bypass the sharing fence after restart.
 
 The offline real HTTP application journey exercises both personal Claude and a
 separate OpenAI API-key participant: silent joins, first/later attributed replies,
