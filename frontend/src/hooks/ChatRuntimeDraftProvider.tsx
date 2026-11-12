@@ -15,7 +15,12 @@ export function ChatRuntimeDraftProvider({
     edited: boolean;
   } | null>(null);
   const currentOwner = useRef(owner);
-  currentOwner.current = owner;
+  if (currentOwner.current !== owner) {
+    currentOwner.current = owner;
+    // A reopened conversation restores admitted settings. Responsive layout
+    // changes retain the same owner and keep its unsent intent.
+    if (retained) setRetained(null);
+  }
   const update = useCallback(
     (selection: ChatRuntimeSelection, origin?: 'hydrate') =>
       setRetained((previous) => {
