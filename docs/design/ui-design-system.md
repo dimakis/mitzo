@@ -15,8 +15,9 @@ on phone/desktop, both themes and alternate appearance; see
 ## Claude subscription onboarding
 
 Claude uses the existing Connections grouped account rows and labelled form
-controls. Add connection and the account editor link to the same focused
-Connections destination; the approved Chat settings hierarchy stays unchanged.
+controls. Account connection and sign-in actions belong on Connections, not in
+the ordinary chat account/model picker (Dimitri's explicit direction, 11 November
+2026). The approved Chat settings hierarchy stays unchanged.
 The private code input uses a password field, disables autocomplete/capitalization,
 and clears after submission and authentication loss. Browser sign-in opens only
 through an explicit labelled link. Pending, checking, cancelled, interrupted,

@@ -198,6 +198,54 @@ it('retains observed expiry when the wall clock remains before the deadline', as
     clock.mockRestore();
   }
 });
+it('retains expiry when the permission card timer wins before the adapter timer', async () => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(started);
+  const schedule = setTimeout;
+  const outerExpired = vi.fn();
+  // Both owners enforce the same deadline, but their timers can run in either order.
+  const timer = vi
+    .spyOn(globalThis, 'setTimeout')
+    .mockImplementationOnce((callback, delay, ...args) =>
+      schedule(
+        () => {
+          outerExpired();
+          callback(...args);
+        },
+        (delay ?? 0) + 1,
+      ),
+    );
+  try {
+    const f = setup('agent', 20);
+    const observeFailure = vi.fn();
+    const pending = f.handler(
+      'item/commandExecution/requestApproval',
+      {
+        ...commandParams(),
+        startedAtMs: started,
+        networkApprovalContext: { host: 'example.test', protocol: 'https' },
+      },
+      f.controller.signal,
+      { ...f.context, observeFailure },
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await pending).toEqual({ decision: 'cancel' });
+    expect(outerExpired).not.toHaveBeenCalled();
+    expect(Date.now()).toBe(started);
+    expect(getPendingRequestsBySession('session')).toEqual([]);
+    expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        code: 'approval_expired',
+        effectStatus: 'unknown',
+        recovery: 'inspect_operation',
+      }),
+    );
+  } finally {
+    timer.mockRestore();
+    clock.mockRestore();
+  }
+});
 async function request(f: ReturnType<typeof fixture>) {
   await vi.waitFor(() => expect(f.sent[0]?.permId).toBeDefined());
   return f.sent[0].permId as string;
