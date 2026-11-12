@@ -488,7 +488,8 @@ export function OpenAIAccountEnrollment({
           {!custom && (
             <p className="workspace-muted">
               Validation runs one brief gpt-6-luna request with low reasoning, billed to the newly
-              entered key’s project.
+              entered key’s project. The project name records your intended use; it does not verify
+              the key’s project identity.
             </p>
           )}
           <label className="connections-key-confirmation">

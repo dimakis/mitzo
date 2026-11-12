@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1107-enmaas-account-settings';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1108-enmaas-account-settings';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4443,7 +4443,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ModelVisibilitySettings.tsx':
     'f7e3bdc950a57fea31483de5e731b8eab45de020e988e4dfb306265a33bd05bd',
   '../../frontend/src/components/OpenAIAccountEnrollment.tsx':
-    'ce22bb505b088ea68b92591923e02df0dbb4036901d24f2fa32343518032e38c',
+    '61f997a4d39cbaceb598af1e0f2a57cea29ccd4a43bef16756f86f8baf006518',
   '../../frontend/src/lib/model-visibility.ts':
     '2dc4c5632ceff82f55aa3e0c4a304fb53f65cb3c2a9a37d5148b3daf8e58a540',
   '../../frontend/src/lib/connections-api.ts':
