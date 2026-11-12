@@ -23,6 +23,9 @@ import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import { repositoryObservationProgram } from '../native-repository-observation.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
+import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
+import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
+import { RuntimeFailureSchema, runtimeFailureMessage } from '@mitzo/protocol';
 import * as topologyTransport from '../sandboxed-command.js';
 const roots: string[] = [];
 const deployment = vi.hoisted(() => ({ controller: false }));
@@ -511,7 +514,7 @@ it('loads a new profile view after an awaited workspace check and rejects change
   try {
     await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
       mutate = true;
-      await expect(lease.assertCurrent()).rejects.toThrow('Host Codex bootstrap unavailable');
+      await expect(lease.assertCurrent()).rejects.toMatchObject({ code: 'tool_validation_failed' });
       expect(f.rpc.close).toHaveBeenCalled();
     });
   } finally {
@@ -769,9 +772,9 @@ it('revocation while provider discovery awaits blocks the next effect boundary',
       return response;
     });
     const operation = vi.fn();
-    await expect(f.authority.withBootstrap(f.expected, f.claim, operation)).rejects.toThrow(
-      'Host Codex bootstrap unavailable',
-    );
+    await expect(f.authority.withBootstrap(f.expected, f.claim, operation)).rejects.toMatchObject({
+      code: 'tool_validation_failed',
+    });
     expect(operation).not.toHaveBeenCalled();
     expect(f.rpc.close).toHaveBeenCalledTimes(1);
     expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
@@ -797,7 +800,7 @@ it('rechecks actual runtime configuration drift at the final synchronous effect 
         dispatched = true;
         expect(f.options.observeRuntime).toHaveBeenCalledTimes(observations);
       }),
-    ).rejects.toThrow('Host Codex bootstrap unavailable');
+    ).rejects.toMatchObject({ code: 'tool_validation_failed' });
     expect(dispatched).toBe(false);
     expect(f.rpc.close).toHaveBeenCalledTimes(1);
     expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
@@ -1405,6 +1408,55 @@ it('forwards the tool admission cancellation signal to workspace validation', as
     f.store.close();
   }
 });
+
+it.each(['workspace', 'cancelled'] as const)(
+  'retains the original %s tool validation failure before closing its physical client',
+  async (scenario) => {
+    const f = fixture();
+    const secret = 'private/path secret-token';
+    const original = Object.assign(Error(secret), { code: 'EPERM' });
+    const onClose = vi.fn();
+    let invalid = false;
+    Object.assign(f.options, {
+      lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(), onClose },
+      assertToolSelectionCurrent: async () => {
+        if (invalid) throw original;
+      },
+    });
+    f.rpc.close.mockImplementation(() => onClose(Error('generic physical closure')));
+    try {
+      await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+        const admission = new AbortController();
+        invalid = true;
+        if (scenario === 'cancelled') admission.abort(original);
+        await expect(lease.assertToolCurrent!(admission.signal)).rejects.toThrow();
+        const failure = onClose.mock.calls[0]?.[0];
+        expect(failure).toMatchObject({ code: 'tool_validation_failed', cause: original });
+        expect(codexRuntimeErrorTelemetry(failure)).toMatchObject({
+          runtimeFailureCode: 'tool_validation_failed',
+          runtimeValidationStage:
+            scenario === 'workspace' ? 'workspace_check' : 'credential_refresh',
+          runtimeValidationReason: scenario === 'workspace' ? 'filesystem_denied' : 'cancelled',
+        });
+        reportRetainedRuntimeFailure({ store: f.store, sessionId: 'session', error: failure });
+        const saved = f.store.getLatestEvent('session', 'error')!.payload;
+        expect(saved.error).toMatch(/Mitzo could not validate.*tool operation/);
+        expect(saved.runtimeFailure).toMatchObject({
+          runtimeFailureCode: 'tool_validation_failed',
+        });
+        expect(runtimeFailureMessage(RuntimeFailureSchema.parse(saved.runtimeFailure))).toBe(
+          saved.error,
+        );
+        expect(JSON.stringify(saved)).not.toContain(secret);
+        expect(f.rpc.close).toHaveBeenCalledOnce();
+        expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
+      });
+    } finally {
+      f.authority.currentLease()?.close();
+      f.store.close();
+    }
+  },
+);
 
 it('bounds the qualified workspace physical read owner to the same real lease without recursive physical validation', async () => {
   const f = fixture();

@@ -45,6 +45,14 @@ The agent is instructed to explain the reason, preserve partial work, state what
 is known or uncertain, and use the original receipt before retrying. Denial and
 cancellation do not authorize another route or an automatic retry.
 
+Host Codex tool validation publishes its failure before closing physical custody.
+An unclassified validation exception carries the reviewed `tool_validation_failed`
+message; internal telemetry retains the validation stage and sanitized failure
+reason under the existing trace. The original cause remains private. Existing
+reviewed account, workspace and policy failures keep their specific code. Strict
+client replay receives only the public failure code and reference, while the
+original operation and its uncertainty remain unchanged.
+
 ## Verification and limits
 
 Offline regressions exercise failed reads through the native adapter, shared

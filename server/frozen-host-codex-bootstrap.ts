@@ -3,6 +3,11 @@ import { findNativeMacExecutionUnavailable } from './codex-native-artifact-quali
 import { z } from 'zod';
 import { observeLocalCodexPhase, observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
+import {
+  CodexToolValidationError,
+  type CodexToolValidationStage,
+} from './codex-tool-validation-error.js';
+import { createLogger } from './logger.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import { custodianControllerMode } from './symposium-custodian-mode.js';
@@ -75,6 +80,7 @@ export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease
 }
 type Expected = OrdinaryLocalCodexAdmissionExpectation & { bootstrapId?: string };
 const unavailable = (cause?: unknown) => new Error('Host Codex bootstrap unavailable', { cause });
+const log = createLogger('frozen-host-codex-bootstrap');
 function strictVoid(result: unknown): void {
   if (result === undefined) return;
   void Promise.resolve(result).catch(() => {});
@@ -557,25 +563,38 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         Reflect.apply(loginClose, ownedLogin, []);
       };
       this.#routingBinding = structuredClone(ownedLogin.binding);
+      const retireValidation = (
+        error: unknown,
+        stage: CodexToolValidationStage,
+        cancelled = false,
+      ) => {
+        const reviewed = findSessionRuntimeError(error);
+        const failure = reviewed ?? new CodexToolValidationError(stage, error, cancelled);
+        if (!retired) {
+          try {
+            this.owners.lifecycle?.onClose(failure);
+          } catch {
+            log.warn('Host tool validation diagnostic delivery failed', {
+              bootstrapId: expected.bootstrapId,
+              workspaceId: expected.workspace.workspaceId,
+              ...failure.telemetry(),
+            });
+          }
+        }
+        closeLease();
+        return reviewed ?? unavailable(failure);
+      };
       const assertCurrentSync = () => {
         try {
           if (retired) throw unavailable();
           this.assertSync(expected, ownedLogin, executable);
         } catch (error) {
-          const failure = findSessionRuntimeError(error);
-          if (failure && !retired) {
-            try {
-              this.owners.lifecycle?.onClose(failure);
-            } catch {
-              /* Retire invalid custody below. */
-            }
-          }
-          closeLease();
-          throw failure ?? unavailable(error);
+          throw retireValidation(error, 'runtime_fence');
         }
       };
       let qualifiedModels: Array<{ id: string; reasoningEfforts?: string[] }> = [];
       const assertToolCurrent = async (signal: AbortSignal = this.owners.signal) => {
+        let stage: CodexToolValidationStage = 'credential_refresh';
         try {
           const workspaceCurrent =
             this.owners.assertToolSelectionCurrent ?? this.owners.assertSelectionCurrent;
@@ -602,6 +621,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           };
           await ownedLogin.qualifyCredentialRefresh?.(signal);
           current();
+          stage = 'workspace_check';
           strictVoid(
             await observeLocalCodexPhase('workspace_check', () =>
               Reflect.apply(workspaceCurrent, this.owners, [expected, signal]),
@@ -609,6 +629,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           );
           current();
           if (!full || !('value' in full) || typeof full.value !== 'function') throw unavailable();
+          stage = 'credential_check';
           strictVoid(
             await observeLocalCodexPhase('credential_check', () =>
               Reflect.apply(
@@ -620,18 +641,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           );
           current();
         } catch (error) {
-          const failure = findSessionRuntimeError(error);
-          // Publish the reviewed cause before physical close synchronously
-          // reenters lifecycle shutdown with a generic connection error.
-          if (failure) {
-            try {
-              this.owners.lifecycle?.onClose(failure);
-            } catch {
-              /* Diagnostic delivery cannot prevent retiring invalid custody. */
-            }
-          }
-          closeLease();
-          throw failure ?? unavailable(error);
+          throw retireValidation(error, stage, signal.aborted);
         }
       };
       const qualifyModels = async (
