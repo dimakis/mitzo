@@ -7,6 +7,17 @@ export const CatalogModel = z.object({
   defaultReasoningEffort: z.string().optional(),
 });
 export type CatalogModel = z.infer<typeof CatalogModel>;
+/** Only application-owned diagnostics may cross the catalog boundary. */
+export class ModelDiscoveryError extends Error {
+  readonly failure: { code: 'claude_sign_in_unavailable'; diagnosticId: string };
+  constructor(diagnosticId: string, options: ErrorOptions) {
+    super('Claude sign-in could not be verified for model discovery', options);
+    this.failure = {
+      code: 'claude_sign_in_unavailable',
+      diagnosticId: z.uuid().parse(diagnosticId),
+    };
+  }
+}
 const Page = z.object({
   data: z.array(
     z.object({
@@ -53,7 +64,13 @@ export async function readCodexModels(client: {
 // Keyed by the entire profile, so changing credentials/configuration never reuses another account's catalog.
 const cache = new Map<
   string,
-  { models?: CatalogModel[]; updatedAt?: number; error?: boolean; pending?: Promise<void> }
+  {
+    models?: CatalogModel[];
+    updatedAt?: number;
+    error?: boolean;
+    pending?: Promise<void>;
+    failure?: ModelDiscoveryError['failure'];
+  }
 >();
 export function cachedModels(key: string) {
   return cache.get(key);
@@ -75,8 +92,10 @@ export async function refreshModels(
         .parse(await discover());
       entry.updatedAt = Date.now();
       entry.error = false;
-    } catch {
+      entry.failure = undefined;
+    } catch (cause) {
       entry.error = true;
+      entry.failure = cause instanceof ModelDiscoveryError ? { ...cause.failure } : undefined;
     } finally {
       entry.pending = undefined;
     }

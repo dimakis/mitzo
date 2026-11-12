@@ -39,6 +39,10 @@ const model = z.strictObject({
   reasoningEfforts: z.array(z.string().min(1).max(64)).max(16).optional(),
   defaultReasoningEffort: z.string().min(1).max(64).optional(),
 });
+const modelDiscoveryFailure = z.strictObject({
+  code: z.literal('claude_sign_in_unavailable'),
+  diagnosticId: z.uuid(),
+});
 export const ExplicitLocalInventorySchema = z
   .strictObject({
     version: z.literal(1),
@@ -55,6 +59,7 @@ export const ExplicitLocalInventorySchema = z
         modelDiscovery: z.strictObject({
           source: z.enum(['cached', 'configured']),
           stale: z.boolean(),
+          failure: modelDiscoveryFailure.optional(),
           updatedAt: z.number().finite().nonnegative().optional(),
         }),
       }),
@@ -98,6 +103,7 @@ export const ExplicitLocalInventorySchema = z
           .strictObject({
             source: z.enum(['cached', 'configured']),
             stale: z.boolean(),
+            failure: modelDiscoveryFailure.optional(),
             updatedAt: z.number().finite().nonnegative().optional(),
           })
           .optional(),
