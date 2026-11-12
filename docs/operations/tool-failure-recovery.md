@@ -43,6 +43,14 @@ also preserves that receipt. A known failed operation stays failed without
 inventing unresolved effects; unknown work remains fenced. These in-memory
 receipts cannot be supplied by tool text, JSON fields or configured MCP metadata.
 
+The shared Telos backlog adapter also retains proof that validation or approval
+failed before a canonical mutation was dispatched. Denied approval remains a
+failed operation with no update applied; it does not create an unknown-write
+blocker. Once mutation dispatch begins, unconfirmed results remain unknown.
+Explicit original-owner uncertainty takes precedence, including during approval.
+Structured diagnostics identify the conversation and whether failure occurred
+before dispatch or during mutation/result handling.
+
 Memory exhaustion, filesystem denial, storage exhaustion, connection failure,
 and deadlines have explicit messages. Shell failures include the observed exit
 code or signal even when stdout is empty. High shell exits remain uncertain:
@@ -97,6 +105,12 @@ Gemini continuation, cancellation, cold recovery and queue-status tests retain
 their independent failure and uncertainty checks. This does not rewrite earlier
 unknown receipts or establish the cause of a particular production warning;
 that requires the original conversation's operation evidence.
+
+Telos regressions pass a refused audit update through the real backlog adapter
+and both Codex completion transports, checking the unchanged canonical item,
+durable failed receipt and subsequent command admission without replay. A failure
+after a real canonical commit remains unknown, as does an explicitly uncertain
+approval failure.
 
 | Supported route                               | Recovery coverage                                                                                                                     |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |

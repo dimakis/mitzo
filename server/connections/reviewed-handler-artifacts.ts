@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1088-preserve-tool-settlement';
+  'v1.0.1089-preserve-tool-settlement';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1743,7 +1743,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '4729dbd142a7165b727c0ca701a92143f54a96d680d0d4795c30f1438f6eaef9',
   '../__tests__/codex-conversation.test.ts':
-    '53e9c87144e722010e9de4180a9c4be65503749a6bc20c6241772b791c16a058',
+    '9c8f5b9e249dacf7125255bc2920bc59831235f1adae37e3924a825b56e657eb',
   '../__tests__/codex-native-approvals.test.ts':
     '795e09d27b34bb573c33e7c1537971e9f77d24f1def54ff82755e66b277daa9a',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -4008,12 +4008,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-backlog-artifacts.test.ts':
     '5ef9b1cc1c26935c9ff558d04b8ff07f773c02eda25f9b0b0b4e98b23af540d4',
   '../__tests__/telos-backlog-tools.test.ts':
-    '77ad74dc5ad71b56165da0ded527aa96c03a82d882a1af695075e52a3b8420c7',
+    '18b2d88581f2ea04eae6bd5bb35d568c58fc337ebf80c665e1589067fde6521e',
   '../__tests__/telos-backlog.test.ts':
     'e682d8e975298dd997b05183e6b676cefe9fd9944f229cee1f2f6f235237f32e',
   '../__tests__/telos-work-routes.test.ts':
     '42db839f3847185e7e666e84a9afc1e6a6d038d7b325e9888eb1e51fffabd59b',
-  '../telos-backlog-tools.ts': '008ee7837f7f6dfa8bfee0b937a351d826aac9edd289860d328b26736fac8f42',
+  '../telos-backlog-tools.ts': 'b18aa9dbb2b137dc73d4e20a493f505b98fa13bf61a7f5d8b55956edbc482249',
   '../../tests/offline/telos-outcomes-workspace.spec.ts':
     '5050ae8f4d41867db0a9d26ca13c3e3c869a66c086c2f09414ae9d7ca3023d83',
   '../../tests/integration/telos-s9/integrated-candidate/surface-control-inbox.ts':

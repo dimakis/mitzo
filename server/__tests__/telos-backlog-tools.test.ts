@@ -8,6 +8,7 @@ import {
   type TelosBacklogToolName,
 } from '../telos-backlog-tools.js';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() =>
@@ -257,5 +258,39 @@ it('distinguishes denied approval from a storage outage', async () => {
   expect(result.isError).toBe(true);
   expect(result.content).toContain('approval');
   expect(result.content).not.toContain('operation unavailable');
+  expect(callbackOutcome(result)).toBe('settled');
   expect(f.items.read('studio').summary).toBe('Home studio');
 });
+
+it.each(['before', 'after', 'explicit-unknown'] as const)(
+  'preserves the effect boundary for a failure %s mutation dispatch',
+  async (stage) => {
+    const f = fixture();
+    const input = {
+      operation: 'update',
+      itemId: 'studio',
+      requestId: 'progress-boundary',
+      expectedRevision: f.items.read('studio').revision,
+      note: 'Audit the retained work.',
+    };
+    const original = f.items.updateGuarded.bind(f.items);
+    const update = vi.spyOn(f.items, 'updateGuarded');
+    if (stage === 'after') {
+      update.mockImplementationOnce((...args) => {
+        original(...args);
+        throw Error('lost result after commit');
+      });
+    } else {
+      f.approve.mockRejectedValueOnce(
+        stage === 'explicit-unknown'
+          ? retainCallbackOutcome(Error('owner uncertainty'), 'unknown')
+          : Error('approval transport unavailable'),
+      );
+    }
+    const result = await f.run('TelosManageItem', input);
+    expect(result.isError).toBe(true);
+    expect(callbackOutcome(result)).toBe(stage === 'before' ? 'settled' : 'unknown');
+    expect(update).toHaveBeenCalledTimes(stage === 'after' ? 1 : 0);
+    expect(f.items.read('studio').updates).toHaveLength(stage === 'after' ? 1 : 0);
+  },
+);
