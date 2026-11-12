@@ -5,6 +5,8 @@ import {
   SessionCollaborationIdSchema,
   CollaborationMessageInputSchema,
   CollaborationPromptReviewInputSchema,
+  CollaborationForwardPrepareInputSchema,
+  CollaborationForwardConfirmInputSchema,
   SessionRuntimeBindingV1Schema,
 } from '@mitzo/protocol';
 import { createBrowserId, sha256Hex } from './browser-crypto';
@@ -50,6 +52,16 @@ export const ChatDraftSchema = z.object({
       authScope: z.string().min(1),
       input: CollaborationMessageInputSchema,
       stopRequested: z.boolean().optional(),
+    })
+    .optional(),
+  collaborationForward: z
+    .object({
+      collaborationId: SessionCollaborationIdSchema,
+      authScope: z.string().min(1),
+      input: CollaborationForwardPrepareInputSchema,
+      reviewInput: CollaborationPromptReviewInputSchema.optional(),
+      confirmation: CollaborationForwardConfirmInputSchema.optional(),
+      confirmationAttempted: z.boolean(),
     })
     .optional(),
   collaborationContext: z
@@ -226,7 +238,8 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.settings.retainRuntimeIntent &&
       !draft.settings.collaborationResponders &&
       !draft.collaborationSend &&
-      !draft.collaborationContext
+      !draft.collaborationContext &&
+      !draft.collaborationForward
     )
       chatStorage.removeItem(PREFIX + draft.id);
     else
@@ -240,7 +253,8 @@ export function saveChatDraft(draft: ChatDraft): boolean {
 export function deleteChatDraft(id: string, options: { preserveText?: boolean } = {}): boolean {
   try {
     // A collection discard cannot erase an unresolved delivery observation.
-    if (getChatDraft(id)?.collaborationSend) return false;
+    const retained = getChatDraft(id);
+    if (retained?.collaborationSend || retained?.collaborationForward) return false;
     if (!allowComposerDraftPersistence(chatDraftStorageKey(id))) return false;
     chatStorage.removeItem(PREFIX + id);
     if (!options.preserveText) chatStorage.removeItem(chatDraftTextKey(id));
