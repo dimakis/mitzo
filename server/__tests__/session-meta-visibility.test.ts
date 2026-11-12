@@ -312,6 +312,7 @@ it('retains the last admitted model and thinking when optional account refresh f
     );
     expect(retained).toHaveProperty('id', meta.sessionId);
     expect(retained).not.toHaveProperty('model');
+    expect(retained).toMatchObject({ modelUnavailable: true, modelObservedAt: expect.any(Number) });
   } finally {
     failedRead.mockRestore();
   }

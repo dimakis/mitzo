@@ -351,11 +351,11 @@ export class SessionOverviewEmitter {
       sessionId,
       clientId: session.clientId,
       title,
-      model: sessionModelIdentity(
+      ...sessionModelIdentity(
         { selectedModel: session.model },
         undefined,
         readSessionModelSelection(this.deps.eventStore, sessionId),
-      ).model,
+      ),
       accountLabel: session.accountLabel,
       repo,
       state: primaryState,

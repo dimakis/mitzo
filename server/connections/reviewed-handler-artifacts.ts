@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1059-approval-test-clock';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1060-model-observations';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,7 +22,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../session-list-metadata.ts': '900df29aa45fbce65c34139047885d53d5e1ba749cf1fd74c12a3377025cf930',
+  '../__tests__/session-list-metadata.test.ts':
+    'e627fbf876b69ed63d19bb25c22b4644b1d284ad5f72d1fee068cbb99436216c',
+  '../../frontend/src/lib/__tests__/session-activity.test.ts':
+    '9c3261d144afafe456a87ca3caaba062873fb044d3747ad4dfd32945253fef52',
+  '../../frontend/src/pages/__tests__/SessionListModel.test.tsx':
+    '87cd300cff072eb50705c26f7fda1dd5c744b9d7ae0f4b921fcfaceb3abec083',
+  '../session-list-metadata.ts': '902bc53e6f4568aa4383f1b4540f866dd94630446bd967de13ea594e217b5750',
   '../__tests__/configured-tool-lazy.test.ts':
     'ceaf09b6f08d436c725e6826fff815786dda12727ad150e0d3daa85d1911945f',
   '../lazy-mcp-source.ts': 'bd93f94687b160ad0df2fa761a4287a6d76d1186d6736811408c91b9dcf49dae',
@@ -786,7 +792,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useActivityClock.ts':
     'f4db9569a310e6d484fb7432b33ca7c0a39b165752e894e8cc4829be60687ec0',
   '../../frontend/src/lib/session-activity.ts':
-    '0391175cd842c269d57034fb1f0a822b312846513d159798e11886819d0af21c',
+    '772825551ee0054cdbd001ab76efc879fff3ed5e59528d9358a0e149e3e8dcb8',
   '../../frontend/src/pages/__tests__/SessionLibraryDesktop.test.tsx':
     'e5774880d3bf9c289b160a93bb30ba67d0f4c147e4271b469f3d7f3c69ab784e',
   '../__tests__/session-activity-events.test.ts':
@@ -1348,8 +1354,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-borrowed-search.test.ts':
     '967cb447fd787e24f4308b125d21e8d9ba8f77c66abd7060fbddde6c7171e34f',
   '../__tests__/session-meta-visibility.test.ts':
-    '7eaee96b608e5ac63669ed66051f14eda6aff132f0968c7839afe418c8728344',
-  '../session-overview.ts': '63fe416846a0a1f19738edfcb39e6eb7a13a07ae7d9aab7d2b2976cecd1bbd32',
+    '66d798719f24ffcb26e6958dfeaece542e6d4ca6c2c3404fa6bb7b15e5c12d3e',
+  '../session-overview.ts': '438ac71ab5e97615b226e3dad3ffa0a74f46f32820f6d364aa0224f1dbc91837',
   '../__tests__/credential-sdk-runtime-authority.test.ts':
     'fcb41461d1b95801d571f9228873628899e9f6a2fd648079f275c9d8d3a0362c',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.ts':
@@ -2616,7 +2622,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-runtime-binding.ts':
     'e2e4ab1cd1a7acbaffef66f24a1951a51ce958bc2bc26d6c4fbf7ea9a1f4d10a',
   '../../packages/protocol/src/types.ts':
-    '48287be906e4b4616723cc007eb7e5626813f067950f26b40d7481de89dc2569',
+    '9eeeb8e20b0c5be0046ab6c82ee51af425aa1dcb4f08d313be515cd6c4be3979',
   '../repository-workspace-runtime.ts':
     '7fe924ff92162fae1ff4f25d7759acf78395fe95936acbf63cfeb74a3a936a9f',
   '../repository-workspace-router.ts':
@@ -2887,9 +2893,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionRemovalDialog.tsx':
     '196212a3929bb012d6e1510c54615a05515db99fa2cd05771dcf665b7f50db21',
   '../../frontend/src/components/SessionPanel.tsx':
-    '38b879217b1c556620d4bfd4eff1bdea9d2875c85c4bb75989013fd5d06b7320',
+    '99912084d9092315579e329b82aa99dc0916c7a79ecf108f1d3300d18e0c7955',
   '../../frontend/src/pages/SessionList.tsx':
-    'cd2d13815f6035a5fb27648afb60e6ba4060fa381c4d3ac987adfff17fbf736b',
+    '02cc18d8d3ec6292bf645a82e8ada5348f95af49db5e38e6bf8d638b505ab9e1',
   '../task-orchestrator.ts': 'c55c69ed396f45f3799df6de183e5d62bfabfbc650c3d6a97657251a77b37288',
   '../telos-work-role-context.ts':
     '0991825e9841acec4acde362a289585c3bfcd3a9c9c52672564a243328407ede',

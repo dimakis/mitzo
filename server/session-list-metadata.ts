@@ -29,9 +29,11 @@ export function sessionModelIdentity(
   meta: Partial<SessionMeta>,
   alias: (accountId: string, fallback: string) => string = (_id, fallback) => fallback,
   selection?: ModelSelection | null,
-): Pick<Session, 'model' | 'accountLabel'> {
+): Pick<Session, 'model' | 'accountLabel' | 'modelUnavailable' | 'modelObservedAt'> {
   const binding = meta.accountBinding;
   return {
+    modelObservedAt: Date.now(),
+    ...(selection === null ? { modelUnavailable: true } : {}),
     model:
       selection === null
         ? undefined
@@ -48,7 +50,16 @@ export function sessionListMetadata(
   event: { payload: Record<string, unknown>; createdAt: number; seatId?: string } | null,
   alias?: (accountId: string, fallback: string) => string,
   selection?: ModelSelection | null,
-): Pick<Session, 'telosTaskId' | 'cwd' | 'contextUsage' | 'model' | 'accountLabel'> {
+): Pick<
+  Session,
+  | 'telosTaskId'
+  | 'cwd'
+  | 'contextUsage'
+  | 'model'
+  | 'accountLabel'
+  | 'modelUnavailable'
+  | 'modelObservedAt'
+> {
   const context = event?.payload.agentContext;
   const limits = ModelTokenLimitsSchema.safeParse(event?.payload.tokenLimits);
   return {

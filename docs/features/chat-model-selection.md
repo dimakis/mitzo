@@ -1,6 +1,6 @@
 # Chat model selection
 
-Verified offline on 11 November 2026. This records source behavior and regression
+Verified offline on 12 November 2026. This records source behavior and regression
 evidence; it does not establish historical provider usage or production activation.
 
 An existing Codex chat can choose a different model and thinking level for its next
@@ -20,6 +20,14 @@ Two defects made a successful choice unreliable or misleading:
   the reopened picker already does. A failed receipt read keeps the chat visible
   with an unknown model and a sanitized diagnostic. Legacy chats retain the saved
   metadata fallback when no ordinary receipt exists.
+
+Receipt-read failure is explicit display metadata, including its server observation
+time. Rows, search and an open preview retain the newest model observation across
+search clearing, disconnect and reconnect. A newer successful HTTP or overview
+read restores the known model. Equal-time uncertainty wins conservatively. These
+wall-clock observations are presentation hints, not durable ordering or command
+authority. The cached-known → unreadable → recovered regressions address Centaur
+finding `CEN-3E5EAB55D8A1` (review 5867598224, 12 November 2026).
 
 The existing WorkspaceControls header and AccountModelPicker remain the UI pattern.
 No layout, token, typography, palette or motion change is included. Merely editing
@@ -44,7 +52,8 @@ on 11 November 2026; it does not establish production behavior.
 The intercepted `chat-model-settings` browser journey also checks the header,
 picker and frozen command after recreating the screen in phone/desktop projects,
 light/dark themes and alternate appearance. Local browser startup was blocked by
-macOS process registration through the approved execution tool, so no rendered
-assertions or screenshots were produced. Browser verification remains a CI gate;
+the native sandbox guard before launch. Hosted CI passed all browser projects on
+the preceding reviewed head; each updated head still requires browser validation.
+Browser verification remains a CI gate;
 the source/unit/HTTP checks do not substitute for it. No real model call, staging,
 deployment or historical-session mutation was performed.
