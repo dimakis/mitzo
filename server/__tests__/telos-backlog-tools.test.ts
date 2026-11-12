@@ -9,6 +9,8 @@ import {
 } from '../telos-backlog-tools.js';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
 import * as logging from '../logger.js';
+import fs from 'node:fs';
+import { telosDiagnosticFailure } from '../telos-operation-failure.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -289,6 +291,44 @@ it('reports rejected asynchronous backlog authority and preserves the failed ope
   );
   expect(JSON.stringify(warn.mock.calls)).not.toContain('private upstream payload');
   expect(f.approve).not.toHaveBeenCalled();
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+});
+it('retains a rejected asynchronous authority without an unhandled rejection when its logger also fails', async () => {
+  const f = fixture();
+  const original = new Error('PRIVATE authority failure');
+  const diagnosticCause = new Error('PRIVATE logger failure');
+  const fallback = vi.spyOn(fs, 'write').mockImplementation(((
+    _fd: number,
+    line: string,
+    done: (error: Error | null, written: number) => void,
+  ) => {
+    done(null, Buffer.byteLength(line));
+  }) as typeof fs.write);
+  vi.spyOn(logging, 'createLogger').mockReturnValue({
+    debug: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: () => {
+      throw diagnosticCause;
+    },
+  });
+  expect(() =>
+    f.items.createFeatureGuarded(featureBrief, 'ordinary-chat', async () => {
+      throw original;
+    }),
+  ).toThrow('Synchronous Telos item authority required');
+  await vi.waitFor(() => expect(fallback).toHaveBeenCalledTimes(1));
+  const line = String(fallback.mock.calls[0][1]);
+  const diagnostic = JSON.parse(line);
+  expect(diagnostic).toMatchObject({
+    code: 'telos_diagnostic_sink_failed',
+    stage: 'item-authority',
+  });
+  expect(line).not.toContain('PRIVATE');
+  expect(telosDiagnosticFailure(diagnostic.diagnosticId)).toMatchObject({
+    operationCause: original,
+    diagnosticCause,
+  });
   expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
 });
 it('reports a rejected asynchronous item guard without leaking its private error or saving a feature', async () => {

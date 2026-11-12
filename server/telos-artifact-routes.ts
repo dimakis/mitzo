@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import { createLogger } from './logger.js';
-import { describeTelosOperationFailure } from './telos-operation-failure.js';
+import {
+  describeTelosOperationFailure,
+  retainTelosDiagnosticFailure,
+} from './telos-operation-failure.js';
 import { TelosUserUploadInput, validateUserUpload } from './telos-user-upload.js';
 import { Router, json, type Request, type RequestHandler, type Response } from 'express';
 import {
@@ -67,8 +70,8 @@ export function createTelosArtifactRouter(options: {
         ...context,
         ...describeTelosOperationFailure(error),
       });
-    } catch {
-      // A diagnostic sink must not replace the failed operation's response.
+    } catch (diagnosticCause) {
+      retainTelosDiagnosticFailure(error, diagnosticCause, { stage: phase, ...context });
     }
   };
   const closeStore = (store: TelosArtifactStore | undefined) => {
