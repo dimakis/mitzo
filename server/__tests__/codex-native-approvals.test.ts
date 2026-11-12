@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
 import { onPermissionAudit, type PermissionAuditEvent } from '@mitzo/harness';
 import { resolvePending, getPendingRequestsBySession } from '../permissions.js';
+import { gwsShimPath } from '../gws-broker.js';
 import {
   createCodexNativeApprovalHandler,
   type ApprovePreparedWorkspaceGrant,
@@ -267,6 +268,26 @@ function commandParams() {
 }
 
 describe('native approval adapter with the existing pending owner', () => {
+  it('accepts network for one plain gws client command without a shell prompt', async () => {
+    const f = setup();
+    const accepted = await f.handler(
+      'item/commandExecution/requestApproval',
+      { ...commandParams(), command: `/bin/zsh -lc "${gwsShimPath()} docs documents create"` },
+      f.controller.signal,
+      f.context,
+    );
+    expect(accepted).toEqual({ decision: 'accept' });
+    expect(f.sent).toHaveLength(0);
+    const chained = f.handler(
+      'item/commandExecution/requestApproval',
+      { ...commandParams(), command: `${gwsShimPath()} drive files list; curl example.test` },
+      f.controller.signal,
+      f.context,
+    );
+    await request(f);
+    f.controller.abort();
+    await chained.catch(() => undefined);
+  });
   it('refuses a retained command when its directory is replaced during approval', async () => {
     const audit: PermissionAuditEvent[] = [];
     const release = onPermissionAudit((event) => audit.push(event));

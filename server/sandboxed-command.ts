@@ -38,6 +38,8 @@ export interface SandboxedCommandOptions {
   env: Record<string, string>;
   /** General proxy egress, only after the caller's network-aware command approval. */
   networkAccess?: 'approved-command' | 'loopback';
+  /** Exact host-owned Unix sockets the command may connect to (the gws broker). */
+  unixSockets?: string[];
   signal: AbortSignal;
   timeoutMs?: number;
   maxOutputBytes?: number;
@@ -674,8 +676,11 @@ async function runSandboxedCommand(
     writableRoots: [...options.writableRoots],
     deniedRoots: [...options.deniedRoots],
     ...(options.readableRoots ? { readableRoots: [...options.readableRoots] } : {}),
+    ...(options.unixSockets ? { unixSockets: [...options.unixSockets] } : {}),
     env: { ...options.env },
   };
+  if (options.unixSockets?.some((path) => !isAbsolute(path) || path.includes('\0')))
+    throw new Error('Invalid command socket authorization');
   const authority = privateHelper?.ownedAuthority
     ? AuthoritySnapshot.restore(privateHelper.ownedAuthority)
     : new AuthoritySnapshot();
@@ -783,6 +788,7 @@ async function runSandboxedCommand(
           ],
           allowLocalBinding: options.networkAccess !== undefined,
           allowAllUnixSockets: false,
+          ...(options.unixSockets?.length ? { allowUnixSockets: options.unixSockets } : {}),
         },
         enableWeakerNestedSandbox: false,
         enableWeakerNetworkIsolation: false,
@@ -803,7 +809,11 @@ async function runSandboxedCommand(
     await writeFile(settings, JSON.stringify(payload), { mode: 0o600 });
     const env: Record<string, string> = { PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin' };
     for (const [name, value] of Object.entries(options.env)) {
-      if (['PATH', 'LANG', 'LC_ALL'].includes(name) || /^MITZO_REPO_[A-Z0-9_]+$/.test(name))
+      if (
+        ['PATH', 'LANG', 'LC_ALL'].includes(name) ||
+        /^MITZO_REPO_[A-Z0-9_]+$/.test(name) ||
+        (options.unixSockets?.length && ['MITZO_GWS_SOCKET', 'MITZO_GWS'].includes(name))
+      )
         env[name] = value;
     }
     Object.assign(env, { HOME: home, TMPDIR: scratch, CLAUDE_CODE_TMPDIR: scratch });

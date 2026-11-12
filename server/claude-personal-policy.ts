@@ -35,7 +35,10 @@ export function claudePersonalToolPermission(
     };
   }
 }
-export function claudePersonalSandbox(configDirectory: string): Options['sandbox'] {
+export function claudePersonalSandbox(
+  configDirectory: string,
+  unixSockets: readonly string[] = [],
+): Options['sandbox'] {
   protectCodexProfileRoots([configDirectory]);
   return {
     enabled: true,
@@ -43,5 +46,7 @@ export function claudePersonalSandbox(configDirectory: string): Options['sandbox
     autoAllowBashIfSandboxed: false,
     allowUnsandboxedCommands: false,
     filesystem: { denyRead: privateCodexRoots(), denyWrite: privateCodexRoots() },
+    // Exact host-owned broker sockets (shell gws); no other local IPC.
+    ...(unixSockets.length ? { network: { allowUnixSockets: [...unixSockets] } } : {}),
   };
 }

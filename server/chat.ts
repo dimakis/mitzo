@@ -418,6 +418,7 @@ import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
 import { getAccountUseStore } from './account-use-store.js';
+import { gwsBrokerForSession, gwsShellGuidance, isGwsShimCommand } from './gws-broker.js';
 import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
 
 const log = createLogger('chat');
@@ -2289,6 +2290,17 @@ async function _startChatInner(
     for (const [name, { path }] of repoWorktrees) {
       sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
     }
+    // Shell gws reaches the host login only through this chat's Mitzo broker.
+    const gwsBroker = gwsBrokerForSession({
+      key: `sdk:${wtId}`,
+      registry,
+      resolve: () => {
+        const found = session.sessionId ? registry.findBySessionId(session.sessionId) : null;
+        if (found) return found.session === session ? found : null;
+        return registry.get(clientId) === session ? { clientId, session } : null;
+      },
+    });
+    Object.assign(sessionEnv, gwsBroker.env());
 
     // Merge dynamic MCP servers (task board if active)
     const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
@@ -2807,6 +2819,14 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           const refusal = claudePersonalToolPermission(name, input, cwd, personalConfig);
           if (refusal) return refusal;
         }
+        // The gws broker asks about the Google action itself; a shell prompt for
+        // the client command would only duplicate that consent.
+        if (
+          name === 'Bash' &&
+          input.dangerouslyDisableSandbox !== true &&
+          isGwsShimCommand(input.command)
+        )
+          return { behavior: 'allow', updatedInput: input };
         if (
           options.ordinarySdkAuthority &&
           name.startsWith('mcp__mitzo-connections__') &&
@@ -2960,7 +2980,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           ? { pathToClaudeCodeExecutable: options.ordinarySdkAuthority.executable() }
           : {}),
         ...(options.ordinarySdkAuthority?.configDirectory()
-          ? { sandbox: claudePersonalSandbox(options.ordinarySdkAuthority.configDirectory()!) }
+          ? {
+              sandbox: claudePersonalSandbox(options.ordinarySdkAuthority.configDirectory()!, [
+                gwsBroker.socketPath,
+              ]),
+            }
           : {}),
         abortController,
         includePartialMessages: true,
@@ -2981,6 +3005,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           preset: 'claude_code',
           append:
             systemPromptAppend +
+            `\n${gwsShellGuidance()}\n` +
             WEB_ACCESS_INSTRUCTIONS +
             (options.ordinarySdkAuthority
               ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
