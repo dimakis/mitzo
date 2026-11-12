@@ -23,6 +23,16 @@ export function bindConfiguredAgentTools(
   configuredSelections.set(session, names);
 }
 const sdkPrefix = 'mcp__mitzo-connections__';
+function profileSelects(
+  entry: { id: string; version: number; required: boolean },
+  refs?: AgentToolReference[],
+): boolean {
+  return (
+    refs === undefined ||
+    entry.required ||
+    refs.some((ref) => ref.id === entry.id && ref.version === entry.version)
+  );
+}
 export function assertAgentToolRoute(
   definition: SymposiumProfileDefinition | undefined,
   route: string,
@@ -93,16 +103,39 @@ export function agentToolAllowed(session: object, name: string): boolean {
   const entry = agentToolCatalog().find(
     (tool) => tool.name === canonical && tool.routes.includes(route),
   );
-  return (
-    !!entry &&
-    (entry.required ||
-      (JSON.parse(selection) as NonNullable<SymposiumProfileDefinition['tools']>).some(
-        (ref) => ref.id === entry.id && ref.version === entry.version,
-      ))
-  );
+  return !!entry && profileSelects(entry, JSON.parse(selection) as AgentToolReference[]);
 }
 export function filterAgentTools<T extends { name: string }>(session: object, tools: T[]): T[] {
   return tools.filter((tool) => agentToolAllowed(session, tool.name));
+}
+
+/** Read-only catalog support, not the callable inventory or execution authority.
+ * Reuse the captured profile; never treat an uncaptured selection as a default.
+ * One catalog/selection read serves the entire projection.
+ */
+export function projectAgentHelperSupport(
+  session: object,
+  route: 'claude-sdk' | 'codex-owned-local',
+  skillCeiling?: ReadonlySet<string> | null,
+) {
+  if (!selections.has(session) || selectionRoutes.get(session) !== route) return undefined;
+  const selection = selections.get(session);
+  const refs =
+    selection === undefined ? undefined : (JSON.parse(selection) as AgentToolReference[]);
+  return agentToolCatalog()
+    .map(({ id, version, name, source, routes, required, requirement }) => {
+      const selected = profileSelects({ id, version, required }, refs);
+      const wireName = route === 'claude-sdk' ? `${sdkPrefix}${name}` : name;
+      const state = !routes.includes(route)
+        ? ('unsupported' as const)
+        : !selected
+          ? ('excluded' as const)
+          : skillCeiling && !skillCeiling.has(wireName)
+            ? ('restricted' as const)
+            : ('supported' as const);
+      return { name, source, requirement, state };
+    })
+    .sort((a, b) => a.source.localeCompare(b.source) || a.name.localeCompare(b.name));
 }
 export function assertAgentToolSelected(session: object, name: string): void {
   if (!agentToolAllowed(session, name))

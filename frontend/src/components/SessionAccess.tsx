@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { SessionAccessEvidence } from '../../../server/session-access';
+import {
+  RuntimeReadinessSchema,
+  SessionHelperSupportSchema,
+  type SessionAccessEvidence,
+} from '@mitzo/protocol';
 import type { AccountSelection } from '../types/account-selection';
 import type { ConnectionsAccessInventory } from '../types/connections-access';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
@@ -9,6 +13,7 @@ import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import { ReusableAccessGrants } from './ReusableAccessGrants';
 import { SessionChatLinks } from './SessionChatLinks';
+import { SessionCapabilities } from './SessionCapabilities';
 import type { SessionLinksData } from '../hooks/useSessionLaunch';
 import '../styles/session-access.css';
 import '../styles/chat-sheets.css';
@@ -60,6 +65,15 @@ function AccessContent({
         if (!response.ok) throw new Error('Unavailable');
         const value = (await response.json()) as SessionAccessEvidence;
         if (value.sessionId !== sessionId) throw new Error('Session mismatch');
+        // Older servers may omit these fields. Present evidence must validate;
+        // a malformed observation is a visible failed refresh, never success.
+        if (value.readiness !== undefined) {
+          value.readiness = RuntimeReadinessSchema.parse(value.readiness);
+          if (value.readiness.sessionId !== sessionId)
+            throw new Error('Readiness session mismatch');
+        }
+        if (value.helperSupport !== undefined)
+          value.helperSupport = SessionHelperSupportSchema.parse(value.helperSupport);
         if (active && !controller.signal.aborted) {
           setEvidence(value);
           setError(false);
@@ -256,6 +270,7 @@ function AccessContent({
             </div>
           </dl>
         </details>
+        <SessionCapabilities evidence={evidence} stale={stale} now={now} />
         <button
           type="button"
           className="session-access-navigation"
