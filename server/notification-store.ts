@@ -11,10 +11,6 @@ const needs =
   "resolved_at IS NULL AND (kind IN ('approval','question') OR COALESCE(json_extract(data, '$.inbox.needsAttention'),0)=1)";
 
 const visible = 'inbox_visible(data,inbox_source_path)=1';
-const unreadApprovalAlert = `alert.kind='approval' AND alert.read_at IS NULL
-  AND alert.archived_at IS NULL AND alert.alerted_at>=?
-  AND (alert.resolution IS NULL OR alert.resolution='expired')`;
-const APPROVAL_ALERT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 type InboxReadPolicy = (filename: string, sourcePath?: string) => boolean;
 
 type Input = Omit<
@@ -74,9 +70,6 @@ export class NotificationStore {
       this.db.exec('ALTER TABLE notifications ADD COLUMN inbox_source_path TEXT');
     if (!columns.some((column) => column.name === 'alerted_at'))
       this.db.exec('ALTER TABLE notifications ADD COLUMN alerted_at INTEGER');
-    this.db.exec(`CREATE INDEX IF NOT EXISTS notifications_approval_attention
-      ON notifications(json_extract(data, '$.sessionId'), alerted_at)
-      WHERE kind='approval' AND read_at IS NULL AND archived_at IS NULL`);
     // The one-second delivery sweep should visit only live candidates. Keep the
     // privacy callback out of indexes: every candidate must use current policy.
     this.db.exec(`
@@ -447,15 +440,11 @@ export class NotificationStore {
     return (
       this.db
         .prepare(
-          `SELECT * FROM notifications AS candidate WHERE ${visible}
+          `SELECT * FROM notifications WHERE ${visible}
             AND delivery_status='queued' AND archived_at IS NULL AND delivery_at<=? AND resolved_at IS NULL
-            AND (kind!='approval' OR NOT EXISTS (
-              SELECT 1 FROM notifications AS alert WHERE ${unreadApprovalAlert}
-                AND json_extract(alert.data, '$.sessionId')=json_extract(candidate.data, '$.sessionId')
-                AND alert.id!=candidate.id
-            )) ORDER BY delivery_at LIMIT 25`,
+            ORDER BY delivery_at LIMIT 25`,
         )
-        .all(now, now - APPROVAL_ALERT_MAX_AGE_MS) as Row[]
+        .all(now) as Row[]
     ).map(item);
   }
   deliveredDevices(id: string): string[] {
@@ -464,18 +453,6 @@ export class NotificationStore {
         .prepare('SELECT device FROM notification_delivered_devices WHERE notification_id=?')
         .all(id) as { device: string }[]
     ).map((row) => row.device);
-  }
-  /** One unread alert per blocked chat, including a retry after expiry. Keep
-   * every decision visible; coalescing delivery never resolves or grants it.
-   * A day-old alert cannot suppress a new day's work indefinitely. */
-  hasUnseenApprovalAlert(notification: MitzoNotification, now = Date.now()): boolean {
-    if (notification.kind !== 'approval' || !notification.sessionId) return false;
-    return !!this.db
-      .prepare(
-        `SELECT 1 FROM notifications AS alert WHERE ${unreadApprovalAlert}
-        AND json_extract(alert.data, '$.sessionId')=? AND alert.id!=? LIMIT 1`,
-      )
-      .get(now - APPROVAL_ALERT_MAX_AGE_MS, notification.sessionId, notification.id);
   }
   delivery(
     id: string,

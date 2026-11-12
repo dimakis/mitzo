@@ -110,7 +110,7 @@ describe('central notification delivery', () => {
     }
   });
 
-  it('does not let a full deferred batch starve another chat or question', async () => {
+  it('delivers every distinct approval across batches, including another chat and a question', async () => {
     const { center, store, push } = setup();
     const ids = Array.from({ length: 28 }, (_, index) => `deferred-${index}`);
     try {
@@ -142,11 +142,9 @@ describe('central notification delivery', () => {
       }
       await center.flush();
       await center.flush();
-      expect(push.mock.calls.map(([message]) => message.data.notificationId)).toEqual([
-        `permission:${ids[0]}`,
-        `permission:${ids[26]}`,
-        `permission:${ids[27]}`,
-      ]);
+      expect(push.mock.calls.map(([message]) => message.data.notificationId)).toEqual(
+        ids.map((id) => `permission:${id}`),
+      );
     } finally {
       ids.forEach((id) => removePending(id));
       center.close();
@@ -154,7 +152,7 @@ describe('central notification delivery', () => {
     }
   });
 
-  it('delivers an already-coalesced approval after the earlier alert receives a decision', async () => {
+  it('delivers concurrent decisions in one chat once each without waiting for a response', async () => {
     const { center, store, push } = setup();
     const ids = ['coalesced-first', 'coalesced-pending'];
     try {
@@ -164,9 +162,9 @@ describe('central notification delivery', () => {
           permId,
         });
       await center.flush();
-      expect(push).toHaveBeenCalledTimes(1);
+      expect(push).toHaveBeenCalledTimes(2);
       await center.flush();
-      expect(push).toHaveBeenCalledTimes(1);
+      expect(push).toHaveBeenCalledTimes(2);
       resolvePending(ids[0], 'once');
       await center.flush();
       expect(push).toHaveBeenCalledTimes(2);
@@ -259,12 +257,6 @@ describe('central notification delivery', () => {
       await center.flush();
       expect(store.deliveredDevices(`permission:${permId}`)).toEqual([]);
       expect(store.attempts(`permission:${permId}`)).toBe(1);
-      expect(
-        store.hasUnseenApprovalAlert({
-          ...store.get(`permission:${permId}`)!,
-          id: 'later-request',
-        }),
-      ).toBe(false);
       expect(store.feed('needs').items).toHaveLength(1);
     } finally {
       removePending(permId);
@@ -274,7 +266,7 @@ describe('central notification delivery', () => {
     }
   });
 
-  it('routes legacy delivery through preferences and coalescing, and prefers native push', async () => {
+  it('delivers each legacy approval through preferences, and prefers native push', async () => {
     let devices = 0;
     const { center, store, push } = setup(() => devices);
     const ids = ['legacy-muted', 'legacy-first', 'legacy-second', 'legacy-native'];
@@ -295,7 +287,7 @@ describe('central notification delivery', () => {
       add(ids[1]);
       add(ids[2]);
       await center.flush();
-      expect(legacySend).toHaveBeenCalledTimes(1);
+      expect(legacySend).toHaveBeenCalledTimes(2);
       expect(legacySend).toHaveBeenCalledWith(
         'Mitzo needs your approval',
         'Open Mitzo to review this notification.',
@@ -307,7 +299,7 @@ describe('central notification delivery', () => {
       add(ids[3], 'native-session');
       await center.flush();
       expect(push).toHaveBeenCalledTimes(1);
-      expect(legacySend).toHaveBeenCalledTimes(1);
+      expect(legacySend).toHaveBeenCalledTimes(2);
     } finally {
       ids.forEach((id) => removePending(id));
       center.close();
@@ -316,7 +308,7 @@ describe('central notification delivery', () => {
     }
   });
 
-  it('alerts once for an unread approval episode, including expired/recreated requests and restart', async () => {
+  it('deduplicates each request across restart while allowing new decisions after expiry', async () => {
     const f = setup();
     let center = f.center;
     const ids = ['episode-first', 'episode-parallel', 'episode-retry', 'episode-after-read'];
@@ -329,8 +321,18 @@ describe('central notification delivery', () => {
       add(ids[0]);
       add(ids[1]);
       await center.flush();
-      expect(f.push).toHaveBeenCalledTimes(1);
+      expect(f.push).toHaveBeenCalledTimes(2);
       expect(f.store.feed('needs').items).toHaveLength(2);
+      center.close();
+      center = new NotificationCenter(f.store, {
+        push: f.push,
+        changed: f.changed,
+        configured: () => true,
+        devices: () => 1,
+        sessionTitle: () => 'Fix notifications',
+      });
+      await center.flush();
+      expect(f.push).toHaveBeenCalledTimes(2);
       removePending(ids[0]);
       removePending(ids[1]);
       center.close();
@@ -343,12 +345,12 @@ describe('central notification delivery', () => {
       });
       add(ids[2]);
       await center.flush();
-      expect(f.push).toHaveBeenCalledTimes(1);
+      expect(f.push).toHaveBeenCalledTimes(3);
       expect(f.store.feed('needs').items.map((item) => item.permId)).toEqual([ids[2]]);
       f.store.markRead(`permission:${ids[0]}`);
       add(ids[3]);
       await center.flush();
-      expect(f.push).toHaveBeenCalledTimes(2);
+      expect(f.push).toHaveBeenCalledTimes(4);
     } finally {
       ids.forEach((id) => removePending(id));
       center.close();
