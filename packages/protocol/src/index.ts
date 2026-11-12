@@ -423,3 +423,4 @@ export {
 } from './message-reply.js';
 export * from './session-prompts.js';
 export * from './native-subagents.js';
+export * from './session-learning.js';

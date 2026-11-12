@@ -1,4 +1,5 @@
 import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
+import { parseSessionLearningPolicy } from './session-learning.js';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
@@ -33,6 +34,7 @@ export const REGISTERED_CONVERSATION_SQL = `(
 )`;
 
 export interface SessionRow {
+  learning_policy?: string | null;
   conversation_source: 'mitzo' | 'external_import' | 'legacy';
   session_type: string;
   symposium_config: string | null;
@@ -84,7 +86,7 @@ export interface SessionRow {
 }
 
 export type SessionUpsert = Partial<
-  Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
+  Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision' | 'learningPolicy'>
 > & { sessionId: string };
 
 export interface SessionSummaryPage {
@@ -180,6 +182,8 @@ export class SessionMetadataStore {
   }
 
   upsertSession(meta: SessionUpsert): void {
+    if (Object.prototype.hasOwnProperty.call(meta, 'learningPolicy'))
+      throw new Error('Learning policy requires setSessionLearningMode');
     if (Object.prototype.hasOwnProperty.call(meta, 'runtimeBinding'))
       throw new Error('Runtime binding requires atomic new-session creation');
     this.owner.assertConversationIdentity(meta.sessionId);
@@ -755,6 +759,7 @@ export function rowToSession(row: SessionRow): SessionMeta {
     accountBinding: parseAccountBinding(row.account_binding),
     selectedModel: row.selected_model ?? null,
     reasoningEffort: row.reasoning_effort ?? null,
+    learningPolicy: parseSessionLearningPolicy(row.learning_policy),
     sessionType: row.session_type === 'symposium' ? 'symposium' : 'chat',
     symposiumConfig: row.symposium_config ?? null,
     symposiumRevision: row.symposium_revision ?? 0,
