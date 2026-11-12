@@ -77,7 +77,7 @@ for (const theme of ['dark', 'light']) {
       await page.locator('body').evaluate((e) => e.clientWidth),
     );
     await page.screenshot({
-      path: info.outputPath(`claude-outcomes-${theme}.png`),
+      path: info.outputPath(`native-subagents-claude-outcomes-${theme}.png`),
       fullPage: true,
     });
     expect(errors).toEqual([]);
