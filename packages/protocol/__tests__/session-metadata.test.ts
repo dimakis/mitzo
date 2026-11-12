@@ -105,8 +105,17 @@ function outcome(fn: () => unknown) {
 function parity(run: (f: ReturnType<typeof fixture>) => unknown, file = false) {
   const expected = fixture(true, file),
     actual = fixture(false, file);
-  expect(run(actual)).toEqual(run(expected));
-  expect(actual.rows()).toEqual(expected.rows());
+  // This frozen extraction oracle predates session learning. Preserve parity
+  // for every legacy field; the new policy/default/revocation contract has its
+  // own reopen, transaction and source-transition tests in session-learning-policy.
+  const legacy = (value: unknown) =>
+    JSON.parse(
+      JSON.stringify(value, (key, item) =>
+        key === 'learningPolicy' || key === 'learning_policy' ? undefined : item,
+      ),
+    );
+  expect(legacy(run(actual))).toEqual(legacy(run(expected)));
+  expect(legacy(actual.rows())).toEqual(legacy(expected.rows()));
 }
 const account = {
   accountId: 'personal',

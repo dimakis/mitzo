@@ -1191,7 +1191,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-account-startup.test.ts':
     'e0ceec36d486b21b90cbae187174cf3794a6e4502a169a4a934f01068acf31de',
   '../../packages/protocol/__tests__/session-metadata.test.ts':
-    'b5de78900afd0a35f44cde5dcf0f2aeeceb1aaf36e13243cc30527fa23f65b08',
+    '0abe96ff88eb822d8a97de5c9816b78d03426d7d8cf03e168ae413f40ba35da2',
   '../__tests__/request-performance.test.ts':
     'c0f6b343299b4739f31ebf192360cdbea5d5670f6338913bb110f01f408975d5',
   '../__tests__/session-dirs.test.ts':
