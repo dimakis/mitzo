@@ -4675,6 +4675,14 @@ export class CodexConversation {
       callbackOutcome(result),
     );
   }
+  /** Missing turn capture is not evidence that ordinary admission is safe. */
+  peerMessageState(): 'busy' | 'idle' | 'stopped' | 'preparing' {
+    if (this.closed || this.paused) return 'stopped';
+    if (!this.ready || !this.binding) return 'preparing';
+    if (this.active) return this.captureInterruptTarget() ? 'busy' : 'preparing';
+    return this.pumping ? 'preparing' : 'idle';
+  }
+
   /** Accepted, durably correlated live turn only; no pending/startup target. */
   captureInterruptTarget(): CodexInterruptTarget | undefined {
     const active = this.active;
