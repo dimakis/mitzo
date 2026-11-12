@@ -232,6 +232,30 @@ it('applies an explicitly empty published selection at the provider and executio
   }
 });
 
+it('composes fresh learning guidance for each Codex turn, including compaction continuation and Off', async () => {
+  const f = await selectedCodexToolsFixture();
+  f.opts.eventStore.upsertSession({ sessionId: 'selected-chat', cwd: f.opts.session.cwd });
+  f.opts.mcpServers = {};
+  const query = await openCodexChat(f.opts);
+  try {
+    const prepare = mocks.conversationOptions!.prepareSystemPrompt as (
+      signal: AbortSignal,
+    ) => Promise<string>;
+    expect(mocks.conversationOptions!.systemPrompt).not.toContain('<session_learning');
+    const boot = await prepare(f.abort.signal);
+    expect(boot).toContain('<session_learning mode="auto">');
+    expect(boot).toContain('Zero candidates is normal');
+    expect(await prepare(f.abort.signal)).toBe(boot);
+    f.opts.eventStore.setSessionLearningMode('selected-chat', 'off', 0);
+    expect(await prepare(f.abort.signal)).not.toContain('<session_learning');
+    f.opts.eventStore.setSessionLearningMode('selected-chat', 'deep', 1);
+    expect(await prepare(f.abort.signal)).toContain('<session_learning mode="deep">');
+  } finally {
+    query.close();
+    f.cleanup();
+  }
+});
+
 it('preserves the real Ask ceiling and source-scoped Agent approval without expanding the selected surface', async () => {
   const f = await selectedCodexToolsFixture();
   const harness = await vi.importActual<typeof import('@mitzo/harness')>('@mitzo/harness');
