@@ -7,7 +7,8 @@ import { captureNativeLocalRepositoryReader } from '../local-repository-native-r
 import { captureNativeLocalRepositoryPreparationSource } from '../local-repository-preparation-source.js';
 import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
+import { type AgentMessage } from '@mitzo/protocol';
+import { steerNativeAgentMessage } from '../agent-message-runtime.js';
 import { SessionRegistry, resolvePending, type ManagedSession } from '@mitzo/harness';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { login, authenticateToken, setAuthRevocationStore, revokeAuthSession } from '../auth.js';
@@ -38,6 +39,9 @@ import {
   cancelCommandWithAgentReceipt,
 } from '../agent-communication-tools.js';
 import { createAgentMessageApprover } from '../agent-communication-permission.js';
+import { createCredentialSdkServer } from '../credential-sdk-tools.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 const hostReadGuard = vi.hoisted(() => ({ forbidden: false }));
 vi.mock('node:child_process', async (original) => {
@@ -789,7 +793,7 @@ async function fixture(
     productionPolicy?: boolean;
     beforeNativePolicy?: (sessionId: string, commandId: string) => Promise<void>;
     steerBusy?: 'accepted' | 'lost' | 'rejected';
-    onVerifyBinding?: (sessionId: string) => void;
+    onVerifyBinding?: (sessionId: string) => void | Promise<void>;
     /** Defensive fault injection inside a genuine verified callback. These
      * malformed server facets are not evidence of production authority. */
     readScopeFault?: ReadScopeFault;
@@ -925,18 +929,11 @@ async function fixture(
                   message: AgentMessage,
                   assertCurrent: () => void,
                 ) => {
-                  const runtime = handles.get(target.sessionId!)!.conversation;
-                  const active = runtime.captureInterruptTarget();
-                  if (!active) return 'inactive' as const;
-                  const result = await runtime.steer(
-                    {
-                      requestId: message.commandId,
-                      targetCommandId: active.commandId,
-                      text: agentMessagePrompt(message),
-                    },
+                  return steerNativeAgentMessage(
+                    handles.get(target.sessionId!)!.conversation,
+                    message,
                     assertCurrent,
                   );
-                  return result.status === 'stale_target' ? ('inactive' as const) : result.status;
                 },
               }
             : {}),
@@ -1004,7 +1001,7 @@ async function fixture(
             : {}),
           verifyBinding: async () => {
             await dispatch.admission.assertCurrent();
-            options.onVerifyBinding?.(sessionId);
+            await options.onVerifyBinding?.(sessionId);
             return dispatch.lease.binding;
           },
           beforeThreadInitialization: (store) => dispatch.admission.persistCustody(store),
@@ -1327,6 +1324,121 @@ it.each([false, true])(
   20000,
 );
 
+it('composes the explicit Claude MCP sender with actual native ownership and turn steering', async () => {
+  const f = await fixture({ steerBusy: 'accepted' });
+  const id = randomUUID();
+  const clientId = `sdk:${id}`;
+  const binding = {
+    version: 2 as const,
+    account: {
+      accountId: 'offline-claude',
+      provider: 'anthropic-vertex' as const,
+      profileRevision: 'offline',
+    },
+    harness: { implementation: 'claude-sdk' as const },
+    execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'offline' },
+  };
+  f.f.events.createSessionWithRuntimeBinding(
+    {
+      sessionId: id,
+      mode: 'agent',
+      repositoryWorkspaceId: 'sdk-workspace',
+      cwd: f.a.session.cwd,
+      accountBinding: { ...binding.account, accountLabel: 'Offline Claude', model: 'offline' },
+    },
+    binding,
+  );
+  // The SDK process is outside this offline sender fixture. Tool exposure,
+  // permission/profile routing and the recipient's real native owners are composed.
+  f.registry.register(clientId, {
+    sessionId: id,
+    ownerConnectionId: f.a.session.ownerConnectionId,
+    transport: { send() {}, isOpen: () => true },
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionAllowList: new Set([`agent-communication:adapters-v1:${f.auth.id}:${id}`]),
+    ordinaryRuntimeOwner: {
+      location: 'local',
+      authSessionId: f.auth.id,
+      identity: {},
+      initialCommandId: 'sdk-original',
+      admit: vi.fn(),
+      retryInitial: vi.fn(),
+      close() {},
+    },
+  });
+  const source = f.registry.get(clientId)!;
+  const toolName = 'mcp__mitzo-connections__AgentCommunication';
+  bindAgentToolSelection(
+    source,
+    { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } as never,
+    'claude-sdk',
+  );
+  source.activeSkillPolicy = new Set([toolName]);
+  const tools = sessionAgentCommunicationTools({
+    toolName,
+    events: f.f.events,
+    native: f.native,
+    registry: f.registry,
+    conversationId: id,
+    session: source,
+    assertRuntimeCurrent: async () => {},
+    assertRuntimeCurrentSync() {},
+    approve: createAgentMessageApprover({
+      toolName,
+      events: f.f.events,
+      registry: f.registry,
+      conversationId: id,
+      assertCurrent() {},
+    }),
+    startQueued: async () => {
+      throw Error('Busy steering must never queue');
+    },
+    nativeState: () => f.b.conversation.peerMessageState(),
+    steer: (recipient, message, current) => {
+      expect(recipient).toBe(f.b.session);
+      return steerNativeAgentMessage(f.b.conversation, message, current);
+    },
+  });
+  const server = createCredentialSdkServer(() => id, source, f.registry, {
+    profilesOnly: true,
+    assertCurrent: async () => {},
+    assertCurrentSync() {},
+    agentCommunication: () => tools,
+  });
+  const client = new Client({ name: 'sdk-to-native-offline', version: '1' });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.instance.connect(a);
+  await client.connect(b);
+  try {
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      'AgentCommunication',
+    ]);
+    const result = await client.callTool({
+      name: 'AgentCommunication',
+      arguments: {
+        operation: 'send',
+        requestId: randomUUID(),
+        recipientConversationId: f.b.sessionId,
+        text: 'Correct the active native turn.',
+      },
+    });
+    expect(result.isError).not.toBe(true);
+    const receipt = JSON.parse((result.content as Array<{ text: string }>)[0].text);
+    expect(receipt.status).toBe('delivered');
+    expect(f.b.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(1);
+    expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    expect(
+      f.native
+        .commands(f.b.sessionId, f.b.initial.lease.binding)
+        .some((command) => command.id === receipt.commandId),
+    ).toBe(false);
+  } finally {
+    await client.close();
+    await server.instance.close();
+  }
+}, 20000);
+
 it('delivers an attributed peer message to the current native turn once without waiting for completion or enqueuing another command', async () => {
   const f = await fixture({ steerBusy: 'accepted' });
   const input = {
@@ -1371,6 +1483,41 @@ it('records a rejected active-turn message visibly without falling back to anoth
   ).toBe(false);
   expect((await f.a.call(input)).value.status).toBe('failed');
 }, 20000);
+
+it.each(['completed', 'stopped'] as const)(
+  'refuses a native turn that becomes %s during steering without queue fallback',
+  async (state) => {
+    let onVerify: ((id: string) => Promise<void>) | undefined;
+    const f = await fixture({ steerBusy: 'accepted', onVerifyBinding: (id) => onVerify?.(id) });
+    onVerify = async (id) => {
+      if (id !== f.b.sessionId) return;
+      onVerify = undefined;
+      if (state === 'completed') await f.b.complete();
+      else await f.b.conversation.interrupt();
+    };
+    const sent = await f.a.call({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: f.b.sessionId,
+      text: 'Apply only to the captured active turn.',
+    });
+    // Stop invalidates the recipient authority inside native verification;
+    // its thrown guard leaves a conservative receipt, never an enqueue retry.
+    expect(sent.value).toMatchObject(
+      state === 'completed'
+        ? { status: 'failed', reason: 'steering_rejected' }
+        : { status: 'uncertain', reason: 'admission_uncertain' },
+    );
+    expect(f.b.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(0);
+    expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    expect(
+      f.native
+        .commands(f.b.sessionId, f.b.initial.lease.binding)
+        .some((command) => command.id === sent.value.commandId),
+    ).toBe(false);
+  },
+  20000,
+);
 
 it('does not enqueue or steer again after losing an active-turn delivery acknowledgement', async () => {
   const f = await fixture({ steerBusy: 'lost' });
