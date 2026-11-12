@@ -136,6 +136,26 @@ it('publishes discovered choices consistently, scopes refresh, and retains stale
     'Claude model discovery failed',
     expect.objectContaining({ signIn: failure.telemetry() }),
   );
+  f.accountInfo.mockResolvedValueOnce({
+    apiProvider: 'firstParty',
+    email: 'private-other@example.test',
+    subscriptionType: 'Claude Max',
+    apiKeySource: 'none',
+  });
+  await profiles.refresh(true, { accountId: profile.id });
+  expect(profiles.catalog()[0].models[0]).toEqual(model);
+  expect(profiles.catalog()[0].modelDiscovery.stale).toBe(true);
+  expect(warn).toHaveBeenLastCalledWith(
+    'Claude model discovery failed',
+    expect.objectContaining({
+      signIn: expect.objectContaining({
+        identitySource: 'sdk_account',
+        mismatches: ['email'],
+        reason: 'identity_mismatch',
+      }),
+    }),
+  );
+  expect(JSON.stringify(warn.mock.calls)).not.toContain('private-other@example.test');
 });
 
 it('bounds a stalled native model read and retains an explicit stale fallback', async () => {
