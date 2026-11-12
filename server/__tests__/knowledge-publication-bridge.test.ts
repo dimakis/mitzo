@@ -20,6 +20,11 @@ import {
   KnowledgePublicationBridge,
   KnowledgePublicationUnavailableError,
 } from '../knowledge-publication-bridge.js';
+import { findSessionRuntimeError } from '../session-runtime-error.js';
+import {
+  parsePortableSpokePolicy,
+  portableSpokePaths,
+} from '../../scripts/lib/portable-spoke-policy.mjs';
 
 const roots: string[] = [];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -35,6 +40,7 @@ async function setup(
     excludePaths?: string[];
     excludePathSegments?: string[];
     excludeHiddenPaths?: boolean;
+    spokePolicy?: { path: string; requiredPrivateRoots: string[] };
   } = {},
   publishedPath = 'AGENTS.md',
 ) {
@@ -90,6 +96,49 @@ async function setup(
   );
   return { root, source, directory, selection, adapt, fetcher, bridge };
 }
+
+it.each(['matching', 'publisher-digest', 'converter-digest', 'private-export'] as const)(
+  'binds accepted policy data to the exact published and converted view (%s)',
+  async (variant) => {
+    const path = 'knowledge-publication-policy.json';
+    const s = await setup({ spokePolicy: { path, requiredPrivateRoots: ['career'] } });
+    await addPublished(s, 'new_spoke/context/facts.md');
+    await addPublished(s, 'project-ideas/fx-audit/MVP.md');
+    const policy = {
+      version: 1,
+      portableRoots: ['new_spoke'],
+      markdownRoots: ['project-ideas'],
+      privateRoots: ['career'],
+    };
+    const content = JSON.stringify(policy);
+    const receipt = { path, content, sha256: hash(content) };
+    const manifest = JSON.parse(await readFile(join(s.directory, 'manifest.json'), 'utf8'));
+    manifest.spokePolicy = receipt;
+    manifest.optionalPaths = portableSpokePaths(parsePortableSpokePolicy(policy, ['career']));
+    const baselinePath = join(s.root, 'bundle/baseline.json');
+    const baseline = JSON.parse(await readFile(baselinePath, 'utf8'));
+    baseline.spokePolicy = { ...receipt };
+    if (variant === 'publisher-digest')
+      manifest.spokePolicy = { ...receipt, sha256: '0'.repeat(64) };
+    if (variant === 'converter-digest') baseline.spokePolicy.sha256 = '0'.repeat(64);
+    if (variant === 'private-export') {
+      const changed = JSON.stringify({ ...policy, portableRoots: ['new_spoke', 'career'] });
+      manifest.spokePolicy = { path, content: changed, sha256: hash(changed) };
+    }
+    await writeFile(baselinePath, JSON.stringify(baseline));
+    const raw = JSON.stringify(manifest);
+    await writeFile(join(s.directory, 'manifest.json'), raw);
+    s.selection.manifestSha256 = hash(raw);
+    s.fetcher.mockImplementation(async () => Response.json({ current: s.selection }));
+    const result = s.bridge.reconcile(new AbortController().signal);
+    if (variant === 'matching')
+      await expect(result).resolves.toHaveProperty('sourceCommit', s.selection.revision);
+    else await expect(result).rejects.toThrow();
+    expect(s.adapt).toHaveBeenCalledTimes(
+      ['matching', 'converter-digest'].includes(variant) ? 1 : 0,
+    );
+  },
+);
 async function addPublished(s: Awaited<ReturnType<typeof setup>>, path: string) {
   const content = '# ' + path;
   await mkdir(join(s.directory, 'source', path, '..'), { recursive: true });
@@ -108,6 +157,33 @@ async function addPublished(s: Awaited<ReturnType<typeof setup>>, path: string) 
     new Response(JSON.stringify({ current: { ...s.selection, manifestSha256: hash(raw) } })),
   );
 }
+
+it('reports a blocked conversion without selecting an old bundle and recovers after runtime repair', async () => {
+  const s = await setup();
+  s.fetcher.mockImplementation(async () => Response.json({ current: s.selection }));
+  const signal = new AbortController().signal;
+  const original = await s.bridge.reconcile(signal);
+  s.adapt.mockRejectedValueOnce(Error('private-path secret-token dependency mismatch'));
+  const failure = await s.bridge.reconcile(signal).catch((error: unknown) => error);
+  const diagnostic = findSessionRuntimeError(Error('startup wrapper', { cause: failure }));
+  expect(diagnostic?.code).toBe('knowledge_unavailable');
+  expect(diagnostic?.publicMessage()).toContain('compatible runtime');
+  expect(diagnostic?.publicMessage()).not.toMatch(/private-path|secret-token/);
+  expect(s.adapt).toHaveBeenCalledTimes(2);
+  expect(await s.bridge.reconcile(signal)).toEqual(original);
+  expect(s.adapt).toHaveBeenCalledTimes(3);
+});
+
+it('preserves cancellation during conversion instead of suggesting runtime repair', async () => {
+  const s = await setup();
+  const controller = new AbortController();
+  const cancelled = Error('cancelled by owner');
+  s.adapt.mockImplementationOnce(async () => {
+    controller.abort(cancelled);
+    throw Error('adapter failed after abort');
+  });
+  await expect(s.bridge.reconcile(controller.signal)).rejects.toBe(cancelled);
+});
 
 async function gateSourceReads(count: number) {
   const s = await setup({ optionalPaths: ['context/'] });

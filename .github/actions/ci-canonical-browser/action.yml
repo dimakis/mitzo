@@ -1,0 +1,18 @@
+name: Prepare isolated canonical CLI and browser
+description: Reuse hashed package downloads while keeping each job's Python environment and browser lifetime isolated.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.13'
+        cache: pip
+        cache-dependency-path: tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
+    - shell: bash
+      run: |
+        python -m venv "$RUNNER_TEMP/telos-s9-python"
+        "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
+        echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
+    - uses: ./.github/actions/ci-playwright
+      with:
+        browsers: chromium

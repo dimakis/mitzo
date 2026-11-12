@@ -1,17 +1,13 @@
-import { useRef, useState } from 'react';
-import { z } from 'zod';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SendMessageOptions } from '@mitzo/client';
-import { MessageReplyIdSchema, ChatMessageTextSchema } from '@mitzo/protocol';
-import { chatStorage } from '../lib/large-chat-storage';
+import {
+  CodexSteerInputSchema as Request,
+  type CodexSteerInput as Correction,
+  type ImageAttachment,
+} from '@mitzo/protocol';
+import { chatStorage, CHAT_STORAGE_CHANGED } from '../lib/large-chat-storage';
 import { apiFetch } from '../lib/api-fetch';
 import { createBrowserId } from '../lib/browser-crypto';
-const Request = z.strictObject({
-  requestId: z.string().min(1).max(200),
-  targetCommandId: z.string().min(1).max(200),
-  text: ChatMessageTextSchema,
-  replyToMessageId: MessageReplyIdSchema.optional(),
-});
-type Correction = z.infer<typeof Request>;
 type Delivery = SendMessageOptions['onDelivery'];
 const key = (id: string) => `mitzo-turn-steering:${id}`;
 function retained(id: string | null): Correction | null {
@@ -46,6 +42,21 @@ export function useTurnSteering(
   const [, render] = useState(0);
   const [feedback, setFeedback] = useState<{ owner: object; error: string }>();
   const selected = owner.current;
+  const recoverRead = useCallback(() => {
+    if (owner.current !== selected || !selected.blocked || selected.busy) return;
+    try {
+      selected.pending = retained(selected.sessionId);
+      selected.blocked = false;
+      setFeedback(undefined);
+      render((n) => n + 1);
+    } catch {
+      // Keep the original unavailable state; a read retry never dispatches a correction.
+    }
+  }, [selected]);
+  useEffect(() => {
+    window.addEventListener(CHAT_STORAGE_CHANGED, recoverRead);
+    return () => window.removeEventListener(CHAT_STORAGE_CHANGED, recoverRead);
+  }, [recoverRead]);
   const error = selected.busy
     ? ''
     : feedback?.owner === selected
@@ -156,9 +167,11 @@ export function useTurnSteering(
   return {
     error,
     busy: selected.busy,
-    retry: selected.pending
-      ? () => void execute(selected, selected.pending!, selected.delivery, selected.refusal)
-      : undefined,
+    retry: selected.blocked
+      ? recoverRead
+      : selected.pending
+        ? () => void execute(selected, selected.pending!, selected.delivery, selected.refusal)
+        : undefined,
     submit: (
       text: string,
       delivery?: Delivery,
@@ -166,6 +179,7 @@ export function useTurnSteering(
       requestId?: string,
       retainedTargetCommandId?: string,
       onDefinitiveRefusal?: () => void,
+      images?: Pick<ImageAttachment, 'data' | 'mediaType'>[],
     ) => {
       const target = retainedTargetCommandId ?? targetCommandId;
       if (!enabled || !sessionId || !target || selected.busy || selected.blocked) {
@@ -176,6 +190,12 @@ export function useTurnSteering(
         if (
           selected.pending.text !== text ||
           selected.pending.replyToMessageId !== replyToMessageId ||
+          (selected.pending.images?.length ?? 0) !== (images?.length ?? 0) ||
+          selected.pending.images?.some(
+            (image, index) =>
+              image.data !== images?.[index]?.data ||
+              image.mediaType !== images?.[index]?.mediaType,
+          ) ||
           (requestId !== undefined && selected.pending.requestId !== requestId) ||
           (retainedTargetCommandId !== undefined &&
             selected.pending.targetCommandId !== retainedTargetCommandId)
@@ -190,12 +210,24 @@ export function useTurnSteering(
         void execute(selected, selected.pending, delivery, onDefinitiveRefusal);
         return;
       }
-      const input = {
+      const parsed = Request.safeParse({
         requestId: requestId ?? createBrowserId(),
         targetCommandId: target,
         text,
         ...(replyToMessageId ? { replyToMessageId } : {}),
-      };
+        ...(images?.length
+          ? { images: images.map(({ data, mediaType }) => ({ data, mediaType })) }
+          : {}),
+      });
+      if (!parsed.success) {
+        delivery?.('failed');
+        setFeedback({
+          owner: selected,
+          error: 'The correction is invalid or exceeds attachment limits. Your draft was kept.',
+        });
+        return;
+      }
+      const input = parsed.data;
       selected.pending = input;
       selected.delivery = delivery;
       selected.refusal = onDefinitiveRefusal;

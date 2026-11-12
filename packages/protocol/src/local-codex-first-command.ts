@@ -117,7 +117,7 @@ export const LocalVertexClaudeFirstCommandSchema = z
     runtime: z.strictObject({
       ...LocalCodexFirstCommandSchema.shape.runtime.shape,
       account: LocalCodexFirstCommandSchema.shape.runtime.shape.account
-        .extend({ provider: z.literal('anthropic-vertex') })
+        .extend({ provider: z.enum(['anthropic-vertex', 'anthropic-claude', 'anthropic-api']) })
         .strict(),
       harness: z.literal('claude-sdk'),
     }),
@@ -195,7 +195,33 @@ export const LocalCodexRetainedCommandObservationSchema = z.strictObject({
 });
 
 /** Generic runtime entry retains the same receipt semantics and route-specific reasons. */
+export { KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE } from './runtime-failure.js';
+import { RuntimeFailureSchema, runtimeFailureMessage } from './runtime-failure.js';
+export const KnowledgeRuntimeFailureSchema = z.strictObject({
+  runtimeFailureCode: z.literal('knowledge_unavailable'),
+  diagnosticId: z.uuid(),
+});
+export type KnowledgeRuntimeFailure = z.infer<typeof KnowledgeRuntimeFailureSchema>;
+export function knowledgeRuntimeFailureMessage(failure: KnowledgeRuntimeFailure): string {
+  return runtimeFailureMessage(failure);
+}
 export const OrdinaryCodexRetainedCommandObservationSchema =
   LocalCodexRetainedCommandObservationSchema.extend({
     error: z.enum(['Local Codex entry unavailable', 'Conversation runtime unavailable']),
-  });
+  }).or(
+    LocalCodexRetainedCommandObservationSchema.extend({
+      // Ignore upstream text; the client renders only the reviewed code and UUID.
+      error: z.string().max(2048),
+      runtimeFailure: RuntimeFailureSchema,
+    }),
+  );
+
+/** Failure before command admission establishes no receipt or delivery state. */
+export const OrdinaryRuntimeEntryFailureSchema = z.strictObject({
+  ok: z.literal(false),
+  code: z.literal('entry_unavailable'),
+  error: z.string().max(2048),
+  clientMsgId: reference,
+  sessionId: reference,
+  runtimeFailure: RuntimeFailureSchema,
+});

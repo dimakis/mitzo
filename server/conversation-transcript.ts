@@ -1,4 +1,9 @@
-import { MessageReplyContextSchema, type MessageReplyContext } from '@mitzo/protocol';
+import {
+  AgentMessageProjectionSchema,
+  agentMessageTranscriptRow,
+  MessageReplyContextSchema,
+  type MessageReplyContext,
+} from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import {
   interruptUnansweredToolBlocks,
@@ -18,6 +23,8 @@ import {
 // Pure projection of a caller-owned immutable event prefix. Source authorization,
 // cursor capture and database reads remain with the calling operation.
 export interface RestoredMessage {
+  agentMessage?: import('@mitzo/protocol').AgentMessageProjection;
+  agentMessageSeq?: number;
   inReplyTo?: MessageReplyContext;
   replyToMessageId?: string;
   commandState?: import('@mitzo/protocol').CommandState;
@@ -50,6 +57,8 @@ export interface RestoredMessage {
 }
 
 export interface RestoredSubagentState {
+  status?: import('@mitzo/protocol').SubagentStatus;
+  diagnostic?: import('@mitzo/protocol').SubagentDiagnostic;
   messageId: string;
   blocks: Array<RestoredMessage['blocks'][number] & { done?: boolean }>;
   running?: true;
@@ -63,6 +72,23 @@ export interface RestoredCurrentMessage {
   symposiumProvenance?: SymposiumProvenance;
   startedSeq?: number;
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
+}
+
+function includeAgentMessages(events: StoredEvent[], messages: RestoredMessage[]) {
+  const rows = new Map<string, RestoredMessage>();
+  for (const event of events) {
+    if (event.type !== 'agent_message' || event.seatId || event.symposiumProvenance) continue;
+    const projection = AgentMessageProjectionSchema.parse(event.payload.projection);
+    const row = agentMessageTranscriptRow(projection, event.seq);
+    const previous = rows.get(row.messageId);
+    rows.set(row.messageId, {
+      ...row,
+      startedSeq: previous?.startedSeq ?? row.startedSeq,
+      timestamp: previous?.timestamp ?? row.timestamp,
+    });
+  }
+  messages.push(...rows.values());
+  if (rows.size) messages.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
 }
 
 function attributeCommands(
@@ -107,7 +133,7 @@ function attributeCommands(
     }
     if (
       event.type === 'ordinary_reply_source' &&
-      p.version === 1 &&
+      (p.version === 1 || p.version === 2) &&
       typeof p.messageId === 'string' &&
       typeof p.commandId === 'string'
     ) {
@@ -170,8 +196,11 @@ function terminalProjection(messages: RestoredMessage[]): () => void {
 function replaySubagents(events: StoredEvent[]) {
   type NestedBlock = RestoredMessage['blocks'][number] & { done: boolean };
   const key = (messageId: string, blockId: string) => JSON.stringify([messageId, blockId]);
-  const parentMessageByBlock = new Map<string, string>();
-  const activeStateByParent = new Map<string, string>();
+  const ownerByParent = new Map<string, string | null>();
+  const rememberOwner = (parentId: string, messageId: string) => {
+    if (!ownerByParent.has(parentId)) ownerByParent.set(parentId, messageId);
+    else if (ownerByParent.get(parentId) !== messageId) ownerByParent.set(parentId, null);
+  };
   const states = new Map<
     string,
     {
@@ -179,6 +208,8 @@ function replaySubagents(events: StoredEvent[]) {
       blocks: Map<string, NestedBlock>;
       order: string[];
       running: boolean;
+      status?: import('@mitzo/protocol').SubagentStatus;
+      diagnostic?: import('@mitzo/protocol').SubagentDiagnostic;
       summary?: string;
       usage?: Record<string, number>;
     }
@@ -190,25 +221,32 @@ function replaySubagents(events: StoredEvent[]) {
       typeof p.blockId === 'string' &&
       typeof p.messageId === 'string'
     ) {
-      parentMessageByBlock.set(p.blockId, p.messageId);
-      activeStateByParent.delete(p.blockId);
+      rememberOwner(p.blockId, p.messageId);
     }
+    if (!event.type.startsWith('subagent_')) continue;
     const parentId = p.parentBlockId as string;
+    if (typeof parentId !== 'string') continue;
+    if (typeof p.messageId === 'string') rememberOwner(parentId, p.messageId);
+    // Resolve in event order: earlier legacy output remains valid, but once two
+    // turns reuse an ID only explicit ownership can authorize later changes.
+    const parentMessageId =
+      typeof p.messageId === 'string' ? p.messageId : ownerByParent.get(parentId);
+    if (!parentMessageId) continue;
+    const scope = key(parentMessageId, parentId);
     if (event.type === 'subagent_start' && typeof p.subagentMessageId === 'string') {
-      const parentMessageId = parentMessageByBlock.get(parentId);
-      if (!parentMessageId) continue;
-      const scope = key(parentMessageId, parentId);
-      activeStateByParent.set(parentId, scope);
+      if (states.has(scope)) continue;
       states.set(scope, {
         messageId: p.subagentMessageId,
         blocks: new Map(),
         order: [],
         running: true,
+        status: 'running',
       });
       continue;
     }
-    const state = states.get(activeStateByParent.get(parentId) ?? '');
+    const state = states.get(scope);
     if (!state) continue;
+    if (state.status && ['completed', 'failed', 'cancelled'].includes(state.status)) continue;
     if (event.type === 'subagent_block_start' && typeof p.blockId === 'string') {
       state.blocks.set(p.blockId, {
         blockId: p.blockId,
@@ -239,6 +277,11 @@ function replaySubagents(events: StoredEvent[]) {
       }
     } else if (event.type === 'subagent_end' || event.type === 'subagent_cancelled') {
       state.running = false;
+      state.status =
+        event.type === 'subagent_cancelled'
+          ? 'cancelled'
+          : ((p.status as import('@mitzo/protocol').SubagentStatus | undefined) ?? 'completed');
+      state.diagnostic = p.diagnostic as import('@mitzo/protocol').SubagentDiagnostic | undefined;
       if (typeof p.summary === 'string') state.summary = p.summary;
       else if (event.type === 'subagent_cancelled') state.summary = 'Cancelled';
       if (p.usage && typeof p.usage === 'object') state.usage = p.usage as Record<string, number>;
@@ -250,6 +293,8 @@ function replaySubagents(events: StoredEvent[]) {
     const blocks = state.order.map((id) => state.blocks.get(id)!);
     const subagent: RestoredSubagentState = {
       messageId: state.messageId,
+      status: state.status,
+      ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
       blocks: active && state.running ? blocks : blocks.map(({ done: _done, ...rest }) => rest),
       ...(active && state.running ? { running: true } : {}),
       ...(state.summary ? { summary: state.summary } : {}),
@@ -575,7 +620,8 @@ function replaySingleEventsToTranscript(
         if (failure) {
           const nextUser = nextReplayUser(messages, failure.clientMsgId);
           // A late failure for A must not terminate the typed current turn B.
-          if (nextUser < 0 || (turn && turn.index < nextUser)) finishTurn();
+          if (payload.nonfatal !== true && (nextUser < 0 || (turn && turn.index < nextUser)))
+            finishTurn();
           messages.push({
             messageId: `${failure.prefix}-${event.seq}`,
             role: 'assistant',
@@ -743,6 +789,7 @@ export function replayEventsToTranscript(
     ids.add(id);
   }
   attributeCommands(ordinary, messages, base.current ? [base.current] : []);
+  includeAgentMessages(ordinary, messages);
   return { messages, current: base.current, currents };
 }
 
@@ -785,6 +832,7 @@ export function replayEventsToMessages(
   const messages: RestoredMessage[] = [];
   const interruptCompleted = terminalProjection(messages);
   let currentMsg: RestoredMessage | null = null;
+  const attachSubagent = replaySubagents(events);
   const blockContent = new Map<string, string>();
   const toolResults = new Map<string, { result: string; isError: boolean }>();
   const acceptedSessions: AcceptedReplaySessions = new Map();
@@ -802,7 +850,7 @@ export function replayEventsToMessages(
   ): RestoredMessage['blocks'][number] => {
     const toolId = p.toolId as string | undefined;
     const tr = toolId ? toolResults.get(toolId) : undefined;
-    return {
+    const block = {
       blockId: p.blockId as string,
       blockType: p.blockType as string,
       content,
@@ -812,6 +860,7 @@ export function replayEventsToMessages(
       ...(p.rawInput ? { rawInput: p.rawInput } : {}),
       ...(tr ? { toolResult: tr.result, toolError: tr.isError } : {}),
     };
+    return currentMsg ? attachSubagent(currentMsg.messageId, block, false) : block;
   };
 
   // First pass: collect tool results and detect legacy out-of-order initial prompts.
@@ -962,7 +1011,12 @@ export function replayEventsToMessages(
         const failure = replayError(evt, acceptedSessions);
         if (failure) {
           const olderCommand = nextReplayUser(messages, failure.clientMsgId) >= 0;
-          if (!olderCommand && failure.prefix === 'runtime-error' && currentMsg) {
+          if (
+            p.nonfatal !== true &&
+            !olderCommand &&
+            failure.prefix === 'runtime-error' &&
+            currentMsg
+          ) {
             // Preserve incomplete blocks without changing legacy completed-block metadata.
             currentMsg.blocks = [
               ...[...scopedBlocks.values()].map(
@@ -971,7 +1025,7 @@ export function replayEventsToMessages(
               ...currentMsg.blocks.filter((block) => !scopedBlocks.has(block.blockId)),
             ];
           }
-          if (!olderCommand) {
+          if (p.nonfatal !== true && !olderCommand) {
             if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
             currentMsg = null;
           }
@@ -1014,6 +1068,7 @@ export function replayEventsToMessages(
 
   groupRetainedReplayErrors(messages, events);
   attributeCommands(events, messages);
+  includeAgentMessages(events, messages);
   return messages;
 }
 

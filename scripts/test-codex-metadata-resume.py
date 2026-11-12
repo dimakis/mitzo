@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import selectors
+import signal
 import subprocess
 import tempfile
 import time
@@ -104,13 +105,14 @@ def probe(binary, version, exclude_turns):
         child = subprocess.Popen(
             command, cwd=root, env=environment,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
         selector = selectors.DefaultSelector()
         selector.register(child.stdout, selectors.EVENT_READ)
         buffer = bytearray()
 
         def send(message):
-            assert message["method"] in {"initialize", "initialized", "thread/resume", "thread/turns/list"}
+            assert message["method"] in {"initialize", "initialized", "thread/resume", "thread/turns/list", "thread/items/list"}
             child.stdin.write((json.dumps(message) + "\n").encode())
             child.stdin.flush()
 
@@ -162,17 +164,48 @@ def probe(binary, version, exclude_turns):
                 retained, _ = response(3)
                 assert retained["data"][0]["id"] == turn, "Metadata-only resume lost native history"
                 assert retained["data"][0]["status"] == "completed", "Native completion state changed"
+                # Reuse this isolated native lifetime to prove the pinned item
+                # protocol. One full turn exceeds the frame bound; each item fits.
+                cursor = None
+                seen = set()
+                for index in range(16):
+                    params = {"threadId": thread, "turnId": turn, "limit": 1, "sortDirection": "asc"}
+                    if cursor is not None:
+                        params["cursor"] = cursor
+                    send({"id": 4 + index, "method": "thread/items/list", "params": params})
+                    page, item_size = response(4 + index)
+                    assert item_size < FRAME_LIMIT, "Native item page exceeded the frame bound"
+                    assert len(page["data"]) <= 1, "Native item page ignored limit"
+                    for entry in page["data"]:
+                        assert entry["turnId"] == turn, "Native item page crossed turns"
+                        assert entry["item"]["id"] not in seen, "Native item page repeated an item"
+                        seen.add(entry["item"]["id"])
+                    cursor = page["nextCursor"]
+                    if cursor is None:
+                        break
+                else:
+                    raise AssertionError("Native item pagination did not terminate")
+                assert len(seen) >= 3, "Native pagination omitted retained results"
             else:
                 assert size > FRAME_LIMIT, "Fixture did not reproduce a large retained turn"
                 assert result["thread"]["turns"], "Native fixture history was not loaded"
             return size
         finally:
-            child.terminate()
+            try:
+                os.killpg(child.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             try:
                 child.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                child.kill()
+                os.killpg(child.pid, signal.SIGKILL)
                 child.wait(timeout=5)
+            # The CLI may spawn a marketplace git clone. Stop every process in
+            # this fixture's session before removing its temporary CODEX_HOME.
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             selector.close()
             child.stdin.close()
             child.stdout.close()

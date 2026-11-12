@@ -1,8 +1,20 @@
 import { createHash } from 'node:crypto';
+import { hasPermissionNotificationOwner } from './permission-notification-owner.js';
+import {
+  githubReadCommandRepository,
+  githubCommandConsentDescription,
+} from './github-command-consent.js';
+import { withToolGuardPhase } from './tool-guard.js';
 import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
+import {
+  registerPending,
+  resolvePending,
+  removePending,
+  hasPending,
+  PERMISSION_EXPIRED_MESSAGE,
+} from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
   sendPermissionNotification as pushoverSendPermission,
@@ -15,6 +27,9 @@ import { checkWorktreePolicy, type OnDemandCreateFn } from './worktree-guard.js'
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
 import { effectivePermissionMode, type SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
+import { recordPermissionAudit } from './permission-audit.js';
+import { createLogger } from './logger.js';
+const log = createLogger('permission-handler');
 
 export const UserQuestionsSchema = z
   .array(
@@ -84,9 +99,17 @@ export function permissionDisplayInput(
 function transportSend(transport: SessionTransport, data: Record<string, unknown>): void {
   try {
     if (transport.isOpen()) transport.send(data);
-  } catch {
+  } catch (error) {
     // A socket can close after isOpen(). Pending requests remain available
     // for reconnect replay; delivery failure must not reject tool resolution.
+    log.warn(
+      'Permission transport delivery failed; pending requests remain available for reconnect',
+      {
+        eventType: data.type,
+        permId: data.permId,
+        errorType: error instanceof Error ? error.name : 'non-Error',
+      },
+    );
   }
 }
 
@@ -192,7 +215,7 @@ export function buildPermissionHandler(
   registry: SessionRegistry,
   handlerOpts?: PermissionHandlerOptions,
 ) {
-  return async (
+  const decide = async (
     toolName: string,
     _toolInput: Record<string, unknown>,
     opts: {
@@ -208,6 +231,9 @@ export function buildPermissionHandler(
       allowSessionGrant?: boolean;
       /** Server-owned operation/service identity; never taken from a permission response. */
       sessionGrantKey?: string;
+      /** Trusted host-owned correlated grant; shared mode, skill and workspace
+       * checks still run before this live observation may satisfy approval. */
+      isRetainedSessionGrantCurrent?: () => boolean;
       /** Plain description of the retained scope shown with the session choice. */
       sessionGrantDescription?: string;
       /** The caller may store a narrower account-bound consent instead of a tool-wide grant. */
@@ -225,7 +251,16 @@ export function buildPermissionHandler(
       questions?: UserQuestion[];
       /** Trusted native boundary request: exact operation consent can cross Ask's
        * read-only ceiling, but must never inherit or create a broad tool grant. */
-      nativeApproval?: { assertCurrentSync(): void; allowSessionScope?: boolean };
+      nativeApproval?: {
+        assertCurrentSync(): void;
+        /** Original adapter deadline; creating a card must not renew it. */
+        readonly expiresAt?: number;
+        /** Retain this owner's observed timeout even if another timer or clock lags. */
+        readonly onExpiry?: () => void;
+        allowSessionScope?: boolean;
+        /** Adapter-owned exact scope. Absent when the provider retains its own grant. */
+        sessionGrantKey?: string;
+      };
       /** Private original native scope, never permission response or tool JSON. */
       nativeSourceScope?: { readonly operatorId: string; assertCurrentSync(): void };
     },
@@ -241,12 +276,25 @@ export function buildPermissionHandler(
     const originalOptions = opts;
     const nativeApproval = opts.nativeApproval;
     const nativeApprovalAssertion = nativeApproval?.assertCurrentSync;
+    const nativeExpiresAt = nativeApproval?.expiresAt;
+    const onNativeExpiry = nativeApproval?.onExpiry;
+    const nativeSessionGrantKey =
+      nativeApproval?.allowSessionScope === true && nativeApproval.sessionGrantKey?.trim()
+        ? nativeApproval.sessionGrantKey
+        : undefined;
     const nativeApprovalCurrent = () => {
       if (!nativeApproval) return true;
       try {
         if (
           typeof nativeApprovalAssertion !== 'function' ||
-          nativeApproval.assertCurrentSync !== nativeApprovalAssertion
+          nativeApproval.assertCurrentSync !== nativeApprovalAssertion ||
+          (nativeExpiresAt !== undefined &&
+            (!Number.isFinite(nativeExpiresAt) ||
+              nativeApproval.expiresAt !== nativeExpiresAt ||
+              Date.now() >= nativeExpiresAt)) ||
+          (nativeSessionGrantKey !== undefined &&
+            (nativeApproval.allowSessionScope !== true ||
+              nativeApproval.sessionGrantKey !== nativeSessionGrantKey))
         )
           return false;
         const result: unknown = nativeApprovalAssertion.call(nativeApproval);
@@ -264,7 +312,8 @@ export function buildPermissionHandler(
         ...opts,
         forcePrompt: true,
         allowSessionGrant: nativeApproval.allowSessionScope === true,
-        rememberSessionGrant: false,
+        sessionGrantKey: nativeSessionGrantKey,
+        rememberSessionGrant: nativeSessionGrantKey !== undefined,
         approvalScope: nativeApproval.allowSessionScope === true ? 'session' : 'request',
       };
     const onDecision = originalOptions.onDecision;
@@ -285,6 +334,36 @@ export function buildPermissionHandler(
         worktreePath: session.worktreePath,
         cwd: session.cwd,
       });
+    // Claude and Vertex share this handler. Preserve explicit caller scopes and
+    // pre-existing broad shell grants; new CLI consent is repository-scoped.
+    const githubRepository =
+      toolName === 'Bash' &&
+      !nativeApproval &&
+      !opts.sessionGrantKey &&
+      !opts.onDecision &&
+      !session.sessionAllowList.has('Bash') &&
+      typeof _toolInput.command === 'string'
+        ? githubReadCommandRepository(_toolInput.command)
+        : undefined;
+    const githubScope = () => {
+      const { command, description: _description, timeout: _timeout, ...access } = _toolInput;
+      return JSON.stringify([
+        typeof command === 'string' ? githubReadCommandRepository(command) : undefined,
+        session.sessionId,
+        session.accountBinding,
+        session.ownedLocalAuthSessionId,
+        workspacePolicySnapshot(),
+        effectivePermissionMode(session),
+        access,
+      ]);
+    };
+    const originalGithubScope = githubRepository ? githubScope() : undefined;
+    if (githubRepository)
+      opts = {
+        ...opts,
+        sessionGrantKey: `github-cli-read-v1:${createHash('sha256').update(originalGithubScope!).digest('hex')}`,
+        sessionGrantDescription: githubCommandConsentDescription(githubRepository),
+      };
     let decisionWorkspace: string | undefined;
     const observationOptionsCurrent = () =>
       [originalOptions, opts].every(
@@ -340,6 +419,7 @@ export function buildPermissionHandler(
     const nativeOperatorId = nativeScope?.operatorId;
     const nativeAssertion = nativeScope?.assertCurrentSync;
     const nativeScopeCurrent = () => {
+      if (originalGithubScope !== undefined && githubScope() !== originalGithubScope) return false;
       if (!nativeApprovalCurrent()) return false;
       if (!nativeScope) return true;
       try {
@@ -382,6 +462,10 @@ export function buildPermissionHandler(
           message:
             'A registered conversation and fresh host invocation are required for reviewed Telos capture.',
         };
+      // Normalize a fresh shared-outcome proposal before its review and receipt
+      // are captured. Execution/recovery schemas must preserve older packets.
+      if (toolName === 'TelosCreateOutcome' || toolName === 'mcp__telos__TelosCreateOutcome')
+        _toolInput = { workLevel: 'outcome', ..._toolInput };
     }
     const currentClientId = (): string | undefined => {
       if (!session.sessionId) return registry.get(clientId) === session ? clientId : undefined;
@@ -434,8 +518,20 @@ export function buildPermissionHandler(
     // The mode may have changed while the worktree check was awaiting I/O.
     const deniedAfterWorktree = askDenial();
     if (deniedAfterWorktree) return deniedAfterWorktree;
+    if (!nativeScopeCurrent())
+      return { behavior: 'deny', message: 'Original approval scope changed' };
     if (!observationCurrent())
       return { behavior: 'deny', message: 'Original approval input or invocation changed' };
+    if (nativeApproval || githubRepository) {
+      const activeClient = currentClientId();
+      if (
+        originalSignal.aborted ||
+        !nativeScopeCurrent() ||
+        !activeClient ||
+        (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
+      )
+        return { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
+    }
 
     if (
       !questions &&
@@ -448,13 +544,23 @@ export function buildPermissionHandler(
     // A user session grant satisfies a forced ask prompt, while mode, skill and
     // workspace checks still run first. Scoped adapters must supply their own key.
     if (
-      !nativeApproval &&
+      (!nativeApproval || nativeSessionGrantKey !== undefined) &&
       !questions &&
       opts.allowSessionGrant !== false &&
       (opts.sessionGrantKey
-        ? session.sessionAllowList.has(opts.sessionGrantKey)
+        ? session.sessionAllowList.has(opts.sessionGrantKey) ||
+          opts.isRetainedSessionGrantCurrent?.() === true
         : isAllowListed(session.sessionAllowList, toolName))
     ) {
+      recordPermissionAudit({
+        phase: 'reused',
+        time: Date.now(),
+        sessionId: session.sessionId,
+        toolName,
+        toolUseID: opts.toolUseID,
+        scopeHash: createHash('sha256').update(grantKey).digest('hex'),
+        outcome: 'allowed',
+      });
       return {
         behavior: 'allow',
         decisionClassification: 'user_permanent',
@@ -502,7 +608,7 @@ export function buildPermissionHandler(
           'This exact Telos source approval is already pending. Use its existing review card.',
       };
 
-    return new Promise<PermissionResult>((resolve) => {
+    const pending = new Promise<PermissionResult>((resolve) => {
       if (originalSignal.aborted || !nativeScopeCurrent()) {
         resolve({ behavior: 'deny', message: 'Aborted' });
         return;
@@ -618,7 +724,7 @@ export function buildPermissionHandler(
       const onAbort = () => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          removePending(permId);
+          removePending(permId, 'cancelled');
           wrappedResolve({
             behavior: 'deny',
             message: 'Tool approval cancelled because the operation was aborted',
@@ -648,7 +754,7 @@ export function buildPermissionHandler(
           ? { sessionGrantDescription: opts.sessionGrantDescription }
           : {}),
         sessionId: session.sessionId,
-        expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
+        expiresAt: Math.min(Date.now() + PERMISSION_TIMEOUT_MS, nativeExpiresAt ?? Infinity),
         ...(questions ? { questions } : {}),
       };
       registerPending(
@@ -672,14 +778,18 @@ export function buildPermissionHandler(
                   checkSkillPolicy(registry, currentClientId()!, toolName) !== 'deny'),
             }
           : undefined,
+        {
+          toolUseID: originalToolUseID,
+          scopeHash: createHash('sha256').update(grantKey).digest('hex'),
+        },
       );
 
       // Lifecycle listeners may resolve synchronously during registration.
       if (settled) return;
 
-      if (ntfyConfigured() || pushoverConfigured()) {
+      if (!hasPermissionNotificationOwner() && (ntfyConfigured() || pushoverConfigured())) {
         notificationTimer = setTimeout(() => {
-          if (hasPending(permId)) {
+          if (hasPending(permId) && !hasPermissionNotificationOwner()) {
             if (ntfyConfigured())
               sendPermissionNotification(toolName, inputSummary, permId, session.sessionId);
             if (pushoverConfigured())
@@ -688,16 +798,30 @@ export function buildPermissionHandler(
         }, NTFY_NOTIFICATION_DELAY_MS);
       }
 
-      timeout = setTimeout(() => {
-        if (hasPending(permId)) {
-          resolutionEvent = 'permission_timeout';
-          removePending(permId);
-          wrappedResolve({
-            behavior: 'deny',
-            message: 'Tool approval expired without a response; request approval again',
-          });
-        }
-      }, PERMISSION_TIMEOUT_MS);
+      timeout = setTimeout(
+        () => {
+          if (hasPending(permId)) {
+            resolutionEvent = 'permission_timeout';
+            removePending(permId);
+            try {
+              onNativeExpiry?.();
+            } catch (error) {
+              log.warn('Native approval expiry observation failed; approval remains refused', {
+                code: 'native_approval_expiry_observer_failed',
+                stage: 'permission_timeout',
+                sessionId: session.sessionId,
+                permId,
+                errorType: error instanceof Error ? error.name : 'non-Error',
+              });
+            }
+            wrappedResolve({
+              behavior: 'deny',
+              message: PERMISSION_EXPIRED_MESSAGE,
+            });
+          }
+        },
+        Math.max(0, request.expiresAt! - Date.now()),
+      );
       if (!questions && opts.allowSessionGrant !== false && opts.rememberSessionGrant !== false) {
         let accepting = false;
         untrackScope = trackScopeApproval(session, grantKey, {
@@ -749,5 +873,31 @@ export function buildPermissionHandler(
       for (const transport of registry.getPermissionTransports(session))
         transportSend(transport, event);
     });
+    return withToolGuardPhase('approval', () => pending);
+  };
+  return async (...args: Parameters<typeof decide>): Promise<PermissionResult> => {
+    const sessionId = registry.get(clientId)?.sessionId;
+    try {
+      const result = await decide(...args);
+      recordPermissionAudit({
+        phase: 'evaluated',
+        time: Date.now(),
+        sessionId,
+        toolName: args[0],
+        toolUseID: args[2].toolUseID,
+        outcome: result.behavior === 'allow' ? 'allowed' : 'denied',
+      });
+      return result;
+    } catch (error) {
+      recordPermissionAudit({
+        phase: 'evaluated',
+        time: Date.now(),
+        sessionId,
+        toolName: args[0],
+        toolUseID: args[2].toolUseID,
+        outcome: 'failed',
+      });
+      throw error;
+    }
   };
 }

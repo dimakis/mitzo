@@ -1,152 +1,147 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { EventStore } from '../event-store.js';
+import { TelosWorkStore } from '../telos-work-store.js';
+import { TelosArtifactStore } from '../telos-artifact-store.js';
+import { TelosSourceCapture } from '../telos-source-capture.js';
+import { TelosRuntimeStore } from '../telos-runtime-store.js';
 import { createCanonicalTelosOutcome } from '../telos-outcome-owner.js';
+const roots: string[] = [];
+afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 const input = {
   summary: 'Outcome',
   intent: 'Result',
   rationale: 'Why',
   acceptanceCriteria: ['Evidence'],
   profile: 'manual',
-  milestones: ['Slice one'],
-  idempotencyKey: 'host-stable-identity',
+  milestones: ['Slice'],
+  idempotencyKey: 'reviewed-original',
 };
-describe('existing canonical Telos creator transport', () => {
-  it('preserves recovery and delivery metadata and refuses an incomplete canonical creation receipt', async () => {
-    const receipt = {
-      ok: true,
-      created: false,
-      item: { id: 'canonical-item', summary: 'Outcome', children: [{ id: 'slice' }] },
-      delivery: { state: 'pending' },
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), 'telos-native-creator-'));
+  roots.push(root);
+  const path = join(root, 'telos.db');
+  TelosRuntimeStore.initialize(path);
+  return { dbPath: () => path };
+}
+it('captures reviewed source with normalized links through native outcome creation and exact retry', async () => {
+  const options = fixture();
+  const events = new EventStore(join(dirname(options.dbPath()), 'events.db'));
+  const work = new TelosWorkStore(options.dbPath(), {
+    ordinaryConversation: (id) => id === 'planning',
+  });
+  const artifacts = new TelosArtifactStore(options.dbPath());
+  try {
+    events.upsertSession({ sessionId: 'planning', conversationSource: 'mitzo' });
+    const sequence = events.append('planning', 'user_message', {
+      messageId: 'approved',
+      text: 'Keep the reviewed plan.',
+    });
+    const actor = { kind: 'operator' as const, id: 'offline-operator' };
+    const capture = new TelosSourceCapture({
+      events,
+      work,
+      artifacts,
+      authorizeSource: () => true,
+      authorizeArtifact: () => true,
+    });
+    const proposal = {
+      requestId: randomUUID(),
+      selection: {
+        requestId: randomUUID(),
+        expectedMembershipRevision: 0,
+        sourceConversationId: 'planning',
+        mode: 'selected',
+        boundary: { sequence, messageId: 'approved' },
+        messageIds: ['approved'],
+        artifacts: [],
+        purpose: 'Retain the reviewed plan',
+        joiningBrief: '',
+      },
+      outcome: {
+        summary: input.summary,
+        intent: input.intent,
+        rationale: input.rationale,
+        acceptanceCriteria: input.acceptanceCriteria,
+        profile: input.profile,
+        milestones: input.milestones,
+        links: [
+          { type: 'external', url: ' https://example.test/plan ', title: 'Plan', description: '' },
+        ],
+      },
     };
-    const execute = vi.fn().mockResolvedValue({ stdout: JSON.stringify(receipt) });
-    const options = {
-      script: 'configured/todo_api.py',
-      exists: () => true,
-      timeoutMs: 30000,
-      maxBufferBytes: 8388608,
-      execute,
-    };
-    expect(await createCanonicalTelosOutcome(options, input)).toEqual({
-      itemId: 'canonical-item',
-      receipt,
-    });
-    execute.mockResolvedValueOnce({
-      stdout: JSON.stringify({ ok: true, item: { id: 'canonical-item' } }),
-    });
-    await expect(createCanonicalTelosOutcome(options, input)).rejects.toThrow();
-    execute.mockResolvedValueOnce({
-      stdout: JSON.stringify({ ok: false, error: 'profile must be one of: manual, work' }),
-    });
-    await expect(createCanonicalTelosOutcome(options, input)).rejects.toThrow(
-      'profile must be one of: manual, work',
+    const preview = await capture.previewNew(proposal, actor);
+    const reviewed = { ...proposal, previewSha256: preview.sha256 };
+    const create = (body: unknown, assertCurrent: () => void) =>
+      createCanonicalTelosOutcome(options, body, assertCurrent);
+    const first = await capture.createReviewed(reviewed, actor, create);
+    const retry = await capture.createReviewed(reviewed, actor, create);
+    expect(retry).toEqual(first);
+    const item = work.readSourceTarget(first.work.itemId, actor).record;
+    expect(item.links).toContainEqual(
+      expect.objectContaining({ url: 'https://example.test/plan' }),
     );
+  } finally {
+    artifacts.close();
+    work.close();
+    events.close();
+  }
+});
+it('creates in the selected canonical database and recovers the same IDs without an external owner', async () => {
+  const options = fixture();
+  const first = await createCanonicalTelosOutcome(options, input, () => {});
+  const second = await createCanonicalTelosOutcome(options, input, () => {});
+  expect(first.receipt).toMatchObject({
+    ok: true,
+    created: true,
+    item: { summary: 'Outcome', children: [{ summary: 'Slice' }] },
   });
-
-  it('calls the selected Python owner with the original stable creation identity and structured arguments', async () => {
-    const execute = vi.fn().mockResolvedValue({
-      stdout: JSON.stringify({
-        ok: true,
-        created: true,
-        item: { id: 'canonical-item', summary: 'Outcome' },
-      }),
-    });
-    expect(
-      await createCanonicalTelosOutcome(
-        {
-          script: 'configured/todo_api.py',
-          exists: () => true,
-          execute,
-          timeoutMs: 30000,
-          maxBufferBytes: 8388608,
-        },
-        input,
-      ),
-    ).toEqual({
-      itemId: 'canonical-item',
-      receipt: { ok: true, created: true, item: { id: 'canonical-item', summary: 'Outcome' } },
-    });
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0][0]).toBe('python3');
-    expect(execute.mock.calls[0][1].slice(0, 2)).toEqual([
-      'configured/todo_api.py',
-      '--create-outcome-json',
-    ]);
-    expect(JSON.parse(execute.mock.calls[0][1][2])).toEqual(input);
-    expect(execute.mock.calls[0][2]).toEqual({
-      timeout: 30000,
-      maxBuffer: 8388608,
-      encoding: 'utf8',
-    });
-  });
-  it('refuses missing owners, bad owner replies and invalid proposals without falling back to another store', async () => {
-    const execute = vi.fn().mockResolvedValue({
-      stdout: JSON.stringify({ ok: false, error: '/private/configuration/path' }),
-    });
-    const options = {
-      script: 'configured/todo_api.py',
-      exists: () => true,
-      execute,
-      timeoutMs: 30000,
-      maxBufferBytes: 8388608,
-    };
-    await expect(
-      createCanonicalTelosOutcome({ ...options, exists: () => false }, input),
-    ).rejects.toThrow();
-    expect(execute).not.toHaveBeenCalled();
-    await expect(createCanonicalTelosOutcome(options, input)).rejects.not.toThrow(/private/);
-    execute.mockResolvedValueOnce({ stdout: '{malformed' });
-    await expect(createCanonicalTelosOutcome(options, input)).rejects.toThrow();
+  expect(second).toMatchObject({
+    itemId: first.itemId,
+    receipt: { created: false, item: { id: first.itemId } },
   });
 });
-
-it('renews native source authority at the actual creator dispatch and retains the known receipt', async () => {
-  let current = true;
-  const calls: string[] = [];
-  const receipt = { ok: true, created: true, item: { id: 'canonical-item', summary: 'Outcome' } };
-  const execute = vi.fn(async () => {
-    calls.push('execute');
-    current = false;
-    return { stdout: JSON.stringify(receipt) };
-  });
-  const options = {
-    script: 'configured/todo_api.py',
-    exists: () => true,
-    timeoutMs: 30000,
-    maxBufferBytes: 8388608,
-    execute,
-  };
-  const assertCurrentSync = () => {
-    calls.push('admit');
-    if (!current) throw Error('revoked');
-  };
-  expect(await createCanonicalTelosOutcome(options, input, assertCurrentSync)).toEqual({
-    itemId: 'canonical-item',
-    receipt,
-  });
-  expect(calls).toEqual(['admit', 'execute']);
-  await expect(createCanonicalTelosOutcome(options, input, assertCurrentSync)).rejects.toThrow(
-    'revoked',
-  );
-  expect(execute).toHaveBeenCalledTimes(1);
-});
-it('rejects async and value-returning authority before canonical external dispatch', async () => {
-  const execute = vi.fn();
-  const options = {
-    script: 'configured/todo_api.py',
-    exists: () => true,
-    timeoutMs: 30000,
-    maxBufferBytes: 8388608,
-    execute,
-  };
-  for (const assertion of [
-    async () => {},
-    async () => {
+it('renews current authority inside the canonical transaction before any creation', async () => {
+  const options = fixture();
+  await expect(
+    createCanonicalTelosOutcome(options, input, () => {
       throw Error('revoked');
-    },
-    () => true,
-  ])
-    await expect(createCanonicalTelosOutcome(options, input, assertion)).rejects.toThrow(
-      /authority unavailable/,
-    );
-  await new Promise((resolve) => setImmediate(resolve));
-  expect(execute).not.toHaveBeenCalled();
+    }),
+  ).rejects.toThrow('revoked');
+  const store = new TelosRuntimeStore(options.dbPath());
+  try {
+    expect(store.list().items).toEqual([]);
+  } finally {
+    store.close();
+  }
+});
+it.each([' /private/plan.md ', '   '])(
+  'rejects a nonportable normalized link %j before native creation',
+  async (url) => {
+    const options = fixture();
+    await expect(
+      createCanonicalTelosOutcome(
+        options,
+        { ...input, links: [{ type: 'external', url, title: 'Plan', description: '' }] },
+        () => {},
+      ),
+    ).rejects.toThrow(/portable/);
+    const store = new TelosRuntimeStore(options.dbPath());
+    try {
+      expect(store.list().items).toEqual([]);
+    } finally {
+      store.close();
+    }
+  },
+);
+it('rejects asynchronous or value-returning assertions before mutation', async () => {
+  const options = fixture();
+  for (const assertion of [() => Promise.resolve(), () => true]) {
+    await expect(
+      createCanonicalTelosOutcome(options, input, assertion as () => void),
+    ).rejects.toThrow('Synchronous current Telos authority required');
+  }
 });

@@ -99,6 +99,21 @@ function showViewer() {
 }
 
 describe('FileViewer quiet controls', () => {
+  it('leaves home branding to the shared shell and retains document navigation', () => {
+    const { container } = showViewer();
+    expect(container.querySelector('.mitzo-logo')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Home$/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Back$/ }));
+    expect(mocks.nav.handleBack).toHaveBeenCalledWith(false);
+  });
+
+  it('keeps full document and branch names available when compact labels are truncated', () => {
+    showViewer();
+    expect(screen.getByText('document.md').getAttribute('title')).toBe('document.md');
+    expect(screen.getByText('main').getAttribute('title')).toBe('main');
+    expect(screen.getByRole('button', { name: 'Read' }).getAttribute('aria-label')).toBe('Read');
+  });
+
   it('groups viewing actions and accents only Edit while preserving Read and Share', () => {
     showViewer();
     const actions = screen.getByRole('group', { name: 'File actions' });

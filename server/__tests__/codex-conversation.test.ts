@@ -1,10 +1,17 @@
+import { retainCallbackOutcome } from '../turn-callbacks.js';
+import { withToolGuardPhase } from '@mitzo/harness';
+import { toolFailure } from '@mitzo/protocol';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
 import { webAccessDefinition } from '../request-web-access.js';
 import { summarizeToolInput } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import Database from 'better-sqlite3';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { EventStore } from '../event-store.js';
+import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
+import * as runtimeDiagnostics from '../codex-runtime-diagnostics.js';
+import { codexRuntimeDiagnostic } from '../codex-runtime-diagnostics.js';
 import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -16,13 +23,16 @@ import {
   type CodexConversationOptions,
   type NativeBaseReadScope,
 } from '../codex-conversation.js';
-import { CodexConversationStore } from '../codex-conversation-store.js';
+import {
+  CodexConversationStore,
+  CodexNativeTurnTargetSchema,
+} from '../codex-conversation-store.js';
 import {
   migrateRetainedRuntime,
   type RuntimeMigrationAdapters,
 } from '../openshell-runtime-migration.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
-import type { AccountBinding } from '@mitzo/protocol';
+import { AccountBindingSchema, type AccountBinding } from '@mitzo/protocol';
 import {
   CodexHostToolRequestError,
   CodexRequestError,
@@ -36,8 +46,12 @@ import {
   createContextKey,
   type Context,
   type Span,
+  trace,
 } from '@opentelemetry/api';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
+import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 const cleanup: (() => void)[] = [];
 const binding = {
   accountId: 'personal',
@@ -46,6 +60,777 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it('bounds a noncooperative host tool, fences its late callback and retains unknown effects', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 20, approvalMs: 100, cleanupMs: 20 };
+  let release!: () => void;
+  let lateError: unknown;
+  f.execute.mockImplementationOnce(async (_name, _input, _signal, invocation) => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      invocation.assertCurrentSync?.();
+    } catch (error) {
+      lateError = error;
+    }
+    return { content: 'late result', isError: false };
+  });
+  await f.c.send({ id: 'guarded-command', prompt: 'Inspect the existing work' });
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'guarded-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(false);
+  expect(JSON.parse((result.contentItems as { text: string }[])[0].text)).toMatchObject({
+    diagnostic: { reason: 'deadline', effectStatus: 'unknown' },
+  });
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        callId: 'second-call',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toBeInstanceOf(Error);
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(lateError).toBeInstanceOf(Error);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.store.read('app', f.getBinding()).recovery).toBe(1));
+});
+
+it('bounds ordinary cancellation cleanup without accepting a late unqualified outcome', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 1000, approvalMs: 1000, cleanupMs: 20 };
+  let release!: () => void;
+  f.execute.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ content: 'late success', isError: false });
+      }),
+  );
+  await f.c.send({ id: 'cancel-command', prompt: 'Inspect existing work' });
+  const abort = new AbortController();
+  const work = f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'cancel-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    abort.signal,
+  );
+  await vi.waitFor(() => expect(f.execute).toHaveBeenCalledOnce());
+  abort.abort(Error('User cancelled'));
+  const result = await work;
+  expect(result.success).toBe(false);
+  expect(JSON.parse((result.contentItems as { text: string }[])[0].text)).toMatchObject({
+    diagnostic: { effectStatus: 'unknown' },
+  });
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(f.execute).toHaveBeenCalledOnce();
+});
+
+it('excludes an actual adapter approval phase from its host execution deadline', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 30, approvalMs: 200, cleanupMs: 20 };
+  f.execute.mockImplementationOnce(async () => {
+    await withToolGuardPhase(
+      'approval',
+      () => new Promise<void>((resolve) => setTimeout(resolve, 60)),
+    );
+    return { content: 'approved read', isError: false };
+  });
+  await f.c.send({ id: 'approval-command', prompt: 'Inspect the existing work' });
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'approval-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(true);
+});
+
+it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] as const)(
+  'continues once after authoritative approval expiry only with safe command-wide native outcomes (%s)',
+  async (nativeOutcome) => {
+    const f = await setup();
+    let approvalRequests = 0;
+    f.conversationOptions.requestNativeApproval = async (_method, _params, _signal, context) => {
+      approvalRequests++;
+      context.observeFailure?.(toolFailure('approval_expired', 'approval', 'not_started'));
+      return { decision: 'decline' };
+    };
+    await f.c.send({
+      id: 'expired-source',
+      prompt: 'Original request',
+      intent: 'Original request',
+    });
+    if (nativeOutcome === 'suppressed-during-prepare')
+      f.conversationOptions.prepareTurn = async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        f.store.recordToolFailureRecoverySuppression(
+          'app',
+          f.getBinding(),
+          'expired-source',
+          'turn-1',
+        );
+      };
+    const fail = async (turnId: string, itemId: string) => {
+      if (nativeOutcome === 'failed-earlier') {
+        f.callbacks.onNotification('item/started', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'earlier', command: 'unknown operation' },
+        });
+        f.callbacks.onNotification('item/completed', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'earlier', status: 'completed', exitCode: 1 },
+        });
+      }
+      f.callbacks.onNotification('item/started', {
+        threadId: f.getProviderThread(),
+        turnId,
+        item: { type: 'commandExecution', id: itemId, command: 'offline-test' },
+      });
+      await f.callbacks.onRequest(
+        'item/commandExecution/requestApproval',
+        {
+          threadId: f.getProviderThread(),
+          turnId,
+          itemId,
+          kind: 'command',
+          startedAtMs: Date.now(),
+          environmentId: 'local',
+          cwd: '/workspace',
+          command: 'offline-test',
+        },
+        new AbortController().signal,
+        { requestId: itemId },
+      );
+      f.callbacks.onNotification('item/completed', {
+        threadId: f.getProviderThread(),
+        turnId,
+        item: { type: 'commandExecution', id: itemId, status: 'declined' },
+      });
+      if (nativeOutcome === 'unfinished')
+        f.callbacks.onNotification('item/started', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'unfinished', command: 'unknown operation' },
+        });
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: { id: turnId, status: 'completed' },
+      });
+    };
+    await fail('turn-1', 'approval-1');
+    if (nativeOutcome !== 'clear') {
+      if (nativeOutcome === 'suppressed-during-prepare')
+        await vi.waitFor(() => expect(f.c.isPaused()).toBe(true));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+        1,
+      );
+      expect(
+        f.c
+          .queue()
+          .some(
+            (command) =>
+              command.toolFailureContinuation && ['queued', 'running'].includes(command.status),
+          ),
+      ).toBe(false);
+      return;
+    }
+    await vi.waitFor(() =>
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+        2,
+      ),
+    );
+    const child = f.c.queue().find((command) => command.toolFailureContinuation)!;
+    expect(child.intent).toBe('Original request');
+    expect(child.prompt).toContain('Do not replay');
+    expect(f.execute).not.toHaveBeenCalled();
+    await fail('turn-2', 'approval-2');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2);
+    expect(f.c.queue().filter((command) => command.toolFailureContinuation)).toHaveLength(1);
+    expect(approvalRequests).toBe(1);
+  },
+);
+
+it.each([false, true])(
+  'routes native children through the original executor without completing or steering the parent command (owned=%s)',
+  async (owned) => {
+    const wrapped = owned ? await setupOwnedRefusal() : undefined;
+    const f =
+      wrapped ?? (await setup(undefined, undefined, undefined, undefined, async () => binding));
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    Object.assign(f.conversationOptions, {
+      enableNativeSubagents: true,
+      nativeExecution: policy,
+      assertNativeExecutionCurrent: () => {},
+      requestNativeApproval: async () => ({ decision: 'decline' }),
+    });
+    await f.c.send({ id: 'root-command', prompt: 'Review edge cases' });
+    const original = f.rpc.request.getMockImplementation()!;
+    const child = {
+      id: 'child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'native-tree',
+      cwd: policy.cwd,
+      model: 'test-model',
+      modelProvider: 'openai',
+      agentNickname: 'Edge cases',
+      preview: 'Check empty queries',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+      if (params.threadId === 'child') {
+        if (method === 'thread/resume')
+          return { thread: child, model: 'test-model', modelProvider: 'openai' };
+        if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+        if (method === 'turn/steer') return { turnId: params.expectedTurnId };
+      }
+      return original(method, params);
+    });
+    if (owned)
+      f.callbacks.onNotification('item/completed', {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        item: {
+          type: 'subAgentActivity',
+          id: 'spawn',
+          kind: 'started',
+          agentThreadId: 'child',
+          agentPath: '/root/reviewer',
+        },
+      });
+    else f.callbacks.onNotification('thread/started', { thread: child });
+    f.callbacks.onNotification('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
+    await f.c.getSubagents()!.settled();
+    if (wrapped) {
+      for (const [category, input] of [
+        ['invalid_tool_request', { tool: 'Read', arguments: 'invalid' }],
+        ['tool_unavailable', { tool: 'Unknown', arguments: {} }],
+      ] as const) {
+        await expect(
+          f.callbacks.onRequest(
+            'item/tool/call',
+            {
+              threadId: 'child',
+              turnId: 'child-turn',
+              callId: category,
+              ...input,
+            },
+            new AbortController().signal,
+            { requestId: category },
+          ),
+        ).rejects.toMatchObject({ category });
+        expect(wrapped.close).not.toHaveBeenCalled();
+        expect(f.execute).not.toHaveBeenCalled();
+      }
+    }
+    await f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'child',
+        turnId: 'child-turn',
+        callId: 'child-call',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+    expect(f.execute).toHaveBeenCalledOnce();
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'child',
+      turn: { id: 'child-turn', status: 'completed' },
+    });
+    expect(f.c.queue()[0].status).toBe('running');
+    expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
+    let releasePreparation!: () => void;
+    f.conversationOptions.prepareAgentContext = async () =>
+      new Promise<void>((resolve) => {
+        releasePreparation = resolve;
+      });
+    let authorized = true;
+    const directed = f.c.getSubagents()!.control(
+      {
+        requestId: 'revoke-during-prepare',
+        action: 'message',
+        threadId: 'child',
+        text: 'Next check',
+      },
+      () => {
+        if (!authorized) throw Error('Operator revoked');
+      },
+    );
+    await vi.waitFor(() => expect(releasePreparation).toBeTypeOf('function'));
+    authorized = false;
+    releasePreparation();
+    expect(await directed).toBe('rejected');
+    expect(
+      f.rpc.request.mock.calls.filter(
+        ([method, params]) => method === 'turn/start' && params.threadId === 'child',
+      ),
+    ).toHaveLength(0);
+    expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
+    f.conversationOptions.prepareAgentContext = undefined;
+    expect(
+      f.events.some((event) => JSON.stringify(event).includes('nativeSubagentCommandId')),
+    ).toBe(true);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  },
+);
+
+function enableSubagentFixture(f: Awaited<ReturnType<typeof setup>>) {
+  Object.assign(f.conversationOptions, {
+    enableNativeSubagents: true,
+    nativeExecution: codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    }),
+    assertNativeExecutionCurrent: () => {},
+    requestNativeApproval: async () => ({ decision: 'decline' }),
+  });
+}
+
+it.each(['validator', 'owned admission'])(
+  'validates subagents with their originating thinking selection through %s',
+  async (validation) => {
+    const f = await setup();
+    enableSubagentFixture(f);
+    const validateModel = vi.fn((model: string, effort?: string) => {
+      if (model !== 'test-model' || !['high', 'low'].includes(effort ?? ''))
+        throw Error('Selection unavailable');
+    });
+    if (validation === 'owned admission') {
+      const events = new EventStore(':memory:');
+      cleanup.push(() => events.close());
+      const account = AccountBindingSchema.parse(f.getBinding());
+      const runtime = {
+        version: 2 as const,
+        account: {
+          accountId: account.accountId,
+          provider: account.provider,
+          profileRevision: account.profileRevision,
+        },
+        harness: { implementation: 'codex' as const },
+        execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'target' },
+      };
+      const selection = {
+        version: 1 as const,
+        agent: { profileId: 'agent', revision: 1 },
+        context: { source: 'none' as const, revision: null },
+        permission: { mode: 'agent' as const, revision: 0 },
+        model: account.model,
+        thinking: 'high',
+      };
+      const expected = {
+        binding: runtime,
+        hostId: 'host',
+        runtimeContractRevision: 'runtime',
+        capabilityRevision: 'cap',
+        workspace: { workspaceId: 'workspace', cwd: '/workspace' },
+        selection,
+      };
+      events.admitOrdinaryLocalCommand(
+        {
+          sessionId: 'app',
+          accountBinding: account,
+          cwd: '/workspace',
+          repositoryWorkspaceId: 'workspace',
+          selectedModel: account.model,
+          reasoningEffort: 'high',
+          mode: 'agent',
+        },
+        runtime,
+        {
+          clientMsgId: 'thinking-parent',
+          requestFingerprint: 'thinking-parent',
+          selection,
+          payload: { text: 'Review edge cases', systemPrompt: 'context' },
+        },
+      );
+      events.claimOrdinaryLocalCommandDispatch('thinking-parent');
+      const lease = {
+        binding: account,
+        profile: f.conversationOptions.profile,
+        client: f.rpc,
+        assertCurrentSync: vi.fn(),
+      } as unknown as FrozenHostCodexBootstrapLease;
+      const owner = OwnedLocalCodexChatAdmission.capture({
+        eventStore: events,
+        sessionId: 'app',
+        commandId: 'thinking-parent',
+        expected,
+        lease,
+        bridge: new OwnedCodexLifecycleBridge(() => lease),
+      });
+      events.completeOrdinaryLocalCommand('thinking-parent');
+      expect(() => owner.assertModelSelection(account.model)).toThrow();
+      validateModel.mockImplementation((model, effort) =>
+        owner.assertModelSelection(model, effort),
+      );
+    }
+    f.conversationOptions.validateModel = validateModel;
+    await f.c.send({ id: 'thinking-parent', prompt: 'Review edge cases', reasoningEffort: 'high' });
+    if (validation === 'validator')
+      f.c.enqueue({ id: 'future-command', prompt: 'Later work', reasoningEffort: 'low' });
+    const original = f.rpc.request.getMockImplementation()!;
+    const child = {
+      id: 'thinking-child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'native-tree',
+      cwd: '/workspace',
+      model: 'test-model',
+      modelProvider: 'openai',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+      if (params.threadId === child.id) {
+        if (method === 'thread/resume')
+          return { thread: child, model: child.model, modelProvider: 'openai' };
+        if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+      }
+      return original(method, params);
+    });
+    f.callbacks.onNotification('thread/started', { thread: child });
+    f.callbacks.onNotification('turn/started', { threadId: child.id, turn: { id: 'child-turn' } });
+    await f.c.getSubagents()!.settled();
+    expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+      threadId: child.id,
+      available: true,
+      state: 'working',
+    });
+    expect(validateModel.mock.calls.at(-1)).toEqual(['test-model', 'high']);
+    await f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: child.id,
+        turnId: 'child-turn',
+        callId: 'child-call',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+    expect(f.execute).toHaveBeenCalledOnce();
+    expect(f.c.queue()[0].status).toBe('running');
+  },
+);
+
+it.each(['missing command', 'rejected selection'])(
+  'keeps subagent inspection unavailable after a %s',
+  async (failure) => {
+    const f = await setup();
+    enableSubagentFixture(f);
+    await f.c.send({ id: 'original-command', prompt: 'Review edge cases' });
+    const validateModel = vi.fn(() => {
+      if (failure === 'rejected selection') throw Error('Selection unavailable');
+    });
+    f.conversationOptions.validateModel = validateModel;
+    const commands =
+      failure === 'missing command' ? vi.spyOn(f.store, 'commands').mockReturnValue([]) : undefined;
+    const original = f.rpc.request.getMockImplementation()!;
+    const child = {
+      id: 'unavailable-child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'native-tree',
+      cwd: '/workspace',
+      model: 'test-model',
+      modelProvider: 'openai',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+      return original(method, params);
+    });
+    f.callbacks.onNotification('thread/started', { thread: child });
+    await f.c.getSubagents()!.settled();
+    commands?.mockRestore();
+    expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+      available: false,
+      inspectionFailure: { stage: 'validate_identity' },
+    });
+    expect(
+      f.rpc.request.mock.calls.some(
+        ([method, params]) => method === 'thread/resume' && params.threadId === child.id,
+      ),
+    ).toBe(false);
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.c.queue()[0].status).toBe('running');
+    if (failure === 'missing command') expect(validateModel).not.toHaveBeenCalled();
+  },
+);
+
+it('contains anchor reconciliation storage failures without closing the parent transport', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  enableSubagentFixture(f);
+  await f.c.send({ id: 'anchor-failure-command', prompt: 'Review' });
+  vi.spyOn(f.store.subagents, 'list').mockImplementationOnce(() => {
+    throw Error('private reconciliation failure');
+  });
+  const requests = f.rpc.request.mock.calls.length;
+  expect(() =>
+    f.callbacks.onNotification('thread/started', {
+      thread: { id: 'unanchored-child', parentThreadId: f.getProviderThread() },
+    }),
+  ).not.toThrow();
+  await f.c.getSubagents()!.settled();
+  expect(f.c.queue()[0].status).toBe('running');
+  expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+    available: false,
+    inspectionFailure: { stage: 'events' },
+  });
+  expect(f.rpc.request.mock.calls).toHaveLength(requests);
+  expect(f.onTransportClosed).not.toHaveBeenCalled();
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
+it('emits a durable child activity marker before native inspection can fail', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  enableSubagentFixture(f);
+  await f.c.send({ id: 'visible-child-command', prompt: 'Review' });
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read' && params.threadId === 'uninspectable-child')
+      throw Error('private upstream details');
+    return original(method, params);
+  });
+  f.callbacks.onNotification('thread/started', {
+    thread: { id: 'uninspectable-child', parentThreadId: f.getProviderThread() },
+  });
+  expect(f.events.some((event) => JSON.stringify(event).includes('nativeSubagentCommandId'))).toBe(
+    true,
+  );
+  await f.c.getSubagents()!.settled();
+  expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+    threadId: 'uninspectable-child',
+    available: false,
+    state: 'unknown',
+    blocks: [],
+    inspectionFailure: { stage: 'inspect_child' },
+  });
+  expect(f.c.queue()[0].status).toBe('running');
+  expect(f.execute).not.toHaveBeenCalled();
+  const markerCount = () =>
+    f.events.filter(
+      (event) =>
+        event.type === 'assistant' && JSON.stringify(event).includes('nativeSubagentCommandId'),
+    ).length;
+  expect(markerCount()).toBe(1);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  f.c.close();
+  const restored = new CodexConversation({
+    ...f.conversationOptions,
+    storedBinding: f.getBinding(),
+    verifyBinding: async () => f.getBinding(),
+  });
+  cleanup.push(() => restored.close());
+  await restored.initialize();
+  expect(markerCount()).toBe(1);
+  f.callbacks.onNotification('thread/started', {
+    thread: { id: 'new-descendant', parentThreadId: 'uninspectable-child' },
+  });
+  await restored.getSubagents()!.settled();
+  expect(
+    restored
+      .getSubagents()!
+      .list()
+      .find((child) => child.threadId === 'new-descendant'),
+  ).toMatchObject({ commandId: 'visible-child-command' });
+  expect(markerCount()).toBe(1);
+  await restored.send({ id: 'second-visible-command', prompt: 'Next task' });
+  f.callbacks.onNotification('thread/started', {
+    thread: { id: 'second-command-child', parentThreadId: f.getProviderThread() },
+  });
+  await restored.getSubagents()!.settled();
+  expect(markerCount()).toBe(2);
+});
+
+it('pauses and interrupts the original parent before waiting for slow child cancellation', async () => {
+  const f = await setup();
+  Object.assign(f.conversationOptions, {
+    enableNativeSubagents: true,
+    nativeExecution: codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    }),
+    assertNativeExecutionCurrent: () => {},
+    requestNativeApproval: async () => ({ decision: 'decline' }),
+  });
+  await f.c.send({ id: 'original', prompt: 'Work' });
+  await f.c.send({ id: 'queued', prompt: 'Later' });
+  let release!: () => void;
+  vi.spyOn(f.c.getSubagents()!, 'interruptAll').mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const stopped = f.c.interrupt();
+  expect(
+    f.rpc.request.mock.calls
+      .filter(([method]) => method === 'turn/interrupt')
+      .map(([, params]) => params),
+  ).toContainEqual({ threadId: f.getProviderThread(), turnId: 'turn-1' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'interrupted' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('interrupted'));
+  expect(f.c.queue()[1].status).toBe('queued');
+  release();
+  await stopped;
+});
+
+it.each(['pending', 'after'] as const)(
+  'cancels a %s child admission through the real parent recovery fence',
+  async (arrival) => {
+    const f = await setup();
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    Object.assign(f.conversationOptions, {
+      enableNativeSubagents: true,
+      nativeExecution: policy,
+      assertNativeExecutionCurrent: () => {},
+      requestNativeApproval: async () => ({ decision: 'decline' }),
+    });
+    await f.c.send({ id: 'recovery-root', prompt: 'Work' });
+    const owner = f.c.getSubagents()!;
+    const original = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    const child = {
+      id: 'recovery-child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'tree',
+      cwd: policy.cwd,
+      model: 'test-model',
+      modelProvider: 'openai',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') {
+        if (params.threadId === child.id && arrival === 'pending')
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return { thread: { ...child, id: params.threadId } };
+      }
+      if (params.threadId === child.id) {
+        if (method === 'thread/resume')
+          return { thread: child, model: child.model, modelProvider: child.modelProvider };
+        if (method === 'thread/turns/list') return { data: [] };
+        if (method === 'turn/interrupt') return {};
+      }
+      return original(method, params);
+    });
+    const announce = () => {
+      f.callbacks.onNotification('thread/started', { thread: child });
+      f.callbacks.onNotification('turn/started', {
+        threadId: child.id,
+        turn: { id: 'recovery-child-turn' },
+      });
+    };
+    if (arrival === 'pending') {
+      announce();
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    }
+    const stopping = f.c.interrupt();
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    if (arrival === 'pending') release();
+    else {
+      await stopping;
+      announce();
+    }
+    await stopping;
+    await owner.settled();
+    await vi.waitFor(() =>
+      expect(
+        f.rpc.request.mock.calls.some(
+          ([method, params]) =>
+            method === 'turn/interrupt' &&
+            params.threadId === child.id &&
+            params.turnId === 'recovery-child-turn',
+        ),
+      ).toBe(true),
+    );
+    expect(owner.list()[0]).toMatchObject({ available: false, state: 'stopping' });
+    await expect(
+      owner.request(
+        'item/tool/call',
+        {
+          threadId: child.id,
+          turnId: 'recovery-child-turn',
+          callId: 'blocked-recovery-tool',
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow();
+    expect(f.execute).not.toHaveBeenCalled();
+    // The fixture acknowledges the parent interrupt separately from the child.
+    expect(f.c.queue()[0].status).toBe('interrupted');
+  },
+);
 
 it('retains unknown late tool effects independently of its durable error result', async () => {
   const f = await setup();
@@ -738,6 +1523,55 @@ it.each(['thread', 'turn', 'request-id'])(
   },
 );
 
+it('retains the exact failed native approval check after the handler without private error text', async () => {
+  const f = await setup();
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  f.conversationOptions.nativeExecution = policy;
+  f.conversationOptions.assertNativeExecutionCurrent = () => {};
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'accept' });
+  await f.c.send({ id: 'native-request', prompt: 'Run' });
+  const failure = new Error('private owner detail');
+  f.conversationOptions.requestNativeApproval = async () => {
+    f.conversationOptions.assertNativeExecutionCurrent = () => {
+      throw failure;
+    };
+    return { decision: 'accept' };
+  };
+  const addEvent = vi.fn();
+  const spy = vi.spyOn(trace, 'getActiveSpan').mockReturnValue({ addEvent } as unknown as Span);
+  try {
+    const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+    await expect(
+      request(
+        'item/commandExecution/requestApproval',
+        {
+          threadId: f.getProviderThread(),
+          turnId: 'turn-1',
+          itemId: 'command-1',
+        },
+        new AbortController().signal,
+        { requestId: 19 },
+      ),
+    ).rejects.toBe(failure);
+    expect(addEvent).toHaveBeenCalledExactlyOnceWith('native_approval.check_failed', {
+      stage: 'after_handler',
+      check: 'execution_policy',
+    });
+    expect(JSON.stringify(addEvent.mock.calls)).not.toContain(failure.message);
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
 it('rejects a native grant if Stop arrives while the permission owner is waiting', async () => {
   const f = await setup();
   let release!: () => void;
@@ -1045,6 +1879,96 @@ it('ends dispatch, acknowledgment and first-output spans and labels the selected
   ).not.toContain('private prompt');
 });
 
+it('distinguishes tool activity, reasoning and assistant text without closing completion early', async () => {
+  const spans = new Map<
+    string,
+    {
+      setAttribute: ReturnType<typeof vi.fn>;
+      setStatus: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    }
+  >();
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) => {
+    const span = original(name, options, ctx);
+    const tracked = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
+    spans.set(name, tracked);
+    return { ...tracked, spanContext: () => span.spanContext() } as unknown as Span;
+  });
+  const f = await setup();
+  await f.c.send({ id: 'session-prompt:timing', prompt: 'private prompt' });
+  expect(spans.has('codex.turn.first_activity')).toBe(true);
+  expect(spans.has('codex.turn.first_text')).toBe(true);
+  f.callbacks.onNotification('item/started', {
+    threadId: 'provider-thread',
+    turnId: 'stale-turn',
+    item: { id: 'old', type: 'commandExecution', command: 'pwd' },
+  });
+  expect(spans.get('codex.turn.first_activity')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/started', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    item: { id: 'cmd', type: 'commandExecution', command: 'pwd' },
+  });
+  expect(spans.get('codex.turn.first_activity')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/reasoning/textDelta', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'reason',
+    delta: 'private reasoning',
+  });
+  expect(spans.get('codex.turn.first_output')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/agentMessage/delta', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'answer',
+    delta: 'hello',
+  });
+  expect(spans.get('codex.turn.first_text')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn')!.end).not.toHaveBeenCalled();
+  f.c.close();
+  expect(spans.get('codex.turn.first_activity')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).toHaveBeenCalledOnce();
+  expect(JSON.stringify([...spans.values()].map((s) => s.setAttribute.mock.calls))).not.toContain(
+    'private',
+  );
+});
+
+it('records queue gates without changing FIFO dispatch', async () => {
+  const reasons: string[] = [];
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) => {
+    const span = original(name, options, ctx);
+    if (name !== 'codex.command.queue_wait') return span;
+    return {
+      ...span,
+      addEvent: vi.fn(),
+      setAttribute: (key: string, value: string) => {
+        if (key === 'mitzo.queue.reason') reasons.push(value);
+        return span;
+      },
+      end: vi.fn(),
+    } as unknown as Span;
+  });
+  const f = await setup();
+  f.conversationOptions.canStartCommand = () => false;
+  f.c.enqueue({ id: 'queued-gates', prompt: 'hello' });
+  await f.c.startQueued();
+  expect(reasons).toContain('deployment');
+  f.conversationOptions.canStartCommand = () => true;
+  f.conversationOptions.canClaimCommand = () => false;
+  await f.c.startQueued();
+  expect(reasons).toContain('admission');
+  f.conversationOptions.canClaimCommand = () => true;
+  await f.c.startQueued();
+  f.c.enqueue({ id: 'second-gates', prompt: 'next' });
+  expect(reasons).toContain('active_turn');
+  expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+  f.c.close();
+});
+
 it('records matching first output before the turn/start acknowledgment', async () => {
   const firstOutput = { setAttribute: vi.fn(), end: vi.fn() };
   const original = tracer.startSpan.bind(tracer);
@@ -1256,6 +2180,10 @@ async function setup(
     approvedSearchOnCurrentTransport?: boolean;
   },
   initialProviderThread = 'provider-thread',
+  lifecycleWrapper?: (
+    owner: CodexLifecycleTransport,
+    client: ReturnType<CodexConversationOptions['createClient']>,
+  ) => CodexLifecycleTransport,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -1321,6 +2249,7 @@ async function setup(
     }),
   };
   const conversationOptions: CodexConversationOptions = {
+    assertRecoveryCurrent: () => {},
     assertSteeringCurrent: () => {},
     ownerKind: nativeTool?.ownerKind,
     conversationId: 'app',
@@ -1388,6 +2317,7 @@ async function setup(
           cb.onNotification(method, params);
         },
       };
+      if (lifecycleWrapper) callbacks = lifecycleWrapper(callbacks, rpc);
       return rpc;
     },
     emit: (e) => events.push(e),
@@ -1411,11 +2341,12 @@ async function setup(
   return {
     c,
     store,
+    storePath: existingStore ? undefined : join(dir, 'private.db'),
     callbacks: {
       onNotification: (method: string, params: Record<string, unknown>) =>
         callbacks.onNotification(method, params),
-      onRequest: (method: string, params: Record<string, unknown>, signal: AbortSignal) =>
-        callbacks.onRequest(method, params, signal),
+      onRequest: (...args: Parameters<CodexLifecycleTransport['onRequest']>) =>
+        callbacks.onRequest(...args),
       onClose: (error: Error) => callbacks.onClose(error),
     },
     getCallbacks: () => callbacks,
@@ -2390,8 +3321,6 @@ it.each([
     expect(Object.keys(invocation!)).toEqual(['turnId', 'callId']);
     expect(structuredClone(invocation)).toEqual({ turnId: input.turnId, callId: input.callId });
     expect(() => invocation!.assertCurrentSync!()).not.toThrow();
-    const selection = invocation!.captureInferenceSelection!();
-    expect(() => selection.assertCurrentSync()).not.toThrow();
     if (outcome === 'aborted') controller.abort();
     if (outcome === 'closed') f.c.close();
     if (outcome === 'turn-completed')
@@ -2402,7 +3331,6 @@ it.each([
     if (outcome === 'mutated-input') actualInput!.file_path = 'substituted';
     if (['aborted', 'closed', 'turn-completed', 'mutated-input'].includes(outcome)) {
       expect(() => invocation!.assertCurrentSync!()).toThrow();
-      expect(() => selection.assertCurrentSync()).toThrow();
     }
     if (outcome === 'result-write-failure')
       vi.spyOn(f.store, 'recordToolResult').mockImplementationOnce(() => {
@@ -2413,7 +3341,6 @@ it.each([
       await expect(callback).rejects.toThrow('Synthetic result write failure');
     else await callback;
     expect(() => invocation!.assertCurrentSync!()).toThrow();
-    expect(() => selection.assertCurrentSync()).toThrow();
     expect(executions).toBe(1);
     expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
     if (['success', 'error', 'throw', 'result-write-failure'].includes(outcome))
@@ -2421,7 +3348,7 @@ it.each([
   },
 );
 
-it('pins private inference selection to the invoking command rather than startup or a queued future command', async () => {
+it('pins original native call authority across a queued future command', async () => {
   const f = await setup();
   await f.c.send({
     id: 'current',
@@ -2438,17 +3365,8 @@ it('pins private inference selection to the invoking command rather than startup
     entered = resolve;
   });
   let invocation: Parameters<CodexConversationOptions['executeTool']>[3] | undefined;
-  let selection:
-    | {
-        commandId: string;
-        model: string;
-        reasoningEffort?: string | null;
-        assertCurrentSync(): void;
-      }
-    | undefined;
   f.conversationOptions.executeTool = async (_name, _input, _signal, context) => {
     invocation = context;
-    selection = context.captureInferenceSelection!();
     entered();
     await held;
     return { content: 'published', isError: false };
@@ -2467,26 +3385,15 @@ it('pins private inference selection to the invoking command rather than startup
   await Promise.race([
     executing,
     callback.then(() => {
-      throw Error('Native selection capture did not enter');
+      throw Error('Native call authority capture did not enter');
     }),
   ]);
   expect(Object.keys(invocation!)).toEqual(['turnId', 'callId']);
-  expect(Object.isFrozen(selection)).toBe(true);
-  expect(selection).toMatchObject({
-    commandId: 'current',
-    model: 'other-model',
-    reasoningEffort: 'high',
-  });
   await f.c.send({ id: 'future', prompt: 'later', model: 'test-model', reasoningEffort: 'low' });
-  expect(() => selection!.assertCurrentSync()).not.toThrow();
-  expect(invocation!.captureInferenceSelection!()).toMatchObject({
-    model: 'other-model',
-    reasoningEffort: 'high',
-  });
+  expect(() => invocation!.assertCurrentSync!()).not.toThrow();
   release();
   await callback;
-  expect(() => selection!.assertCurrentSync()).toThrow();
-  expect(() => invocation!.captureInferenceSelection!()).toThrow();
+  expect(() => invocation!.assertCurrentSync!()).toThrow();
 });
 
 it.each(['native', 'no-policy'] as const)(
@@ -2527,10 +3434,16 @@ it.each(['native', 'no-policy'] as const)(
     };
     let retained: Parameters<CodexConversationOptions['executeTool']>[3] | undefined;
     let scope: NativeBaseReadScope | undefined;
+    const registerResponseFence = vi.fn();
+    const responseFence = vi.fn();
     f.conversationOptions.executeTool = async (_name, _args, _signal, invocation) => {
       retained = invocation;
       expect(Object.isFrozen(invocation)).toBe(true);
       expect(Object.keys(invocation)).toEqual(['turnId', 'callId']);
+      expect(Object.getOwnPropertyDescriptor(invocation, 'registerResponseFence')).toMatchObject({
+        enumerable: false,
+      });
+      invocation.registerResponseFence!(responseFence);
       expect(structuredClone(invocation)).not.toHaveProperty('captureNativeBaseReadScope');
       expect(JSON.parse(JSON.stringify(invocation))).not.toHaveProperty(
         'captureNativeBaseReadScope',
@@ -2573,8 +3486,15 @@ it.each(['native', 'no-policy'] as const)(
       return { content: 'original', isError: false };
     };
     await expect(
-      f.callbacks.onRequest('item/tool/call', call, new AbortController().signal),
+      f.callbacks.onRequest('item/tool/call', call, new AbortController().signal, {
+        requestId: 'read-rpc',
+        registerResponseFence,
+      }),
     ).resolves.toMatchObject({ success: true });
+    expect(registerResponseFence).toHaveBeenCalledWith(responseFence);
+    expect(() => retained!.registerResponseFence!(responseFence)).toThrow(
+      'Original native tool callback is no longer current',
+    );
     if (mode === 'native') {
       expect(() => retained!.captureNativeBaseReadScope!()).toThrow(
         'Original native tool callback is no longer current',
@@ -2885,6 +3805,140 @@ it.each(['functions', '', null, undefined])(
     expect(execute).toHaveBeenCalledOnce();
   },
 );
+
+async function setupOwnedRefusal(
+  authorize?: (signal: AbortSignal) => Promise<void>,
+  transportClosure?: CodexConversationOptions['transportClosure'],
+) {
+  const args: Parameters<typeof setup> = [];
+  const close = vi.fn();
+  args[25] = authorize;
+  args[29] = transportClosure;
+  args[32] = (owner, client) => {
+    const lease: FrozenHostCodexBootstrapLease = {
+      client,
+      binding,
+      profile: {
+        accountId: 'personal',
+        accountLabel: 'Offline',
+        model: 'test-model',
+        credentialRef: '/offline',
+        email: 'test@example.com',
+        planType: 'test',
+      },
+      privateHome: '/offline',
+      executableSha256: 'a'.repeat(64),
+      assertCurrent: async () => {},
+      assertCurrentSync: () => {},
+      close,
+    };
+    const bridge = new OwnedCodexLifecycleBridge(() => lease);
+    bridge.attach(owner);
+    return bridge.lifecycle;
+  };
+  return { ...(await setup(...args)), close };
+}
+
+it.each(['invalid_tool_request', 'tool_unavailable'] as const)(
+  'keeps the owned Mac bridge usable after a proven %s refusal',
+  async (category) => {
+    const f = await setupOwnedRefusal(async () => {});
+    await f.c.send({ id: 'refused', prompt: 'read' });
+    await f.c.send({ id: 'next', prompt: 'continue' });
+    const input = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'refused',
+      tool: 'Read',
+      arguments: {},
+    };
+    await expect(
+      f.callbacks.onRequest(
+        'item/tool/call',
+        {
+          ...input,
+          ...(category === 'invalid_tool_request' ? { arguments: 'invalid' } : { tool: 'Unknown' }),
+        },
+        new AbortController().signal,
+        { requestId: 'refused' },
+      ),
+    ).rejects.toMatchObject({ category });
+    expect(f.close).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+    await expect(
+      f.callbacks.onRequest(
+        'item/tool/call',
+        { ...input, callId: 'valid' },
+        new AbortController().signal,
+        { requestId: 'valid' },
+      ),
+    ).resolves.toMatchObject({ success: true });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']),
+    );
+    expect(f.onClosed).not.toHaveBeenCalled();
+    expect(f.close).not.toHaveBeenCalled();
+  },
+);
+
+it('keeps owned Mac refusal proof scoped to its original request', async () => {
+  const authorize = vi.fn(async () => {});
+  const f = await setupOwnedRefusal(authorize);
+  await f.c.send({ id: 'refused', prompt: 'read' });
+  const input = {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    callId: 'refused',
+    tool: 'Unknown',
+    arguments: {},
+  };
+  const signal = new AbortController().signal;
+  const failure = await f.callbacks
+    .onRequest('item/tool/call', input, signal, { requestId: 'refused' })
+    .catch((error: unknown) => error);
+  expect(f.close).not.toHaveBeenCalled();
+  vi.spyOn(f.store, 'recordToolResult').mockImplementation(() => {
+    throw failure;
+  });
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      { ...input, callId: 'executed', tool: 'Read' },
+      signal,
+      { requestId: 'executed' },
+    ),
+  ).rejects.toThrow();
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.close).toHaveBeenCalledOnce();
+});
+
+it('closes the owned Mac bridge when final authority changes after a proven refusal', async () => {
+  const authorize = vi.fn(async () => {});
+  const f = await setupOwnedRefusal(authorize);
+  await f.c.send({ id: 'refused', prompt: 'read' });
+  const revoked = Error('private revocation');
+  authorize.mockResolvedValueOnce(undefined).mockRejectedValueOnce(revoked);
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        callId: 'refused',
+        tool: 'Unknown',
+        arguments: {},
+      },
+      new AbortController().signal,
+      { requestId: 'refused' },
+    ),
+  ).rejects.toThrow();
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.close).toHaveBeenCalledOnce();
+});
 
 it.each(
   [false, true].flatMap((authorize) =>
@@ -3341,6 +4395,134 @@ it('reports transport loss during an active turn and preserves its unknown outco
   );
   expect(c.isPaused()).toBe(true);
   expect(c.queue()[0]).toMatchObject({ status: 'interrupted' });
+});
+
+it('reports the reviewed workspace failure through the owned terminal conversation and durable reporter', async () => {
+  const f = await setupOwnedRefusal(undefined, 'terminal');
+  const history = new EventStore(':memory:');
+  try {
+    history.upsertSession({ sessionId: 'app', cwd: '/workspace' });
+    history.insertSendCommand('branch-loss', 'app', { text: 'work' });
+    const saved = history.getSendCommand('branch-loss');
+    f.onError.mockImplementation((error) =>
+      reportRetainedRuntimeFailure({
+        store: history,
+        sessionId: 'app',
+        commandId: 'branch-loss',
+        error,
+      }),
+    );
+    await f.c.send({ id: 'branch-loss', prompt: 'work' });
+    await f.c.send({ id: 'saved-next', prompt: 'next' });
+    const failure = new SessionRuntimeError('workspace_branch_changed', {
+      cause: Error('SECRET /private/checkout'),
+    });
+    f.callbacks.onClose(failure);
+    f.callbacks.onClose(new CodexTransportError('connection'));
+    expect(f.onError).toHaveBeenCalledOnce();
+    expect(f.onError).toHaveBeenCalledWith(failure);
+    const errors = history.getSessionEvents('app').filter((event) => event.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].payload).toMatchObject({
+      error: expect.stringContaining('assigned task branch'),
+      runtimeFailure: {
+        runtimeFailureCode: 'workspace_branch_changed',
+        diagnosticId: failure.diagnosticId,
+      },
+    });
+    expect(JSON.stringify(errors)).not.toMatch(/SECRET|private/);
+    expect(history.getSendCommand('branch-loss')).toEqual(saved);
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'branch-loss')).toMatchObject({
+      state: 'ambiguous_effect',
+    });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    history.close();
+  }
+});
+
+it.each(['typed', 'unclassified', 'observer-failure'] as const)(
+  'reports an owned terminal transport interruption once before a subsequent send (%s)',
+  async (kind) => {
+    const f = await setupTerminalTransport();
+    await f.c.send({ id: 'active-loss', prompt: 'work' });
+    await f.c.send({ id: 'saved-follow-up', prompt: 'next' });
+    const failure =
+      kind === 'typed'
+        ? new CodexTransportError('connection', { reason: 'stream_error', stream: 'stdout' })
+        : new Error('SECRET /private/provider-frame');
+    if (kind === 'observer-failure')
+      f.onTransportClosed.mockImplementationOnce(() => {
+        throw new Error('observer unavailable');
+      });
+    const close = () => f.callbacks.onClose(failure);
+    if (kind === 'observer-failure') expect(close).toThrow('observer unavailable');
+    else close();
+    f.callbacks.onClose(failure);
+    expect(f.onError).toHaveBeenCalledOnce();
+    const reported = f.onError.mock.calls[0][0];
+    expect(reported).toBeInstanceOf(CodexTransportError);
+    expect(reported.message).not.toMatch(/SECRET|private/);
+    if (kind === 'typed') expect(reported).toBe(failure);
+    expect(f.onClosed).toHaveBeenCalledOnce();
+    expect(f.rpc.close).toHaveBeenCalledOnce();
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'active-loss')).toMatchObject({
+      state: 'ambiguous_effect',
+      nextAction: 'reconcile_native_outcome',
+    });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  },
+);
+
+it.each(['idle', 'explicit-stop', 'completed'] as const)(
+  'does not report an owned terminal %s as a transport interruption',
+  async (kind) => {
+    const f = await setupTerminalTransport();
+    if (kind !== 'idle') await f.c.send({ id: 'work', prompt: 'work' });
+    if (kind === 'completed') {
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+    }
+    if (kind === 'explicit-stop') f.c.close();
+    f.callbacks.onClose(new CodexTransportError('connection'));
+    expect(f.onClosed).toHaveBeenCalledOnce();
+    expect(f.onError).not.toHaveBeenCalled();
+  },
+);
+
+it('retains an owned active disconnect for both live viewers and reopened history', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-terminal-disconnect-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'events.db');
+  let history = new EventStore(file);
+  cleanup.push(() => history.close());
+  history.upsertSession({ sessionId: 'app', cwd: dir });
+  const driver = { isOpen: () => true, send: vi.fn() };
+  const watcher = { isOpen: () => true, send: vi.fn() };
+  const f = await setupTerminalTransport();
+  f.onError.mockImplementation((error) =>
+    reportRetainedRuntimeFailure({
+      store: history,
+      sessionId: 'app',
+      session: { transport: driver, observers: new Set([watcher]) },
+      error,
+      describe: (value) => codexRuntimeDiagnostic(value)!,
+    }),
+  );
+  await f.c.send({ id: 'active-loss', prompt: 'work' });
+  f.callbacks.onClose(new Error('SECRET upstream frame'));
+  expect(driver.send).toHaveBeenCalledOnce();
+  expect(watcher.send).toHaveBeenCalledWith(driver.send.mock.calls[0][0]);
+  history.close();
+  history = new EventStore(file);
+  const errors = history.getSessionEvents('app').filter(({ type }) => type === 'error');
+  expect(errors).toHaveLength(1);
+  expect(errors[0].payload.error).toContain('Inspect conversation recovery');
+  expect(JSON.stringify(errors)).not.toContain('SECRET');
 });
 
 it('retires a cancelled silent idle probe so its old RPC timer cannot interrupt a later turn', async () => {
@@ -7242,6 +8424,284 @@ it('claims an exact accepted target once and reconciles its original interruptio
     first.status === 'claimed' ? first.receipt : undefined,
   );
 });
+it('holds new native FIFO claims without blocking the current terminal evidence', async () => {
+  const f = await setup();
+  f.conversationOptions.nativeExecution = codexNativeExecutionPolicy({
+    bindingRevision: 'maintenance-owner',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  f.conversationOptions.assertNativeExecutionCurrent = () => {};
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+  await f.c.send({ id: 'before-deployment', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  f.conversationOptions.canStartCommand = () => false;
+  await f.c.enqueue({ id: 'saved-followup', prompt: 'Keep this queued input' });
+  expect(f.c.deploymentTurnSettled(target)).toBe(false);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.deploymentTurnSettled(target)).toBe(true));
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  expect(f.c.queue().find((command) => command.id === 'saved-followup')?.status).toBe('queued');
+  f.conversationOptions.canStartCommand = () => true;
+  await f.c.startQueued();
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+  const second = CodexNativeTurnTargetSchema.parse(f.c.captureInterruptTarget());
+  const observer = new CodexConversationStore(f.storePath!, { observation: true });
+  try {
+    expect(observer.maintenanceRunningNativeTurnTarget('app', f.getBinding())).toEqual(second);
+    expect(() =>
+      observer.enqueue('app', f.getBinding(), { id: 'forbidden', prompt: 'No write' }),
+    ).toThrow(/readonly/);
+    f.conversationOptions.canStartCommand = () => false;
+    await f.c.enqueue({ id: 'retained-after-close', prompt: 'Keep queued' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: second.threadId,
+      turn: { id: second.turnId, status: 'completed' },
+    });
+    await vi.waitFor(() => expect(f.c.deploymentTurnSettled(second)).toBe(true));
+    f.c.close();
+    expect(observer.read('app', f.getBinding()).recovery).toBe(1);
+    expect(observer.maintenanceCompletedNativeTurnTarget('app', f.getBinding())).toEqual(second);
+    expect(observer.deploymentTurnSettled('app', f.getBinding(), second)).toBe(true);
+    expect(observer.commands('app', f.getBinding()).at(-1)?.status).toBe('queued');
+    expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+    const legacy = new Database(f.storePath!);
+    try {
+      legacy
+        .prepare(
+          `INSERT INTO codex_tools(conversation_id,command_id,call_id,tool_name,result_content,result_is_error,result_effect_outcome)
+        VALUES('app','before-deployment','legacy-idle-effect','TaskExecution','{"ok":true}',0,'unknown')`,
+        )
+        .run();
+      // This is a frozen historical barrier, never a settlement fact. Generic
+      // deployment/recovery continues refusing it; the idle proof sends nothing.
+      expect(observer.deploymentRecoveryPending()).toBe(true);
+      const idle = observer.maintenanceIdleFingerprint([], ['app']);
+      expect(idle).toMatch(/^[a-f0-9]{64}$/);
+      expect(observer.maintenanceIdleFingerprint([], ['app'])).toBe(idle);
+      const capacity = {
+        revision: 0,
+        id: randomUUID(),
+        sourceCommandId: 'before-deployment',
+        status: 'stopped',
+        attempts: 0,
+        maxAttempts: 5,
+        latestCommandId: 'before-deployment',
+        latestAttempt: 1,
+        latestTurnId: target.turnId,
+        threadId: target.threadId,
+        generation: 0,
+        model: 'fixture-model',
+        toolSurfaceRevision: null,
+        webSearchRevision: 0,
+        artifactIdentity: 'fixture',
+      };
+      const setCapacity = legacy.prepare(
+        "INSERT OR REPLACE INTO codex_capacity_recoveries(conversation_id,data) VALUES('app',?)",
+      );
+      setCapacity.run(JSON.stringify(capacity));
+      expect(observer.maintenanceIdleFingerprint([], ['app'])).not.toBe(idle);
+      for (const value of [
+        { ...capacity, status: 'waiting' },
+        { ...capacity, supersedingCommandId: 'retained-after-close' },
+        { status: 'stopped' },
+      ]) {
+        setCapacity.run(JSON.stringify(value));
+        expect(() => observer.maintenanceIdleFingerprint([], ['app'])).toThrow();
+      }
+      legacy.prepare("DELETE FROM codex_capacity_recoveries WHERE conversation_id='app'").run();
+      expect(observer.maintenanceIdleFingerprint([], ['app'])).toBe(idle);
+      legacy.prepare("UPDATE codex_conversations SET automatic_recovery=1 WHERE id='app'").run();
+      expect(() => observer.maintenanceIdleFingerprint([], ['app'])).toThrow(/idle/);
+      legacy.prepare("UPDATE codex_conversations SET automatic_recovery=0 WHERE id='app'").run();
+      legacy
+        .prepare(
+          "INSERT INTO codex_pending_thread_dispatches(conversation_id,parent_thread_id,thread_id,command_id,attempt,parent_generation) VALUES('app','parent','unproved','before-deployment',1,0)",
+        )
+        .run();
+      expect(() => observer.maintenanceIdleFingerprint([], ['app'])).toThrow(/ownership/);
+      legacy
+        .prepare("DELETE FROM codex_pending_thread_dispatches WHERE conversation_id='app'")
+        .run();
+      legacy
+        .prepare(
+          "UPDATE codex_tools SET result_content='changed' WHERE call_id='legacy-idle-effect'",
+        )
+        .run();
+      expect(observer.maintenanceIdleFingerprint([], ['app'])).not.toBe(idle);
+      legacy
+        .prepare("UPDATE codex_commands SET status='running' WHERE id='retained-after-close'")
+        .run();
+      expect(() => observer.maintenanceIdleFingerprint([], ['app'])).toThrow(/idle/);
+      legacy
+        .prepare("UPDATE codex_commands SET status='queued' WHERE id='retained-after-close'")
+        .run();
+      expect(observer.deploymentRecoveryPending()).toBe(true);
+      expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+    } finally {
+      legacy.close();
+    }
+  } finally {
+    observer.close();
+  }
+});
+it('refuses deployment settlement for an interrupted native command with unknown effects', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'deployment-command', prompt: 'Existing task' });
+  const target = f.c.captureInterruptTarget()!;
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'interrupted' },
+  });
+  await vi.waitFor(() => expect(f.c.deploymentTurnSettled(target)).toBe(true));
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list' || method === 'thread/items/list'
+      ? recoveryPage(method, params, {
+          id: target.turnId,
+          status: 'interrupted',
+          error: null,
+          itemsView: 'full',
+          items: [
+            { type: 'commandExecution', id: 'still-running', status: 'inProgress', exitCode: null },
+          ],
+        })
+      : original(method, params),
+  );
+  await expect(f.c.observeDeploymentSettlement(target, () => {})).rejects.toThrow(
+    /effects remain unknown/,
+  );
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+});
+it('retains cold parent uncertainty in the global deployment inventory after transport retirement', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'cold-deployment-effect', prompt: 'Original task' });
+  f.c.close();
+  expect(f.store.hasRunningCommands()).toBe(false);
+  expect(f.store.deploymentRecoveryPending()).toBe(true);
+  expect(f.store.deploymentRecoveryPending(['app'])).toBe(false);
+});
+it('blocks a cold returned unknown host receipt without phase or ambiguity and ignores generic acknowledgement', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'legacy-unknown', prompt: 'Original retained task' });
+  const target = f.c.captureInterruptTarget()!;
+  const identity = {
+    turnId: target.turnId,
+    toolName: 'Read',
+    requestHash: createHash('sha256').update('{}').digest('hex'),
+  };
+  f.store.claimTool('app', f.getBinding(), target.commandId, 'returned-unknown', identity);
+  f.store.recordToolResult(
+    'app',
+    f.getBinding(),
+    target.commandId,
+    'returned-unknown',
+    identity,
+    retainCallbackOutcome({ content: 'Original returned outcome', isError: true }, 'unknown'),
+  );
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'interrupted' },
+  });
+  f.c.close();
+  // Retained sources can lack these convenience flags. The original receipt,
+  // not a reconstructed phase or generic acknowledgement, owns its uncertainty.
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  db.prepare(
+    "UPDATE codex_commands SET status='interrupted',completion_phases=NULL,ambiguous=0 WHERE conversation_id='app' AND id=?",
+  ).run(target.commandId);
+  expect(f.store.hasRunningCommands()).toBe(false);
+  f.store.acknowledgeRecovery('app', f.getBinding());
+  expect(f.store.deploymentRecoveryPending()).toBe(true);
+  expect(
+    db
+      .prepare(
+        "SELECT result_content,result_effect_outcome FROM codex_tools WHERE call_id='returned-unknown'",
+      )
+      .get(),
+  ).toEqual({ result_content: 'Original returned outcome', result_effect_outcome: 'unknown' });
+});
+it('records only fresh original settlement facts and invalidates them when receipts change', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'proved-deployment', prompt: 'Original task' });
+  const target = f.c.captureInterruptTarget()!;
+  await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: target.threadId,
+      turnId: target.turnId,
+      callId: 'known-read',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'interrupted' },
+  });
+  await vi.waitFor(() => expect(f.c.deploymentTurnSettled(target)).toBe(true));
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list' || method === 'thread/items/list'
+      ? recoveryPage(method, params, {
+          id: target.turnId,
+          status: 'interrupted',
+          error: null,
+          itemsView: 'full',
+          items: [
+            {
+              type: 'dynamicToolCall',
+              id: 'known-read',
+              tool: 'Read',
+              arguments: {},
+              status: 'completed',
+              success: true,
+            },
+          ],
+        })
+      : request(method, params),
+  );
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  await expect(
+    f.c.observeDeploymentSettlement(target, () => {
+      throw Error('Revoked');
+    }),
+  ).rejects.toThrow('Revoked');
+  expect(db.prepare('SELECT count(*) AS n FROM codex_effect_settlements').get()).toEqual({ n: 0 });
+  expect(() =>
+    f.store.assertDeploymentHostEffects(
+      'app',
+      f.getBinding(),
+      target,
+      undefined,
+      {} as never,
+      () => {},
+    ),
+  ).toThrow(/observation/);
+  expect(db.prepare('SELECT count(*) AS n FROM codex_effect_settlements').get()).toEqual({ n: 0 });
+  let checkedUnderLock = false;
+  expect(
+    await f.c.observeDeploymentSettlement(target, () => {
+      checkedUnderLock ||= db.inTransaction;
+    }),
+  ).toBe(true);
+  expect(checkedUnderLock).toBe(true);
+  expect(db.prepare('SELECT count(*) AS n FROM codex_effect_settlements').get()).toEqual({ n: 1 });
+  // A late or altered original result cannot borrow the earlier positive fact.
+  db.prepare(
+    "UPDATE codex_tools SET result_effect_outcome='unknown' WHERE call_id='known-read'",
+  ).run();
+  expect(f.store.deploymentRecoveryPending()).toBe(true);
+  expect(f.execute).toHaveBeenCalledOnce();
+});
 it('refuses a retired target before pausing or cancelling the successor', async () => {
   const f = await setup();
   await f.c.send({ id: 'target-a', prompt: 'First' });
@@ -8182,42 +9642,70 @@ it('retains a safe tool diagnostic with its exact durable call identity across r
   expect(resumed.execute).not.toHaveBeenCalled();
 });
 
-it('retains native process outcome on the existing command across transport shutdown and restart', async () => {
-  const f = await setup();
-  await f.c.send({ id: 'native-diagnostic', prompt: 'work' });
-  await f.c.send({ id: 'next-after-native', prompt: 'queued' });
-  f.callbacks.onClose(
-    new CodexTransportError('connection', {
-      reason: 'child_exit',
-      exitCode: null,
-      signal: 'SIGKILL',
-    }),
-  );
-  const projection = f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic');
-  expect(projection).toMatchObject({
-    state: 'ambiguous_effect',
-    nextAction: 'reconcile_native_outcome',
-    nativeTarget: {
-      commandId: 'native-diagnostic',
-      attempt: 1,
-      threadId: 'provider-thread',
-      turnId: 'turn-1',
-      generation: 0,
-    },
-    diagnostic: {
-      stage: 'native_transport',
-      reason: 'child_exit',
-      exitCode: null,
-      signal: 'SIGKILL',
-      release: expect.any(String),
-    },
-  });
-  f.c.close();
-  const resumed = await setup(f.store);
-  expect(f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic')).toEqual(projection);
-  expect(resumed.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
-  expect(resumed.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
-});
+it.each([
+  { phase: 'transport', diagnostic: { reason: 'child_exit', exitCode: null, signal: 'SIGKILL' } },
+  { phase: 'transport', diagnostic: { reason: 'reply_provenance_failed' } },
+  { phase: 'transport', diagnostic: { reason: 'notification_handler_failed' } },
+  { phase: 'transport', diagnostic: { reason: 'host_tool_admission_timeout' } },
+  { phase: 'transport', diagnostic: { reason: 'host_response_fence_failed' } },
+  { phase: 'ack', diagnostic: { reason: 'reply_provenance_failed' } },
+  { phase: 'buffered', diagnostic: { reason: 'reply_provenance_failed' } },
+] as const)(
+  'retains $diagnostic.reason at $phase on the existing command across shutdown and restart',
+  async ({ diagnostic, phase }) => {
+    const f = await setup();
+    const failure = new CodexTransportError('connection', diagnostic);
+    const fail = () => {
+      throw failure;
+    };
+    if (phase === 'ack') f.conversationOptions.onProviderAccepted = fail;
+    if (phase === 'buffered') {
+      f.conversationOptions.onProviderMessageSource = fail;
+      const request = f.rpc.request.getMockImplementation()!;
+      f.rpc.request.mockImplementation(async (...args) => {
+        const result = await request(...args);
+        if (args[0] === 'turn/start')
+          f.callbacks.onNotification('item/agentMessage/delta', {
+            threadId: f.getProviderThread(),
+            turnId: 'turn-1',
+            itemId: 'early-reply',
+            delta: 'Early output',
+          });
+        return result;
+      });
+    }
+    const sending = f.c.send({ id: 'native-diagnostic', prompt: 'work' }, () => {
+      f.c.enqueue({ id: 'next-after-native', prompt: 'queued' });
+    });
+    if (phase === 'transport') await sending;
+    else await expect(sending).rejects.toBe(failure);
+    if (phase === 'transport') f.callbacks.onClose(failure);
+    const projection = f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic');
+    expect(projection).toMatchObject({
+      state: 'ambiguous_effect',
+      nextAction: 'reconcile_native_outcome',
+      nativeTarget: {
+        commandId: 'native-diagnostic',
+        attempt: 1,
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        generation: 0,
+      },
+      diagnostic: {
+        stage: 'native_transport',
+        ...diagnostic,
+        release: expect.any(String),
+      },
+    });
+    f.c.close();
+    const resumed = await setup(f.store);
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'native-diagnostic')).toEqual(
+      projection,
+    );
+    expect(resumed.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(resumed.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
+  },
+);
 
 function setupTerminalTransport(
   existingStore?: CodexConversationStore,
@@ -8230,17 +9718,544 @@ function setupTerminalTransport(
   return setup(...args);
 }
 
-async function nativeRecoveryFixture() {
+it('records the exact recovery stage and reviewed failure code without private payloads', async () => {
+  const setAttribute = vi.fn();
+  const span = {
+    setAttribute,
+    setAttributes: (values: Record<string, unknown>) =>
+      Object.entries(values).forEach(([key, value]) => setAttribute(key, value)),
+    setStatus: vi.fn(),
+    end: vi.fn(),
+    spanContext: () => ({
+      traceId: '12345678901234567890123456789012',
+      spanId: '1234567890123456',
+      traceFlags: 1,
+    }),
+  };
+  const start = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) =>
+    name === 'codex.transport.recovery' ? (span as unknown as Span) : start(name, options, ctx),
+  );
+  const { restored: f, request } = await nativeRecoveryFixture();
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? {
+          data: [
+            { id: 'foreign-turn', status: 'failed', error: { message: 'private provider error' } },
+          ],
+        }
+      : request(method, params),
+  );
+  await expect(f.c.acknowledgeRecovery()).rejects.toMatchObject({ code: 'provider_identity' });
+  expect(span.setStatus).toHaveBeenCalledWith({ code: 2 });
+  expect(span.setAttribute).toHaveBeenCalledWith('mitzo.recovery.stage', 'history');
+  expect(span.setAttribute).toHaveBeenCalledWith('mitzo.recovery.code', 'provider_identity');
+  expect(span.setAttribute).toHaveBeenCalledWith('mitzo.command.id', 'uncertain-native');
+  expect(JSON.stringify(span.setAttribute.mock.calls)).not.toMatch(
+    /private user prompt|private provider error/,
+  );
+  expect(span.end).toHaveBeenCalledOnce();
+});
+
+function recoveryPage(
+  method: string,
+  params: Record<string, unknown>,
+  turn: Record<string, unknown>,
+) {
+  if (method === 'thread/turns/list')
+    return { data: [{ ...turn, items: undefined, itemsView: 'notLoaded' }] };
+  if (turn.itemsView !== 'full' || !Array.isArray(turn.items))
+    return { data: [], nextCursor: undefined };
+  const index = params.cursor ? Number(params.cursor) : 0;
+  return {
+    data: turn.items.slice(index, index + 1).map((item) => ({ turnId: turn.id, item })),
+    nextCursor: index + 1 < turn.items.length ? String(index + 1) : null,
+  };
+}
+
+async function nativeRecoveryFixture(
+  retirement: 'transport' | 'stop' = 'transport',
+  settledHostTool = false,
+  nativeExecution?: CodexConversationOptions['nativeExecution'],
+  hostFailure?: 'failed-read' | 'settled-refusal',
+) {
   const old = await setupTerminalTransport();
+  const toolName =
+    hostFailure === 'settled-refusal' ? 'Write' : hostFailure ? 'RequestWebAccess' : 'Read';
+  const arguments_ =
+    hostFailure && hostFailure !== 'settled-refusal'
+      ? {
+          operation: 'fetch',
+          url: 'http://localhost:16686/api/v3/traces',
+          reason: 'Inspect traces',
+        }
+      : {};
+  if (hostFailure) {
+    old.conversationOptions.tools = [
+      ...old.conversationOptions.tools,
+      toolName === 'RequestWebAccess'
+        ? webAccessDefinition
+        : { name: toolName, description: 'offline mutation', input_schema: { type: 'object' } },
+    ];
+    const failure = { content: 'Read returned HTTP 404', isError: true };
+    old.execute.mockResolvedValue(
+      hostFailure === 'settled-refusal' ? retainCallbackOutcome(failure, 'settled') : failure,
+    );
+  }
+  if (nativeExecution)
+    Object.assign(old.conversationOptions, {
+      nativeExecution,
+      assertNativeExecutionCurrent: () => {},
+      requestNativeApproval: async () => ({ decision: 'decline' as const }),
+    });
   await old.c.send({ id: 'uncertain-native', prompt: 'retain completed work' });
   await old.c.send({ id: 'queued-native', prompt: 'next phase' });
-  old.callbacks.onClose(
-    new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
-  );
+  if (settledHostTool)
+    await old.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: old.getProviderThread(),
+        turnId: 'turn-1',
+        callId: 'settled-read',
+        tool: toolName,
+        arguments: arguments_,
+      },
+      new AbortController().signal,
+    );
+  if (retirement === 'stop') old.c.close();
+  else
+    old.callbacks.onClose(
+      new CodexTransportError('connection', { reason: 'child_exit', exitCode: 1, signal: null }),
+    );
   const restored = await setupTerminalTransport(old.store);
   const request = restored.rpc.request.getMockImplementation()!;
-  return { old, restored, request };
+  return { old, restored, request, toolName, arguments_ };
 }
+
+it('recovers completed retained results without hydrating their oversized native payload', async () => {
+  const { restored: f, request } = await nativeRecoveryFixture();
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (
+      method === 'thread/items/list' ||
+      (method === 'thread/turns/list' && params.itemsView !== 'notLoaded')
+    )
+      throw new CodexTransportError('protocol', {
+        reason: 'frame_too_large',
+        frameBytes: 6_776_609,
+        limitBytes: 4_194_304,
+      });
+    if (method === 'thread/turns/list') return { data: [{ id: 'turn-1', status: 'completed' }] };
+    return request(method, params);
+  });
+  await f.c.acknowledgeRecovery();
+  expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']);
+  expect(
+    f.rpc.request.mock.calls.filter(([method]) => method === 'thread/items/list'),
+  ).toHaveLength(0);
+});
+
+// Reuse the existing recovery journeys for ordinary development's terminal
+// failures and applied edits; no extra app/SQLite lifetime is needed.
+function nativeDevelopmentItems() {
+  return [
+    { type: 'commandExecution', id: 'finished-command', status: 'completed', exitCode: 0 },
+    { type: 'commandExecution', id: 'known-failed-command', status: 'failed', exitCode: 127 },
+    {
+      type: 'fileChange',
+      id: 'applied-patch',
+      status: 'completed',
+      changes: [{ path: '/sandbox/workspaces/task/fix.ts', kind: { type: 'add' }, diff: '+fixed' }],
+    },
+  ];
+}
+
+it.each(
+  (['stop', 'transport'] as const).flatMap((retirement) =>
+    (['none', 'native-command', 'host-tool', 'failed-read', 'settled-refusal'] as const).map(
+      (effects) => ({ retirement, effects }),
+    ),
+  ),
+)(
+  'reconciles an interrupted turn with full settled items after $retirement ($effects)',
+  async ({ retirement, effects }) => {
+    const {
+      old,
+      restored: f,
+      request,
+      toolName,
+      arguments_,
+    } = await nativeRecoveryFixture(
+      retirement,
+      !['none', 'native-command'].includes(effects),
+      undefined,
+      effects === 'failed-read' || effects === 'settled-refusal' ? effects : undefined,
+    );
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            id: 'turn-1',
+            status: 'interrupted',
+            error: null,
+            itemsView: 'full',
+            items:
+              effects === 'native-command'
+                ? nativeDevelopmentItems()
+                : !['none', 'native-command'].includes(effects)
+                  ? [
+                      {
+                        type: 'dynamicToolCall',
+                        id: 'settled-read',
+                        tool: toolName,
+                        arguments: arguments_,
+                        status: effects === 'host-tool' ? 'completed' : 'failed',
+                        success: effects === 'host-tool',
+                      },
+                    ]
+                  : [],
+          })
+        : request(method, params),
+    );
+    await f.c.acknowledgeRecovery();
+    expect(f.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: 'uncertain-native', status: 'interrupted' },
+      { id: 'queued-native', status: 'running' },
+    ]);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(0);
+    expect(f.store.deploymentRecoveryPending()).toBe(false);
+    expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+      'completed',
+    );
+    expect(old.execute).toHaveBeenCalledTimes(
+      !['none', 'native-command'].includes(effects) ? 1 : 0,
+    );
+    expect(f.execute).not.toHaveBeenCalled();
+    if (['failed-read', 'settled-refusal'].includes(effects))
+      expect(
+        f.store.replayToolResult('app', f.getBinding(), 'uncertain-native', 'settled-read', {
+          turnId: 'turn-1',
+          toolName,
+          requestHash: createHash('sha256').update(JSON.stringify(arguments_)).digest('hex'),
+        }),
+      ).toMatchObject({ isError: true, content: 'Read returned HTTP 404' });
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'thread/turns/list')).toEqual([
+      [
+        'thread/turns/list',
+        {
+          threadId: old.getProviderThread(),
+          limit: 1,
+          sortDirection: 'desc',
+          itemsView: 'notLoaded',
+        },
+      ],
+      [
+        'thread/turns/list',
+        {
+          threadId: old.getProviderThread(),
+          limit: 1,
+          sortDirection: 'desc',
+          itemsView: 'notLoaded',
+        },
+      ],
+    ]);
+    expect(
+      f.rpc.request.mock.calls.filter(([method]) => method === 'thread/items/list'),
+    ).toHaveLength(effects === 'native-command' ? 3 : 1);
+  },
+);
+
+it('keeps interrupted effects fenced for incomplete snapshots and unmatched durable host receipts', async () => {
+  const { restored: f, request } = await nativeRecoveryFixture('transport', true);
+  const tool = {
+    type: 'dynamicToolCall',
+    id: 'settled-read',
+    tool: 'Read',
+    arguments: {},
+    status: 'completed',
+    success: true,
+  };
+  const turn = {
+    id: 'turn-1',
+    status: 'interrupted',
+    itemsView: 'full',
+    error: null,
+    items: [tool],
+  };
+  // Reuse the same still-fenced owner: every failed observation leaves custody
+  // unchanged, so these schema/receipt variants need no extra app/DB journey.
+  const invalid = [
+    { ...turn, itemsView: 'summary' },
+    { ...turn, items: undefined },
+    { ...turn, error: { message: 'native error' } },
+    { ...turn, items: [] },
+    { ...turn, items: [tool, tool] },
+    ...[
+      { ...tool, tool: 'Write' },
+      { ...tool, arguments: { changed: true } },
+      { ...tool, id: 'foreign' },
+      { ...tool, namespace: 'foreign' },
+      { ...tool, success: false },
+      { ...tool, status: 'inProgress' },
+      { type: 'commandExecution', id: 'pending', status: 'inProgress', exitCode: null },
+      { type: 'commandExecution', id: 'failed', status: 'completed', exitCode: 1 },
+      { type: 'fileChange', id: 'unproved-write', status: 'completed' },
+      { type: 'collabAgentToolCall', id: 'unknown-agent', status: 'completed' },
+      { type: 'futureEffect', id: 'unknown' },
+    ].map((item) => ({ ...turn, items: [item] })),
+  ];
+  for (const snapshot of invalid) {
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, snapshot)
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+      'unknown',
+    );
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.execute).not.toHaveBeenCalled();
+  }
+  // A matching native failure still cannot erase an explicit original-owner
+  // unknown outcome, even for a read. A native success cannot match a saved error.
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  for (const [isError, outcome, nativeError] of [
+    [1, 'unknown', true],
+    [1, null, false],
+    [1, null, true],
+    [0, 'unknown', false],
+  ] as const) {
+    db.prepare('UPDATE codex_tools SET result_is_error=?,result_effect_outcome=?').run(
+      isError,
+      outcome,
+    );
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            ...turn,
+            items: [
+              { ...tool, status: nativeError ? 'failed' : 'completed', success: !nativeError },
+            ],
+          })
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  }
+  db.prepare("UPDATE codex_tools SET result_is_error=0,result_effect_outcome='settled'").run();
+  const frameFailure = new CodexTransportError('protocol', {
+    reason: 'frame_too_large',
+    frameBytes: 4_194_305,
+    limitBytes: 4_194_304,
+  });
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/items/list') throw frameFailure;
+    return method === 'thread/turns/list'
+      ? recoveryPage(method, params, turn)
+      : request(method, params);
+  });
+  const recoveryError = await f.c.acknowledgeRecovery().catch((error: unknown) => error);
+  expect(recoveryError).toBeInstanceOf(SessionRuntimeError);
+  expect(recoveryError).toMatchObject({ code: 'recovery_history_unavailable' });
+  expect((recoveryError as SessionRuntimeError).cause).toBe(frameFailure);
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+    'unknown',
+  );
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  const phase = f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)!;
+  const reconcile = (assertCurrent?: () => void) =>
+    f.store.reconcileCompletionPhase(
+      'app',
+      f.getBinding(),
+      phase.target,
+      phase.workspaceDigest,
+      phase.policyRevision,
+      {} as never,
+      assertCurrent,
+    );
+  expect(() => reconcile()).toThrow('Interrupted effect recovery authority unavailable');
+  const assertCurrent = vi.fn();
+  expect(() => reconcile(assertCurrent)).toThrow(
+    'Fresh interrupted native effect observation unavailable',
+  );
+  expect(assertCurrent).toHaveBeenCalledOnce();
+  expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)).toEqual(phase);
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+});
+
+it.each(['stop', 'account', 'receipt', 'effect-outcome'] as const)(
+  'keeps interrupted custody fenced when %s changes at final recovery authority check',
+  async (change) => {
+    const { restored: f, request } = await nativeRecoveryFixture('stop', true);
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    let metadataReads = 0;
+    let finalObservation = false;
+    let revoked = false;
+    f.conversationOptions.verifyBinding = async () => {
+      if (finalObservation && !revoked) {
+        revoked = true;
+        if (change === 'stop') await f.c.interrupt();
+        if (change === 'account') throw Error('Account revoked during completion qualification');
+        if (change === 'effect-outcome')
+          db.prepare(
+            "UPDATE codex_tools SET result_effect_outcome='unknown' WHERE call_id='settled-read'",
+          ).run();
+        if (change === 'receipt')
+          db.prepare("UPDATE codex_tools SET request_hash=? WHERE call_id='settled-read'").run(
+            'a'.repeat(64),
+          );
+      }
+      return f.getBinding();
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/turns/list' && ++metadataReads === 2) finalObservation = true;
+      return method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            id: 'turn-1',
+            status: 'interrupted',
+            itemsView: 'full',
+            error: null,
+            items: [
+              {
+                type: 'dynamicToolCall',
+                id: 'settled-read',
+                tool: 'Read',
+                arguments: {},
+                status: 'completed',
+                success: true,
+              },
+            ],
+          })
+        : request(method, params);
+    });
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(finalObservation).toBe(true);
+    expect(revoked).toBe(true);
+    expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+      'unknown',
+    );
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    expect(f.execute).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['full', 'summary'] as const)(
+  'settles interrupted custody before changed-tool startup only with a %s native snapshot',
+  async (itemsView) => {
+    const developmentPolicy = (release: string) =>
+      codexNativeExecutionPolicy({
+        bindingRevision: 'same-original-account-and-operator',
+        mode: 'agent',
+        cwd: '/workspace',
+        readableRoots: ['/'],
+        writableRoots: ['/workspace'],
+        deniedRoots: [`/releases/${release}/.env`, '/private/auth'],
+      });
+    const historicalPolicy = developmentPolicy('old'),
+      currentPolicy = developmentPolicy('new');
+    const { old, restored } = await nativeRecoveryFixture('stop', false, historicalPolicy);
+    restored.c.close();
+    const original = old.store.read('app', old.getBinding());
+    const request = old.rpc.request.getMockImplementation()!;
+    old.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            id: 'turn-1',
+            status: 'interrupted',
+            itemsView,
+            error: null,
+            items: nativeDevelopmentItems(),
+          })
+        : request(method, params),
+    );
+    const candidate = new CodexConversation({
+      ...old.conversationOptions,
+      storedBinding: old.getBinding(),
+      nativeExecution: currentPolicy,
+      assertNativeExecutionCurrent: (policy) => {
+        expect(policy).toEqual(currentPolicy);
+      },
+      tools: [
+        ...old.conversationOptions.tools,
+        { name: 'NewRead', description: 'Offline read', input_schema: { type: 'object' } },
+      ],
+    });
+    cleanup.push(() => candidate.close());
+    if (itemsView === 'full') {
+      await candidate.initialize();
+      expect(
+        old.store.completionPhase('app', old.getBinding(), 'uncertain-native', 1)?.status,
+      ).toBe('completed');
+      expect(old.store.commandStatus('app', old.getBinding(), 'uncertain-native')).toBe(
+        'interrupted',
+      );
+      expect(old.store.read('app', old.getBinding()).threadGeneration).toBe(
+        original.threadGeneration + 1,
+      );
+      await candidate.acknowledgeRecovery();
+      expect(candidate.queue().map(({ status }) => status)).toEqual(['interrupted', 'running']);
+      expect(
+        old.store.readNativeExecution('app', old.getBinding(), {
+          id: 'uncertain-native',
+          attempt: 1,
+        })?.policy,
+      ).toEqual(historicalPolicy);
+      expect(
+        old.store.readNativeExecution('app', old.getBinding(), { id: 'queued-native', attempt: 1 })
+          ?.policy,
+      ).toEqual(currentPolicy);
+    } else {
+      await expect(candidate.initialize()).rejects.toThrow(/nextCursor/);
+      expect(old.store.read('app', old.getBinding()).threadGeneration).toBe(
+        original.threadGeneration,
+      );
+      expect(
+        old.store.completionPhase('app', old.getBinding(), 'uncertain-native', 1)?.status,
+      ).toBe('unknown');
+    }
+    expect(old.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(
+      itemsView === 'full' ? 2 : 1,
+    );
+  },
+);
+
+it.each(['revoked-under-lock', 'missing-owner', 'async-owner'] as const)(
+  'retains interrupted custody when recovery authority is %s',
+  async (change) => {
+    const { restored: f, request } = await nativeRecoveryFixture('stop');
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    const authority = vi.fn(() => {
+      expect(db.inTransaction).toBe(true);
+      if (change === 'async-owner') return Promise.resolve();
+      throw Error('Original owner revoked after acquiring writer lock');
+    });
+    f.conversationOptions.assertRecoveryCurrent =
+      change === 'missing-owner' ? undefined : authority;
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            id: 'turn-1',
+            status: 'interrupted',
+            itemsView: 'full',
+            error: null,
+            items: [],
+          })
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow(/owner|synchronous/);
+    expect(authority).toHaveBeenCalledTimes(change === 'missing-owner' ? 0 : 1);
+    expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
+      'unknown',
+    );
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  },
+);
 
 async function remoteRecoveryFixture(pendingTool = false) {
   const args: Parameters<typeof setup> = [];
@@ -9262,6 +11277,41 @@ it('observes each native base-read claim once per fence and refreshes after the 
   ).resolves.toMatchObject({ success: true });
 });
 
+it('steers screenshot bytes only to the selected active turn with an immutable receipt', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'turn/steer'
+      ? (f.requests.push({ method, params }), { turnId: params.expectedTurnId })
+      : rpc(method, params),
+  );
+  const input = {
+    requestId: 'image-correction',
+    targetCommandId: 'a',
+    text: 'Use this screenshot',
+    images: [{ data: 'aGk=', mediaType: 'image/png' as const }],
+  };
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'accepted' });
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'accepted' });
+  expect(f.requests.filter((r) => r.method === 'turn/steer')).toEqual([
+    {
+      method: 'turn/steer',
+      params: {
+        threadId: f.getProviderThread(),
+        expectedTurnId: 'turn-1',
+        input: [
+          { type: 'text', text: input.text },
+          { type: 'image', url: 'data:image/png;base64,aGk=' },
+        ],
+      },
+    },
+  ]);
+  await expect(
+    f.c.steer({ ...input, images: [{ ...input.images[0], data: 'YQ==' }] }, () => {}),
+  ).rejects.toThrow('Correction identity reused');
+});
+
 it('steers only the selected active turn, preserving the FIFO and at-most-once receipt', async () => {
   const f = await setup();
   await f.c.send({ id: 'a', prompt: 'First' });
@@ -9351,8 +11401,10 @@ it('rechecks the operator after publishing correction progress, before any steer
 it('requires the universal steering owner fence even without a native filesystem policy', async () => {
   const f = await setup();
   await f.c.send({ id: 'a', prompt: 'First' });
+  const failure = new SessionRuntimeError('native_policy_changed');
+  const diagnostic = vi.spyOn(runtimeDiagnostics, 'codexRuntimeErrorTelemetry');
   f.conversationOptions.assertSteeringCurrent = () => {
-    throw Error('Delegated work revoked');
+    throw failure;
   };
   expect(
     await f.c.steer(
@@ -9360,6 +11412,7 @@ it('requires the universal steering owner fence even without a native filesystem
       () => {},
     ),
   ).toEqual({ status: 'rejected' });
+  expect(diagnostic).toHaveBeenCalledWith(failure);
   expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(0);
 });
 it('reserves a correction ID against later ordinary commands too', async () => {

@@ -1,3 +1,4 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -13,6 +14,7 @@ import * as gitFacts from '../local-repository-git-snapshot.js';
 import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
 import { sessionLocalRepositoryTools } from '../session-local-repository-tools.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
+import { CodexTurnCompletedError } from '../codex-app-server-client.js';
 import {
   SynchronousStageProfiler,
   installSignedNativeReadStages,
@@ -28,7 +30,10 @@ const cleanups: Array<() => void | Promise<void>> = [];
 const revocations = new EventStore(':memory:');
 setAuthRevocationStore(revocations);
 afterAll(() => revocations.close());
-beforeEach(() => vi.stubEnv('TMPDIR', '/private/tmp'));
+beforeEach(() => {
+  resetOfflineUserEnvironment();
+  vi.stubEnv('TMPDIR', '/private/tmp');
+});
 afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.unstubAllEnvs();
@@ -101,10 +106,18 @@ function owner(context: NativeHostToolContext, root: string) {
   };
 }
 
+it
+  .runIf(process.platform === 'darwin')
+  .each(['DiscoverLocalRepository', 'InspectLocalRepository'] as const)(
+  'executes %s through an actual child claim and native base reader after parent completion',
+  (tool) => signedReadPositive(tool, false, 'root', true),
+);
+
 async function signedReadPositive(
   tool: 'DiscoverLocalRepository' | 'InspectLocalRepository',
   detachedViewer = false,
   pathCase: 'root' | 'nested' | 'missing' | 'missing-parent' | 'catalog' | 'query' = 'root',
+  nativeChild = false,
 ) {
   const started = performance.now();
   let phase: 'setup' | 'call' | 'verification' = 'setup';
@@ -164,7 +177,7 @@ async function signedReadPositive(
         expect(result).toBeDefined();
         return result!;
       },
-      { separateViewer: detachedViewer },
+      { separateViewer: detachedViewer, nativeSubagents: nativeChild },
     );
     source = join(f.f.root, 'read-tools-source');
     await mkdir(source);
@@ -201,6 +214,10 @@ async function signedReadPositive(
     if (pathCase === 'nested') await mkdir(requestedPath, { recursive: true });
     if (pathCase === 'missing') await mkdir(join(source, pathCase));
     if (detachedViewer) f.detachViewer();
+    if (nativeChild) {
+      await f.a.admitChild('repository-child');
+      await f.a.complete();
+    }
     metrics = f.a.metrics;
     setupMetrics = metricSnapshot(metrics);
     setupProfile = profile.snapshot();
@@ -218,7 +235,7 @@ async function signedReadPositive(
           : pathCase === 'query'
             ? { query: 'read-tools-source' }
             : { path: requestedPath },
-        { tool },
+        { tool, ...(nativeChild ? { threadId: 'repository-child', turnId: 'child-turn' } : {}) },
       );
     } finally {
       callEnded = performance.now();
@@ -396,11 +413,12 @@ it.runIf(process.platform === 'darwin')(
   },
 );
 
-it.runIf(process.platform === 'darwin')(
-  'cancels an actual helper wait and joins reader disposal without a fallback read',
-  async () => {
+it.runIf(process.platform === 'darwin').each(['cancel', 'provider-completed'] as const)(
+  'cancels an actual helper wait on %s and joins reader disposal without a fallback read',
+  async (reason) => {
     const abort = new AbortController();
-    const runs = offlineHelper(() => abort.abort(Error('Controlled cancellation')));
+    let complete = () => {};
+    const runs = offlineHelper(() => complete());
     let source = '';
     const f = await localRepositoryNativeToolFixture(
       cleanups,
@@ -413,8 +431,25 @@ it.runIf(process.platform === 'darwin')(
     );
     source = join(f.f.root, 'cancel-source');
     await mkdir(source);
-    const result = await f.a.call({ path: source }, undefined, abort.signal);
-    expect(result.response.success).toBe(false);
+    let completion: Promise<void> | undefined;
+    const requestId = 'original-read';
+    const binding = f.a.initial.lease.binding;
+    const id = f.a.initial.sessionId;
+    complete = () => {
+      if (reason === 'provider-completed') {
+        completion = f.a.complete();
+        abort.abort(
+          new CodexTurnCompletedError(requestId, f.native.read(id, binding).threadId!, 'turn-1'),
+        );
+      } else abort.abort(Error('Controlled cancellation'));
+    };
+    const work = f.a.call({ path: source }, undefined, abort.signal, { requestId });
+    expect((await work).response.success).toBe(false);
+    if (reason === 'provider-completed') {
+      await completion;
+      await vi.waitFor(() => expect(f.native.continuationBlocker(id, binding)).toBeUndefined());
+      expect(f.native.read(id, binding).recovery).toBe(0);
+    }
     expect(runs).toHaveLength(1);
     for (const scratch of new Set(runs.map((r) => r.cwd)))
       await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });

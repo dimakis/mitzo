@@ -121,6 +121,8 @@ export interface RawToolInput {
   description?: string;
   /** Agent tool: the type of subagent (e.g. 'Explore', 'Plan'). */
   subagent_type?: string;
+  /** Spawning command identity, authored by the native adapter after admission. */
+  nativeSubagentCommandId?: string;
   /** Agent tool: the full prompt sent to the subagent. */
   prompt?: string;
 }
@@ -206,6 +208,8 @@ export interface FinishedBlock {
 }
 
 export interface FinishedMessage {
+  agentMessage?: import('./agent-communication.js').AgentMessageProjection;
+  agentMessageSeq?: number;
   inReplyTo?: import('./message-reply.js').MessageReplyContext;
   replyToMessageId?: string;
   commandState?: CommandState;
@@ -374,6 +378,10 @@ export interface Session {
   summary: string;
   /** Recorded model choice, never inferred from the engine or a global default. */
   model?: string;
+  /** A failed receipt read must not revive an older cached model. */
+  modelUnavailable?: boolean;
+  /** Server read time for display freshness only; never execution authority. */
+  modelObservedAt?: number;
   accountLabel?: string;
   lastModified: number;
   branch?: string;
@@ -398,6 +406,8 @@ export interface SessionActivity {
   clientId: string;
   title: string;
   model?: string;
+  modelUnavailable?: boolean;
+  modelObservedAt?: number;
   accountLabel?: string;
   repo?: string;
   state: SessionActivityState;
@@ -405,6 +415,16 @@ export interface SessionActivity {
   waitReason?: WaitReason;
   progress?: { done: number; total: number };
   lastEventAt: number;
+  /** Most recent observed user message; tool/status events never advance this. */
+  lastUserMessageAt?: number;
+  /** Observed visible user/assistant message, independent of tool traffic. */
+  lastMessageAt?: number;
+  /** Provider admission time. Absent when the start was not observed. */
+  turnStartedAt?: number;
+  completedAt?: number;
+  stateChangedAt?: number;
+  /** Content-free description of the current normalized provider event. */
+  phase?: 'thinking' | 'reading' | 'editing' | 'command' | 'tool' | 'reply';
   taskId?: string;
   /** True when the session worktree has uncommitted changes. */
   uncommittedWork?: boolean;
@@ -450,6 +470,8 @@ export interface SessionSearchResult {
   sessionId: string;
   summary: string | null;
   model?: string;
+  modelUnavailable?: boolean;
+  modelObservedAt?: number;
   accountLabel?: string;
   snippet: string;
   matchedAt: number; // timestamp of the matching event
@@ -457,6 +479,8 @@ export interface SessionSearchResult {
 }
 
 export interface SessionMeta {
+  /** Controller-owned; changes require an explicit revision-checked policy operation. */
+  learningPolicy?: import('./session-learning.js').SessionLearningPolicy;
   conversationSource?: 'mitzo' | 'external_import' | 'legacy';
   /** Persisted mode; adding/removing seats retains the session identity. */
   sessionType?: SessionType;
@@ -543,18 +567,33 @@ export interface SubagentUsage {
   cacheCreationTokens: number;
 }
 
+/** Task outcome is independent of whether its parent message has finished. */
+export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'unavailable';
+
+export interface SubagentDiagnostic {
+  code:
+    | 'claude_child_stop_failed'
+    | 'claude_child_parent_unavailable'
+    | 'claude_child_outcome_unavailable';
+  correlationId: string;
+}
+
 /** Streaming subagent state — blocks in a Map, running flag set. */
 export interface StreamingSubagentState {
+  status?: SubagentStatus;
+  diagnostic?: SubagentDiagnostic;
   messageId: string;
   blocks: Map<string, StreamingBlock>;
   blockOrder: string[];
   running: true;
-  summary?: never;
-  usage?: never;
+  summary?: string;
+  usage?: SubagentUsage;
 }
 
 /** Finished subagent state — blocks as array, summary + usage set. */
 export interface FinishedSubagentState {
+  status?: SubagentStatus;
+  diagnostic?: SubagentDiagnostic;
   messageId: string;
   blocks: FinishedBlock[];
   summary?: string;

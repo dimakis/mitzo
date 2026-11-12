@@ -24,7 +24,7 @@
   margin: 0 0 24px;
 }
 .workspace-page-heading h1 {
-  font-size: clamp(28px, 3.2vw, 32px);
+  font-size: var(--text-collection-title);
   font-weight: 500;
   letter-spacing: -0.035em;
   line-height: 1.15;
@@ -39,7 +39,7 @@
   line-height: 1.5;
 }
 .workspace-page h2 {
-  font-size: 17px;
+  font-size: var(--text-section-title);
   font-weight: 550;
   line-height: 1.4;
 }
@@ -242,7 +242,8 @@
     display: flex;
   }
   .workspace-rail {
-    flex: 0 0 168px;
+    flex: 0 0 var(--desktop-navigation-width, 168px);
+    min-width: 0;
     padding: 26px 16px;
     border-right: 1px solid var(--workspace-line);
     overflow-y: auto;
@@ -267,6 +268,14 @@
   .workspace-shell .desktop-sidebar-left,
   .workspace-shell .desktop-sidebar-right {
     flex-shrink: 0;
+  }
+  .workspace-shell .desktop-sidebar-left {
+    width: var(--desktop-conversations-width, 280px);
+    transition: none;
+  }
+  .workspace-shell .desktop-sidebar-right {
+    width: var(--desktop-resources-width, 280px);
+    transition: none;
   }
   .workspace-shell .workspace-page {
     min-height: 0;
@@ -306,13 +315,6 @@
   .workspace-rail {
     flex-basis: 108px;
     padding: 20px 8px;
-  }
-  .workspace-shell .desktop-sidebar-left,
-  .workspace-shell .desktop-sidebar-right {
-    width: 170px;
-  }
-  .workspace-shell .desktop-sidebar--collapsed {
-    width: 36px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -359,6 +361,9 @@
   border-radius: 8px;
   background: var(--workspace-bg);
   color: var(--workspace-text);
+}
+.connections-setup :is(button, input, select) {
+  min-height: var(--control-height);
 }
 .connections-field textarea {
   min-height: 42px;
@@ -626,7 +631,7 @@
     flex-shrink: 0;
   }
   .workspace-rail.workspace-rail--collapsed {
-    flex-basis: 60px;
+    flex-basis: var(--desktop-navigation-width, 60px);
     padding: 20px 8px;
   }
   .workspace-rail--collapsed .workspace-rail-controls,
@@ -642,7 +647,7 @@
 }
 @media (min-width: 768px) and (max-width: 1199px) {
   .workspace-rail:not(.workspace-rail--collapsed) {
-    flex-basis: 144px;
+    flex-basis: var(--desktop-navigation-width, 144px);
   }
 }
 

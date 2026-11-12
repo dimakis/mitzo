@@ -1,7 +1,41 @@
 // @vitest-environment jsdom
+import { useState } from 'react';
 import { it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
+
+it.each([false, true])(
+  'retains model refresh beside complete defaults (controlled=%s)',
+  async (controlled) => {
+    vi.mocked(apiFetch).mockImplementation(async () => Response.json(profiles));
+    const refresh = vi.fn();
+    render(
+      <AccountModelPicker
+        sessionId={null}
+        preferredModel="sonnet"
+        presentation="settings"
+        onChange={vi.fn()}
+        defaultsControl={<span>Complete session defaults</span>}
+        controlled={
+          controlled
+            ? {
+                accounts: profiles,
+                selection: { accountId: 'work', model: 'sonnet' },
+                onChange: vi.fn(),
+                onRefresh: refresh,
+              }
+            : undefined
+        }
+      />,
+    );
+    const button = await screen.findByRole('button', { name: 'Refresh models' });
+    expect(screen.queryByRole('link', { name: 'Connect Claude subscription' })).toBeNull();
+    fireEvent.click(button);
+    if (controlled) expect(refresh).toHaveBeenCalledOnce();
+    else await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Complete session defaults')).toBeTruthy();
+  },
+);
 
 it('settings labels Thinking level without changing bound account and model guards', () => {
   const onChange = vi.fn();
@@ -636,6 +670,7 @@ it('offers personal subscription setup only in the Symposium account catalog inc
   );
   await screen.findByText('No account profiles configured.');
   expect(screen.queryByRole('button', { name: 'Connect personal subscription' })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Connect Claude subscription' })).toBeNull();
   rerender(
     <AccountModelPicker
       scope="symposium"
@@ -1323,4 +1358,74 @@ it('keeps confirmation visible and new-chat defaults on request in settings', as
   expect(onChange).toHaveBeenLastCalledWith(null);
   fireEvent.click(confirm);
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
+
+it('switches to account-specific settings, restores them, and normalizes thinking on model edits', () => {
+  const accounts = [
+    {
+      id: 'openai',
+      label: 'OpenAI',
+      models: [{ id: 'luna', label: 'Luna', reasoningEfforts: ['high', 'low'] }],
+    },
+    {
+      id: 'claude',
+      label: 'Claude',
+      models: [
+        {
+          id: 'sonnet',
+          label: 'Sonnet',
+          reasoningEfforts: ['medium', 'high'],
+          defaultReasoningEffort: 'medium',
+        },
+        { id: 'haiku', label: 'Haiku' },
+      ],
+    },
+  ];
+  function Picker() {
+    const [selection, onChange] = useState<import('../AccountModelPicker').AccountSelection>({
+      accountId: 'openai',
+      model: 'luna',
+      reasoningEffort: 'low',
+    });
+    return (
+      <AccountModelPicker
+        sessionId={null}
+        preferredModel="luna"
+        onChange={(next) => {
+          if (next) onChange(next);
+        }}
+        controlled={{ accounts, selection, onChange }}
+      />
+    );
+  }
+  const view = render(<Picker />);
+  const choose = (name: string, value: string) =>
+    fireEvent.change(screen.getByRole('combobox', { name }), { target: { value } });
+  choose('Account', 'claude');
+  expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(
+    'sonnet',
+  );
+  expect(screen.queryByRole('option', { name: 'Luna' })).toBeNull();
+  expect((screen.getByRole('combobox', { name: 'Thinking' }) as HTMLSelectElement).value).toBe(
+    'medium',
+  );
+  choose('Thinking', 'high');
+  choose('Account', 'openai');
+  expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe('luna');
+  expect((screen.getByRole('combobox', { name: 'Thinking' }) as HTMLSelectElement).value).toBe(
+    'low',
+  );
+  choose('Account', 'claude');
+  expect((screen.getByRole('combobox', { name: 'Thinking' }) as HTMLSelectElement).value).toBe(
+    'high',
+  );
+  choose('Model', 'haiku');
+  expect((screen.getByRole('combobox', { name: 'Thinking' }) as HTMLSelectElement).value).toBe('');
+  expect(localStorage.getItem('mitzo-default-account-model')).toBeNull();
+  view.unmount();
+  render(<Picker />);
+  choose('Account', 'claude');
+  expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(
+    'haiku',
+  );
 });

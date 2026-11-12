@@ -8,6 +8,7 @@ import { TelosWorkViewSchema, TelosWorkItemSchema } from '@mitzo/protocol';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { useTelosChatRoute } from '../../hooks/useTelosChatRoute';
 import { TelosChatRouteLayout } from '../TelosChatRouteLayout';
+import * as requests from '../../lib/api-fetch';
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -82,10 +83,7 @@ function mount(query = '?telosChatItem=slice', linked = true) {
     }),
   );
   vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockResolvedValue(record);
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ sessionId: 'worker' }) }),
-  );
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ sessionId: 'worker' })));
   const store = createTestStore();
   render(
     <MitzoStoreProvider value={store}>
@@ -125,8 +123,12 @@ it('leaves an ordinary chat without a work route or bound role on its existing r
   expect(screen.getByRole('textbox', { name: 'Draft' })).toBeTruthy();
 });
 it('rechecks current work and canonical record projections after transport reconnect without remounting the composer', async () => {
+  const metadata = vi.spyOn(requests, 'apiFetch');
   const store = mount();
   await screen.findByRole('button', { name: 'View item: Recording plan' });
+  expect(metadata.mock.calls.find(([path]) => path.endsWith('/meta'))?.[2]).toBe(
+    'session-metadata-mount',
+  );
   const input = screen.getByRole('textbox', { name: 'Draft' });
   fireEvent.change(input, { target: { value: 'Reconnect draft' } });
   const current = await TelosWorkApiClient.prototype.read('slice');
@@ -150,6 +152,9 @@ it('rechecks current work and canonical record projections after transport recon
   act(() => store.setState((s) => ({ connection: { ...s.connection, status: 'connected' } })));
   await screen.findByRole('button', { name: 'Chats for this item: 2' });
   await screen.findByRole('button', { name: 'View item: Updated recording plan' });
+  expect(
+    metadata.mock.calls.filter(([path]) => path.endsWith('/meta')).at(-1)?.[2],
+  ).toBeUndefined();
   expect(screen.getByRole('textbox', { name: 'Draft' })).toBe(input);
   expect((input as HTMLTextAreaElement).value).toBe('Reconnect draft');
 });

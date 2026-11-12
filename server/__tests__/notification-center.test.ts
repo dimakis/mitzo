@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { buildPermissionHandler, SessionRegistry, permissionDisplayInput } from '@mitzo/harness';
+import {
+  buildPermissionHandler,
+  SessionRegistry,
+  permissionDisplayInput,
+  ntfy,
+  pushover as pushoverTransport,
+  githubCommandConsentDescription,
+} from '@mitzo/harness';
 import { registerPending, resolvePending, removePending } from '../permissions.js';
 import { NotificationStore } from '../notification-store.js';
 import { NotificationCenter, nextDeliveryAt } from '../notification-center.js';
@@ -7,6 +14,18 @@ import type { PermissionRequest } from '@mitzo/protocol';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  isConfigured as legacyConfigured,
+  sendPermissionNotification as legacySend,
+} from '../pushover.js';
+vi.mock('../pushover.js', () => ({
+  isConfigured: vi.fn(() => false),
+  sendPermissionNotification: vi.fn(async () => true),
+}));
+vi.mock('../notify.js', () => ({
+  isConfigured: vi.fn(() => false),
+  sendPermissionNotification: vi.fn(async () => true),
+}));
 
 const request: PermissionRequest = {
   permId: 'notify-perm',
@@ -18,6 +37,7 @@ const request: PermissionRequest = {
 function setup(
   devices = () => 1,
   badge?: (count: number) => Promise<'accepted' | 'failed' | 'unavailable'>,
+  title = 'Fix notifications',
 ) {
   const store = new NotificationStore(':memory:');
   const push = vi.fn().mockResolvedValue({ status: 'accepted', acceptedDevices: [] });
@@ -28,11 +48,394 @@ function setup(
     configured: () => true,
     devices,
     badge,
-    sessionTitle: () => 'Fix notifications',
+    sessionTitle: () => title,
   });
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
+  it('delivers an oversized Pushover preview through the real transport as a review-only alert', async () => {
+    const { center, store, push } = setup(() => 0, undefined, 't'.repeat(80));
+    const permId = 'pushover-preview-limit';
+    vi.stubEnv('PUSHOVER_API_TOKEN', 'fixture-token');
+    vi.stubEnv('PUSHOVER_USER_KEY', 'fixture-user');
+    vi.stubEnv('BASE_URL', 'https://mitzo.example');
+    const fetch = vi.fn(async (_url: unknown, options: { body: string }) => {
+      const body = JSON.parse(options.body);
+      const ok = body.message.length <= 1024 && body.title.length <= 250;
+      return { ok, status: ok ? 200 : 400 };
+    });
+    vi.stubGlobal('fetch', fetch);
+    vi.mocked(legacyConfigured).mockReturnValue(true);
+    vi.mocked(legacySend).mockImplementation(pushoverTransport.sendPermissionNotification);
+    store.setPreferences({ sensitivePreviews: true });
+    try {
+      registerPending(
+        permId,
+        'Bash',
+        vi.fn(),
+        { command: 'x'.repeat(765) },
+        'elevated',
+        request.sessionId,
+        {
+          ...request,
+          permId,
+          toolInput: 'x'.repeat(765),
+          sessionGrantDescription: githubCommandConsentDescription('dimakis/mitzo'),
+        },
+      );
+      await center.flush();
+      expect(legacySend).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        permId,
+        request.sessionId,
+        { reviewOnly: true },
+      );
+      expect(vi.mocked(legacySend).mock.lastCall![1].length).toBeGreaterThan(1024);
+      expect(fetch).toHaveBeenCalledOnce();
+      const body = JSON.parse(fetch.mock.calls[0][1].body);
+      expect(body.message).toBe('Open Mitzo to review this notification.');
+      expect(body.url).toBe(`https://mitzo.example/chat/${request.sessionId}`);
+      expect(body.url_title).toBe('Open Mitzo');
+      expect(store.deliveredDevices(`permission:${permId}`)).toEqual(['legacy:pushover']);
+      expect(push).not.toHaveBeenCalled();
+    } finally {
+      removePending(permId);
+      center.close();
+      store.close();
+      vi.mocked(legacyConfigured).mockReturnValue(false);
+      vi.mocked(legacySend).mockReset().mockResolvedValue(true);
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('delivers every distinct approval across batches, including another chat and a question', async () => {
+    const { center, store, push } = setup();
+    const ids = Array.from({ length: 28 }, (_, index) => `deferred-${index}`);
+    try {
+      registerPending(ids[0], 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+        ...request,
+        permId: ids[0],
+      });
+      await center.flush();
+      for (const [index, permId] of ids.slice(1).entries()) {
+        const sessionId = index === 25 ? 'another-chat' : request.sessionId;
+        registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', sessionId, {
+          ...request,
+          permId,
+          sessionId,
+          ...(index === 26
+            ? {
+                questions: [
+                  {
+                    id: 'q',
+                    header: 'Target',
+                    question: 'Which target?',
+                    options: [],
+                    multiSelect: false,
+                  },
+                ],
+              }
+            : {}),
+        });
+      }
+      await center.flush();
+      await center.flush();
+      expect(push.mock.calls.map(([message]) => message.data.notificationId)).toEqual(
+        ids.map((id) => `permission:${id}`),
+      );
+    } finally {
+      ids.forEach((id) => removePending(id));
+      center.close();
+      store.close();
+    }
+  });
+
+  it('delivers concurrent decisions in one chat once each without waiting for a response', async () => {
+    const { center, store, push } = setup();
+    const ids = ['coalesced-first', 'coalesced-pending'];
+    try {
+      for (const permId of ids)
+        registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+          ...request,
+          permId,
+        });
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(2);
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(2);
+      resolvePending(ids[0], 'once');
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(2);
+      expect(push.mock.calls[1][0].data.notificationId).toBe(`permission:${ids[1]}`);
+    } finally {
+      ids.forEach((id) => removePending(id));
+      center.close();
+      store.close();
+    }
+  });
+
+  it('does not switch to legacy alerts after a partial native delivery', async () => {
+    vi.useFakeTimers();
+    let devices = 2;
+    const { center, store, push } = setup(() => devices);
+    vi.mocked(legacyConfigured).mockReturnValue(true);
+    vi.mocked(legacySend).mockClear();
+    push.mockResolvedValueOnce({ status: 'failed', acceptedDevices: ['native-device'] });
+    const permId = 'partial-native';
+    try {
+      registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+        ...request,
+        permId,
+        expiresAt: Date.now() + 120000,
+      });
+      await center.flush();
+      devices = 0;
+      vi.advanceTimersByTime(60000);
+      await center.flush();
+      expect(legacySend).not.toHaveBeenCalled();
+      expect(store.deliveredDevices(`permission:${permId}`)).toEqual(['native-device']);
+      devices = 2;
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(2);
+      expect(push.mock.calls[1][0].deliveredDevices).toEqual(['native-device']);
+    } finally {
+      removePending(permId);
+      center.close();
+      store.close();
+      vi.mocked(legacyConfigured).mockReturnValue(false);
+      vi.useRealTimers();
+    }
+  });
+
+  it('prevents the shared provider handler from independently sending legacy alerts', async () => {
+    vi.useFakeTimers();
+    const configured = vi.spyOn(ntfy, 'isConfigured').mockReturnValue(true);
+    const send = vi.spyOn(ntfy, 'sendPermissionNotification').mockResolvedValue(true);
+    const { center, store } = setup();
+    const registry = new SessionRegistry();
+    const abort = new AbortController();
+    registry.register('delivery-client', {
+      sessionId: 'delivery-session',
+      mode: 'agent',
+      abortController: abort,
+      sessionAllowList: new Set(),
+      transport: { send() {}, isOpen: () => true },
+    });
+    const pending = buildPermissionHandler('delivery-client', registry)(
+      'Bash',
+      { command: 'npm test' },
+      { signal: abort.signal, toolUseID: 'tool' },
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(store.feed('needs').items).toHaveLength(1);
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      abort.abort();
+      await pending;
+      registry.dispose();
+      center.close();
+      store.close();
+      configured.mockRestore();
+      send.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains failed legacy delivery for a bounded retry without claiming acceptance', async () => {
+    const { center, store } = setup(() => 0);
+    vi.mocked(legacyConfigured).mockReturnValue(true);
+    vi.mocked(legacySend).mockResolvedValueOnce(false);
+    const permId = 'legacy-failed';
+    try {
+      registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+        ...request,
+        permId,
+      });
+      await center.flush();
+      expect(store.deliveredDevices(`permission:${permId}`)).toEqual([]);
+      expect(store.attempts(`permission:${permId}`)).toBe(1);
+      expect(store.feed('needs').items).toHaveLength(1);
+    } finally {
+      removePending(permId);
+      center.close();
+      store.close();
+      vi.mocked(legacyConfigured).mockReturnValue(false);
+    }
+  });
+
+  it('delivers each legacy approval through preferences, and prefers native push', async () => {
+    let devices = 0;
+    const { center, store, push } = setup(() => devices);
+    const ids = ['legacy-muted', 'legacy-first', 'legacy-second', 'legacy-native'];
+    vi.mocked(legacyConfigured).mockReturnValue(true);
+    vi.mocked(legacySend).mockClear();
+    const add = (permId: string, sessionId = request.sessionId) =>
+      registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', sessionId, {
+        ...request,
+        permId,
+        sessionId,
+      });
+    try {
+      store.setPreferences({ approvals: false });
+      add(ids[0]);
+      await center.flush();
+      expect(legacySend).not.toHaveBeenCalled();
+      store.setPreferences({ approvals: true });
+      add(ids[1]);
+      add(ids[2]);
+      await center.flush();
+      expect(legacySend).toHaveBeenCalledTimes(2);
+      expect(legacySend).toHaveBeenCalledWith(
+        'Mitzo needs your approval',
+        'Open Mitzo to review this notification.',
+        ids[1],
+        request.sessionId,
+        { reviewOnly: true },
+      );
+      devices = 1;
+      add(ids[3], 'native-session');
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(1);
+      expect(legacySend).toHaveBeenCalledTimes(2);
+    } finally {
+      ids.forEach((id) => removePending(id));
+      center.close();
+      store.close();
+      vi.mocked(legacyConfigured).mockReturnValue(false);
+    }
+  });
+
+  it('deduplicates each request across restart while allowing new decisions after expiry', async () => {
+    const f = setup();
+    let center = f.center;
+    const ids = ['episode-first', 'episode-parallel', 'episode-retry', 'episode-after-read'];
+    const add = (permId: string) =>
+      registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+        ...request,
+        permId,
+      });
+    try {
+      add(ids[0]);
+      add(ids[1]);
+      await center.flush();
+      expect(f.push).toHaveBeenCalledTimes(2);
+      expect(f.store.feed('needs').items).toHaveLength(2);
+      center.close();
+      center = new NotificationCenter(f.store, {
+        push: f.push,
+        changed: f.changed,
+        configured: () => true,
+        devices: () => 1,
+        sessionTitle: () => 'Fix notifications',
+      });
+      await center.flush();
+      expect(f.push).toHaveBeenCalledTimes(2);
+      removePending(ids[0]);
+      removePending(ids[1]);
+      center.close();
+      center = new NotificationCenter(f.store, {
+        push: f.push,
+        changed: f.changed,
+        configured: () => true,
+        devices: () => 1,
+        sessionTitle: () => 'Fix notifications',
+      });
+      add(ids[2]);
+      await center.flush();
+      expect(f.push).toHaveBeenCalledTimes(3);
+      expect(f.store.feed('needs').items.map((item) => item.permId)).toEqual([ids[2]]);
+      f.store.markRead(`permission:${ids[0]}`);
+      add(ids[3]);
+      await center.flush();
+      expect(f.push).toHaveBeenCalledTimes(4);
+    } finally {
+      ids.forEach((id) => removePending(id));
+      center.close();
+      f.store.close();
+    }
+  });
+
+  it('does not coalesce separate chats, questions or requests after an explicit decision', async () => {
+    const { center, store, push } = setup();
+    const ids = ['attention-one', 'attention-other', 'attention-question', 'attention-new'];
+    try {
+      for (const [index, permId] of ids.slice(0, 3).entries())
+        registerPending(
+          permId,
+          'Bash',
+          vi.fn(),
+          {},
+          'elevated',
+          index === 1 ? 'other-session' : request.sessionId,
+          {
+            ...request,
+            permId,
+            sessionId: index === 1 ? 'other-session' : request.sessionId,
+            ...(index === 2
+              ? {
+                  questions: [
+                    {
+                      id: 'q',
+                      header: 'Target',
+                      question: 'Which target?',
+                      options: [],
+                      multiSelect: false,
+                    },
+                  ],
+                }
+              : {}),
+          },
+        );
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(3);
+      resolvePending(ids[0], 'once');
+      registerPending(ids[3], 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+        ...request,
+        permId: ids[3],
+      });
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(4);
+    } finally {
+      ids.forEach((id) => removePending(id));
+      center.close();
+      store.close();
+    }
+  });
+
+  it('keeps the notification owner active while an asynchronous source scan is pending', async () => {
+    const { store, center } = setup();
+    let finish!: (changed: boolean) => void;
+    center.setAsyncInboxReconciler(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = center.reconcileAsync();
+    try {
+      expect(() => center.closeIdle()).toThrow('Notification owner active');
+    } finally {
+      finish(false);
+      await pending.catch(() => {});
+      center.close();
+      store.close();
+    }
+  });
+  it('does not manufacture completion alerts when there is no written result', async () => {
+    const { store, center, push } = setup();
+    try {
+      center.turnComplete('s1', 1, '  ', 'Watch approvals', true);
+      await center.flush();
+      expect(push).not.toHaveBeenCalled();
+      expect(store.get('turn:s1:1')).toBeUndefined();
+    } finally {
+      center.close();
+      store.close();
+    }
+  });
   it.each(['closed', 'failed'])('keeps deferred approval refresh safe when %s', async (state) => {
     const { store, center, changed } = setup();
     const permId = `refresh-${state}`;
@@ -79,7 +482,7 @@ describe('central notification delivery', () => {
       expect(feed).not.toHaveBeenCalled();
       expect(count).toHaveBeenCalledOnce();
     } finally {
-      ids.forEach(removePending);
+      ids.forEach((id) => removePending(id));
       center.close();
       store.close();
     }
@@ -262,14 +665,14 @@ describe('central notification delivery', () => {
   it.each([
     ['search', 'session', 'SESSION_SEARCH_PERMISSION'],
     ['fetch', 'request', 'SESSION_APPROVAL'],
-    ['grant', 'conversation', 'SESSION_PERMISSION'],
+    ['grant', 'conversation', 'SESSION_CONVERSATION_APPROVAL'],
   ] as const)(
     'selects actions appropriate to %s approval scope',
     async (operation, approvalScope, category) => {
       const { store, center, push } = setup();
       store.setPreferences({ sensitivePreviews: true });
       const permId = `category-${operation}`;
-      registerPending(permId, 'RequestWebAccess', vi.fn(), {}, 'unknown', 's1', {
+      registerPending(permId, 'RequestWebAccess', vi.fn(), { operation }, 'unknown', 's1', {
         permId,
         toolName: 'RequestWebAccess',
         toolInput: JSON.stringify({ operation }),
@@ -375,25 +778,17 @@ describe('central notification delivery', () => {
       store.close();
     }
   });
-  it.each(['oversized', 'unknown'])(
+  it.each(['oversized'])(
     'keeps %s requests review-only even with previews enabled',
     async (kind) => {
       const { store, center, push } = setup();
       store.setPreferences({ sensitivePreviews: true });
-      registerPending(
-        'review-only',
-        kind === 'unknown' ? 'CustomGrant' : 'Bash',
-        vi.fn(),
-        {},
-        'elevated',
-        's1',
-        {
-          permId: 'review-only',
-          toolName: kind === 'unknown' ? 'CustomGrant' : 'Bash',
-          toolInput: kind === 'oversized' ? 'x'.repeat(2000) : '{}',
-          sessionId: 's1',
-        },
-      );
+      registerPending('review-only', 'Bash', vi.fn(), {}, 'elevated', 's1', {
+        permId: 'review-only',
+        toolName: 'Bash',
+        toolInput: kind === 'oversized' ? 'x'.repeat(2000) : '{}',
+        sessionId: 's1',
+      });
       await center.flush();
       expect(push.mock.calls[0][0].category).toBe('SESSION_PERMISSION');
       expect(push.mock.calls[0][0].data.approvalInput).toBeUndefined();

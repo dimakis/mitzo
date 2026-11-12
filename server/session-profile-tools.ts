@@ -11,6 +11,7 @@ import { symposiumProposeProfileDefinition } from './symposium-profile-tool.js';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 
 export const profileToolSchemas = {
   SymposiumProposeProfile: ProfileProposalInputSchema,
@@ -74,12 +75,12 @@ export function sessionProfileTools(
           .digest('hex');
         let value: unknown;
         if (custodianControllerClient) {
-          const connectionId = owner.session.ownerConnectionId ?? owner.clientId.split(':')[0];
+          const connectionId = sessionToolOperatorConnection(owner.session, owner.clientId);
           const captured = captureAgentLibraryAuthorization(connectionId);
           const verifyAuthorization = () => {
             signal.throwIfAborted();
             const next = current(name);
-            if ((next.session.ownerConnectionId ?? next.clientId.split(':')[0]) !== connectionId)
+            if (sessionToolOperatorConnection(next.session, next.clientId) !== connectionId)
               throw Error('Profile operator changed during the request');
             captured.assertCurrent();
           };

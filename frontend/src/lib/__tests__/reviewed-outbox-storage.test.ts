@@ -238,6 +238,161 @@ const ordinaryBody = {
   },
   payload: { text: 'Original ordinary command' },
 };
+it('releases obsolete delivery hints before retaining an accepted receipt at quota', () => {
+  const disk = memory();
+  const setItem = disk.setItem;
+  let quota = Infinity;
+  const used = () =>
+    Array.from({ length: disk.length }, (_, index) => disk.key(index)!).reduce(
+      (sum, key) => sum + key.length + disk.getItem(key)!.length,
+      0,
+    );
+  disk.setItem = (key, value) => {
+    const current = disk.getItem(key);
+    const next =
+      used() - (current === null ? 0 : key.length + current.length) + key.length + value.length;
+    if (next > quota) throw new DOMException('Web Storage is full', 'QuotaExceededError');
+    setItem(key, value);
+  };
+  const storage = createReviewedOutboxStorage(disk, '/api/chat/local-codex/send', 'local');
+  const entry = {
+    body: ordinaryBody,
+    scope: 1,
+    uncertain: true,
+    ordinaryDelivery: { version: 2, phase: 'continue' },
+  };
+  storage.getItem('queue');
+  storage.setItem(
+    'queue',
+    JSON.stringify([
+      {
+        ...entry,
+        deliveryDiagnostic: {
+          operation: 'submit',
+          stage: 'request',
+          code: 'transport_failed',
+          startedAt: 0,
+          elapsedMs: 10,
+        },
+      },
+    ]),
+  );
+  quota = used();
+  const accepted = {
+    ...entry,
+    uncertain: false,
+    localReceipt: { sessionId: ordinaryBody.sessionId, state: 'consumed' },
+  };
+  expect(() => storage.setItem('queue', JSON.stringify([accepted]))).not.toThrow();
+  expect(JSON.parse(storage.getItem('queue')!)).toEqual([accepted]);
+  expect(used()).toBeLessThanOrEqual(quota);
+});
+
+it('keeps diagnostic persistence outside the command envelope understood by older clients', () => {
+  const disk = memory();
+  const url = 'https://one.test/local/send';
+  const storage = createReviewedOutboxStorage(disk, url, 'local');
+  const runtimeFailure = {
+    runtimeFailureCode: 'login_refresh_reauthorization',
+    diagnosticId: '00000000-0000-4000-8000-000000000001',
+  };
+  const deliveryDiagnostic = {
+    operation: 'submit',
+    stage: 'request',
+    code: 'transport_failed',
+    startedAt: 100,
+    elapsedMs: 50,
+  };
+  const entry = {
+    body: ordinaryBody,
+    scope: 1,
+    ordinaryDelivery: { version: 2, phase: 'continue' },
+    uncertain: true,
+    runtimeFailure,
+    deliveryDiagnostic,
+  };
+  storage.setItem('queue', JSON.stringify([entry]));
+  const rowKey = Array.from({ length: disk.length }, (_, index) => disk.key(index)!).find((key) =>
+    key.startsWith('mitzo-local-first-command-outbox:'),
+  )!;
+  const stored = JSON.parse(disk.getItem(rowKey)!);
+  expect(stored).not.toHaveProperty('runtimeFailure');
+  expect(stored).not.toHaveProperty('deliveryDiagnostic');
+  expect(
+    Object.keys(stored).every((key) =>
+      [
+        'body',
+        'scope',
+        'uncertain',
+        'localReceipt',
+        'localDraftId',
+        'ordinaryDelivery',
+        'composerDraft',
+      ].includes(key),
+    ),
+  ).toBe(true);
+  const fresh = createReviewedOutboxStorage(disk, url, 'local');
+  expect(JSON.parse(fresh.getItem('queue')!)).toEqual([entry]);
+  const hintKey = Array.from({ length: disk.length }, (_, index) => disk.key(index)!).find((key) =>
+    key.startsWith('mitzo-command-diagnostic:'),
+  )!;
+  disk.setItem(
+    hintKey,
+    JSON.stringify({
+      runtimeFailureCode: 'forged',
+      diagnosticId: runtimeFailure.diagnosticId,
+      error: 'private text',
+    }),
+  );
+  const reopened = JSON.parse(fresh.getItem('queue')!)[0];
+  expect(reopened.body).toEqual(ordinaryBody);
+  expect(reopened).not.toHaveProperty('runtimeFailure');
+  expect(JSON.stringify(reopened)).not.toContain('private text');
+  expect(reopened.deliveryDiagnostic).toEqual(deliveryDiagnostic);
+  fresh.setItem('queue', '[]');
+  expect(disk.length).toBe(0);
+});
+it.each([false, true])(
+  'notifies draft collections only after accepted proof is journalled (failure=%s)',
+  (fail) => {
+    const target = new EventTarget();
+    vi.stubGlobal('window', target);
+    try {
+      const disk = memory();
+      const storage = createReviewedOutboxStorage(disk, 'https://one.test/local/send', 'local');
+      const composerDraft = { storageKey: 'mitzo-draft-chat', revisionToken: 'exact-revision' };
+      const marker = `mitzo-draft-accepted:${encodeURIComponent(composerDraft.storageKey)}`;
+      storage.setItem(
+        'queue',
+        JSON.stringify([
+          {
+            body: ordinaryBody,
+            scope: 1,
+            ordinaryDelivery: { version: 2, phase: 'continue' },
+            uncertain: false,
+            composerDraft,
+            localReceipt: { state: 'consumed', sessionId: ordinaryBody.sessionId },
+          },
+        ]),
+      );
+      const notified = vi.fn(() =>
+        expect(JSON.parse(disk.getItem(marker)!)).toEqual(composerDraft),
+      );
+      target.addEventListener('mitzo-composer-draft-accepted', notified);
+      if (fail) {
+        const write = disk.setItem;
+        vi.spyOn(disk, 'setItem').mockImplementation((key, value) => {
+          if (key === marker) throw Error('Journal quota');
+          write(key, value);
+        });
+        expect(() => storage.setItem('queue', '[]')).toThrow('Journal quota');
+      } else storage.setItem('queue', '[]');
+      expect(notified).toHaveBeenCalledTimes(fail ? 0 : 1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
 it.each([false, true])(
   'journals accepted composer proof before retirement (failure=%s)',
   (fail) => {

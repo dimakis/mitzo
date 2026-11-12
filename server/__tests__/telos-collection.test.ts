@@ -3,6 +3,9 @@ import Database from 'better-sqlite3';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 import { TelosItemStore } from '../telos-item-store.js';
 import { TelosWorkStore } from '../telos-work-store.js';
+import { renewDueTelosSnoozes } from '../telos-snooze.js';
+import { createLegacyBackupSeed } from './fixtures/legacy-backup-seed.js';
+import { projectTelosCollection } from '../telos-collection.js';
 
 const fixtures: ReturnType<typeof createTelosCanonicalData>[] = [];
 afterEach(() => {
@@ -14,6 +17,32 @@ function fixture() {
   fixtures.push(f);
   return f;
 }
+it('offers a native profile before any items exist so the first UI creation can proceed', () => {
+  const f = fixture();
+  const store = new TelosWorkStore(f.dbPath, { ordinaryConversation: () => false });
+  try {
+    expect(projectTelosCollection(f.db, [], [], 'active').profiles).toEqual(['manual']);
+  } finally {
+    store.close();
+  }
+});
+it('keeps the backup provenance seed snoozed on the incident calendar day', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-01T12:00:00Z'));
+  const seed = createLegacyBackupSeed();
+  try {
+    const items = seed.db.prepare('SELECT * FROM items ORDER BY id').all() as Array<
+      Record<string, unknown> & { id: string }
+    >;
+    const changed = seed.db
+      .transaction(() => renewDueTelosSnoozes(seed.db, items, () => {}))
+      .immediate();
+    expect(changed).toBe(false);
+    expect(seed.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(items);
+  } finally {
+    seed.close();
+  }
+});
 it('lists all ten newly created children by their persisted identity, across profiles and after renaming', () => {
   const f = fixture();
   f.db.prepare("UPDATE items SET profile='work' WHERE id='studio'").run();

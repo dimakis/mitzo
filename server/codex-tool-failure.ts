@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { runBoundedToolCleanup, ToolGuardTimeoutError } from '@mitzo/harness';
+import { toolFailure } from '@mitzo/protocol';
+import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import { PendingHostTaskError } from './pending-host-task.js';
 import type { CodexToolResult } from './codex-tool-result.js';
@@ -26,6 +29,8 @@ const FailureDetailSchema = z.strictObject({
     'filesystem_denied',
     'deadline',
     'storage_full',
+    'memory_exhausted',
+    'connection_unavailable',
     'preparation_capacity',
     'custody_changed',
     'missing_connection',
@@ -34,6 +39,7 @@ const FailureDetailSchema = z.strictObject({
   effectStatus: z.enum(['not_started', 'unknown', 'completed']),
 });
 export const CodexToolFailureDiagnosticSchema = FailureDetailSchema.extend({
+  phase: z.enum(['approval', 'execution', 'cleanup']).optional(),
   primary: FailureDetailSchema.optional(),
   cleanup: z.array(FailureDetailSchema).max(8).optional(),
   cleanupTruncated: z.literal(true).optional(),
@@ -54,6 +60,7 @@ class ToolCleanupFailure extends AggregateError {
 export async function withCodexToolCleanup<T>(
   action: () => Promise<T>,
   cleanups: readonly (() => unknown | Promise<unknown>)[],
+  cleanupTimeoutMs = 10_000,
 ): Promise<T> {
   let value!: T;
   let primary: { error: unknown } | undefined;
@@ -63,9 +70,10 @@ export async function withCodexToolCleanup<T>(
     primary = { error };
   }
   const failures: unknown[] = [];
+  const cleanupDeadline = performance.now() + cleanupTimeoutMs;
   for (const cleanup of cleanups) {
     try {
-      await cleanup();
+      await runBoundedToolCleanup(cleanup, Math.max(1, cleanupDeadline - performance.now()));
     } catch (error) {
       failures.push(error);
     }
@@ -162,6 +170,7 @@ function failureProjection(
       code: selected.code,
       diagnostic: {
         stage: selected.diagnostic.stage,
+        phase: 'cleanup',
         reason: selected.diagnostic.reason,
         effectStatus: 'unknown',
         ...(original
@@ -183,6 +192,7 @@ function failureProjection(
     };
   }
   const typed = chain.find((failure) => failure instanceof CodexToolFailure);
+  const timeout = chain.find((failure) => failure instanceof ToolGuardTimeoutError);
   const boundary = chain.find((failure) => failure instanceof PendingHostTaskError);
   const code: ToolFailureCode = chain.some((failure) => failure.name === 'AbortError')
     ? 'cancelled'
@@ -195,24 +205,39 @@ function failureProjection(
   const resourceCode = chain
     .map((failure) => ('code' in failure ? failure.code : undefined))
     .find((value) =>
-      ['EACCES', 'EPERM', 'ETIMEDOUT', 'ENOSPC', 'SQLITE_FULL'].includes(value as string),
+      [
+        'EACCES',
+        'EPERM',
+        'ETIMEDOUT',
+        'ENOSPC',
+        'SQLITE_FULL',
+        'ENOMEM',
+        'ECONNREFUSED',
+        'ECONNRESET',
+        'ENOTFOUND',
+      ].includes(value as string),
     );
-  const reason: CodexToolFailureDiagnostic['reason'] =
-    code === 'cancelled'
-      ? 'cancelled'
-      : resourceCode === 'EACCES' || resourceCode === 'EPERM'
-        ? 'filesystem_denied'
-        : resourceCode === 'ETIMEDOUT'
-          ? 'deadline'
-          : resourceCode === 'ENOSPC' || resourceCode === 'SQLITE_FULL'
-            ? 'storage_full'
-            : code === 'stale_owner'
-              ? 'custody_changed'
-              : code === 'approval_unavailable'
-                ? 'approval_unavailable'
-                : code === 'invalid_input'
-                  ? 'invalid_input'
-                  : 'unknown';
+  const reason: CodexToolFailureDiagnostic['reason'] = timeout
+    ? 'deadline'
+    : resourceCode === 'ENOMEM'
+      ? 'memory_exhausted'
+      : ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND'].includes(String(resourceCode))
+        ? 'connection_unavailable'
+        : code === 'cancelled'
+          ? 'cancelled'
+          : resourceCode === 'EACCES' || resourceCode === 'EPERM'
+            ? 'filesystem_denied'
+            : resourceCode === 'ETIMEDOUT'
+              ? 'deadline'
+              : resourceCode === 'ENOSPC' || resourceCode === 'SQLITE_FULL'
+                ? 'storage_full'
+                : code === 'stale_owner'
+                  ? 'custody_changed'
+                  : code === 'approval_unavailable'
+                    ? 'approval_unavailable'
+                    : code === 'invalid_input'
+                      ? 'invalid_input'
+                      : 'unknown';
   const diagnostic = typed?.diagnostic ?? {
     stage: boundary ? ('repository_preparation' as const) : stage,
     reason,
@@ -220,7 +245,11 @@ function failureProjection(
   };
   return {
     code,
-    diagnostic: code === 'cancelled' ? { ...diagnostic, reason: 'cancelled' } : diagnostic,
+    diagnostic: {
+      ...diagnostic,
+      ...(timeout ? { phase: timeout.phase } : {}),
+      ...(code === 'cancelled' ? { reason: 'cancelled' as const } : {}),
+    },
   };
 }
 
@@ -253,13 +282,36 @@ export function codexToolFailureResult(
     internal_failure:
       'The outcome is uncertain. Inspect current state and the diagnostic reference before retrying; do not repeat a write blindly.',
   };
+  const correctRepositoryInput =
+    code === 'invalid_input' &&
+    diagnostic.stage === 'repository_preparation' &&
+    diagnostic.effectStatus === 'not_started';
   return {
     content: JSON.stringify({
+      message:
+        diagnostic.reason === 'memory_exhausted'
+          ? 'The tool ran out of memory. Reduce its workload and inspect partial results before retrying.'
+          : diagnostic.reason === 'connection_unavailable'
+            ? 'The tool could not reach its service. Check service availability and the original operation receipt before retrying.'
+            : diagnostic.reason === 'deadline'
+              ? 'The tool exceeded its time limit. Inspect the original operation before retrying.'
+              : diagnostic.reason === 'filesystem_denied'
+                ? 'The filesystem denied the tool access. Check the permitted path and operation.'
+                : diagnostic.reason === 'storage_full'
+                  ? 'The tool could not write because storage is full. Preserve partial work and restore capacity.'
+                  : 'The tool failed. Its diagnostic and recovery action follow.',
+      failure: toolFailure(
+        diagnostic.reason === 'deadline' ? 'tool_timeout' : code,
+        diagnostic.phase ?? (diagnostic.cleanup?.length ? 'cleanup' : 'execution'),
+        diagnostic.effectStatus,
+      ),
       error: code,
-      action: actions[code],
+      action: correctRepositoryInput
+        ? 'Choose exactly one selector: path for an existing absolute checkout OR source for existing/clone/new, never both. For a new managed checkout use {"source":{"kind":"new","name":"my-project"}} without path. path is not a destination; this tool assigns the task directory. For a project at a requested destination, use native shell with exact filesystem permission instead. Use only documented fields. Correct the arguments and retry; this call did not start repository preparation. Do not reconcile an unrelated repository.'
+        : actions[code],
       diagnosticId: randomUUID(),
       diagnostic,
-      retry: 'after_reconciliation',
+      retry: correctRepositoryInput ? 'after_correction' : 'after_reconciliation',
     }),
     isError: true,
   };

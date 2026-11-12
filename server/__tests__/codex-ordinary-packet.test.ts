@@ -234,5 +234,33 @@ it('publishes admitted current workspace in each native turn without a preparati
   expect(result.additionalContext?.['mitzo.active-workspace'].value).toContain(
     'Use native tools directly',
   );
+  const thread = codexThreadOptions({
+    model: 'offline',
+    modelProvider: 'openai',
+    cwd: nativeExecution.cwd,
+    runtimeConfig: {},
+    webSearch: 'disabled',
+    systemPrompt: '',
+    nativeExecution,
+  });
+  for (const guidance of [
+    thread.developerInstructions,
+    result.additionalContext!['mitzo.active-workspace'].value,
+  ]) {
+    for (const operation of [
+      'mkdir',
+      'git init',
+      'git clone',
+      'git remote add',
+      'git remote set-url',
+    ])
+      expect(guidance).toContain(operation);
+    expect(guidance).toContain('requested directory');
+    expect(guidance).toContain('exact native filesystem permission');
+    expect(guidance).toContain('optional');
+    expect(guidance).toContain('already assigned a task branch');
+    expect(guidance).toContain('do not switch or rename');
+    expect(guidance).not.toContain('Another repository needs its own verified preparation');
+  }
   expect(result.input).toEqual([{ type: 'text', text: 'Continue' }]);
 });

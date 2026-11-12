@@ -77,6 +77,22 @@ export function listInboxItems(inboxPath: string): InboxItemSummary[] {
   return scanInboxItems(inboxPath).map((item) => item.summary);
 }
 
+export function parseInboxItem(filename: string, raw: string) {
+  const { meta, body } = parseFrontmatter(raw);
+  return {
+    summary: {
+      filename,
+      agent: meta.agent || 'unknown',
+      title: extractTitle(body),
+      tags: parseTags(meta.tags),
+      timestamp: meta.timestamp || '',
+      preview: extractPreview(body),
+    },
+    content: raw,
+    meta,
+  };
+}
+
 /** One synchronous scan shares its current privacy policy and source bytes.
  * Do not retain this policy across requests or cache content behind it. */
 export function scanInboxItems(inboxPath: string): Array<{
@@ -102,19 +118,7 @@ export function scanInboxItems(inboxPath: string): Array<{
     try {
       if (policy.isPrivate(join(inboxPath, filename))) continue;
       const raw = readFileSync(join(inboxPath, filename), 'utf-8');
-      const { meta, body } = parseFrontmatter(raw);
-      items.push({
-        summary: {
-          filename,
-          agent: meta.agent || 'unknown',
-          title: extractTitle(body),
-          tags: parseTags(meta.tags),
-          timestamp: meta.timestamp || '',
-          preview: extractPreview(body),
-        },
-        content: raw,
-        meta,
-      });
+      items.push(parseInboxItem(filename, raw));
     } catch (err: unknown) {
       log.warn('failed to read inbox item', {
         filename,

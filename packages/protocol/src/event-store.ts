@@ -1,3 +1,15 @@
+export { DeploymentStore } from './deployment-store.js';
+export {
+  maintenanceFingerprint,
+  readMaintenancePendingCommands,
+  type DrainedMaintenancePort,
+} from './deployment-maintenance-store.js';
+import { DeploymentStore } from './deployment-store.js';
+import {
+  OrdinarySdkTurnAcceptedSchema,
+  OrdinarySdkInterruptTargetSchema,
+  OrdinarySdkInterruptReceiptSchema,
+} from './ordinary-turn.js';
 import { MessageReplyContextSchema, type MessageReplyContext } from './message-reply.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, resolve, sep } from 'node:path';
@@ -32,6 +44,9 @@ import {
   type SessionSummaryPage,
 } from './session-metadata-store.js';
 import { SessionLifecycleStore } from './session-lifecycle-store.js';
+import { SessionLearningStore } from './session-learning-store.js';
+import type { SessionLearningMode } from './session-learning.js';
+import { SessionRemovalStore } from './session-removal-store.js';
 import {
   ConversationReplayStore,
   type ConversationTextEvent,
@@ -77,11 +92,14 @@ import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import { AgentCommunicationStore } from './agent-communication-store.js';
+import { UserTurnSteeringStore } from './user-turn-steering-store.js';
 import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
 import {
   captureCollaborationDurableTranscript,
   openCollaborationVisibleSource,
+  readCollaborationFinalizedReply,
+  readCollaborationStreamingReply,
 } from './collaboration-visible-source.js';
 import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
@@ -133,7 +151,6 @@ import {
 } from './symposium-artifact-reader.js';
 import { databaseBackupWatermark, backupOwnedDatabase } from './database-backup.js';
 import Database from 'better-sqlite3';
-import { recordMemoryCandidate } from './memory-candidate-store.js';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   SymposiumArtifactSealSelectionSchema,
@@ -293,6 +310,20 @@ export function toClientState(state: SessionState): ClientSessionState {
 
 const noopLogger: EventStoreLogger = { info() {} };
 
+// Older startup recovery compared this untransferred child against the old
+// conversation workspace. This exact annotation is not a native dispatch error.
+const LEGACY_UNTRANSFERRED_REPOSITORY_ERROR =
+  'Recovery required: historical command workspace differs from the current conversation. Original uncertain admission retained; do not replay before reconciliation.';
+
+function preparedRepositoryChildCommandId(
+  sessionId: string,
+  transition: PreparedRepositoryTransition,
+) {
+  return `prepared-repository-${createHash('sha256')
+    .update(JSON.stringify([sessionId, transition.preparationId, transition.source]))
+    .digest('hex')}`;
+}
+
 interface EventRow {
   seat_id: string | null;
   symposium_provenance: string | null;
@@ -439,7 +470,18 @@ const OrdinaryCommandWireScopeSchema = z.strictObject({
 });
 type OrdinaryCommandWireScope = z.infer<typeof OrdinaryCommandWireScopeSchema>;
 
+/** A retained provenance reference cannot select one exact execution revision.
+ * Storage/identity failures use their original errors and remain observable. */
+export class OrdinaryExecutionEvidenceUnavailable extends Error {
+  constructor() {
+    super('Exact historical execution revision required');
+    this.name = 'OrdinaryExecutionEvidenceUnavailable';
+  }
+}
+
 export class EventStore {
+  readonly removals: SessionRemovalStore;
+  readonly deployment: DeploymentStore;
   private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
     scope: OrdinaryCommandWireScope;
     assertCurrentSync: () => void;
@@ -450,8 +492,10 @@ export class EventStore {
   private readonly sessionCollaborations: SessionCollaborationStore;
   readonly collaborationConversation: CollaborationConversationStore;
   readonly agentCommunication: AgentCommunicationStore;
+  readonly userSteering: UserTurnSteeringStore;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
+  private readonly sessionLearning: SessionLearningStore;
   private readonly ordinaryWorkspaceSessions: OrdinaryWorkspaceSessionStore;
   private readonly sessionLifecycle: SessionLifecycleStore;
   private readonly executionLedger: ExecutionLedger<SessionRow>;
@@ -536,9 +580,15 @@ export class EventStore {
     payload: Record<string, unknown>,
   ): void {
     this.assertConversationIdentity(sessionId);
-    this.db!.prepare(
-      'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
-    ).run(clientMsgId, sessionId, JSON.stringify(payload));
+    this.db!.transaction(() => {
+      this.removals.assertAdmissible(sessionId);
+      this.deployment.assertAdmission(sessionId, clientMsgId);
+      if (this.userSteering.hasRequest(clientMsgId))
+        throw Error('Identity belongs to a user correction');
+      this.db!.prepare(
+        'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
+      ).run(clientMsgId, sessionId, JSON.stringify(payload));
+    }).immediate();
   }
 
   prepareOrdinaryWorkspaceSession(...args: Parameters<OrdinaryWorkspaceSessionStore['prepare']>) {
@@ -710,7 +760,11 @@ export class EventStore {
         meta,
         binding,
         input,
-        receipt.settings.binding.execution.location === 'local' ? 'local' : 'openshell',
+        receipt.settings.binding.harness.implementation === 'claude-sdk'
+          ? 'vertex'
+          : receipt.settings.binding.execution.location === 'local'
+            ? 'local'
+            : 'openshell',
         operationId,
       );
       this.db!.prepare(
@@ -853,6 +907,9 @@ export class EventStore {
       )
         return 'not_queued';
       this.failSendCommand(commandId, 'Cancelled before SDK dispatch');
+      const peer = this.agentCommunication.forCommand(commandId);
+      if (peer?.message.recipientConversationId === sessionId)
+        this.agentCommunication.recordForHost(peer.message.messageId, 'failed', 'cancelled');
       return 'cancelled';
     }).immediate();
   }
@@ -922,6 +979,8 @@ export class EventStore {
     location: 'local' | 'openshell' | 'responses' | 'vertex',
     preparationOperationId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    this.removals.assertAdmissible(meta.sessionId);
+    this.deployment.assertAdmission(meta.sessionId, input.clientMsgId);
     if (meta.ordinaryWorkspaceId != null) {
       if (!['local', 'openshell'].includes(location) || !preparationOperationId)
         throw Error('Ordinary workspace requires its original prepared local admission');
@@ -997,9 +1056,7 @@ export class EventStore {
    * cross-store CAS. A duplicate is observation only and MUST NOT repeat effects. */
   reservePreparedRepositoryContinuation(sessionId: string, raw: PreparedRepositoryTransition) {
     const transition = PreparedRepositoryTransitionSchema.parse(raw);
-    const childCommandId = `prepared-repository-${createHash('sha256')
-      .update(JSON.stringify([sessionId, transition.preparationId, transition.source]))
-      .digest('hex')}`;
+    const childCommandId = preparedRepositoryChildCommandId(sessionId, transition);
     return this.db!.transaction(() => {
       const session = this.getSession(sessionId);
       const source = this.getOrdinaryLocalCommandExecutionAdmission(transition.source.commandId);
@@ -1242,6 +1299,14 @@ export class EventStore {
     childCommandId: string,
     bootstrapCommandId: string,
   ): OrdinaryLocalCommandAdmission {
+    try {
+      // A resumed runtime can prepare a repository in a later explicit message.
+      // Its earlier bootstrap is already covered by the canonical ancestry check.
+      return this.observePreparedRepositoryBootstrapAdmission(childCommandId, bootstrapCommandId);
+    } catch {
+      // A cold resume after a failed transfer can be newer than the retained
+      // child row. Qualify that historical bridge separately below.
+    }
     const read = (id: string) => {
       const row = this.db!.prepare(
         'SELECT rowid,session_id,error,ordinary_admission FROM send_commands WHERE client_msg_id=?',
@@ -1530,20 +1595,65 @@ export class EventStore {
     commandId: string,
   ): OrdinaryLocalCommandAdmission | undefined {
     const row = this.db!.prepare(
-      'SELECT transition_id FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC LIMIT 1',
-    ).get(commandId) as { transition_id: string } | undefined;
+      `SELECT execution.transition_id,source.session_id FROM ordinary_execution_admissions execution
+      LEFT JOIN send_commands source ON source.client_msg_id=execution.command_id
+      WHERE execution.command_id=? ORDER BY execution.revision DESC LIMIT 1`,
+    ).get(commandId) as { transition_id: string; session_id: string | null } | undefined;
     if (!row) return this.getOrdinaryLocalCommandAdmission(commandId);
     const execution = this.readPreparedRepositoryCommandExecutionEvidence(
       commandId,
       row.transition_id,
     );
-    const session = this.getSession(this.getSendCommand(commandId)!.sessionId!);
+    const session = row.session_id ? this.getSession(row.session_id) : undefined;
     if (
       !session ||
+      !isDeepStrictEqual(this.getSessionRuntimeBinding(session.sessionId), execution.binding) ||
       sessionWorkspaceId(session) !== execution.workspace.workspaceId ||
       session.cwd !== execution.workspace.cwd
     )
       throw Error('Explicit command execution selection changed');
+    return execution;
+  }
+  /** Live execution selection. Original input and current execution remain
+   * distinct; non-local adapters retain their existing admission contract. */
+  getOrdinaryCommandExecutionAdmission(
+    commandId: string,
+  ): OrdinaryLocalCommandAdmission | undefined {
+    const send = this.getSendCommand(commandId);
+    const runtime = send?.sessionId && this.getSessionRuntimeBinding(send.sessionId);
+    return runtime &&
+      runtime.harness.implementation === 'codex' &&
+      runtime.execution.location === 'local'
+      ? this.getOrdinaryLocalCommandExecutionAdmission(commandId)
+      : this.getOrdinaryCommandAdmission(commandId);
+  }
+  /** Immutable execution evidence for provenance, never current authority.
+   * A pinned fingerprint selects an exact retained revision, independently of
+   * today's workspace. Legacy unpinned sources require an unambiguous revision. */
+  readOrdinaryCommandExecutionEvidence(
+    commandId: string,
+    fingerprint?: string,
+  ): OrdinaryLocalCommandAdmission | undefined {
+    const row = this.db!.prepare(
+      'SELECT session_id,ordinary_admission FROM send_commands WHERE client_msg_id=?',
+    ).get(commandId) as { session_id: string; ordinary_admission: string | null } | undefined;
+    if (!row?.ordinary_admission) return undefined;
+    const original = this.decodeOrdinaryCommandAdmission(JSON.parse(row.ordinary_admission));
+    if (!isDeepStrictEqual(this.getSessionRuntimeBinding(row.session_id), original.binding))
+      throw Error('Historical command runtime identity changed');
+    if (fingerprint !== undefined && original.requestFingerprint === fingerprint) return original;
+    const revisions = this.db!.prepare(
+      `SELECT transition_id FROM ordinary_execution_admissions WHERE command_id=?
+      AND (? IS NULL OR json_extract(execution_admission,'$.requestFingerprint')=?) ORDER BY revision DESC LIMIT 2`,
+    ).all(commandId, fingerprint ?? null, fingerprint ?? null) as Array<{ transition_id: string }>;
+    if (fingerprint === undefined && revisions.length === 0) return original;
+    if (revisions.length !== 1) throw new OrdinaryExecutionEvidenceUnavailable();
+    const execution = this.readPreparedRepositoryCommandExecutionEvidence(
+      commandId,
+      revisions[0].transition_id,
+    );
+    if (fingerprint !== undefined && execution.requestFingerprint !== fingerprint)
+      throw Error('Historical execution fingerprint changed');
     return execution;
   }
   /** Bounded owner observation for one synchronous admission comparison. No
@@ -1931,9 +2041,86 @@ export class EventStore {
         old.kind === 'ordinary' ? old.id : '',
       );
       if (changed.changes !== 1) throw Error('Prepared repository primary owner changed');
+      this.sessionLearning.revokeHistoryForWorkspaceAdoption(sessionId);
       // Keep UNCERTAIN across process death until the native owner proves the
       // exact queued child. Metadata adoption alone never grants dispatch.
     }).immediate();
+  }
+
+  /** Read-only identity check, never permission to dispatch or release custody. */
+  observeUntransferredPreparedRepositoryContinuation(
+    sessionId: string,
+    target: PreparedRepositoryTransition['source'],
+    oldWorkspace: PreparedRepositoryTransition['oldWorkspace'],
+    preparationId: string,
+  ) {
+    return this.db!.transaction(() =>
+      this.readUntransferredPreparedRepositoryContinuation(
+        sessionId,
+        target,
+        oldWorkspace,
+        preparationId,
+      ),
+    ).deferred();
+  }
+  private readUntransferredPreparedRepositoryContinuation(
+    sessionId: string,
+    target: PreparedRepositoryTransition['source'],
+    oldWorkspace: PreparedRepositoryTransition['oldWorkspace'],
+    preparationId: string,
+  ) {
+    const rows = this.db!.prepare(
+      `SELECT child.client_msg_id,child.error,source.session_id AS source_session_id,source.error AS source_error
+      FROM send_commands child LEFT JOIN send_commands source
+      ON source.client_msg_id=json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.commandId')
+      WHERE child.session_id=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.commandId')=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.attempt')=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.threadId')=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.turnId')=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.generation')=? LIMIT 2`,
+    ).all(
+      sessionId,
+      target.commandId,
+      target.attempt,
+      target.threadId,
+      target.turnId,
+      target.generation,
+    ) as Array<{
+      client_msg_id: string;
+      error: string | null;
+      source_session_id: string | null;
+      source_error: string | null;
+    }>;
+    if (rows.length > 1) throw Error('Prepared repository reservation lineage ambiguous');
+    if (!rows.length) return undefined;
+    const row = rows[0];
+    if (
+      (row.error && row.error !== LEGACY_UNTRANSFERRED_REPOSITORY_ERROR) ||
+      row.source_error ||
+      row.source_session_id !== sessionId
+    )
+      throw Error('Untransferred repository reservation changed');
+    const id = row.client_msg_id;
+    const receipt = this.readPreparedRepositoryTransition(id);
+    const transition = receipt.preparedRepositoryTransition!;
+    const session = this.getSession(sessionId);
+    const source = this.readPreparedRepositorySourceExecution(target.commandId, transition);
+    if (
+      !['uncertain', 'reserved'].includes(receipt.state) ||
+      (row.error && receipt.state !== 'uncertain') ||
+      id !== preparedRepositoryChildCommandId(sessionId, transition) ||
+      source.state !== 'consumed' ||
+      !isDeepStrictEqual(receipt.binding, source.binding) ||
+      !isDeepStrictEqual(receipt.selection, source.selection) ||
+      transition.preparationId !== preparationId ||
+      !isDeepStrictEqual(transition.source, target) ||
+      !isDeepStrictEqual(transition.oldWorkspace, oldWorkspace) ||
+      session?.cwd !== oldWorkspace.directory ||
+      sessionWorkspaceId(session) !== oldWorkspace.id
+    )
+      throw Error('Untransferred repository reservation changed');
+    return { childCommandId: id, admission: receipt, previousError: row.error };
   }
 
   /** A verified still-unclaimed materialized candidate proves no custody CAS
@@ -1945,40 +2132,24 @@ export class EventStore {
     preparationId: string,
   ): void {
     this.db!.transaction(() => {
-      const rows = this.db!.prepare(
-        `SELECT client_msg_id FROM send_commands WHERE session_id=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.commandId')=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.attempt')=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.threadId')=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.turnId')=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.generation')=? LIMIT 2`,
-      ).all(
+      const observed = this.readUntransferredPreparedRepositoryContinuation(
         sessionId,
-        target.commandId,
-        target.attempt,
-        target.threadId,
-        target.turnId,
-        target.generation,
-      ) as Array<{ client_msg_id: string }>;
-      if (rows.length > 1) throw Error('Prepared repository reservation lineage ambiguous');
-      if (!rows.length) return;
-      const id = rows[0].client_msg_id;
-      const receipt = this.readPreparedRepositoryTransition(id);
-      const transition = receipt.preparedRepositoryTransition!;
-      const session = this.getSession(sessionId);
-      if (
-        !['uncertain', 'reserved'].includes(receipt.state) ||
-        transition.preparationId !== preparationId ||
-        !isDeepStrictEqual(transition.source, target) ||
-        !isDeepStrictEqual(transition.oldWorkspace, oldWorkspace) ||
-        session?.cwd !== oldWorkspace.directory ||
-        sessionWorkspaceId(session) !== oldWorkspace.id
-      )
-        throw Error('Untransferred repository reservation changed');
-      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
-        JSON.stringify({ ...receipt, state: 'reserved' }),
-        id,
+        target,
+        oldWorkspace,
+        preparationId,
       );
+      if (!observed) return;
+      if (observed.previousError)
+        this.append(sessionId, 'command_preparation_recovered', {
+          commandId: observed.childCommandId,
+          preparationId,
+          sourceCommandId: target.commandId,
+          reason: 'untransferred_prepared_repository',
+          previousError: observed.previousError,
+        });
+      this.db!.prepare(
+        'UPDATE send_commands SET ordinary_admission=?,error=NULL WHERE client_msg_id=?',
+      ).run(JSON.stringify({ ...observed.admission, state: 'reserved' }), observed.childCommandId);
     }).immediate();
   }
   /** Idempotent projection after the repository owner independently proves
@@ -2019,6 +2190,7 @@ export class EventStore {
         'UPDATE sessions SET cwd=?,repository_workspace_id=?,ordinary_workspace_id=NULL WHERE session_id=? AND cwd=?',
       ).run(next.directory, next.id, sessionId, old.directory);
       if (changed.changes !== 1) throw Error('Prepared repository projection changed');
+      this.sessionLearning.revokeHistoryForWorkspaceAdoption(sessionId);
     }).immediate();
   }
   /** Select immutable execution history by both workspace and primary. A later
@@ -2145,6 +2317,8 @@ export class EventStore {
     location: 'local' | 'openshell' | 'responses' | 'vertex',
     preparedPrimaryCommandId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    this.removals.assertAdmissible(meta.sessionId);
+    this.deployment.assertAdmission(meta.sessionId, input.clientMsgId);
     if (meta.ordinaryWorkspaceId != null) {
       const prepared = this.ordinaryWorkspaceSessions.forConversation(meta.sessionId);
       if (
@@ -2373,7 +2547,7 @@ export class EventStore {
             ? session.ordinaryWorkspaceId === old.id && session.repositoryWorkspaceId == null
             : session.repositoryWorkspaceId === old.id && session.ordinaryWorkspaceId == null)
         ) {
-          const source = this.getOrdinaryLocalCommandAdmission(
+          const source = this.getOrdinaryCommandExecutionAdmission(
             pending.preparedRepositoryTransition!.source.commandId,
           );
           if (
@@ -2386,7 +2560,7 @@ export class EventStore {
         }
       }
     }
-    return row ? this.getOrdinaryCommandAdmission(row.client_msg_id) : undefined;
+    return row ? this.getOrdinaryCommandExecutionAdmission(row.client_msg_id) : undefined;
   }
 
   getOrdinaryOpenShellCommandAdmission(clientMsgId: string) {
@@ -2399,16 +2573,7 @@ export class EventStore {
       'SELECT ordinary_admission, session_id FROM send_commands WHERE client_msg_id=?',
     ).get(clientMsgId) as { ordinary_admission: string | null; session_id: string } | undefined;
     if (!row || row.ordinary_admission === null) return undefined;
-    const raw = JSON.parse(row.ordinary_admission);
-    const schema =
-      raw?.binding?.harness?.implementation === 'claude-sdk'
-        ? OrdinaryLocalVertexCommandAdmissionSchema
-        : ['responses', 'gemini'].includes(raw?.binding?.harness?.implementation)
-          ? OrdinaryLocalResponsesCommandAdmissionSchema
-          : raw?.binding?.execution?.location === 'openshell'
-            ? OrdinaryOpenShellCommandAdmissionSchema
-            : OrdinaryLocalCommandAdmissionSchema;
-    const admission = schema.parse(raw);
+    const admission = this.decodeOrdinaryCommandAdmission(JSON.parse(row.ordinary_admission));
     const runtime = this.getSessionRuntimeBinding(row.session_id);
     const session = this.getSession(row.session_id);
     if (
@@ -2419,6 +2584,21 @@ export class EventStore {
     )
       throw new Error('Ordinary command admission does not match durable session identity');
     return admission;
+  }
+
+  private decodeOrdinaryCommandAdmission(raw: unknown): OrdinaryLocalCommandAdmission {
+    const value = raw as {
+      binding?: { harness?: { implementation?: string }; execution?: { location?: string } };
+    };
+    const schema =
+      value?.binding?.harness?.implementation === 'claude-sdk'
+        ? OrdinaryLocalVertexCommandAdmissionSchema
+        : ['responses', 'gemini'].includes(value?.binding?.harness?.implementation ?? '')
+          ? OrdinaryLocalResponsesCommandAdmissionSchema
+          : value?.binding?.execution?.location === 'openshell'
+            ? OrdinaryOpenShellCommandAdmissionSchema
+            : OrdinaryLocalCommandAdmissionSchema;
+    return schema.parse(raw);
   }
 
   /** Read the existing admission fence without loading payloads or historical turns. */
@@ -2455,6 +2635,11 @@ export class EventStore {
 
   private claimOrdinaryCommandDispatch(clientMsgId: string): boolean {
     return this.db!.transaction(() => {
+      const command = this.getSendCommand(clientMsgId);
+      if (command?.sessionId) {
+        this.removals.assertAdmissible(command.sessionId);
+        this.deployment.assertAdmission(command.sessionId, clientMsgId);
+      }
       const admission = this.getOrdinaryCommandAdmission(clientMsgId);
       if (!admission) throw new Error('Ordinary command admission required');
       if (admission.state !== 'reserved' || this.getSendCommand(clientMsgId)?.error) return false;
@@ -2495,6 +2680,11 @@ export class EventStore {
   claimClientCommand(clientMsgId: string, requestFingerprint: string): void {
     validateExecutionAdmission(clientMsgId, requestFingerprint);
     this.db!.transaction(() => {
+      if (this.userSteering.hasRequest(clientMsgId))
+        throw new ExecutionAdmissionError(
+          'fingerprint_conflict',
+          'Identity belongs to a user correction',
+        );
       const existing = this.db!.prepare(
         'SELECT request_fingerprint FROM client_command_claims WHERE client_msg_id = ?',
       ).get(clientMsgId) as { request_fingerprint: string } | undefined;
@@ -2511,9 +2701,12 @@ export class EventStore {
   }
 
   recoverPendingSendCommands(options: { excludeSymposium?: boolean } = {}): void {
+    // Ordinary receipts belong to their own recovery/dispatch owners, including
+    // historical or corrupt receipts. Their presence excludes generic recovery;
+    // validating them against today's session here can abort the entire startup.
     const rows = this.db!.prepare(
       `SELECT client_msg_id, session_id, payload FROM send_commands c
-      WHERE error IS NULL AND session_id != '' AND (c.preparing = 1 OR NOT EXISTS (
+      WHERE error IS NULL AND c.ordinary_admission IS NULL AND session_id != '' AND (c.preparing = 1 OR NOT EXISTS (
         SELECT 1 FROM events e WHERE e.session_id = c.session_id AND e.type = 'user_message'
         AND json_extract(e.payload, '$.messageId') = c.client_msg_id
       )) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
@@ -2528,11 +2721,7 @@ export class EventStore {
       // Deliberation receipts intentionally have no user_message event, so
       // generic send recovery must not turn a completed or ambiguous execution
       // into a poisoned receipt before the execution gate can re-evaluate it.
-      if (
-        this.getExecutionAdmission(row.session_id, row.client_msg_id) ||
-        this.getOrdinaryCommandAdmission(row.client_msg_id)
-      )
-        continue;
+      if (this.getExecutionAdmission(row.session_id, row.client_msg_id)) continue;
       const error =
         'Server restarted before message execution was confirmed. Please check the conversation and retry.';
       this.failSendCommand(row.client_msg_id, error);
@@ -2565,6 +2754,15 @@ export class EventStore {
     );
   }
 
+  /** Cold durable uncertainty and pre-registry startup ownership both block maintenance. */
+  deploymentStartupPending(): boolean {
+    return (
+      this.ordinaryStartups.size > 0 ||
+      !!this.db!.prepare(
+        "SELECT 1 FROM send_commands c WHERE (json_extract(ordinary_admission,'$.state') IN ('reserved','uncertain') OR (preparing=1 AND error IS NULL)) AND NOT EXISTS (SELECT 1 FROM deployment_quarantines q WHERE q.session_id=c.session_id) LIMIT 1",
+      ).get()
+    );
+  }
   private ordinaryStartups = new Map<string, number>();
 
   /** Synchronous with initial Symposium conversion; held across ordinary startup awaits. */
@@ -2572,6 +2770,7 @@ export class EventStore {
     const ids = [...new Set(sessionIds)];
     for (const id of ids) {
       this.assertConversationIdentity(id);
+      if (!this.deployment.canDispatch(id)) throw Error('Deployment holds ordinary startup');
       if (this.getSession(id)?.symposiumConfig)
         throw new Error('Use Symposium directed prompts for this session');
     }
@@ -2599,6 +2798,8 @@ export class EventStore {
       db.pragma('journal_mode = WAL');
       db.pragma('foreign_keys = ON');
       db.exec(SCHEMA);
+      this.removals = new SessionRemovalStore(db);
+      this.deployment = new DeploymentStore(db);
       db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
       operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL UNIQUE,
       receipt TEXT NOT NULL, metadata TEXT NOT NULL);`);
@@ -2630,7 +2831,52 @@ export class EventStore {
       this.migrateConversationSource(db);
       this.migrateUserMessageIndex(db);
       this.sessionOutputs = new SessionOutputReferenceStore(db);
-      this.agentCommunication = new AgentCommunicationStore(db);
+      this.userSteering = new UserTurnSteeringStore(db, (sessionId, input, status) => {
+        if (status === 'steering')
+          this.append(sessionId, 'user_message', {
+            v: 2,
+            type: 'user_message',
+            ts: Date.now(),
+            messageId: input.requestId,
+            text: input.text,
+            steersMessageId: input.targetCommandId,
+            commandState: 'steering',
+            ...(input.images?.length
+              ? {
+                  images: input.images.map(
+                    (image) => `data:${image.mediaType};base64,${image.data}`,
+                  ),
+                }
+              : {}),
+            ...(input.replyToMessageId
+              ? { inReplyTo: this.getMessageReplyContext(sessionId, input.requestId) }
+              : {}),
+          });
+        else
+          this.append(sessionId, 'ordinary_command_state', {
+            messageId: input.requestId,
+            commandState: status === 'accepted' ? 'steered' : 'failed',
+          });
+      });
+      this.agentCommunication = new AgentCommunicationStore(db, (message) => {
+        const senderName =
+          this.getSession(message.senderConversationId)?.summary ?? message.senderConversationId;
+        const recipientName =
+          this.getSession(message.recipientConversationId)?.summary ??
+          message.recipientConversationId;
+        const timestamp = message.createdAt ?? Date.now();
+        for (const [sessionId, direction] of [
+          [message.senderConversationId, 'outgoing'],
+          [message.recipientConversationId, 'incoming'],
+        ]) {
+          this.append(sessionId, 'agent_message', {
+            type: 'agent_message',
+            v: 2,
+            ts: timestamp,
+            projection: { message, direction, senderName, recipientName, timestamp },
+          });
+        }
+      });
       this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
         this.collaborationConversation.membershipChanged(membership),
       );
@@ -2788,6 +3034,10 @@ export class EventStore {
         getInternalSdkExecution: (id) => this.getInternalSdkExecution(id),
         upsertSession: (meta) => this.upsertSession(meta),
       });
+      this.sessionLearning = new SessionLearningStore({
+        database: () => this.db!,
+        getSession: (id) => this.getSession(id),
+      });
       this.ordinaryWorkspaceSessions = new OrdinaryWorkspaceSessionStore({
         database: () => this.db,
         getSession: (id) => this.getSession(id),
@@ -2813,6 +3063,11 @@ export class EventStore {
         database: () => this.db,
         statements: this.stmts,
         assertConversationIdentity: (id) => this.assertConversationIdentity(id),
+        assertExecutionAdmission: (id) => {
+          this.removals.assertAdmissible(id);
+          if (!this.deployment.canDispatch(id))
+            throw Error('Server deployment has paused execution admission');
+        },
         isRegisteredConversation: (row) => isRegisteredConversation(rowToSession(row)),
         getExecutionAdmission: (id, command) => this.getExecutionAdmission(id, command),
         getProviderAttempts: (token) => this.getProviderAttempts(token),
@@ -2840,6 +3095,7 @@ export class EventStore {
         getProviderAttempts: (token) => this.getProviderAttempts(token),
         toClientState,
       });
+      this.agentCommunication.backfillTranscript();
       owner.seal();
     } catch (error) {
       owner.close();
@@ -2850,6 +3106,12 @@ export class EventStore {
   private migratePromptTracking(db: Database.Database): void {
     const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
     const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('learning_policy'))
+      db.exec('ALTER TABLE sessions ADD COLUMN learning_policy TEXT');
+    db.exec(`CREATE TABLE IF NOT EXISTS session_learning_captures (
+      session_id TEXT NOT NULL, request_id TEXT NOT NULL, payload_hash TEXT NOT NULL,
+      event_seq INTEGER NOT NULL UNIQUE, receipt TEXT NOT NULL,
+      PRIMARY KEY(session_id,request_id))`);
     if (!columnNames.has('prompt_count')) {
       db.exec('ALTER TABLE sessions ADD COLUMN prompt_count INTEGER NOT NULL DEFAULT 0');
       this.log.info('migrated sessions table: added prompt_count');
@@ -3488,7 +3750,12 @@ export class EventStore {
     return backupOwnedDatabase(this.db, destination);
   }
 
+  closeSearchIndex(): Promise<void> {
+    return this.sessionMetadata.closeSearchIndex();
+  }
+
   close(): void {
+    this.sessionMetadata.close();
     if (this.db) {
       this.#telosOwner.close();
       this.db = null;
@@ -3496,28 +3763,11 @@ export class EventStore {
   }
 
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
+    if (type === 'memory_candidate')
+      throw Error('Use captureMemoryCandidate for policy-enforced capture');
     this.assertConversationIdentity(sessionId);
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
-  }
-
-  recordMemoryCandidate(sessionId: string, accountId: string, input: unknown) {
-    this.assertConversationIdentity(sessionId);
-    const session = this.getSession(sessionId);
-    if (
-      !session ||
-      session.sessionType === 'symposium' ||
-      session.accountBinding?.accountId !== accountId
-    )
-      throw Error('Memory candidate requires its ordinary conversation account');
-    return recordMemoryCandidate(
-      this.db!,
-      sessionId,
-      accountId,
-      input,
-      () => this.getRecentConversationText(sessionId, 4096),
-      (payload) => this.append(sessionId, 'memory_candidate', payload),
-    );
   }
 
   /** The caller must authorize this conversation using the normal session boundary. */
@@ -3859,6 +4109,13 @@ export class EventStore {
   }
 
   /** Read one durable observation without loading the entire transcript. */
+  getSessionEventCursor(sessionId: string): number {
+    const row = this.db!.prepare(
+      'SELECT COALESCE(MAX(seq),0) AS seq FROM events WHERE session_id=?',
+    ).get(sessionId) as { seq: number };
+    return row.seq;
+  }
+
   getLatestEvent(sessionId: string, type: string): StoredEvent | null {
     const row = this.db!.prepare(
       'SELECT * FROM events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1',
@@ -3939,10 +4196,153 @@ export class EventStore {
    */
   getOrdinaryReplySourceEvents(sessionId: string, messageId: string): unknown[] {
     const rows = this.db!.prepare(
-      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_reply_source'
+      `SELECT CASE WHEN length(CAST(payload AS BLOB))<=8192 THEN payload END AS payload
+       FROM events WHERE session_id=? AND type='ordinary_reply_source'
        AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 2`,
-    ).all(sessionId, messageId) as Array<{ payload: string }>;
-    return rows.map((row) => JSON.parse(row.payload));
+    ).all(sessionId, messageId) as Array<{ payload: string | null }>;
+    if (rows.some((row) => row.payload === null))
+      throw new CollaborationContractError('reply_conflict');
+    return rows.map((row) => JSON.parse(row.payload!));
+  }
+
+  /** Keyset inventory for one retained command. No transcript payloads are hydrated. */
+  getOrdinaryReplySourcePage(sessionId: string, commandId: string, after: number) {
+    return this.db!.prepare(
+      `SELECT seq AS sequence,
+         CASE WHEN json_type(payload,'$.messageId')='text'
+           AND length(CAST(json_extract(payload,'$.messageId') AS BLOB))<=800
+           AND length(json_extract(payload,'$.messageId')) BETWEEN 1 AND 200
+         THEN json_extract(payload,'$.messageId') END AS messageId
+       FROM events WHERE session_id=? AND type='ordinary_reply_source'
+         AND json_extract(payload,'$.commandId')=? AND seq>?
+       ORDER BY seq LIMIT 50`,
+    ).all(sessionId, commandId, after) as Array<{ sequence: number; messageId: string | null }>;
+  }
+
+  /** Host-only exact reply observation, with the ordinary identity/privacy fence. */
+  readOrdinaryFinalizedReply(sessionId: string, messageId: string) {
+    return this.db!.transaction(() => {
+      this.assertConversationIdentity(sessionId);
+      if (!this.isCollaborationParticipantAvailable(sessionId))
+        throw new SessionCollaborationError('not_found');
+      return readCollaborationFinalizedReply(this.db!, sessionId, messageId);
+    })();
+  }
+  /** Host-only in-progress visible text, separately qualified from frozen history. */
+  readOrdinaryStreamingReply(sessionId: string, messageId: string) {
+    return this.db!.transaction(() => {
+      this.assertConversationIdentity(sessionId);
+      if (!this.isCollaborationParticipantAvailable(sessionId))
+        throw new SessionCollaborationError('not_found');
+      return readCollaborationStreamingReply(this.db!, sessionId, messageId);
+    })();
+  }
+
+  /** Bounded private SDK input/result identity for one retained ordinary
+   * command. This never reads provider history or confers runtime authority. */
+  getOrdinarySdkTurnEvents(sessionId: string, commandId: string) {
+    return this.db!.prepare(
+      `SELECT type,payload FROM events WHERE session_id=?
+       AND type IN ('ordinary_sdk_turn_accepted','ordinary_sdk_turn_settled')
+       AND json_extract(payload,'$.commandId')=? ORDER BY seq LIMIT 3`,
+    )
+      .all(sessionId, commandId)
+      .map((row) => {
+        const event = row as { type: string; payload: string };
+        return { type: event.type, payload: JSON.parse(event.payload) as unknown };
+      });
+  }
+  getOrdinarySdkInterruptReceipt(sessionId: string, requestId: string) {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_sdk_interrupt_claimed'
+       AND json_extract(payload,'$.requestId')=? ORDER BY seq LIMIT 2`,
+    ).all(sessionId, requestId) as Array<{ payload: string }>;
+    if (rows.length > 1) throw Error('Ambiguous ordinary SDK interruption receipt');
+    return rows[0]
+      ? OrdinarySdkInterruptReceiptSchema.parse(JSON.parse(rows[0].payload))
+      : undefined;
+  }
+  /** Exact original SDK command compare/one-way claim. A claim proves neither
+   * native cancellation nor terminal/effect settlement and is never replayed. */
+  claimOrdinarySdkInterrupt(sessionId: string, requestId: string, raw: unknown) {
+    const target = OrdinarySdkInterruptTargetSchema.parse(raw);
+    const receipt = OrdinarySdkInterruptReceiptSchema.parse({ version: 1, requestId, target });
+    return this.db!.transaction(() => {
+      const previous = this.getOrdinarySdkInterruptReceipt(sessionId, requestId);
+      if (previous) {
+        if (!isDeepStrictEqual(previous, receipt)) throw Error('SDK interruption identity changed');
+        return { fresh: false, receipt: previous };
+      }
+      const command = this.getSendCommand(target.commandId);
+      const admission = this.getOrdinaryLocalVertexCommandAdmission(target.commandId);
+      const executionAdmission = this.getExecutionAdmission(sessionId, target.commandId);
+      const events = this.getOrdinarySdkTurnEvents(sessionId, target.commandId);
+      const accepted =
+        events.length === 1 && events[0].type === 'ordinary_sdk_turn_accepted'
+          ? OrdinarySdkTurnAcceptedSchema.parse(events[0].payload)
+          : undefined;
+      const { execution, ...identity } = target;
+      if (
+        execution.sessionId !== sessionId ||
+        !executionAdmission ||
+        executionAdmission.requestFingerprint !== target.executionFingerprint ||
+        !isDeepStrictEqual(executionAdmission.token, execution) ||
+        command?.sessionId !== sessionId ||
+        command.error ||
+        !admission ||
+        admission.state !== 'consumed' ||
+        admission.requestFingerprint !== target.executionFingerprint ||
+        !accepted ||
+        !isDeepStrictEqual(accepted, identity)
+      )
+        return;
+      const stopped = this.transitionExecution(execution, 'STOPPING');
+      if (!stopped.applied) return;
+      this.append(sessionId, 'ordinary_sdk_interrupt_claimed', receipt);
+      return { fresh: true, receipt };
+    }).immediate();
+  }
+
+  /** Exact native provider terminal notification, distinct from display state,
+   * dispatch consumption, transport closure and generic execution cleanup. */
+  getOrdinaryProviderTurnTerminal(
+    sessionId: string,
+    commandId: string,
+  ): 'completed' | 'failed' | 'interrupted' | undefined {
+    const rows = this.db!.prepare(
+      `SELECT json_extract(payload,'$.status') AS status FROM events
+       WHERE session_id=? AND type='ordinary_provider_turn_terminal'
+       AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 2`,
+    ).all(sessionId, commandId) as Array<{ status: unknown }>;
+    if (!rows.length) return undefined;
+    if (
+      rows.some(
+        (row) =>
+          !['completed', 'failed', 'interrupted'].includes(String(row.status)) ||
+          row.status !== rows[0].status,
+      )
+    )
+      throw Error('Conflicting ordinary provider terminal evidence');
+    return rows[0].status as 'completed' | 'failed' | 'interrupted';
+  }
+
+  recordOrdinaryProviderTurnTerminal(
+    sessionId: string,
+    commandId: string,
+    status: 'completed' | 'failed' | 'interrupted',
+  ): void {
+    this.db!.transaction(() => {
+      if (
+        this.getSendCommand(commandId)?.sessionId !== sessionId ||
+        !['completed', 'failed', 'interrupted'].includes(status)
+      )
+        throw Error('Original ordinary command terminal identity required');
+      const previous = this.getOrdinaryProviderTurnTerminal(sessionId, commandId);
+      if (previous && previous !== status)
+        throw Error('Conflicting ordinary provider terminal evidence');
+      if (!previous)
+        this.append(sessionId, 'ordinary_provider_turn_terminal', { messageId: commandId, status });
+    }).immediate();
   }
 
   /** Private exact delivery ledger; never load unrelated conversation payloads. */
@@ -3999,6 +4399,37 @@ export class EventStore {
     return this.conversationReplay.getEventsAfter(sessionId, afterSeq, limit);
   }
 
+  getHistoryEventPage(
+    sessionId: string,
+    afterSeq: number,
+    throughSeq: number,
+    limit: number,
+    beforeSeq?: number,
+    recent = false,
+  ): { events: StoredEvent[]; hasMore: boolean } {
+    return this.conversationReplay.getHistoryEventPage(
+      sessionId,
+      afterSeq,
+      throughSeq,
+      limit,
+      beforeSeq,
+      recent,
+    );
+  }
+
+  getHistoryMessagePrefix(
+    sessionId: string,
+    messageId: string,
+    beforeSeq: number,
+    limit: number,
+  ): StoredEvent[] {
+    return this.conversationReplay.getHistoryMessagePrefix(sessionId, messageId, beforeSeq, limit);
+  }
+
+  getSessionNamingEvents(sessionId: string): StoredEvent[] {
+    return this.conversationReplay.getSessionNamingEvents(sessionId);
+  }
+
   /** Predecessor in this session's durable stream; global IDs need not be contiguous. */
   getSessionPredecessorSeq(sessionId: string, seq: number): number {
     return this.conversationReplay.getSessionPredecessorSeq(sessionId, seq);
@@ -4020,18 +4451,25 @@ export class EventStore {
   }
 
   /** Bounded ordered anchors for audience-specific transcript projections. */
-  getSymposiumPerspectiveEvents(sessionId: string, afterSeq = 0, limit = 200): StoredEvent[] {
+  getSymposiumPerspectiveEvents(
+    sessionId: string,
+    afterSeq = 0,
+    limit = 200,
+    beforeSeq?: number,
+  ): StoredEvent[] {
     if (
       !Number.isSafeInteger(afterSeq) ||
       afterSeq < 0 ||
       !Number.isSafeInteger(limit) ||
       limit < 1 ||
-      limit > 500
+      limit > 500 ||
+      (beforeSeq !== undefined &&
+        (!Number.isSafeInteger(beforeSeq) || beforeSeq < 1 || afterSeq !== 0))
     )
       throw new Error('Invalid Symposium perspective page');
     const rows = this.db!.prepare(
       `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
-        FROM events e WHERE session_id = ? AND seq > ?
+        FROM events e WHERE session_id = ? AND seq ${beforeSeq === undefined ? '>' : '<'} ?
          AND type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')
          AND (type != 'message_end' OR NOT EXISTS (
            SELECT 1 FROM events prior
@@ -4040,9 +4478,9 @@ export class EventStore {
              AND prior.symposium_provenance IS e.symposium_provenance
               AND json_extract(prior.payload, '$.messageId') = json_extract(e.payload, '$.messageId')
           ))
-       ORDER BY seq LIMIT ?`,
-    ).all(sessionId, afterSeq, limit) as EventRow[];
-    return rows.map(rowToEvent);
+       ORDER BY seq ${beforeSeq === undefined ? 'ASC' : 'DESC'} LIMIT ?`,
+    ).all(sessionId, beforeSeq ?? afterSeq, limit) as EventRow[];
+    return (beforeSeq === undefined ? rows : rows.reverse()).map(rowToEvent);
   }
 
   /** Exact ordinary source identity; only completed visible text is returned. */
@@ -4115,6 +4553,40 @@ export class EventStore {
     });
     return parsed.success ? parsed.data : undefined;
   }
+  admitWithOrdinarySkillContext(
+    sessionId: string,
+    commandId: string,
+    context: { text: string; prompt: string },
+    admit: () => void,
+  ): void {
+    this.db!.transaction(() => {
+      admit();
+      const previous = this.getOrdinarySkillContext(sessionId, commandId);
+      if (previous && (previous.text !== context.text || previous.prompt !== context.prompt))
+        throw Error('Skill command changed');
+      if (!previous)
+        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...context });
+    })();
+  }
+  getOrdinarySkillContext(
+    sessionId: string,
+    commandId: string,
+  ): { text: string; prompt: string } | undefined {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_skill_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
+    ).all(sessionId, commandId) as Array<{ payload: string }>;
+    if (!rows.length) return undefined;
+    const contexts = rows.map((row) => JSON.parse(row.payload));
+    const first = contexts[0];
+    if (
+      typeof first.text !== 'string' ||
+      typeof first.prompt !== 'string' ||
+      contexts.some((context) => context.text !== first.text || context.prompt !== first.prompt)
+    )
+      throw Error('Skill command changed');
+    return { text: first.text, prompt: first.prompt };
+  }
+
   getMessageReplyContext(sessionId: string, commandId: string): MessageReplyContext | undefined {
     const rows = this.db!.prepare(
       `SELECT payload FROM events WHERE session_id=? AND type='message_reply_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
@@ -8349,6 +8821,22 @@ export class EventStore {
     return this.sessionMetadata.getSession(sessionId);
   }
 
+  getSessionLearningPolicy(id: string) {
+    return this.sessionLearning.policy(id);
+  }
+  setSessionLearningMode(id: string, mode: SessionLearningMode, expectedRevision: number) {
+    return this.sessionLearning.setMode(id, mode, expectedRevision);
+  }
+  captureMemoryCandidate(id: string, input: unknown) {
+    return this.sessionLearning.capture(id, input);
+  }
+  listSessionLearningSources(id: string, beforeSeq?: number) {
+    return this.sessionLearning.sources(id, beforeSeq);
+  }
+  memoryCandidateEligibility(id: string, requestId: string) {
+    return this.sessionLearning.eligibility(id, requestId);
+  }
+
   isSessionHidden(sessionId: string): boolean {
     return this.sessionMetadata.isSessionHidden(sessionId);
   }
@@ -8376,6 +8864,15 @@ export class EventStore {
    */
   searchSessions(query: string, limit = 20): SessionSearchResult[] {
     return this.sessionMetadata.searchSessions(query, limit);
+  }
+
+  searchSessionsAsync(
+    query: string,
+    limit = 20,
+    signal?: AbortSignal,
+    cacheDirectory?: string,
+  ): Promise<SessionSearchResult[]> {
+    return this.sessionMetadata.searchSessionsAsync(query, limit, signal, cacheDirectory);
   }
 
   markSessionInactive(sessionId: string): void {

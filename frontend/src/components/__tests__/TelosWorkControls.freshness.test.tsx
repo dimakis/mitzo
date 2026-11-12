@@ -154,7 +154,7 @@ beforeEach(() => {
   );
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ sessionId: 'old-lead' }) }),
+    vi.fn().mockImplementation(async () => Response.json({ sessionId: 'old-lead' })),
   );
 });
 afterEach(() => {

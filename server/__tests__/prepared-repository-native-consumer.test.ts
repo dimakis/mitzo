@@ -1,13 +1,31 @@
-import { fixture, physical, git } from './fixtures/prepared-repository-native-consumer.js';
+import {
+  fixture,
+  physical,
+  git,
+  cleanups,
+} from './fixtures/prepared-repository-native-consumer.js';
 import { CodexConversation } from '../codex-conversation.js';
 import { expect, it, vi } from 'vitest';
 import { join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import httpRequest from 'supertest';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { writeFile, readFile } from 'node:fs/promises';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
-import { reconcilePreparedRepositoryTransitionProjection } from '../owned-prepared-repository-transition.js';
+import {
+  canResumeUntransferredPreparedRepository,
+  reconcilePreparedRepositoryTransitionProjection,
+} from '../owned-prepared-repository-transition.js';
+import { OrdinaryLocalCodexOwnedRuntime } from '../ordinary-local-codex-owned-runtime.js';
 import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
 import { RetainedLocalCodexRecovery } from '../retained-local-codex-recovery.js';
+import {
+  captureOrdinaryReplyExecution,
+  recordOrdinaryReplySource,
+} from '../collaboration-ordinary-replies.js';
+import { CodexSessionEvents } from '../codex-session-events.js';
+import { retainedLocalCodexRecoveryReservation } from '../retained-local-codex-effects.js';
 
 it('adopts through the genuine retained bootstrap selection and actual repository CAS, then validates later add/commit without recursion', async () => {
   const f = await fixture();
@@ -39,7 +57,80 @@ it('adopts through the genuine retained bootstrap selection and actual repositor
   git(result!.directory, 'commit', '-qm', 'task change');
   await f.first.lease.assertCurrent();
   expect(f.disposals).toHaveBeenCalled();
+  await reconcileCompletedPrimary(f);
 });
+
+// Reuse the real adopted checkout, original child receipt and cold bootstrap.
+async function reconcileCompletedPrimary(f: Awaited<ReturnType<typeof fixture>>) {
+  const id = f.first.sessionId;
+  const binding = f.first.lease.binding;
+  const primary = f.native.claimNext(id, binding)!;
+  expect(primary.environmentContinuation).toBeDefined();
+  const state = f.native.read(id, binding);
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: binding.profileRevision!,
+    mode: 'agent',
+    cwd: state.cwd,
+    readableRoots: ['/'],
+    writableRoots: [state.cwd],
+    deniedRoots: [join(f.root, 'login'), join(f.root, 'custody')],
+    writeProtectedRoots: [],
+  });
+  f.native.prepareNativeExecution(id, binding, primary, state.threadId!, policy);
+  f.native.recordNativeTurnAck(id, binding, primary, state.threadId!, 'primary-turn');
+  f.native.acceptNativeExecution(id, binding, primary, state.threadId!, 'primary-turn');
+  f.native.observeEmptyCompletionPhase(
+    id,
+    binding,
+    primary,
+    state.threadId!,
+    'primary-turn',
+    createHash('sha256').update(state.cwd).digest('hex'),
+    policy.policyRevision,
+  );
+  f.native.pauseForRecovery(
+    id,
+    binding,
+    primary.id,
+    'interrupted',
+    'resume',
+    undefined,
+    true,
+    true,
+  );
+  const before = f.events.getOrdinaryLocalCommandExecutionAdmission(primary.id);
+  f.runtime.close();
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'primary-turn', status: 'completed' }] }
+      : request(method, params),
+  );
+  const meta = f.events.getSession(id)!;
+  const runtimeBinding = f.events.getSessionRuntimeBinding(id);
+  if (runtimeBinding?.version !== 2) throw Error('Expected retained ordinary runtime binding');
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    nativeStore: f.native,
+    commandId: primary.id,
+    workspaceKind: 'repository',
+    reservation: retainedLocalCodexRecoveryReservation(
+      meta,
+      f.workspace.get(f.record.id),
+      runtimeBinding,
+    ),
+    launch: () => f.rpc,
+    dispatch: async () => {
+      throw Error('Recovery cannot dispatch');
+    },
+  });
+  cleanups.push(() => driver.close());
+  await driver.reconcileRetainedEffects();
+  expect(f.native.commandStatus(id, binding, primary.id)).toBe('completed');
+  expect(f.native.continuationBlocker(id, binding)).toBeUndefined();
+  expect(f.native.read(id, binding).recovery).toBe(0);
+  expect(f.events.getOrdinaryLocalCommandExecutionAdmission(primary.id)).toEqual(before);
+}
 
 it('retains the controlled prepared reader during Linux adoption without loading the real native factory', async () => {
   const f = await fixture();
@@ -247,6 +338,71 @@ it.each(['already-queued', 'during-capture', 'at-reservation'] as const)(
       followup.clientMsgId,
     );
     f.admission.assertBeforeDispatch(followup.clientMsgId);
+    if (phase === 'already-queued') {
+      // Extend the existing real handoff journey to the missing first-reply
+      // boundary; no second checkout, provider process or fixture is needed.
+      const command = f.native
+        .commands(f.first.sessionId, f.first.lease.binding)
+        .find((entry) => entry.id === followup.clientMsgId)!;
+      const policy = codexNativeExecutionPolicy({
+        bindingRevision: f.first.lease.binding.profileRevision!,
+        mode: 'agent',
+        cwd: result!.directory,
+        readableRoots: ['/'],
+        writableRoots: [result!.directory],
+        deniedRoots: [join(f.root, 'login'), join(f.root, 'custody')],
+        writeProtectedRoots: [],
+      });
+      f.native.prepareNativeExecution(
+        f.first.sessionId,
+        f.first.lease.binding,
+        command,
+        'thread',
+        policy,
+      );
+      f.native.recordNativeTurnAck(
+        f.first.sessionId,
+        f.first.lease.binding,
+        command,
+        'thread',
+        'followup-turn',
+      );
+      f.native.acceptNativeExecution(
+        f.first.sessionId,
+        f.first.lease.binding,
+        command,
+        'thread',
+        'followup-turn',
+      );
+      const source = {
+        commandId: command.id,
+        providerThreadId: 'thread',
+        providerTurnId: 'followup-turn',
+      };
+      const execution = captureOrdinaryReplyExecution(f.events, f.first.sessionId, source);
+      const emitted = vi.fn();
+      const mapper = new CodexSessionEvents(f.first.sessionId, 'thread', command.model!, emitted, {
+        requireExactTurnIdentity: true,
+        onTextMessageStarted: (messageId, providerTurnId) =>
+          recordOrdinaryReplySource(
+            f.events,
+            f.first.sessionId,
+            { ...source, messageId, providerTurnId },
+            execution,
+          ),
+      });
+      expect(() =>
+        mapper.notification('item/agentMessage/delta', {
+          threadId: 'thread',
+          turnId: 'followup-turn',
+          itemId: 'first-reply',
+          delta: 'Continuing here',
+        }),
+      ).not.toThrow();
+      expect(emitted).toHaveBeenCalled();
+      expect(f.native.read(f.first.sessionId, f.first.lease.binding).recovery).toBe(0);
+      expect(f.rpc.close).not.toHaveBeenCalled();
+    }
   },
 );
 
@@ -343,7 +499,8 @@ it.each(['close-during-capture', 'queue-during-capture'] as const)(
 );
 
 it('renews an untransferred preparation after restart without treating its reservation as an executed custody effect', async () => {
-  const f = await fixture();
+  const f = await fixture(true);
+  const reservation = vi.spyOn(f.events, 'reservePreparedRepositoryContinuation');
   const custody = vi
     .spyOn(f.workspace, 'adoptPreparedRepositoryTransition')
     .mockImplementationOnce(() => {
@@ -355,22 +512,133 @@ it('renews an untransferred preparation after restart without treating its reser
     f.native.hasPreparedRepositoryTransitionHold(f.first.sessionId, f.first.lease.binding),
   ).toBe(true);
   expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
-  const operator = captureAgentLibraryAuthorization(f.dependencies.operatorConnectionId);
-  reconcilePreparedRepositoryTransitionProjection({
+  const originalSource = f.events.getSendCommand(f.source.commandId);
+  const childId = reservation.mock.results[0].value.childCommandId;
+  const startupError =
+    'Recovery required: historical command workspace differs from the current conversation. Original uncertain admission retained; do not replay before reconciliation.';
+  f.events.failSendCommand(childId, startupError);
+  const probe = {
     workspace: f.workspace,
     events: f.events,
     native: f.native,
     conversationId: f.first.sessionId,
     binding: f.first.lease.binding,
-    assertCurrentSync: () => operator.assertCurrent(),
-  });
-  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(false);
-  expect(f.workspace.getForConversation(f.first.sessionId)?.id).toBe(f.first.workspace.id);
+  };
+  expect(canResumeUntransferredPreparedRepository(probe)).toBe(true);
+  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
   expect(custody).toHaveBeenCalledOnce();
+  const database = (f.native as unknown as { db: import('better-sqlite3').Database }).db;
+  const rollback = Error('Rollback isolated native row');
+  expect(() =>
+    database.transaction(() => {
+      f.native.enqueue(f.first.sessionId, f.first.lease.binding, {
+        id: childId,
+        prompt: 'A retained native child',
+        model: f.first.lease.binding.model,
+      });
+      expect(canResumeUntransferredPreparedRepository(probe)).toBe(false);
+      const operator = captureAgentLibraryAuthorization(f.dependencies.operatorConnectionId);
+      expect(() =>
+        reconcilePreparedRepositoryTransitionProjection({
+          ...probe,
+          assertCurrentSync: () => operator.assertCurrent(),
+        }),
+      ).toThrow('Untransferred repository reservation has other work');
+      expect(f.events.getSendCommand(childId)?.error).toBe(startupError);
+      throw rollback;
+    })(),
+  ).toThrow(rollback);
+  expect(canResumeUntransferredPreparedRepository(probe)).toBe(true);
+  f.runtime.close();
+  vi.spyOn(
+    await import('../repository-workspace-runtime.js'),
+    'getRepositoryWorkspaces',
+  ).mockReturnValue(f.workspace);
+  const { ordinaryCodexContinuationStatus } =
+    await import('../ordinary-codex-continuation-status.js');
+  expect(ordinaryCodexContinuationStatus(f.first.sessionId, f.auth.id)).toEqual({
+    available: true,
+  });
+  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
+  expect(f.events.getSendCommand(childId)?.error).toBe(startupError);
+  expect(f.events.getEventsOfType(f.first.sessionId, 'command_preparation_recovered')).toEqual([]);
+  const request = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    payload: { ...f.request.payload, text: 'Continue with the already created repository' },
+  };
+  const command = f.commandFor(f.reservation, request);
+  const dispatch = vi.fn(async (value: typeof f.first) => {
+    command.open(value, true);
+    f.enqueue(value);
+  });
+  const resumed = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    nativeStore: f.native,
+    commandId: request.clientMsgId,
+    launch: () => command.rpc,
+    dispatch,
+  });
+  cleanups.push(() => resumed.close());
+  await expect(resumed.admitResume(request)).resolves.toEqual({ dispatched: true });
+  expect(f.events.getSendCommand(childId)?.error).toBeNull();
+  expect(
+    f.events
+      .getEventsOfType(f.first.sessionId, 'command_preparation_recovered')
+      .map((e) => e.payload),
+  ).toEqual([
+    {
+      commandId: childId,
+      preparationId: f.record.id,
+      sourceCommandId: f.source.commandId,
+      reason: 'untransferred_prepared_repository',
+      previousError: startupError,
+    },
+  ]);
+  expect(dispatch).toHaveBeenCalledOnce();
   expect(
     f.native
       .commands(f.first.sessionId, f.first.lease.binding)
-      .filter((command) => command.status === 'queued'),
+      .find((command) => command.id === f.source.commandId)?.status,
+  ).toBe('completed');
+  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(false);
+  expect(f.workspace.getForConversation(f.first.sessionId)?.id).toBe(f.first.workspace.id);
+  const resumedAdmission = dispatch.mock.calls[0][0].admission;
+  const adopted = await f.adopt(resumedAdmission);
+  expect(adopted?.directory).toBe(f.record.pendingHostTask!.directory);
+  expect(f.workspace.getForConversation(f.first.sessionId)?.id).toBe(f.record.id);
+  expect(f.events.getSession(f.first.sessionId)?.cwd).toBe(adopted!.directory);
+  expect(resumedAdmission.nativeExecutionWorkspace(request.clientMsgId).cwd).toBe(
+    adopted!.directory,
+  );
+  const { app } = await import('../app.js');
+  const { COOKIE_NAME } = await import('../auth.js');
+  const metadataServer = await listenOnLoopback(app);
+  try {
+    const metadata = await httpRequest(metadataServer)
+      .get(`/api/sessions/${f.first.sessionId}/meta`)
+      .set('Cookie', `${COOKIE_NAME}=${f.operatorToken}`);
+    expect(metadata.status).toBe(200);
+    expect(metadata.body.cwd).toBe(adopted!.directory);
+    expect(metadata.body.modelSelection).toMatchObject({
+      model: dispatch.mock.calls[0][0].expected.selection.model,
+      reasoningEffort: dispatch.mock.calls[0][0].expected.selection.thinking,
+    });
+  } finally {
+    await closeTestServer(metadataServer);
+  }
+  expect(f.events.getSendCommand(f.source.commandId)).toEqual(originalSource);
+  expect(
+    f.native
+      .commands(f.first.sessionId, f.first.lease.binding)
+      .filter((command) => command.status === 'queued')
+      .map((command) => command.id),
+  ).toEqual([request.clientMsgId]);
+  expect(custody).toHaveBeenCalledTimes(2);
+  expect(
+    f.native
+      .commands(f.first.sessionId, f.first.lease.binding)
+      .filter((command) => command.environmentContinuation),
   ).toHaveLength(0);
 });
 

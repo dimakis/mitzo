@@ -1,7 +1,12 @@
+// Fail before application imports can create stores, routes or recovery owners.
+import './deployment-maintenance-entry.js';
 import { installHostKnowledgeStore } from './published-host-knowledge.js';
 import { knowledgeStoreFromEnvironment } from './knowledge-store-config.js';
-// Load runtime configuration before bootstrap dependencies validate or capture it.
-import 'dotenv/config';
+import { createDeploymentRuntime } from './deployment-runtime.js';
+import { createDeploymentRouter } from './deployment-routes.js';
+import { getLocalCommit } from './git-version.js';
+import { assertQueueOperator } from './app.js';
+import { setSessionActivityObserver } from './session-activity-events.js';
 import { closeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { startKnowledgePrewarming } from './knowledge-prewarming.js';
 import { startWarmPoolHost } from './openshell-warm-pool-host.js';
@@ -23,6 +28,7 @@ import { custodianControllerMode, custodianOwnerMode } from './symposium-custodi
 import { finishAppShutdown } from './symposium-app-exit.js';
 import { closeCapabilityOperationStores } from './capability-operation-owner.js';
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
+import { closeClaudeAccountLogin } from './claude-account-router.js';
 import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import dns from 'node:dns';
@@ -139,6 +145,8 @@ import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { assertTelosWorkExecutionAuthority } from './telos-work-execution-authority.js';
 import { TelosWorkStore } from './telos-work-store.js';
+import { telosDatabasePath } from './telos-database.js';
+import { ensureTelosRuntimeStorage } from './telos-runtime-storage.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
@@ -164,10 +172,15 @@ import {
 import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { mountApplicationChatTransport } from './chat-rest-handler.js';
+import { initializeSessionPrompts, closeSessionPrompts } from './session-prompt-runtime.js';
+import { initializeTaskExecution, closeTaskExecution } from './task-execution-runtime.js';
+import { persistPermissionAudit } from './permission-audit.js';
+import { createSessionPromptRouter } from './session-prompt-router.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 import { singleFlightReconciliation } from './single-flight-reconciliation.js';
 
 const log = createLogger('server');
+ensureTelosRuntimeStorage(BASE_REPO);
 
 // Host-only state. No remote recovery runs at boot: unsettled claims remain
 // quarantined until the exact controller marker is obtained separately.
@@ -487,14 +500,10 @@ const orchestrator = new TaskOrchestrator({
           events: eventStore,
           tasks: taskStore,
           work: () =>
-            (work ??= new TelosWorkStore(
-              process.env.TELOS_DB_PATH ||
-                join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
-              {
-                ordinaryConversation: (conversationId) =>
-                  isAvailableTelosWorkConversation(eventStore.getSession(conversationId)),
-              },
-            )),
+            (work ??= new TelosWorkStore(telosDatabasePath(BASE_REPO), {
+              ordinaryConversation: (conversationId) =>
+                isAvailableTelosWorkConversation(eventStore.getSession(conversationId)),
+            })),
         },
         id,
         eventStore.getSession(id)?.accountBinding ?? undefined,
@@ -590,6 +599,7 @@ overviewEmitter = new SessionOverviewEmitter({
   isSessionHidden: (id: string) => eventStore.getSession(id)?.isHidden ?? false,
 });
 setOverviewEmitter(overviewEmitter);
+setSessionActivityObserver((clientId, event) => overviewEmitter.observeEvent(clientId, event));
 
 // --- Health Monitor (SSE broadcast) ---
 const healthMonitor = new HealthMonitor(sseRegistry);
@@ -598,25 +608,7 @@ healthMonitor.start();
 
 // Hook session lifecycle events into the overview emitter
 setSessionChangeCallback((clientId, event, sessionId) => {
-  if (event === 'start' || event === 'detach') {
-    overviewEmitter.touch(clientId);
-  } else if (event === 'end') {
-    overviewEmitter.forget(clientId, sessionId);
-  } else if (event === 'user_message') {
-    const session = registry.get(clientId);
-    if (session?.sessionId) {
-      overviewEmitter.updateSpeaker(session.sessionId, 'user');
-    }
-  } else if (event === 'turn_end') {
-    overviewEmitter.touch(clientId);
-    // Mark assistant as last speaker for attention tracking
-    const session = registry.get(clientId);
-    if (session?.sessionId) {
-      eventStore.updateLastSpeaker(session.sessionId, 'assistant');
-      overviewEmitter.updateSpeaker(session.sessionId, 'assistant');
-    }
-  }
-  overviewEmitter.scheduleBroadcast();
+  overviewEmitter.sessionChanged(clientId, event, sessionId);
 });
 
 setSessionsChangedCallback(() => {
@@ -714,6 +706,38 @@ const v2Ctx: V2HandlerContext = {
 // Runs alongside WS during migration. Feature-flagged on the client side.
 
 mountApplicationChatTransport(app, chatSseRegistry, v2Ctx);
+const sessionPrompts = initializeSessionPrompts(join(BASE_REPO, '.mitzo', 'events.db'), v2Ctx);
+const deploymentCommit = getLocalCommit();
+const deploymentRuntime = createDeploymentRuntime(v2Ctx, {
+  commit: () => {
+    if (!deploymentCommit) throw Error('Release identity unavailable');
+    return deploymentCommit;
+  },
+  healthy: () => {
+    const snapshot = healthMonitor.getSnapshot();
+    return (
+      snapshot.checkedAt > Date.now() - 60_000 &&
+      snapshot.services.length === 2 &&
+      snapshot.services.every((service) => service.ok)
+    );
+  },
+  backgroundIdle: () =>
+    orchestrator.getStatus().state !== 'running' &&
+    !eventStore
+      .listSessions()
+      .some(
+        (session) =>
+          session.symposiumConfig &&
+          session.executionPhase &&
+          session.executionPhase !== 'TERMINAL',
+      ),
+  authorizeSession: assertQueueOperator,
+});
+app.use('/api/deployment', createDeploymentRouter(deploymentRuntime.coordinator));
+
+initializeTaskExecution(join(BASE_REPO, '.mitzo', 'events.db'));
+const releasePermissionAudit = persistPermissionAudit(eventStore);
+app.use('/api/session-timers', createSessionPromptRouter(sessionPrompts));
 
 /**
  * Handle a v2 WebSocket connection (after hello handshake detected).
@@ -1313,7 +1337,6 @@ function handleChatWs(
       (span) => {
         if (isActive(clientId) && legacyChatOwnsAttachment(clientId, transport, v2Ctx)) {
           detachChat(clientId);
-          overviewEmitter.touch(clientId);
           overviewEmitter.scheduleBroadcast();
           span.setAttribute('ws.disconnect.detached', true);
           log.info('session detached (surviving)', { clientId });
@@ -1366,6 +1389,10 @@ async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   closeTelosMainPublicationRuntime();
+  await closeSessionPrompts();
+  deploymentRuntime.close();
+  closeTaskExecution();
+  releasePermissionAudit();
   stopRuntimePerformanceMonitor?.();
   log.info(`${signal} received — shutting down gracefully`);
 
@@ -1385,6 +1412,7 @@ async function shutdown(signal: string) {
   openShellLifecycle?.store.close();
   try {
     await drainOwnedSymposium();
+    await closeClaudeAccountLogin();
     await closeCapabilityOperationStores(AbortSignal.timeout(120_000));
     symposiumNativeHost?.registry.close();
     await finishAppShutdown(
@@ -1399,6 +1427,7 @@ async function shutdown(signal: string) {
         chatSseRegistry.destroy();
         connRegistry.dispose(); // Stop periodic sync + clear state
         registry.dispose();
+        await eventStore.closeSearchIndex();
         for (const client of wss.clients) {
           client.close(1001, 'Server shutting down');
         }

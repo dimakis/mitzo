@@ -19,6 +19,11 @@ const setup = await vi.hoisted(async () => {
   return { root, remove: () => fs.rmSync(root, { recursive: true, force: true }) };
 });
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+// Synthetic executable and RPCs; retain the actual native policy/owner path.
+vi.mock('../codex-native-artifact-qualification.js', async (original) => ({
+  ...(await original<typeof import('../codex-native-artifact-qualification.js')>()),
+  assertQualifiedNativeMacExecutionArtifact: vi.fn(),
+}));
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: () => {
     throw Error('Offline fixture forbids SDK/model calls');
@@ -26,6 +31,13 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   listSessions: () => [],
 }));
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, symlinkSync, unlinkSync, realpathSync, mkdtempSync, rmSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import {
+  registerWorkspaceRuntimeAuthorityNamespace,
+  registerWorkspaceRuntimeAuthorityPaths,
+} from '../workspace-runtime-private-paths.js';
 import { OrdinaryLocalCodexHostRuntime } from '../ordinary-local-codex-host-runtime.js';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { CodexAppServerClient, type CodexLifecycleTransport } from '../codex-app-server-client.js';
@@ -44,158 +56,209 @@ afterAll(async () => {
   vi.restoreAllMocks();
 });
 
-it('runs history through the signed native owner without publication configuration, and withholds hidden/revoked targets', async () => {
-  const runtimeChecks = vi.spyOn(OrdinaryLocalCodexHostRuntime.prototype, 'assertCurrentSync');
-  const f = await ownedRuntimeFixture(cleanups, {
-    chatRoute: true,
-    tools: [
-      { id: 'mitzo:SearchPastSessions', version: 1 },
-      { id: 'mitzo:ReadPastSession', version: 1 },
-    ],
-  });
-  const chat = await import('../chat.js');
-  const native = await import('../codex-chat-session.js');
-  setAuthRevocationStore(chat.eventStore);
-  vi.spyOn(workspaces, 'getRepositoryWorkspaces').mockReturnValue(f.workspace);
-  vi.spyOn(library, 'getAgentLibrary').mockReturnValue(f.library);
-  vi.spyOn(publication, 'getTelosMainPublicationRuntime').mockReturnValue(undefined);
-  f.detach();
-  const auth = (await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!))!;
-  cleanups.push(bindAgentLibraryTransport(f.dependencies.operatorConnectionId, auth));
-  let lifecycle!: CodexLifecycleTransport;
-  const original = f.rpc.request.getMockImplementation()!;
-  f.rpc.request.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
-    if (method === 'thread/start') {
-      const names = (params?.dynamicTools as Array<{ name: string }>).map((tool) => tool.name);
-      expect(names).toEqual(expect.arrayContaining(['SearchPastSessions', 'ReadPastSession']));
-      return { thread: { id: 'history-thread' }, model: 'fixture-model', modelProvider: 'openai' };
-    }
-    if (method === 'turn/start') return { turn: { id: 'history-turn' } };
-    return original(method);
-  });
-  vi.spyOn(CodexAppServerClient, 'launchIsolated').mockImplementation((_home, _base, callbacks) => {
-    lifecycle = callbacks!;
-    return f.rpc as never;
-  });
-  const clientId = `${f.dependencies.operatorConnectionId}:${f.reservation.conversationId}`;
-  cleanups.push(async () => {
-    chat.registry.abort(clientId);
-    await vi.waitFor(() =>
-      expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeFalsy(),
-    );
-    native.getCodexConversationStore().close();
-    chat.eventStore.close();
-  });
-  const started = await chat.startOwnedLocalCodexCommand(
-    { send: vi.fn(), isOpen: () => true },
-    clientId,
-    {
-      command: f.request,
-      reservation: f.reservation,
-      commandId: f.request.clientMsgId,
-      operatorConnectionId: f.dependencies.operatorConnectionId,
-      ownerConnectionId: f.dependencies.operatorConnectionId,
-      signal: new AbortController().signal,
-    },
-  );
-  expect(started.dispatched).toBe(true);
-  await vi.waitFor(() =>
-    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1),
-  );
-  for (let index = 0; index < 100; index++)
-    chat.eventStore.upsertSession({
-      sessionId: `search-cost-${index}`,
-      conversationSource: 'mitzo',
-      summary: 'Unrelated public summary',
+// Hosted runners reach the final read near 20s (10s locally). Keep all fences
+// and the runtime-check budget; only the complete CI fixture gets more time.
+const historyTimeout = process.env.CI ? 40000 : 20000;
+
+it(
+  'runs history through the signed native owner without publication configuration, and withholds hidden/revoked targets',
+  async () => {
+    const knowledge = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-knowledge-')));
+    cleanups.push(() => rmSync(knowledge, { recursive: true, force: true }));
+    registerWorkspaceRuntimeAuthorityNamespace(knowledge);
+    const runtimeChecks = vi.spyOn(OrdinaryLocalCodexHostRuntime.prototype, 'assertCurrentSync');
+    const f = await ownedRuntimeFixture(cleanups, {
+      chatRoute: true,
+      tools: [
+        ...['Bash', 'Read', 'Write', 'Edit'].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+        { id: 'mitzo:SearchPastSessions', version: 1 },
+        { id: 'mitzo:ReadPastSession', version: 1 },
+      ],
     });
-  chat.eventStore.upsertSession({
-    sessionId: 'history-target',
-    conversationSource: 'mitzo',
-    summary: 'Prior project',
-  });
-  chat.eventStore.append('history-target', 'user_message', {
-    text: 'Public old request',
-    privateField: 'private payload',
-  });
-  chat.eventStore.append('history-target', 'block_delta', {
-    blockType: 'thinking',
-    delta: 'private reasoning marker',
-  });
-  chat.eventStore.append('history-target', 'block_delta', {
-    blockType: 'text',
-    delta: 'Public old answer',
-  });
-  chat.eventStore.upsertSession({
-    sessionId: 'hidden-target',
-    conversationSource: 'mitzo',
-    summary: 'Hidden project',
-  });
-  chat.eventStore.hideSession('hidden-target');
-  const invoke = async (tool: string, input: Record<string, unknown>) => {
-    const response = await lifecycle.onRequest(
-      'item/tool/call',
-      {
-        threadId: 'history-thread',
-        turnId: 'history-turn',
-        callId: randomUUID(),
-        namespace: null,
-        tool,
-        arguments: input,
+    vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
+    const chat = await import('../chat.js');
+    const native = await import('../codex-chat-session.js');
+    setAuthRevocationStore(chat.eventStore);
+    vi.spyOn(workspaces, 'getRepositoryWorkspaces').mockReturnValue(f.workspace);
+    vi.spyOn(library, 'getAgentLibrary').mockReturnValue(f.library);
+    vi.spyOn(publication, 'getTelosMainPublicationRuntime').mockReturnValue(undefined);
+    f.detach();
+    const auth = (await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!))!;
+    cleanups.push(bindAgentLibraryTransport(f.dependencies.operatorConnectionId, auth));
+    let lifecycle!: CodexLifecycleTransport;
+    const original = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'thread/start') {
+        const names = (params?.dynamicTools as Array<{ name: string }>).map((tool) => tool.name);
+        expect(names).toEqual(expect.arrayContaining(['SearchPastSessions', 'ReadPastSession']));
+        return {
+          thread: { id: 'history-thread' },
+          model: 'fixture-model',
+          modelProvider: 'openai',
+        };
+      }
+      if (method === 'turn/start') return { turn: { id: 'history-turn' } };
+      return original(method);
+    });
+    vi.spyOn(CodexAppServerClient, 'launchIsolated').mockImplementation(
+      (_home, _base, callbacks) => {
+        lifecycle = callbacks!;
+        return f.rpc as never;
       },
-      new AbortController().signal,
     );
-    const text = (response.contentItems as Array<{ text: string }>)[0].text;
-    return { response, text, value: response.success ? JSON.parse(text) : undefined };
-  };
-  runtimeChecks.mockClear();
-  const unmatched = await invoke('SearchPastSessions', { query: 'unmatchable-needle' });
-  expect(unmatched.response.success).toBe(true);
-  expect(unmatched.value.sessions).toEqual([]);
-  // A bounded summary search must not fan out through thousands of full
-  // native runtime/credential/workspace fences while blocking other chats.
-  expect(runtimeChecks.mock.calls.length).toBeLessThan(1000);
-  const searched = await invoke('SearchPastSessions', { query: 'Prior project' });
-  expect(searched.response.success).toBe(true);
-  expect(searched.value.sessions).toMatchObject([
-    { conversationId: 'history-target', summary: 'Prior project' },
-  ]);
-  const read = await invoke('ReadPastSession', { conversationId: 'history-target' });
-  expect(read.response.success).toBe(true);
-  expect(read.value.entries.map((entry: { text: string }) => entry.text)).toEqual([
-    'Public old request',
-    'Public old answer',
-  ]);
-  expect(read.text).not.toContain('private');
-  expect(
-    (await invoke('ReadPastSession', { conversationId: 'hidden-target' })).response.success,
-  ).toBe(false);
-  expect(
-    (await invoke('ReadPastSession', { conversationId: 'unregistered-target' })).response.success,
-  ).toBe(false);
-  chat.eventStore.registerInternalSdkExecution({
-    sdkSessionId: 'internal-target',
-    parentSessionId: f.reservation.conversationId,
-    operationId: 'history-fixture-internal',
-    purpose: 'web_search',
-    cwd: setup.root,
-  });
-  expect(
-    (await invoke('ReadPastSession', { conversationId: 'internal-target' })).response.success,
-  ).toBe(false);
-  const readEvents = chat.eventStore.getEventsAfter.bind(chat.eventStore);
-  vi.spyOn(chat.eventStore, 'getEventsAfter').mockImplementationOnce((id, after, limit) => {
-    const result = readEvents(id, after, limit);
-    chat.eventStore.hideSession(id);
-    return result;
-  });
-  const hiddenDuringRead = await invoke('ReadPastSession', { conversationId: 'history-target' });
-  expect(hiddenDuringRead.response.success).toBe(false);
-  expect(hiddenDuringRead.text).not.toContain('Public old');
-  revokeAuthSession(auth);
-  // The existing host bridge closes on logout before another tool callback can
-  // reach any adapter; it deliberately rejects rather than delivering a result.
-  await expect(invoke('SearchPastSessions', { query: 'project' })).rejects.toThrow(
-    'Owned Codex lifecycle unavailable',
-  );
-  expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
-}, 20000);
+    const clientId = `${f.dependencies.operatorConnectionId}:${f.reservation.conversationId}`;
+    cleanups.push(async () => {
+      chat.registry.abort(clientId);
+      await vi.waitFor(() =>
+        expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeFalsy(),
+      );
+      native.getCodexConversationStore().close();
+      chat.eventStore.close();
+    });
+    const started = await chat.startOwnedLocalCodexCommand(
+      { send: vi.fn(), isOpen: () => true },
+      clientId,
+      {
+        command: f.request,
+        reservation: f.reservation,
+        commandId: f.request.clientMsgId,
+        operatorConnectionId: f.dependencies.operatorConnectionId,
+        ownerConnectionId: f.dependencies.operatorConnectionId,
+        signal: new AbortController().signal,
+      },
+    );
+    expect(started.dispatched).toBe(true);
+    await vi.waitFor(() =>
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+        1,
+      ),
+    );
+    for (let index = 0; index < 100; index++)
+      chat.eventStore.upsertSession({
+        sessionId: `search-cost-${index}`,
+        conversationSource: 'mitzo',
+        summary: 'Unrelated public summary',
+      });
+    chat.eventStore.upsertSession({
+      sessionId: 'history-target',
+      conversationSource: 'mitzo',
+      summary: 'Prior project',
+    });
+    chat.eventStore.append('history-target', 'user_message', {
+      text: 'Public old request',
+      privateField: 'private payload',
+    });
+    chat.eventStore.append('history-target', 'block_delta', {
+      blockType: 'thinking',
+      delta: 'private reasoning marker',
+    });
+    chat.eventStore.append('history-target', 'block_delta', {
+      blockType: 'text',
+      delta: 'Public old answer',
+    });
+    chat.eventStore.upsertSession({
+      sessionId: 'hidden-target',
+      conversationSource: 'mitzo',
+      summary: 'Hidden project',
+    });
+    chat.eventStore.hideSession('hidden-target');
+    const invoke = async (tool: string, input: Record<string, unknown>) => {
+      const response = await lifecycle.onRequest(
+        'item/tool/call',
+        {
+          threadId: 'history-thread',
+          turnId: 'history-turn',
+          callId: randomUUID(),
+          namespace: null,
+          tool,
+          arguments: input,
+        },
+        new AbortController().signal,
+      );
+      const text = (response.contentItems as Array<{ text: string }>)[0].text;
+      return { response, text, value: response.success ? JSON.parse(text) : undefined };
+    };
+    runtimeChecks.mockClear();
+    const unmatched = await invoke('SearchPastSessions', {
+      query: 'unmatchable-needle',
+      scope: 'summaries',
+    });
+    expect(unmatched.response.success).toBe(true);
+    expect(unmatched.value.sessions).toEqual([]);
+    // A bounded summary search must not fan out through thousands of full
+    // native runtime/credential/workspace fences while blocking other chats.
+    expect(runtimeChecks.mock.calls.length).toBeLessThan(1000);
+    const searched = await invoke('SearchPastSessions', { query: 'Public old', limit: 1 });
+    expect(searched.response.success).toBe(true);
+    expect(searched.value.sessions).toMatchObject([
+      { conversationId: 'history-target', summary: 'Prior project' },
+    ]);
+    expect(searched.value.sessions[0].snippet).toContain('Public old');
+    // Admission predates both publications. The real callback must still work
+    // after rotation; per-revision policy equality is covered by the config fixture.
+    for (const revision of ['first', 'second']) {
+      const seed = join(knowledge, revision, 'mgmt');
+      mkdirSync(seed, { recursive: true });
+      const current = join(knowledge, 'current');
+      if (revision === 'second') unlinkSync(current);
+      symlinkSync(join(knowledge, revision), current);
+      registerWorkspaceRuntimeAuthorityPaths([join(current, 'mgmt')]);
+    }
+    const read = await invoke('ReadPastSession', { conversationId: 'history-target' });
+    expect(read.response.success).toBe(true);
+    expect(read.value.entries.map((entry: { text: string }) => entry.text)).toEqual([
+      'Public old request',
+      'Public old answer',
+    ]);
+    expect(read.text).not.toContain('private');
+    const ownedSession = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+    expect(
+      native
+        .getCodexConversationStore()
+        .readNativeExecution(f.reservation.conversationId, ownedSession.accountBinding!, {
+          id: f.request.clientMsgId,
+          attempt: 1,
+        })?.policy.writeProtectedRoots,
+    ).toContain(knowledge);
+    ownedSession.activeSkillPolicy = new Set(['SearchPastSessions']);
+    const restricted = await invoke('SearchPastSessions', { query: 'Public old' });
+    expect(restricted.response.success).toBe(true);
+    expect(restricted.value.sessions).toEqual([]);
+    expect(
+      (await invoke('SearchPastSessions', { query: 'Public old', scope: 'all' })).response.success,
+    ).toBe(false);
+    ownedSession.activeSkillPolicy = null;
+    // Hidden/missing/internal target variants share the real authorization fixture
+    // in session-history-search-batch; retain native hide-during-read/logout here.
+    const readEvents = chat.eventStore.getHistoryEventPage.bind(chat.eventStore);
+    vi.spyOn(chat.eventStore, 'getHistoryEventPage').mockImplementationOnce((id, ...page) => {
+      const result = readEvents(id, ...page);
+      chat.eventStore.hideSession(id);
+      return result;
+    });
+    const hiddenDuringRead = await invoke('ReadPastSession', { conversationId: 'history-target' });
+    expect(hiddenDuringRead.response.success).toBe(false);
+    expect(hiddenDuringRead.text).not.toContain('Public old');
+    registerWorkspaceRuntimeAuthorityPaths([
+      join(dirname(knowledge), `new-unrelated-authority-${randomUUID()}`),
+    ]);
+    const beforeRefusal = vi.spyOn(chat.eventStore, 'getHistoryEventPage');
+    beforeRefusal.mockClear();
+    const refused = await invoke('ReadPastSession', { conversationId: 'history-target' });
+    expect(refused.response.success).toBe(false);
+    expect(JSON.parse(refused.text)).toMatchObject({
+      error: 'stale_owner',
+      diagnostic: { reason: 'custody_changed', effectStatus: 'not_started' },
+    });
+    expect(beforeRefusal).not.toHaveBeenCalled();
+    revokeAuthSession(auth);
+    // The existing host bridge closes on logout before another tool callback can
+    // reach any adapter; it deliberately rejects rather than delivering a result.
+    await expect(invoke('SearchPastSessions', { query: 'project' })).rejects.toMatchObject({
+      name: 'SessionRuntimeError',
+      code: 'auth_revoked',
+    });
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+  },
+  historyTimeout,
+);

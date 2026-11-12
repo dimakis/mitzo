@@ -169,11 +169,34 @@ it.each([false, true])(
     // fences them through the genuine OpenShell driver and admission capability.
     const ensure = vi
       .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
-      .mockImplementation(async () => {
-        const seed = await workspaces.startupSeed(prepared.id, f.account, 'session', signal);
-        await cp(seed, directory, { recursive: true });
-        return f.artifact.runtime;
-      });
+      .mockImplementation(async () => f.artifact.runtime);
+    const { repositoryMaterializationScript } = await import('../repository-materialization.js');
+    vi.spyOn(OpenShellRuntimeManager.prototype, 'materializeRepository').mockImplementation(
+      async (_conversationId, runtime, plan, allowReplacement, importSignal, assertCurrent) => {
+        assertCurrent();
+        importSignal.throwIfAborted();
+        const receipt = JSON.parse(
+          execFileSync(
+            process.execPath,
+            [
+              '-e',
+              repositoryMaterializationScript,
+              plan.seed,
+              directory,
+              JSON.stringify(plan.manifest),
+              String(allowReplacement),
+            ],
+            { encoding: 'utf8' },
+          ),
+        );
+        return {
+          ...receipt,
+          directory: runtime.workdir,
+          sandboxName: runtime.sandboxName,
+          sandboxId: runtime.sandboxId,
+        };
+      },
+    );
     vi.spyOn(OpenShellRuntimeManager.prototype, 'verifyKnowledgeRuntime').mockResolvedValue({});
     vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
       type: 'boot_context',
@@ -430,7 +453,7 @@ it.each([false, true])(
     });
     const operation = publication.runtime.capabilityStore.get(receipt.operationId);
     expect(cards).toHaveLength(1);
-    expect(publication.reviews).toHaveLength(2);
+    expect(offline.adviser).not.toHaveBeenCalled();
     callbacks.onNotification('item/agentMessage/delta', {
       threadId: 'remote-thread',
       turnId: 'remote-turn-2',

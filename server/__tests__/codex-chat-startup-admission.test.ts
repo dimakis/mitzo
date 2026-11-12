@@ -7,9 +7,12 @@ import { randomUUID, createHash } from 'node:crypto';
 import { SessionRegistry, type ManagedSession } from '@mitzo/harness';
 import { EventStore } from '@mitzo/protocol/event-store';
 import type { AccountBinding } from '@mitzo/protocol';
-const repositorySeeds = vi.hoisted(() => ({ verify: vi.fn() }));
+const repositorySeeds = vi.hoisted(() => ({ verify: vi.fn(), persist: vi.fn(), cleanup: vi.fn() }));
 vi.mock('../repository-workspace-runtime.js', () => ({
-  getRepositoryWorkspaces: () => ({ startupSeed: repositorySeeds.verify }),
+  getRepositoryWorkspaces: () => ({
+    startupMaterialization: repositorySeeds.verify,
+    recordSandboxMaterialization: repositorySeeds.persist,
+  }),
 }));
 const native = vi.hoisted(() => ({ cli: vi.fn(), ssh: vi.fn(), launch: vi.fn() }));
 // Native CLI, reviewed public contract observation and RPC boundaries are substituted.
@@ -203,8 +206,17 @@ beforeAll(() => {
       return 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\noffline-provider openai 1 0';
     return '{}';
   });
-  native.ssh.mockResolvedValue(
-    JSON.stringify({
+  native.ssh.mockImplementation(async (args: readonly string[]) => {
+    const plan = repositorySeeds.verify.mock.results.at(-1);
+    if (args.some((value) => value.includes('Repository materialization differs')) && plan) {
+      const { manifest } = await plan.value;
+      return JSON.stringify({
+        ...manifest,
+        head: manifest.baseOid,
+        directory: '/sandbox/workspaces/mgmt',
+      });
+    }
+    return JSON.stringify({
       type: 'boot_context',
       scope: 'sandbox',
       sourceCount: 0,
@@ -214,8 +226,8 @@ beforeAll(() => {
       included: [],
       trimmed: [],
       fullMarkdown: '',
-    }),
-  );
+    });
+  });
   eventStore = new EventStore(join(root, 'events.db'));
   taskStore = new TaskStore(join(root, 'tasks.db'));
   lifecycle = initializeOpenShellLifecycle(openShellRuntimeConfig(process.env), {
@@ -492,8 +504,10 @@ it('reattach-only leaves reserved provisioning available for the next explicit s
   }
 });
 
-it('uploads the controller-selected repository seed and avoids the MGMT task compiler for a repository chat', async () => {
-  const f = fixture();
+function repositoryFixture() {
+  repositorySeeds.verify.mockReset();
+  repositorySeeds.persist.mockReset();
+  repositorySeeds.cleanup.mockReset();
   const repositoryWorkspace = {
     id: 'source-fixture',
     repository: 'example/repo',
@@ -503,7 +517,45 @@ it('uploads the controller-selected repository seed and avoids the MGMT task com
     seed: join(root, 'repository-seed', 'mgmt'),
   };
   mkdirSync(repositoryWorkspace.seed, { recursive: true });
-  repositorySeeds.verify.mockResolvedValue(repositoryWorkspace.seed);
+  repositorySeeds.verify.mockResolvedValue({
+    seed: repositoryWorkspace.seed,
+    manifest: {
+      version: 1,
+      workspaceId: repositoryWorkspace.id,
+      repository: repositoryWorkspace.repository,
+      baseBranch: repositoryWorkspace.baseBranch,
+      baseOid: repositoryWorkspace.baseOid,
+      featureBranch: repositoryWorkspace.featureBranch,
+      tree: 'b'.repeat(40),
+      bundleSha256: 'c'.repeat(64),
+    },
+    cleanup: repositorySeeds.cleanup,
+  });
+  return repositoryWorkspace;
+}
+
+function expectRepositoryMaterialized(
+  repositoryWorkspace: ReturnType<typeof repositoryFixture>,
+  id: string,
+) {
+  expect(repositorySeeds.persist).toHaveBeenCalledWith(
+    repositoryWorkspace.id,
+    binding,
+    id,
+    expect.objectContaining({
+      head: repositoryWorkspace.baseOid,
+      sandboxId: expect.any(String),
+      directory: '/sandbox/workspaces/mgmt',
+    }),
+    expect.any(AbortSignal),
+  );
+  expect(repositorySeeds.cleanup).toHaveBeenCalledOnce();
+  expect(repositorySeeds.persist).toHaveBeenCalledOnce();
+}
+
+it('uploads the controller-selected repository seed and avoids the MGMT task compiler for a repository chat', async () => {
+  const f = fixture();
+  const repositoryWorkspace = repositoryFixture();
   const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext');
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
@@ -515,6 +567,7 @@ it('uploads the controller-selected repository seed and avoids the MGMT task com
           args.includes(repositoryWorkspace.seed + ':/sandbox/workspaces'),
       ),
     ).toBe(true);
+    expectRepositoryMaterialized(repositoryWorkspace, f.id);
     expect(compile).not.toHaveBeenCalled();
     expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
   } finally {
@@ -528,19 +581,11 @@ it.each(['missing', 'replaced'] as const)(
   'refuses repository reconnect when its retained sandbox is %s',
   async (condition) => {
     const f = fixture();
-    const repositoryWorkspace = {
-      id: 'source-fixture',
-      repository: 'example/repo',
-      baseBranch: 'main',
-      baseOid: 'a'.repeat(40),
-      featureBranch: 'mitzo/task',
-      seed: join(root, 'repository-seed', 'mgmt'),
-    };
-    mkdirSync(repositoryWorkspace.seed, { recursive: true });
-    repositorySeeds.verify.mockResolvedValue(repositoryWorkspace.seed);
+    const repositoryWorkspace = repositoryFixture();
     let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
     try {
       chat = await openCodexChat({ ...f.options, repositoryWorkspace });
+      expectRepositoryMaterialized(repositoryWorkspace, f.id);
       const runtime = getCodexRuntime(f.options.session)!;
       const callbacks = native.launch.mock.calls[0][2];
       const artifact = getCodexConversationStore().readArtifactRuntime(f.id, binding)!;

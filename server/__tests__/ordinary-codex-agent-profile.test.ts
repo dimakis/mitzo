@@ -1,6 +1,12 @@
+import { readBuiltinAgentLibraryProfile } from '../builtin-agent-library-profile.js';
+import {
+  ordinaryCodexSnapshotCustody,
+  assertOrdinaryCodexSnapshotCustody,
+} from '../ordinary-codex-agent-context.js';
 import { expect, it } from 'vitest';
 import { contextDigest } from '../agent-context-compiler.js';
 import {
+  AgentLibraryVersionSchema,
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISION,
   DEFAULT_MITZO_PROFILE_ID,
@@ -216,3 +222,36 @@ it('provides Default Mitzo from code with an empty Library and keeps user identi
     'Changed returned copy',
   );
 });
+
+it.each([
+  [DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION],
+  [PROFILE_BUILDER_ID, 1],
+  [PROFILE_BUILDER_ID, 2],
+  [PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION],
+] as const)(
+  'preserves builtin %s revision %s custody across metadata persistence',
+  (profileId, revision) => {
+    const original = readBuiltinAgentLibraryProfile({ kind: 'builtin', profileId, revision })!;
+    const persisted = AgentLibraryVersionSchema.parse(original);
+    const retained = {
+      agentProfileSha256: contextDigest(original),
+    };
+    const current = ordinaryCodexSnapshotCustody(original);
+    expect(current).toEqual(ordinaryCodexSnapshotCustody(persisted));
+    expect(() => assertOrdinaryCodexSnapshotCustody(current, persisted)).not.toThrow();
+    expect(() => assertOrdinaryCodexSnapshotCustody(retained, persisted)).not.toThrow();
+
+    const edited = structuredClone(persisted);
+    edited.definition.instructions += '\nEdited instructions';
+    edited.contentHash = contextDigest(edited.definition);
+    for (const custody of [current, retained]) {
+      expect(() => assertOrdinaryCodexSnapshotCustody(custody, edited)).toThrow(/custody/);
+      expect(() =>
+        assertOrdinaryCodexSnapshotCustody(custody, { ...persisted, revision: 9999 }),
+      ).toThrow(/custody/);
+      expect(() =>
+        assertOrdinaryCodexSnapshotCustody(custody, { ...persisted, kind: undefined }),
+      ).toThrow(/custody/);
+    }
+  },
+);

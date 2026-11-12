@@ -169,36 +169,77 @@ it('read-only validation catches later damage instead of rewriting its authority
   expect(() => checkRuntimeDeclarations(f.env(), runtime)).toThrow();
   expect(readPrivateEnvironment(join(f.next, '.env'))).toBe(source);
 });
-it('fails deployment before replacing launchd configuration or stopping the service', () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'deploy-runtime-order-')));
-  roots.push(root);
-  mkdirSync(join(root, 'scripts'));
-  mkdirSync(join(root, 'bin'));
-  writeFileSync(join(root, 'scripts/deploy.sh'), readFileSync('scripts/deploy.sh'));
-  writeFileSync(join(root, 'scripts/assert-deployable.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-  const calls = join(root, 'calls');
-  for (const name of ['node', 'npm', 'launchctl', 'podman', 'docker', 'sed'])
-    writeFileSync(
-      join(root, 'bin', name),
-      `#!/bin/sh\necho '${name}' "$@" >> '${calls}'\ncase "$*" in *release-runtime-declarations.mjs*) exit 77;; esac\nexit 0\n`,
-      { mode: 0o755 },
+it.each(['runtime-declarations', 'production-preflight', 'success'])(
+  'runs the direct deployment shell with isolated command ports: %s',
+  (stage) => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'deploy-runtime-order-')));
+    roots.push(root);
+    mkdirSync(join(root, 'scripts'));
+    mkdirSync(join(root, 'bin'));
+    mkdirSync(join(root, 'Library/LaunchAgents'), { recursive: true });
+    writeFileSync(join(root, 'scripts/deploy.sh'), readFileSync('scripts/deploy.sh'));
+    writeFileSync(join(root, 'scripts/assert-deployable.sh'), '#!/bin/sh\nexit 0\n', {
+      mode: 0o755,
+    });
+    const calls = join(root, 'calls');
+    for (const name of ['node', 'npm', 'launchctl', 'podman', 'docker', 'sed', 'shlock'])
+      writeFileSync(
+        join(root, 'bin', name),
+        `#!/bin/sh
+echo '${name}' "$@" >> '${calls}'
+if [ '${name}' = node ]; then
+  case "$*" in
+    *deployment-sessions.mjs*) exit 91;;
+    *release-runtime-declarations.mjs*) [ '${stage}' != runtime-declarations ] || exit 77;;
+    *verify-openshell-production.mjs*) [ '${stage}' != production-preflight ] || exit 78;;
+  esac
+fi
+if [ '${name}' = launchctl ] && [ "$1" = print ]; then exit 1; fi
+exit 0
+`,
+        { mode: 0o755 },
+      );
+    // Keep the new deployment lock in this fixture's namespace. shlock is an
+    // offline command port; the preflight must fail before any service control.
+    writeFileSync(join(root, 'bin', 'id'), `#!/bin/sh\necho fixture-${root.split('/').at(-1)}\n`, {
+      mode: 0o755,
+    });
+    const result = spawnSync('bash', [join(root, 'scripts/deploy.sh')], {
+      encoding: 'utf8',
+      env: { PATH: join(root, 'bin') + ':' + process.env.PATH, HOME: root },
+    });
+    expect(result.status).toBe(
+      stage === 'runtime-declarations' ? 77 : stage === 'production-preflight' ? 78 : 0,
     );
-  const result = spawnSync('bash', [join(root, 'scripts/deploy.sh')], {
-    encoding: 'utf8',
-    env: { PATH: join(root, 'bin') + ':' + process.env.PATH, HOME: root },
-  });
-  expect(result.status).toBe(77);
-  const observed = readFileSync(calls, 'utf8');
-  expect(observed).toContain('npm run build:server');
-  expect(observed).toContain('node scripts/release-runtime-declarations.mjs --prepare');
-  expect(observed).not.toMatch(/launchctl|podman|docker|sed/);
-  const start = readFileSync('scripts/start.sh', 'utf8');
-  const check = start.indexOf('release-runtime-declarations.mjs --check');
-  const launch = start.indexOf('exec node dist/index.js');
-  expect(check).toBeGreaterThanOrEqual(0);
-  expect(launch).toBeGreaterThanOrEqual(0);
-  expect(check).toBeLessThan(launch);
-});
+    const observed = readFileSync(calls, 'utf8');
+    expect(observed).toContain('shlock -f /tmp/com.mitzo.server.fixture-');
+    expect(observed).toContain('npm run build:server');
+    expect(observed).toContain('node scripts/release-runtime-declarations.mjs --prepare');
+    expect(observed).not.toContain('deployment-sessions.mjs');
+    if (stage === 'runtime-declarations')
+      expect(observed).not.toMatch(/launchctl|podman|docker|sed/);
+    else {
+      expect(observed).toContain('npm run build');
+      expect(observed).toContain('node scripts/verify-openshell-production.mjs');
+      if (stage === 'production-preflight') expect(observed).not.toMatch(/launchctl|docker|sed/);
+      else {
+        expect(observed).toContain('launchctl bootout gui/');
+        expect(observed).toContain('launchctl bootstrap gui/');
+        expect(observed).toContain('docker compose -p mitzo up -d');
+        expect(observed.indexOf('launchctl')).toBeGreaterThan(
+          observed.indexOf('node scripts/verify-openshell-production.mjs'),
+        );
+        expect(result.stdout).toContain('Deployed and restarted.');
+      }
+    }
+    const start = readFileSync('scripts/start.sh', 'utf8');
+    const check = start.indexOf('release-runtime-declarations.mjs --check');
+    const launch = start.indexOf('exec node dist/index.js');
+    expect(check).toBeGreaterThanOrEqual(0);
+    expect(launch).toBeGreaterThanOrEqual(0);
+    expect(check).toBeLessThan(launch);
+  },
+);
 
 it.each(['disabled', 'plist-selector', 'shell-selector', 'dotenv-override', 'private-env'])(
   'checks the actual CLI environment and redacts diagnostics: %s',

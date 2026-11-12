@@ -1,6 +1,44 @@
 import { expect, it } from 'vitest';
+import { ToolGuardTimeoutError } from '@mitzo/harness';
+
+it.each(['approval', 'execution', 'cleanup'] as const)(
+  'preserves the original %s watchdog phase through safe projection',
+  (phase) => {
+    const result = codexToolFailureResult(
+      Error('wrapper', { cause: new ToolGuardTimeoutError(phase) }),
+      false,
+    );
+    expect(JSON.parse(result.content)).toMatchObject({
+      failure: { code: 'tool_timeout', phase, effectStatus: 'unknown' },
+      diagnostic: { phase, reason: 'deadline' },
+    });
+  },
+);
+
+it('bounds stuck cleanup and still attempts the remaining final fence', async () => {
+  const attempted: string[] = [];
+  const failure = withCodexToolCleanup(
+    async () => 'executed',
+    [
+      async () => {
+        attempted.push('stuck');
+        await new Promise(() => {});
+      },
+      () => {
+        attempted.push('final-fence');
+      },
+    ],
+    20,
+  );
+  await expect(failure).rejects.toThrow('Tool cleanup failed');
+  expect(attempted).toEqual(['stuck', 'final-fence']);
+});
 import { PendingHostTaskError } from '../pending-host-task.js';
-import { CodexToolFailure, codexToolFailureResult } from '../codex-tool-failure.js';
+import {
+  CodexToolFailure,
+  codexToolFailureResult,
+  withCodexToolCleanup,
+} from '../codex-tool-failure.js';
 
 it.each([
   ['EPERM', 'filesystem_denied'],
@@ -35,6 +73,37 @@ it('retains only explicitly typed pre-effect stage and cause', () => {
     reason: 'custody_changed',
     effectStatus: 'not_started',
   });
+});
+
+it('keeps reconciliation for cancellation or cleanup uncertainty after input rejection', async () => {
+  const invalid = new CodexToolFailure('invalid_input', {
+    stage: 'repository_preparation',
+    reason: 'invalid_input',
+    effectStatus: 'not_started',
+  });
+  expect(JSON.parse(codexToolFailureResult(invalid, true).content)).toMatchObject({
+    error: 'cancelled',
+    retry: 'after_reconciliation',
+  });
+  let uncertain: unknown;
+  try {
+    await withCodexToolCleanup(async () => {
+      throw invalid;
+    }, [
+      () => {
+        throw Error('SECRET cleanup');
+      },
+    ]);
+  } catch (error) {
+    uncertain = error;
+  }
+  const result = codexToolFailureResult(uncertain, false);
+  expect(JSON.parse(result.content)).toMatchObject({
+    diagnostic: { effectStatus: 'unknown' },
+    retry: 'after_reconciliation',
+  });
+  expect(result.content).not.toContain('SECRET');
+  expect(result.content).not.toContain('did not start');
 });
 
 it('preserves a bounded safe causal errno through wrapper errors and terminates cycles', () => {

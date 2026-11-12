@@ -35,7 +35,14 @@ export async function configureApplicationReviewTarget(root: string, fresh: bool
     await mkdir(login, { mode: 0o700 });
     await writeFile(
       join(login, 'auth.json'),
-      JSON.stringify({ tokens: { access_token: 'synthetic-offline' } }),
+      JSON.stringify({
+        tokens: {
+          access_token: 'synthetic-offline',
+          refresh_token: 'synthetic-offline',
+          id_token: 'synthetic-offline',
+          account_id: 'synthetic-offline',
+        },
+      }),
       { mode: 0o600 },
     );
     // Existing core fixture metadata format. These bytes are never launched.
@@ -84,6 +91,7 @@ export async function configureApplicationReviewTarget(root: string, fresh: bool
     await mkdir(source, { mode: 0o700 });
     git(source, 'init', '-q', '-b', 'main');
     await writeFile(join(source, 'design.txt'), 'Synthetic repository context\n');
+    await writeFile(join(root, '.mitzo.json'), JSON.stringify({ repos: { acceptance: source } }));
     git(source, 'add', 'design.txt');
     git(
       source,
@@ -95,6 +103,8 @@ export async function configureApplicationReviewTarget(root: string, fresh: bool
       '-qm',
       'Synthetic source',
     );
+    // A real offline upstream/default branch for the production local picker.
+    git(source, 'remote', 'add', 'origin', source);
   }
   baseOid = git(source, 'rev-parse', 'HEAD');
   // Reopening must consume the original files, not rewrite custody or profiles.
@@ -136,6 +146,7 @@ export async function prepareSyntheticGithub(
 export async function installApplicationReviewConnections(
   root: string,
   install: typeof import('../../app.js').setConnectionsRuntime,
+  accountIds: string[] = ['offline-personal'],
 ) {
   const { createConnectionsRuntime } = await import('../../connections-runtime.js');
   const { GitHubCliHostPublisher } =
@@ -151,7 +162,7 @@ export async function installApplicationReviewConnections(
     });
   const runtime = createConnectionsRuntime({
     directory: join(root, 'connections'),
-    eligibleAccountIds: () => ['offline-personal'],
+    eligibleAccountIds: () => accountIds,
     cli: '/nonexistent/offline-gateway-must-not-run',
     workspace: 'offline-observation',
   });
@@ -164,7 +175,7 @@ export async function installApplicationReviewConnections(
       label: 'Synthetic GitHub',
       endpoint: 'https://api.github.com',
       gatewayProviderName: 'offline-github',
-      desiredAccountIds: ['offline-personal'],
+      desiredAccountIds: accountIds,
       publicConfig: { allowedRepositories: ['example/acceptance'], allowedBaseBranches: ['main'] },
     });
     connection = runtime.store.transition(

@@ -166,6 +166,32 @@ export class TelosMainPublicationRuntime {
       }
     }
   }
+  /** Recovery reads the installed canonical owner, never a path supplied by a chat. */
+  observeRetainedEdit(
+    events: EventStore,
+    itemId: string,
+    sessionId: string,
+    requestId: string,
+    assertion: () => void,
+  ) {
+    const current = () => {
+      if (active !== this || events !== this.events || this.retired.signal.aborted)
+        throw unavailable();
+      const result: unknown = assertion();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw unavailable();
+      }
+    };
+    current();
+    const items = new TelosItemStore(this.database);
+    try {
+      return items.observeUpdateReceipt(itemId, sessionId, requestId, current);
+    } finally {
+      items.close();
+    }
+  }
+
   async withItems<T>(
     context: NativeHostToolContext,
     operation: (owners: {
@@ -228,14 +254,29 @@ export class TelosMainPublicationRuntime {
       ordinaryConversation: (id: string) =>
         isAvailableTelosWorkConversation(this.events.getSession(id)),
     };
-    const work = readOnly
-      ? TelosWorkStore.openForLifecycleListRead(this.database, policy)
-      : new TelosWorkStore(this.database, policy);
+    let work: TelosWorkStore | undefined;
     let items: TelosItemStore | undefined;
+    const database = this.database;
     try {
-      items = new TelosItemStore(this.database);
-      current();
-      return await operation({ context: scoped, items, work });
+      return await operation({
+        context: scoped,
+        get items() {
+          if (!items) {
+            current();
+            items = new TelosItemStore(database);
+          }
+          return items;
+        },
+        get work() {
+          if (!work) {
+            current();
+            work = readOnly
+              ? TelosWorkStore.openForLifecycleListRead(database, policy)
+              : new TelosWorkStore(database, policy);
+          }
+          return work;
+        },
+      });
     } finally {
       for (const owner of [items, work]) {
         try {

@@ -20,6 +20,38 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it('clears accepted shared text while retaining recipient and original observation intent', () => {
+    const draft = createChatDraft();
+    draft.text = 'Accepted shared prompt';
+    draft.settings.collaborationResponders = {
+      collaborationId: '00000000-0000-4000-8000-000000000001',
+      responders: { kind: 'selected', sessionIds: ['reviewer'] },
+    };
+    draft.collaborationSend = {
+      collaborationId: draft.settings.collaborationResponders.collaborationId,
+      authScope: 'login',
+      input: {
+        requestId: '00000000-0000-4000-8000-000000000002',
+        expectedMembershipRevision: 1,
+        expectedPolicySequence: 0,
+        text: draft.text,
+        responders: draft.settings.collaborationResponders.responders,
+        snapshot: null,
+      },
+    };
+    saveChatDraft(draft);
+    const view = renderHook(() => useDraft(undefined, undefined, chatDraftStorageKey(draft.id)));
+    let proof: ReturnType<(typeof view.result.current)[4]['capture']>;
+    act(() => {
+      proof = view.result.current[4].capture();
+    });
+    act(() => expect(view.result.current[4].consume(proof!)).toBe(true));
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: '',
+      collaborationSend: draft.collaborationSend,
+      settings: { collaborationResponders: draft.settings.collaborationResponders },
+    });
+  });
   it('revokes older proof when an identical edit cannot write a replacement revision', () => {
     const first = renderHook(() => useDraft('receipt-chat'));
     act(() => first.result.current[1]('Same text'));
@@ -561,4 +593,61 @@ it('offers plain text to asynchronous storage before the debounce or pagehide bo
   const first = renderHook(() => useDraft('async-edit'));
   act(() => first.result.current[1]('Keep the newest unsent edit'));
   expect(localStorage.getItem('mitzo-draft-async-edit')).toBe('Keep the newest unsent edit');
+});
+
+it('offers a shared next draft before unload while preserving the original uncertain send', () => {
+  vi.useFakeTimers();
+  vi.spyOn(chatStorage, 'asynchronous', 'get').mockReturnValue(true);
+  const draft = createChatDraft();
+  draft.settings.collaborationResponders = {
+    collaborationId: '00000000-0000-4000-8000-000000000001',
+    responders: { kind: 'selected', sessionIds: ['reviewer'] },
+  };
+  draft.collaborationSend = {
+    collaborationId: draft.settings.collaborationResponders.collaborationId,
+    authScope: 'login',
+    input: {
+      requestId: '00000000-0000-4000-8000-000000000002',
+      expectedMembershipRevision: 1,
+      expectedPolicySequence: 0,
+      text: 'The original prompt remains uncertain.',
+      responders: draft.settings.collaborationResponders.responders,
+      snapshot: null,
+    },
+    stopRequested: true,
+  };
+  draft.images = [{ data: 'image', preview: 'preview', mediaType: 'image/png' }];
+  draft.contextBlocks = ['Retained next-message context'];
+  draft.collaborationContext = {
+    collaborationId: draft.settings.collaborationResponders.collaborationId,
+    authScope: 'login',
+    form: {
+      mode: 'selected',
+      purpose: 'Next prompt',
+      brief: 'Reviewed brief',
+      messageIds: [],
+      artifacts: [{ artifactId: 'saved-review', revision: 2, sha256: 'b'.repeat(64) }],
+    },
+    snapshot: { snapshotId: '00000000-0000-4000-8000-000000000003', sha256: 'a'.repeat(64) },
+    attached: true,
+  };
+  expect(saveChatDraft(draft)).toBe(true);
+  const key = chatDraftStorageKey(draft.id);
+  const view = renderHook(() => useDraft(undefined, undefined, key));
+  const proof = view.result.current[4].capture()!;
+  act(() => view.result.current[1]('Keep the next draft while the other agent is uncertain.'));
+  // No timer advancement, pagehide, unmount or explicit flush may initiate this save.
+  expect(getChatDraft(draft.id)).toMatchObject({
+    text: 'Keep the next draft while the other agent is uncertain.',
+    settings: draft.settings,
+    images: draft.images,
+    contextBlocks: draft.contextBlocks,
+    collaborationSend: draft.collaborationSend,
+    collaborationContext: draft.collaborationContext,
+  });
+  act(() => expect(view.result.current[4].consume(proof)).toBe(false));
+  const restored = renderHook(() => useDraft(undefined, undefined, key));
+  expect(restored.result.current[0]).toBe(
+    'Keep the next draft while the other agent is uncertain.',
+  );
 });

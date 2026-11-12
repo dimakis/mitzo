@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SessionList } from '../SessionList';
-import type { SessionSearchResult } from '@mitzo/protocol';
+import type { SessionActivity, SessionSearchResult } from '@mitzo/protocol';
 
 const mocks = vi.hoisted(() => ({
   inspect: vi.fn(),
@@ -30,8 +30,10 @@ const mocks = vi.hoisted(() => ({
     activities: [
       {
         sessionId: 'one',
+        clientId: 'one',
         title: 'Review UI',
         state: 'waiting',
+        flags: ['waiting'],
         waitReason: 'review',
         lastEventAt: 40,
         awaitingReply: false,
@@ -39,15 +41,17 @@ const mocks = vi.hoisted(() => ({
       },
       {
         sessionId: 'three',
+        clientId: 'three',
         title: 'Live chat outside history page',
         state: 'working',
+        flags: ['working'],
         lastEventAt: 50,
         awaitingReply: false,
         uncommittedWork: false,
         model: 'claude-opus-4-8',
         accountLabel: 'Work',
       },
-    ],
+    ] as SessionActivity[],
     connected: true,
   },
   search: {
@@ -74,6 +78,61 @@ vi.mock('../../components/SessionInspector', async (importOriginal) => {
   };
 });
 afterEach(cleanup);
+it('scrolls search and filters with the conversation rows', () => {
+  mount();
+  const scroller = screen.getByText('Older chat').closest('.session-list-scroll');
+  expect(scroller?.contains(screen.getByRole('searchbox', { name: 'Search conversations' }))).toBe(
+    true,
+  );
+  expect(scroller?.contains(screen.getByLabelText('Conversation filters'))).toBe(true);
+});
+
+it('batches meaningful promotions after browsing while tool updates stay in place', () => {
+  vi.useFakeTimers();
+  const previous = mocks.overview.activities;
+  const view = render(
+    <MemoryRouter>
+      <SessionList />
+    </MemoryRouter>,
+  );
+  const titles = () =>
+    [...view.container.querySelectorAll('.session-list .session-item-summary')].map(
+      (element) => element.textContent,
+    );
+  const initial = titles();
+  try {
+    for (const state of ['working', 'waiting'] as const) {
+      fireEvent.pointerDown(screen.getByRole('link', { name: 'Open Review UI' }), { pointerId: 1 });
+      mocks.overview.activities = [...previous].reverse().map((activity) => ({
+        ...activity,
+        state: activity.sessionId === 'one' ? state : 'idle',
+        waitReason: 'permission',
+        lastEventAt: activity.sessionId === 'one' ? 1000 : 50,
+      }));
+      view.rerender(
+        <MemoryRouter>
+          <SessionList />
+        </MemoryRouter>,
+      );
+      expect(titles()).toEqual(initial);
+      act(() => vi.advanceTimersByTime(5000));
+      expect(titles()).toEqual(initial);
+      if (state === 'waiting') expect(screen.getByText('Permission needed')).toBeTruthy();
+      fireEvent.pointerUp(document, { pointerId: 1 });
+      act(() => vi.advanceTimersByTime(1100));
+      act(() => vi.advanceTimersByTime(1000));
+      expect(titles()).toEqual(
+        state === 'waiting'
+          ? ['Review UI', 'Live chat outside history page', 'Older chat']
+          : initial,
+      );
+    }
+  } finally {
+    mocks.overview.activities = previous;
+    vi.useRealTimers();
+  }
+});
+
 function mount() {
   render(
     <MemoryRouter initialEntries={['/sessions']}>
@@ -225,12 +284,12 @@ it('opens a conversation using the keyboard', () => {
   expect(screen.getByText('Selected conversation')).toBeTruthy();
 });
 
-it('uses the shared workspace page and primary action styling', () => {
+it('uses the shared workspace page and plain header action styling', () => {
   mount();
   expect(screen.getByRole('heading', { name: 'Chats' }).closest('.workspace-page')).toBeTruthy();
-  expect(
-    screen.getByRole('button', { name: 'New chat' }).classList.contains('workspace-primary'),
-  ).toBe(true);
+  expect(screen.getByRole('button', { name: 'New chat' }).classList.contains('header-action')).toBe(
+    true,
+  );
 });
 
 it('does not claim synthetic activity rows are detached when attachment is unknown', () => {

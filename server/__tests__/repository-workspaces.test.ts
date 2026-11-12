@@ -1,3 +1,6 @@
+import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
+import { RepositoryPreparationCapacityError } from '../repository-preparation-capacity.js';
 import { cleanupStaleWorktrees } from '../worktree.js';
 import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -12,11 +15,18 @@ import {
   access,
   cp,
   utimes,
+  stat,
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import type { AccountBinding } from '@mitzo/protocol';
+import {
+  ordinaryWorkspaceSkillEntries,
+  prepareOrdinarySkillCommand,
+  freezeOrdinarySkillCommand,
+} from '../ordinary-composer-skills.js';
+import { EventStore } from '../event-store.js';
 const copyFailure = vi.hoisted(() => ({ error: undefined as Error | undefined }));
 vi.mock('../repository-task-copy.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../repository-task-copy.js')>();
@@ -33,6 +43,7 @@ vi.mock('../repository-task-copy.js', async (importOriginal) => {
 const roots: string[] = [];
 const binding = {
   accountId: 'account',
+  accountLabel: 'Offline account',
   provider: 'openai',
   model: 'test',
   profileRevision: 'rev',
@@ -74,6 +85,7 @@ async function fixture() {
   const prepare = vi.fn(async (_preview, directory: string, featureBranch: string) => {
     await cp(source, directory, { recursive: true });
     git(directory, 'checkout', '-qb', featureBranch);
+    git(directory, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
     return { ...(await inspect()), directory, featureBranch };
   });
   const verify = vi.fn(async () => {});
@@ -87,6 +99,90 @@ async function fixture() {
   await mkdir(taskRoot);
   return { root, taskRoot, service, authorize, inspect, prepare, verify, git };
 }
+it('reads repository skills from the qualified prepared source before a task directory or conversation exists', async () => {
+  const f = await fixture();
+  const skill = join(f.root, 'source', '.mitzo', 'skills', 'prepared-only');
+  await mkdir(skill, { recursive: true });
+  await writeFile(
+    join(skill, 'SKILL.md'),
+    '---\ndescription: Prepared source skill\n---\nUse the prepared source',
+  );
+  const restricted = join(f.root, 'source', '.mitzo', 'skills', 'mockup');
+  await mkdir(restricted, { recursive: true });
+  await writeFile(
+    join(restricted, 'SKILL.md'),
+    '---\ndescription: Repository override\nallowed-tools: Read\n---\nUse only Read',
+  );
+  const preview = await f.service.preview(
+    binding,
+    'connection',
+    'example/repo',
+    new AbortController().signal,
+  );
+  await f.service.prepare(preview.id, binding, new AbortController().signal);
+  expect(f.service.get(preview.id).directory).toBeUndefined();
+  expect(await ordinaryWorkspaceSkillEntries(f.service, preview.id, () => binding)).toContainEqual(
+    expect.objectContaining({ name: 'prepared-only', scope: 'repo' }),
+  );
+  expect(f.service.get(preview.id)).toMatchObject({ state: 'ready' });
+  expect(f.service.get(preview.id).conversationId).toBeUndefined();
+  f.authorize.mockRejectedValueOnce(Error('Access revoked'));
+  await expect(
+    ordinaryWorkspaceSkillEntries(f.service, preview.id, () => binding),
+  ).rejects.toThrow();
+  const reservation = {
+    id: preview.id,
+    binding,
+    conversationId: 'first-skill',
+    taskRoot: f.taskRoot,
+    signal: AbortSignal.timeout(10000),
+  };
+  const descriptor = await f.service.reserveHostTask(reservation);
+  await expect(access(descriptor.directory)).rejects.toThrow();
+  const store = new EventStore(':memory:');
+  try {
+    const prepared = await prepareOrdinarySkillCommand(f.service, reservation, {
+      store,
+      id: 'command',
+      text: '/prepared-only',
+      signal: reservation.signal,
+    });
+    expect(prepared?.prompt).toContain('Use the prepared source');
+    await expect(
+      prepareOrdinarySkillCommand(f.service, reservation, {
+        store,
+        id: 'restricted',
+        text: '/mockup',
+        signal: reservation.signal,
+      }),
+    ).rejects.toThrow(/tool restrictions/);
+    expect(store.getOrdinarySkillContext(reservation.conversationId, 'restricted')).toBeUndefined();
+    freezeOrdinarySkillCommand(
+      store,
+      { sessionId: reservation.conversationId, cwd: descriptor.directory },
+      'command',
+      { text: '/prepared-only' },
+      () => store.upsertSession({ sessionId: reservation.conversationId }),
+      prepared,
+    );
+    expect(store.getOrdinarySkillContext(reservation.conversationId, 'command')?.prompt).toBe(
+      prepared?.prompt,
+    );
+    await expect(access(descriptor.directory)).rejects.toThrow();
+    expect(f.service.get(preview.id).state).toBe('reserved');
+    const changed = { ...reservation, binding: { ...binding, accountId: 'other' } };
+    await expect(
+      f.service.readReservedHostSource(changed, () => 'unexpected', reservation.signal),
+    ).rejects.toThrow();
+    f.authorize.mockRejectedValueOnce(Error('Access revoked'));
+    await expect(
+      f.service.readReservedHostSource(reservation, () => 'unexpected', reservation.signal),
+    ).rejects.toThrow();
+  } finally {
+    store.close();
+  }
+  f.service.close();
+});
 it('persists a pinned preparation across restart and claims it for only one conversation', async () => {
   const f = await fixture();
   const preview = await f.service.preview(
@@ -95,11 +191,58 @@ it('persists a pinned preparation across restart and claims it for only one conv
     'Example/Repo',
     new AbortController().signal,
   );
+  // Reuse this real prepare/reopen/claim journey for the shared ledger quota.
+  // Historical Local Mac sources do not allocate managed GitHub source copies.
+  const sourcePath = join(f.root, 'source'),
+    commonDirectory = join(sourcePath, '.git');
+  const root = await stat(sourcePath),
+    commonRoot = await stat(commonDirectory);
+  const localSource = {
+    repositoryId: 'fixture',
+    path: sourcePath,
+    root: { dev: root.dev, ino: root.ino },
+    commonDirectory,
+    commonRoot: { dev: commonRoot.dev, ino: commonRoot.ino },
+  };
+  const original = f.service.get(preview.id);
+  const seed = new Database(join(f.root, 'private', 'workspaces.db'));
+  try {
+    const insert = seed.prepare(
+      'INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,NULL)',
+    );
+    seed.transaction(() => {
+      const add = (fields: Partial<typeof original>) => {
+        const id = randomUUID();
+        insert.run(id, JSON.stringify({ ...original, id, state: 'preparing', ...fields }));
+      };
+      for (let i = 0; i < 8; i++) add({ state: 'ready', connectionId: 'local', localSource });
+      for (let i = 0; i < 7; i++) add({});
+      add({ binding: { ...binding, accountId: 'other-account' } });
+      add({ sourceReleased: true });
+      add({ state: 'failed' });
+    })();
+  } finally {
+    seed.close();
+  }
   const ready = await f.service.prepare(preview.id, binding, new AbortController().signal);
   expect(ready).toMatchObject({
     state: 'ready',
     repository: 'example/repo',
     baseOid: expect.stringMatching(/^[a-f0-9]{40}$/),
+  });
+  const blocked = await f.service.preview(
+    binding,
+    'connection',
+    'Example/Repo',
+    new AbortController().signal,
+  );
+  await expect(
+    f.service.prepare(blocked.id, binding, new AbortController().signal),
+  ).rejects.toBeInstanceOf(RepositoryPreparationCapacityError);
+  expect(f.service.get(blocked.id).state).toBe('preview');
+  expect(f.prepare).toHaveBeenCalledOnce();
+  await expect(access(join(f.root, 'private', blocked.id))).rejects.toMatchObject({
+    code: 'ENOENT',
   });
   f.service.close();
   const restored = new RepositoryWorkspaces(join(f.root, 'private'), {
@@ -201,6 +344,101 @@ it('rechecks the exact frozen sandbox seed before upload and rejects changed sou
   expect(await f.service.startupSeed(preview.id, binding, 'conversation', signal)).toBe(
     claimed.seed,
   );
+  const plan = await f.service.startupMaterialization(preview.id, binding, 'conversation', signal);
+  try {
+    expect(plan.manifest).toMatchObject({
+      workspaceId: preview.id,
+      baseOid: preview.baseOid,
+      featureBranch: claimed.featureBranch,
+    });
+    await expect(f.service.releaseSource(preview.id, binding, 'conversation')).rejects.toThrow(
+      'verified target',
+    );
+    await expect(
+      f.service.recordSandboxMaterialization(
+        preview.id,
+        binding,
+        'conversation',
+        {
+          ...plan.manifest,
+          head: '0'.repeat(40),
+          directory: '/sandbox/workspaces/mgmt',
+          sandboxId: 'physical',
+          sandboxName: 'sandbox',
+        },
+        signal,
+      ),
+    ).rejects.toThrow('original claim');
+    await f.service.recordSandboxMaterialization(
+      preview.id,
+      binding,
+      'conversation',
+      {
+        ...plan.manifest,
+        head: preview.baseOid,
+        directory: '/sandbox/workspaces/mgmt',
+        sandboxId: 'physical',
+        sandboxName: 'sandbox',
+      },
+      signal,
+    );
+    const next = {
+      ...plan.manifest,
+      head: 'd'.repeat(40),
+      directory: '/sandbox/workspaces/mgmt',
+      sandboxId: 'migrated-physical',
+      sandboxName: 'migrated-sandbox',
+    };
+    const migration = {
+      phase: 'committed',
+      identity: {
+        conversation: 'conversation',
+        accountId: binding.accountId,
+        sandboxId: 'physical',
+      },
+      source: {
+        runtime: { sandboxId: 'physical', sandboxName: 'sandbox', workdir: next.directory },
+      },
+      candidateName: next.sandboxName,
+      candidate: {
+        runtime: {
+          sandboxId: next.sandboxId,
+          sandboxName: next.sandboxName,
+          workdir: next.directory,
+        },
+      },
+    } as unknown as import('../openshell-runtime-migration.js').RuntimeMigration;
+    await expect(
+      f.service.recordSandboxMaterialization(preview.id, binding, 'conversation', next, signal),
+    ).rejects.toThrow('changed');
+    await expect(
+      f.service.recordSandboxMaterialization(preview.id, binding, 'conversation', next, signal, {
+        ...migration,
+        phase: 'restored',
+      }),
+    ).rejects.toThrow('changed');
+    await expect(
+      f.service.recordSandboxMaterialization(
+        preview.id,
+        binding,
+        'conversation',
+        { ...next, tree: '0'.repeat(40) },
+        signal,
+        migration,
+      ),
+    ).rejects.toThrow('changed');
+    await f.service.recordSandboxMaterialization(
+      preview.id,
+      binding,
+      'conversation',
+      next,
+      signal,
+      migration,
+    );
+    expect(f.service.get(preview.id).sandboxMaterialization).toEqual(next);
+  } finally {
+    await plan.cleanup();
+  }
   await writeFile(join(claimed.seed, 'file.txt'), 'tampered source');
   await expect(
     f.service.startupSeed(preview.id, binding, 'conversation', signal),

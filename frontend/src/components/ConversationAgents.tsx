@@ -15,6 +15,8 @@ import { UiIcon } from './UiIcon';
 import { AccountModelPicker } from './AccountModelPicker';
 import { ChatAgentProfilePicker } from './ChatAgentProfilePicker';
 import './ConversationAgents.css';
+import '../styles/header-actions.css';
+import { ConversationRepositoryPicker } from './ConversationRepositoryPicker';
 
 export interface ConversationAgent {
   id: string;
@@ -143,7 +145,7 @@ function ConversationAgentsBody({
           {leading}
           <button
             type="button"
-            className="conversation-participants-trigger"
+            className={`conversation-participants-trigger${compact ? ' header-action' : ''}`}
             aria-label={`Agents${names ? ', ' + names : ''}`}
             aria-expanded={open}
             onClick={(event) => {
@@ -152,7 +154,7 @@ function ConversationAgentsBody({
               setOpen(true);
             }}
           >
-            <UiIcon name={agents.length > 1 ? 'agents' : 'bot'} />
+            <UiIcon name={compact || agents.length <= 1 ? 'bot' : 'agents'} />
             {!compact && (
               <span>
                 <strong>
@@ -183,8 +185,7 @@ function ConversationAgentsBody({
                 <small>{agents.length > 1 ? 'Shared discussion' : 'Agent chat'}</small>
               </span>
             )}
-            {compact && <span>Agents</span>}
-            <UiIcon name="down" />
+            {!compact && <UiIcon name="down" />}
           </button>
           {actions}
         </div>
@@ -413,6 +414,12 @@ function ConversationAgentsBody({
                   <span>Repository</span>
                   <strong>{repository || 'Not selected'}</strong>
                 </div>
+                {joiningOwner?.kind === 'application' && (
+                  <ConversationRepositoryPicker
+                    setup={setup}
+                    onChange={(values) => setSetup((s) => ({ ...s, ...values }))}
+                  />
+                )}
                 <h3>Starting context</h3>
                 <label className="conversation-agent-field">
                   Context

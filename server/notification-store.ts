@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { NotificationResponseReceipts } from './notification-response-receipts.js';
 import { NotificationPreferences } from '@mitzo/protocol';
 import type {
   MitzoNotification,
@@ -35,6 +36,7 @@ function item(row: Row): MitzoNotification {
 /** Local-authoritative shared state; read receipts never grant or resolve permissions. */
 export class NotificationStore {
   private db: Database.Database;
+  readonly responses: NotificationResponseReceipts;
   private inboxPolicyFactory?: () => InboxReadPolicy;
   private inboxPolicy?: InboxReadPolicy;
   setInboxReadPolicy(factory: () => InboxReadPolicy) {
@@ -50,6 +52,7 @@ export class NotificationStore {
   constructor(path: string) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
+    this.responses = new NotificationResponseReceipts(this.db);
     this.db.exec(`CREATE TABLE IF NOT EXISTS notifications (
       id TEXT PRIMARY KEY, kind TEXT NOT NULL, perm_id TEXT, created_at INTEGER NOT NULL,
       expires_at INTEGER, data TEXT NOT NULL, read_at INTEGER, resolved_at INTEGER, resolution TEXT,
@@ -65,6 +68,8 @@ export class NotificationStore {
       this.db.exec('ALTER TABLE notifications ADD COLUMN archived_at INTEGER');
     if (!columns.some((column) => column.name === 'inbox_source_path'))
       this.db.exec('ALTER TABLE notifications ADD COLUMN inbox_source_path TEXT');
+    if (!columns.some((column) => column.name === 'alerted_at'))
+      this.db.exec('ALTER TABLE notifications ADD COLUMN alerted_at INTEGER');
     // The one-second delivery sweep should visit only live candidates. Keep the
     // privacy callback out of indexes: every candidate must use current policy.
     this.db.exec(`
@@ -106,6 +111,11 @@ export class NotificationStore {
     );
   }
   get(id: string): MitzoNotification | undefined {
+    // Archive reconciliation probes an alternate ID for every retained file.
+    // Missing rows cannot disclose content and need no filesystem policy scan.
+    // Positive lookups still refresh authority before the original filtered
+    // read, so policy changes (including during refresh) cannot reuse old data.
+    if (!this.db.prepare('SELECT 1 FROM notifications WHERE id=?').get(id)) return undefined;
     this.refreshInboxPolicy();
     const row = this.db.prepare(`SELECT * FROM notifications WHERE id=? AND ${visible}`).get(id) as
       Row | undefined;
@@ -430,7 +440,9 @@ export class NotificationStore {
     return (
       this.db
         .prepare(
-          `SELECT * FROM notifications WHERE ${visible} AND delivery_status='queued' AND archived_at IS NULL AND delivery_at<=? AND resolved_at IS NULL ORDER BY delivery_at LIMIT 25`,
+          `SELECT * FROM notifications WHERE ${visible}
+            AND delivery_status='queued' AND archived_at IS NULL AND delivery_at<=? AND resolved_at IS NULL
+            ORDER BY delivery_at LIMIT 25`,
         )
         .all(now) as Row[]
     ).map(item);
@@ -455,9 +467,14 @@ export class NotificationStore {
       for (const device of acceptedDevices) record.run(id, device);
       this.db
         .prepare(
-          'UPDATE notifications SET delivery_status=?, delivery_attempts=delivery_attempts+1, delivery_at=COALESCE(?,delivery_at) WHERE id=?',
+          'UPDATE notifications SET delivery_status=?, delivery_attempts=delivery_attempts+1, delivery_at=COALESCE(?,delivery_at), alerted_at=COALESCE(alerted_at, ?) WHERE id=?',
         )
-        .run(retryAt ? 'queued' : status, retryAt ?? null, id);
+        .run(
+          retryAt ? 'queued' : status,
+          retryAt ?? null,
+          status === 'accepted' || acceptedDevices.length ? Date.now() : null,
+          id,
+        );
     })();
   }
   attempts(id: string): number {

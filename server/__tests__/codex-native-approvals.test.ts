@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
+import { onPermissionAudit, type PermissionAuditEvent } from '@mitzo/harness';
 import { resolvePending, getPendingRequestsBySession } from '../permissions.js';
 import {
   createCodexNativeApprovalHandler,
@@ -13,6 +14,35 @@ const permissions = {
   network: null,
   fileSystem: { read: ['/extra/read'], write: ['/extra/write'] },
 };
+
+it('reports an expired command approval as not started, distinct from denial and stdin', async () => {
+  const f = setup('agent', 20);
+  const observeFailure = vi.fn();
+  const result = await f.handler(
+    'item/commandExecution/requestApproval',
+    {
+      threadId: 'thread',
+      turnId: 'turn',
+      itemId: 'item',
+      startedAtMs: Date.now(),
+      kind: 'command',
+      environmentId: 'local',
+      cwd: '/workspace',
+      command: 'offline-test',
+    },
+    f.controller.signal,
+    { ...f.context, observeFailure },
+  );
+  expect(result).toEqual({ decision: 'decline' });
+  expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      code: 'approval_expired',
+      phase: 'approval',
+      effectStatus: 'not_started',
+      recovery: 'renew_approval',
+    }),
+  );
+});
 function fixture(
   mode: 'ask' | 'agent' | 'auto' = 'agent',
   timeoutMs = 60_000,
@@ -24,6 +54,7 @@ function fixture(
     transport: { send: (message) => sent.push(message), isOpen: () => true },
     abortController: new AbortController(),
     mode,
+    cwd: '/workspace',
     sessionId: 'session',
     sessionAllowList: new Set(),
   });
@@ -93,12 +124,311 @@ function setup(
   fixtures.push(f);
   return f;
 }
+
+it.each([
+  { approvalId: 'subcommand' },
+  { networkApprovalContext: { host: 'example.test', protocol: 'https' } },
+])('retains unknown parent effects when an in-flight approval expires: %j', async (overlay) => {
+  const f = setup('agent', 20);
+  const observeFailure = vi.fn();
+  const result = await f.handler(
+    'item/commandExecution/requestApproval',
+    {
+      ...commandParams(),
+      startedAtMs: Date.now(),
+      ...overlay,
+    },
+    f.controller.signal,
+    { ...f.context, observeFailure },
+  );
+  expect(result).toEqual({ decision: 'cancel' });
+  expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      code: 'approval_expired',
+      effectStatus: 'unknown',
+      recovery: 'inspect_operation',
+    }),
+  );
+});
+
+it('preserves explicit denial when the handler resumes after the approval deadline', async () => {
+  vi.useFakeTimers();
+  const f = setup();
+  const started = Date.now();
+  const observeFailure = vi.fn();
+  const pending = f.handler(
+    'item/commandExecution/requestApproval',
+    { ...commandParams(), startedAtMs: started },
+    f.controller.signal,
+    { ...f.context, observeFailure },
+  );
+  const id = await request(f);
+  vi.setSystemTime(started + 59_999);
+  resolvePending(id, 'deny', undefined, 'session');
+  vi.setSystemTime(started + 60_001);
+  expect(await pending).toEqual({ decision: 'cancel' });
+  expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ code: 'permission_denied', recovery: 'none' }),
+  );
+  for (const fence of f.fences) expect(() => fence()).not.toThrow();
+});
+it('retains observed expiry when the wall clock remains before the deadline', async () => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(started);
+  try {
+    const f = setup('agent', 20);
+    const observeFailure = vi.fn();
+    const pending = f.handler(
+      'item/commandExecution/requestApproval',
+      { ...commandParams(), startedAtMs: started, approvalId: 'subcommand' },
+      f.controller.signal,
+      { ...f.context, observeFailure },
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await pending).toEqual({ decision: 'cancel' });
+    expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        code: 'approval_expired',
+        effectStatus: 'unknown',
+        recovery: 'inspect_operation',
+      }),
+    );
+  } finally {
+    clock.mockRestore();
+  }
+});
+it('retains expiry when the permission card timer wins before the adapter timer', async () => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(started);
+  const schedule = setTimeout;
+  const outerExpired = vi.fn();
+  // Both owners enforce the same deadline, but their timers can run in either order.
+  const timer = vi
+    .spyOn(globalThis, 'setTimeout')
+    .mockImplementationOnce((callback, delay, ...args) =>
+      schedule(
+        () => {
+          outerExpired();
+          callback(...args);
+        },
+        (delay ?? 0) + 1,
+      ),
+    );
+  try {
+    const f = setup('agent', 20);
+    const observeFailure = vi.fn();
+    const pending = f.handler(
+      'item/commandExecution/requestApproval',
+      {
+        ...commandParams(),
+        startedAtMs: started,
+        networkApprovalContext: { host: 'example.test', protocol: 'https' },
+      },
+      f.controller.signal,
+      { ...f.context, observeFailure },
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await pending).toEqual({ decision: 'cancel' });
+    expect(outerExpired).not.toHaveBeenCalled();
+    expect(Date.now()).toBe(started);
+    expect(getPendingRequestsBySession('session')).toEqual([]);
+    expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        code: 'approval_expired',
+        effectStatus: 'unknown',
+        recovery: 'inspect_operation',
+      }),
+    );
+  } finally {
+    timer.mockRestore();
+    clock.mockRestore();
+  }
+});
 async function request(f: ReturnType<typeof fixture>) {
   await vi.waitFor(() => expect(f.sent[0]?.permId).toBeDefined());
   return f.sent[0].permId as string;
 }
 
+function commandParams() {
+  return {
+    threadId: 'thread',
+    turnId: 'turn',
+    itemId: 'item',
+    startedAtMs: Date.now(),
+    environmentId: 'local',
+    cwd: '/workspace',
+    kind: 'command',
+    command: 'gh run view 123',
+    additionalPermissions: { network: { enabled: true }, fileSystem: null },
+    availableDecisions: ['accept', 'cancel'],
+  };
+}
+
 describe('native approval adapter with the existing pending owner', () => {
+  it('refuses a retained command when its directory is replaced during approval', async () => {
+    const audit: PermissionAuditEvent[] = [];
+    const release = onPermissionAudit((event) => audit.push(event));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'native-command-owner-')));
+    try {
+      const cwd = join(root, 'task');
+      mkdirSync(cwd);
+      const f = setup();
+      f.registry.get('client')!.cwd = cwd;
+      const pending = f.handler(
+        'item/commandExecution/requestApproval',
+        {
+          ...commandParams(),
+          cwd,
+          additionalPermissions: null,
+        },
+        f.controller.signal,
+        f.context,
+      );
+      const id = await request(f);
+      renameSync(cwd, cwd + '-old');
+      mkdirSync(cwd);
+      resolvePending(id, 'always', undefined, 'session');
+      expect(await pending).toEqual({ decision: 'cancel' });
+      expect(audit.find((event) => event.phase === 'resolved')).toMatchObject({
+        outcome: 'denied',
+      });
+      expect(f.registry.get('client')!.sessionAllowList.size).toBe(0);
+    } finally {
+      release();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('audits a directory replacement at the final RPC delivery fence', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'native-command-delivery-')));
+    const audit: PermissionAuditEvent[] = [];
+    const release = onPermissionAudit((event) => audit.push(event));
+    try {
+      const cwd = join(root, 'task');
+      mkdirSync(cwd);
+      const f = setup();
+      f.registry.get('client')!.cwd = cwd;
+      const pending = f.handler(
+        'item/commandExecution/requestApproval',
+        {
+          ...commandParams(),
+          cwd,
+          additionalPermissions: null,
+        },
+        f.controller.signal,
+        f.context,
+      );
+      resolvePending(await request(f), 'always', undefined, 'session');
+      expect(await pending).toEqual({ decision: 'accept' });
+      renameSync(cwd, cwd + '-old');
+      mkdirSync(cwd);
+      expect(() => f.fences[0]()).toThrow(/directory changed/);
+      expect(audit.at(-1)).toMatchObject({
+        phase: 'delivery',
+        outcome: 'denied',
+        toolName: 'NativeCommandApproval',
+      });
+    } finally {
+      release();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('declines an expired command without cancelling the turn or granting its retry', async () => {
+    vi.useFakeTimers();
+    const f = setup();
+    const params = { ...commandParams(), availableDecisions: ['accept', 'decline', 'cancel'] };
+    const pending = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    await request(f);
+    await vi.advanceTimersByTimeAsync(60_001);
+    expect(await pending).toEqual({ decision: 'decline' });
+    expect(f.controller.signal.aborted).toBe(false);
+    expect(getPendingRequestsBySession('session')).toEqual([]);
+
+    const retry = f.handler(
+      'item/commandExecution/requestApproval',
+      { ...params, startedAtMs: Date.now(), itemId: 'retry' },
+      f.controller.signal,
+      { ...f.context, requestId: 'retry-rpc' },
+    );
+    await vi.waitFor(() => expect(getPendingRequestsBySession('session')).toHaveLength(1));
+    const approval = getPendingRequestsBySession('session')[0];
+    resolvePending(approval.permId, 'once', undefined, 'session');
+    expect(await retry).toEqual({ decision: 'accept' });
+  });
+
+  it('downgrades an approved command to decline when its deadline expires before delivery', async () => {
+    const f = setup();
+    const params = { ...commandParams(), availableDecisions: ['accept', 'decline', 'cancel'] };
+    const pending = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'once', undefined, 'session');
+    const response = await pending;
+    expect(response).toEqual({ decision: 'accept' });
+    vi.useFakeTimers();
+    vi.setSystemTime(params.startedAtMs + 60_000);
+    expect(f.fences[0]).not.toThrow();
+    expect(response).toEqual({ decision: 'decline' });
+    f.revoke();
+    expect(f.fences[0]).toThrow('revoked');
+  });
+
+  it('advertises the original native deadline rather than a new card window', async () => {
+    const f = setup();
+    f.params.startedAtMs -= 5_000;
+    const response = f.handler(
+      'item/permissions/requestApproval',
+      f.params,
+      f.controller.signal,
+      f.context,
+    );
+    const id = await request(f);
+    expect(f.sent[0].expiresAt).toBe(f.params.startedAtMs + 60_000);
+    resolvePending(id, 'deny', undefined, 'session');
+    await response;
+  });
+
+  it.each(['commandExecution', 'fileChange'] as const)(
+    'refuses an expired %s approval at delivery without emitting acceptance',
+    async (item) => {
+      const f = setup();
+      const params =
+        item === 'commandExecution'
+          ? commandParams()
+          : {
+              threadId: 'thread',
+              turnId: 'turn',
+              itemId: 'file',
+              startedAtMs: Date.now(),
+              reason: 'Offline file change',
+            };
+      const pending = f.handler(
+        `item/${item}/requestApproval`,
+        params,
+        f.controller.signal,
+        f.context,
+      );
+      resolvePending(await request(f), 'once', undefined, 'session');
+      const response = await pending;
+      expect(response).toEqual({ decision: 'accept' });
+      vi.useFakeTimers();
+      vi.setSystemTime(params.startedAtMs + 60_000);
+      expect(f.fences[0]).not.toThrow();
+      expect(response).toEqual({ decision: item === 'commandExecution' ? 'cancel' : 'decline' });
+      f.revoke();
+      expect(f.fences[0]).toThrow('revoked');
+    },
+  );
+
   it('uses the existing exact prepared-root receipt for a turn grant without another approval card', async () => {
     const assertCurrentSync = vi.fn();
     const approve = vi.fn<ApprovePreparedWorkspaceGrant>(async () => ({
@@ -248,6 +578,11 @@ describe('native approval adapter with the existing pending owner', () => {
     expect(resolvePending(id, 'once', undefined, 'session')).toBe(false);
     expect(getPendingRequestsBySession('session')).toEqual([]);
     expect(f.fences.length).toBe(1);
+    expect(f.fences[0]).not.toThrow();
+    vi.useFakeTimers();
+    vi.setSystemTime(f.params.startedAtMs + 60_001);
+    expect(f.fences[0]).not.toThrow();
+    expect(await result).toEqual({ permissions: {}, scope: 'turn' });
   });
 
   it('returns an explicit session grant for only the displayed permission profile', async () => {
@@ -289,14 +624,184 @@ describe('native approval adapter with the existing pending owner', () => {
       f.context,
     );
     const id = await request(f);
-    expect(f.sent[0].description).toContain(
-      'Automatic review is not yet qualified for this account and runtime',
-    );
-    expect(f.sent[0].description).toContain('Human review');
+    expect(f.sent[0].title).toBe('Run local command');
+    expect(f.sent[0].description).toContain('requested access');
+    expect(f.sent[0].allowSessionGrant).toBe(false);
     expect(JSON.parse(f.sent[0].toolInput as string).params).toEqual(params);
     resolvePending(id, 'always', undefined, 'session');
     expect(await result).toEqual({ decision: 'accept' });
     expect(f.registry.get('client')!.sessionAllowList.size).toBe(0);
+  });
+
+  it.each(['plain', 'single-quoted native shell', 'double-quoted native shell'])(
+    'reuses repository CLI consent for different CI jobs and logs (%s), and fences revocation',
+    async (envelope) => {
+      const wrap = (command: string) =>
+        envelope === 'plain'
+          ? command
+          : `/bin/zsh -lc ${envelope.startsWith('single') ? `'${command}'` : `"${command}"`}`;
+      const f = setup();
+      const first = f.handler(
+        'item/commandExecution/requestApproval',
+        { ...commandParams(), command: wrap('gh run view 42 --repo owner/repo --log-failed') },
+        f.controller.signal,
+        f.context,
+      );
+      resolvePending(await request(f), 'always', undefined, 'session');
+      expect(await first).toEqual({ decision: 'accept' });
+      expect(f.sent[0].sessionGrantDescription).toContain('CI logs for owner/repo');
+      f.sent.length = 0;
+      for (const command of [
+        'gh run view --repo OWNER/REPO --job 123 --log',
+        'gh api /repos/owner/repo/actions/jobs/456/logs',
+      ]) {
+        const next = f.handler(
+          'item/commandExecution/requestApproval',
+          { ...commandParams(), command: wrap(command) },
+          f.controller.signal,
+          f.context,
+        );
+        await vi.waitFor(() => expect(f.sent).toEqual([]));
+        expect(await next).toEqual({ decision: 'accept' });
+      }
+      const readFence = f.fences.at(-1);
+      const write = f.handler(
+        'item/commandExecution/requestApproval',
+        {
+          ...commandParams(),
+          command: wrap('gh run rerun 42 --repo owner/repo'),
+          availableDecisions: ['accept', 'decline'],
+        },
+        f.controller.signal,
+        f.context,
+      );
+      resolvePending(await request(f), 'deny', undefined, 'session');
+      expect(await write).toEqual({ decision: 'decline' });
+      f.registry.get('client')!.sessionAllowList.clear();
+      expect(readFence).toThrow('Native command consent was revoked');
+    },
+  );
+
+  it('reuses explicit exact-command consent across turns, while checking revocation at delivery', async () => {
+    const f = setup();
+    const params = {
+      ...commandParams(),
+      command: 'node node_modules/vitest/vitest.mjs run focused.test.ts --maxWorkers=1',
+    };
+    const first = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'always', undefined, 'session');
+    expect(await first).toEqual({ decision: 'accept' });
+    expect(f.sent[0]).toMatchObject({
+      title: 'Run command with network access',
+      approvalScope: 'session',
+      sessionGrantDescription: expect.stringContaining('exact command'),
+    });
+    expect(f.registry.get('client')!.sessionAllowList).toEqual(
+      new Set([expect.stringMatching(/^native-command-v1:/)]),
+    );
+    f.sent.length = 0;
+    const nextContext = { ...f.context, requestId: 'rpc-next', turnId: 'next-turn' };
+    expect(
+      await f.handler(
+        'item/commandExecution/requestApproval',
+        { ...params, itemId: 'new-item', turnId: 'next-turn', startedAtMs: Date.now() },
+        f.controller.signal,
+        nextContext,
+      ),
+    ).toEqual({ decision: 'accept' });
+    expect(f.sent).toEqual([]);
+    f.registry.get('client')!.activeSkillPolicy = new Set();
+    expect(f.fences.at(-1)).toThrow('Native approval is no longer current');
+    f.registry.get('client')!.activeSkillPolicy = null;
+    f.registry.get('client')!.sessionAllowList.clear();
+    expect(f.fences.at(-1)).toThrow('Native command consent was revoked');
+    f.revoke();
+    expect(f.fences.at(-1)).toThrow('revoked');
+    expect(
+      await f.handler(
+        'item/commandExecution/requestApproval',
+        params,
+        f.controller.signal,
+        f.context,
+      ),
+    ).toEqual({ decision: 'cancel' });
+  });
+
+  it.each([
+    'command',
+    'network',
+    'thread',
+    'mode',
+    'directory',
+    'runtime',
+    'policy',
+    'cleared',
+  ] as const)('does not reuse native command consent after its %s changes', async (change) => {
+    const f = setup();
+    const params = commandParams();
+    const first = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'always', undefined, 'session');
+    expect(await first).toEqual({ decision: 'accept' });
+    f.sent.length = 0;
+    let handler = f.handler;
+    const context = { ...f.context };
+    if (change === 'command') params.command = 'gh pr merge 123';
+    if (change === 'network') params.additionalPermissions.network.enabled = false;
+    if (change === 'thread') params.threadId = context.threadId = 'another-thread';
+    if (change === 'mode') f.registry.get('client')!.mode = 'ask';
+    if (change === 'directory') params.cwd = f.registry.get('client')!.cwd = '/another-workspace';
+    if (change === 'cleared') f.registry.get('client')!.sessionAllowList.clear();
+    if (change === 'runtime' || change === 'policy')
+      handler = createCodexNativeApprovalHandler({
+        registry: f.registry,
+        clientId: 'client',
+        runtimeId: change === 'runtime' ? 'new-runtime' : 'owned-runtime',
+        environmentId: 'local',
+        policyRevision: change === 'policy' ? 'new-policy' : undefined,
+        deniedRoots: ['/credentials'],
+        writeProtectedRoots: ['/authority'],
+      });
+    const next = handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      context,
+    );
+    resolvePending(await request(f), 'deny', undefined, 'session');
+    expect(await next).toEqual({ decision: 'cancel' });
+  });
+
+  it('settles matching concurrent native commands after session consent, preserving each response fence', async () => {
+    const f = setup();
+    const params = commandParams();
+    const first = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    const second = f.handler(
+      'item/commandExecution/requestApproval',
+      { ...params, itemId: 'second' },
+      f.controller.signal,
+      { ...f.context, requestId: 'second-rpc' },
+    );
+    await vi.waitFor(() => expect(getPendingRequestsBySession('session')).toHaveLength(2));
+    resolvePending(await request(f), 'always', undefined, 'session');
+    expect(await first).toEqual({ decision: 'accept' });
+    expect(await second).toEqual({ decision: 'accept' });
+    expect(f.fences).toHaveLength(2);
+    expect(getPendingRequestsBySession('session')).toEqual([]);
   });
 
   it.each(['deny', 'cancel'] as const)(
@@ -423,7 +928,7 @@ describe('native approval adapter with the existing pending owner', () => {
   it.each(['deny', 'cancel', 'expired', 'stale'] as const)(
     'never grants on %s',
     async (outcome) => {
-      const f = setup('agent', 50);
+      const f = setup('agent', outcome === 'expired' ? 50 : 60_000);
       const result = f.handler(
         'item/permissions/requestApproval',
         f.params,
@@ -439,6 +944,13 @@ describe('native approval adapter with the existing pending owner', () => {
       }
       expect(await result).toEqual({ permissions: {}, scope: 'turn' });
       expect(getPendingRequestsBySession('session')).toEqual([]);
+      if (outcome === 'expired' || outcome === 'deny') {
+        // The lifecycle bridge runs these fences before sending the denial.
+        // Expiry must not turn a no-grant response into a closed transport.
+        for (const fence of f.fences) expect(fence).not.toThrow();
+        f.revoke();
+      }
+      for (const fence of f.fences) expect(fence).toThrow();
     },
   );
 

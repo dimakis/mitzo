@@ -163,6 +163,49 @@ it('qualifies exact published agent, operator, permission and retained reservati
   });
   expect(() => f.owner.assertCurrentSync(f.expected)).not.toThrow();
 });
+it('refuses an expired tool admission before accessing its workspace', async () => {
+  const f = fixture();
+  const admission = new AbortController();
+  admission.abort(Error('Tool admission deadline'));
+  await expect(f.owner.assertToolCurrent(f.expected, admission.signal)).rejects.toThrow(
+    'Tool admission deadline',
+  );
+  expect(f.workspace.getHostReservation).not.toHaveBeenCalled();
+  expect(f.workspace.validateHostTask).not.toHaveBeenCalled();
+});
+it('cancels the original prepared checkout validation with the admission signal', async () => {
+  const f = fixture();
+  const admission = new AbortController();
+  const validate = vi.fn(async (_cwd: string, signal?: AbortSignal) => {
+    expect(signal).toBe(admission.signal);
+    admission.abort(Error('Tool admission deadline'));
+    signal!.throwIfAborted();
+  });
+  const owner = new OrdinaryLocalCodexSelectionOwner({
+    events: f.events,
+    library: f.library,
+    workspace: f.workspace as unknown as RepositoryWorkspaces,
+    reservation: f.reservation,
+    operator: f.operator,
+    signal: f.abort.signal,
+    commandId: 'command',
+    continuation: true,
+    qualifiedColdPrimary: {
+      commandId: 'original-primary',
+      workspace: {
+        kind: 'repository',
+        get: () => ({ ...f.descriptor, state: 'claimed' }) as never,
+        assertCurrentSync: () => {},
+        revalidate: async () => {},
+        validate,
+      },
+    },
+  });
+  await expect(owner.assertToolCurrent(f.expected, admission.signal)).rejects.toThrow(
+    'Tool admission deadline',
+  );
+  expect(validate).toHaveBeenCalledExactlyOnceWith(f.expected.workspace.cwd, admission.signal);
+});
 it('rejects another profile snapshot even with a self-consistent client hash', () => {
   const f = fixture();
   const changed = structuredClone(f.expected);
@@ -324,7 +367,10 @@ it('validates the retained Git claim after asynchronous workspace authorization'
     f.git(f.cwd, 'checkout', '-qb', 'substituted-branch');
     return descriptor;
   });
-  await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
+  await expect(f.owner.assertCurrent(f.expected)).rejects.toMatchObject({
+    name: 'SessionRuntimeError',
+    code: 'workspace_branch_changed',
+  });
 });
 it('preserves legitimate edits and commits in the same retained checkout and Git directory', async () => {
   const f = await claimedFixture();

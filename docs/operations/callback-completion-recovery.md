@@ -29,6 +29,122 @@ existing serial tool execution and checkpoint owner; it does not acquire Codex
 thread/recovery APIs. Runtime failures are sanitized and retained for reconnecting
 viewers with an actionable reason and stable diagnostic reference.
 
+## Interrupted turns after Stop or transport loss
+
+An interrupted native turn is a different outcome from the completed-turn
+callback incident below. Stop and an unexpected native transport exit can both
+retain an original, successfully observed downstream completion phase while the
+native command remains interrupted. A later native status of `interrupted`
+alone cannot settle its effects.
+
+Guarded recovery of already saved queued work reads exact terminal metadata first.
+Completed and failed turns never hydrate retained results. Eligible interrupted
+turns use `thread/items/list` filtered to the original turn, one item per page,
+with at most 128 item reads and a final metadata identity/status check. Authority
+is revalidated at each additional I/O boundary. Missing/foreign/duplicate items,
+invalid or repeated cursors, budget exhaustion and an oversized individual item
+retain the fence. The 4 MiB frame limit is unchanged; full-turn fallback is forbidden.
+It accepts only error-free interrupted observations containing recognized
+settled items. Native commands require a completed zero exit or a terminal failed
+exit code (1–255); completed native patches require their validated change list.
+Native website searches and image views use the pinned read-only item shape;
+explicit nonterminal states remain fenced. Every dynamic host call must also
+match the original command/turn/call/tool/request hash, native success/error bit,
+and its durable result and effect outcome. Receipts are read together under the recovery write
+transaction. Missing, pending, foreign, partially applied file changes, collaboration and
+unsupported native items remain fenced. A terminal error is retained as an error;
+only positively settled effects can release recovery. The original observed downstream phase,
+account, workspace, policy, attempt and generation must still qualify; final
+synchronous authority is checked after acquiring the writer lock.
+
+This reconciles effects and permits only the saved FIFO successor. It keeps the
+original command interrupted and never replays its input, tools or hooks. Native
+lineage replacement must first settle the original effects under the same rules.
+Ordinary Send remains blocked before proof; exposing it on a merely inspectable
+phase could create another uncertain main admission during startup.
+
+A separate `unconfirmed dispatch` banner describes the main admission ledger.
+Bootstrap claims that receipt before login/runtime preparation completes. A
+failure can therefore leave an uncertain main receipt without a native command
+row. Settling an earlier native turn does not clear that receipt, and absence of
+a row alone is not new historical replay authority. Preserve the original input
+and custody for a separately qualified recovery. A merged source change is not
+evidence that either an existing receipt or a running deployment was repaired.
+
+## Settled tool failures across the tool surface
+
+### 4 November: approval cancellation before native execution
+
+A GitHub read remained pending when the provider completed its turn. The original
+native executor returned a cancellation, then the hook adapter replaced it with
+`Tool ran, but its post-tool hook failed or was interrupted` even though no
+post-tool hook had started. This manufactured an unknown outcome and blocked
+later messages. The same executor path affects native file operations, shell
+commands and commits; it is not specific to GitHub.
+
+The native executor now tracks delegation separately for each invocation. A
+failure or cancellation before delegation retains an original settled refusal.
+Entering a file, shell, GitHub or commit executor, or an on-demand workspace
+creation callback, makes a subsequent unqualified failure uncertain. The hook
+adapter preserves a settled error before its cancellation check because errors
+never run post-tool hooks. It does not promote unqualified results, cancelled
+successes or actual hook failures to settled outcomes.
+
+Offline regression coverage follows real native stdio, approval cancellation,
+the hook adapter, durable result storage and release of the queued successor.
+This prevents new incidents; it does not relabel historical unknown receipts or
+prove that an already blocked production conversation has recovered.
+
+### Outcome contracts
+
+Success and effect settlement are separate. Original callback outcome receipts
+are private in memory and are now retained with the durable tool result. Result
+clones and tool-supplied JSON cannot manufacture this receipt. Replaying a saved
+result preserves its outcome; a duplicate cannot upgrade unknown to settled.
+
+| Tool family                                       | Interrupted recovery contract                                                                                                                                                                                 |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reviewed built-in reads                           | A returned read error can settle. Cancellation requires an original owner's positive settlement receipt; the read name alone cannot settle it. Thrown exceptions and explicit unknown outcomes remain fenced. |
+| Mixed tools                                       | Only `RequestWebAccess.fetch`, `ConnectionRequest` GET/HEAD and `TelosManageItem.read` qualify as reads. Other operations retain their original effect contract.                                              |
+| Reviewed API aliases and scoped TaskStatus        | Their actual GET-only/scoped read owners retain settlement; arbitrary configured MCP annotations grant nothing.                                                                                               |
+| Native tools and configured MCP                   | Native schema rejection, refusal and cancellation before executor or lazy-workspace delegation settle. Dispatched native effects and configured MCP require their original outcome evidence.                  |
+| Integration discovery/proxy                       | Local metadata and invalid, stale or unselected requests settle before delegation. An invoked tool retains its own outcome.                                                                                   |
+| Native search/image reads                         | Only recognized pinned read item shapes; no tool or model call is replayed.                                                                                                                                   |
+| Questions and native approvals                    | Original callback settlement is required before completion; a reconstructed response is not effect evidence.                                                                                                  |
+| Hooks, collaboration and unsupported native tools | Hook failures explicitly retain unknown effects, including hooks attached to reads. Collaboration and unrecognized items require a separate ownership contract.                                               |
+
+Historical failed read receipts without an outcome may qualify only with fresh
+exact native evidence, matching durable error results and positive original
+owned-local custody plus its accepted native policy. Those original owned-local
+sources disabled project hooks. Legacy unowned/hook-enabled reads and legacy
+write errors remain fenced. Explicit unknown outcomes are never overridden.
+
+For a cold ordinary Local Codex conversation with a retained observed downstream
+completion and an interrupted provider turn, the existing explicit **Reconnect
+and continue** action can perform inspection-only reconciliation, even with no
+queued successor. It reopens the original account and physical workspace under
+the startup mutex, verifies operator/selection/account/custody at I/O and final
+writer boundaries, and consumes exact native terminal/item evidence. It closes
+the temporary lease without admitting input, starting a provider turn, replaying
+a tool or pumping the queue. Ordinary Send stays blocked until proof succeeds.
+The old command remains interrupted and its failed tool results are preserved.
+Missing or unavailable preparation state hides this action while session metadata
+remains readable; inspecting availability cannot initialize missing workspace state.
+A renewed verified login retains the exact accepted command's policy binding identity
+for historical matching while current operator, revocation and lease checks still govern
+inspection. A turn accepted after an earlier reconnect can have a different identity
+from the chat's creating login; custody identity alone cannot reconstruct that policy.
+
+This cold action excludes adviser, Symposium and Telos/contributor scopes.
+Qualified prepared/adopted repositories reuse the existing canonical ancestry,
+native workspace-revision witness and lease-bound topology reader, including
+an interrupted automatic post-adoption continuation. Missing adoption evidence
+keeps both action eligibility and execution fenced. Ordinary allocations retain
+their original preparation fingerprint. Dispatched
+work never enters the undispatched-input recovery path. Activation remains a
+separate production deployment; these source changes do not repair retained
+production state by themselves.
+
 ## Exact historical repair
 
 This is a prepared operator operation, **not production activation authorization**.

@@ -12,10 +12,10 @@ import {
   readlinkSync,
   unlinkSync,
 } from 'fs';
-import { mkdir, mkdtemp, rm } from 'fs/promises';
-import { join, resolve } from 'path';
+import { mkdir, mkdtemp, rm, stat as statAsync } from 'fs/promises';
+import { join, resolve, dirname } from 'path';
 import { tmpdir } from 'os';
-import { observeLocalCodexPhase } from './local-codex-observation.js';
+import { observeLocalCodexPhase, observeLocalCodexSyncPhase } from './local-codex-observation.js';
 
 const execFileAsync = promisify(execFileCb);
 import {
@@ -114,18 +114,25 @@ export async function fetchWorktreeBase(
   selectedBranch?: string,
 ): Promise<string> {
   signal?.throwIfAborted();
-  const base = worktreeBase(repoPath, selectedBranch);
+  const base = observeLocalCodexSyncPhase('repository_base_resolution', () =>
+    worktreeBase(repoPath, selectedBranch),
+  );
   if (base.remote)
     await observeLocalCodexPhase('repository_fetch', () =>
       execFileAsync('git', base.args, { ...base.options, signal }),
     );
   signal?.throwIfAborted();
-  return base.commit();
+  return observeLocalCodexSyncPhase('repository_commit_resolution', base.commit);
 }
 function fetchWorktreeBaseSync(repoPath: string): string {
-  const base = worktreeBase(repoPath);
-  if (base.remote) execFileSync('git', base.args, base.options);
-  return base.commit();
+  const base = observeLocalCodexSyncPhase('repository_base_resolution', () =>
+    worktreeBase(repoPath),
+  );
+  if (base.remote)
+    observeLocalCodexSyncPhase('repository_fetch', () =>
+      execFileSync('git', base.args, base.options),
+    );
+  return observeLocalCodexSyncPhase('repository_commit_resolution', base.commit);
 }
 
 /** Worktrees live inside each repo at .claude/worktrees/<sessionId>. */
@@ -643,6 +650,19 @@ export function hasUncommittedWork(
  */
 export async function hasUncommittedWorkAsync(worktreePath: string): Promise<string | null> {
   try {
+    if (!(await statAsync(worktreePath)).isDirectory()) return '[not a local Git directory]';
+    let directory = resolve(worktreePath);
+    for (;;) {
+      try {
+        const git = await statAsync(join(directory, '.git'));
+        if (git.isFile() || git.isDirectory()) break;
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+      }
+      const parent = dirname(directory);
+      if (parent === directory) return '[not a local Git repository]';
+      directory = parent;
+    }
     const { stdout } = await execFileAsync(
       'git',
       [
@@ -664,8 +684,10 @@ export async function hasUncommittedWorkAsync(worktreePath: string): Promise<str
     const output = stdout.trim();
     return output || null;
   } catch (err: unknown) {
+    if (err instanceof Error && 'code' in err && err.code === 'ENOENT')
+      return '[local Git directory unavailable]';
     const message = err instanceof Error ? err.message : 'unknown';
-    log.warn('git status failed on worktree (async), treating as dirty', {
+    log.warn('Local Git status unavailable', {
       path: worktreePath,
       error: message,
     });

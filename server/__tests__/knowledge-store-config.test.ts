@@ -10,9 +10,22 @@ import {
   chmodSync,
   symlinkSync,
   existsSync,
+  unlinkSync,
+  renameSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  registerWorkspaceRuntimeAuthorityNamespace,
+  registerWorkspaceRuntimeAuthorityPaths,
+  workspaceRuntimeNativeAuthorityPaths,
+  isWorkspaceRuntimeAuthorityWritePath,
+} from '../workspace-runtime-private-paths.js';
+import {
+  codexNativeExecutionPolicy,
+  assertNativeExecutionCurrent,
+} from '../codex-native-execution-policy.js';
+import { cachedKnowledgeConversion } from '../knowledge-adapter-cache.js';
 import { knowledgeStoreFromEnvironment, mgmtKnowledgeAdapter } from '../knowledge-store-config.js';
 const roots: string[] = [];
 afterEach(() => {
@@ -78,6 +91,54 @@ it('is opt-in and loads a different store and accepted ref from the publisher co
     TEST_PUBLICATION_TOKEN: 'secret',
   });
   expect(store?.id).toBe('other-store');
+  // The configured state namespace is protected before discovering any seed.
+  const state = join(f.root, 'adapter');
+  const policy = () =>
+    codexNativeExecutionPolicy({
+      bindingRevision: 'fixture',
+      mode: 'agent',
+      cwd: join(f.root, 'task'),
+      writableRoots: [join(f.root, 'task')],
+      readableRoots: ['/'],
+      deniedRoots: [join(f.root, 'credentials')],
+      writeProtectedRoots: workspaceRuntimeNativeAuthorityPaths(),
+    });
+  const initial = policy();
+  expect(initial.writeProtectedRoots).toContain(state);
+  const current = join(state, 'current');
+  for (const revision of ['first', 'second']) {
+    const publication = join(state, 'publications', revision);
+    mkdirSync(join(publication, 'mgmt'), { recursive: true });
+    if (existsSync(current)) unlinkSync(current);
+    symlinkSync(publication, current);
+    registerWorkspaceRuntimeAuthorityPaths([join(current, 'mgmt')]);
+    const next = policy();
+    expect(next).toEqual(initial);
+    expect(() => assertNativeExecutionCurrent(initial, next)).not.toThrow();
+    expect(isWorkspaceRuntimeAuthorityWritePath(join(publication, 'future.txt'))).toBe(true);
+  }
+  const escaped = join(f.root, 'outside');
+  mkdirSync(join(escaped, 'mgmt'), { recursive: true });
+  unlinkSync(current);
+  symlinkSync(escaped, current);
+  expect(policy).toThrow(/namespace/);
+  unlinkSync(current);
+  symlinkSync(join(state, 'publications', 'first'), join(escaped, 'bridge'));
+  symlinkSync(join(escaped, 'bridge'), current);
+  expect(policy).toThrow(/namespace/);
+  unlinkSync(current);
+  symlinkSync(join(escaped, 'not-created'), current);
+  expect(policy).toThrow(/namespace/);
+  unlinkSync(current);
+  const moved = join(f.root, 'moved-state');
+  renameSync(state, moved);
+  symlinkSync(moved, state);
+  expect(policy).toThrow(/namespace/);
+  unlinkSync(state);
+  renameSync(moved, state);
+  expect(policy).not.toThrow();
+  for (const scratch of [realpathSync(tmpdir()), realpathSync('/tmp'), '/'])
+    expect(() => registerWorkspaceRuntimeAuthorityNamespace(scratch)).toThrow(/namespace/);
 });
 it.each(['secret', 'source', 'default', 'adapter'])(
   'rejects incomplete %s configuration before enrollment',
@@ -99,6 +160,46 @@ it.each(['secret', 'source', 'default', 'adapter'])(
     ).toThrow();
   },
 );
+
+it('requires host enrollment agreement and never reuses a bundle from another policy mode', () => {
+  const f = fixture();
+  const identity = {
+    revision: 'c'.repeat(40),
+    builderCommit: 'a'.repeat(40),
+    sourceUrl: 'https://example.com/other.git',
+    portablePolicy: true,
+  };
+  const state = {
+    status: 'current',
+    publishedCommit: identity.revision,
+    builderCommit: identity.builderCommit,
+    publishedSourceUrl: identity.sourceUrl,
+  };
+  writeFileSync(join(f.root, 'adapter/state.json'), JSON.stringify(state));
+  expect(
+    cachedKnowledgeConversion(join(f.root, 'adapter'), identity, new AbortController().signal),
+  ).toBeUndefined();
+  const adapter = JSON.parse(readFileSync(f.adapterConfig, 'utf8'));
+  for (const value of [true, '1']) {
+    writeFileSync(f.adapterConfig, JSON.stringify({ ...adapter, portablePolicy: value }));
+    expect(() => mgmtKnowledgeAdapter(f.config.stores[0].adapter, identity.sourceUrl)).toThrow();
+  }
+  writeFileSync(f.adapterConfig, JSON.stringify({ ...adapter, portablePolicy: true }));
+  expect(() =>
+    mgmtKnowledgeAdapter(f.config.stores[0].adapter, identity.sourceUrl, true),
+  ).not.toThrow();
+  writeFileSync(
+    join(f.root, 'adapter/state.json'),
+    JSON.stringify({ ...state, portablePolicy: true }),
+  );
+  expect(
+    cachedKnowledgeConversion(
+      join(f.root, 'adapter'),
+      { ...identity, portablePolicy: false },
+      new AbortController().signal,
+    ),
+  ).toBeUndefined();
+});
 
 it('revalidates private adapter state before each execution', async () => {
   const f = fixture();

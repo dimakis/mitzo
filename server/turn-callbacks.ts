@@ -1,9 +1,11 @@
 import { SessionRuntimeError } from './session-runtime-error.js';
+import { assertToolGuardCurrent } from '@mitzo/harness';
 import { AsyncLocalStorage } from 'node:async_hooks';
 export type TurnCallbackRunner = <T>(operation: () => Promise<T>) => Promise<T>;
 const effectOwners = new AsyncLocalStorage<() => void>();
 /** A fresh effect check in an original callback cannot borrow a later turn. */
 export function assertTurnCallbackEffects(): void {
+  assertToolGuardCurrent();
   effectOwners.getStore()?.();
 }
 const outcomes = new WeakMap<object, 'settled' | 'unknown'>();
@@ -35,9 +37,21 @@ export function copyCallbackOutcome<T extends object>(source: object, target: T)
   return retained ? retainCallbackOutcome(target, retained) : target;
 }
 
+/** A reviewed read-only adapter may settle a returned failure. Cancellation and
+ * any explicit original-owner uncertainty are retained; exceptions are untouched. */
+export async function retainReadOnlyCallbackOutcome<T extends object | undefined>(
+  signal: AbortSignal,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const result = await operation();
+  if (result && !signal.aborted && !outcomes.has(result)) retainCallbackOutcome(result, 'settled');
+  return result;
+}
+
 /** Original in-memory callbacks only. A reconstructed owner cannot manufacture
  * settlement, replay a tool, or treat a missing durable result as success. */
 export class TurnCallbacks {
+  constructor(private readonly options: { retainUnknownOutcomes?: boolean } = {}) {}
   private pending = new Set<Promise<unknown>>();
   private sealed = false;
   private failure?: { cause: unknown };
@@ -62,7 +76,10 @@ export class TurnCallbacks {
     const observation = work.then(
       (result) => {
         this.pending.delete(observation);
-        if (this.sealed && callbackOutcome(result) === 'unknown')
+        if (
+          (this.sealed || this.options.retainUnknownOutcomes) &&
+          callbackOutcome(result) === 'unknown'
+        )
           this.failure ??= { cause: new SessionRuntimeError('callbacks_failed') };
       },
       (cause: unknown) => {

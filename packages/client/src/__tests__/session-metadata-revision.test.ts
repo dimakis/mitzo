@@ -64,3 +64,41 @@ it.each(['_open', '_foreground', 'session_reconnect_snapshot'])(
     expect(store.getState().isSessionMetadataCurrent('selected-chat', previous)).toBe(false);
   },
 );
+it.each([
+  { type: 'session_end' },
+  { type: 'ordinary_command_completed', messageId: 'command', status: 'completed' },
+  ...['completed', 'ended', 'interrupted', 'failed', 'cancelled'].map((commandState) => ({
+    type: 'ordinary_command_state',
+    messageId: 'command',
+    commandState,
+  })),
+])('refreshes continuation eligibility after selected command completion: %j', async (event) => {
+  const store = await fixture();
+  const previous = store.getState().sessionMetadataRevision;
+  channel.listener({ ...event, sessionId: 'other-chat' });
+  expect(store.getState().sessionMetadataRevision).toBe(previous);
+  channel.listener({ ...event, sessionId: 'selected-chat' });
+  expect(store.getState().sessionMetadataRevision).toBe(previous + 1);
+  expect(store.getState().isSessionMetadataCurrent('selected-chat', previous)).toBe(false);
+});
+it('does not refetch continuation metadata for streaming progress or queued commands', async () => {
+  const store = await fixture();
+  const previous = store.getState().sessionMetadataRevision;
+  for (const commandState of ['sending', 'queued', 'running'])
+    channel.listener({
+      type: 'ordinary_command_state',
+      sessionId: 'selected-chat',
+      messageId: 'command',
+      commandState,
+    });
+  expect(store.getState().sessionMetadataRevision).toBe(previous);
+});
+it('invalidates only the selected conversation after an explicit recovery action', async () => {
+  const store = await fixture();
+  const before = store.getState().sessionMetadataRevision;
+  store.getState().invalidateSessionMetadata('other-chat');
+  expect(store.getState().sessionMetadataRevision).toBe(before);
+  store.getState().invalidateSessionMetadata('selected-chat');
+  expect(store.getState().isSessionMetadataCurrent('selected-chat', before)).toBe(false);
+  expect(store.getState().sessionMetadataRevision).toBe(before + 1);
+});

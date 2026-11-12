@@ -5,6 +5,8 @@ import { apiFetch } from '../lib/api-fetch';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { ChatStatusMessage } from './ChatStatusMessage';
 import { UiIcon } from './UiIcon';
+import { ComposerStatusNotice } from './ComposerStatus';
+import { useComposerStatusSink, useComposerStatusActive } from '../lib/composer-status-context';
 import './CodexQueueStatus.css';
 
 const CapacityRecovery = z.object({
@@ -93,7 +95,10 @@ export function CodexQueueStatus({
   deliveryError?: string | null;
   deliveryBusy?: boolean;
 }) {
+  const statusSink = useComposerStatusSink();
+  const combinedStatus = useComposerStatusActive();
   const getTransportConnectionId = useMitzoStore((state) => state.getTransportConnectionId);
+  const invalidateSessionMetadata = useMitzoStore((state) => state.invalidateSessionMetadata);
   const queueRevision = useMitzoStore((state) => state.queueRevision);
   const previousQueueRevision = useRef(queueRevision);
   const [queue, setQueue] = useState<QueueState | null>(null);
@@ -276,6 +281,7 @@ export function CodexQueueStatus({
       !queue ||
       queue.capacityRecovery ||
       queue.canContinue === true ||
+      queue.operation?.effectStatus === 'unknown' ||
       queue.failed === 0 ||
       queue.retryable === false ||
       queue.connected ||
@@ -353,6 +359,7 @@ export function CodexQueueStatus({
               : undefined;
   const actionable =
     !!operationStatus ||
+    queue.canContinue === true ||
     !!queue.recovering ||
     queue.queued > 0 ||
     queue.failed > 0 ||
@@ -384,30 +391,31 @@ export function CodexQueueStatus({
               ? `Automatic retries finished (${capacity.attempts} of ${capacity.maxAttempts}). Try again starts a new retry cycle.`
               : 'Automatic attempts stopped. Saved work is preserved.'
     : undefined;
-  const status =
-    capacityStatus ??
-    (queue.recovering
-      ? queue.recoveryPhase === 'starting_workspace'
-        ? 'Starting workspace…'
-        : 'Reconnecting…'
-      : (operationStatus ??
-        (queue.canContinue === true
-          ? 'Reconnection needed. Your message is saved.'
-          : queue.failed > 0
-            ? queue.retryable === false
-              ? 'This failed turn needs attention and cannot be retried.'
-              : !queue.connected || reattaching
-                ? 'Restarting provider… The failed turn remains saved.'
-                : retryWaitSeconds > 0
-                  ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
-                  : queue.requiresRetryConfirmation
-                    ? 'Retrying may repeat tool actions that already ran.'
-                    : 'Previous turn failed. Retry when available.'
-            : queue.paused
-              ? 'Reconnection needed. Your message is saved.'
-              : queue.queued > 0
-                ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} queued`
-                : notice || error || deliveryError || '')));
+  const status = continuing
+    ? 'Continuing chat…'
+    : (capacityStatus ??
+      (queue.recovering
+        ? queue.recoveryPhase === 'starting_workspace'
+          ? 'Starting workspace…'
+          : 'Reconnecting…'
+        : (operationStatus ??
+          (queue.canContinue === true
+            ? 'Chat interrupted. Your work is saved.'
+            : queue.failed > 0
+              ? queue.retryable === false
+                ? 'This failed turn needs attention and cannot be retried.'
+                : !queue.connected || reattaching
+                  ? 'Restarting provider… The failed turn remains saved.'
+                  : retryWaitSeconds > 0
+                    ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
+                    : queue.requiresRetryConfirmation
+                      ? 'Retrying may repeat tool actions that already ran.'
+                      : 'Previous turn failed. Retry when available.'
+              : queue.paused
+                ? 'Chat interrupted. Your work is saved.'
+                : queue.queued > 0
+                  ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} queued`
+                  : notice || error || deliveryError || ''))));
 
   const attention = !!(
     error ||
@@ -418,6 +426,10 @@ export function CodexQueueStatus({
     (capacity && ['stopped', 'exhausted'].includes(capacity.status))
   );
   const hide = () => {
+    if (combinedStatus && statusSink) {
+      statusSink.close();
+      return;
+    }
     if (sessionId) {
       setHidden(sessionId, true);
       setCollapsed(true);
@@ -453,10 +465,11 @@ export function CodexQueueStatus({
         throw new Error(
           typeof body.error === 'string'
             ? body.error
-            : 'Could not reconnect. Your saved message is still queued.',
+            : 'Could not continue this chat. Your work is saved. Try again.',
         );
       }
       if (epoch === sessionEpoch.current) {
+        invalidateSessionMetadata(sessionId);
         await refresh.current();
       }
     } catch (error) {
@@ -464,7 +477,7 @@ export function CodexQueueStatus({
         setNotice(
           error instanceof Error
             ? error.message
-            : 'Could not reconnect. Your saved message is still queued.',
+            : 'Could not continue this chat. Your work is saved. Try again.',
         );
     } finally {
       if (epoch === sessionEpoch.current) setContinuing(false);
@@ -582,7 +595,19 @@ export function CodexQueueStatus({
     }
   };
 
-  if (collapsed) {
+  const continueAction =
+    !capacity &&
+    !needsPhaseInspection &&
+    (queue.canContinue === true || (queue.paused && queue.connected && queue.queued > 0)) &&
+    !queue.recovering
+      ? {
+          label: continuing ? 'Continuing…' : 'Continue chat',
+          disabled: continuing,
+          onClick: () => void continueQueue(),
+        }
+      : undefined;
+
+  if (collapsed && !combinedStatus) {
     return (
       <>
         {deliveryError && delivery}
@@ -603,177 +628,201 @@ export function CodexQueueStatus({
   }
 
   return (
-    <div className="codex-status-anchor codex-status-anchor--expanded">
-      <aside
-        className={`codex-queue-status${attention ? ' codex-queue-status--attention' : ''}`}
-        id={drawerId}
-        role="status"
-        aria-live="polite"
-        onPointerDown={(event) => {
-          swipeStart.current = {
-            x: event.clientX,
-            y: event.clientY,
-            cancel: !!(event.target as HTMLElement).closest('.codex-queue-status-command button'),
-          };
-        }}
-        onPointerCancel={() => {
-          swipeStart.current = null;
-        }}
-        onPointerUp={(event) => {
-          const start = swipeStart.current;
-          swipeStart.current = null;
-          if (!start) return;
-          const horizontalDistance = Math.abs(event.clientX - start.x);
-          const verticalDistance = Math.abs(event.clientY - start.y);
-          if (start.cancel && horizontalDistance >= 56 && horizontalDistance > verticalDistance) {
-            consumeCancelClick.current = true;
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-          }
-          if (horizontalDistance >= 56 && horizontalDistance > verticalDistance) hide();
-        }}
-      >
-        <div
-          className={`codex-queue-status-line${capacity ? ' codex-queue-status-line--capacity' : ''}`}
+    <ComposerStatusNotice
+      message={
+        deliveryError ||
+        error ||
+        notice ||
+        (queue.recovering && !capacity && !operationStatus ? 'Restoring saved work…' : status)
+      }
+      tone={
+        deliveryError || error
+          ? 'danger'
+          : attention ||
+              operationStatus ||
+              queue.canContinue ||
+              (queue.paused && queue.queued > 0 && !queue.recovering)
+            ? 'warning'
+            : 'normal'
+      }
+      busy={
+        continuing ||
+        !!queue.recovering ||
+        capacity?.status === 'running' ||
+        capacity?.status === 'waiting'
+      }
+      queued={queue.queued}
+      action={operationStatus ? undefined : continueAction}
+    >
+      <div className="codex-status-anchor codex-status-anchor--expanded">
+        <aside
+          className={`codex-queue-status${attention ? ' codex-queue-status--attention' : ''}`}
+          id={drawerId}
+          role="status"
+          aria-live="polite"
+          onPointerDown={(event) => {
+            swipeStart.current = {
+              x: event.clientX,
+              y: event.clientY,
+              cancel: !!(event.target as HTMLElement).closest('.codex-queue-status-command button'),
+            };
+          }}
+          onPointerCancel={() => {
+            swipeStart.current = null;
+          }}
+          onPointerUp={(event) => {
+            const start = swipeStart.current;
+            swipeStart.current = null;
+            if (!start) return;
+            const horizontalDistance = Math.abs(event.clientX - start.x);
+            const verticalDistance = Math.abs(event.clientY - start.y);
+            if (start.cancel && horizontalDistance >= 56 && horizontalDistance > verticalDistance) {
+              consumeCancelClick.current = true;
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+            if (horizontalDistance >= 56 && horizontalDistance > verticalDistance) hide();
+          }}
         >
-          {attention ? (
-            <span className="codex-queue-status-attention" role="img" aria-label="Attention">
-              <UiIcon name="warning" size={16} />
-            </span>
-          ) : (
-            <UiIcon name={queue.recovering ? 'loading' : 'queue'} size={16} />
-          )}
-          <strong>{status}</strong>
-          {capacity && (
-            <>
-              <span className="codex-queue-capacity-context">
-                Continues from saved progress; earlier tool results are kept.
+          <div
+            className={`codex-queue-status-line${capacity ? ' codex-queue-status-line--capacity' : ''}`}
+          >
+            {attention ? (
+              <span className="codex-queue-status-attention" role="img" aria-label="Attention">
+                <UiIcon name="warning" size={16} />
               </span>
-              <button
-                type="button"
-                className="codex-queue-status-continue"
-                disabled={
-                  !!capacityAction ||
-                  !!capacity.requiresInspection ||
-                  capacity.status === 'queued' ||
-                  capacity.status === 'running'
-                }
-                onClick={() => void actOnCapacity('retry')}
-              >
-                {capacityAction === 'retry' ? 'Requesting…' : 'Try again'}
-              </button>
-              {['waiting', 'queued', 'running'].includes(capacity.status) && (
+            ) : (
+              <UiIcon name={queue.recovering ? 'loading' : 'queue'} size={16} />
+            )}
+            <strong>{status}</strong>
+            {capacity && (
+              <>
+                <span className="codex-queue-capacity-context">
+                  Continues from saved progress; earlier tool results are kept.
+                </span>
                 <button
                   type="button"
                   className="codex-queue-status-continue"
-                  disabled={!!capacityAction}
-                  onClick={() => void actOnCapacity('stop')}
+                  disabled={
+                    !!capacityAction ||
+                    !!capacity.requiresInspection ||
+                    capacity.status === 'queued' ||
+                    capacity.status === 'running'
+                  }
+                  onClick={() => void actOnCapacity('retry')}
                 >
-                  {capacityAction === 'stop' ? 'Stopping…' : 'Stop'}
+                  {capacityAction === 'retry' ? 'Requesting…' : 'Try again'}
                 </button>
-              )}
-            </>
-          )}
-          {!capacity &&
-            !needsPhaseInspection &&
-            (queue.canContinue === true || (queue.paused && queue.connected && queue.queued > 0)) &&
-            !queue.recovering && (
-              <button
-                type="button"
-                className="codex-queue-status-continue"
-                disabled={continuing}
-                onClick={() => void continueQueue()}
-              >
-                {continuing ? 'Reconnecting…' : 'Reconnect and continue'}
-              </button>
-            )}
-          {!capacity &&
-            !needsPhaseInspection &&
-            queue.canContinue !== true &&
-            queue.failed > 0 &&
-            queue.retryable !== false &&
-            queue.connected &&
-            !queue.recovering && (
-              <button
-                type="button"
-                className="codex-queue-status-continue"
-                disabled={retrying || retryWaitSeconds > 0}
-                onClick={() => void retryFailed()}
-              >
-                {retrying
-                  ? 'Retrying…'
-                  : retryWaitSeconds > 0
-                    ? `Retry in ${retryWaitSeconds}s`
-                    : queue.requiresRetryConfirmation
-                      ? 'Retry despite possible repeats'
-                      : 'Retry saved turn'}
-              </button>
-            )}
-          {queue.queued > 0 && (
-            <button
-              type="button"
-              className="codex-queue-status-drawer-toggle"
-              aria-expanded={drawerOpen}
-              onClick={() => setDrawerOpen((open) => !open)}
-            >
-              {drawerOpen ? 'Close queue' : 'Review queue'}
-            </button>
-          )}
-          <button
-            type="button"
-            className="codex-queue-status-hide"
-            ref={hideButton}
-            onClick={hide}
-            aria-label="Hide status"
-          >
-            <UiIcon name="close" size={16} />
-          </button>
-        </div>
-        {drawerOpen && queue.queued > 0 && (
-          <div className="codex-queue-status-drawer" aria-label="Queued messages">
-            {hasMore && commands.length === 100 && <p>Showing first 100 waiting messages.</p>}
-            {commands.length > 0 ? (
-              commands.map((command) => (
-                <div className="codex-queue-status-command" key={command.id}>
-                  <span>{command.preview}</span>
+                {['waiting', 'queued', 'running'].includes(capacity.status) && (
                   <button
                     type="button"
-                    disabled={cancelling === command.id}
-                    onPointerDown={() => {
-                      // A new pointer action is a deliberate new cancellation
-                      // attempt if the browser suppressed the swipe's click.
-                      consumeCancelClick.current = false;
-                    }}
-                    onClick={(event) => {
-                      // Keyboard activation has detail 0 and must never be
-                      // swallowed by a stale pointer gesture.
-                      if (consumeCancelClick.current && event.detail !== 0) {
-                        consumeCancelClick.current = false;
-                        return;
-                      }
-                      consumeCancelClick.current = false;
-                      void cancel(command.id);
-                    }}
+                    className="codex-queue-status-continue"
+                    disabled={!!capacityAction}
+                    onClick={() => void actOnCapacity('stop')}
                   >
-                    {cancelling === command.id ? 'Cancelling…' : 'Cancel'}
+                    {capacityAction === 'stop' ? 'Stopping…' : 'Stop'}
                   </button>
-                </div>
-              ))
-            ) : (
-              <p>Checking queued messages…</p>
+                )}
+              </>
             )}
+            {continueAction && (
+              <button
+                type="button"
+                className="codex-queue-status-continue"
+                disabled={continueAction.disabled}
+                onClick={continueAction.onClick}
+              >
+                {continueAction.label}
+              </button>
+            )}
+            {!capacity &&
+              !needsPhaseInspection &&
+              queue.canContinue !== true &&
+              queue.failed > 0 &&
+              queue.retryable !== false &&
+              queue.connected &&
+              !queue.recovering && (
+                <button
+                  type="button"
+                  className="codex-queue-status-continue"
+                  disabled={retrying || retryWaitSeconds > 0}
+                  onClick={() => void retryFailed()}
+                >
+                  {retrying
+                    ? 'Retrying…'
+                    : retryWaitSeconds > 0
+                      ? `Retry in ${retryWaitSeconds}s`
+                      : queue.requiresRetryConfirmation
+                        ? 'Retry despite possible repeats'
+                        : 'Retry saved turn'}
+                </button>
+              )}
+            {queue.queued > 0 && (
+              <button
+                type="button"
+                className="codex-queue-status-drawer-toggle"
+                aria-expanded={drawerOpen}
+                onClick={() => setDrawerOpen((open) => !open)}
+              >
+                {drawerOpen ? 'Close queue' : 'Review queue'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="codex-queue-status-hide"
+              ref={hideButton}
+              onClick={hide}
+              aria-label="Hide status"
+            >
+              <UiIcon name="close" size={16} />
+            </button>
           </div>
-        )}
-        {(deliveryError || error || notice) && status !== (deliveryError || error || notice) && (
-          <p role="alert">{deliveryError || error || notice}</p>
-        )}
-        {error && (
-          <button type="button" onClick={() => void refresh.current()}>
-            Retry
-          </button>
-        )}
-      </aside>
-    </div>
+          {drawerOpen && queue.queued > 0 && (
+            <div className="codex-queue-status-drawer" aria-label="Queued messages">
+              {hasMore && commands.length === 100 && <p>Showing first 100 waiting messages.</p>}
+              {commands.length > 0 ? (
+                commands.map((command) => (
+                  <div className="codex-queue-status-command" key={command.id}>
+                    <span>{command.preview}</span>
+                    <button
+                      type="button"
+                      disabled={cancelling === command.id}
+                      onPointerDown={() => {
+                        // A new pointer action is a deliberate new cancellation
+                        // attempt if the browser suppressed the swipe's click.
+                        consumeCancelClick.current = false;
+                      }}
+                      onClick={(event) => {
+                        // Keyboard activation has detail 0 and must never be
+                        // swallowed by a stale pointer gesture.
+                        if (consumeCancelClick.current && event.detail !== 0) {
+                          consumeCancelClick.current = false;
+                          return;
+                        }
+                        consumeCancelClick.current = false;
+                        void cancel(command.id);
+                      }}
+                    >
+                      {cancelling === command.id ? 'Cancelling…' : 'Cancel'}
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p>Checking queued messages…</p>
+              )}
+            </div>
+          )}
+          {(deliveryError || error || notice) && status !== (deliveryError || error || notice) && (
+            <p role="alert">{deliveryError || error || notice}</p>
+          )}
+          {error && (
+            <button type="button" onClick={() => void refresh.current()}>
+              Retry
+            </button>
+          )}
+        </aside>
+      </div>
+    </ComposerStatusNotice>
   );
 }

@@ -4,6 +4,8 @@ import { ProviderFailureError, providerFailureTelemetry } from './provider-failu
 import { CodexStartupError } from './codex-startup-error.js';
 import { RuntimePolicyAttestationError } from './openshell-runtime-policy.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
+import { NativeExecutionPolicyChangedError } from './codex-native-execution-policy.js';
+import { CodexToolValidationError } from './codex-tool-validation-error.js';
 
 const requestMethods = new Set([
   'initialize',
@@ -21,6 +23,8 @@ const requestMethods = new Set([
 
 /** Only fixed diagnostics from typed errors; never relay upstream exception text. */
 export function codexRuntimeDiagnostic(error: Error): string | undefined {
+  const retained = findSessionRuntimeError(error);
+  if (retained) return retained.message;
   if (error.message === 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in')
     return 'The selected ChatGPT connection needs a fresh sign-in. Reconnect that account before retrying.';
   if (error instanceof RuntimePolicyAttestationError)
@@ -30,6 +34,12 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
   if (error.message === 'Codex conversation binding unavailable or changed')
     return 'This chat has no matching native conversation binding. Its saved messages are preserved. Inspect startup recovery before continuing.';
   if (error instanceof CodexTransportError) {
+    if (error.diagnostic?.reason === 'host_tool_admission_timeout')
+      return 'Mitzo workspace validation timed out before this tool was admitted. Saved work is preserved; inspect conversation recovery before continuing.';
+    if (error.diagnostic?.reason === 'host_response_fence_failed')
+      return 'Mitzo could not verify that a tool reply still belongs to the active session. Saved work is preserved; inspect conversation recovery before continuing.';
+    if (error.diagnostic?.reason === 'reply_provenance_failed')
+      return 'Mitzo could not verify the reply’s execution identity. Saved work is preserved; reconcile this conversation before continuing.';
     if (error.diagnostic?.reason === 'frame_too_large')
       return 'A Codex response exceeded Mitzo’s bounded transport limit. Saved work is preserved; inspect runtime diagnostics before retrying.';
     if (error.diagnostic?.reason === 'notification_handler_failed')
@@ -65,15 +75,30 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
 
 /** Shared by startup and running turns, with bounded fields safe for logs. */
 export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown> {
+  return projectRuntimeErrorTelemetry(error, new Set());
+}
+function projectRuntimeErrorTelemetry(error: Error, seen: Set<Error>): Record<string, unknown> {
+  if (seen.size >= 16 || seen.has(error)) return {};
+  seen.add(error);
   const retained = findSessionRuntimeError(error);
-  if (retained) return retained.telemetry();
+  if (retained)
+    return {
+      ...(retained.cause instanceof Error
+        ? projectRuntimeErrorTelemetry(retained.cause, seen)
+        : {}),
+      ...retained.telemetry(),
+      ...(retained instanceof CodexToolValidationError ? retained.validationTelemetry() : {}),
+      ...(retained instanceof NativeExecutionPolicyChangedError
+        ? { nativePolicyChangedFields: retained.changedFields }
+        : {}),
+    };
   if (error.message === 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in')
     return { subscriptionSignInRequired: true };
   if (error instanceof RuntimePolicyAttestationError)
     return { runtimePolicyAttestationFailed: true };
   if (error instanceof CodexStartupError)
     return {
-      ...(error.cause instanceof Error ? codexRuntimeErrorTelemetry(error.cause) : {}),
+      ...(error.cause instanceof Error ? projectRuntimeErrorTelemetry(error.cause, seen) : {}),
       ...error.telemetry(),
     };
   if (error.message === 'Codex conversation binding unavailable or changed')
@@ -102,7 +127,8 @@ export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown
         : {}),
     };
   }
-  if (!(error instanceof CodexRequestError)) return {};
+  if (!(error instanceof CodexRequestError))
+    return error.cause instanceof Error ? projectRuntimeErrorTelemetry(error.cause, seen) : {};
   return {
     ...(requestMethods.has(error.method) ? { requestMethod: error.method } : {}),
     requestErrorCategory: nativeFailureCategories.includes(error.category)

@@ -11,6 +11,10 @@ import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native
 import type { ProtectedSdkProcess } from './credential-sdk-boundary.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
 import { SdkQueryUsage } from './sdk-query-usage.js';
+import { sdkQueryRetiredEvent } from './sdk-query-retirement.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('sdk-turn-query');
 
 /** SDK callbacks carry no trustworthy native turn identity. Each native query
  * therefore owns immutable closures; successors resume the original history
@@ -58,8 +62,13 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
     if (message) {
       try {
         owners.onUnsent?.(message, error);
-      } catch {
-        /* Reporting cannot dispatch an input. */
+      } catch (reportingError) {
+        log.error('Unable to report undispatched SDK input', {
+          code: 'sdk_input_failure_feedback_failed',
+          stage: 'input_failure_feedback',
+          sessionId: owners.sdkSessionId,
+          err: reportingError,
+        });
       }
     }
     return error;
@@ -168,6 +177,7 @@ export function createSdkTurnQuery<T extends AsyncIterable<Record<string, unknow
         if (terminalFailed) return;
         idle = true;
         current.retire();
+        yield sdkQueryRetiredEvent();
         await current.wait();
         const input = await nextInput();
         if (closed || input.done) break;

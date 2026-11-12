@@ -1,4 +1,6 @@
+import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import { admitApiTools } from './api-tool-execution.js';
+import { copyCallbackOutcome } from './turn-callbacks.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
 import { getToolBuilderStore } from './tool-builder-runtime.js';
 import { admitCustomTools } from './custom-tool-admission.js';
@@ -22,7 +24,7 @@ import {
 } from './agent-tool-selection.js';
 import {
   sessionCredentialTools,
-  CONNECTION_TOOL_INSTRUCTIONS,
+  SESSION_TOOL_INSTRUCTIONS,
   API_CONNECTION_INSTRUCTIONS,
 } from './session-credential-tools.js';
 import {
@@ -146,6 +148,7 @@ interface Options {
   /** Server-owned initial/retained command fence before the first active turn exists. */
   assertStartupCurrent?: () => void;
   publishingGitStorageRoots?: readonly string[];
+  repositoryWorkspace?: import('./repository-chat-startup.js').RepositoryChatWorkspace;
   resume?: boolean;
   conversationId: string;
   binding: AccountBinding;
@@ -392,19 +395,21 @@ export async function openResponsesChat(options: Options) {
       ]);
   } catch (error) {
     dispose();
-    await mcp.close();
-    throw error;
+    await closeMcpAfterFailure(mcp, error);
   }
   initializing = false;
   const githubPublishing = createGithubPublishingTool(
     options.conversationId,
     options.registry,
-    () => hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
+    () =>
+      hostGithubPublishingSource(
+        options.session,
+        options.publishingGitStorageRoots,
+        options.repositoryWorkspace,
+      ),
     options.session,
     assertRuntimeCurrent,
-    {
-      explicitSelection: () => runner.currentInferenceSelection(),
-    },
+    true,
   );
   let interrupted = false;
   let activeTurnFinalized: Promise<void> | undefined;
@@ -444,7 +449,7 @@ The selected account supplies model inference; Local host describes where the to
 `;
   const systemPrompt =
     options.systemPrompt +
-    CONNECTION_TOOL_INSTRUCTIONS +
+    SESSION_TOOL_INSTRUCTIONS +
     API_CONNECTION_INSTRUCTIONS +
     SESSION_PERMISSION_INSTRUCTIONS +
     HOST_TOOL_INSTRUCTIONS +
@@ -469,8 +474,7 @@ The selected account supplies model inference; Local host describes where the to
     } catch (error) {
       githubPublishing.close();
       dispose();
-      await mcp.close();
-      throw error;
+      await closeMcpAfterFailure(mcp, error);
     }
   }
   const admittedNames = new Set(definitions.map((tool) => tool.name));
@@ -528,11 +532,12 @@ The selected account supplies model inference; Local host describes where the to
           });
           if (keychainResult) return keychainResult;
           if (block.name === REQUEST_GITHUB_PUBLISH) {
-            const call = { turnId: publishingTurnId, callId: block.id };
-            Object.defineProperty(call, 'captureInferenceSelection', {
-              value: () => runner.captureInferenceSelection(),
+            const authority = runner.captureActiveCallAuthority();
+            return githubPublishing(input, signal, {
+              turnId: publishingTurnId,
+              callId: block.id,
+              assertCurrentSync: authority.assertCurrentSync,
             });
-            return githubPublishing(input, signal, call);
           }
           if (block.name === REQUEST_WEB_ACCESS) {
             return createWebAccessTool(
@@ -573,17 +578,20 @@ The selected account supplies model inference; Local host describes where the to
               : undefined,
             onDemandCreate: options.onDemandCreate,
           })({ ...block, input }, signal);
-          return { content: result.content, isError: !!result.is_error };
+          return copyCallbackOutcome(result, {
+            content: result.content,
+            isError: !!result.is_error,
+          });
         },
         // A custom contract can use file_path as ordinary computation data.
         { normalizeFilePath: !customToolNames.has(block.name) },
       );
-      return {
-        type: 'tool_result',
+      return copyCallbackOutcome(result, {
+        type: 'tool_result' as const,
         tool_use_id: block.id,
         content: result.content,
         is_error: result.isError,
-      };
+      });
     },
   });
   runtimes.set(options.session, runner);
@@ -606,7 +614,13 @@ The selected account supplies model inference; Local host describes where the to
         .finally(dispose);
       runner.interrupt();
       options.input.close();
-      void mcp.close();
+      void mcp.close().catch(() => {
+        log.warn('Session MCP cleanup failed', {
+          code: 'mcp_cleanup_failed',
+          stage: 'session_close',
+          conversationId: options.conversationId,
+        });
+      });
     }
   }
   signal.addEventListener('abort', close, { once: true });

@@ -11,6 +11,22 @@ cd "$(dirname "$0")/.."
 
 ./scripts/assert-deployable.sh
 
+LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"
+OWN_DEPLOY_LOCK=0
+if [ -n "${MITZO_RELEASE_DEPLOY_LOCK_PID:-}" ]; then
+  [ "$(cat "$LOCK_FILE" 2>/dev/null)" = "$MITZO_RELEASE_DEPLOY_LOCK_PID" ] && kill -0 "$MITZO_RELEASE_DEPLOY_LOCK_PID" 2>/dev/null || {
+    echo "Release deployment lock owner changed" >&2; exit 1;
+  }
+else
+  shlock -f "$LOCK_FILE" -p "$$" || { echo "Another deployment owns the server" >&2; exit 1; }
+  OWN_DEPLOY_LOCK=1
+fi
+release_deploy_lock() {
+  if [ "$OWN_DEPLOY_LOCK" -eq 1 ] && [ "$(cat "$LOCK_FILE" 2>/dev/null)" = "$$" ]; then rm -f "$LOCK_FILE"; fi
+}
+trap release_deploy_lock EXIT
+trap 'exit 130' INT TERM HUP
+
 MITZO_HOME="$(pwd)"
 PLIST_DEST="$HOME/Library/LaunchAgents/com.mitzo.server.plist"
 

@@ -52,7 +52,9 @@ export function providerTokenLimits(
 ): ModelTokenLimits | undefined {
   const data = object(value);
   if (typeof data.id === 'string' && data.id !== model) return;
-  const claude = provider === 'anthropic' || provider === 'anthropic-vertex';
+  const claude = ['anthropic', 'anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(
+    provider,
+  );
   const gemini = provider === 'google' || provider === 'google-vertex';
   if (!claude && !gemini) return;
   const input = positive(claude ? data.max_input_tokens : data.inputTokenLimit);
@@ -73,6 +75,7 @@ const providers: Record<string, string> = {
   openai: 'openai',
   anthropic: 'anthropic',
   'anthropic-vertex': 'google-vertex-anthropic',
+  'anthropic-claude': 'anthropic',
   'google-vertex': 'google-vertex',
   google: 'google',
 };

@@ -7,9 +7,11 @@ export interface SkillEntry {
   scope: 'repo' | 'user' | 'bundled' | 'native';
   allowedTools?: string[];
   collisions?: Array<{ scope: string; description: string }>;
+  unavailableReason?: string;
 }
 
 interface Props {
+  runtime?: 'ordinary' | 'legacy';
   /** Current text in the input field */
   query: string;
   /** Called when the user selects a skill */
@@ -18,6 +20,8 @@ interface Props {
   onClose: (reason: 'escape' | 'outside') => void;
   /** Base URL for the API (defaults to empty string for same-origin) */
   cwd?: string;
+  workspaceId?: string;
+  sessionId?: string;
 }
 
 const SCOPE_BADGES: Record<string, string> = {
@@ -27,41 +31,64 @@ const SCOPE_BADGES: Record<string, string> = {
   native: 'App command',
 };
 
-export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
-  const [skills, setSkills] = useState<SkillEntry[]>([]);
-  const [loaded, setLoaded] = useState(false);
+export function SlashPicker({
+  query,
+  onSelect,
+  onClose,
+  cwd,
+  workspaceId,
+  sessionId,
+  runtime = 'legacy',
+}: Props) {
+  const scope = JSON.stringify([cwd, runtime, workspaceId, sessionId]);
+  const [catalogue, setCatalogue] = useState<{
+    scope: string;
+    skills: SkillEntry[];
+    error?: boolean;
+  } | null>(null);
+  const skills = catalogue?.scope === scope ? catalogue.skills : [];
+  const loaded = catalogue?.scope === scope;
   const pickerRef = useRef<HTMLDivElement>(null);
 
   // Fetch skills on mount
   useEffect(() => {
     const params = new URLSearchParams();
-    if (cwd) params.set('cwd', cwd);
+    if (cwd && !workspaceId && !(runtime === 'ordinary' && sessionId)) params.set('cwd', cwd);
+    if (runtime === 'ordinary') params.set('runtime', 'ordinary');
+    if (workspaceId) params.set('repositoryWorkspaceId', workspaceId);
+    else if (runtime === 'ordinary' && sessionId) params.set('sessionId', sessionId);
     const controller = new AbortController();
     let active = true;
     Promise.all([
-      apiFetch(`/api/skills?${params.toString()}`, { signal: controller.signal }).then((r) =>
-        r.json(),
+      apiFetch(`/api/skills?${params.toString()}`, { signal: controller.signal }).then(
+        async (r) => {
+          if (!r.ok) throw Error('Commands unavailable');
+          const entries = await r.json();
+          if (!Array.isArray(entries)) throw Error('Commands unavailable');
+          return entries;
+        },
       ),
-      apiFetch('/api/commands', { signal: controller.signal })
-        .then((r) => r.json())
-        .then((entries: SkillEntry[]) =>
-          Array.isArray(entries) ? entries.filter((entry) => entry.scope === 'native') : [],
-        )
-        .catch(() => []),
+      runtime === 'ordinary'
+        ? Promise.resolve([])
+        : apiFetch('/api/commands', { signal: controller.signal })
+            .then((r) => r.json())
+            .then((entries: SkillEntry[]) =>
+              Array.isArray(entries) ? entries.filter((entry) => entry.scope === 'native') : [],
+            )
+            .catch(() => []),
     ])
       .then(([data, commands]: [SkillEntry[], SkillEntry[]]) => {
         if (!active) return;
-        setSkills([...data, ...commands]);
-        setLoaded(true);
+        setCatalogue({ scope, skills: [...data, ...commands] });
       })
       .catch(() => {
-        if (active) setLoaded(true);
+        if (active) setCatalogue({ scope, skills: [], error: true });
       });
     return () => {
       active = false;
       controller.abort();
     };
-  }, [cwd]);
+  }, [cwd, runtime, workspaceId, sessionId, scope]);
 
   // Close on click outside
   useEffect(() => {
@@ -110,7 +137,8 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
         event.preventDefault();
         const choices = [
           ...pickerRef.current!.querySelectorAll<HTMLButtonElement>('button'),
-        ].filter((choice) => !choice.closest('[hidden]'));
+        ].filter((choice) => !choice.disabled && !choice.closest('[hidden]'));
+        if (!choices.length) return;
         const index = choices.indexOf(document.activeElement as HTMLButtonElement);
         const next =
           event.key === 'Home'
@@ -123,7 +151,11 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
     >
       {sorted.length === 0 ? (
         <div className="slash-picker-empty">
-          {filterText ? `No commands matching "/${filterText}"` : 'No skills available'}
+          {catalogue?.error
+            ? 'Commands could not load. Close and reopen to retry.'
+            : filterText
+              ? `No commands matching "/${filterText}"`
+              : 'No skills available'}
         </div>
       ) : (
         <div className="slash-picker-list">
@@ -142,10 +174,14 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
                   <button
                     key={skill.name}
                     className="slash-picker-item"
+                    disabled={!!skill.unavailableReason}
+                    title={skill.unavailableReason}
                     onClick={() => handleSelect(skill.name)}
                   >
                     <span className="slash-picker-name">/{skill.name}</span>
-                    <span className="slash-picker-desc">{skill.description}</span>
+                    <span className="slash-picker-desc">
+                      {skill.unavailableReason ?? skill.description}
+                    </span>
                     <span className="slash-picker-scope">{SCOPE_BADGES[skill.scope]}</span>
                     {skill.collisions && skill.collisions.length > 0 && (
                       <span className="slash-picker-collision">

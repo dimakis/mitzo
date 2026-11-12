@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createMitzoStore } from '../store.js';
+import { runtimeFailureMessage } from '@mitzo/protocol';
 const channel = vi.hoisted(() => ({
   listener: (_event: Record<string, unknown>) => {},
   id: null as string | null,
@@ -72,6 +73,8 @@ const request = {
 function setup(
   saved: string | null = null,
   sendHandoff?: import('../store.js').MitzoStoreOptions['sendHandoff'],
+  flush?: () => Promise<void>,
+  readBlocked = false,
 ) {
   let raw: string | null = saved;
   let storageBlocked = false;
@@ -108,11 +111,15 @@ function setup(
     localFirstCommandConfig: {
       url: '/local/send',
       storage: {
-        getItem: () => raw,
+        getItem: () => {
+          if (readBlocked) throw Error('Storage unavailable');
+          return raw;
+        },
         setItem: (_: string, value: string) => {
           if (storageBlocked) throw Error('Synthetic device storage quota');
           raw = value;
         },
+        ...(flush ? { flush } : {}),
       },
     },
   });
@@ -123,8 +130,175 @@ function setup(
     blockStorage: () => {
       storageBlocked = true;
     },
+    unblockStorage: () => {
+      storageBlocked = false;
+      readBlocked = false;
+    },
   };
 }
+
+it('shows a transport failure beside the composer and preserves its diagnostic until receipt recovery', async () => {
+  const { store, fetch } = setup();
+  fetch.mockRejectedValue(new TypeError('private transport detail'));
+  channel.id = 'live-connection';
+  channel.listener({ type: '_open' });
+  expect(store.getState().sendLocalFirstCommand(request, { draftId: 'draft' })).toBe(true);
+  await vi.waitFor(() =>
+    expect(store.getState().localCommand).toMatchObject({
+      state: 'uncertain',
+      deliveryDiagnostic: { code: 'transport_failed', operation: 'submit' },
+    }),
+  );
+  expect(store.getState().sendError).toBe(
+    'Could not confirm delivery over the connection. Retry checks the same message.',
+  );
+  expect(store.getState().sendError).not.toContain('private');
+  channel.listener({ type: '_close' });
+});
+
+it('shows the original login recovery reason and ends the Sending label while keeping its draft and identity', async () => {
+  const { store, fetch, readStorage } = setup();
+  const diagnostic = {
+    runtimeFailureCode: 'login_refresh_reauthorization' as const,
+    diagnosticId: '00000000-0000-4000-8000-000000000001',
+  };
+  const failure = {
+    telemetry: () => diagnostic,
+    publicMessage: () => runtimeFailureMessage(diagnostic),
+  };
+  fetch.mockResolvedValue(
+    Response.json(
+      {
+        ok: false,
+        code: 'retained_command',
+        error: failure.publicMessage(),
+        clientMsgId: request.clientMsgId,
+        sessionId: 'old-chat',
+        state: 'reserved',
+        runtimeFailure: failure.telemetry(),
+      },
+      { status: 409 },
+    ),
+  );
+  channel.id = 'live-connection';
+  channel.listener({ type: '_open' });
+  expect(store.getState().sendLocalFirstCommand(request, { draftId: 'retained-draft' })).toBe(true);
+  await vi.waitFor(() => expect(store.getState().sendError).toBe(failure.publicMessage()));
+  expect(store.getState().messages.commandStates?.[request.clientMsgId]).toBe('uncertain');
+  expect(store.getState().localCommand).toMatchObject({ state: 'retained', request });
+  expect(readStorage()[0].body).toEqual(request);
+  channel.listener({ type: '_close' });
+});
+
+it.each(['write', 'flush'])(
+  'clears the obsolete visible login reason after a confirmed receipt despite a %s failure',
+  async (failure) => {
+    let flushBlocked = false;
+    const { store, fetch, blockStorage, unblockStorage, readStorage } = setup(
+      null,
+      undefined,
+      async () => {
+        if (flushBlocked) throw Error('Synthetic receipt flush refusal');
+      },
+    );
+    const delivered = vi.fn();
+    fetch.mockImplementation(async (path: string) => {
+      if (path === '/local/send')
+        return Response.json(
+          {
+            ok: false,
+            code: 'entry_unavailable',
+            clientMsgId: request.clientMsgId,
+            sessionId: 'owned-session',
+            error: 'Account reauthorization required',
+            runtimeFailure: {
+              runtimeFailureCode: 'login_refresh_reauthorization',
+              diagnosticId: '00000000-0000-4000-8000-000000000001',
+            },
+          },
+          { status: 409 },
+        );
+      if (path === '/local/send/receipt')
+        return Response.json(
+          {
+            ok: true,
+            clientMsgId: request.clientMsgId,
+            sessionId: 'owned-session',
+            state: 'consumed',
+            dispatched: false,
+          },
+          { status: 202 },
+        );
+      return Response.json({ messages: [], current: null, cursor: 0 });
+    });
+    channel.id = 'live-connection';
+    channel.listener({ type: '_open' });
+    expect(
+      store.getState().sendLocalFirstCommand(request, {
+        draftId: 'original-draft',
+        onDelivery: delivered,
+      }),
+    ).toBe(true);
+    await vi.waitFor(() =>
+      expect(store.getState().sendError).toContain('explicit account reauthorization'),
+    );
+    if (failure === 'write') blockStorage();
+    else flushBlocked = true;
+    channel.listener({ type: '_open' });
+    await vi.waitFor(() =>
+      expect(store.getState().sendError).toBe(
+        'Could not finish saving this message. Keep this chat open and retry.',
+      ),
+    );
+    expect(store.getState().localCommand).toMatchObject({
+      state: 'uncertain',
+      request,
+      originDraftId: 'original-draft',
+      deliveryDiagnostic: { stage: 'storage', code: 'storage_failed' },
+    });
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(store.getState().sessions.active).toBeNull();
+    expect(readStorage()).toHaveLength(1);
+    unblockStorage();
+    flushBlocked = false;
+    channel.listener({ type: '_open' });
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+    expect(store.getState().sendError).toBeNull();
+    expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
+    expect(readStorage()).toEqual([]);
+    channel.listener({ type: '_close' });
+  },
+);
+
+it.each([2, 3, 4])(
+  'shows accepted-command recovery failure at flush %s, then clears it on local-only Retry',
+  async (failedFlush) => {
+    let flushes = 0;
+    const { store, fetch, readStorage } = setup(null, undefined, async () => {
+      if (++flushes === failedFlush) throw Error('Synthetic accepted-command flush failure');
+    });
+    channel.id = 'live-connection';
+    channel.listener({ type: '_open' });
+    expect(store.getState().sendLocalFirstCommand(request, { draftId: 'original-draft' })).toBe(
+      true,
+    );
+    await vi.waitFor(() =>
+      expect(store.getState().localCommand).toMatchObject({
+        state: 'uncertain',
+        request,
+        deliveryDiagnostic: { stage: 'storage', code: 'storage_failed' },
+      }),
+    );
+    expect(store.getState().sendError).toContain('Could not finish saving this message');
+    expect(readStorage()).toHaveLength(1);
+    expect(store.getState().recoverLocalCommand()).toBe(true);
+    await vi.waitFor(() => expect(readStorage()).toEqual([]));
+    expect(store.getState().sendError).toBeNull();
+    expect(store.getState().localCommand?.state).toBe('consumed');
+    expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
+    channel.listener({ type: '_close' });
+  },
+);
 
 it('explains a first-command persistence refusal without dispatching or losing its draft', () => {
   const { store, fetch, blockStorage, readStorage } = setup();
@@ -151,6 +325,61 @@ it('explains lost authentication without sending through a stale live connection
   expect(fetch).not.toHaveBeenCalled();
   expect(readStorage()).toEqual([]);
 });
+
+it.each(['reviewed', 'wrong-command', 'unknown-diagnostic', 'invalid-reference'])(
+  'retains failed first-command delivery and displays only its %s diagnostic',
+  async (variant) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live';
+    channel.listener({ type: '_open' });
+    const delivered = vi.fn();
+    const diagnosticId = '22222222-2222-4222-8222-222222222222';
+    fetch.mockResolvedValue(
+      Response.json(
+        {
+          ok: false,
+          code: 'retained_command',
+          clientMsgId: variant === 'wrong-command' ? 'foreign' : request.clientMsgId,
+          sessionId: 'owned-session',
+          state: 'uncertain',
+          error: 'private-path secret-token',
+          runtimeFailure: {
+            runtimeFailureCode:
+              variant === 'unknown-diagnostic' ? 'forged' : 'knowledge_unavailable',
+            diagnosticId: variant === 'invalid-reference' ? 'invalid' : diagnosticId,
+          },
+        },
+        { status: 409 },
+      ),
+    );
+    expect(
+      store.getState().sendLocalFirstCommand(request, {
+        draftId: 'kept',
+        onDelivery: delivered,
+      }),
+    ).toBe(true);
+    await vi.waitFor(() =>
+      expect(store.getState().localCommand?.state).toBe(
+        variant === 'reviewed' ? 'retained' : 'uncertain',
+      ),
+    );
+    if (variant === 'reviewed') {
+      expect(store.getState().sendError).toContain('compatible runtime');
+      expect(store.getState().sendError).toContain(diagnosticId);
+      expect(readStorage()[0].localReceipt).toEqual({
+        sessionId: 'owned-session',
+        state: 'uncertain',
+      });
+    } else {
+      expect(store.getState().sendError ?? '').not.toContain('compatible runtime');
+      expect(readStorage()[0].localReceipt).toBeUndefined();
+    }
+    expect(store.getState().sendError ?? '').not.toMatch(/private-path|secret-token/);
+    expect(store.getState().localCommand?.request).toEqual(request);
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(fetch).toHaveBeenCalledOnce();
+  },
+);
 
 it('keeps the original uncertain command when a replacement is refused for its draft', async () => {
   const { store, fetch, readStorage } = setup();
@@ -442,6 +671,46 @@ it('retains request after logout and never automatically retries on a new authen
   expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
   expect(store.getState().localCommand?.request).toEqual(request);
 });
+it.each([false, true])(
+  'ends an old chat’s failed send spinner without stopping an already running turn (%s)',
+  async (alreadyRunning) => {
+    const { store, fetch } = setup();
+    channel.id = 'live-sse';
+    await store.getState().switchSession('old-chat');
+    store.setState((state) => ({
+      messages: { ...state.messages, nativeCommands: true, running: alreadyRunning },
+    }));
+    const diagnostic = {
+      runtimeFailureCode: 'login_refresh_reauthorization' as const,
+      diagnosticId: '00000000-0000-4000-8000-000000000001',
+    };
+    fetch.mockResolvedValue(
+      Response.json(
+        {
+          ok: false,
+          code: 'entry_unavailable',
+          error: 'private',
+          clientMsgId: request.clientMsgId,
+          sessionId: 'old-chat',
+          runtimeFailure: diagnostic,
+        },
+        { status: 409 },
+      ),
+    );
+    const delivered = vi.fn();
+    expect(
+      store
+        .getState()
+        .sendLocalFirstCommand({ ...request, sessionId: 'old-chat' }, { onDelivery: delivered }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('uncertain'));
+    expect(store.getState().messages.running).toBe(alreadyRunning);
+    expect(store.getState().messages.commandStates?.[request.clientMsgId]).toBe('uncertain');
+    expect(store.getState().sendError).toContain('explicit account reauthorization');
+    channel.listener({ type: '_close' });
+  },
+);
+
 it.each(['retained', 'lost-response'])(
   'ends only unassigned optimistic busy state when a Local send is %s, preserving its draft and exact recovery',
   async (failure) => {
@@ -557,6 +826,7 @@ it.each(['consumed', 'uncertain', 'reserved'])(
       state: 'retained',
       sessionId: 'observed-session',
       originDraftId: 'original-draft',
+      deliveryDiagnostic: expect.objectContaining({ code: 'runtime_failed', httpStatus: 409 }),
     });
     expect(assigned).not.toHaveBeenCalled();
     expect(store.getState().sessions.active).toBeNull();
@@ -2443,4 +2713,20 @@ it('clears preparation only for the latest command cancellation and never revive
     seq: 8,
   });
   expect(store.getState().sendStatus).toBe('Preparing response…');
+});
+
+it('recovers blocked storage offline and admits a new command only after reconnect and an explicit send', async () => {
+  const { store, fetch, unblockStorage } = setup(null, undefined, undefined, true);
+  expect(store.getState().localCommand?.state).toBe('blocked');
+  expect(store.getState().sendError).toMatch(/Saved outgoing messages are unavailable/);
+  store.getState().selectLocalCommandDraft('fresh');
+  unblockStorage();
+  expect(store.getState().recoverLocalCommand()).toBe(true);
+  expect(store.getState().localCommand).toBeNull();
+  expect(store.getState().sendError).toBeNull();
+  expect(fetch).not.toHaveBeenCalled();
+  channel.id = 'reconnected';
+  expect(store.getState().sendLocalFirstCommand(request, { draftId: 'fresh' })).toBe(true);
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+  expect(fetch.mock.calls.filter(([url]) => url === '/local/send')).toHaveLength(1);
 });

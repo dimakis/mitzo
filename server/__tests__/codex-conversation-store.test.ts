@@ -1,3 +1,10 @@
+import { CodexEffectSettlements } from '../codex-effect-settlements.js';
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import { createHash } from 'node:crypto';
+import {
+  codexNativeExecutionPolicy,
+  type CodexNativeExecutionPolicy,
+} from '../codex-native-execution-policy.js';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -5,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { normalizeMcpToolResult } from '../codex-tool-result.js';
+import { toolFailure } from '@mitzo/protocol';
 const roots: string[] = [];
 const binding = {
   accountId: 'personal',
@@ -18,6 +26,305 @@ function setup() {
   roots.push(root);
   return { path: join(root, 'private.db'), root };
 }
+
+it.each([
+  'completed',
+  'failed',
+  'interrupted',
+  'ambiguous',
+  'thread_dispatch',
+  'other_ambiguous_command',
+] as const)('observes settled command outcome without releasing recovery (%s)', (scenario) => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    store.create('outcome', binding, '/offline');
+    store.bindThread('outcome', binding, 'thread');
+    store.enqueue('outcome', binding, { id: 'original', prompt: 'Explicit request' });
+    const command = store.claimNext('outcome', binding)!;
+    if (scenario === 'thread_dispatch')
+      store.beginThreadReplacementDispatch('outcome', binding, 'thread', 'replacement', command);
+    if (scenario === 'completed' || scenario === 'other_ambiguous_command') {
+      store.finish('outcome', binding, command.id, 'completed');
+      if (scenario === 'other_ambiguous_command') {
+        store.enqueue('outcome', binding, { id: 'later', prompt: 'Different request' });
+        store.claimNext('outcome', binding);
+        store.pauseForRecovery(
+          'outcome',
+          binding,
+          'later',
+          'failed',
+          'resume',
+          undefined,
+          true,
+          true,
+        );
+      }
+    } else {
+      store.pauseForRecovery(
+        'outcome',
+        binding,
+        command.id,
+        scenario === 'interrupted' ? 'interrupted' : 'failed',
+        'resume',
+        undefined,
+        false,
+        scenario === 'ambiguous',
+      );
+    }
+    const state = store.read('outcome', binding);
+    const queue = store.queueSummary('outcome', binding);
+    expect(store.settledCommandOutcome('outcome', binding, 'original')).toBe(
+      scenario === 'completed' || scenario === 'failed' || scenario === 'interrupted'
+        ? scenario
+        : undefined,
+    );
+    expect(store.settledCommandOutcome('outcome', binding, 'missing')).toBeUndefined();
+    expect(
+      store.settledCommandOutcome('outcome', { ...binding, accountId: 'unrelated' }, 'original'),
+    ).toBeUndefined();
+    expect(store.settledCommandOutcome('missing-session', binding, 'original')).toBeUndefined();
+    expect(store.read('outcome', binding)).toEqual(state);
+    expect(store.queueSummary('outcome', binding)).toEqual(queue);
+  } finally {
+    store.close();
+  }
+});
+
+it('queues exactly one failure continuation from a settled completed source and preserves it across restart', () => {
+  const { path } = setup();
+  let store = new CodexConversationStore(path);
+  store.create('failure-chat', binding, '/offline');
+  store.bindThread('failure-chat', binding, 'thread');
+  store.enqueue('failure-chat', binding, {
+    id: 'source',
+    prompt: 'Original request',
+    intent: 'Original request',
+  });
+  const source = store.claimNext('failure-chat', binding)!;
+  store.recordCapacityAck('failure-chat', binding, source, 'thread', 'turn');
+  store.recordNativeTurnAck('failure-chat', binding, source, 'thread', 'turn');
+  const failure = toolFailure('approval_expired', 'approval', 'not_started');
+  store.recordToolFailure(
+    'failure-chat',
+    binding,
+    'source',
+    'turn',
+    'approval',
+    failure,
+    'native_approval',
+  );
+  expect(
+    store.queueToolFailureContinuation('failure-chat', binding, 'source', 'turn', failure),
+  ).toBeUndefined();
+  store.finish('failure-chat', binding, 'source', 'completed', 'turn');
+  expect(
+    store.queueToolFailureContinuation(
+      'failure-chat',
+      binding,
+      'source',
+      'turn',
+      toolFailure('internal_failure', 'execution', 'not_started'),
+    ),
+  ).toBeUndefined();
+  const child = store.queueToolFailureContinuation(
+    'failure-chat',
+    binding,
+    'source',
+    'turn',
+    failure,
+  )!;
+  expect(child.intent).toBe('Original request');
+  expect(
+    store.queueToolFailureContinuation('failure-chat', binding, 'source', 'turn', failure)?.id,
+  ).toBe(child.id);
+  store.close();
+  store = new CodexConversationStore(path);
+  expect(
+    store.commands('failure-chat', binding).filter((command) => command.toolFailureContinuation),
+  ).toHaveLength(1);
+  expect(() =>
+    store.assertToolFailureContinuation('failure-chat', binding, {
+      ...child,
+      prompt: 'different work',
+    }),
+  ).toThrow();
+  const claimed = store.claimNext('failure-chat', binding)!;
+  store.finish('failure-chat', binding, claimed.id, 'completed', 'child-turn');
+  expect(
+    store.queueToolFailureContinuation('failure-chat', binding, claimed.id, 'child-turn', failure),
+  ).toBeUndefined();
+  store.close();
+});
+
+it.each(['unknown', 'permission_denied', 'cancelled', 'native'] as const)(
+  'retains command-wide %s suppression across later expiry and restart',
+  (kind) => {
+    const { path } = setup();
+    let store = new CodexConversationStore(path);
+    store.create('mixed', binding, '/offline');
+    store.bindThread('mixed', binding, 'thread');
+    store.enqueue('mixed', binding, { id: 'source', prompt: 'Original request' });
+    const source = store.claimNext('mixed', binding)!;
+    store.recordNativeTurnAck('mixed', binding, source, 'thread', 'turn');
+    if (kind === 'native')
+      store.recordToolFailureRecoverySuppression('mixed', binding, 'source', 'turn');
+    else
+      store.recordToolFailure(
+        'mixed',
+        binding,
+        'source',
+        'turn',
+        'earlier',
+        toolFailure(
+          kind === 'unknown' ? 'approval_expired' : kind,
+          'approval',
+          kind === 'unknown' ? 'unknown' : 'not_started',
+        ),
+        'native_approval',
+      );
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    store.recordToolFailure(
+      'mixed',
+      binding,
+      'source',
+      'turn',
+      'expiry',
+      failure,
+      'native_approval',
+    );
+    store.finish('mixed', binding, 'source', 'completed', 'turn');
+    store.close();
+    store = new CodexConversationStore(path);
+    try {
+      expect(
+        store.queueToolFailureContinuation('mixed', binding, 'source', 'turn', failure),
+      ).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  },
+);
+
+it('revalidates durable negative observations after a child was queued and before dispatch', () => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    store.create('mixed', binding, '/offline');
+    store.bindThread('mixed', binding, 'thread');
+    store.enqueue('mixed', binding, { id: 'source', prompt: 'Original request' });
+    const source = store.claimNext('mixed', binding)!;
+    store.recordNativeTurnAck('mixed', binding, source, 'thread', 'turn');
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    store.recordToolFailure(
+      'mixed',
+      binding,
+      'source',
+      'turn',
+      'expiry',
+      failure,
+      'native_approval',
+    );
+    store.finish('mixed', binding, 'source', 'completed', 'turn');
+    const child = store.queueToolFailureContinuation('mixed', binding, 'source', 'turn', failure)!;
+    store.recordToolFailureRecoverySuppression('mixed', binding, 'source', 'turn');
+    expect(
+      store.queueToolFailureContinuation('mixed', binding, 'source', 'turn', failure),
+    ).toBeUndefined();
+    expect(() => store.assertToolFailureContinuation('mixed', binding, child)).toThrow();
+    expect(() => store.claimNext('mixed', binding)).toThrow();
+  } finally {
+    store.close();
+  }
+});
+
+it('lets a newer explicit command cancel an undispatched tool recovery', () => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    store.create('failure-chat', binding, '/offline');
+    store.bindThread('failure-chat', binding, 'thread');
+    store.enqueue('failure-chat', binding, { id: 'source', prompt: 'Original request' });
+    const source = store.claimNext('failure-chat', binding)!;
+    store.recordNativeTurnAck('failure-chat', binding, source, 'thread', 'turn');
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    store.recordToolFailure(
+      'failure-chat',
+      binding,
+      'source',
+      'turn',
+      'approval',
+      failure,
+      'native_approval',
+    );
+    store.finish('failure-chat', binding, 'source', 'completed', 'turn');
+    const child = store.queueToolFailureContinuation(
+      'failure-chat',
+      binding,
+      'source',
+      'turn',
+      failure,
+    )!;
+    store.enqueue('failure-chat', binding, { id: 'new-user', prompt: 'New direction' }, true);
+    expect(() => store.assertToolFailureContinuation('failure-chat', binding, child)).toThrow();
+    expect(store.claimNext('failure-chat', binding)?.id).toBe('new-user');
+  } finally {
+    store.close();
+  }
+});
+
+it.each(['unknown', 'denied', 'cancelled', 'newer-user', 'changed-account'] as const)(
+  'does not automatically continue a failure with %s',
+  (reason) => {
+    const { path } = setup();
+    const store = new CodexConversationStore(path);
+    try {
+      store.create('failure-chat', binding, '/offline');
+      store.bindThread('failure-chat', binding, 'thread');
+      store.enqueue('failure-chat', binding, {
+        id: 'source',
+        prompt: 'Original request',
+        intent: 'Original request',
+      });
+      const source = store.claimNext('failure-chat', binding)!;
+      store.recordCapacityAck('failure-chat', binding, source, 'thread', 'turn');
+      store.recordNativeTurnAck('failure-chat', binding, source, 'thread', 'turn');
+      const failure = toolFailure(
+        reason === 'denied'
+          ? 'permission_denied'
+          : reason === 'cancelled'
+            ? 'cancelled'
+            : 'approval_expired',
+        'approval',
+        reason === 'unknown' ? 'unknown' : 'not_started',
+      );
+      store.recordToolFailure(
+        'failure-chat',
+        binding,
+        'source',
+        'turn',
+        'approval',
+        failure,
+        'native_approval',
+      );
+      store.finish('failure-chat', binding, 'source', 'completed', 'turn');
+      if (reason === 'newer-user')
+        store.enqueue('failure-chat', binding, { id: 'new-user', prompt: 'New direction' }, true);
+      const invoke = () =>
+        store.queueToolFailureContinuation(
+          'failure-chat',
+          reason === 'changed-account' ? { ...binding, accountId: 'other' } : binding,
+          'source',
+          'turn',
+          failure,
+        );
+      if (reason === 'changed-account') expect(invoke).toThrow();
+      else expect(invoke()).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  },
+);
 afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
   roots.length = 0;
@@ -492,6 +799,45 @@ it('reopens an exact tool result after a crash before reviewer coverage is marke
   s.close();
 });
 
+it('persists original failure settlement without trusting copied or upgraded outcomes', () => {
+  const { path } = setup();
+  let store = new CodexConversationStore(path);
+  store.create('c', binding, '/workspace');
+  store.enqueue('c', binding, { id: 'command', prompt: 'work' });
+  store.claimNext('c', binding);
+  const identity = { turnId: 'turn', toolName: 'Write', requestHash: 'a'.repeat(64) };
+  const failure = { content: 'validation refused before mutation', isError: true };
+  const settled = retainCallbackOutcome({ ...failure }, 'settled');
+  store.claimTool('c', binding, 'command', 'known', identity);
+  store.recordToolResult('c', binding, 'command', 'known', identity, settled);
+  store.claimTool('c', binding, 'command', 'unknown', identity);
+  store.recordToolResult('c', binding, 'command', 'unknown', identity, { ...settled });
+  store.close();
+  store = new CodexConversationStore(path);
+  for (const [callId, outcome] of [
+    ['known', 'settled'],
+    ['unknown', 'unknown'],
+  ] as const) {
+    const replay = store.replayToolResult('c', binding, 'command', callId, identity)!;
+    expect(replay).toEqual(failure);
+    expect(callbackOutcome(replay)).toBe(outcome);
+    store.recordToolResult('c', binding, 'command', callId, identity, replay);
+  }
+  expect(() =>
+    store.recordToolResult('c', binding, 'command', 'unknown', identity, settled),
+  ).toThrow(/changed/);
+  store.close();
+  // Old receipts gain no inferred owner evidence during schema migration.
+  const db = new Database(path);
+  db.exec('ALTER TABLE codex_tools DROP COLUMN result_effect_outcome');
+  db.close();
+  store = new CodexConversationStore(path);
+  expect(callbackOutcome(store.replayToolResult('c', binding, 'command', 'known', identity))).toBe(
+    'unknown',
+  );
+  store.close();
+});
+
 it('retains bounded mixed-output errors through receipt restart and replay', () => {
   const { path } = setup();
   let store = new CodexConversationStore(path);
@@ -604,6 +950,7 @@ it('claims host tools after reopening a ledger with additional nullable tool col
       result_content: null,
       result_is_error: null,
       result_content_items: null,
+      result_effect_outcome: null,
     },
   ]);
   persisted.close();
@@ -1253,14 +1600,16 @@ it('keeps migration source and candidate provenance separate and rejects mismatc
   db.close();
   store.close();
 });
-function acceptedTargetFixture() {
+function acceptedTargetFixture(policy?: CodexNativeExecutionPolicy) {
   const f = setup(),
     store = new CodexConversationStore(f.path);
   store.create('target-chat', binding, '/workspace');
   store.bindThread('target-chat', binding, 'thread-a');
   store.enqueue('target-chat', binding, { id: 'command-a', prompt: 'First' });
   const command = store.claimNext('target-chat', binding)!;
+  if (policy) store.prepareNativeExecution('target-chat', binding, command, 'thread-a', policy);
   store.recordNativeTurnAck('target-chat', binding, command, 'thread-a', 'turn-a');
+  if (policy) store.acceptNativeExecution('target-chat', binding, command, 'thread-a', 'turn-a');
   const target = store.nativeTurnTarget('target-chat', binding, command.id, command.attempt)!;
   return { ...f, store, command, target };
 }
@@ -1523,4 +1872,151 @@ it('retains historical uncertainty as the recovery action despite an acknowledge
   expect(() => s.claimNext('c', binding)).toThrow(/phase|effect/);
   expect(s.commandLifecycle('c', binding, command.id).diagnostic).toMatchObject({ exitCode: 1 });
   s.close();
+});
+
+it('settles historical native policy evidence only for the accepted target under fresh synchronous ownership', () => {
+  const policy = (release: string, owner = 'same-owner', cwd = '/workspace') =>
+    codexNativeExecutionPolicy({
+      bindingRevision: owner,
+      mode: 'agent',
+      cwd,
+      readableRoots: ['/'],
+      writableRoots: [cwd],
+      deniedRoots: [`/releases/${release}/.env`],
+    });
+  const old = policy('old'),
+    current = policy('new');
+  const f = acceptedTargetFixture(old);
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  const workspace = createHash('sha256').update('/workspace').digest('hex');
+  try {
+    const phase = f.store.beginCompletionPhase(
+      'target-chat',
+      binding,
+      f.command,
+      'thread-a',
+      'turn-a',
+      workspace,
+      old.policyRevision,
+    );
+    f.store.observeCompletionPhase('target-chat', binding, phase.target, 'completed');
+    const owner = vi.fn(() => {
+      expect(db.inTransaction).toBe(true);
+    });
+    const settle = (target = f.target, selected = current, authority = owner) =>
+      f.store.reconcileHistoricalNativeCompletionPhase(
+        'target-chat',
+        binding,
+        target,
+        workspace,
+        selected,
+        undefined,
+        authority,
+      );
+    for (const target of [
+      { ...f.target, threadId: 'other' },
+      { ...f.target, turnId: 'other' },
+      { ...f.target, generation: 1 },
+      { ...f.target, attempt: 2 },
+    ])
+      expect(() => settle(target)).toThrow();
+    for (const selected of [policy('new', 'other-owner'), policy('new', 'same-owner', '/other')])
+      expect(() => settle(f.target, selected)).toThrow();
+    expect(() =>
+      f.store.reconcileHistoricalNativeCompletionPhase(
+        'target-chat',
+        binding,
+        f.target,
+        workspace,
+        current,
+        undefined,
+        undefined as never,
+      ),
+    ).toThrow();
+    expect(() => settle(f.target, current, (() => Promise.resolve()) as never)).toThrow(
+      'synchronous',
+    );
+    expect(() =>
+      settle(f.target, current, (() => {
+        expect(db.inTransaction).toBe(true);
+        throw Error('revoked');
+      }) as never),
+    ).toThrow('revoked');
+    const row = db
+      .prepare(
+        'SELECT native_execution_history FROM codex_commands WHERE conversation_id=? AND id=?',
+      )
+      .get('target-chat', 'command-a') as { native_execution_history: string };
+    const original = JSON.parse(row.native_execution_history);
+    const prepared = { ...original[0], phase: 'prepared' };
+    delete prepared.turnId;
+    delete prepared.acceptedAt;
+    for (const history of [[], [prepared], [{ ...original[0], policy: current }]]) {
+      db.prepare(
+        'UPDATE codex_commands SET native_execution_history=? WHERE conversation_id=? AND id=?',
+      ).run(JSON.stringify(history), 'target-chat', 'command-a');
+      expect(() => settle()).toThrow();
+      expect(f.store.completionPhase('target-chat', binding, 'command-a', 1)?.status).toBe(
+        'unknown',
+      );
+    }
+    db.prepare(
+      'UPDATE codex_commands SET native_execution_history=? WHERE conversation_id=? AND id=?',
+    ).run(row.native_execution_history, 'target-chat', 'command-a');
+    let checks = 0;
+    expect(() =>
+      settle(f.target, current, (() => {
+        expect(db.inTransaction).toBe(true);
+        if (++checks === 2)
+          db.prepare(
+            'UPDATE codex_commands SET native_execution_history=? WHERE conversation_id=? AND id=?',
+          ).run('[]', 'target-chat', 'command-a');
+      }) as never),
+    ).toThrow();
+    expect(f.store.readNativeExecution('target-chat', binding, f.command)?.policy).toEqual(old);
+    // The old exact-hash guard remains strict for ordinary reconciliation.
+    expect(() =>
+      f.store.reconcileCompletionPhase(
+        'target-chat',
+        binding,
+        f.target,
+        workspace,
+        current.policyRevision,
+        undefined,
+        owner,
+      ),
+    ).toThrow();
+    settle();
+    expect(owner).toHaveBeenCalled();
+    expect(f.store.completionPhase('target-chat', binding, 'command-a', 1)?.status).toBe(
+      'completed',
+    );
+    expect(f.store.readNativeExecution('target-chat', binding, f.command)?.policy).toEqual(old);
+    expect(f.store.commandStatus('target-chat', binding, 'command-a')).toBe('running');
+  } finally {
+    f.store.close();
+  }
+});
+
+it('keeps missing legacy settlement facts unqualified without migrating readonly evidence', () => {
+  const db = new Database(':memory:');
+  try {
+    const proof = new CodexEffectSettlements(db, false);
+    const target = {
+      commandId: 'original',
+      attempt: 1,
+      threadId: 'thread',
+      turnId: 'turn',
+      generation: 0,
+    };
+    expect(proof.matches('chat', target, 'a'.repeat(64))).toBe(false);
+    expect(() => proof.remember('chat', target, 'a'.repeat(64))).toThrow(/Readonly legacy/);
+    expect(
+      db
+        .prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='codex_effect_settlements'")
+        .get(),
+    ).toEqual({ n: 0 });
+  } finally {
+    db.close();
+  }
 });

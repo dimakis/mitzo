@@ -1,3 +1,4 @@
+import { RepositoryPreparationCapacityError } from './repository-preparation-capacity.js';
 import {
   OrdinaryRepositoryRuntimeSelectionSchema,
   type OrdinaryRepositoryRuntimeSelection,
@@ -193,6 +194,10 @@ export function createRepositoryWorkspaceRouter(deps: {
       const binding = deps.resolveBinding(input.data.accountId, input.data.model);
       return res.json(await deps.prepare(String(req.params.id), binding, controller.signal));
     } catch (error) {
+      if (error instanceof RepositoryPreparationCapacityError)
+        return res
+          .status(409)
+          .json({ code: 'repository_preparation_capacity', error: error.message });
       if (error instanceof RepositorySpaceError)
         return res.status(507).json({ code: 'repository_space', error: error.message });
       if (error instanceof RepositorySourceLimitError)

@@ -15,6 +15,7 @@ import {
 } from '@mitzo/harness';
 import { executeWebAccess, REQUEST_WEB_ACCESS, WebAccessInput } from './request-web-access.js';
 import { fetchPublicPage } from './public-web-fetch.js';
+import { captureSessionCapability } from './session-capability-grants.js';
 
 const publicScopes = new WeakMap<
   ManagedSession,
@@ -45,8 +46,15 @@ export function createWebAccessTool(
   registry: SessionRegistry,
   search: (query: string, signal: AbortSignal, owner: WebSearchExecutionOwner) => Promise<string>,
   assertRuntimeCurrent?: () => Promise<void>,
+  registerResponseFence?: (assertCurrent: () => void) => void,
 ) {
-  const urlAccess = createUrlAccessTool(conversation, registry, undefined, assertRuntimeCurrent);
+  const urlAccess = createUrlAccessTool(
+    conversation,
+    registry,
+    undefined,
+    assertRuntimeCurrent,
+    registerResponseFence,
+  );
   return async (input: unknown, signal: AbortSignal) => {
     await assertRuntimeCurrent?.();
     const operation =
@@ -90,7 +98,17 @@ export function createWebAccessTool(
     // Retire stale bindings before capturing the pending approval generation.
     const searchAllowed = hasWebSearchGrant(session);
     const searchRevision = webSearchGrantRevision(session);
+    const capabilities: Array<() => void> = [];
+    const capabilityCurrent = () => {
+      try {
+        capabilities.forEach((current) => current());
+        return true;
+      } catch {
+        return false;
+      }
+    };
     const isCurrent = () =>
+      capabilityCurrent() &&
       registry.get(clientId) === session &&
       registry.findBySessionId(conversationId)?.session === session &&
       registry.findBySessionId(conversationId)?.clientId === clientId &&
@@ -103,10 +121,23 @@ export function createWebAccessTool(
       ) &&
       effectivePermissionMode(session) !== 'ask' &&
       checkSkillPolicy(registry, clientId, REQUEST_WEB_ACCESS) !== 'deny';
-    return executeWebAccess(input, signal, {
+    const result = await executeWebAccess(input, signal, {
       isCurrent,
       assertRuntimeCurrent,
       approve: async (request, signal, redirectedFrom) => {
+        if (request.operation === 'fetch') {
+          const capability = captureSessionCapability(session, {
+            kind: 'public-web',
+            origin: new URL(request.url).origin,
+          });
+          if (capability) {
+            await assertRuntimeCurrent?.();
+            signal.throwIfAborted();
+            capability();
+            capabilities.push(capability);
+            return { behavior: 'allow', updatedInput: request };
+          }
+        }
         if (request.operation === 'search' && searchAllowed)
           return { behavior: 'allow', updatedInput: request };
         if (request.operation === 'fetch') {
@@ -171,9 +202,20 @@ export function createWebAccessTool(
       },
 
       fetchPage: async (url, signal, view) => {
-        await assertRuntimeCurrent?.();
-        return fetchPublicPage(url, signal, undefined, assertRuntimeCurrent, view);
+        const assertReadCurrent = async () => {
+          await assertRuntimeCurrent?.();
+          signal.throwIfAborted();
+          if (!isCurrent()) throw Error('Website read consent changed');
+        };
+        await assertReadCurrent();
+        return fetchPublicPage(url, signal, undefined, assertReadCurrent, view);
       },
     });
+    if (!result.isError)
+      registerResponseFence?.(() => {
+        signal.throwIfAborted();
+        if (!isCurrent()) throw Error('Website consent changed before response delivery');
+      });
+    return result;
   };
 }

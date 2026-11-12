@@ -31,6 +31,9 @@ import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-ent
 import { projectOrdinaryOpenShellCodexCapabilities } from './ordinary-openshell-codex-route.js';
 import { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
+import { getRepositoryWorkspaces, getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
+import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
+import { canResumeUntransferredPreparedRepository } from './owned-prepared-repository-transition.js';
 
 /** Read-only action support; dispatch always requalifies the original authority. */
 export function ordinaryCodexContinuationStatus(
@@ -48,27 +51,45 @@ export function ordinaryCodexContinuationStatus(
       !meta
     )
       return { available: false };
-    if (eventStore.hasUncertainOrdinaryCommand(sessionId))
-      return blocked(
-        'A previous command has an unconfirmed dispatch. Its original receipt and workspace are retained.',
-      );
-    if (
+    const live = registry.findBySessionId(sessionId)?.session;
+    const native =
       authSessionId &&
       meta.accountBinding &&
       binding.harness.implementation === 'codex' &&
       binding.execution.location === 'local' &&
-      !registry.findBySessionId(sessionId)
-    ) {
-      const native = getCodexConversationStore();
-      if (
-        ordinaryOperatorOwnsConversation(
-          native.readHostCustody(sessionId, meta.accountBinding)?.authSessionId,
-          authSessionId,
-        ) &&
-        native.continuationBlocker(sessionId, meta.accountBinding)
+      !live
+        ? getCodexConversationStore()
+        : undefined;
+    const ownsNative =
+      native &&
+      ordinaryOperatorOwnsConversation(
+        native.readHostCustody(sessionId, meta.accountBinding!)?.authSessionId,
+        authSessionId,
+      );
+    if (
+      eventStore.hasUncertainOrdinaryCommand(sessionId) &&
+      !(
+        ownsNative &&
+        canResumeUntransferredPreparedRepository({
+          workspace: getRepositoryWorkspaces(true),
+          events: eventStore,
+          native,
+          conversationId: sessionId,
+          binding: meta.accountBinding!,
+        })
       )
-        return blocked(sessionRuntimeMessage('unsettled_effects'));
-    }
+    )
+      return blocked(
+        'A previous command has an unconfirmed dispatch. Its original receipt and workspace are retained.',
+      );
+    if (
+      ownsNative &&
+      native.continuationBlocker(sessionId, meta.accountBinding!) &&
+      !reconcilableLocalCodexCommand(eventStore, native, sessionId, authSessionId!, () =>
+        meta.ordinaryWorkspaceId ? getOrdinaryWorkspaces(true) : getRepositoryWorkspaces(true),
+      )
+    )
+      return blocked(sessionRuntimeMessage('unsettled_effects'));
     const location = binding.execution.location;
     if (
       custodianControllerMode ||
@@ -166,7 +187,6 @@ export function ordinaryCodexContinuationStatus(
       return blocked('The original account or execution configuration has changed.');
     if (!authSessionId)
       return blocked('Sign in with the original login to resume this conversation.');
-    const live = registry.findBySessionId(sessionId)?.session;
     if (live)
       return (binding.harness.implementation === 'codex'
         ? ordinaryOperatorOwnsConversation(live.ordinaryRuntimeOwner?.authSessionId, authSessionId)

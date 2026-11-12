@@ -1,3 +1,4 @@
+import { callbackOutcome } from '../turn-callbacks.js';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +22,75 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+it('bounds an uncooperative MCP shutdown while preserving one close owner and retiring calls', async () => {
+  vi.useFakeTimers();
+  const pending = deferred<void>();
+  const close = vi.fn(() => pending.promise);
+  let settled = false;
+  const tools = await connectCodexMcpTools(
+    { stuck: { command: 'fixture' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      toolGuardPolicy: { executionMs: 100, approvalMs: 100, cleanupMs: 20 },
+      connect: async () => ({
+        listTools: async () => ({ tools: [{ name: 'read', inputSchema: {} }] }),
+        callTool: vi.fn(),
+        close,
+      }),
+    },
+  );
+  const shutdown = tools.close();
+  const observed = expect(shutdown)
+    .rejects.toThrow('MCP cleanup failed')
+    .then(() => {
+      settled = true;
+    });
+  try {
+    await vi.advanceTimersByTimeAsync(21);
+    expect(settled).toBe(true);
+    await expect(tools.close()).rejects.toThrow('MCP cleanup failed');
+    expect(close).toHaveBeenCalledOnce();
+    expect(() => tools.assertToolCurrent(tools.definitions[0].name)).toThrow();
+  } finally {
+    pending.reject(Error('late transport failure'));
+    await observed;
+    vi.useRealTimers();
+  }
+});
+
+it('retains initialization and cleanup causes while exposing only a fixed failure message', async () => {
+  const cause = Error('private upstream diagnostic');
+  const cleanup = Error('private cleanup diagnostic');
+  let failure: Error | undefined;
+  try {
+    await connectCodexMcpTools(
+      { fixture: { command: 'fake' } },
+      {
+        cwd: '/fixture',
+        env: {},
+        signal: new AbortController().signal,
+        connect: async () => ({
+          listTools: async () => {
+            throw cause;
+          },
+          callTool: vi.fn(),
+          close: async () => {
+            throw cleanup;
+          },
+        }),
+      },
+    );
+  } catch (error) {
+    failure = error as Error;
+  }
+  expect(failure?.message).not.toContain('private');
+  expect(failure?.cause).toBe(cause);
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors[0]).toBeInstanceOf(AggregateError);
+});
 
 it('starts independent MCP discovery concurrently and preserves configured source/page order', async () => {
   const firstPage = deferred<{
@@ -610,6 +680,7 @@ it('preserves the actual approval failure reason instead of claiming the user de
         new AbortController().signal,
       );
       expect(result.isError).toBe(true);
+      expect(callbackOutcome(result)).toBe('settled');
       expect(JSON.parse(result.content)).toMatchObject({
         reason: message,
         error: message.startsWith('Tool approval')

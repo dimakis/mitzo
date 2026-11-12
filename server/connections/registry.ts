@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from '../github-publication-approval.js';
 import { z } from 'zod';
 import {
   compileCustomRestReadonly,
@@ -284,7 +285,7 @@ function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
   if (!parsed.success) throw new Error('Invalid capability template');
   const template = parsed.data as CapabilityTemplate;
   uniqueTemplateReferences(template.connectionTemplates, 'capability provider template reference');
-  assertCompleteApprovalProjection(template.inputSchema);
+  assertCompleteApprovalProjection(template.inputSchema, template.id);
   return Object.freeze({
     ...template,
     connectionTemplates: Object.freeze(
@@ -686,7 +687,7 @@ const capabilities: readonly CapabilityTemplate[] = [
         repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
         baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
         title: { type: 'string', minLength: 1, maxLength: 128 },
-        body: { type: 'string', maxLength: 512 },
+        body: { type: 'string', maxLength: GITHUB_PR_DESCRIPTION_MAX_LENGTH },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
@@ -891,7 +892,7 @@ const reviewedCapabilityContracts = Object.freeze({
         repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
         baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
         title: { type: 'string', minLength: 1, maxLength: 128 },
-        body: { type: 'string', maxLength: 512 },
+        body: { type: 'string', maxLength: GITHUB_PR_DESCRIPTION_MAX_LENGTH },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
@@ -1004,7 +1005,7 @@ const executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>> = nu
       'github.publish-pr@1',
       reviewedCapabilityContracts['github.publish-pr@1'],
       reviewedGithubPublicationImplementationRevision,
-      '814f1847130d8067123a81fee4be99148b2434d96687a96796389f16471a4845',
+      'b2a8ec89293c095d6566c0def554c176e9334eeb0f88676a367fad3ce25199cb',
       executorGoldenOutput,
       approvalRequiredExecutor,
     ),

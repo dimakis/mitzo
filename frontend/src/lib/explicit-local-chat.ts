@@ -22,7 +22,16 @@ import {
 } from './chat-runtime-selection';
 const ref = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
 const account = SessionRuntimeBindingV1Schema.shape.account
-  .extend({ provider: z.enum(['openai-codex', 'openai', 'anthropic-vertex', 'google-vertex']) })
+  .extend({
+    provider: z.enum([
+      'openai-codex',
+      'openai',
+      'anthropic-vertex',
+      'anthropic-claude',
+      'anthropic-api',
+      'google-vertex',
+    ]),
+  })
   .strict();
 const model = z.strictObject({
   id: ref,
@@ -38,68 +47,62 @@ export const ExplicitLocalInventorySchema = z
     defaultLocalRepository: z.boolean().optional(),
     defaultOpenShellWorkspace: z.boolean().optional(),
     capabilityRevision: ref,
-    accounts: z
-      .array(
-        z.strictObject({
-          account,
-          label: z.string().min(1).max(256),
-          models: z.array(model).min(1).max(256),
-          modelDiscovery: z.strictObject({
+    accounts: z.array(
+      z.strictObject({
+        account,
+        label: z.string().min(1).max(256),
+        models: z.array(model).min(1).max(256),
+        modelDiscovery: z.strictObject({
+          source: z.enum(['cached', 'configured']),
+          stale: z.boolean(),
+          updatedAt: z.number().finite().nonnegative().optional(),
+        }),
+      }),
+    ),
+    targets: z.array(
+      z.strictObject({
+        targetId: ref,
+        targetRevision: ref,
+        label: z.string().min(1).max(256),
+        location: z.enum(['local', 'openshell']),
+        harness: z.enum(['codex', 'responses', 'claude-sdk', 'gemini']),
+      }),
+    ),
+    routes: z.array(
+      z.strictObject({
+        account,
+        targetId: ref,
+        location: z.enum(['local', 'openshell']).optional(),
+        harness: z.enum(['codex', 'responses', 'claude-sdk', 'gemini']),
+        modes: z.array(z.enum(['ask', 'agent', 'auto'])).max(3),
+        skillCeiling: z.literal('unsupported').optional(),
+        agentProfiles: z.array(AgentProfileSelectionSchema).max(256).optional(),
+        agentProfileRejections: z
+          .array(
+            z.strictObject({
+              agent: AgentProfileSelectionSchema,
+              reason: z.enum([
+                'provider_incompatible',
+                'sandbox_context_preset_unconfigured',
+                'native_pack_context_unavailable',
+                'native_context_unavailable',
+                'tool_selection_unavailable',
+              ]),
+            }),
+          )
+          .max(256)
+          .optional(),
+        capabilityRevision: ref.optional(),
+        models: z.array(model).min(1).max(256).optional(),
+        modelDiscovery: z
+          .strictObject({
             source: z.enum(['cached', 'configured']),
             stale: z.boolean(),
             updatedAt: z.number().finite().nonnegative().optional(),
-          }),
-        }),
-      )
-      .max(64),
-    targets: z
-      .array(
-        z.strictObject({
-          targetId: ref,
-          targetRevision: ref,
-          label: z.string().min(1).max(256),
-          location: z.enum(['local', 'openshell']),
-          harness: z.enum(['codex', 'responses', 'claude-sdk', 'gemini']),
-        }),
-      )
-      .max(64),
-    routes: z
-      .array(
-        z.strictObject({
-          account,
-          targetId: ref,
-          location: z.enum(['local', 'openshell']).optional(),
-          harness: z.enum(['codex', 'responses', 'claude-sdk', 'gemini']),
-          modes: z.array(z.enum(['ask', 'agent', 'auto'])).max(3),
-          skillCeiling: z.literal('unsupported').optional(),
-          agentProfiles: z.array(AgentProfileSelectionSchema).max(256).optional(),
-          agentProfileRejections: z
-            .array(
-              z.strictObject({
-                agent: AgentProfileSelectionSchema,
-                reason: z.enum([
-                  'provider_incompatible',
-                  'sandbox_context_preset_unconfigured',
-                  'native_pack_context_unavailable',
-                  'native_context_unavailable',
-                  'tool_selection_unavailable',
-                ]),
-              }),
-            )
-            .max(256)
-            .optional(),
-          capabilityRevision: ref.optional(),
-          models: z.array(model).min(1).max(256).optional(),
-          modelDiscovery: z
-            .strictObject({
-              source: z.enum(['cached', 'configured']),
-              stale: z.boolean(),
-              updatedAt: z.number().finite().nonnegative().optional(),
-            })
-            .optional(),
-        }),
-      )
-      .max(128),
+          })
+          .optional(),
+      }),
+    ),
     locations: z
       .array(
         z.strictObject({

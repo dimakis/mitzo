@@ -1,4 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
+import { reportToolFailure } from './tool-failure-reporting.js';
+import { copyCallbackOutcome } from './turn-callbacks.js';
 import { GeminiSession, type GeminiOptions } from './gemini-session.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
@@ -119,25 +121,15 @@ export class NativeResponsesRunner {
   getSelectedModel() {
     return this.selectedModel;
   }
-  currentInferenceSelection() {
-    return { model: this.selectedModel, reasoningEffort: this.reasoningEffort ?? null };
-  }
-  captureInferenceSelection() {
+  captureActiveCallAuthority() {
     const active = this.active;
-    if (!active) throw Error('Active provider inference selection required');
-    active.signal.throwIfAborted();
-    const selected = this.currentInferenceSelection();
-    return Object.freeze({
-      ...selected,
-      assertCurrentSync: () => {
-        active.signal.throwIfAborted();
-        if (
-          this.active !== active ||
-          !isDeepStrictEqual(this.currentInferenceSelection(), selected)
-        )
-          throw Error('Original provider inference selection changed');
-      },
-    });
+    if (!active) throw Error('Active provider call required');
+    const assertCurrentSync = () => {
+      active.signal.throwIfAborted();
+      if (this.active !== active) throw Error('Original provider call expired');
+    };
+    assertCurrentSync();
+    return Object.freeze({ assertCurrentSync });
   }
   waitUntilIdle() {
     if (!this.active) return Promise.resolve();
@@ -278,20 +270,23 @@ export class NativeResponsesRunner {
         sessionId: opts.conversationId,
         maxTurns: opts.maxTurns ?? 50,
         signal: abort.signal,
-        executeTool: async (block) => {
+        executeTool: async (block, toolSignal) => {
           try {
             if (opts.commandAuthority) await opts.commandAuthority.assertEffect(messageId!);
-            return await opts.executeTool(block, abort.signal);
-          } catch {
-            // Redact native failures here; the generic loop catch remains for other callers.
-            return {
-              type: 'tool_result',
+            return await opts.executeTool(block, toolSignal);
+          } catch (error) {
+            const failure = reportToolFailure(error, {
+              sessionId: opts.conversationId,
+              tool: block.name,
+              callId: block.id,
+              signal: toolSignal,
+            });
+            return copyCallbackOutcome(failure, {
+              type: 'tool_result' as const,
               tool_use_id: block.id,
-              content: abort.signal.aborted
-                ? 'Execution interrupted. Outcome unknown; inspect current state before retrying.'
-                : 'Native tool execution failed; inspect current state before retrying.',
+              content: failure.content,
               is_error: true,
-            };
+            });
           }
         },
         onHistory: (history) => {

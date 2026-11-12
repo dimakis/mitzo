@@ -9,7 +9,7 @@
 
 import type { SessionRegistry, ActiveSessionInfo } from '@mitzo/harness';
 import type { SseRegistry } from '@mitzo/harness';
-import { getPendingCountBySession } from '@mitzo/harness';
+import { getPendingCountBySession, onPermissionLifecycle } from '@mitzo/harness';
 import type {
   SessionActivity,
   SessionActivityState,
@@ -21,9 +21,13 @@ import type { LoopStatus } from './task-orchestrator.js';
 import type { TaskStore } from './task-store.js';
 import { hasUncommittedWorkAsync } from './worktree.js';
 import { createLogger } from './logger.js';
-import { sessionModelIdentity } from './session-list-metadata.js';
+import { readSessionModelSelection, sessionModelIdentity } from './session-list-metadata.js';
+import { SessionActivityEvents } from './session-activity-events.js';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
+
+export type SessionChangeEvent =
+  'start' | 'end' | 'turn_start' | 'turn_end' | 'user_message' | 'detach';
 
 const log = createLogger('session-overview');
 
@@ -74,6 +78,8 @@ interface UncommittedCacheEntry {
 }
 
 export class SessionOverviewEmitter {
+  private unsubscribePermissions: () => void;
+  private activityEvents = new SessionActivityEvents();
   private deps: SessionOverviewDeps;
   private coalesceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Track last assistant event time per clientId for timeout derivation. */
@@ -83,7 +89,7 @@ export class SessionOverviewEmitter {
   /** Cached lastSpeakerAt + lastSpeaker per sessionId — avoids per-broadcast SQLite lookups. */
   private speakerCache = new Map<
     string,
-    { speaker: 'user' | 'assistant' | null; at: number | null }
+    { speaker: 'user' | 'assistant' | null; at: number | null; lastUserMessageAt?: number }
   >();
   /** Background refresh interval for uncommitted work checks. */
   private uncommittedRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -94,17 +100,55 @@ export class SessionOverviewEmitter {
 
   constructor(deps: SessionOverviewDeps) {
     this.deps = deps;
+    this.unsubscribePermissions = onPermissionLifecycle(() => this.scheduleBroadcast());
     this.startUncommittedRefresh();
   }
 
   /**
-   * Record an event time for a session (call on turn start/end, attach, etc.).
+   * Record an execution event time for a session, independent of viewer attachment.
    * Used for Done → Idle timeout derivation.
    * Also schedules a future broadcast so that done → idle fires on time.
    */
   touch(clientId: string): void {
     this.lastEventTimes.set(clientId, Date.now());
     this.scheduleIdleTransition();
+  }
+
+  setTurnRunning(clientId: string, running: boolean): void {
+    const session = this.deps.registry.get(clientId);
+    if (!session || session.turnInProgress === running) return;
+    session.turnInProgress = running;
+    if (running) this.activityEvents.start(clientId);
+    else this.activityEvents.finish(clientId);
+    this.touch(clientId);
+    this.scheduleBroadcast();
+  }
+
+  observeEvent(clientId: string, event: Readonly<Record<string, unknown>>): void {
+    const session = this.deps.registry.get(clientId);
+    if (!session?.turnInProgress || session.sessionId !== event.sessionId) return;
+    if (this.activityEvents.observe(clientId, event)) this.scheduleBroadcast();
+  }
+
+  /** Registration and retained input do not establish provider execution. */
+  sessionChanged(clientId: string, event: SessionChangeEvent, sessionId?: string): void {
+    if (event === 'turn_start') {
+      this.setTurnRunning(clientId, true);
+    } else if (event === 'end') {
+      this.forget(clientId, sessionId);
+    } else if (event === 'user_message') {
+      this.activityEvents.message(clientId);
+      const session = this.deps.registry.get(clientId);
+      if (session?.sessionId) this.updateSpeaker(session.sessionId, 'user');
+    } else if (event === 'turn_end') {
+      this.setTurnRunning(clientId, false);
+      const session = this.deps.registry.get(clientId);
+      if (session?.sessionId) {
+        this.deps.eventStore.updateLastSpeaker(session.sessionId, 'assistant');
+        this.updateSpeaker(session.sessionId, 'assistant');
+      }
+    }
+    this.scheduleBroadcast();
   }
 
   /**
@@ -138,6 +182,7 @@ export class SessionOverviewEmitter {
    * Clean up tracking for a removed session.
    */
   forget(clientId: string, sessionId?: string): void {
+    this.activityEvents.forget(clientId);
     if (this.lastEventTimes.delete(clientId)) this.scheduleIdleTransition();
     if (sessionId) {
       this.speakerCache.delete(sessionId);
@@ -213,8 +258,14 @@ export class SessionOverviewEmitter {
     taskWaitForGoal: (goalId: string) => WaitReason | null,
   ): SessionActivity {
     const sessionId = session.sessionId ?? '';
-    const lastEventAt = this.lastEventTimes.get(session.clientId) ?? now;
+    const speaker = this.getCachedSpeaker(sessionId);
+    const lastEventAt = this.lastEventTimes.get(session.clientId) ?? speaker.at ?? now;
+    if (!this.lastEventTimes.has(session.clientId)) {
+      this.lastEventTimes.set(session.clientId, lastEventAt);
+      this.scheduleIdleTransition();
+    }
     const elapsed = now - lastEventAt;
+    const turnRunning = session.turnInProgress ?? session.hasSnapshot;
 
     // Collect all applicable states
     const states: SessionActivityState[] = [];
@@ -263,27 +314,9 @@ export class SessionOverviewEmitter {
       if (waitReason !== 'permission') waitReason = 'review';
     }
 
-    // 4. Transport/streaming state
-    if (session.attached) {
-      if (session.hasSnapshot) {
-        // Currently streaming a response
-        states.push('working');
-      } else if (states.length === 0) {
-        // Attached but not streaming — either just finished or init
-        if (elapsed < DONE_TIMEOUT_MS) {
-          states.push('done');
-        } else {
-          states.push('idle');
-        }
-      }
-    } else {
-      // Detached
-      if (elapsed < DONE_TIMEOUT_MS) {
-        states.push('done');
-      } else {
-        states.push('idle');
-      }
-    }
+    // A provider turn can keep running between messages or without an attached viewer.
+    if (turnRunning) states.push('working');
+    else if (states.length === 0) states.push(elapsed < DONE_TIMEOUT_MS ? 'done' : 'idle');
 
     // Fallback: if no states collected, it's init
     if (states.length === 0) {
@@ -309,9 +342,8 @@ export class SessionOverviewEmitter {
 
     // Check if awaiting user reply (assistant spoke last, not streaming, not waiting for input)
     // Exclude 'waiting' state — sessions needing permission/review should sort as waiting, not awaiting reply
-    const speaker = this.getCachedSpeaker(sessionId);
     const awaitingReply =
-      speaker.speaker === 'assistant' && !session.hasSnapshot && primaryState !== 'waiting';
+      speaker.speaker === 'assistant' && !turnRunning && primaryState !== 'waiting';
     const speakerAt = speaker.at ?? lastEventAt;
     const idleMinutes = Math.max(0, Math.round((now - speakerAt) / 60_000));
 
@@ -319,7 +351,11 @@ export class SessionOverviewEmitter {
       sessionId,
       clientId: session.clientId,
       title,
-      model: session.model,
+      ...sessionModelIdentity(
+        { selectedModel: session.model },
+        undefined,
+        readSessionModelSelection(this.deps.eventStore, sessionId),
+      ),
       accountLabel: session.accountLabel,
       repo,
       state: primaryState,
@@ -327,6 +363,15 @@ export class SessionOverviewEmitter {
       waitReason: primaryState === 'waiting' ? waitReason : undefined,
       progress,
       lastEventAt,
+      lastUserMessageAt: speaker.lastUserMessageAt,
+      ...this.activityEvents.get(session.clientId),
+      lastMessageAt:
+        Math.max(speaker.at ?? 0, this.activityEvents.get(session.clientId).lastMessageAt ?? 0) ||
+        undefined,
+      stateChangedAt: this.activityEvents.state(
+        session.clientId,
+        `${primaryState}:${waitReason ?? ''}`,
+      ),
       taskId,
       uncommittedWork,
       awaitingReply,
@@ -357,11 +402,17 @@ export class SessionOverviewEmitter {
       sessionId: meta.sessionId,
       clientId: meta.sessionId, // No live clientId — use sessionId
       title,
-      ...sessionModelIdentity(meta),
+      ...sessionModelIdentity(
+        meta,
+        undefined,
+        readSessionModelSelection(this.deps.eventStore, meta.sessionId),
+      ),
       repo,
       state,
       flags: [],
       lastEventAt,
+      lastMessageAt: meta.lastSpeakerAt ?? undefined,
+      completedAt: meta.lastSpeaker === 'assistant' ? (meta.lastSpeakerAt ?? undefined) : undefined,
       taskId: meta.goalId ?? undefined,
       uncommittedWork,
       awaitingReply: state === 'done', // Only meaningful while still active
@@ -376,12 +427,17 @@ export class SessionOverviewEmitter {
   private getCachedSpeaker(sessionId: string): {
     speaker: 'user' | 'assistant' | null;
     at: number | null;
+    lastUserMessageAt?: number;
   } {
     const cached = this.speakerCache.get(sessionId);
     if (cached) return cached;
     const meta = this.deps.eventStore.getSession(sessionId);
     const speaker = meta?.lastSpeaker as 'user' | 'assistant' | undefined;
-    const entry = { speaker: speaker ?? null, at: meta?.lastSpeakerAt ?? null };
+    const entry = {
+      speaker: speaker ?? null,
+      at: meta?.lastSpeakerAt ?? null,
+      lastUserMessageAt: speaker === 'user' ? (meta?.lastSpeakerAt ?? undefined) : undefined,
+    };
     this.speakerCache.set(sessionId, entry);
     return entry;
   }
@@ -391,7 +447,13 @@ export class SessionOverviewEmitter {
    * Call this from the turn_end / user_message event handlers.
    */
   updateSpeaker(sessionId: string, speaker: 'user' | 'assistant'): void {
-    this.speakerCache.set(sessionId, { speaker, at: Date.now() });
+    const at = Date.now();
+    this.speakerCache.set(sessionId, {
+      speaker,
+      at,
+      lastUserMessageAt:
+        speaker === 'user' ? at : this.speakerCache.get(sessionId)?.lastUserMessageAt,
+    });
   }
 
   /**
@@ -459,11 +521,26 @@ export class SessionOverviewEmitter {
    */
   private collectSessionCwds(): Set<string> {
     const cwds = new Set<string>();
+    const add = (cwd: string | null | undefined, sessionId: string | undefined) => {
+      if (!cwd) return;
+      try {
+        if (
+          sessionId &&
+          this.deps.eventStore.getSessionRuntimeBinding?.(sessionId)?.execution.location ===
+            'openshell'
+        )
+          return;
+      } catch {
+        // An unreadable runtime binding cannot select a host filesystem probe.
+        return;
+      }
+      cwds.add(cwd);
+    };
     for (const s of this.deps.registry.getActiveSessions()) {
-      if (s.cwd) cwds.add(s.cwd);
+      add(s.cwd, s.sessionId);
     }
     for (const meta of this.deps.eventStore.getAttentionSessions()) {
-      if (meta.cwd) cwds.add(meta.cwd);
+      add(meta.cwd, meta.sessionId);
     }
     return cwds;
   }
@@ -500,6 +577,7 @@ export class SessionOverviewEmitter {
   }
 
   destroy(): void {
+    this.unsubscribePermissions();
     if (this.coalesceTimer) {
       clearTimeout(this.coalesceTimer);
       this.coalesceTimer = null;
@@ -513,6 +591,7 @@ export class SessionOverviewEmitter {
       this.uncommittedRefreshTimer = null;
     }
     this.lastEventTimes.clear();
+    this.activityEvents.clear();
     this.uncommittedCache.clear();
     this.speakerCache.clear();
   }

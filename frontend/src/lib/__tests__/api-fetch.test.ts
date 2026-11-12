@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MitzoApiClient } from '@mitzo/client';
 import {
   apiFetch,
   invalidateTodoReads,
@@ -572,50 +573,220 @@ it('starts a new Telos read after a successful write while an older read is stil
   await old;
 });
 
-it('shares concurrent Telos relationship reads while keeping each subscriber cancellation independent', async () => {
-  let finish!: (response: Response) => void;
-  mockFetch.mockImplementationOnce(
+function readMount(path: string, init?: RequestInit) {
+  return apiFetch(
+    path,
+    init,
+    path.startsWith('/api/sessions/') ? 'session-metadata-mount' : undefined,
+  );
+}
+
+it('shares initial settings and Telos reads while the client store retains its independent fresh read', async () => {
+  const finishes: Array<(response: Response) => void> = [];
+  mockFetch.mockImplementation(
     () =>
       new Promise<Response>((resolve) => {
-        finish = resolve;
+        finishes.push(resolve);
       }),
   );
-  const firstController = new AbortController(),
-    secondController = new AbortController();
-  const path = '/api/telos/work/items/same-item';
-  const first = apiFetch(path, { signal: firstController.signal });
-  const second = apiFetch(path, { signal: secondController.signal });
-  const rejected = expect(first).rejects.toMatchObject({ name: 'AbortError' });
-  firstController.abort();
-  await rejected;
-  finish(Response.json({ itemId: 'same-item' }));
-  expect(await (await second).json()).toEqual({ itemId: 'same-item' });
-  expect(mockFetch.mock.calls[0][1].signal.aborted).toBe(false);
-  expect(mockFetch).toHaveBeenCalledTimes(1);
-});
-it('retires shared Telos reads when authentication changes and never shares a mutation', async () => {
-  let finish!: (response: Response) => void;
-  mockFetch.mockImplementationOnce(
-    () =>
-      new Promise<Response>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  const path = '/api/telos/work/items/same-item';
-  const old = apiFetch(path, { signal: new AbortController().signal });
-  const oldFailure = expect(old).rejects.toMatchObject({ name: 'AbortError' });
-  loginSucceeded('new-operator');
-  mockFetch.mockResolvedValueOnce(Response.json({ itemId: 'fresh' }));
-  const fresh = apiFetch(path, { signal: new AbortController().signal });
-  finish(Response.json({ itemId: 'stale' }));
-  await oldFailure;
-  expect(await (await fresh).json()).toEqual({ itemId: 'fresh' });
-  await Promise.all([
-    apiFetch('/api/telos/work/commands', { method: 'POST' }),
-    apiFetch('/api/telos/work/commands', { method: 'POST' }),
+  const path = '/api/sessions/same-chat/meta';
+  const settings = readMount(path, { signal: new AbortController().signal });
+  const telos = readMount(path, { signal: new AbortController().signal });
+  const stored = new MitzoApiClient(apiFetch).getSessionMeta('same-chat');
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+  for (const finish of finishes)
+    finish(Response.json({ sessionId: 'same-chat', branch: 'original' }));
+  const [a, b, c] = await Promise.all([
+    settings.then((r) => r.json()),
+    telos.then((r) => r.json()),
+    stored,
   ]);
-  expect(mockFetch).toHaveBeenCalledTimes(4);
+  expect([a, b, c]).toEqual(Array(3).fill({ sessionId: 'same-chat', branch: 'original' }));
 });
+
+it('starts a later metadata refresh without joining an older pending render burst', async () => {
+  vi.useFakeTimers();
+  const finishes: Array<(response: Response) => void> = [];
+  mockFetch.mockImplementation(
+    () =>
+      new Promise<Response>((resolve) => {
+        finishes.push(resolve);
+      }),
+  );
+  const path = '/api/sessions/same-chat/meta';
+  const old = readMount(path);
+  await vi.advanceTimersByTimeAsync(0);
+  const fresh = readMount(path);
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+  finishes[1](Response.json({ revision: 'fresh' }));
+  finishes[0](Response.json({ revision: 'old' }));
+  expect(await (await fresh).json()).toEqual({ revision: 'fresh' });
+  expect(await (await old).json()).toEqual({ revision: 'old' });
+});
+
+it('fences an explicit metadata revision read before the mount timer fires', async () => {
+  vi.useFakeTimers();
+  const finishes: Array<(response: Response) => void> = [];
+  mockFetch.mockImplementation(
+    () =>
+      new Promise<Response>((resolve) => {
+        finishes.push(resolve);
+      }),
+  );
+  const path = '/api/sessions/same-chat/meta';
+  const old = readMount(path);
+  const revision = apiFetch(path);
+  const nextMount = readMount(path);
+  expect(mockFetch).toHaveBeenCalledTimes(3);
+  finishes.forEach((finish, index) => finish(Response.json({ revision: index })));
+  expect(await (await old).json()).toEqual({ revision: 0 });
+  expect(await (await revision).json()).toEqual({ revision: 1 });
+  expect(await (await nextMount).json()).toEqual({ revision: 2 });
+});
+
+it('keeps metadata body cancellation owned until every subscriber leaves', async () => {
+  let body!: ReadableStreamDefaultController<Uint8Array>;
+  let transportSignal!: AbortSignal;
+  mockFetch.mockImplementationOnce(async (_url, init) => {
+    transportSignal = init.signal;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          body = controller;
+        },
+      }),
+    );
+    transportSignal.addEventListener(
+      'abort',
+      () => body.error(new DOMException('Cancelled', 'AbortError')),
+      { once: true },
+    );
+    return response;
+  });
+  const one = new AbortController(),
+    two = new AbortController();
+  const first = readMount('/api/sessions/body/meta', { signal: one.signal });
+  const second = readMount('/api/sessions/body/meta', { signal: two.signal });
+  await Promise.resolve();
+  const firstFailure = expect(first).rejects.toMatchObject({ name: 'AbortError' });
+  one.abort();
+  await firstFailure;
+  expect(transportSignal.aborted).toBe(false);
+  const secondFailure = expect(second).rejects.toMatchObject({ name: 'AbortError' });
+  two.abort();
+  await secondFailure;
+  expect(transportSignal.aborted).toBe(true);
+  expect(mockFetch).toHaveBeenCalledOnce();
+});
+
+it('handles metadata authentication loss from headers without waiting for a stalled error body', async () => {
+  loginSucceeded('expired-operator');
+  let body!: ReadableStreamDefaultController<Uint8Array>;
+  mockFetch.mockResolvedValueOnce(
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          body = controller;
+        },
+      }),
+      { status: 401 },
+    ),
+  );
+  const lost = vi.fn();
+  window.addEventListener(AUTH_LOST_EVENT, lost);
+  try {
+    const pending = readMount('/api/sessions/expired/meta');
+    await vi.waitFor(() => expect(lost).toHaveBeenCalledOnce());
+    expect((await pending).status).toBe(401);
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+  } finally {
+    body.close();
+    window.removeEventListener(AUTH_LOST_EVENT, lost);
+  }
+});
+
+it.each([false, true])(
+  'retires metadata both before and after a mutation (failure=%s)',
+  async (failure) => {
+    vi.useFakeTimers();
+    const finishes: Array<(response: Response) => void> = [];
+    const failures: Array<(error: Error) => void> = [];
+    mockFetch.mockImplementation(
+      () =>
+        new Promise<Response>((resolve, reject) => {
+          finishes.push(resolve);
+          failures.push(reject);
+        }),
+    );
+    const path = '/api/sessions/same-chat/meta';
+    const old = readMount(path);
+    const mutation = apiFetch('/api/sessions/same-chat/settings', { method: 'POST' });
+    const during = readMount(path);
+    if (failure) {
+      const rejected = expect(mutation).rejects.toThrow('uncertain');
+      failures[1](Error('uncertain'));
+      await rejected;
+    } else {
+      finishes[1](Response.json({ ok: true }));
+      await mutation;
+    }
+    const after = readMount(path);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    for (const index of [0, 2, 3]) finishes[index](Response.json({ revision: index }));
+    expect(await (await old).json()).toEqual({ revision: 0 });
+    expect(await (await during).json()).toEqual({ revision: 2 });
+    expect(await (await after).json()).toEqual({ revision: 3 });
+  },
+);
+
+it.each(['/api/telos/work/items/same-item', '/api/sessions/same-chat/meta'])(
+  'shares %s while keeping each subscriber cancellation independent',
+  async (path) => {
+    let finish!: (response: Response) => void;
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const firstController = new AbortController(),
+      secondController = new AbortController();
+    const first = readMount(path, { signal: firstController.signal });
+    const second = readMount(path, { signal: secondController.signal });
+    const rejected = expect(first).rejects.toMatchObject({ name: 'AbortError' });
+    firstController.abort();
+    await rejected;
+    finish(Response.json({ itemId: 'same-item' }));
+    expect(await (await second).json()).toEqual({ itemId: 'same-item' });
+    expect(mockFetch.mock.calls[0][1].signal.aborted).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  },
+);
+it.each(['/api/telos/work/items/same-item', '/api/sessions/same-chat/meta'])(
+  'retires %s when authentication changes and never shares a mutation',
+  async (path) => {
+    let finish!: (response: Response) => void;
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const old = readMount(path, { signal: new AbortController().signal });
+    const oldFailure = expect(old).rejects.toMatchObject({ name: 'AbortError' });
+    loginSucceeded('new-operator');
+    mockFetch.mockResolvedValueOnce(Response.json({ itemId: 'fresh' }));
+    const fresh = readMount(path, { signal: new AbortController().signal });
+    finish(Response.json({ itemId: 'stale' }));
+    await oldFailure;
+    expect(await (await fresh).json()).toEqual({ itemId: 'fresh' });
+    await Promise.all([
+      apiFetch('/api/telos/work/commands', { method: 'POST' }),
+      apiFetch('/api/telos/work/commands', { method: 'POST' }),
+    ]);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+  },
+);
 
 it('clears pending relationship reads from before an invalidation when the login changes', async () => {
   let finish!: (response: Response) => void;

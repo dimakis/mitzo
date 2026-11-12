@@ -50,8 +50,15 @@ type NativeReaderPathAuthorization = Readonly<{
   assertCurrentSync: NonNullable<LocalRepositoryReadAuthority['assertCurrentSync']>;
 }>;
 // Provenance only, never a retained authorization result. The registered entry
-// starts with the full fresh original-owner fence before any path effect/await.
+// retains fresh full original-owner fences at physical I/O and outward verification.
 const nativePathAuthorizations = new WeakMap<object, NativeReaderPathAuthorization>();
+const disposedReaders = new WeakSet<object>();
+
+/** Original read-only helpers have joined and their private scratch is gone.
+ * This observes cleanup; it grants no read, result delivery or write authority. */
+export function nativeRepositoryReadCleanupSettled(reader: object): boolean {
+  return disposedReaders.has(reader);
+}
 const repositoryBaseCaptures = new WeakMap<object, object>();
 type NativeTopologyAssertion = (
   task: Readonly<RepositoryTaskCheckout>,
@@ -137,9 +144,10 @@ export async function captureLocalRepositoryReader(
   ownerSignal: AbortSignal,
   assertCurrentSync: () => void,
   revalidate: () => Promise<void>,
-  options: { deadline: number },
+  options: { deadline: number; beforePhysicalRead?(): Promise<void> },
 ): Promise<LocalRepositoryReadAuthority & { dispose(): Promise<void> }> {
   const deadline = options.deadline;
+  const beforePhysicalRead = options.beforePhysicalRead ?? revalidate;
   let disposed = false;
   let closing: Promise<void> | undefined;
   const abort = new AbortController();
@@ -168,7 +176,10 @@ export async function captureLocalRepositoryReader(
   let scratch: string | undefined;
   const custody = new AuthoritySnapshot();
   try {
-    await revalidate();
+    // Only independently owned private scratch is allocated here. The original
+    // synchronous policy, revocation and cancellation fence owns that setup;
+    // full physical-owner validation remains immediately before source helper
+    // spawn and after its result. No source/task path is accessed by setup.
     current();
     scratch = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-native-read-')));
     current();
@@ -207,7 +218,7 @@ export async function captureLocalRepositoryReader(
           timeoutMs: Math.max(1, Math.min(request.timeoutMs, deadline - Date.now())),
           maxOutputBytes: request.maxOutputBytes,
           beforeSpawnAsync: async () => {
-            await revalidate();
+            await beforePhysicalRead();
             current();
           },
           beforeSpawn: () => {
@@ -531,6 +542,7 @@ export async function captureLocalRepositoryReader(
           try {
             custody.verify();
             await rm(directory, { recursive: true, force: true });
+            disposedReaders.add(reader);
           } catch {
             throw unavailable();
           }

@@ -1,4 +1,5 @@
 import { apiFetch } from '../lib/api-fetch';
+import { ReplyQuote } from './ReplyQuote';
 import type { QueuedMessage } from '../hooks/useQueuedMessages';
 import { QueuedDraftTray } from './QueuedDraftTray';
 import type { MessageReplyContext } from '@mitzo/protocol';
@@ -34,7 +35,11 @@ import { SlashPicker } from './SlashPicker';
 import { SessionResourcesDialog } from './SessionResourcesDialog';
 import { ImageAttachmentEditor } from './ImageAttachmentEditor';
 import { ComposerTools } from './ComposerTools';
+import type { ChatComposerCapabilities } from '../lib/chat-composer-capabilities';
+import { SessionTimersDialog } from './SessionTimersDialog';
 import { UiIcon } from './UiIcon';
+import { ComposerStatusProvider, ComposerStatusRail } from './ComposerStatus';
+import { useComposerStatusSink } from '../lib/composer-status-context';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
@@ -70,6 +75,7 @@ export interface ChatInputDraftControl {
 }
 
 interface Props {
+  composerCapabilities?: ChatComposerCapabilities;
   steeringTargetCommandId?: string;
   replyTarget?: MessageReplyContext;
   onClearReply?: () => void;
@@ -102,6 +108,7 @@ interface Props {
     onDefinitiveRefusal?: () => void,
   ) => void;
   running: boolean;
+  awaitingApproval?: boolean;
   initialText?: string;
   /** Prompt storage ownership independent of the provider session identity. */
   draftStorageKey?: string;
@@ -117,6 +124,7 @@ interface Props {
   /** Validate the actual edited payload against the selected route before sending. */
   validateSend?: (text: string, images?: ImageAttachment[]) => string | undefined;
   cwd?: string;
+  skillWorkspaceId?: string;
   voice?: UseVoiceReturn;
   branch?: string;
   isWorktree?: boolean;
@@ -142,7 +150,18 @@ interface Props {
 
 const EMPTY_MESSAGES: FinishedMessage[] = [];
 
-export function ChatInput({
+export function ChatInput(props: Props) {
+  const sink = useComposerStatusSink();
+  return sink ? (
+    <ChatInputContent {...props} />
+  ) : (
+    <ComposerStatusProvider>
+      <ChatInputContent {...props} />
+    </ComposerStatusProvider>
+  );
+}
+
+function ChatInputContent({
   steeringTargetCommandId,
   replyTarget,
   onClearReply,
@@ -156,6 +175,7 @@ export function ChatInput({
   onStop,
   onInterrupt,
   running,
+  awaitingApproval,
   initialText,
   draftStorageKey: suppliedDraftStorageKey,
   savedChatDraft,
@@ -165,8 +185,10 @@ export function ChatInput({
   sendDisabledAction,
   boundedFirstCommand = false,
   guardedConversation = false,
+  composerCapabilities,
   validateSend,
   cwd,
+  skillWorkspaceId,
   voice,
   branch,
   isWorktree,
@@ -187,6 +209,10 @@ export function ChatInput({
   bootContext,
   sessionContext,
 }: Props) {
+  const commandMode =
+    composerCapabilities?.commands ??
+    (boundedFirstCommand || guardedConversation ? 'unavailable' : 'legacy');
+  const commandsDisabled = commandMode === 'unavailable' || textOnly;
   const draftStorageKey = savedChatDraft
     ? chatDraftStorageKey(savedChatDraft.id)
     : suppliedDraftStorageKey;
@@ -195,6 +221,7 @@ export function ChatInput({
     pending: object;
     scope: number;
     textRevision: number;
+    images: ImageAttachment[];
     composerGeneration: number;
   } | null>(null);
   // Acceptance can precede the routed render. Keep its exact assignment until
@@ -255,6 +282,7 @@ export function ChatInput({
     prepareSubmission,
     releaseSubmission,
     update: updateQueued,
+    retryPersistence,
     dequeue,
     restoreRejected,
     removeSubmitted,
@@ -310,8 +338,10 @@ export function ChatInput({
     if (!revision || consumedRevision.current === revision) return;
     consumedRevision.current = revision;
     setImages([]);
-    if (!useExternal) setContextBlocks([]);
-  }, [draftReceipt.consumedRevision, useExternal]);
+    // Clear the consumed owner's shadow even while the parent controls context;
+    // assignment may hand this composer back to its internal state next render.
+    setContextBlocks([]);
+  }, [draftReceipt.consumedRevision]);
   const settingsSignature = JSON.stringify(savedChatDraft?.settings);
   const volatileClearedDraft = useRef<{
     settingsSignature: string;
@@ -520,6 +550,7 @@ export function ChatInput({
   const replyRef = useRef(replyTarget);
   replyRef.current = replyTarget;
   const [expanded, setExpanded] = useState(false);
+  const [timerScope, setTimerScope] = useState<{ sessionId: string; prompt: string } | null>(null);
   const [queueEditorOpen, setQueueEditorOpen] = useState(false);
   const [deliveryRevision, settleDelivery] = useState(0);
   const [queueBusy, setQueueBusy] = useState(false);
@@ -587,14 +618,32 @@ export function ChatInput({
     (composerScope === pendingText.scope || pendingAssignment) &&
     latestDraft.current.textRevision === pendingText.textRevision + (pendingAssignment ? 1 : 0);
   const displayedText = hideSubmittedText ? '' : text;
-  const displayedDraft = useRef<{ pending?: object; text: string }>({ text });
-  displayedDraft.current = { pending: hideSubmittedText ? pendingText.pending : undefined, text };
+  const submittedImages =
+    pendingText &&
+    sendPending.current === pendingText.pending &&
+    (composerScope === pendingText.scope || pendingAssignment)
+      ? pendingText.images
+      : [];
+  const displayedImages = images.filter((image) => !submittedImages.includes(image));
+  const displayedDraft = useRef<{ pending?: object; text: string; images: ImageAttachment[] }>({
+    text,
+    images: [],
+  });
+  displayedDraft.current = {
+    pending: hideSubmittedText ? pendingText.pending : undefined,
+    text,
+    images: submittedImages,
+  };
   const editText = useCallback(
     (update: SetStateAction<string>) => {
       const pending = displayedDraft.current.pending;
       const submittedText = displayedDraft.current.text;
       const editingSubmitted = pending !== undefined && pending === sendPending.current;
       if (editingSubmitted) {
+        const submittedImages = displayedDraft.current.images;
+        // The outbox retains this exact payload. A new draft must not inherit
+        // its attachments when the user starts typing before the receipt.
+        setImages((current) => current.filter((image) => !submittedImages.includes(image)));
         displayedDraft.current.pending = undefined;
         setPendingText(null);
         // Pasting an identical next message is still a new draft revision.
@@ -672,6 +721,7 @@ export function ChatInput({
           pending,
           scope: submitted.scope,
           textRevision: submitted.textRevision,
+          images: payload.images,
           composerGeneration: submitted.composerGeneration,
         });
       // Keep dequeued input under the existing explicit-retry fence until a
@@ -745,7 +795,7 @@ export function ChatInput({
                 externalContextBlocks: useExternal ? activeContextBlocks : undefined,
               };
               setImages([]);
-              if (!useExternal) setContextBlocks([]);
+              setContextBlocks([]);
             }
             return;
           }
@@ -870,12 +920,13 @@ export function ChatInput({
         void sendOrdinary(q, true);
       }
     }
-    // Keep a completed turn pending while the editor is modal. Its already
-    // queued message may drain once editing closes, without sending this draft.
+    // Keep completion pending through temporary send blockers as well as modal
+    // editing. Clearing a blocker does not produce another running-to-idle edge.
     if (
       (!previewOpen &&
         !queueEditorOpen &&
         !queueBusy &&
+        !sendDisabledReason &&
         !sendPending.current &&
         !interruptPending.current) ||
       running
@@ -898,7 +949,7 @@ export function ChatInput({
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
   useEffect(() => {
-    if (boundedFirstCommand || guardedConversation) {
+    if (commandsDisabled) {
       setShowSlashPicker(false);
       return;
     }
@@ -908,7 +959,7 @@ export function ChatInput({
     } else {
       setShowSlashPicker(false);
     }
-  }, [displayedText, boundedFirstCommand, guardedConversation]);
+  }, [displayedText, commandsDisabled]);
 
   function handleSlashSelect(name: string) {
     editText((draft) => insertComposerCommand(draft, name));
@@ -930,25 +981,26 @@ export function ChatInput({
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     sendGuard.current = true;
-    if (draftStorageKey !== undefined) flushDraft();
-    const sent = await sendOrdinary({
-      text:
-        trimmed ||
-        (images.some((image) => image.name)
-          ? 'Please read the attached PDF.'
-          : 'What do you see in this image?'),
-      images: [...images],
-      contextBlocks: [...activeContextBlocks],
-      replyTo: replyTarget,
-    });
-    if (sent) {
-      impactMedium();
-      autoResize();
-      textareaRef.current?.focus();
-    }
-    requestAnimationFrame(() => {
+    try {
+      if (draftStorageKey !== undefined) flushDraft();
+      const sent = await sendOrdinary({
+        text:
+          trimmed ||
+          (images.some((image) => image.name)
+            ? 'Please read the attached PDF.'
+            : 'What do you see in this image?'),
+        images: [...images],
+        contextBlocks: [...activeContextBlocks],
+        replyTo: replyTarget,
+      });
+      if (sent) {
+        impactMedium();
+        autoResize();
+        textareaRef.current?.focus();
+      }
+    } finally {
       sendGuard.current = false;
-    });
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -1000,8 +1052,8 @@ export function ChatInput({
       mounted.current &&
       latestDraft.current.scope === operation.scope &&
       importPending.current === operation;
-    let remaining = MAX_IMAGE_ATTACHMENTS - images.length;
-    let remainingBytes = CHAT_MAX_ATTACHMENT_BYTES - chatAttachmentBytes(images);
+    let remaining = MAX_IMAGE_ATTACHMENTS - displayedImages.length;
+    let remainingBytes = CHAT_MAX_ATTACHMENT_BYTES - chatAttachmentBytes(displayedImages);
     try {
       for (const file of files) {
         if (!isCurrent()) return;
@@ -1027,7 +1079,7 @@ export function ChatInput({
         remaining -= attachments.length;
         setImages((prev) =>
           mounted.current && latestDraft.current.scope === operation.scope
-            ? [...prev, ...attachments]
+            ? [...prev.filter((image) => !submittedImages.includes(image)), ...attachments]
             : prev,
         );
       }
@@ -1055,7 +1107,7 @@ export function ChatInput({
 
   async function handlePaste(e: React.ClipboardEvent) {
     if (textOnly) return;
-    const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
+    const remaining = MAX_IMAGE_ATTACHMENTS - displayedImages.length;
     if (remaining <= 0) return;
     const files = extractImageFiles(e.clipboardData.items, remaining);
     if (!files.length) return;
@@ -1098,7 +1150,7 @@ export function ChatInput({
     return key;
   }
 
-  const canSend = displayedText.trim() || images.length > 0;
+  const canSend = displayedText.trim() || displayedImages.length > 0;
 
   const micProps = voice
     ? {
@@ -1244,11 +1296,7 @@ export function ChatInput({
       void sendOrdinary(q, true, recovering);
       return;
     }
-    if (
-      !onInterrupt ||
-      (interruptLabel === 'Steer current turn' && (q.images.length || q.contextBlocks.length))
-    )
-      return;
+    if (!onInterrupt || (interruptLabel === 'Steer current turn' && q.contextBlocks.length)) return;
     const pending = {};
     interruptPending.current = pending;
     if (!recovering) removeQueued(index);
@@ -1311,8 +1359,8 @@ export function ChatInput({
 
   const correctionReason =
     interruptDisabledReason ??
-    (interruptLabel === 'Steer current turn' && (images.length || activeContextBlocks.length)
-      ? 'Steering accepts text only. Queue attachments as a new message.'
+    (interruptLabel === 'Steer current turn' && activeContextBlocks.length
+      ? 'Queue context changes as a new message. Corrections keep the active turn’s context.'
       : undefined);
 
   function handleInterrupt() {
@@ -1335,76 +1383,69 @@ export function ChatInput({
     const pending = {};
     interruptPending.current = pending;
     const submitted = { ...latestDraft.current, replyTo: replyTarget };
-    onInterrupt(
-      attachmentPrompt(trimmed, images),
-      images.length > 0 ? images : undefined,
-      activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
-      (status) => {
-        if (status === 'uncertain') {
-          if (interruptLabel === 'Steer current turn' && interruptPending.current === pending)
-            interruptPending.current = null;
-          return;
-        }
-        if (interruptPending.current === pending) interruptPending.current = null;
-        if (mounted.current) settleDelivery((n) => n + 1);
-        if (!mounted.current || latestDraft.current.scope !== submitted.scope) return;
-        if (
-          latestDraft.current.revision !== submitted.revision ||
-          replyRef.current !== submitted.replyTo
-        ) {
-          if (status === 'failed')
-            restoreRejected({ ...submitted, text: trimmed || 'What do you see in this image?' });
-          return;
-        }
-        if (status === 'accepted') {
-          clearDraft();
-          if (replyRef.current === replyTarget) onClearReply?.();
-          setImages([]);
-          if (!useExternal) setContextBlocks([]);
-        }
-      },
-      ...(replyTarget ? ([replyTarget] as const) : ([] as const)),
-    );
+    try {
+      onInterrupt(
+        attachmentPrompt(trimmed, images),
+        images.length > 0 ? images : undefined,
+        activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
+        (status) => {
+          if (status === 'uncertain') {
+            if (interruptLabel === 'Steer current turn' && interruptPending.current === pending)
+              interruptPending.current = null;
+            return;
+          }
+          if (interruptPending.current === pending) interruptPending.current = null;
+          if (mounted.current) settleDelivery((n) => n + 1);
+          if (!mounted.current || latestDraft.current.scope !== submitted.scope) return;
+          if (
+            latestDraft.current.revision !== submitted.revision ||
+            replyRef.current !== submitted.replyTo
+          ) {
+            if (status === 'failed')
+              restoreRejected({ ...submitted, text: trimmed || 'What do you see in this image?' });
+            return;
+          }
+          if (status === 'accepted') {
+            clearDraft();
+            if (replyRef.current === replyTarget) onClearReply?.();
+            setImages([]);
+            if (!useExternal) setContextBlocks([]);
+          }
+        },
+        ...(replyTarget ? ([replyTarget] as const) : ([] as const)),
+      );
+    } finally {
+      // Dispatch must not depend on painting: iOS can suspend animation frames.
+      // interruptPending owns duplicate prevention until the delivery receipt.
+      sendGuard.current = false;
+    }
     // Local transport acceptance cannot confirm an interrupt. Keep its exact input
     // until an authoritative receipt, and protect edits made while it is pending.
-    requestAnimationFrame(() => {
-      sendGuard.current = false;
-    });
     autoResize();
     textareaRef.current?.focus();
   }
 
   return (
     <div className={`chat-input chat-input--compact${expanded ? ' chat-input--expanded' : ''}`}>
-      {currentSave &&
-        (currentSave.failed ||
-          chatStorage.failed ||
-          (currentSave.stored && !hideSubmittedText)) && (
-          <p
-            className="chat-draft-save-status"
-            role={currentSave.failed || chatStorage.failed ? 'alert' : 'status'}
-          >
-            {currentSave.failed || chatStorage.failed
-              ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
-              : chatStorage.pending
-                ? 'Saving draft on this device…'
-                : 'Draft saved on this device'}
-          </p>
-        )}
-      {attachmentError && (
-        <p className="chat-draft-save-status" role="alert">
-          {attachmentError}
-        </p>
+      <ComposerStatusRail
+        sessionId={sessionId}
+        running={running}
+        scope={composerScope}
+        awaitingApproval={awaitingApproval}
+      />
+      {currentSave && (currentSave.failed || chatStorage.failed) && (
+        <ChatStatusMessage error="Couldn’t save this draft on this device. Keep it open and free some storage before leaving." />
       )}
+      {attachmentError && <ChatStatusMessage error={attachmentError} />}
       {importing && (
-        <p className="chat-draft-save-status" role="status">
-          Importing attachment… PDFs become page images (up to {MAX_IMAGE_ATTACHMENTS} pages per
-          message).
-        </p>
+        <ChatStatusMessage
+          status={`Importing attachment… PDFs become page images (up to ${MAX_IMAGE_ATTACHMENTS} pages per message).`}
+          busy
+        />
       )}
-      {images.length > 0 && (
+      {displayedImages.length > 0 && (
         <div className="chat-input-previews">
-          {images.map((image, index) => (
+          {displayedImages.map((image, index) => (
             <div key={imageKey(image)} className="chat-input-preview">
               <button
                 type="button"
@@ -1424,7 +1465,7 @@ export function ChatInput({
                 type="button"
                 className="chat-input-preview-remove"
                 aria-label={`Remove attachment ${index + 1}`}
-                onClick={() => removeImage(index)}
+                onClick={() => removeImage(images.indexOf(image))}
               >
                 <UiIcon name="close" size={16} />
               </button>
@@ -1434,7 +1475,7 @@ export function ChatInput({
       )}
       {previewOpen && preview && (
         <ImageAttachmentEditor
-          key={imageKey(preview.image)}
+          key={`attachment-preview:${imageKey(preview.image)}`}
           image={preview.image}
           onSave={savePreview}
           onClose={() => setPreview(null)}
@@ -1442,6 +1483,7 @@ export function ChatInput({
       )}
       <MotionPresence open={showSlashPicker} kind="popover" appear={false}>
         <SlashPicker
+          runtime={commandMode === 'ordinary' ? 'ordinary' : 'legacy'}
           query={displayedText.trimStart()}
           onSelect={handleSlashSelect}
           onClose={(reason) => {
@@ -1449,6 +1491,8 @@ export function ChatInput({
             setShowSlashPicker(false);
           }}
           cwd={cwd}
+          workspaceId={skillWorkspaceId}
+          sessionId={sessionId}
         />
       </MotionPresence>
       {voice?.recording && voice.partialTranscript && (
@@ -1461,66 +1505,71 @@ export function ChatInput({
           <em>{voice.partialTranscript}</em>
         </div>
       )}
-      <QueuedDraftTray
-        queue={queuedMessages}
-        paused={queuePaused}
-        busy={queueBusy}
-        running={running}
-        blocked={
-          !!sendDisabledReason ||
-          boundedFirstCommand ||
-          importing ||
-          (running && !!interruptDisabledReason) ||
-          (running && !onInterrupt)
-        }
-        recoveryBlocked={
-          !!sendDisabledReason ||
-          boundedFirstCommand ||
-          importing ||
-          !!sendPending.current ||
-          !!interruptPending.current
-        }
-        textOnlySteer={interruptLabel === 'Steer current turn'}
-        onPause={() => {
-          const paused = !queuePaused;
-          setQueuePaused(paused);
-          if (
-            !paused &&
-            !running &&
-            !queueBusy &&
-            !queueEditorOpen &&
-            !sendPending.current &&
-            !interruptPending.current &&
-            !sendDisabledReason &&
-            !boundedFirstCommand
-          ) {
-            const q = dequeue();
-            if (q) sendOrdinary(q, true);
+      {(queuedMessages.length > 0 || queueEditorOpen) && (
+        <QueuedDraftTray
+          key={`queued-drafts:${composerScope}`}
+          queue={queuedMessages}
+          paused={queuePaused}
+          busy={queueBusy}
+          running={running}
+          blocked={
+            !!sendDisabledReason ||
+            boundedFirstCommand ||
+            importing ||
+            (running && !!interruptDisabledReason) ||
+            (running && !onInterrupt)
           }
-        }}
-        onSend={fireQueuedAsInterrupt}
-        onUpdate={updateQueued}
-        onRemove={removeQueued}
-        onEditingChange={setQueueEditorOpen}
-      />
-      {queueError?.scope === composerScope && (
-        <p className="chat-draft-save-status" role="alert">
-          {queueError.text}
-        </p>
+          blockedReason={
+            sendDisabledReason ||
+            (boundedFirstCommand
+              ? 'Finish preparing this chat before sending queued drafts.'
+              : importing
+                ? 'Wait for the attachment import to finish.'
+                : running
+                  ? interruptDisabledReason ||
+                    (!onInterrupt
+                      ? 'Steering is unavailable for this engine or runtime. Your queued drafts are kept.'
+                      : undefined)
+                  : undefined)
+          }
+          recoveryBlocked={
+            !!sendDisabledReason ||
+            boundedFirstCommand ||
+            importing ||
+            !!sendPending.current ||
+            !!interruptPending.current
+          }
+          nativeSteer={interruptLabel === 'Steer current turn'}
+          onPause={() => {
+            const paused = !queuePaused;
+            setQueuePaused(paused);
+            if (
+              !paused &&
+              !running &&
+              !queueBusy &&
+              !queueEditorOpen &&
+              !sendPending.current &&
+              !interruptPending.current &&
+              !sendDisabledReason &&
+              !boundedFirstCommand
+            ) {
+              const q = dequeue();
+              if (q) sendOrdinary(q, true);
+            }
+          }}
+          onSend={fireQueuedAsInterrupt}
+          onUpdate={updateQueued}
+          onRetryOrder={retryPersistence}
+          onRemove={removeQueued}
+          onEditingChange={setQueueEditorOpen}
+        />
       )}
-      {(running || queuedMessages.length > 0) && !boundedFirstCommand && (
-        <p className="queued-draft-hint">
-          The queue keeps its order. <UiIcon name="interrupt" size={16} /> sends a correction now.
-        </p>
-      )}
+      {queueError?.scope === composerScope && <ChatStatusMessage error={queueError.text} />}
       <ChatStatusMessage status={sendDisabledReason} action={sendDisabledAction} />
       <div className="chat-input-row">
         {replyTarget && (
           <div className="chat-reply-draft">
-            <div>
-              <strong>Replying to {replyTarget.role === 'user' ? 'you' : 'Mitzo'}</strong>
-              <span>{replyTarget.text}</span>
-            </div>
+            <ReplyQuote reply={replyTarget} sessionId={sessionId} />
             <button
               type="button"
               className="chat-input-btn"
@@ -1541,13 +1590,7 @@ export function ChatInput({
           onChange={(e) => editText(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={
-            running
-              ? 'Type to queue or interrupt...'
-              : responders
-                ? 'Message… @ to choose who replies'
-                : 'Message Mitzo...'
-          }
+          placeholder={responders ? 'Message… @ to choose who replies' : 'Message Mitzo...'}
           rows={1}
         />
         {settings}
@@ -1570,12 +1613,19 @@ export function ChatInput({
               />
             )}
             <ComposerTools
+              onSchedule={
+                sessionId && !responders
+                  ? () => setTimerScope({ sessionId, prompt: displayedText })
+                  : undefined
+              }
               expanded={expanded}
               onExpand={() => setExpanded((value) => !value)}
               terminalHref={
-                sessionId && !boundedFirstCommand && !guardedConversation
-                  ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
-                  : undefined
+                composerCapabilities
+                  ? composerCapabilities.terminalHref
+                  : sessionId && !boundedFirstCommand && !guardedConversation
+                    ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
+                    : undefined
               }
               onCommands={() => {
                 if (!displayedText.trim()) editText('/');
@@ -1583,9 +1633,11 @@ export function ChatInput({
                 textareaRef.current?.focus();
               }}
               commandsExpanded={showSlashPicker}
-              commandsDisabled={boundedFirstCommand || guardedConversation || textOnly}
+              commandsDisabled={commandsDisabled}
               onAttach={() => fileInputRef.current?.click()}
-              attachmentDisabled={textOnly || importing || images.length >= MAX_IMAGE_ATTACHMENTS}
+              attachmentDisabled={
+                textOnly || importing || displayedImages.length >= MAX_IMAGE_ATTACHMENTS
+              }
               onDismiss={() => textareaRef.current?.focus()}
               isolation={isolation}
               onIsolationChange={onIsolationChange}
@@ -1593,6 +1645,14 @@ export function ChatInput({
               isWorktree={isWorktree}
               wtId={wtId}
             />
+            {timerScope && timerScope.sessionId === sessionId && (
+              <SessionTimersDialog
+                sessionId={timerScope.sessionId}
+                initialPrompt={timerScope.prompt}
+                initiallyCreating
+                onClose={() => setTimerScope(null)}
+              />
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -1615,7 +1675,7 @@ export function ChatInput({
                 bootContext={bootContext}
                 sessionContext={sessionContext}
                 selectedContextBlocks={activeContextBlocks}
-                draftImages={images}
+                draftImages={displayedImages}
                 onToggleContextBlock={
                   onExternalContextBlockToggle ??
                   ((name) =>
@@ -1626,7 +1686,7 @@ export function ChatInput({
                     ))
                 }
                 onAddImages={() => fileInputRef.current?.click()}
-                onRemoveImage={removeImage}
+                onRemoveImage={(index) => removeImage(images.indexOf(displayedImages[index]))}
                 onPreviewImage={previewImage}
                 getDraftImageKey={imageKey}
               />
@@ -1656,16 +1716,12 @@ export function ChatInput({
               <>
                 {canSend && onInterrupt && !boundedFirstCommand && (
                   <button
+                    type="button"
                     className="chat-input-btn chat-input-btn--interrupt"
                     aria-label={interruptLabel}
+                    title={sendDisabledReason ?? correctionReason ?? interruptLabel}
                     disabled={!!sendDisabledReason || !!correctionReason || importing}
                     onClick={handleInterrupt}
-                    title={
-                      correctionReason ??
-                      (interruptLabel === 'Steer current turn'
-                        ? 'Send a correction to the current turn; keep its settings'
-                        : 'Interrupt — send now, mid-thinking')
-                    }
                   >
                     <UiIcon name="interrupt" />
                   </button>

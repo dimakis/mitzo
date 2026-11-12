@@ -181,6 +181,8 @@ it('retains actual original allocation facts and digest on the same ready row wi
     new AbortController().signal,
   );
   expect(ready.id).toBe(id);
+  expect(f.qualified.assertCurrent).toHaveBeenCalledOnce();
+  expect(f.deps.ordinaryPreparation.capture).toHaveBeenCalledOnce();
   const record = f.service.get(id);
   expect(record.qualifiedLocalPreparation).toEqual({
     version: 1,
@@ -205,6 +207,29 @@ it('retains actual original allocation facts and digest on the same ready row wi
   expect(pendingHostTaskDecisionHash(record.qualifiedLocalPreparation!.allocationFacts)).toBe(
     initial.factsSha256,
   );
+  await f.service.selectQualifiedExistingLocalRepository(f.input, new AbortController().signal);
+  expect(f.qualified.assertCurrent).toHaveBeenCalledTimes(2); // Fresh retained-row delivery proof.
+  expect(f.deps.ordinaryPreparation.capture).toHaveBeenCalledOnce();
+});
+
+it('refreshes the source after independent account capture before allocating a row', async () => {
+  const f = fixture();
+  let sourceLive = true;
+  const capture = f.deps.ordinaryPreparation.capture.getMockImplementation()!;
+  f.deps.ordinaryPreparation.capture.mockImplementation(async () => {
+    const proof = await capture();
+    sourceLive = false;
+    return proof;
+  });
+  vi.mocked(f.qualified.assertCurrent).mockImplementation(async () => {
+    if (!sourceLive) throw Error('Async source owner revoked');
+  });
+  await expect(
+    f.service.selectQualifiedExistingLocalRepository(f.input, new AbortController().signal),
+  ).rejects.toThrow('Async source owner revoked');
+  expect(f.deps.ordinaryPreparation.capture).toHaveBeenCalledOnce();
+  expect(f.qualified.assertCurrent).toHaveBeenCalledOnce();
+  expect(() => f.service.get(id)).toThrow();
 });
 
 it.each(['binding', 'sourceDigest', 'featureBranch'] as const)(

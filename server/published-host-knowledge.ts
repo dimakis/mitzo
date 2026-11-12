@@ -21,6 +21,32 @@ let store: KnowledgeStore | undefined;
 const views = new WeakMap<object, View>();
 export const hasHostKnowledgeStore = () => store !== undefined;
 
+class PublishedKnowledgeProblem extends Error {
+  constructor(
+    readonly reason:
+      | 'path_not_published'
+      | 'path_changed'
+      | 'document_too_large'
+      | 'integrity_mismatch'
+      | 'enrollment_changed'
+      | 'selection_changed'
+      | 'source_changed',
+    message: string,
+  ) {
+    super(message);
+  }
+}
+/** Fixed categories preserve diagnostic value without logging source paths or bytes. */
+export function publishedKnowledgeFailureReason(error: unknown): string {
+  if (error instanceof PublishedKnowledgeProblem) return error.reason;
+  if (error instanceof Error && 'code' in error) {
+    if (error.code === 'ENOENT') return 'document_unavailable';
+    if (error.code === 'EACCES' || error.code === 'EPERM') return 'filesystem_denied';
+    if (error.code === 'EIO' || error.code === 'ELOOP') return 'filesystem_failed';
+  }
+  return 'unexpected_failure';
+}
+
 export function hostKnowledgeReceipt(session: object, context: string) {
   const view = views.get(session);
   if (!view || view.store !== store || view.context !== context)
@@ -45,17 +71,29 @@ const allowed = (path: string) =>
   !path.split('/').some((part) => !part || part.startsWith('.'));
 
 async function read(view: View, path: string) {
-  if (!allowed(path) || !view.files[path]) throw Error('Path is outside published MGMT memory');
+  if (!allowed(path) || !view.files[path])
+    throw new PublishedKnowledgeProblem(
+      'path_not_published',
+      'Path is outside published MGMT memory',
+    );
   const target = join(view.root, path);
-  if ((await realpath(target)) !== target) throw Error('Published knowledge path changed');
+  if ((await realpath(target)) !== target)
+    throw new PublishedKnowledgeProblem('path_changed', 'Published knowledge path changed');
   const metadata = await stat(target);
-  if (metadata.size > 2 * 1024 * 1024) throw Error('Published knowledge document exceeds bounds');
+  if (metadata.size > 2 * 1024 * 1024)
+    throw new PublishedKnowledgeProblem(
+      'document_too_large',
+      'Published knowledge document exceeds bounds',
+    );
   const bytes = await readFile(target);
   if (
     createHash('sha256').update(bytes).digest('hex') !== view.files[path].sha256 ||
     (metadata.mode & 0o7777) !== Number.parseInt(view.files[path].mode, 8)
   )
-    throw Error('Published knowledge integrity mismatch');
+    throw new PublishedKnowledgeProblem(
+      'integrity_mismatch',
+      'Published knowledge integrity mismatch',
+    );
   return bytes.toString('utf8');
 }
 
@@ -64,6 +102,7 @@ export async function prepareHostKnowledge(
   session: object,
   preserveProfile: boolean,
   signal: AbortSignal,
+  additionalContext: () => string = () => '',
 ) {
   views.delete(session);
   const selected = store;
@@ -75,13 +114,13 @@ export async function prepareHostKnowledge(
     !isAbsolute(publication.seed) ||
     (await realpath(publication.seed)) !== publication.seed
   )
-    throw Error('Host knowledge enrollment changed');
+    throw new PublishedKnowledgeProblem('enrollment_changed', 'Host knowledge enrollment changed');
   const bytes = await readFile(join(publication.seed, '..', 'baseline.json'));
   if (createHash('sha256').update(bytes).digest('hex') !== publication.baselineSha256)
-    throw Error('Host knowledge selection changed');
+    throw new PublishedKnowledgeProblem('selection_changed', 'Host knowledge selection changed');
   const baseline = Baseline.parse(JSON.parse(bytes.toString('utf8')));
   if (baseline.startingCommit !== publication.sourceCommit)
-    throw Error('Host knowledge source changed');
+    throw new PublishedKnowledgeProblem('source_changed', 'Host knowledge source changed');
   const view: View = {
     store: selected,
     root: publication.seed,
@@ -92,8 +131,9 @@ export async function prepareHostKnowledge(
   };
   const guidance = baseline.files['AGENTS.md'] ? await read(view, 'AGENTS.md') : '';
   signal.throwIfAborted();
-  if (store !== selected) throw Error('Host knowledge enrollment changed');
-  view.context = `# Published MGMT knowledge\nAccepted source: ${view.sourceCommit}\nUse ReadKnowledge with action published to list or read accepted memory. This view supersedes older accepted knowledge in the task checkout. Keep task edits separate; a candidate or local commit is not shared acceptance.${preserveProfile ? ' The selected agent profile retains its separately recorded context revision.' : ''}\n${guidance}`;
+  if (store !== selected)
+    throw new PublishedKnowledgeProblem('enrollment_changed', 'Host knowledge enrollment changed');
+  view.context = `${additionalContext()}# Published MGMT knowledge\nAccepted source: ${view.sourceCommit}\nUse ReadKnowledge with action published to list or read accepted memory. This view supersedes older accepted knowledge in the task checkout. Keep task edits separate; a candidate or local commit is not shared acceptance.${preserveProfile ? ' The selected agent profile retains its separately recorded context revision.' : ''}\n${guidance}`;
   views.set(session, view);
   return view;
 }
@@ -105,7 +145,10 @@ export async function readHostKnowledge(session: object, path?: string, query = 
   if (path) {
     const content = await read(view, path);
     if (view.store !== store || views.get(session) !== view)
-      throw Error('Host knowledge enrollment changed');
+      throw new PublishedKnowledgeProblem(
+        'enrollment_changed',
+        'Host knowledge enrollment changed',
+      );
     return { ...identity, path, content };
   }
   const paths = Object.keys(view.files)

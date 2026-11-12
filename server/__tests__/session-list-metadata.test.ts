@@ -38,6 +38,7 @@ describe('session list metadata', () => {
         },
       ),
     ).toEqual({
+      modelObservedAt: expect.any(Number),
       telosTaskId: 'task-one',
       cwd: '/work/mgmt',
       contextUsage: {

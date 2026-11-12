@@ -1,4 +1,5 @@
 import express from 'express';
+import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from '../../github-publication-approval.js';
 import { z } from 'zod';
 import type { CapabilityService } from './service.js';
 import type { CapabilityApproval } from './types.js';
@@ -56,7 +57,9 @@ export function createCapabilityOperationsRouter(options: {
     if (req.method === 'GET' || req.method === 'HEAD') return next();
     return requireSameOriginJson(req, res, next);
   });
-  router.use(express.json({ limit: '32kb' }));
+  // Full JSON escaping can use six bytes per description character. Retain the
+  // existing 32 KiB envelope for other fields; service schemas still bound input.
+  router.use(express.json({ limit: GITHUB_PR_DESCRIPTION_MAX_LENGTH * 6 + 32 * 1024 }));
   const subject = (req: express.Request, res: express.Response, conversationId: string) => {
     const id = options.sessionId(req, res);
     return id ? options.resolveConversationBinding(req, res, id, conversationId) : undefined;

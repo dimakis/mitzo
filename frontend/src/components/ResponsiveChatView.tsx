@@ -3,6 +3,7 @@ import { ChatRuntimeDraftProvider } from '../hooks/ChatRuntimeDraftProvider';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { ReviewerSheetHost } from './AddReviewerSheet';
 import { OrdinaryCollaborationHost } from './OrdinaryCollaborationEntry';
+import { OrdinarySharedConversationHost } from './SharedConversation';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { ChatView } from '../pages/ChatView';
 import { DesktopChatView } from '../pages/DesktopChatView';
@@ -56,11 +57,13 @@ function ResponsiveChatBody({
   return (
     <ChatRuntimeDraftProvider owner={`${sessionId ?? requestedDraftId ?? 'new'}:${generation}`}>
       <OrdinaryCollaborationHost sessionId={sessionId} refreshKey={refreshKey}>
-        <ReviewerSheetHost sessionId={sessionId} initialProfile={initialProfile}>
-          <TelosSourceNavigationProvider request={sourceRequest} sessionId={sessionId}>
-            {screen}
-          </TelosSourceNavigationProvider>
-        </ReviewerSheetHost>
+        <OrdinarySharedConversationHost sourceConversationId={sessionId}>
+          <ReviewerSheetHost sessionId={sessionId} initialProfile={initialProfile}>
+            <TelosSourceNavigationProvider request={sourceRequest} sessionId={sessionId}>
+              {screen}
+            </TelosSourceNavigationProvider>
+          </ReviewerSheetHost>
+        </OrdinarySharedConversationHost>
       </OrdinaryCollaborationHost>
     </ChatRuntimeDraftProvider>
   );

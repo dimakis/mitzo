@@ -1,3 +1,11 @@
+import type { RuntimeMigration } from './openshell-runtime-migration.js';
+import { assertGithubPreparationCapacity } from './repository-preparation-capacity.js';
+import {
+  RepositoryMaterializationReceiptSchema,
+  repositoryMaterializationMigrationMatches,
+  prepareRepositoryMaterialization,
+  type RepositoryMaterializationReceipt,
+} from './repository-materialization.js';
 import {
   restoredRepositoryTaskIdentity,
   type RepositoryWorkspaceRestoration,
@@ -68,6 +76,7 @@ import {
   type OrdinaryRepositoryRuntimeSelection,
 } from './ordinary-repository-preparation.js';
 import { isGitBranchName } from './git-branch.js';
+import { withPinnedRepositorySkills } from './local-repository-skill-source.js';
 import { copyRepositoryTaskCheckout } from './repository-task-copy.js';
 import { createWorktreeAsync, symlinkRuntimeDirs } from './worktree.js';
 import { loadRepoConfig } from './repo-config.js';
@@ -147,6 +156,8 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   previewIntentFingerprint?: string;
   sourceDigest?: string;
   sourceReleased?: boolean;
+  /** Verified target facts, never a filesystem or provider execution grant. */
+  sandboxMaterialization?: RepositoryMaterializationReceipt;
   /** Same allocation journal, retained after physical removal. A durable lease
    * fences every await and blocks preparation/adoption across restarts. */
   retirement?: {
@@ -682,6 +693,81 @@ export class RepositoryWorkspaces {
   }
   validateOrdinaryWorkspace(conversationId: string, directory: string) {
     return this.ordinaryWorkspaceProvider().validate(conversationId, directory);
+  }
+  /** Read-only renewal of the original allocation, including a crash before its
+   * EventStore receipt. The existing private allocation ledger binds every choice.
+   */
+  async qualifyOrdinarySessionReservation(
+    input: Parameters<RepositoryWorkspaces['prepareOrdinarySession']>[0],
+  ) {
+    return this.runOperation(async () => {
+      const signal = input.signal;
+      const selected = structuredClone({ ...input, signal: undefined });
+      const settings = OrdinarySilentPreparationSelectionSchema.parse(selected.settings);
+      const record = this.getHostRecord(selected.id);
+      const fingerprint = ordinaryPreparationFingerprint({
+        allocationOperationId: selected.allocationOperationId,
+        ...(selected.delegationAttemptId
+          ? { delegationAttemptId: selected.delegationAttemptId }
+          : {}),
+        id: selected.id,
+        binding: selected.binding,
+        taskRoot: selected.taskRoot,
+        settings,
+        agentProfile: selected.agentProfile,
+        sandboxWorkdir: selected.sandboxWorkdir,
+      });
+      const allocation = this.db
+        .prepare(
+          'SELECT workspace_id, fingerprint FROM ordinary_preparation_allocations WHERE operation_id=?',
+        )
+        .get(selected.allocationOperationId) as
+        { workspace_id: string; fingerprint: string } | undefined;
+      const reservation = {
+        id: selected.id,
+        conversationId: nativeStartupSessionId(`repository:${selected.id}`),
+        binding: selected.binding,
+        taskRoot: selected.taskRoot,
+        runtimeBinding: settings.binding,
+        commandFingerprint: fingerprint,
+      };
+      const local = settings.binding.execution.location === 'local';
+      if (
+        !allocation ||
+        allocation.workspace_id !== record.id ||
+        allocation.fingerprint !== fingerprint ||
+        settings.repositoryWorkspaceId !== record.id ||
+        !record.ordinaryPreparation ||
+        !isDeepStrictEqual(record.ordinaryFirstReservation, {
+          conversationId: reservation.conversationId,
+          binding: selected.binding,
+          commandFingerprint: fingerprint,
+        }) ||
+        record.handoff ||
+        record.pendingHostTask ||
+        record.qualifiedLocalPreparation ||
+        record.taskIdentity ||
+        record.sourceReleased ||
+        (record.retirement && record.retirement.disposition !== 'restored') ||
+        (local
+          ? record.state !== 'reserved' || !record.hostReservation || record.sandbox !== false
+          : record.state !== 'ready' ||
+            record.conversationId ||
+            record.hostReservation ||
+            record.sandbox ||
+            selected.sandboxWorkdir !== record.ordinaryPreparation.sandboxWorkdir)
+      )
+        throw Error('Original silent repository reservation unavailable');
+      if (local) this.getHostReservation(reservation);
+      await this.firstBinding(record, reservation, signal);
+      await this.authorizeHostRecord(record, selected.binding, signal);
+      await this.verifyHostSource(record, signal);
+      if (local) await this.assertHostRoot(record.hostReservation!);
+      await this.authorizeHostRecord(record, selected.binding, signal);
+      await this.assertHostSource(record, signal);
+      this.assertUnchangedHostRecord(record);
+      if (local) this.getHostReservation(reservation);
+    });
   }
   /** Durable application session + real workspace reservation only. Native startup,
    * queues and first-command admission remain entirely with the ordinary owners. */
@@ -1799,6 +1885,76 @@ export class RepositoryWorkspaces {
     if (record.localSource) return record.localSource.path;
     return join(this.directory, record.id, 'mgmt');
   }
+  async recordSandboxMaterialization(
+    id: string,
+    binding: AccountBinding,
+    conversationId: string,
+    value: RepositoryMaterializationReceipt,
+    signal: AbortSignal,
+    migration?: RuntimeMigration | null,
+  ) {
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      const original = JSON.stringify(record);
+      const receipt = RepositoryMaterializationReceiptSchema.parse(value);
+      if (
+        !record.sandbox ||
+        record.state !== 'claimed' ||
+        record.conversationId !== conversationId ||
+        receipt.workspaceId !== record.id ||
+        receipt.repository !== record.repository ||
+        receipt.baseBranch !== record.baseBranch ||
+        receipt.baseOid !== record.baseOid ||
+        (!record.sandboxMaterialization && receipt.head !== record.baseOid) ||
+        receipt.featureBranch !== record.featureBranch
+      )
+        throw Error('Repository materialization does not match its original claim');
+      await this.authorize(record, binding, signal);
+      if (
+        record.sandboxMaterialization &&
+        !isDeepStrictEqual(record.sandboxMaterialization, receipt) &&
+        !repositoryMaterializationMigrationMatches(
+          record.sandboxMaterialization,
+          receipt,
+          migration,
+          conversationId,
+          binding.accountId,
+        )
+      )
+        throw Error('Repository materialization changed');
+      record.sandboxMaterialization = receipt;
+      this.save(record, original);
+    });
+  }
+  async startupMaterialization(
+    id: string,
+    binding: AccountBinding,
+    conversationId: string,
+    signal: AbortSignal,
+  ) {
+    return this.runOperation(async () => {
+      const source = await this.startupSeed(id, binding, conversationId, signal);
+      const record = this.get(id);
+      const prepared = await prepareRepositoryMaterialization({
+        source,
+        workspaceId: id,
+        repository: record.repository,
+        baseBranch: record.baseBranch,
+        baseOid: record.baseOid,
+        featureBranch: record.featureBranch,
+        signal,
+      });
+      try {
+        // Export is asynchronous source I/O. Requalify the original source and owner.
+        if ((await this.startupSeed(id, binding, conversationId, signal)) !== source)
+          throw Error('Repository source changed during export');
+        return prepared;
+      } catch (error) {
+        await prepared.cleanup();
+        throw error;
+      }
+    });
+  }
   async releaseSource(id: string, binding: AccountBinding, conversationId: string) {
     return this.runOperation(async () => {
       const record = this.get(id);
@@ -1813,6 +1969,8 @@ export class RepositoryWorkspaces {
       if (this.getForConversation(conversationId)?.id !== id)
         throw Error('Source release requires its current primary owner');
       if (record.sourceReleased) return;
+      if (record.sandbox && !record.sandboxMaterialization)
+        throw Error('Repository source requires a verified target before release');
       const expectedRecord = JSON.stringify(record);
       await rm(join(this.directory, id), { recursive: true, force: true });
       record.sourceReleased = true;
@@ -1993,6 +2151,60 @@ export class RepositoryWorkspaces {
       this.assertUnchangedHostRecord(record);
       return publicRepositoryWorkspace(record);
     });
+  }
+  /** Read a ready host's skills without reserving or materializing a task.
+   * Worktree sources expose only skill files from their pinned commit. */
+  async readPreparedHostSource<T>(
+    id: string,
+    binding: AccountBinding,
+    read: (directory: string) => T | Promise<T>,
+  ): Promise<T> {
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      if (
+        record.state !== 'ready' ||
+        record.sandbox ||
+        record.ordinaryPreparation?.runtimeBinding.execution.location === 'openshell'
+      )
+        throw Error('Host workspace commands unavailable');
+      const signal = AbortSignal.timeout(30000);
+      await this.authorizeHostRecord(record, binding, signal);
+      await this.verifyHostSource(record, signal);
+      const result = await this.readHostSkillSource(record, read, signal);
+      await this.authorizeHostRecord(record, binding, signal);
+      await this.assertHostSource(record, signal);
+      return result;
+    });
+  }
+  /** Read a reserved task's qualified skill source before its destination is materialized. */
+  async readReservedHostSource<T>(
+    input: Omit<HostRepositoryReservationInput, 'signal'>,
+    read: (directory: string) => T,
+    signal: AbortSignal,
+  ): Promise<T> {
+    return this.runOperation(async () => {
+      const expected = this.snapshotHostInput(input);
+      const descriptor = this.getHostReservation(expected);
+      const record = this.getHostRecord(expected.id);
+      if (descriptor.state !== 'reserved') throw Error('Reserved host source unavailable');
+      await this.authorizeHostRecord(record, expected.binding, signal);
+      await this.verifyHostSource(record, signal);
+      await this.assertHostRoot(descriptor.hostReservation);
+      const result = await this.readHostSkillSource(record, read, signal);
+      await this.authorizeHostRecord(record, expected.binding, signal);
+      await this.assertHostSource(record, signal);
+      this.getHostReservation(expected);
+      return result;
+    });
+  }
+  private readHostSkillSource<T>(
+    record: RepositoryWorkspace,
+    read: (directory: string) => T | Promise<T>,
+    signal: AbortSignal,
+  ): T | Promise<T> {
+    return record.localSource && record.localSource.selection !== 'existing'
+      ? withPinnedRepositorySkills(record.localSource, record.baseOid, signal, read)
+      : read(this.source(record));
   }
   private async firstBinding(
     record: RepositoryWorkspace,
@@ -2264,7 +2476,6 @@ export class RepositoryWorkspaces {
           throw new PendingHostTaskError('pending_host_task_authority_required');
         current();
       };
-      await revalidate();
       const repositoryId = `existing-${createHash('sha256').update(labels.source.path).digest('hex')}`;
       const localSource: LocalRepositorySource = {
         selection: 'existing',
@@ -2282,6 +2493,7 @@ export class RepositoryWorkspaces {
         .prepare('SELECT id FROM repository_workspaces WHERE id=?')
         .get(request.id);
       if (retained) {
+        await revalidate();
         const record = this.get(request.id);
         if (
           record.state !== 'ready' ||
@@ -2612,20 +2824,7 @@ export class RepositoryWorkspaces {
       const preparingRecord = JSON.stringify(record);
       this.db
         .transaction(() => {
-          const retained = this.db
-            .prepare('SELECT record FROM repository_workspaces')
-            .all() as Array<{ record: string }>;
-          if (
-            retained.filter((row) => {
-              const value = JSON.parse(row.record) as RepositoryWorkspace;
-              return (
-                value.binding.accountId === binding.accountId &&
-                ['preparing', 'ready', 'reserved', 'claiming', 'claimed'].includes(value.state) &&
-                !value.sourceReleased
-              );
-            }).length >= 8
-          )
-            throw new Error('This account already has eight prepared or preparing repositories');
+          assertGithubPreparationCapacity(this.db, binding.accountId);
           const changed = this.db
             .prepare(
               'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',

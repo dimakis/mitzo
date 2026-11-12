@@ -19,6 +19,7 @@ import {
   type OrdinaryLocalCodexOwnedDispatch,
 } from '../../ordinary-local-codex-owned-runtime.js';
 import { OwnedLocalCodexChatAdmission } from '../../owned-local-codex-chat-admission.js';
+import { assembleCommandPrompt } from '../../message-reply-context.js';
 import {
   bindAgentLibraryTransport,
   readBuiltinAgentLibraryProfile,
@@ -402,6 +403,7 @@ export async function ownedRuntimeFixture(
       'signal'
     >,
     request: CommandRequest,
+    reconciliationOnly = false,
   ) {
     const commandId = request.clientMsgId;
     const rpc = {
@@ -435,8 +437,12 @@ export async function ownedRuntimeFixture(
       close: vi.fn(),
     };
     const launch = vi.fn(() => {
-      expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
-      expect(workspace.getHostReservation(reservation).state).toBe('reserved');
+      expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe(
+        reconciliationOnly ? 'consumed' : 'uncertain',
+      );
+      expect(workspace.getHostReservation(reservation).state).toBe(
+        reconciliationOnly ? 'claimed' : 'reserved',
+      );
       return rpc;
     });
     const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
@@ -445,13 +451,16 @@ export async function ownedRuntimeFixture(
       expect(await readFile(join(value.workspace.directory!, 'task.txt'), 'utf8')).toBe(
         'accepted source',
       );
+      open(value);
+    });
+    const open = (value: OrdinaryLocalCodexOwnedDispatch, resume = false) => {
       value.admission.assertOptions({
         conversationId: reservation.conversationId,
         messageId: commandId,
         binding,
         profile: value.profile,
         session: { cwd: value.workspace.directory, mode: options.mode ?? 'agent' },
-        prompt: value.payload.text,
+        prompt: assembleCommandPrompt(events, reservation.conversationId, commandId, value.payload),
         systemPrompt: value.payload.systemPrompt,
         intent: value.payload.intent,
         images: value.payload.images,
@@ -460,6 +469,7 @@ export async function ownedRuntimeFixture(
         agentProfile: value.expected.agentProfile,
         agentContext: value.expected.agentContext,
         repositoryWorkspace: value.workspace,
+        resume,
       });
       expect(
         value.admission.attach({
@@ -468,7 +478,7 @@ export async function ownedRuntimeFixture(
           onClose: () => {},
         }),
       ).toBe(rpc);
-    });
+    };
     const dependencies = {
       enabled: true,
       eventStore: events,
@@ -509,7 +519,7 @@ export async function ownedRuntimeFixture(
       cleanups.push(() => driver.close());
       return driver;
     };
-    return { rpc, launch, dispatch, dependencies, create };
+    return { rpc, launch, dispatch, open, dependencies, create };
   }
   const owner = commandFixture(reservation, request);
   const prepareRepository = async () => {

@@ -1,4 +1,5 @@
 /** Trusted host enrollment. Documents and provider messages cannot select stores or adapter programs. */
+import { registerWorkspaceRuntimeAuthorityNamespace } from './workspace-runtime-private-paths.js';
 import { cachedKnowledgeConversion } from './knowledge-adapter-cache.js';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -47,6 +48,7 @@ const MgmtConfig = z.object({
   sourceUrl: z.string().min(1),
   mitzoRepo: absolute,
   builderCommit: commit,
+  portablePolicy: z.boolean().default(false),
 });
 export interface KnowledgeStore {
   id: string;
@@ -78,9 +80,15 @@ function privateState(path: string, workspaces: string[]): void {
     if (dirname(ancestor) === ancestor) break;
   }
 }
-export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
+export function mgmtKnowledgeAdapter(
+  config: AdapterConfig,
+  sourceUrl: string,
+  portablePolicy = false,
+) {
   const adapterBytes = readFileSync(config.config, 'utf8');
   const adapter = MgmtConfig.parse(JSON.parse(adapterBytes));
+  if (adapter.portablePolicy !== portablePolicy)
+    throw new Error('Knowledge policy enrollment differs from publisher');
   if (adapter.sourceUrl !== sourceUrl)
     throw new Error('Knowledge adapter source differs from publisher');
   const workspaces = [
@@ -89,6 +97,9 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
     ...(isAbsolute(sourceUrl) ? [sourceUrl] : []),
   ];
   privateState(adapter.root, workspaces);
+  // Protect all publication revisions and mutable pointers before admitting a
+  // native chat. Selecting another publication must not retire unrelated turns.
+  registerWorkspaceRuntimeAuthorityNamespace(adapter.root);
   const publicationsPath = join(adapter.root, 'publications');
   const verifyPublications = () => {
     const stat = lstatSync(publicationsPath, { throwIfNoEntry: false });
@@ -135,7 +146,12 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
       throw new Error('Knowledge adapter requires its clean pinned detached release');
     const cached = cachedKnowledgeConversion(
       adapter.root,
-      { revision: selection.revision, builderCommit: adapter.builderCommit, sourceUrl },
+      {
+        revision: selection.revision,
+        builderCommit: adapter.builderCommit,
+        sourceUrl,
+        portablePolicy,
+      },
       signal,
     );
     if (cached) return cached;
@@ -202,6 +218,7 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
       receipt.baselineSha256 !== output.receipt.baselineSha256 ||
       receipt.sourceCommit !== selection.revision ||
       baseline.startingCommit !== selection.revision ||
+      Boolean(baseline.spokePolicy) !== portablePolicy ||
       receipt.builderCommit !== adapter.builderCommit ||
       receipt.payloadSha256 !== baseline.payloadSha256
     )
@@ -236,7 +253,7 @@ export function knowledgeStoreFromEnvironment(env: NodeJS.ProcessEnv): Knowledge
       source,
       token,
     },
-    mgmtKnowledgeAdapter(selected.adapter, source.url),
+    mgmtKnowledgeAdapter(selected.adapter, source.url, Boolean(source.spokePolicy)),
   );
   return {
     id: selected.id,

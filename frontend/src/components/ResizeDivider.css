@@ -1,0 +1,50 @@
+/* Six-pixel split geometry; the taller hit region is shared by every panel. */
+.resize-divider {
+  position: relative;
+  flex: 0 0 6px;
+  width: 6px;
+  min-width: 6px;
+  align-self: stretch;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-border);
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 2;
+}
+.resize-divider::before {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+}
+.resize-divider span {
+  display: block;
+  width: 2px;
+  height: 100%;
+  margin: auto;
+  background: currentColor;
+}
+.resize-divider:hover,
+.resize-divider:focus-visible,
+.resize-divider:active {
+  color: var(--color-accent);
+}
+.resize-divider:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.layout-storage-notice {
+  margin: 0;
+  padding: var(--space-2) var(--page-gutter);
+  color: var(--color-muted);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+}
+@media (max-width: 767px) {
+  .desktop-body > .resize-divider {
+    display: none;
+  }
+}

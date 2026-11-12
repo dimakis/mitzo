@@ -53,6 +53,7 @@ vi.mock('../chat.js', () => {
     setTaskStore: vi.fn(),
     eventStore: {
       append: vi.fn(),
+      getSessionEventCursor: vi.fn().mockReturnValue(0),
       getEventsAfter: vi.fn().mockReturnValue([]),
       getSession: vi.fn().mockReturnValue({ id: 'session', sessionType: 'symposium' }),
     },

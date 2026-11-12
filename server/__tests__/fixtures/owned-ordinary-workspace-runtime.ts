@@ -40,7 +40,9 @@ export async function ownedOrdinaryRuntimeFixture(
     tools?: AgentToolReference[];
     chatRoute?: boolean;
     separateConfiguredWorkspace?: boolean;
+    defaultTaskLayout?: boolean;
     delegationAttemptId?: string;
+    api?: boolean;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-ordinary-native-')));
@@ -51,26 +53,30 @@ export async function ownedOrdinaryRuntimeFixture(
   if (options.separateConfiguredWorkspace) await mkdir(configuredWorkspace, { mode: 0o700 });
   const loginRoot = join(root, 'login'),
     privateRoot = join(root, 'native-custody'),
-    taskRoot = join(root, 'tasks');
-  for (const path of [loginRoot, privateRoot, taskRoot]) await mkdir(path, { mode: 0o700 });
+    taskRoot = options.defaultTaskLayout
+      ? join(root, '.local', 'share', 'mitzo', 'ordinary-tasks')
+      : join(root, 'tasks');
+  for (const path of [loginRoot, privateRoot, taskRoot])
+    await mkdir(path, { mode: 0o700, recursive: true });
   if (options.chatRoute) {
     await mkdir(join(configuredWorkspace, '.mitzo'), { mode: 0o700 });
     vi.stubEnv('REPO_PATH', configuredWorkspace);
     vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateRoot);
     vi.stubEnv('MITZO_ORDINARY_TASK_ROOT', taskRoot);
   }
-  await writeFile(
-    join(loginRoot, 'auth.json'),
-    JSON.stringify({
-      tokens: {
-        access_token: 'offline',
-        refresh_token: 'offline',
-        id_token: 'offline',
-        account_id: 'offline',
-      },
-    }),
-    { mode: 0o600 },
-  );
+  if (!options.api)
+    await writeFile(
+      join(loginRoot, 'auth.json'),
+      JSON.stringify({
+        tokens: {
+          access_token: 'offline',
+          refresh_token: 'offline',
+          id_token: 'offline',
+          account_id: 'offline',
+        },
+      }),
+      { mode: 0o600 },
+    );
   const executablePath = join(root, 'codex'),
     nativePath = join(root, 'native.json'),
     targetPath = join(root, 'target.json');
@@ -117,12 +123,13 @@ export async function ownedOrdinaryRuntimeFixture(
     profilesPath,
     JSON.stringify([
       {
-        id: 'ordinary-personal',
+        id: options.api ? 'ordinary-work' : 'ordinary-personal',
         label: 'Offline personal',
-        provider: 'openai-codex',
-        credentialRef: loginRoot,
-        email: 'fixture@example.test',
-        planType: 'plus',
+        provider: options.api ? 'openai' : 'openai-codex',
+        credentialRef: options.api
+          ? { provider: 'keychain', service: 'offline-test', account: 'ordinary-work' }
+          : loginRoot,
+        ...(!options.api ? { email: 'fixture@example.test', planType: 'plus' } : {}),
         models: [{ id: 'fixture-model', label: 'Offline model', reasoningEfforts: ['low'] }],
       },
     ]),
@@ -139,7 +146,10 @@ export async function ownedOrdinaryRuntimeFixture(
     MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE: nativePath,
     MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE: targetPath,
   };
-  const binding = loadAccountProfiles().resolve('ordinary-personal', 'fixture-model');
+  const binding = loadAccountProfiles().resolve(
+    options.api ? 'ordinary-work' : 'ordinary-personal',
+    'fixture-model',
+  );
   const catalog = new OrdinaryLocalCodexCapabilityCatalog(
     loadAccountProfiles(),
     new OrdinaryLocalCodexHostRuntime(env).target(),
@@ -285,9 +295,11 @@ export async function ownedOrdinaryRuntimeFixture(
           _params?: Record<string, unknown>,
         ): Promise<Record<string, unknown>> => {
           if (method === 'account/read')
-            return {
-              account: { type: 'chatgpt', email: 'fixture@example.test', planType: 'plus' },
-            };
+            return options.api
+              ? { account: { type: 'apiKey' }, requiresOpenaiAuth: true }
+              : {
+                  account: { type: 'chatgpt', email: 'fixture@example.test', planType: 'plus' },
+                };
           if (method === 'config/read') return { config: {} };
           if (method === 'model/list')
             return {
@@ -310,6 +322,20 @@ export async function ownedOrdinaryRuntimeFixture(
       expect(workspaces.getOrdinaryWorkspace(reserved.id).state).toBe('reserved');
       return rpc;
     });
+    const launchApi = vi.fn(
+      async (home: string, _executable: unknown, _binding: unknown, resume = false) => {
+        expect(events.getOrdinaryLocalCommandAdmission(request.clientMsgId)?.state).toBe(
+          'uncertain',
+        );
+        if (!resume)
+          await writeFile(
+            join(home, 'auth.json'),
+            JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
+            { mode: 0o600, flag: 'wx' },
+          );
+        return rpc;
+      },
+    );
     const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch<'ordinary'>) => {
       expect(value.admission).toBeInstanceOf(OwnedLocalCodexChatAdmission);
       expect(value.workspace).toMatchObject({
@@ -378,6 +404,7 @@ export async function ownedOrdinaryRuntimeFixture(
       env,
       privateRoot,
       launch,
+      ...(options.api ? { launchApi } : {}),
       dispatch,
       dispatchContinuation,
     };
@@ -398,7 +425,7 @@ export async function ownedOrdinaryRuntimeFixture(
       reservation,
       request,
       rpc,
-      launch,
+      launch: options.api ? launchApi : launch,
       dispatch,
       dispatchContinuation,
       create,

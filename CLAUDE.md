@@ -343,7 +343,7 @@ Step N: Build <component> (test-first)
 
 **Never push to main.** All work — features, fixes, docs, CI config, rule changes, typo corrections — goes through a branch and PR. No exceptions. This is enforced by a pre-commit hook (`.husky/pre-commit`) that rejects commits on `main`.
 
-1. `git checkout -b <type>/<name>` from main
+1. In a Mitzo-assigned task checkout, keep its existing task branch. Otherwise, `git checkout -b <type>/<name>` from main. Switching or renaming an assigned branch invalidates the session's retained workspace claim.
 2. Develop and commit on the branch
 3. `git push -u origin HEAD && gh pr create`
 4. Wait for CI to pass (`gh run watch`)

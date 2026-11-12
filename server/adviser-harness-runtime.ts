@@ -1,7 +1,10 @@
+import { AdviserHarnessFailure, type AdviserHarnessPhase } from './adviser-harness-failure.js';
 import type { ModelSession, ModelSessionConfig } from '@mitzo/harness';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { AdviserRequest } from './terminal-adviser.js';
 import { AdviserTaskScope, type AdviserTaskSnapshot } from './adviser-task-scope.js';
+import { FEATURE_TEXT_PROFILE } from './builtin-agent-library-profile.js';
+import { supportsScopedAdviserProvider } from './terminal-adviser-catalog.js';
 export interface AdviserFeatureOwner {
   authSessionId: string;
   operatorConnectionId: string;
@@ -19,7 +22,9 @@ type TaskDispatch = (input: TaskObservation) => Promise<{ close(): Promise<void>
  * command receipts and cancellation; this feature never retries a dispatch. */
 export async function runScopedAdviser(scope: AdviserTaskScope, dispatch: TaskDispatch) {
   scope.assertCurrent();
+  const finalMessageOnly = scope.feature().kind === 'github-publication';
   let text = '',
+    totalTextLength = 0,
     settled = false;
   let messageId: string | undefined;
   const blocks = new Set<string>();
@@ -61,6 +66,7 @@ export async function runScopedAdviser(scope: AdviserTaskScope, dispatch: TaskDi
               throw Error('Adviser message identity unavailable');
             messageId = event.messageId;
             blocks.clear();
+            if (finalMessageOnly) text = '';
           }
           if (event.type === 'block_start' && event.blockType === 'text') {
             if (event.messageId !== messageId || typeof event.blockId !== 'string')
@@ -75,8 +81,9 @@ export async function runScopedAdviser(scope: AdviserTaskScope, dispatch: TaskDi
               typeof event.delta !== 'string'
             )
               throw Error('Adviser text block identity differs');
+            totalTextLength += event.delta.length;
+            if (totalTextLength > 32768) throw Error('Adviser response exceeded limit');
             text += event.delta;
-            if (text.length > 32768) throw Error('Adviser response exceeded limit');
           }
           if (event.type === 'session_end' && !settled) {
             const measured = event.usage as Record<string, unknown> | undefined;
@@ -151,6 +158,8 @@ export async function createNativeAdviserSession(
   owner: AdviserFeatureOwner,
   binding: AccountBinding,
 ): Promise<ModelSession> {
+  if (!supportsScopedAdviserProvider(binding.provider))
+    throw Error('Personal Claude advisers are not supported; select a supported adviser account.');
   if (
     config.model !== request.model ||
     (config.reasoningEffort ?? null) !== (request.reasoningEffort ?? null)
@@ -233,10 +242,9 @@ export async function createNativeAdviserSession(
         config.signal ?? AbortSignal.timeout(120000),
       );
       scope.assertSelection(binding, request.reasoningEffort);
+      let phase: AdviserHarnessPhase = 'workspace_prepare';
       const result = await runScopedAdviser(scope, async (observation) => {
         const { randomUUID } = await import('node:crypto');
-        const { DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION } =
-          await import('@mitzo/protocol');
         const { readBuiltinAgentLibraryProfile } = await import('./agent-library-transport.js');
         const { ordinaryWorkspaceTaskRoot } = await import('./ordinary-workspace-runtime.js');
         const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
@@ -251,11 +259,7 @@ export async function createNativeAdviserSession(
           },
           signal: scope.signal,
         });
-        const agent = {
-          kind: 'builtin' as const,
-          profileId: DEFAULT_MITZO_PROFILE_ID,
-          revision: DEFAULT_MITZO_PROFILE_REVISION,
-        };
+        const agent = FEATURE_TEXT_PROFILE;
         const profile = readBuiltinAgentLibraryProfile(agent)!;
         const selection = {
           version: 1 as const,
@@ -266,6 +270,7 @@ export async function createNativeAdviserSession(
           thinking: request.reasoningEffort ?? null,
         };
         const operationId = randomUUID();
+        phase = 'workspace_reserve';
         const record = await workspaces.reserveOrdinaryWorkspace({
           preparationId: prepared.preparationId,
           allocationOperationId: operationId,
@@ -296,10 +301,12 @@ export async function createNativeAdviserSession(
           }
         };
         scope.assertCurrent();
+        phase = 'dispatch_authority';
         await config.beforeDispatch?.();
         scope.assertCurrent();
         try {
           if (harness === 'codex') {
+            phase = 'session_metadata';
             chat.eventStore.prepareOrdinaryWorkspaceSession(
               {
                 sessionId,
@@ -318,6 +325,7 @@ export async function createNativeAdviserSession(
               },
             );
             const { dispatchOwnedOrdinaryCommand } = await import('./ordinary-scoped-command.js');
+            phase = 'command_dispatch';
             await dispatchOwnedOrdinaryCommand({
               transport: new NullTransport(),
               clientId,
@@ -350,6 +358,7 @@ export async function createNativeAdviserSession(
               onEnded: ended,
             });
           } else {
+            phase = 'command_dispatch';
             await workspaces.claimOrdinaryWorkspace({
               id: record.id,
               binding,
@@ -378,6 +387,7 @@ export async function createNativeAdviserSession(
                 ),
               );
           }
+          phase = 'provider_response';
           return {
             close: async () => {
               close();
@@ -388,6 +398,9 @@ export async function createNativeAdviserSession(
           close();
           throw error;
         }
+      }).catch(() => {
+        scope.signal.throwIfAborted();
+        throw new AdviserHarnessFailure(phase);
       });
       if (result.usage)
         yield {

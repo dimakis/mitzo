@@ -31,7 +31,7 @@ it('starts with All outcomes, discovers and persists pins, and searches nested c
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: target.intent } });
   fireEvent.click(screen.getByRole('button', { name: target.summary }));
   expect(onOpen).toHaveBeenCalledWith(target.itemId);
-  expect(screen.getAllByText('Coordinator').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Outcome').length).toBeGreaterThan(0);
 });
 it('keeps unknown kinds truthful and reports empty searches without mutating source records', () => {
   const unknown = { ...records[0], itemId: 'unknown', kind: null, parentId: null } as TelosWorkItem;

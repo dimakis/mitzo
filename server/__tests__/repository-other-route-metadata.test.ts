@@ -205,6 +205,8 @@ it('preserves actual started Gemini repository continuation metadata when only L
     },
   );
   const transport = { send: vi.fn(), isOpen: () => true };
+  const publishing = await import('../github-publishing-tool.js');
+  const publishingFactory = vi.spyOn(publishing, 'createGithubPublishingTool');
   await expect(
     chat.startOwnedLocalResponsesCommand(transport, 'metadata-gemini', {
       command: f.request,
@@ -213,6 +215,15 @@ it('preserves actual started Gemini repository continuation metadata when only L
       ownerAuthSessionId: actor.id,
     }),
   ).resolves.toMatchObject({ dispatched: true });
+  const retainedWorkspace = f.workspace.getForConversation(f.reservation.conversationId)!;
+  expect(publishingFactory.mock.calls[0]![2]()).toMatchObject({
+    runtime: 'host',
+    preparedBase: {
+      repositoryPath: retainedWorkspace.directory,
+      baseBranch: retainedWorkspace.baseBranch,
+      baseOid: retainedWorkspace.baseOid,
+    },
+  });
   expect(unstartedHint).toBeDefined();
   expect.soft(await unstartedHint).toEqual({ prepared: false });
   expect.soft(firstOnlyAuthority).not.toHaveBeenCalled();

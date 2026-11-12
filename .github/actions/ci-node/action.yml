@@ -1,0 +1,19 @@
+name: Install CI Node dependencies
+description: Use one pinned Node and npm setup; dependency installation stays local to each job.
+inputs:
+  node-version:
+    required: true
+    description: Exact Node version selected by the workflow.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+    - shell: bash
+      run: npm install --global npm@11.18.0
+    # Platform-optional lock entries currently require npm install rather than ci.
+    # Cache package downloads only; do not transfer node_modules across jobs/OSes.
+    - shell: bash
+      run: npm install --no-audit

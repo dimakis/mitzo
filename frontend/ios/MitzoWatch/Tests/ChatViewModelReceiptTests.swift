@@ -18,6 +18,7 @@ struct ChatViewModelReceiptTests {
     @MainActor static func main() async throws {
         guard CommandLine.arguments.count == 3 else { throw Failure.missingFixture }
         try reviewedPermissionDismissalPreservesReplacement()
+        try relayedPermissionLifecycleClearsOnlyTheSelectedRequest()
         try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: false, newerPending: false)
         try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: false, newerPending: true)
         try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: true, newerPending: false)
@@ -36,7 +37,23 @@ struct ChatViewModelReceiptTests {
         try await foreignTerminalPreservesActiveSelectedStream(fixturePath: CommandLine.arguments[2])
         try await selectedSessionRuntimeFeedbackPreservesDraftAndRefusesForeignCommands(fixturePath: CommandLine.arguments[1])
         try await selectedSessionRuntimeFeedbackPreservesDraftAndRefusesForeignCommands(fixturePath: CommandLine.arguments[2])
-        print("18 offline Watch view-model receipt cases passed")
+        print("Offline Watch view-model receipt cases passed, including approval resolution and expiry")
+    }
+
+    @MainActor static func relayedPermissionLifecycleClearsOnlyTheSelectedRequest() throws {
+        let app = AppState()
+        let vm = ChatViewModel(sessionId: "watch-chat", appState: app)
+        for terminal in ["permission_resolved", "permission_timeout"] {
+            vm.handleMessage(try decode("{\"type\":\"permission_request\",\"sessionId\":\"watch-chat\",\"permId\":\"pending\",\"toolName\":\"NativeCommandApproval\",\"toolInput\":\"complete operation\"}"))
+            precondition(vm.permissionRequest?.permId == "pending")
+            vm.handleMessage(try decode("{\"type\":\"permission_request\",\"sessionId\":\"other-chat\",\"permId\":\"foreign\",\"toolName\":\"Bash\",\"toolInput\":\"other operation\"}"))
+            precondition(vm.permissionRequest?.permId == "pending")
+            vm.handleMessage(try decode("{\"type\":\"\(terminal)\",\"sessionId\":\"other-chat\",\"permId\":\"pending\"}"))
+            vm.handleMessage(try decode("{\"type\":\"\(terminal)\",\"sessionId\":\"watch-chat\",\"permId\":\"old\"}"))
+            precondition(vm.permissionRequest?.permId == "pending")
+            vm.handleMessage(try decode("{\"type\":\"\(terminal)\",\"sessionId\":\"watch-chat\",\"permId\":\"pending\"}"))
+            precondition(vm.permissionRequest == nil)
+        }
     }
 
     static func decode(_ json: String) throws -> ServerMessage {

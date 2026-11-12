@@ -4,6 +4,7 @@ import { privateCodexPathSnapshot } from './codex-private-path.js';
 import { InboxQuery, type MitzoNotification } from '@mitzo/protocol';
 import { scanInboxItems, discardInboxItem } from './inbox.js';
 import { NotificationStore } from './notification-store.js';
+import { InboxScanner, type InboxSource } from './inbox-scanner.js';
 
 export function discardInboxSource(
   store: NotificationStore,
@@ -34,6 +35,9 @@ function category(
 export class UnifiedInbox {
   private lastRoot = '';
   private activeFiles = new Map<string, string>();
+  private sourceVersions = new Map<string, string>();
+  private scanner = new InboxScanner();
+  private pending?: Promise<boolean>;
   constructor(
     private store: NotificationStore,
     private directory: () => string | undefined,
@@ -72,15 +76,69 @@ export class UnifiedInbox {
   reconcile(): boolean {
     const root = this.directory();
     if (!root || !existsSync(root)) return false;
+    const archive = join(root, 'archive');
+    return this.reconcileSources(
+      root,
+      scanInboxItems(root),
+      existsSync(archive) ? scanInboxItems(archive) : [],
+    );
+  }
+  reconcileAsync(): Promise<boolean> {
+    if (this.pending) return this.pending;
+    this.pending = (async () => {
+      const root = this.directory();
+      if (!root) return false;
+      let active = await this.scanner.scan(root);
+      const archived = await this.scanner.scan(join(root, 'archive'));
+      if (root !== this.directory()) return false;
+      // A local archive mutation can run between the two asynchronous scans.
+      // Revalidate only possible collisions before the synchronous ledger commit;
+      // a moved snapshot must never create a second logical history record.
+      const names = new Set(
+        archived.map((item) => item.summary.filename.replace(/_[a-f0-9]{32}(?=\.md$)/, '')),
+      );
+      const identities = new Set(archived.map((item) => item.identity));
+      active = active.filter((item) => {
+        if (!names.has(item.summary.filename) && !identities.has(item.identity)) return true;
+        try {
+          const current = statSync(join(root, item.summary.filename), { bigint: true });
+          return current.isFile() && `${current.dev}:${current.ino}` === item.identity;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+          throw error;
+        }
+      });
+      return this.reconcileSources(root, active, archived);
+    })().finally(() => {
+      this.pending = undefined;
+    });
+    return this.pending;
+  }
+  private reconcileSources(
+    root: string,
+    active: Array<ReturnType<typeof scanInboxItems>[number] | InboxSource>,
+    archive: Array<ReturnType<typeof scanInboxItems>[number] | InboxSource>,
+  ): boolean {
+    if (this.lastRoot !== root) this.sourceVersions.clear();
     const previousActive = this.lastRoot === root ? this.activeFiles : new Map<string, string>();
-    const active = scanInboxItems(root);
     const activeNames = new Set(active.map((item) => item.summary.filename));
     const nextActive = new Map<string, string>();
     let changed = false;
+    const seen = new Set<string>();
     for (const archived of [false, true]) {
       const path = archived ? join(root, 'archive') : root;
       if (!existsSync(path)) continue;
-      for (const { summary, content, meta } of archived ? scanInboxItems(path) : active) {
+      for (const item of archived ? archive : active) {
+        const { summary, content, meta } = item;
+        const sourceKey = join(path, summary.filename);
+        seen.add(sourceKey);
+        const originalName = summary.filename.replace(/_[a-f0-9]{32}(?=\.md$)/, '');
+        const version =
+          'version' in item
+            ? `${item.version}:${activeNames.has(summary.filename)}:${activeNames.has(originalName)}`
+            : undefined;
+        if (!archived) nextActive.set(`inbox:${summary.filename}`, summary.filename);
+        if (version !== undefined && this.sourceVersions.get(sourceKey) === version) continue;
         let filename = summary.filename;
         let id = `inbox:${filename}`;
         if (archived) {
@@ -111,7 +169,9 @@ export class UnifiedInbox {
         const parsed = Date.parse(summary.timestamp);
         const at = Number.isFinite(parsed)
           ? parsed
-          : statSync(join(path, summary.filename)).mtimeMs;
+          : 'modified' in item
+            ? item.modified
+            : statSync(join(path, summary.filename)).mtimeMs;
         const updated = this.store.syncInbox(
           {
             id,
@@ -131,8 +191,9 @@ export class UnifiedInbox {
           },
           at,
           archived,
-          realpathSync(join(path, summary.filename)),
+          'source' in item ? item.source : realpathSync(join(path, summary.filename)),
         );
+        if (version !== undefined) this.sourceVersions.set(sourceKey, version);
         changed ||= updated;
       }
     }
@@ -143,6 +204,8 @@ export class UnifiedInbox {
     }
     this.lastRoot = root;
     this.activeFiles = nextActive;
+    for (const path of this.sourceVersions.keys())
+      if (!seen.has(path)) this.sourceVersions.delete(path);
     return changed;
   }
   feed(query: Partial<InboxQuery>) {

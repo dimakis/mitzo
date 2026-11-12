@@ -178,7 +178,12 @@ function discoverScope(dir: string): Map<string, ParsedSkill> {
 
     const allowedTools = Array.isArray(meta['allowed-tools'])
       ? (meta['allowed-tools'] as unknown[]).filter((t): t is string => typeof t === 'string')
-      : undefined;
+      : typeof meta['allowed-tools'] === 'string'
+        ? meta['allowed-tools']
+            .replace(/^\[|\]$/g, '')
+            .split(/[\s,]+/)
+            .filter(Boolean)
+        : undefined;
 
     const mutating = meta['mutating'] === 'true' ? true : undefined;
     const requiredSkills = Array.isArray(meta['requires-skills'])

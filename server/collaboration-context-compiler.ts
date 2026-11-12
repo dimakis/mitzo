@@ -311,7 +311,11 @@ async function compileSource(
   const draft: Draft = {
     requestId: input.requestId,
     ...context,
-    capacity: { status: 'unverified', reason: 'No exact ordinary capacity adapter is registered.' },
+    capacity: {
+      status: 'unverified',
+      reason:
+        'Context capacity is unavailable. Sending a prompt uses the selected agent’s normal limits.',
+    },
     summary: null,
   };
   // Validate source metadata and complete byte bounds before an adapter can inspect it.

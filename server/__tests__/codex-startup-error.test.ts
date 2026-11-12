@@ -6,6 +6,33 @@ import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
 import { RuntimePolicyAttestationError } from '../openshell-runtime-policy.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
 
+it('projects safe startup diagnostics through a public command refusal', () => {
+  const cause = Object.assign(Error('SECRET host detail'), { code: 'ENOSPC' });
+  const startup = new CodexStartupError('runtime_admission', cause);
+  const refusal = Error('Owned local Codex chat unavailable', { cause: startup });
+  const message = publicCodexStartupError(refusal);
+  expect(message).toContain('runtime admission');
+  expect(message).toContain('storage is full');
+  expect(message).toContain(startup.diagnosticId);
+  expect(message).not.toContain('SECRET');
+  expect(codexRuntimeErrorTelemetry(refusal)).toMatchObject({
+    startupPhase: 'runtime_admission',
+    startupErrorCode: 'ENOSPC',
+  });
+});
+
+it('reports the original local guard location through generic bootstrap wrappers', () => {
+  const original = Error('SECRET host detail');
+  original.stack =
+    'Error: SECRET\n    at guard (/private/host/server/frozen-host-codex-bootstrap.ts:111:4)';
+  const wrapper = new Error('SECRET wrapper', { cause: original });
+  wrapper.stack =
+    'Error: SECRET\n    at admission (/private/host/server/ordinary-local-codex-admission.ts:222:5)';
+  const startup = new CodexStartupError('runtime_admission', wrapper);
+  expect(startup.telemetry().startupErrorLocation).toBe('frozen-host-codex-bootstrap:111:4');
+  expect(JSON.stringify(startup.telemetry())).not.toMatch(/SECRET|private|host\//);
+});
+
 it('identifies sandbox preparation failures without inventing queued work', () => {
   const cause = Object.assign(new Error('ssh PRIVATE_COMMAND: no space left. Bearer sk-secret'), {
     code: 'ENOSPC',
@@ -32,6 +59,20 @@ it('logs a bounded application source location without the stack or private path
   const telemetry = codexRuntimeErrorTelemetry(error);
   expect(telemetry).toMatchObject({ startupErrorLocation: 'openshell-runtime:321:12' });
   expect(JSON.stringify(telemetry)).not.toMatch(/PRIVATE_COMMAND|sk-secret|private|other/);
+});
+
+it.each([
+  'chat',
+  'ordinary-openshell-codex-entry',
+  'ordinary-openshell-codex-entry-owner',
+  'ordinary-openshell-codex-owned-runtime',
+  'owned-openshell-codex-chat-admission',
+])('identifies an admission guard in %s without logging its private stack', (module) => {
+  const cause = Error('PRIVATE_COMMAND');
+  cause.stack = `Error: PRIVATE_COMMAND\n    at guard (/private/sk-secret/server/${module}.ts:123:4)`;
+  const telemetry = codexRuntimeErrorTelemetry(new CodexStartupError('runtime_admission', cause));
+  expect(telemetry.startupErrorLocation).toBe(`${module}:123:4`);
+  expect(JSON.stringify(telemetry)).not.toMatch(/PRIVATE_COMMAND|sk-secret|private/);
 });
 
 it('retains command exit status without logging the command or stderr', () => {

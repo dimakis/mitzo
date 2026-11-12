@@ -4,10 +4,15 @@ import {
   CollaborationContractError,
   CollaborationApplicationReviewInputSchema,
   CollaborationApplicationReviewResultSchema,
+  CollaborationPromptReviewInputSchema,
+  CollaborationPromptReviewResultSchema,
+  CollaborationSourceArtifactsSchema,
   createOrdinaryFreshPermission,
+  isOrdinaryRepositoryParticipantBinding,
   type CollaborationApplicationReviewInput,
   type CollaborationSnapshot,
   type CollaborationSettings,
+  type CollaborationJoin,
 } from '@mitzo/protocol';
 import { isAuthSessionCurrent, type AuthSession } from './auth.js';
 import {
@@ -26,6 +31,8 @@ import { OrdinaryCollaborationReview } from './collaboration-review-owner.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
+import { nativeStartupSessionId } from './ordinary-repository-startup.js';
+import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 
 const unavailable = () => new CollaborationContractError('execution_unavailable');
 
@@ -35,6 +42,191 @@ const unavailable = () => new CollaborationContractError('execution_unavailable'
  */
 export class CollaborationApplicationReview {
   constructor(private readonly owners: { store: EventStore; workspaces: RepositoryWorkspaces }) {}
+
+  /** Bounded registered metadata only; no candidate content or inference. The
+   * source/compiler renews exact selected artifact bytes during actual review. */
+  sourceArtifacts(
+    auth: AuthSession,
+    operatorConnectionId: string,
+    group: string,
+    sourceId: string,
+  ) {
+    const operator = captureAgentLibraryAuthorization(operatorConnectionId);
+    const current = () => {
+      operator.assertCurrent();
+      const source = this.owners.store.getSession(sourceId);
+      if (
+        !isAuthSessionCurrent(auth) ||
+        operator.auth.id !== auth.id ||
+        liveTransportAuthSessionId(operatorConnectionId) !== auth.id ||
+        !source ||
+        source.isHidden ||
+        source.sessionType === 'symposium' ||
+        source.symposiumConfig ||
+        !this.owners.store.getSessionCollaboration(group)?.participantSessionIds.includes(sourceId)
+      )
+        throw unavailable();
+    };
+    current();
+    const artifacts = this.owners.store.listSessionOutputs(sourceId).map((output) => ({
+      artifactId: output.outputId,
+      revision: output.revision,
+      sha256: output.source.sha256,
+      title: output.title,
+      available: output.sourceAvailability === 'available' && !output.provenance,
+    }));
+    current();
+    return CollaborationSourceArtifactsSchema.parse({ sourceConversationId: sourceId, artifacts });
+  }
+
+  /** Compile exact context for existing ordinary participants. This does not
+   * prepare a session, enqueue a command or invoke an inference/capacity runtime. */
+  async reviewPrompt(
+    auth: AuthSession,
+    operatorConnectionId: string,
+    group: string,
+    raw: unknown,
+    signal: AbortSignal,
+  ) {
+    const input = CollaborationPromptReviewInputSchema.parse(raw);
+    const inputSha = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+    const operator = captureAgentLibraryAuthorization(operatorConnectionId);
+    const assertObservation = () => {
+      signal.throwIfAborted();
+      operator.assertCurrent();
+      const source = this.owners.store.getSession(input.selection.sourceConversationId);
+      if (
+        !isAuthSessionCurrent(auth) ||
+        operator.auth.id !== auth.id ||
+        liveTransportAuthSessionId(operatorConnectionId) !== auth.id ||
+        !source ||
+        source.isHidden ||
+        source.sessionType === 'symposium' ||
+        source.symposiumConfig ||
+        !this.owners.store
+          .getSessionCollaboration(group)
+          ?.participantSessionIds.includes(source.sessionId)
+      )
+        throw unavailable();
+    };
+    assertObservation();
+    const retained = this.owners.store.collaborationConversation.getReviewCompilation(
+      group,
+      input.selection.requestId,
+    );
+    if (
+      retained &&
+      (retained.operatorId !== auth.id ||
+        retained.applicationInputSha256 !== inputSha ||
+        !isDeepStrictEqual(retained.promptAudience, {
+          sessionIds: input.recipientSessionIds,
+          policySequence: input.expectedPolicySequence,
+        }))
+    )
+      throw new CollaborationContractError('request_conflict');
+    const currentSettings = () =>
+      input.recipientSessionIds.map((id) => {
+        const settings = this.owners.store.getOrdinaryConversationSettings(id);
+        if (
+          !settings ||
+          !isOrdinaryRepositoryParticipantBinding(settings.binding) ||
+          settings.binding.execution.location !== 'local'
+        )
+          throw unavailable();
+        return settings;
+      });
+    const selected = retained?.settings ?? currentSettings();
+    if (selected.length !== input.recipientSessionIds.length)
+      throw new CollaborationContractError('snapshot_changed');
+    const isChanged = () => {
+      const view = this.owners.store.collaborationConversation.view(group);
+      return (
+        view.membershipRevision !== input.selection.expectedMembershipRevision ||
+        view.policySequence !== input.expectedPolicySequence ||
+        input.recipientSessionIds.some(
+          (id, i) =>
+            !view.participantSessionIds.includes(id) ||
+            view.unavailableParticipantSessionIds.includes(id) ||
+            !isDeepStrictEqual(this.owners.store.getOrdinaryConversationSettings(id), selected[i]),
+        )
+      );
+    };
+    const assertCurrent = () => {
+      assertObservation();
+      if (isChanged()) throw new CollaborationContractError('snapshot_changed');
+    };
+    const result = (snapshot: CollaborationSnapshot) => {
+      assertObservation();
+      const artifactLabels = snapshot.artifacts.map((pin) => {
+        const output = this.owners.store.getSessionOutput(
+          snapshot.sourceConversationId,
+          pin.artifactId,
+        );
+        if (
+          !output ||
+          output.provenance ||
+          output.sourceAvailability !== 'available' ||
+          output.revision !== pin.revision ||
+          output.source.sha256 !== pin.sha256 ||
+          output.source.messageEndSeq > snapshot.boundary.sequence
+        )
+          throw new CollaborationContractError('snapshot_changed');
+        return {
+          artifactId: pin.artifactId,
+          revision: pin.revision,
+          sha256: pin.sha256,
+          title: output.title,
+        };
+      });
+      return CollaborationPromptReviewResultSchema.parse({
+        snapshot,
+        recipientSessionIds: input.recipientSessionIds,
+        settings: Object.fromEntries(input.recipientSessionIds.map((id, i) => [id, selected[i]])),
+        expectedMembershipRevision: input.selection.expectedMembershipRevision,
+        expectedPolicySequence: input.expectedPolicySequence,
+        requiresReview: isChanged(),
+        artifactLabels,
+      });
+    };
+    if (retained?.snapshotId) {
+      const snapshot = this.owners.store.collaborationConversation.getSnapshot(
+        group,
+        retained.snapshotId,
+      );
+      if (!snapshot) throw new CollaborationContractError('snapshot_changed');
+      return result(snapshot);
+    }
+    assertCurrent();
+    const source = createCollaborationContextSource({
+      store: this.owners.store,
+      authorizeConversation: async () => assertCurrent(),
+      assertConversationCurrent: assertCurrent,
+    });
+    const review = new OrdinaryCollaborationReview({
+      store: this.owners.store,
+      source: () => source,
+    });
+    const snapshot = await review.review(
+      group,
+      {
+        operatorId: auth.id,
+        applicationInputSha256: inputSha,
+        selection: input.selection,
+        settings: selected,
+        promptAudience: {
+          sessionIds: input.recipientSessionIds,
+          policySequence: input.expectedPolicySequence,
+        },
+      },
+      {
+        assertBeforeCommit: () => {
+          assertCurrent();
+          source.assertCurrentAtSave();
+        },
+      },
+    );
+    return result(snapshot);
+  }
 
   async review(
     auth: AuthSession,
@@ -182,24 +374,64 @@ export class CollaborationApplicationReview {
     return result(snapshot, resolved.settings, input.selection.expectedMembershipRevision);
   }
 
+  /** Reuse ordinary settings resolution for an authenticated retained review.
+   * A join can revisit its original reservation; setup cannot borrow a used target.
+   */
+  async resolveJoiningSettings(
+    settings: CollaborationSettings,
+    signal: AbortSignal,
+    join?: CollaborationJoin,
+  ) {
+    const resolved = await this.resolveSettings(
+      {
+        agent: settings.selection.agent ?? undefined,
+        accountId: settings.binding.account.accountId,
+        model: settings.selection.model,
+        reasoningEffort: settings.selection.thinking,
+        runOn: settings.binding.execution.location,
+        permissionMode: settings.selection.permission.mode,
+        repositoryWorkspaceId: settings.repositoryWorkspaceId,
+      },
+      undefined,
+      signal,
+      join,
+    );
+    if (!isDeepStrictEqual(resolved.settings, settings))
+      throw new CollaborationContractError('snapshot_changed');
+    return resolved;
+  }
+
   private async resolveSettings(
     target: CollaborationApplicationReviewInput['target'],
-    connectionId: string,
+    connectionId: string | undefined,
     signal: AbortSignal,
+    join?: CollaborationJoin,
   ) {
     signal.throwIfAborted();
     if (!target.agent) throw unavailable(); // The ordinary profile resolver has no implicit default.
     const record = this.owners.workspaces.get(target.repositoryWorkspaceId);
     const proof = record.ordinaryPreparation;
+    const reservationSessionId = nativeStartupSessionId(`repository:${record.id}`);
+    const originalReservation =
+      join &&
+      record.ordinaryFirstReservation?.conversationId === reservationSessionId &&
+      (!join.sessionId || join.sessionId === reservationSessionId) &&
+      (record.conversationId === reservationSessionId ||
+        (proof?.runtimeBinding.execution.location === 'openshell' &&
+          record.state === 'ready' &&
+          !record.conversationId));
     if (
       !proof ||
-      record.state !== 'ready' ||
-      record.conversationId ||
-      record.hostReservation ||
-      record.ordinaryFirstReservation ||
+      (originalReservation
+        ? !['ready', 'reserved', 'claimed'].includes(record.state) ||
+          !isDeepStrictEqual(record.ordinaryFirstReservation?.binding, record.binding)
+        : record.state !== 'ready' ||
+          record.conversationId ||
+          record.hostReservation ||
+          record.ordinaryFirstReservation) ||
       record.handoff ||
       proof.runtimeBinding.execution.location !== target.runOn ||
-      proof.runtimeBinding.harness.implementation !== 'codex'
+      !isOrdinaryRepositoryParticipantBinding(proof.runtimeBinding)
     )
       throw unavailable();
     const profiles = loadAccountProfiles();
@@ -207,7 +439,10 @@ export class CollaborationApplicationReview {
     profiles.validateModelSelection(binding, target.model, target.reasoningEffort);
     const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
     const resolveBinding = () => {
-      const inventory = ordinaryRepositoryRuntimeInventory(target.runOn, 'codex');
+      const inventory = ordinaryRepositoryRuntimeInventory(
+        target.runOn,
+        proof.runtimeBinding.harness.implementation,
+      );
       const current = inventory.profiles.resolve(target.accountId, target.model);
       inventory.profiles.validateModelSelection(current, target.model, target.reasoningEffort);
       const result = inventory.catalog.resolve({
@@ -216,7 +451,7 @@ export class CollaborationApplicationReview {
           provider: current.provider,
           profileRevision: current.profileRevision,
         },
-        harness: 'codex',
+        harness: proof.runtimeBinding.harness.implementation,
         targetId: proof.runtimeBinding.execution.targetId,
         mode: target.permissionMode,
       });
@@ -233,7 +468,10 @@ export class CollaborationApplicationReview {
       requested: target.agent,
       provider: binding.provider,
       execution: runtime.execution,
-      lookup: (selection) => readAgentLibraryProfile(selection, connectionId),
+      lookup: (selection) =>
+        connectionId
+          ? readAgentLibraryProfile(selection, connectionId)
+          : Promise.resolve(readOrdinaryCodexAgentProfile(getAgentLibrary(), selection)),
     });
     if (!agent || agent.definition.contextRecipe !== undefined) throw unavailable();
     const settings: CollaborationSettings = {
@@ -249,6 +487,17 @@ export class CollaborationApplicationReview {
       repositoryWorkspaceId: target.repositoryWorkspaceId,
     };
     await this.owners.workspaces.qualifiedStatus(record.id, binding);
+    if (originalReservation && join.state !== 'linked')
+      await this.owners.workspaces.qualifyOrdinarySessionReservation({
+        allocationOperationId: join.allocationOperationId,
+        id: record.id,
+        binding,
+        taskRoot: ordinaryWorkspaceTaskRoot(),
+        settings,
+        agentProfile: agent,
+        ...(proof.sandboxWorkdir ? { sandboxWorkdir: proof.sandboxWorkdir } : {}),
+        signal,
+      });
     await assertOrdinarySilentPreparationAuthority(proof, binding, settings, signal);
     const assertCurrent = () => {
       signal.throwIfAborted();
@@ -260,6 +509,12 @@ export class CollaborationApplicationReview {
         throw unavailable();
     };
     assertCurrent();
-    return { settings, assertCurrent };
+    return {
+      settings,
+      assertCurrent,
+      binding,
+      agentProfile: agent,
+      sandboxWorkdir: proof.sandboxWorkdir,
+    };
   }
 }

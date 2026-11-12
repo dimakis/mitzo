@@ -131,7 +131,11 @@ it.each(['completed', 'failed'] as const)(
             callback = args.options!.canUseTool!(
               'Read',
               {},
-              { signal: new AbortController().signal, toolUseID: 'original' },
+              {
+                signal: new AbortController().signal,
+                toolUseID: 'original',
+                requestId: 'original-request',
+              },
             ).catch(() => {});
             completing = true;
           }

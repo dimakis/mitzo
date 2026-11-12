@@ -1,7 +1,7 @@
 import { useImperativeHandle } from 'react';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
@@ -9,6 +9,10 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 import { DesktopChatView } from '../DesktopChatView';
+vi.mock('../../hooks/useSessionLaunchDefaults', async () => ({
+  useSessionLaunchDefaults: (await import('../../test-utils/no-session-launch-defaults'))
+    .noSessionLaunchDefaults,
+}));
 
 // Isolate route authority and callback wiring from sheet navigation. Keep the
 // original editors directly accessible here, as in DesktopChatView.test.tsx.
@@ -69,7 +73,17 @@ vi.mock('../../hooks/useHomePreferences', () => ({
   useHomePreferences: () => ({ preferences: { names: { briefing: 'Jeeves' } } }),
 }));
 vi.mock('../../hooks/useProgress', () => ({ useProgressByToolId: () => new Map() }));
-vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
+const keyboardEvents = vi.hoisted(() => ({
+  toggle: undefined as ((open: boolean) => void) | undefined,
+}));
+vi.mock('../../lib/keyboard', () => ({
+  onKeyboardToggle: (callback: (open: boolean) => void) => {
+    keyboardEvents.toggle = callback;
+    return () => {
+      keyboardEvents.toggle = undefined;
+    };
+  },
+}));
 vi.mock('../../hooks/useVoice', () => ({
   useVoice: () => ({
     available: false,
@@ -100,11 +114,13 @@ vi.mock('../../components/ChatArea', () => ({
   ChatArea: ({
     messages,
     currentByMessage,
+    scrollRef,
   }: {
     messages: unknown[];
     currentByMessage?: Record<string, unknown>;
+    scrollRef?: React.RefObject<HTMLDivElement | null>;
   }) => (
-    <div>
+    <div ref={scrollRef} data-testid="transcript">
       <span data-testid="chat-message-count">Messages: {messages.length}</span>
       <span data-testid="active-seats">
         Active seats: {Object.keys(currentByMessage ?? {}).length}
@@ -171,8 +187,12 @@ vi.mock('../../components/ChatInput', () => ({
     );
   },
 }));
+beforeEach(() => {
+  HTMLElement.prototype.scrollTo = vi.fn();
+});
 afterEach(() => {
   cleanup();
+  delete (HTMLElement.prototype as Partial<HTMLElement>).scrollTo;
   sessionStorage.clear();
   localStorage.clear();
   vi.resetAllMocks();
@@ -808,6 +828,30 @@ it('keeps mobile session details inside the expanded workspace controls', async 
   expect(summary.closest('details')?.textContent).toContain('session/mobile');
   expect(summary.closest('details')?.textContent).toContain('mobile-worktree');
   expect(summary.closest('details')?.textContent).toContain('mobile-session');
+});
+
+it('keeps the reader position when the phone keyboard opens and closes', async () => {
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat']}>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const transcript = screen.getByTestId('transcript');
+  transcript.scrollTop = 600;
+  const scroll = vi.fn();
+  transcript.scrollTo = scroll;
+  await act(async () => {
+    keyboardEvents.toggle?.(true);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  });
+  expect(scroll).not.toHaveBeenCalled();
+  expect(transcript.scrollTop).toBe(600);
+  act(() => keyboardEvents.toggle?.(false));
+  expect(screen.getByTestId('transcript')).toBe(transcript);
+  expect(transcript.scrollTop).toBe(600);
 });
 
 it('shows conversation history loading explicitly', async () => {

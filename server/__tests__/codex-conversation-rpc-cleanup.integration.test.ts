@@ -13,8 +13,19 @@ import { CodexConversationStore } from '../codex-conversation-store.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
-import { retainCallbackOutcome } from '../turn-callbacks.js';
+import { copyCallbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import { SessionRegistry } from '@mitzo/harness';
+import { NativeHooks } from '../native-hooks.js';
+import { createNativeToolExecutor } from '../native-tool-executor.js';
+import { executeTrustedGitHubRead } from '../trusted-native-operation.js';
 import { createHash } from 'node:crypto';
+
+vi.mock('../trusted-native-operation.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  executeTrustedGitHubRead: vi.fn(async () => {
+    throw new Error('No GitHub request may execute in this offline fixture');
+  }),
+}));
 
 const cleanup: (() => void)[] = [];
 afterEach(() =>
@@ -48,6 +59,65 @@ function question(itemId: string) {
     ],
   };
 }
+
+it('settles a pending GitHub approval through native hooks when the provider completes', async () => {
+  const f = await fixture('GitHubRead');
+  const registry = new SessionRegistry();
+  cleanup.push(() => registry.dispose());
+  const permissions: Record<string, unknown>[] = [];
+  registry.register('client', {
+    transport: { send: (data) => permissions.push(data), isOpen: () => true },
+    abortController: new AbortController(),
+    sessionId: 'conversation',
+    cwd: f.options.cwd,
+    mode: 'agent',
+    sessionAllowList: new Set(),
+  });
+  const hooks = new NativeHooks(f.options.cwd, 'conversation', {}, false);
+  const execute = createNativeToolExecutor('client', registry, { env: {} });
+  f.options.executeTool = (name, input, signal) =>
+    hooks.executeTool(name, input, signal, async (approved) => {
+      const result = await execute(
+        { type: 'tool_use', id: 'github-read', name, input: approved },
+        signal,
+      );
+      return copyCallbackOutcome(result, { content: result.content, isError: !!result.is_error });
+    });
+  f.reply({
+    id: 'tool',
+    method: 'item/tool/call',
+    params: {
+      threadId: 'thread',
+      turnId: 'turn',
+      callId: 'call',
+      tool: 'GitHubRead',
+      arguments: { endpoint: '/repos/example/project/pulls' },
+    },
+  });
+  await vi.waitFor(() =>
+    expect(permissions.some((event) => event.type === 'permission_request')).toBe(true),
+  );
+  await f.conversation.send({ id: 'follow-up', prompt: 'Continue development' });
+  expect(f.conversation.queue().map(({ status }) => status)).toEqual(['running', 'queued']);
+  f.reply({
+    method: 'turn/completed',
+    params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } },
+  });
+  await vi.waitFor(() => expect(f.conversation.queue()[0].status).toBe('completed'));
+  expect(f.store.commandLifecycle('conversation', f.getBinding(), 'command').effectStatus).toBe(
+    'completed',
+  );
+  expect(f.store.continuationBlocker('conversation', f.getBinding())).toBeUndefined();
+  expect(executeTrustedGitHubRead).not.toHaveBeenCalled();
+  expect(f.options.onError).not.toHaveBeenCalled();
+  expect(f.lease.close).not.toHaveBeenCalled();
+  f.noReply('tool');
+  await vi.waitFor(() =>
+    expect(f.conversation.queue().map(({ status }) => status)).toEqual(['completed', 'running']),
+  );
+  expect(f.sent.filter((frame) => frame.method === 'turn/start')).toHaveLength(2);
+  expect(executeTrustedGitHubRead).not.toHaveBeenCalled();
+});
 
 it('never writes a late native grant after the exact provider terminal and keeps settled custody', async () => {
   const f = await fixture();
@@ -176,9 +246,38 @@ it.each(['known-not-started', 'unknown'] as const)(
   },
 );
 
+it('bounds consumed-request cleanup when its original tool never settles', async () => {
+  const f = await fixture();
+  f.options.toolGuardPolicy = { executionMs: 1000, approvalMs: 1000, cleanupMs: 20 };
+  const execute = vi.fn(() => new Promise<never>(() => {}));
+  f.options.executeTool = execute;
+  f.reply({
+    id: 'tool',
+    method: 'item/tool/call',
+    params: {
+      threadId: 'thread',
+      turnId: 'turn',
+      callId: 'call',
+      tool: 'Read',
+      arguments: {},
+    },
+  });
+  await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+  f.reply({
+    method: 'turn/completed',
+    params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } },
+  });
+  await vi.waitFor(() => expect(f.conversation.queue()[0].status).toBe('completed'));
+  expect(f.store.commandLifecycle('conversation', f.getBinding(), 'command').effectStatus).toBe(
+    'unknown',
+  );
+  expect(execute).toHaveBeenCalledOnce();
+  f.noReply('tool');
+});
+
 /** Real stdio client, owned lease/bridge, conversation and private store. Only
  * the offline protocol peer and application admission/UI boundaries are fixtures. */
-async function fixture() {
+async function fixture(toolName = 'Read') {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-rpc-owner-'));
   const store = new CodexConversationStore(join(root, 'private.db'));
   const startup = new AbortController();
@@ -199,6 +298,7 @@ async function fixture() {
     kill: vi.fn(),
   });
   const sent: Record<string, unknown>[] = [];
+  let turnStarts = 0;
   const reply = (message: unknown) => child.stdout.write(JSON.stringify(message) + '\n');
   child.stdin.on('data', (chunk) => {
     const message = JSON.parse(chunk.toString()) as Record<string, unknown>;
@@ -212,8 +312,9 @@ async function fixture() {
       if (message.method === 'thread/start')
         result = { thread: { id: 'thread' }, model: 'offline', modelProvider: 'openai' };
       if (message.method === 'turn/start') {
-        reply({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn' } } });
-        result = { turn: { id: 'turn' } };
+        const turnId = ++turnStarts === 1 ? 'turn' : `turn-${turnStarts}`;
+        reply({ method: 'turn/started', params: { threadId: 'thread', turn: { id: turnId } } });
+        result = { turn: { id: turnId } };
       }
       reply({ id: message.id, result });
     });
@@ -259,7 +360,7 @@ async function fixture() {
     profile: lease.profile,
     store,
     systemPrompt: 'Offline fixture',
-    tools: [{ name: 'Read', description: 'Offline tool', input_schema: { type: 'object' } }],
+    tools: [{ name: toolName, description: 'Offline tool', input_schema: { type: 'object' } }],
     getMode: () => 'agent',
     startupSignal: startup.signal,
     transportClosure: 'terminal',

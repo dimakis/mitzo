@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import type { MitzoMode } from './types.js';
 import { AgentProfileSelectionSchema } from './agent-library.js';
-import { SessionRuntimeBindingV2Schema } from './session-runtime-binding.js';
+import {
+  SessionRuntimeBindingV2Schema,
+  isOrdinaryCodexWorkspaceBinding,
+} from './session-runtime-binding.js';
 import { PreparedRepositoryTransitionSchema } from './prepared-repository-transition.js';
 const reference = z.string().min(1).max(200).regex(/^\S+$/);
 /** Frozen per-command choice; no authentication, workspace ownership or readiness assertion. */
@@ -27,10 +30,7 @@ export const OrdinaryLocalCommandSelectionSchema = z.strictObject({
 export const OrdinaryLocalCommandAdmissionSchema = z.strictObject({
   version: z.literal(1),
   binding: SessionRuntimeBindingV2Schema.refine(
-    (b) =>
-      ['openai-codex', 'openai'].includes(b.account.provider) &&
-      b.harness.implementation === 'codex' &&
-      b.execution.location === 'local',
+    (b) => isOrdinaryCodexWorkspaceBinding(b) && b.execution.location === 'local',
     'Ordinary local Codex route required',
   ),
   workspace: z.strictObject({ workspaceId: reference, cwd: z.string().min(1) }),

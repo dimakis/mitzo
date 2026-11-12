@@ -1,4 +1,7 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { ordinaryWireFingerprint } from '../post-adoption-wire-admission.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
+import { CodexStartupError } from '../codex-startup-error.js';
 import { OrdinaryRepositoryPreparationSchema } from '../ordinary-repository-preparation.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { canonicalJson } from '../connections/capabilities/input-validation.js';
@@ -27,6 +30,7 @@ import {
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
   PROFILE_BUILDER_REVISION,
+  OrdinaryRuntimeEntryFailureSchema,
 } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
@@ -64,6 +68,7 @@ import {
 } from '../ordinary-repository-startup.js';
 
 const fixtures = vi.hoisted(() => ({
+  warn: vi.fn(),
   reserve: vi.fn(),
   reserveSandbox: vi.fn(),
   continue: vi.fn(),
@@ -85,6 +90,16 @@ const fixtures = vi.hoisted(() => ({
   nativeCwd: '/offline/checkout',
   nativeBootstrapFingerprint: undefined as string | undefined,
 }));
+vi.mock('../logger.js', async (original) => {
+  const actual = await original<typeof import('../logger.js')>();
+  return {
+    ...actual,
+    createLogger: (module: string) => ({
+      ...actual.createLogger(module),
+      ...(module === 'local-codex-entry' ? { warn: fixtures.warn } : {}),
+    }),
+  };
+});
 vi.mock('../codex-chat-session.js', () => ({
   getCodexConversationStore: () => ({
     readHostCustody: (sessionId: string) => ({
@@ -278,6 +293,7 @@ const input = () => ({
 });
 
 beforeEach(() => {
+  resetOfflineUserEnvironment();
   vi.clearAllMocks();
   fixtures.shellTarget.mockReturnValue(undefined);
   fixtures.shellResumable = false;
@@ -363,13 +379,14 @@ const invoke = (
   body: unknown,
   login: string | null = auth.id,
   workspaceDefaults = false,
+  query: Record<string, string> = {},
 ) =>
   new Promise<{ status: number; body: unknown }>((resolve, reject) => {
     let status = 200;
     const req = {
       method,
       url,
-      query: workspaceDefaults ? { workspaceDefaults: '1' } : {},
+      query: { ...(workspaceDefaults ? { workspaceDefaults: '1' } : {}), ...query },
       headers: {
         'x-connection-id': 'entry-stream',
       },
@@ -541,9 +558,51 @@ it('does not rewrite command receipts or discard reservations on uncertain failu
   const response = await send();
   expect(response.status).toBe(409);
   expect(JSON.stringify(response.body)).not.toContain('private');
+  expect(
+    OrdinaryRuntimeEntryFailureSchema.parse(response.body).runtimeFailure.runtimeFailureCode,
+  ).toBe('runtime_unavailable');
   expect(fail).not.toHaveBeenCalled();
   expect(fixtures.reserve).toHaveBeenCalledTimes(1);
 });
+it('logs reviewed startup details while keeping upstream cause text out of the HTTP receipt', async () => {
+  const cause = Object.assign(Error('private credential /private/path'), { code: 'ECONNREFUSED' });
+  fixtures.start.mockRejectedValue(new CodexStartupError('runtime_connection', cause));
+  const response = await send();
+  const receipt = OrdinaryRuntimeEntryFailureSchema.parse(response.body);
+  expect(response.status).toBe(409);
+  expect(fixtures.warn).toHaveBeenCalledWith(
+    'Ordinary command preparation failed',
+    expect.objectContaining({
+      sessionId: expect.any(String),
+      clientMsgId: input().clientMsgId,
+      diagnosticId: receipt.runtimeFailure.diagnosticId,
+      startupPhase: 'runtime_connection',
+      startupErrorCode: 'ECONNREFUSED',
+    }),
+  );
+  expect(JSON.stringify([response.body, fixtures.warn.mock.calls])).not.toMatch(
+    /private credential|private\/path/,
+  );
+});
+it.each([
+  'login_refresh_reauthorization',
+  'login_refresh_invalid',
+  'login_verification_unavailable',
+] as const)(
+  'preserves %s at the actual HTTP boundary before a native receipt exists',
+  async (code) => {
+    const failure = new SessionRuntimeError(code, { cause: Error('private login details') });
+    fixtures.start.mockRejectedValue(failure);
+    const response = await send();
+    expect(response.status).toBe(409);
+    const receipt = OrdinaryRuntimeEntryFailureSchema.parse(response.body);
+    expect(receipt.runtimeFailure).toEqual(failure.telemetry());
+    expect(receipt.clientMsgId).toBe(input().clientMsgId);
+    expect(receipt).not.toHaveProperty('state');
+    expect(JSON.stringify(receipt)).not.toContain('private login details');
+    expect(store.getOrdinaryLocalCommandExecutionAdmission(input().clientMsgId)).toBeUndefined();
+  },
+);
 it('refuses a foreign or unmarked live owner before lazy/source effects', async () => {
   const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
   sessions.register('live', {
@@ -2110,5 +2169,40 @@ it('admits an OpenShell follow-up from a new verified login without changing the
     expect(sessions.get('retained-shell')!.ownedLocalAuthSessionId).toBe(originalLogin);
   } finally {
     revokeAuthSession(actor);
+  }
+});
+
+it('refreshes only the requested model account before projecting capabilities', async () => {
+  fixtures.library.mockReturnValue({ list: () => ({ versions: [publishedProfile] }) });
+  const refresh = vi.spyOn(profiles, 'refresh').mockResolvedValue();
+  try {
+    const response = await invoke('GET', '/capabilities', undefined, auth.id, false, {
+      modelAccount: 'personal',
+      refreshModels: '1',
+    });
+    expect(response.status).toBe(200);
+    expect(refresh).toHaveBeenCalledExactlyOnceWith(true, { accountId: 'personal' });
+    refresh.mockClear();
+    await invoke('GET', '/capabilities', undefined);
+    expect(refresh).not.toHaveBeenCalled();
+  } finally {
+    refresh.mockRestore();
+  }
+});
+
+it('withholds refreshed model metadata when the interactive login is revoked during discovery', async () => {
+  fixtures.library.mockReturnValue({ list: () => ({ versions: [publishedProfile] }) });
+  const refresh = vi.spyOn(profiles, 'refresh').mockImplementation(async () => {
+    revokeAuthSession(auth);
+  });
+  try {
+    const response = await invoke('GET', '/capabilities', undefined, auth.id, false, {
+      modelAccount: 'personal',
+      refreshModels: '1',
+    });
+    expect(response.status).toBe(401);
+    expect(response.body).not.toHaveProperty('accounts');
+  } finally {
+    refresh.mockRestore();
   }
 });

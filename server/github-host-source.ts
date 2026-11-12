@@ -1,31 +1,29 @@
 import { isGitBranchName } from './git-branch.js';
 import { execFile } from 'node:child_process';
-import {
-  lstat,
-  realpath,
-  readFile,
-  readdir,
-  mkdtemp,
-  mkdir,
-  writeFile,
-  copyFile,
-  rm,
-} from 'node:fs/promises';
+import { lstat, realpath, readFile, readdir } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
-import { codexPrivateDirectory } from './codex-private-path.js';
 import { githubRepositoryFromOrigin } from './connections/capabilities/github-publish-pr.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 import { GithubSeedPublicationError } from './github-seeded-source.js';
+import { GithubPublicationValidationError } from './github-publication-preflight.js';
 const exec = promisify(execFile);
+/** Controller-captured acquisition metadata, never accepted from tool input. */
+export interface PreparedGithubBase {
+  repositoryPath: string;
+  /** GitHub acquisitions have a canonical identity. Local preparations use a
+   * synthetic controller label; their actual origin is authorized separately. */
+  repository?: string;
+  baseBranch: string;
+  baseOid: string;
+}
 interface Source {
   workspace: string;
   gitStorageRoots: readonly string[];
   repositoryPath: string;
   baseBranch: string;
   signal: AbortSignal;
-  /** Controller-owned staging; tests use an isolated private directory. */
-  privateDirectory?: string;
+  preparedBase?: PreparedGithubBase;
 }
 const within = (root: string, path: string) => {
   const rel = relative(root, path);
@@ -87,9 +85,17 @@ async function boundary(source: Source) {
     throw new Error('Repository path escapes session workspace');
   if ((await lstat(join(source.repositoryPath, '.git'))).isSymbolicLink())
     throw new Error('Git storage is ambiguous');
-  const dirs = await git(source, ['rev-parse', '--absolute-git-dir', '--git-common-dir']);
-  for (const path of dirs.stdout.toString('utf8').trim().split('\n')) {
-    const absolute = resolve(source.repositoryPath, path);
+  const dirs = await git(source, [
+    'rev-parse',
+    '--show-toplevel',
+    '--absolute-git-dir',
+    '--git-common-dir',
+  ]);
+  const [top, ...storage] = dirs.stdout.toString('utf8').trim().split('\n');
+  if (!top || (await realpath(top)) !== source.repositoryPath)
+    throw new Error('Repository workspace is ambiguous');
+  const storageDirectories = new Set(storage.map((path) => resolve(source.repositoryPath, path)));
+  for (const absolute of storageDirectories) {
     const canonical = await realpath(absolute);
     if (
       canonical !== absolute ||
@@ -111,70 +117,6 @@ async function boundary(source: Source) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
-  }
-}
-async function safeStatus(source: Source): Promise<string> {
-  const parent = source.privateDirectory ?? join(codexPrivateDirectory(), 'github-inspection');
-  await mkdir(parent, { recursive: true, mode: 0o700 });
-  const directory = await mkdtemp(join(parent, 'source-'));
-  try {
-    const read = async (...args: string[]) =>
-      (await git(source, args)).stdout.toString('utf8').trim();
-    const [oid, gitdir, common, format, top] = await Promise.all([
-      read('rev-parse', 'HEAD'),
-      read('rev-parse', '--absolute-git-dir'),
-      read('rev-parse', '--git-common-dir'),
-      read('rev-parse', '--show-object-format'),
-      read('rev-parse', '--show-toplevel'),
-    ]);
-    if (!['sha1', 'sha256'].includes(format) || (await realpath(top)) !== source.repositoryPath)
-      throw new Error('Repository workspace is ambiguous');
-    await exec(
-      'git',
-      [
-        'init',
-        '--quiet',
-        '--template=',
-        '--initial-branch=mitzo-inspect',
-        `--object-format=${format}`,
-        directory,
-      ],
-      { env: gitEnv(), signal: source.signal },
-    );
-    const safeDir = join(directory, '.git');
-    await writeFile(join(safeDir, 'HEAD'), oid + '\n', { mode: 0o600 });
-    try {
-      await copyFile(join(gitdir, 'index'), join(safeDir, 'index'));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-    const result = await exec(
-      'git',
-      [
-        '-C',
-        source.repositoryPath,
-        '-c',
-        'core.hooksPath=/dev/null',
-        '-c',
-        'core.fsmonitor=false',
-        'status',
-        '--porcelain=v1',
-        '--untracked-files=all',
-      ],
-      {
-        env: {
-          ...gitEnv(),
-          GIT_DIR: safeDir,
-          GIT_WORK_TREE: source.repositoryPath,
-          GIT_OBJECT_DIRECTORY: join(resolve(source.repositoryPath, common), 'objects'),
-        },
-        signal: source.signal,
-        maxBuffer: 128 * 1024,
-      },
-    );
-    return result.stdout.trimEnd();
-  } finally {
-    await rm(directory, { recursive: true, force: true });
   }
 }
 export async function readHostGithubOrigin(source: Source): Promise<string> {
@@ -208,8 +150,7 @@ export async function inspectHostGithubSeed(source: Source) {
       'Seeded workspace history has no unambiguous baseline',
     );
   const seedOid = roots[0]!;
-  const [status, originalSourceOid, sourceBranch, seedTreeOid, count, files] = await Promise.all([
-    safeStatus(source),
+  const [originalSourceOid, sourceBranch, seedTreeOid, count, files] = await Promise.all([
     read('rev-parse', 'HEAD'),
     read('symbolic-ref', '--quiet', '--short', 'HEAD'),
     read('rev-parse', seedOid + '^{tree}'),
@@ -238,7 +179,6 @@ export async function inspectHostGithubSeed(source: Source) {
       'Seeded workspace has no committed task change',
     );
   return {
-    status,
     seedOid,
     seedTreeOid,
     originalSourceOid,
@@ -279,14 +219,16 @@ export async function inspectHostGithubRepository(
 ): Promise<GithubSandboxInspection> {
   ref(source.baseBranch);
   await boundary(source);
+  const originUrl = (await git(source, ['remote', 'get-url', 'origin'])).stdout
+    .toString('utf8')
+    .trim();
+  const base = await publicationBase(source, originUrl);
   const read = async (...args: string[]) =>
     (await git(source, args)).stdout.toString('utf8').trimEnd();
-  const [status, sourceOid, sourceBranch, originUrl, count, files] = await Promise.all([
-    safeStatus(source),
+  const [sourceOid, sourceBranch, count, files] = await Promise.all([
     read('rev-parse', 'HEAD'),
     read('symbolic-ref', '--quiet', '--short', 'HEAD'),
-    read('remote', 'get-url', 'origin'),
-    read('rev-list', '--count', `origin/${source.baseBranch}..HEAD`),
+    read('rev-list', '--count', `${base}..HEAD`),
     read(
       '-c',
       'core.quotepath=true',
@@ -296,7 +238,7 @@ export async function inspectHostGithubRepository(
       '-r',
       '--name-only',
       '--no-renames',
-      `origin/${source.baseBranch}..HEAD`,
+      `${base}..HEAD`,
     ),
   ]);
   const commitsAhead = Number(count);
@@ -309,7 +251,6 @@ export async function inspectHostGithubRepository(
     throw new Error('Git inspection is invalid');
   return {
     canonicalRepositoryPath: source.repositoryPath,
-    status,
     sourceOid,
     sourceBranch,
     originUrl,
@@ -319,6 +260,54 @@ export async function inspectHostGithubRepository(
     sourceBranchProtected: false,
     symlinkFree: true,
   };
+}
+/** Prepared tasks deliberately own only their feature ref. Use their verified
+ * acquisition OID for both inspection and export; never guess from HEAD or
+ * fetch/mutate an active task just to reconstruct a missing tracking ref.
+ * A separate repository inside the workspace must resolve its own base. */
+async function publicationBase(source: Source, originUrl?: string): Promise<string> {
+  const retained = source.preparedBase;
+  const selected = retained?.repositoryPath === source.repositoryPath ? retained : undefined;
+  if (
+    (retained && retained.repositoryPath !== source.workspace) ||
+    (selected &&
+      (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(selected.baseOid) ||
+        (selected.repository !== undefined &&
+          githubRepositoryFromOrigin(
+            originUrl ??
+              (await git(source, ['remote', 'get-url', 'origin'])).stdout.toString('utf8').trim(),
+          ) !== selected.repository)))
+  )
+    throw new GithubPublicationValidationError(
+      'Prepared publishing base does not match the selected repository',
+    );
+  if (!selected || selected.baseBranch !== source.baseBranch) {
+    try {
+      return (
+        await git(source, [
+          'rev-parse',
+          '--verify',
+          `refs/remotes/origin/${source.baseBranch}^{commit}`,
+        ])
+      ).stdout
+        .toString('utf8')
+        .trim();
+    } catch {
+      source.signal.throwIfAborted();
+      throw new GithubPublicationValidationError(
+        'Publishing base branch is unavailable in this checkout and no matching prepared base was retained',
+      );
+    }
+  }
+  try {
+    await git(source, ['merge-base', '--is-ancestor', selected.baseOid, 'HEAD']);
+  } catch {
+    source.signal.throwIfAborted();
+    throw new GithubPublicationValidationError(
+      'Prepared publishing base is unavailable in the current task history',
+    );
+  }
+  return selected.baseOid;
 }
 export async function exportHostGithubBundle(
   source: Source & { sourceBranch: string; sourceOid: string; maxBytes: number },
@@ -339,9 +328,10 @@ export async function exportHostGithubBundle(
     .trim()
     .split('\n');
   if (current.some((oid) => oid !== source.sourceOid)) throw new Error('Source commit changed');
+  const base = await publicationBase(source);
   const result = await git(
     source,
-    ['bundle', 'create', '-', `origin/${source.baseBranch}..${source.sourceBranch}`],
+    ['bundle', 'create', '-', `${base}..${source.sourceBranch}`],
     source.maxBytes,
   );
   if (!result.stdout.length || result.stdout.length > source.maxBytes)

@@ -13,6 +13,7 @@ import {
 import {
   OrdinaryCollaborationReplies,
   recordOrdinaryReplySource,
+  captureOrdinaryReplyExecution,
 } from '../../collaboration-ordinary-replies.js';
 import {
   retainTelosWorkRoleContext,
@@ -168,12 +169,18 @@ export function createAcceptanceFixture() {
         commandId,
         reason: null,
       });
-      recordOrdinaryReplySource(store, sessionId, {
+      const replySource = {
         commandId,
         messageId,
         providerThreadId: `private-thread-${sessionId}`,
         providerTurnId: `private-turn-${sessionId}`,
-      });
+      };
+      recordOrdinaryReplySource(
+        store,
+        sessionId,
+        replySource,
+        captureOrdinaryReplyExecution(store, sessionId, replySource),
+      );
       store.append(sessionId, 'message_start', { messageId });
       store.append(sessionId, 'block_start', { messageId, blockId: 'text', blockType: 'text' });
       store.append(sessionId, 'block_delta', {

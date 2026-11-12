@@ -6,6 +6,9 @@ Read [the UI design contract](../docs/design/ui-design-system.md) before changin
 - Reuse `MobileShell`, `DesktopShell`, `WorkspacePageHeading`, `UiIcon`, `EmptyState` and existing controls before creating another implementation. Collection pages do not own a second mobile logo, safe area or navigation height.
 - Repeated controls and list patterns belong in shared components/styles. When no suitable pattern exists, add it there with its tests and document it in the contract in the same PR.
 - Match the Connections reference: quiet surfaces, readable hierarchy, grouped rows, restrained action accents and details on request. Use navigation names and direct, human-readable copy.
+- Choose rows for collections and navigation, and lightweight transcript entries for chat events. A card needs a distinct actionable grouping; it is not the default wrapper for each feature. Reuse the shared pattern, including exact-source reply quotes and explicit delivery/failure states. Update a conflicting design-contract rule with the reviewed redesign.
+- Use shared `UiIcon` geometry for navigation and directional marks. Do not use emoji or Unicode arrow glyphs as interface icons.
+- Reply quotes are implicit tap targets; omit redundant “View original message” copy. Keep linked chats under Links & access. Retain the visible Symposium entry using the shared bot icon instead of the Agents text label, preserving its existing controls and owner.
 - Keep large text, long titles, 44px mobile touch targets, accessible names, visible keyboard focus and labelled destructive actions usable. Check loading, empty, error and success states.
 - Keep accent and font preferences effective across routes. Never make changing the accent recolor warnings/errors or make code lose its monospace font.
 - Run `npm run test:design` from the repository root for every UI change. Extend the guard when adding a new styling mechanism; do not suppress it to ship a page.

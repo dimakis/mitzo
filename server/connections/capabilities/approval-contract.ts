@@ -38,7 +38,21 @@ export function maxCompleteApprovalDisplayChars(schema: JsonSchema): number {
  * the permission card. Hashes are binding evidence, never a substitute for
  * content the operator needs to evaluate.
  */
-export function assertCompleteApprovalProjection(schema: JsonSchema): void {
+export function assertCompleteApprovalProjection(schema: JsonSchema, capabilityId?: string): void {
+  // GitHub publication authorizes the exact commit and complete metadata hashes.
+  // A long PR description is content with an explicit preview, not an action selector.
+  if (capabilityId === 'github.publish-pr' && schema.properties.body?.type === 'string') {
+    schema = {
+      ...schema,
+      properties: {
+        ...schema.properties,
+        body: { type: 'string', maxLength: 512 },
+        bodySha256: { type: 'string', maxLength: 64 },
+        bodyBytes: { type: 'string', maxLength: 12 },
+        bodyPreviewTruncated: { type: 'boolean' },
+      },
+    };
+  }
   if (
     Object.keys(schema.properties).length > MAX_CAPABILITY_APPROVAL_PROPERTIES ||
     maxCompleteApprovalDisplayChars(schema) > PERMISSION_INPUT_MAX_CHARS

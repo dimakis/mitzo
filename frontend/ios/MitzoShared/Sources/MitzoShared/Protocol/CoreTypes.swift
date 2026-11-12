@@ -149,6 +149,7 @@ public struct FinishedMessage: Codable, Sendable {
 // MARK: - Permission
 
 public struct PermissionRequest: Codable, Sendable, Equatable {
+    public let reviewKind: String?
     public let permId: String
     public let toolName: String
     public let toolInput: String
@@ -157,6 +158,7 @@ public struct PermissionRequest: Codable, Sendable, Equatable {
     public let displayName: String?
     public let tier: ToolTier?
     public let approvalScope: ApprovalScope?
+    public let allowSessionGrant: Bool?
     public let sessionGrantDescription: String?
     public let questions: [NotificationQuestion]?
 }

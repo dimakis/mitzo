@@ -1,4 +1,4 @@
-export type MotionKind = 'page' | 'fade' | 'popover' | 'sheet' | 'disclosure';
+export type MotionKind = 'page' | 'fade' | 'popover' | 'sheet' | 'disclosure' | 'reorder';
 
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -27,6 +27,12 @@ export function animateMotion(
   const easing = styles.getPropertyValue('--motion-ease').trim();
   const closed: Keyframe = { opacity: 0 };
   const opened: Keyframe = { opacity: 1 };
+  if (kind === 'reorder') {
+    delete closed.opacity;
+    delete opened.opacity;
+    opened.translate = '0 0';
+    opened.zIndex = from?.zIndex ?? 'auto';
+  }
   // Pages use opacity only: transforms would move the containing block for fixed
   // chat controls, keyboards and portals. Content updates never call this helper.
   if (kind === 'popover' || kind === 'sheet') {
@@ -108,7 +114,19 @@ function trackDisclosureSize(element: HTMLElement, animation: Animation, endpoin
     effect.updateTiming({ duration: duration - Math.max(0, elapsed) });
     animation.currentTime = 0;
   };
-  const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(retarget);
+  // Retargeting temporarily removes the height effect to measure resting layout.
+  // Doing that inside resize delivery can resize an already-delivered ancestor
+  // and trigger WebKit's undelivered-notifications error. Coalesce that work into
+  // the next frame, outside the observer's layout cycle.
+  let resizeFrame: number | undefined;
+  const scheduleResize = () => {
+    if (resizeFrame !== undefined) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = undefined;
+      retarget();
+    });
+  };
+  const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleResize);
   resize?.observe(element);
   if (element.parentElement) resize?.observe(element.parentElement);
   for (const child of element.children) resize?.observe(child);
@@ -123,6 +141,8 @@ function trackDisclosureSize(element: HTMLElement, animation: Animation, endpoin
   window.addEventListener('resize', retarget);
   window.visualViewport?.addEventListener('resize', retarget);
   const release = () => {
+    if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
+    resizeFrame = undefined;
     resize?.disconnect();
     mutations.disconnect();
     window.removeEventListener('resize', retarget);

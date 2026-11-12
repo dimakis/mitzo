@@ -1,14 +1,25 @@
 import { performance } from 'node:perf_hooks';
-import { context, trace, SpanStatusCode } from '@opentelemetry/api';
+import { trace } from '@opentelemetry/api';
 import { createLogger } from './logger.js';
-import { tracer } from './tracing.js';
+import { beginOperationObservation } from './operation-observation.js';
 
 type Phase =
   | 'repository_selection'
   | 'repository_reservation'
   | 'repository_fetch'
+  | 'repository_base_resolution'
+  | 'repository_commit_resolution'
   | 'repository_credential_check'
+  | 'repository_source_qualification'
+  | 'repository_object_capture'
+  | 'repository_approval'
+  | 'repository_materialization'
   | 'bootstrap'
+  | 'bootstrap_qualification'
+  | 'bootstrap_login'
+  | 'bootstrap_executable'
+  | 'bootstrap_connect'
+  | 'login_verification_keys'
   | 'keychain_read'
   | 'native_measurement'
   | 'native_capture'
@@ -21,18 +32,23 @@ type Phase =
   | 'model_qualification';
 const log = createLogger('local-codex-dispatch');
 function beginPhase(phase: Phase) {
-  const span = tracer.startSpan(`local_codex.${phase}`),
+  const observation = beginOperationObservation(`local_codex.${phase}`),
     start = performance.now();
   return {
-    run: <T>(work: () => T): T => context.with(trace.setSpan(context.active(), span), work),
+    run: observation.run,
     end(outcome: 'success' | 'failed') {
-      const elapsedMs = Math.round(performance.now() - start);
-      span.setStatus({ code: outcome === 'success' ? SpanStatusCode.OK : SpanStatusCode.ERROR });
-      span.setAttribute('phase.elapsed_ms', elapsedMs);
-      span.setAttribute('phase.outcome', outcome);
-      span.end();
-      if (elapsedMs >= 500 || outcome === 'failed')
-        log.warn('Local Codex phase completed', { phase, elapsedMs, outcome });
+      try {
+        const elapsedMs = Math.round(performance.now() - start);
+        observation.annotate({ 'phase.elapsed_ms': elapsedMs, 'phase.outcome': outcome });
+        observation.end(outcome === 'failed');
+        if (outcome === 'failed')
+          log.warn('Local Codex phase completed', { phase, elapsedMs, outcome });
+        else if (elapsedMs >= 500)
+          log.info('Local Codex phase completed', { phase, elapsedMs, outcome });
+      } catch {
+        // Diagnostics cannot replace a result (including owned scratch whose
+        // disposer the caller must retain) or the original operation failure.
+      }
     },
   };
 }
@@ -72,5 +88,32 @@ export function observeLocalCodexSyncPhase<T>(phase: Phase, work: () => T): T {
     throw error;
   } finally {
     observation.end(outcome);
+  }
+}
+
+/** Failed native approval fences must remain diagnosable after the lifecycle
+ * bridge retires their owner. Emit fixed labels only and preserve the exact
+ * original exception, including native cancellation identities. Success adds
+ * no spans, reads, owner checks or log entries.
+ */
+export function observeNativeApprovalCheck(
+  stage: 'before_handler' | 'handler' | 'after_handler' | 'reply',
+  check: 'signal' | 'identity' | 'file_items' | 'execution_policy',
+  work: () => void,
+): void {
+  try {
+    work();
+  } catch (error) {
+    try {
+      trace.getActiveSpan()?.addEvent('native_approval.check_failed', { stage, check });
+    } catch {
+      /* Diagnostics cannot replace a cancellation or owner failure. */
+    }
+    try {
+      log.warn('Native approval current check failed', { stage, check });
+    } catch {
+      /* Preserve the original failure even when logging is unavailable. */
+    }
+    throw error;
   }
 }

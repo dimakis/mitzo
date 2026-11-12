@@ -4,10 +4,18 @@ import {
   SourceSnapshotsSchema,
   SessionCollaborationIdSchema,
   CollaborationMessageInputSchema,
+  CollaborationPromptReviewInputSchema,
+  CollaborationForwardPrepareInputSchema,
+  CollaborationForwardConfirmInputSchema,
   SessionRuntimeBindingV1Schema,
 } from '@mitzo/protocol';
-import { createBrowserId } from './browser-crypto';
-import { allowComposerDraftPersistence } from './composer-draft-proof';
+import { createBrowserId, sha256Hex } from './browser-crypto';
+import {
+  acceptedComposerDraftKey,
+  allowComposerDraftPersistence,
+  composerDraftProof,
+  readComposerDraftRevision,
+} from './composer-draft-proof';
 import { getDefaultAccountModel } from './account-preference';
 import {
   ChatRuntimeSelectionSchema,
@@ -37,6 +45,41 @@ export const ChatDraftSchema = z.object({
   ),
   contextBlocks: z.array(z.string()),
   updatedAt: z.number(),
+  // Receipt metadata must not change the editable composer's acceptance proof.
+  collaborationSend: z
+    .object({
+      collaborationId: SessionCollaborationIdSchema,
+      authScope: z.string().min(1),
+      input: CollaborationMessageInputSchema,
+      stopRequested: z.boolean().optional(),
+    })
+    .optional(),
+  collaborationForward: z
+    .object({
+      collaborationId: SessionCollaborationIdSchema,
+      authScope: z.string().min(1),
+      input: CollaborationForwardPrepareInputSchema,
+      reviewInput: CollaborationPromptReviewInputSchema.optional(),
+      confirmation: CollaborationForwardConfirmInputSchema.optional(),
+      confirmationAttempted: z.boolean(),
+    })
+    .optional(),
+  collaborationContext: z
+    .object({
+      collaborationId: SessionCollaborationIdSchema,
+      authScope: z.string().min(1),
+      form: z.object({
+        mode: z.enum(['conversation_so_far', 'selected']),
+        purpose: z.string().max(4000),
+        brief: z.string().max(20000),
+        messageIds: z.array(z.string().min(1)).max(500),
+        artifacts: CollaborationPromptReviewInputSchema.shape.selection.shape.artifacts.optional(),
+      }),
+      input: CollaborationPromptReviewInputSchema.optional(),
+      snapshot: CollaborationMessageInputSchema.shape.snapshot.optional(),
+      attached: z.boolean(),
+    })
+    .optional(),
   settings: z.object({
     // Draft routing intent only; this never grants read or execution authority.
     collaborationResponders: z
@@ -88,6 +131,8 @@ export const ChatDraftSchema = z.object({
     mode: z.enum(['ask', 'agent', 'auto']),
     isolation: z.boolean(),
     repositoryWorkspaceId: z.uuid().nullable().optional(),
+    // Saved source hint only. Never passed as an admitted/prepared workspace.
+    savedRepositoryWorkspaceId: z.string().min(1).max(200).nullable().optional(),
     search: z.string(),
     summary: z
       .object({
@@ -100,6 +145,30 @@ export const ChatDraftSchema = z.object({
 });
 export type ChatDraft = z.infer<typeof ChatDraftSchema>;
 export type ChatDraftContent = Pick<ChatDraft, 'text' | 'images' | 'contextBlocks'>;
+export function chatDraftRichSignature(draft: ChatDraft): string {
+  return sha256Hex(
+    JSON.stringify({
+      images: draft.images,
+      contextBlocks: draft.contextBlocks,
+      settings: draft.settings,
+    }),
+  );
+}
+function isAcceptedChatDraft(draft: ChatDraft): boolean {
+  try {
+    const key = chatDraftStorageKey(draft.id);
+    const accepted = composerDraftProof(
+      JSON.parse(chatStorage.getItem(acceptedComposerDraftKey(key)) ?? 'null'),
+    );
+    return (
+      accepted?.storageKey === key &&
+      readComposerDraftRevision(key, draft.text, chatDraftRichSignature(draft)) ===
+        accepted.revisionToken
+    );
+  } catch {
+    return false;
+  }
+}
 export function createChatDraft(): ChatDraft {
   return {
     version: 1,
@@ -141,7 +210,12 @@ export function listChatDrafts(): ChatDraft[] {
       .filter((key) => key.startsWith(PREFIX))
       .flatMap((key) => {
         const draft = getChatDraft(key.slice(PREFIX.length));
-        return draft ? [draft] : [];
+        // Acceptance can outlive its composer. Keep recovery bytes for that
+        // owner, but only unsent revisions belong in Drafts and its count.
+        // Shared drafts stay with their conversation and exact recovery owner.
+        return draft && !draft.settings.collaborationResponders && !isAcceptedChatDraft(draft)
+          ? [draft]
+          : [];
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {
@@ -162,7 +236,10 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.settings.launch &&
       !draft.settings.sourceSnapshots?.length &&
       !draft.settings.retainRuntimeIntent &&
-      !draft.settings.collaborationResponders
+      !draft.settings.collaborationResponders &&
+      !draft.collaborationSend &&
+      !draft.collaborationContext &&
+      !draft.collaborationForward
     )
       chatStorage.removeItem(PREFIX + draft.id);
     else
@@ -175,6 +252,9 @@ export function saveChatDraft(draft: ChatDraft): boolean {
 }
 export function deleteChatDraft(id: string, options: { preserveText?: boolean } = {}): boolean {
   try {
+    // A collection discard cannot erase an unresolved delivery observation.
+    const retained = getChatDraft(id);
+    if (retained?.collaborationSend || retained?.collaborationForward) return false;
     if (!allowComposerDraftPersistence(chatDraftStorageKey(id))) return false;
     chatStorage.removeItem(PREFIX + id);
     if (!options.preserveText) chatStorage.removeItem(chatDraftTextKey(id));

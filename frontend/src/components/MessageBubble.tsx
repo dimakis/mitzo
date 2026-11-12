@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -29,6 +29,8 @@ import {
   type ContextInjection,
 } from '@mitzo/protocol';
 import { ContextInjectionDisclosure } from './ContextInjectionDisclosure';
+import { AgentMessageCard } from './AgentMessageCard';
+import { MessageActionsContext } from '../lib/message-actions-context';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -59,6 +61,7 @@ export function UserBubble({
   timestamp,
   readAloud,
 }: UserBubbleProps) {
+  const actions = useContext(MessageActionsContext);
   const context = text && splitContextPrompt(text);
   const displayText = context ? context.text : text;
   const injections = contextInjections ?? (context ? context.injections : undefined);
@@ -94,18 +97,21 @@ export function UserBubble({
                 {time}
               </time>
             )}
-            {displayText && readAloud && (
-              <ReadAloudButton
-                text={displayText}
-                active={readAloud.active}
-                onSpeak={readAloud.onSpeak}
-                onStop={readAloud.onStop}
-                className="msg-bubble-read-aloud msg-bubble-read-aloud--user"
-              />
-            )}
-            {displayText && (
-              <CopyButton text={displayText} className="msg-bubble-copy msg-bubble-copy--user" />
-            )}
+            <div className="msg-bubble-footer-actions">
+              {displayText && readAloud && (
+                <ReadAloudButton
+                  text={displayText}
+                  active={readAloud.active}
+                  onSpeak={readAloud.onSpeak}
+                  onStop={readAloud.onStop}
+                  className="msg-bubble-read-aloud msg-bubble-read-aloud--user"
+                />
+              )}
+              {displayText && (
+                <CopyButton text={displayText} className="msg-bubble-copy msg-bubble-copy--user" />
+              )}
+              {actions}
+            </div>
           </div>
         )}
       </div>
@@ -130,6 +136,7 @@ export function TextBubble({
   readAloud,
   artifactSessionId,
 }: TextBubbleProps) {
+  const actions = useContext(MessageActionsContext);
   const navigate = useNavigate();
   const location = useLocation();
   const processed = useMemo(
@@ -321,16 +328,19 @@ export function TextBubble({
               {formatMessageDate(timestamp)}
             </time>
           )}
-          {readAloud && (
-            <ReadAloudButton
-              text={content}
-              active={readAloud.active}
-              onSpeak={readAloud.onSpeak}
-              onStop={readAloud.onStop}
-              className="msg-bubble-read-aloud"
-            />
-          )}
-          <CopyButton text={content} className="msg-bubble-copy" />
+          <div className="msg-bubble-footer-actions">
+            {readAloud && (
+              <ReadAloudButton
+                text={content}
+                active={readAloud.active}
+                onSpeak={readAloud.onSpeak}
+                onStop={readAloud.onStop}
+                className="msg-bubble-read-aloud"
+              />
+            )}
+            <CopyButton text={content} className="msg-bubble-copy" />
+            {actions}
+          </div>
         </div>
       )}
     </div>
@@ -344,6 +354,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, artifactSessionId }: MessageBubbleProps) {
+  if (message.agentMessage) return <AgentMessageCard projection={message.agentMessage} />;
   if (message.role === 'user') {
     const textBlock = message.blocks.find((b) => b.blockType === 'text');
     return (

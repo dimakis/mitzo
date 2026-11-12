@@ -1,6 +1,11 @@
 export * from './markdown-paths.js';
+export * from './ordinary-turn.js';
+export { ToolFailureSchema, toolFailure, toolFailureAction } from './tool-failure.js';
+export type { ToolFailure } from './tool-failure.js';
+export { stripMarkdownCodeBlocks } from './markdown-code-blocks.js';
 export { interruptUnansweredToolBlocks } from './tool-lifecycle.js';
 export * from './agent-tasks.js';
+export * from './session-launch.js';
 // @mitzo/protocol — shared types, schemas, and utilities for the Mitzo v2 protocol.
 export type {
   AgentLibraryDraft,
@@ -59,6 +64,8 @@ export type {
   FinishedSubagentState,
   SubagentState,
   SubagentUsage,
+  SubagentStatus,
+  SubagentDiagnostic,
   AgentDefinitionSource,
   AgentDefinition,
   AgentIdentity,
@@ -296,6 +303,7 @@ export {
   SessionRuntimeBindingV1Schema,
   SessionRuntimeBindingV2Schema,
   SessionRuntimeBindingSchema,
+  isOrdinaryRepositoryParticipantBinding,
 } from './session-runtime-binding.js';
 export type {
   SessionRuntimeBindingV1,
@@ -341,6 +349,12 @@ export { sessionApprovalServer } from './session-approval-scope.js';
 export * from './ordinary-local-admission.js';
 export * from './prepared-repository-transition.js';
 export * from './local-codex-first-command.js';
+export {
+  SESSION_RUNTIME_MESSAGES,
+  RuntimeFailureSchema,
+  runtimeFailureMessage,
+} from './runtime-failure.js';
+export type { RuntimeFailure, SessionRuntimeFailureCode } from './runtime-failure.js';
 export * from './ordinary-command-timeouts.js';
 
 export * from './profile-builder.js';
@@ -400,10 +414,13 @@ export {
 } from './paid-reasoning-selection.js';
 
 export * from './chat-input-limits.js';
-export { MemoryCandidateSchema } from './memory-candidates.js';
+export * from './codex-steering.js';
 
 export {
   MessageReplyIdSchema,
   MessageReplyContextSchema,
   type MessageReplyContext,
 } from './message-reply.js';
+export * from './session-prompts.js';
+export * from './native-subagents.js';
+export * from './session-learning.js';

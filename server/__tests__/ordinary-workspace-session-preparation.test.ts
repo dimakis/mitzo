@@ -51,7 +51,9 @@ const agentProfile = {
   definition,
   contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
 };
-function fixture() {
+function fixture(provider: 'openai' | 'openai-codex' = 'openai-codex') {
+  const selectedAccount = { ...account, provider };
+  const selectedBinding = { ...binding, account: { ...binding.account, provider } };
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'ordinary-session-v2-')));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const cwd = join(root, 'ordinary-files');
@@ -63,7 +65,7 @@ function fixture() {
     sessionId = 'ordinary-session-' + randomUUID();
   const settings = {
     version: 2 as const,
-    binding,
+    binding: selectedBinding,
     selection,
     workspace: { kind: 'ordinary' as const, preparationId: randomUUID() },
   };
@@ -71,7 +73,7 @@ function fixture() {
     sessionId,
     ordinaryWorkspaceId: workspaceId,
     cwd,
-    accountBinding: account,
+    accountBinding: selectedAccount,
     agentProfile,
     selectedModel: account.model,
     reasoningEffort: null,
@@ -98,34 +100,37 @@ function fixture() {
   };
 }
 
-it('retains a strict ordinary V2 preparation with its real workspace kind and creates no command or event', () => {
-  const f = fixture();
-  const receipt = f.events.prepareOrdinaryWorkspaceSession(f.meta, f.input);
-  expect(receipt).toEqual({
-    version: 2,
-    allocationOperationId: f.input.allocationOperationId,
-    sessionId: f.meta.sessionId,
-    workspaceKind: 'ordinary',
-    workspaceId: f.workspaceId,
-    settings: f.input.settings,
-    preparationFingerprint: f.input.preparationFingerprint,
-    firstCommandId: null,
-  });
-  expect(f.events.getSession(f.meta.sessionId)).toMatchObject({
-    ordinaryWorkspaceId: f.workspaceId,
-    cwd: f.cwd,
-  });
-  expect(f.events.getSession(f.meta.sessionId)).not.toHaveProperty('repositoryWorkspaceId');
-  expect(f.events.getSessionRuntimeBinding(f.meta.sessionId)).toEqual(binding);
-  expect(f.events.getSessionEvents(f.meta.sessionId)).toEqual([]);
-  expect(f.events.getOrdinaryInitialCommandId(f.meta.sessionId)).toBeUndefined();
-  expect(f.events.getSendCommand(f.input.allocationOperationId)).toBeUndefined();
-  expect(f.events.getOrdinarySessionPreparation(f.input.allocationOperationId)).toBeUndefined();
-  expect(f.events.getOrdinaryConversationSettings(f.meta.sessionId)).toBeUndefined();
-  expect(f.events.getOrdinaryWorkspaceConversationSettings(f.meta.sessionId)).toEqual(
-    f.input.settings,
-  );
-});
+it.each(['openai-codex', 'openai'] as const)(
+  'retains real V2 %s preparation metadata without creating a command or event',
+  (provider) => {
+    const f = fixture(provider);
+    const receipt = f.events.prepareOrdinaryWorkspaceSession(f.meta, f.input);
+    expect(receipt).toEqual({
+      version: 2,
+      allocationOperationId: f.input.allocationOperationId,
+      sessionId: f.meta.sessionId,
+      workspaceKind: 'ordinary',
+      workspaceId: f.workspaceId,
+      settings: f.input.settings,
+      preparationFingerprint: f.input.preparationFingerprint,
+      firstCommandId: null,
+    });
+    expect(f.events.getSession(f.meta.sessionId)).toMatchObject({
+      ordinaryWorkspaceId: f.workspaceId,
+      cwd: f.cwd,
+    });
+    expect(f.events.getSession(f.meta.sessionId)).not.toHaveProperty('repositoryWorkspaceId');
+    expect(f.events.getSessionRuntimeBinding(f.meta.sessionId)).toEqual(f.input.settings.binding);
+    expect(f.events.getSessionEvents(f.meta.sessionId)).toEqual([]);
+    expect(f.events.getOrdinaryInitialCommandId(f.meta.sessionId)).toBeUndefined();
+    expect(f.events.getSendCommand(f.input.allocationOperationId)).toBeUndefined();
+    expect(f.events.getOrdinarySessionPreparation(f.input.allocationOperationId)).toBeUndefined();
+    expect(f.events.getOrdinaryConversationSettings(f.meta.sessionId)).toBeUndefined();
+    expect(f.events.getOrdinaryWorkspaceConversationSettings(f.meta.sessionId)).toEqual(
+      f.input.settings,
+    );
+  },
+);
 
 it('reopens and replays exact V2 metadata while refusing changed workspace, cwd, account or intent', () => {
   const f = fixture();

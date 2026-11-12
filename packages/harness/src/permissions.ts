@@ -1,7 +1,17 @@
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionRequest, QuestionAnswers } from '@mitzo/protocol';
+import {
+  TelosSourceRecoveryDismissalSchema,
+  type TelosSourcePermissionReceipt,
+  type TelosCanonicalOutcomeReceipt,
+} from '@mitzo/protocol';
 import type { ToolTier } from './tool-tiers.js';
 import { isDeepStrictEqual } from 'node:util';
+import { recordPermissionAudit } from './permission-audit.js';
+import { createLogger } from './logger.js';
+const log = createLogger('permissions');
+export const PERMISSION_EXPIRED_MESSAGE =
+  'Tool approval expired without a response. Wait for the user; do not recreate the unchanged request automatically.';
 
 export interface PendingTelosSourceReview {
   permId: string;
@@ -17,6 +27,8 @@ export interface PendingTelosSourceReview {
 type PermissionResolver = (result: PermissionResult) => unknown;
 
 interface PendingEntry {
+  createdAt: number;
+  audit?: { toolUseID: string; scopeHash: string };
   resolver: PermissionResolver;
   toolName: string;
   toolInput: Record<string, unknown>;
@@ -44,8 +56,11 @@ function notifyLifecycle(event: PermissionLifecycleEvent): void {
   for (const listener of lifecycleListeners) {
     try {
       listener(structuredClone(event));
-    } catch {
-      /* Notification failures cannot change authority. */
+    } catch (error) {
+      log.warn('Permission lifecycle observer failed; decision authority is unchanged', {
+        phase: event.type,
+        errorType: error instanceof Error ? error.name : 'non-Error',
+      });
     }
   }
 }
@@ -59,8 +74,11 @@ export function registerPending(
   sessionId?: string,
   request?: PermissionRequest,
   review?: { toolUseId: string; operatorId?: string; canApprove?(): boolean },
+  audit?: { toolUseID: string; scopeHash: string },
 ) {
   pending.set(permId, {
+    createdAt: Date.now(),
+    audit,
     resolver,
     toolName,
     toolInput: structuredClone(toolInput),
@@ -68,6 +86,15 @@ export function registerPending(
     sessionId,
     request,
     review,
+  });
+  recordPermissionAudit({
+    phase: 'requested',
+    time: Date.now(),
+    sessionId,
+    permId,
+    toolName,
+    ...audit,
+    approvalScope: request?.approvalScope,
   });
   if (request) notifyLifecycle({ type: 'requested', request });
 }
@@ -83,6 +110,26 @@ export function isCompletePendingBashCommand(request: PermissionRequest): boolea
     Object.hasOwn(entry.toolInput, 'command') &&
     entry.toolInput.command === request.toolInput
   );
+}
+
+/** Banner actions require the full live input, regardless of the tool's name. */
+export function isCompletePendingToolInput(request: PermissionRequest): boolean {
+  const entry = pending.get(request.permId);
+  if (
+    !entry ||
+    entry.toolName !== request.toolName ||
+    entry.sessionId !== request.sessionId ||
+    entry.request?.reviewKind ||
+    request.reviewKind ||
+    request.questions
+  )
+    return false;
+  if (request.toolName === 'Bash') return isCompletePendingBashCommand(request);
+  try {
+    return isDeepStrictEqual(JSON.parse(request.toolInput), entry.toolInput);
+  } catch {
+    return false;
+  }
 }
 
 export function resolvePending(
@@ -104,11 +151,16 @@ export function resolvePending(
   // is busy. The advertised absolute deadline remains authoritative.
   if (entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()) {
     pending.delete(permId);
-    entry.resolver({
-      behavior: 'deny',
-      message: 'Tool approval expired without a response; request approval again',
-    });
-    notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+    applyPendingResult(
+      entry,
+      permId,
+      {
+        behavior: 'deny',
+        message: PERMISSION_EXPIRED_MESSAGE,
+      },
+      decision,
+      'expired',
+    );
     return false;
   }
 
@@ -145,7 +197,6 @@ export function resolvePending(
     };
   }
   pending.delete(permId);
-  const { resolver } = entry;
 
   let requestedResult: PermissionResult;
   if (effectiveDecision === 'always') {
@@ -167,7 +218,31 @@ export function resolvePending(
       ...(denialReason ? {} : { decisionClassification: 'user_reject' as const }),
     };
   }
-  const appliedResult = resolver(requestedResult);
+  applyPendingResult(entry, permId, requestedResult, effectiveDecision);
+  return true;
+}
+
+/** Every terminal resolver path shares the same failure and decision reporting. */
+function applyPendingResult(
+  entry: PendingEntry,
+  permId: string,
+  requestedResult: PermissionResult,
+  decision?: 'once' | 'always' | 'deny',
+  fixedOutcome?: 'denied' | 'expired' | 'cancelled',
+) {
+  let appliedResult: unknown;
+  try {
+    appliedResult = entry.resolver(requestedResult);
+  } catch (error) {
+    auditResolution(entry, permId, 'failed', decision);
+    notifyLifecycle({ type: 'resolved', permId, resolution: 'denied' });
+    log.error('Permission resolver failed; no allow receipt was recorded', {
+      permId,
+      sessionId: entry.sessionId,
+      errorType: error instanceof Error ? error.name : 'non-Error',
+    });
+    throw error;
+  }
   const behavior =
     appliedResult &&
     typeof appliedResult === 'object' &&
@@ -176,17 +251,39 @@ export function resolvePending(
       ? appliedResult.behavior
       : requestedResult.behavior;
 
+  const outcome =
+    fixedOutcome ??
+    (entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()
+      ? 'expired'
+      : behavior === 'deny'
+        ? 'denied'
+        : 'allowed');
   notifyLifecycle({
     type: 'resolved',
     permId,
-    resolution:
-      entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()
-        ? 'expired'
-        : behavior === 'deny'
-          ? 'denied'
-          : 'allowed',
+    resolution: outcome === 'cancelled' ? 'expired' : outcome,
   });
-  return true;
+  auditResolution(entry, permId, outcome, decision);
+}
+
+function auditResolution(
+  entry: PendingEntry,
+  permId: string,
+  outcome: 'allowed' | 'denied' | 'expired' | 'cancelled' | 'failed',
+  decision?: 'once' | 'always' | 'deny',
+) {
+  recordPermissionAudit({
+    phase: 'resolved',
+    time: Date.now(),
+    sessionId: entry.sessionId,
+    permId,
+    toolName: entry.toolName,
+    ...entry.audit,
+    approvalScope: entry.request?.approvalScope,
+    outcome,
+    decision,
+    waitMs: Math.max(0, Date.now() - entry.createdAt),
+  });
 }
 
 /** Exact host invocation metadata. Request JSON and display text are not proof. */
@@ -265,7 +362,13 @@ export function resolveReviewedTelosSourcePermission(
 /** Denial only: dismiss retained consent without orphaning the same live tool.
  * Expiry and policy changes cannot grant authority here; they need not block denial.
  */
-export function dismissReviewedTelosSourcePermission(proof: PendingTelosSourceReview): boolean {
+export function dismissReviewedTelosSourcePermission(
+  proof: PendingTelosSourceReview,
+  saved?: {
+    receipt?: TelosSourcePermissionReceipt | null;
+    canonicalCreation?: TelosCanonicalOutcomeReceipt | null;
+  },
+): boolean {
   const entry = pending.get(proof.permId);
   if (
     !entry ||
@@ -276,19 +379,50 @@ export function dismissReviewedTelosSourcePermission(proof: PendingTelosSourceRe
     !isDeepStrictEqual(entry.toolInput, proof.toolInput)
   )
     return false;
+  if (
+    saved?.receipt &&
+    (saved.receipt.permId !== proof.permId || saved.receipt.sessionId !== proof.sessionId)
+  )
+    return false;
+  const canonicalCreation = saved?.canonicalCreation ?? saved?.receipt?.canonicalCreation;
+  const itemId = saved?.receipt?.receipt.work.itemId ?? canonicalCreation?.item.id;
+  if (canonicalCreation && itemId !== canonicalCreation.item.id) return false;
+  const message = JSON.stringify(
+    TelosSourceRecoveryDismissalSchema.parse({
+      kind: 'telos_save_recovery_dismissed',
+      permId: proof.permId,
+      sessionId: proof.sessionId,
+      toolUseId: proof.toolUseId,
+      saveStatus: saved?.receipt ? 'completed' : 'unconfirmed',
+      itemId,
+      canonicalCreation,
+      message: 'Reviewed save dismissed; retained save results remain recoverable',
+      nextAction:
+        'Do not create another outcome or retry creation. Dismissal does not prove the save failed. Use the retained receipt or item identity to reconcile the original save; further creation requires a new explicit operator request.',
+    }),
+  );
   // This exact retained-save denial is independent of the old approval
   // deadline. Generic expiry guidance must not invite a duplicate save.
   pending.delete(proof.permId);
-  entry.resolver({
-    behavior: 'deny',
-    message: 'Reviewed save dismissed; retained save results remain recoverable',
-  });
-  notifyLifecycle({ type: 'resolved', permId: proof.permId, resolution: 'denied' });
+  applyPendingResult(
+    entry,
+    proof.permId,
+    {
+      behavior: 'deny',
+      message,
+    },
+    undefined,
+    'denied',
+  );
   return true;
 }
 
-export function removePending(permId: string) {
-  if (pending.delete(permId)) notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+export function removePending(permId: string, outcome: 'expired' | 'cancelled' = 'expired') {
+  const entry = pending.get(permId);
+  if (entry && pending.delete(permId)) {
+    notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+    auditResolution(entry, permId, outcome);
+  }
 }
 
 export function hasPending(permId: string): boolean {
@@ -319,12 +453,17 @@ export function denyPendingBySession(sessionId: string): number {
   for (const [permId, entry] of pending) {
     if (entry.sessionId === sessionId) {
       pending.delete(permId);
-      entry.resolver({
-        behavior: 'deny',
-        message: 'Session taken over by another device',
-        decisionClassification: 'user_reject',
-      });
-      notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+      applyPendingResult(
+        entry,
+        permId,
+        {
+          behavior: 'deny',
+          message: 'Session taken over by another device',
+          decisionClassification: 'user_reject',
+        },
+        undefined,
+        'cancelled',
+      );
       denied++;
     }
   }

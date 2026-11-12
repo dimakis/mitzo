@@ -1,3 +1,6 @@
+import { callbackOutcome, retainCallbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
+import { executeTaskOperation } from '../task-execution-operation.js';
+import { TaskExecutionStore } from '../task-execution-store.js';
 import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -17,16 +20,26 @@ import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { executeSandboxedCommand } from '../sandboxed-command.js';
+import * as nativeFiles from '../native-file-operation.js';
 import { executeTrustedGitCommit, executeTrustedGitHubRead } from '../trusted-native-operation.js';
+import { executePublicGitHubRead } from '../public-github-read.js';
 import { captureLocalRepository } from '../local-repository-worktree.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 const repositoryTasks = vi.hoisted(() => ({ read: vi.fn(), validate: vi.fn() }));
+const testHost = vi.hoisted(() => ({ home: '/offline/native-tool-home' }));
+vi.mock('node:os', async (original) => ({
+  ...(await original<typeof import('node:os')>()),
+  homedir: () => testHost.home,
+}));
 vi.mock('../repository-workspace-runtime.js', () => ({
   readRepositoryWorkspaceForConversation: repositoryTasks.read,
   getRepositoryWorkspaces: () => ({ validateHostTask: repositoryTasks.validate }),
 }));
 vi.mock('../sandboxed-command.js', () => ({
   executeSandboxedCommand: vi.fn().mockResolvedValue({ content: 'done', isError: false }),
+}));
+vi.mock('../public-github-read.js', () => ({
+  executePublicGitHubRead: vi.fn().mockResolvedValue('public repository data'),
 }));
 vi.mock('../trusted-native-operation.js', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -48,6 +61,9 @@ describe('native tool execution through session permissions', () => {
     repositoryTasks.read.mockReset();
     repositoryTasks.validate.mockReset();
     root = await mkdtemp(join(tmpdir(), 'mitzo-native-'));
+    testHost.home = join(root, 'home');
+    vi.stubEnv('CODEX_HOME', join(testHost.home, '.codex'));
+    await mkdir(testHost.home);
     await mkdir(join(root, 'worktree'));
     registry = new SessionRegistry();
     abort = new AbortController();
@@ -66,6 +82,7 @@ describe('native tool execution through session permissions', () => {
     });
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     registry.dispose();
     await rm(root, { recursive: true, force: true });
@@ -78,6 +95,142 @@ describe('native tool execution through session permissions', () => {
   });
   const executor = () =>
     createNativeToolExecutor('client', registry, { env: { PATH: '/usr/bin:/bin' } });
+
+  it.each([
+    ['settled', true],
+    ['unknown', true],
+    ['unknown', false],
+  ] as const)(
+    'retains a task command as %s (executor error=%s) through the real task executor adapter',
+    async (outcome, isError) => {
+      const store = new TaskExecutionStore(join(root, 'events.db'));
+      try {
+        const session = registry.get('client')!;
+        session.cwd = await realpath(session.cwd!);
+        const grant = store.approve('operator', session.sessionId!, 'authorization', {
+          title: 'Run regression tests',
+          network: 'none',
+          repositories: [],
+          expiresAt: Date.now() + 60000,
+          members: [{ sessionId: session.sessionId!, fingerprint: 'scope', roots: [session.cwd] }],
+        });
+        const before = vi.mocked(executeSandboxedCommand).mock.calls.length;
+        const callbacks = new TurnCallbacks();
+        vi.mocked(executeSandboxedCommand).mockImplementationOnce(async () => {
+          callbacks.seal();
+          return retainCallbackOutcome({ content: '1 test failed', isError }, outcome);
+        });
+        const options = {
+          input: {
+            operation: 'run' as const,
+            grantId: grant.id,
+            requestId: 'failed-test',
+            command: 'npm test',
+          },
+          grant,
+          sessionId: session.sessionId!,
+          session,
+          registry,
+          clientId: 'client',
+          call: { turnId: 'turn', callId: 'failed-call' },
+          store,
+          signal: abort.signal,
+          assertGrant: () => grant,
+          assertRuntimeCurrent: async () => {},
+        };
+        const result = await callbacks.track(() => executeTaskOperation(options));
+        expect(result.isError).toBe(true);
+        expect(callbackOutcome(result)).toBe(outcome);
+        expect(store.runStatus(grant.id, session.sessionId!, 'failed-test').state).toBe(
+          outcome === 'settled' ? 'completed' : 'uncertain',
+        );
+        if (outcome === 'settled') {
+          await expect(callbacks.settle(abort.signal)).resolves.toBeUndefined();
+          expect(result.content).toBe('1 test failed');
+          const retryCallbacks = new TurnCallbacks();
+          const retry = retryCallbacks.track(() => executeTaskOperation(options));
+          retryCallbacks.seal();
+          const replay = await retry;
+          expect(replay).toEqual(result);
+          expect(callbackOutcome(replay)).toBe('settled');
+          await expect(retryCallbacks.settle(abort.signal)).resolves.toBeUndefined();
+        } else {
+          await expect(callbacks.settle(abort.signal)).rejects.toMatchObject({
+            code: 'callbacks_failed',
+          });
+          expect(JSON.parse(result.content).state).toBe('uncertain');
+          await expect(executeTaskOperation(options)).rejects.toThrow(/uncertain/);
+        }
+        expect(vi.mocked(executeSandboxedCommand).mock.calls.length).toBe(before + 1);
+      } finally {
+        store.close();
+      }
+    },
+  );
+
+  it('uses an exact trusted task grant for different routine commands without another card', async () => {
+    for (const command of ['npm test -- first', 'npm test -- second']) {
+      const input = { command };
+      const current = vi.fn();
+      const execute = createNativeToolExecutor('client', registry, {
+        env: { PATH: '/usr/bin:/bin' },
+        taskAuthorization: {
+          grantId: 'grant',
+          toolName: 'Bash',
+          input,
+          assertCurrentSync: current,
+        },
+      });
+      const result = await execute(call('Bash', input), abort.signal);
+      expect(result.is_error).toBe(false);
+      expect(current).toHaveBeenCalled();
+    }
+    expect(sent.filter((event) => event.type === 'permission_request')).toEqual([]);
+  });
+
+  it('refuses a task proof for changed input or an unselected operation before effects', async () => {
+    const execute = createNativeToolExecutor('client', registry, {
+      env: {},
+      taskAuthorization: {
+        grantId: 'grant',
+        toolName: 'Bash',
+        input: { command: 'npm test' },
+        assertCurrentSync() {},
+      },
+    });
+    const before = vi.mocked(executeSandboxedCommand).mock.calls.length;
+    expect((await execute(call('Bash', { command: 'rm -rf .' }), abort.signal)).is_error).toBe(
+      true,
+    );
+    expect((await execute(call('GitHubRead', { endpoint: '/user' }), abort.signal)).is_error).toBe(
+      true,
+    );
+    expect(vi.mocked(executeSandboxedCommand).mock.calls.length).toBe(before);
+  });
+
+  it('rechecks task revocation immediately before spawning a command', async () => {
+    let revoked = false;
+    const input = { command: 'npm test' };
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      revoked = true;
+      options.beforeSpawn?.();
+      return { content: 'must not run', isError: false };
+    });
+    const execute = createNativeToolExecutor('client', registry, {
+      env: {},
+      taskAuthorization: {
+        grantId: 'grant',
+        toolName: 'Bash',
+        input,
+        assertCurrentSync() {
+          if (revoked) throw Error('Task authorization was revoked');
+        },
+      },
+    });
+    const output = await execute(call('Bash', input), abort.signal);
+    expect(output.is_error).toBe(true);
+    expect(output.content).toMatch(/revoked/);
+  });
 
   it.each(['Write', 'GitHubRead'] as const)(
     'rechecks owned runtime revocation after %s approval before host effects',
@@ -171,6 +324,132 @@ describe('native tool execution through session permissions', () => {
     expect(await allowed).toMatchObject({ is_error: false });
     expect(await readFile(join(root, 'worktree/approved'), 'utf8')).toBe('yes');
   });
+  it.each([
+    ['GitHubRead', { endpoint: '/user' }],
+    ['GitHubRead', { endpoint: '/repos/example/project', access: 'public' }],
+    ['Write', { file_path: 'cancelled', content: 'forbidden', require_approval: true }],
+    ['Read', { file_path: 'original' }],
+    [
+      'Edit',
+      { file_path: 'original', old_string: 'before', new_string: 'after', require_approval: true },
+    ],
+    ['Bash', { command: 'touch forbidden' }],
+    ['GitCommit', { files: ['original'], message: 'Must not execute' }],
+  ] as const)(
+    'settles %s cancelled while approval is pending without executing it',
+    async (name, input) => {
+      await writeFile(join(root, 'worktree/original'), 'before');
+      const beforeReads = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+      const beforePublicReads = vi.mocked(executePublicGitHubRead).mock.calls.length;
+      const beforeCommits = vi.mocked(executeTrustedGitCommit).mock.calls.length;
+      const beforeCommands = vi.mocked(executeSandboxedCommand).mock.calls.length;
+      const execute = createNativeToolExecutor('client', registry, { env: {}, forcePrompt: true });
+      const pending = execute(
+        call(name, { ...input, ...('files' in input ? { files: [...input.files] } : {}) }),
+        abort.signal,
+      );
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      abort.abort(new Error('Original turn completed'));
+      const response = await pending;
+      expect(response).toMatchObject({ is_error: true, content: 'Tool execution cancelled' });
+      expect(callbackOutcome(response)).toBe('settled');
+      expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(beforeReads);
+      expect(vi.mocked(executePublicGitHubRead).mock.calls).toHaveLength(beforePublicReads);
+      expect(vi.mocked(executeTrustedGitCommit).mock.calls).toHaveLength(beforeCommits);
+      expect(vi.mocked(executeSandboxedCommand).mock.calls).toHaveLength(beforeCommands);
+      expect(await readFile(join(root, 'worktree/original'), 'utf8')).toBe('before');
+      await expect(readFile(join(root, 'worktree/cancelled'))).rejects.toThrow();
+    },
+  );
+
+  it.each(['authenticated', 'public'] as const)(
+    'preserves a positively settled %s GitHub refusal through the native adapter',
+    async (access) => {
+      const read = access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
+      vi.mocked(read).mockRejectedValueOnce(Error('HTTP 403'));
+      const pending = createNativeToolExecutor('client', registry, { env: {}, forcePrompt: true })(
+        call('GitHubRead', { endpoint: '/repos/example/project', access }),
+        abort.signal,
+      );
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+      const response = await pending;
+      expect(response.is_error).toBe(true);
+      expect(callbackOutcome(response)).toBe('settled');
+    },
+  );
+
+  it.each(['authenticated', 'public'] as const)(
+    'preserves uncertainty when an already dispatched %s GitHub read is cancelled',
+    async (access) => {
+      const read = access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
+      vi.mocked(read).mockImplementationOnce(async () => {
+        abort.abort(new Error('Original turn completed'));
+        throw abort.signal.reason;
+      });
+      const pending = createNativeToolExecutor('client', registry, { env: {}, forcePrompt: true })(
+        call('GitHubRead', { endpoint: '/repos/example/project', access }),
+        abort.signal,
+      );
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+      const response = await pending;
+      expect(response.is_error).toBe(true);
+      expect(callbackOutcome(response)).toBe('unknown');
+    },
+  );
+
+  it('retains uncertainty for a write interrupted after entering the file executor', async () => {
+    const target = join(root, 'worktree/partial');
+    vi.spyOn(nativeFiles, 'executeNativeFileOperation').mockImplementationOnce(async () => {
+      await writeFile(target, 'partial effect');
+      abort.abort(new Error('Owner stopped after a write'));
+      throw abort.signal.reason;
+    });
+    const response = await executor()(
+      call('Write', { file_path: 'partial', content: 'whole' }),
+      abort.signal,
+    );
+    expect(response.is_error).toBe(true);
+    expect(callbackOutcome(response)).toBe('unknown');
+    expect(await readFile(target, 'utf8')).toBe('partial effect');
+  });
+
+  it('retains uncertainty from on-demand workspace creation before tool approval', async () => {
+    const onDemandCreate = vi.fn(async () => {
+      await writeFile(join(root, 'preparation-started'), 'partial effect');
+      abort.abort(new Error('Workspace preparation interrupted'));
+      throw abort.signal.reason;
+    });
+    const execute = createNativeToolExecutor('client', registry, { env: {}, onDemandCreate });
+    const response = await execute(
+      call('Write', { file_path: join(root, 'outside'), content: 'forbidden' }),
+      abort.signal,
+    );
+    expect(onDemandCreate).toHaveBeenCalledOnce();
+    expect(response.is_error).toBe(true);
+    expect(callbackOutcome(response)).toBe('unknown');
+    await expect(readFile(join(root, 'outside'))).rejects.toThrow();
+  });
+
+  it('settles a redirect after the original workspace creator positively completes', async () => {
+    const prepared = join(root, 'prepared');
+    const onDemandCreate = vi.fn(async () => {
+      await mkdir(prepared);
+      return { repoName: 'prepared', worktreePath: prepared };
+    });
+    const execute = createNativeToolExecutor('client', registry, { env: {}, onDemandCreate });
+    const response = await execute(
+      call('Write', { file_path: join(root, 'outside'), content: 'forbidden' }),
+      abort.signal,
+    );
+    expect(onDemandCreate).toHaveBeenCalledOnce();
+    expect(response.is_error).toBe(true);
+    expect(callbackOutcome(response)).toBe('settled');
+    expect(registry.get('client')!.worktreePaths.get('prepared')?.path).toBe(prepared);
+    await expect(readFile(join(root, 'outside'))).rejects.toThrow();
+  });
+
   it('requires initial approval for authenticated GitHub reads without exposing credentials', async () => {
     registry.get('client')!.mode = 'ask';
     const pending = executor()(call('GitHubRead', { endpoint: '/user' }), abort.signal);
@@ -183,25 +462,192 @@ describe('native tool execution through session permissions', () => {
       undefined,
       undefined,
       undefined,
+      expect.any(Function),
     );
   });
-  it('retains an authenticated GitHub read approval for the session', async () => {
-    registry.get('client')!.mode = 'ask';
-    const execute = executor();
-    const first = execute(call('GitHubRead', { endpoint: '/user' }), abort.signal);
+  it('reuses repository consent for different job logs and passes bounded log controls to the transport', async () => {
+    const read = (job: number) =>
+      executor()(
+        call('GitHubRead', {
+          endpoint: `/repos/example/project/actions/jobs/${job}/logs`,
+          log: { query: 'FAIL', limit: 2000 },
+        }),
+        abort.signal,
+      );
+    const first = read(123);
     await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
     resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'always');
+    expect((await first).is_error).toBe(false);
+    sent.length = 0;
+    expect((await read(456)).is_error).toBe(false);
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+    expect(executeTrustedGitHubRead).toHaveBeenLastCalledWith(
+      '/repos/example/project/actions/jobs/456/logs',
+      abort.signal,
+      undefined,
+      undefined,
+      undefined,
+      expect.any(Function),
+      { query: 'FAIL', limit: 2000 },
+    );
+  });
+  it('refuses public log paging and non-log filtering without a prompt or credential fallback', async () => {
+    const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+    for (const input of [
+      { endpoint: '/repos/example/project/actions/jobs/123/logs', access: 'public', log: {} },
+      { endpoint: '/repos/example/project/contents/file', log: {} },
+    ])
+      expect((await executor()(call('GitHubRead', input), abort.signal)).is_error).toBe(true);
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+  });
+  it('reads public GitHub data without a card or an authenticated grant', async () => {
+    const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+    expect(
+      await executor()(
+        call('GitHubRead', {
+          endpoint: '/repos/example/project/pulls',
+          access: 'public',
+        }),
+        abort.signal,
+      ),
+    ).toMatchObject({ content: 'public repository data', is_error: false });
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+    expect(executePublicGitHubRead).toHaveBeenCalled();
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+    expect(registry.get('client')!.sessionAllowList.size).toBe(0);
+
+    const authenticated = executor()(
+      call('GitHubRead', {
+        endpoint: '/repos/example/project/pulls',
+        access: 'authenticated',
+      }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'deny');
+    expect(await authenticated).toMatchObject({ is_error: true });
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+  });
+  it('never retries a failed public read using host GitHub credentials', async () => {
+    const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+    vi.mocked(executePublicGitHubRead).mockRejectedValueOnce(
+      Error('Public repository unavailable'),
+    );
+    expect(
+      await executor()(
+        call('GitHubRead', {
+          endpoint: '/repos/example/private',
+          access: 'public',
+        }),
+        abort.signal,
+      ),
+    ).toMatchObject({ is_error: true, content: 'Public repository unavailable' });
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+  });
+  it('keeps explicit project approval requirements for a public read', async () => {
+    const before = vi.mocked(executePublicGitHubRead).mock.calls.length;
+    const pending = createNativeToolExecutor('client', registry, {
+      env: {},
+      forcePrompt: true,
+    })(call('GitHubRead', { endpoint: '/repos/example/project', access: 'public' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'deny');
+    expect(await pending).toMatchObject({ is_error: true });
+    expect(vi.mocked(executePublicGitHubRead).mock.calls).toHaveLength(before);
+  });
+  it('preserves the skill ceiling for public GitHub reads', async () => {
+    registry.get('client')!.activeSkillPolicy = new Set(['Read']);
+    const before = vi.mocked(executePublicGitHubRead).mock.calls.length;
+    expect(
+      await executor()(
+        call('GitHubRead', {
+          endpoint: '/repos/example/project',
+          access: 'public',
+        }),
+        abort.signal,
+      ),
+    ).toMatchObject({ is_error: true });
+    expect(vi.mocked(executePublicGitHubRead).mock.calls).toHaveLength(before);
+  });
+  it('rejects public account-identity reads without network or credential access', async () => {
+    const before = vi.mocked(executePublicGitHubRead).mock.calls.length;
+    expect(
+      await executor()(call('GitHubRead', { endpoint: '/user', access: 'public' }), abort.signal),
+    ).toMatchObject({ is_error: true });
+    expect(vi.mocked(executePublicGitHubRead).mock.calls).toHaveLength(before);
+  });
+  it('reuses repository GitHub read consent for PRs and CI without granting other repositories', async () => {
+    registry.get('client')!.mode = 'ask';
+    const execute = executor();
+    const first = execute(
+      call('GitHubRead', { endpoint: '/repos/owner/repo/pulls/1' }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    const card = sent.find((e) => e.type === 'permission_request')!;
+    expect(card.title).toBe('Read GitHub repository owner/repo');
+    expect(card.sessionGrantDescription).toContain('writes and shell network access');
+    resolvePending(card.permId as string, 'always');
     expect(await first).toMatchObject({ is_error: false });
 
     sent.length = 0;
     const second = await execute(
-      call('GitHubRead', { endpoint: '/repos/owner/repo/pulls/1' }),
+      call('GitHubRead', { endpoint: '/repos/owner/repo/actions/runs/123/jobs' }),
       abort.signal,
     );
     expect(second).toMatchObject({ is_error: false });
     expect(sent).toEqual([]);
-    expect(registry.get('client')!.sessionAllowList).toContain('GitHubRead');
+    expect([...registry.get('client')!.sessionAllowList]).toEqual([
+      expect.stringMatching(/^github-read-v1:/),
+    ]);
+    for (const endpoint of ['/repos/owner/other/pulls/1', '/user']) {
+      sent.length = 0;
+      const next = execute(call('GitHubRead', { endpoint }), abort.signal);
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'deny');
+      expect(await next).toMatchObject({ is_error: true });
+    }
   });
+
+  it.each(['account', 'runtime', 'revoked'] as const)(
+    'does not deliver a GitHub read through a retained %s boundary',
+    async (change) => {
+      const options = { env: { PATH: '/usr/bin:/bin' }, githubReadRuntimeId: 'runtime' };
+      const input = call('GitHubRead', { endpoint: '/repos/owner/repo/actions/runs/123/jobs' });
+      const first = createNativeToolExecutor('client', registry, options)(input, abort.signal);
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'always');
+      expect(await first).toMatchObject({ is_error: false });
+      sent.length = 0;
+      const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+      if (change === 'account')
+        registry.get('client')!.accountBinding = {
+          accountId: 'new-account',
+          provider: 'openai-codex',
+          profileRevision: 'new-revision',
+        } as never;
+      if (change === 'runtime') options.githubReadRuntimeId = 'new-runtime';
+      let checks = 0;
+      const next = createNativeToolExecutor('client', registry, {
+        ...options,
+        assertRuntimeCurrentAsync: async () => {
+          if (change === 'revoked' && ++checks === 2)
+            registry.get('client')!.sessionAllowList.clear();
+        },
+      })(input, abort.signal);
+      if (change !== 'revoked') {
+        await vi.waitFor(() =>
+          expect(sent.some((e) => e.type === 'permission_request')).toBe(true),
+        );
+        resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'deny');
+      }
+      expect(await next).toMatchObject({ is_error: true });
+      if (change === 'revoked') expect(sent).toEqual([]);
+      expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+    },
+  );
   it('includes an explicit full GitHub view in the original approved request', async () => {
     const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
     const pending = executor()(
@@ -218,6 +664,7 @@ describe('native tool execution through session permissions', () => {
       undefined,
       undefined,
       'full',
+      expect.any(Function),
     );
   });
   it('rejects GitHub traversal before requesting approval', async () => {
@@ -1047,16 +1494,18 @@ describe('native tool execution through session permissions', () => {
     }
   });
   it('rejects malformed, unknown and already cancelled calls', async () => {
-    expect(await executor()(call('Write', { file_path: 'bad' }), abort.signal)).toMatchObject({
-      is_error: true,
-    });
-    expect(await executor()(call('mcp__missing__tool', {}), abort.signal)).toMatchObject({
-      is_error: true,
-    });
+    for (const block of [call('Write', { file_path: 'bad' }), call('mcp__missing__tool', {})]) {
+      const result = await executor()(block, abort.signal);
+      expect(result).toMatchObject({ is_error: true });
+      expect(callbackOutcome(result)).toBe('settled');
+    }
     abort.abort();
-    expect(
-      await executor()(call('Write', { file_path: 'bad', content: 'no' }), abort.signal),
-    ).toMatchObject({ is_error: true });
+    const cancelled = await executor()(
+      call('Write', { file_path: 'bad', content: 'no' }),
+      abort.signal,
+    );
+    expect(cancelled).toMatchObject({ is_error: true });
+    expect(callbackOutcome(cancelled)).toBe('settled');
     await expect(readFile(join(root, 'worktree/bad'))).rejects.toThrow();
   });
   it('preserves ask mode read-only behavior without relying on SDK plan mode', async () => {

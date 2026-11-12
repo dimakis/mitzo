@@ -215,6 +215,7 @@ it('S6: signed App routes non-Git peer send, ACK and reply through production fi
             return { turn: { id } };
           }
           if (method === 'turn/interrupt') return {};
+          if (method === 'turn/steer') return { turnId: params!.expectedTurnId };
           return rawRpc(method);
         }),
         notify: vi.fn(),
@@ -363,6 +364,16 @@ it('S6: signed App routes non-Git peer send, ACK and reply through production fi
   }
   const an = await start(a),
     bn = await start(b);
+  // These are V2 watch subscribers, deliberately absent from legacy observers.
+  const watchedMessages: Record<string, unknown>[] = [];
+  const watchTransport = {
+    isOpen: () => true,
+    send: (event: Record<string, unknown>) => watchedMessages.push(event),
+  };
+  connections.watch(f.operatorConnectionId, a);
+  connections.watch(f.operatorConnectionId, b);
+  connections.register('additional-peer-viewer', watchTransport);
+  connections.watch('additional-peer-viewer', b);
   async function call(
     native: typeof an,
     sessionId: string,
@@ -443,19 +454,13 @@ it('S6: signed App routes non-Git peer send, ACK and reply through production fi
   expect(sent).toMatchObject({
     senderConversationId: a,
     recipientConversationId: b,
-    status: 'queued',
+    status: 'delivered',
   });
   expect(bn.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
-  bn.lifecycle.onNotification('turn/completed', {
-    threadId: bn.threadId,
-    turn: { id: bn.turnId, status: 'completed' },
-  });
-  await vi.waitFor(() =>
-    expect(bn.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2),
-  );
+  expect(bn.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
   const receipt = await call(an, a, { operation: 'read', messageId: sent.messageId });
   expect(receipt.status).toBe('delivered');
-  const peerTurn = bn.rpc.request.mock.calls.filter(([method]) => method === 'turn/start').at(-1)!;
+  const peerTurn = bn.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer').at(-1)!;
   expect(JSON.stringify(peerTurn)).toContain(input.text);
   expect(JSON.stringify(peerTurn)).toContain('grants no action');
   expect((await call(bn, b, { operation: 'inbox' })).messages[0]).toMatchObject({
@@ -474,15 +479,9 @@ it('S6: signed App routes non-Git peer send, ACK and reply through production fi
     senderConversationId: b,
     recipientConversationId: a,
     replyTo: sent.messageId,
-    status: 'queued',
+    status: 'delivered',
   });
-  an.lifecycle.onNotification('turn/completed', {
-    threadId: an.threadId,
-    turn: { id: an.turnId, status: 'completed' },
-  });
-  await vi.waitFor(() =>
-    expect(an.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2),
-  );
+  expect(an.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
   expect((await call(bn, b, { operation: 'read', messageId: reply.messageId })).status).toBe(
     'delivered',
   );
@@ -500,13 +499,38 @@ it('S6: signed App routes non-Git peer send, ACK and reply through production fi
       (m) => m.type === 'permission_request' && m.toolName === 'AgentCommunication',
     ),
   ).toHaveLength(2);
+  await vi.waitFor(() =>
+    expect(
+      streamMessages.filter((message) => message.type === 'agent_message').length,
+    ).toBeGreaterThanOrEqual(4),
+  );
+  await vi.waitFor(() =>
+    expect(watchedMessages.some((event) => event.type === 'agent_message')).toBe(true),
+  );
+  expect(
+    watchedMessages
+      .filter((event) => event.type === 'agent_message')
+      .every((event) => event.sessionId === b),
+  ).toBe(true);
+  expect(chat.registry.findBySessionId(b)!.session.observers.has(watchTransport)).toBe(false);
   for (const [id, peer] of [
     [a, an],
     [b, bn],
   ] as const) {
     expect(peer.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
-      2,
+      1,
     );
+    expect(
+      chat.eventStore.getSessionEvents(id).some((event) => event.type === 'agent_message'),
+    ).toBe(true);
+    expect(
+      chat.eventStore
+        .getSessionEvents(id)
+        .some(
+          (event) =>
+            event.type === 'user_message' && String(event.payload.text).includes(input.text),
+        ),
+    ).toBe(false);
     expect(
       chat.registry.findBySessionId(id)!.session.sessionAllowList.has('AgentCommunication'),
     ).toBe(false);

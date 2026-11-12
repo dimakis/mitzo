@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import {
   GithubNotFoundError,
+  githubHostCommandPlan,
   type GithubHostCommandRunner,
 } from './connections/capabilities/github-publish-pr-transport.js';
 
@@ -64,15 +65,16 @@ export const knowledgeHostCommand: GithubHostCommandRunner = async (command, arg
     throw new Error('Knowledge host command is not allowed');
   signal.throwIfAborted();
   const env = environment();
+  const request = githubHostCommandPlan(command, args);
   const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    execFile(
+    const child = execFile(
       command,
-      [...args],
+      [...request.args],
       {
         env,
         signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
         timeout: 30_000,
-        maxBuffer: 128 * 1024,
+        maxBuffer: request.maxBuffer,
         windowsHide: true,
       },
       (error, stdout, stderr) => {
@@ -90,6 +92,7 @@ export const knowledgeHostCommand: GithubHostCommandRunner = async (command, arg
         }
       },
     );
+    if (request.input !== undefined) child.stdin!.on('error', () => {}).end(request.input);
   });
   signal.throwIfAborted();
   return result;

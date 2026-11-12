@@ -1,11 +1,17 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import Database from 'better-sqlite3';
+import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
-import { afterEach, expect, it, vi } from 'vitest';
+import { assembleCommandPrompt } from '../message-reply-context.js';
+import * as registries from '../skill-registry-runtime.js';
+import { SkillRegistry } from '../skills.js';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
+beforeEach(resetOfflineUserEnvironment);
 
 import { revokeAuthSession, login, authenticateToken } from '../auth.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
@@ -73,6 +79,27 @@ const fixture = (options?: {
   realPreparationAuthority?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
 
+it('dispatches an ordinary host skill through the same admitted native owner and retains its command text', async () => {
+  const f = await fixture({ localRepository: true, chatRoute: true });
+  const registry = new SkillRegistry({ bundledDir: join(process.cwd(), 'skills') });
+  vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(registry);
+  f.request.payload.text = '/mockup a dashboard';
+  const runtime = f.create();
+  await runtime.admit(f.request);
+  const dispatched = f.dispatch.mock.calls[0][0];
+  const prompt = assembleCommandPrompt(
+    f.events,
+    f.reservation.conversationId,
+    f.request.clientMsgId,
+    dispatched.payload,
+  );
+  expect(prompt).toContain('Create or refine a clickable mockup for a dashboard');
+  expect(dispatched.payload.text).toBe('/mockup a dashboard');
+  expect(
+    f.events.getOrdinarySkillContext(f.reservation.conversationId, f.request.clientMsgId)?.prompt,
+  ).toBe(prompt);
+});
+
 it('binds a fresh prepared barrier to the actual retained operator, lease and physical old workspace', async () => {
   const f = await fixture();
   const runtime = f.create();
@@ -105,7 +132,7 @@ it('renews run authority only on an explicit send from another verified operator
 });
 
 it('rejects altered reviewed Library source bytes before native startup effects', async () => {
-  const f = await fixture();
+  const f = await fixture({ chatRoute: true });
   const request = {
     ...f.request,
     payload: {
@@ -333,6 +360,61 @@ it.each(['consumed', 'uncertain'] as const)(
     expect(f.dispatch).not.toHaveBeenCalled();
   },
 );
+
+it('retains a cold bootstrap failure through admission without losing the conversation or task files', async () => {
+  const f = await fixture();
+  const first = f.create();
+  await first.admit(f.request);
+  const original = f.dispatch.mock.calls[0][0];
+  const nativePath = join(f.root, 'cold-native.db');
+  let native = new CodexConversationStore(nativePath);
+  native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+  original.admission.persistCustody(native);
+  native.bindThread(original.sessionId, original.lease.binding, 'retained-thread');
+  const custody = native.readHostCustody(original.sessionId, original.lease.binding);
+  first.close();
+  native.close();
+  native = new CodexConversationStore(nativePath);
+  cleanups.push(() => native.close());
+  const draft = join(original.workspace.directory!, 'unfinished.txt');
+  writeFileSync(draft, 'Uncommitted work survives restart');
+  const failure = Object.assign(Error('SECRET /private/provider-config'), { code: 'ETIMEDOUT' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read') throw failure;
+    return rpc(method, params);
+  });
+  const next = {
+    ...f.request,
+    clientMsgId: randomUUID(),
+    payload: { text: 'Continue after restart' },
+  };
+  const dispatch = vi.fn();
+  const cold = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    nativeStore: native,
+    commandId: next.clientMsgId,
+    launch: () => f.rpc,
+    dispatch,
+  });
+  cleanups.push(() => cold.close());
+  let caught: unknown;
+  try {
+    await cold.admitResume(next);
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(Error);
+  expect(codexRuntimeErrorTelemetry(caught as Error)).toMatchObject({
+    startupPhase: 'runtime_admission',
+    startupErrorCode: 'ETIMEDOUT',
+  });
+  expect(JSON.stringify(codexRuntimeErrorTelemetry(caught as Error))).not.toMatch(/SECRET|private/);
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(native.read(original.sessionId, original.lease.binding).threadId).toBe('retained-thread');
+  expect(native.readHostCustody(original.sessionId, original.lease.binding)).toEqual(custody);
+  expect(readFileSync(draft, 'utf8')).toBe('Uncommitted work survives restart');
+});
 
 it.each(['workspace', 'contexgin'] as const)(
   'cold %s continuation keeps the original compiled snapshot without reading fresh source',

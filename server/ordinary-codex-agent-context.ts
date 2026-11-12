@@ -8,6 +8,7 @@ import {
 } from '@mitzo/protocol';
 import { contextDigest } from './agent-context-compiler.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
+import { readBuiltinAgentLibraryProfile } from './builtin-agent-library-profile.js';
 
 /** A prepared snapshot binds the admitted recipe; it cannot select another source or profile. */
 export function assertOrdinaryCodexContextIdentity(
@@ -69,7 +70,10 @@ export function ordinaryCodexSnapshotCustody(
   snapshot?: AgentContextSnapshot,
 ) {
   return {
-    ...(profile ? { agentProfileSha256: contextDigest(profile) } : {}),
+    // Session persistence parses this schema and therefore normalizes key order.
+    ...(profile
+      ? { agentProfileSha256: contextDigest(AgentLibraryVersionSchema.parse(profile)) }
+      : {}),
     ...(snapshot ? { agentContextSha256: contextDigest(snapshot) } : {}),
   };
 }
@@ -80,10 +84,22 @@ export function assertOrdinaryCodexSnapshotCustody(
   snapshot?: AgentContextSnapshot,
 ) {
   const expected = ordinaryCodexSnapshotCustody(profile, snapshot);
+  const profileMatches = () => {
+    if (custody.agentProfileSha256 === expected.agentProfileSha256) return true;
+    // Older builtins were hashed before persistence reordered their keys. Only
+    // the exact code-owned revision and complete definition qualify; edited
+    // metadata cannot supply its own replacement legacy hash.
+    const builtin = profile && readBuiltinAgentLibraryProfile(profile);
+    return (
+      !!builtin &&
+      isDeepStrictEqual(AgentLibraryVersionSchema.parse(builtin), profile) &&
+      custody.agentProfileSha256 === contextDigest(builtin)
+    );
+  };
   if (
     (profile?.definition.contextRecipe &&
       (!custody.agentContextSha256 || !custody.agentProfileSha256)) ||
-    (custody.agentProfileSha256 && custody.agentProfileSha256 !== expected.agentProfileSha256) ||
+    (custody.agentProfileSha256 && !profileMatches()) ||
     (custody.agentContextSha256 && custody.agentContextSha256 !== expected.agentContextSha256)
   )
     throw Error('Retained native Codex context custody changed');

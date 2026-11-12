@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { ordinaryRepositoryTransition } from './fixtures/ordinary-repository-transition.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
 
@@ -47,53 +47,7 @@ function fixture() {
   store.completeOrdinaryLocalCommand('initial');
   let primary: string | undefined;
   const adopt = (queued: string[] = []) => {
-    const current = store.getSession('session')!;
-    const transition = {
-      version: 1 as const,
-      preparationId: randomUUID(),
-      runtimeId: 'runtime',
-      ...(primary ? { priorPrimaryCommandId: primary } : {}),
-      source: {
-        commandId: primary ?? 'initial',
-        attempt: 1,
-        threadId: 'thread',
-        turnId: 'turn',
-        generation: 0,
-        callId: randomUUID(),
-        requestHash: 'a'.repeat(64),
-        resultSha256: 'b'.repeat(64),
-      },
-      oldWorkspace: {
-        kind: 'repository' as const,
-        id: current.repositoryWorkspaceId!,
-        directory: current.cwd!,
-      },
-      newWorkspace: {
-        kind: 'repository' as const,
-        id: randomUUID(),
-        directory: `/offline/${randomUUID()}`,
-        featureBranch: 'mitzo/branch',
-        baseOid: 'c'.repeat(40),
-        taskIdentitySha256: 'd'.repeat(64),
-      },
-      consumedScopeSha256: 'e'.repeat(64),
-      materializedRecordSha256: 'f'.repeat(64),
-    };
-    const child = store.reservePreparedRepositoryContinuation('session', transition);
-    store.commitPreparedRepositoryContinuation('session', child.childCommandId, transition);
-    store.rebindPreparedRepositoryQueuedCommands(
-      'session',
-      child.childCommandId,
-      transition,
-      queued,
-    );
-    store.finalizePreparedRepositoryContinuation(
-      'session',
-      child.childCommandId,
-      transition,
-      () => {},
-    );
-    primary = child.childCommandId;
+    primary = ordinaryRepositoryTransition(store, 'session', primary ?? 'initial', queued, primary);
     return primary;
   };
   adopt();

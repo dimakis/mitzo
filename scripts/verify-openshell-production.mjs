@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readMgmtPolicyReceipt, mgmtPolicySelectsPath } from './lib/mgmt-knowledge-policy.mjs';
 import { execFileSync } from 'node:child_process';
 import console from 'node:console';
 import { createHash } from 'node:crypto';
@@ -219,20 +220,76 @@ export function verifyOpenAiHeaderAuthentication(profile) {
   verifyOpenAiEndpoints(profile.endpoints ?? []);
 }
 
-function portableKnowledgePath(path) {
+function portableKnowledgePath(path, policy) {
   if (
-    /^\.git\/(?:HEAD|config|description|index|COMMIT_EDITMSG|logs\/HEAD|(?:refs|logs\/refs)\/heads\/[A-Za-z0-9_-]+|objects\/[a-f0-9]{2}\/[a-f0-9]{38})$/.test(
+    /^\.git\/(?:HEAD|config|description|index|COMMIT_EDITMSG|info\/refs|logs\/HEAD|(?:refs|logs\/refs)\/heads\/[A-Za-z0-9_-]+)$/.test(
+      path,
+    ) ||
+    /^\.git\/objects\/(?:[a-f0-9]{2}\/[a-f0-9]{38}|info\/packs|pack\/(?:multi-pack-index|pack-[a-f0-9]{40}\.(?:pack|idx|rev)))$/.test(
       path,
     )
   )
     return true;
+  if (/^memory\/manifest\/(?:index|wikilinks|by_type|by_tag)\.json$/.test(path)) return true;
+  if (policy) return mgmtPolicySelectsPath(path, policy);
   if (path.split('/').some((part) => part.startsWith('.'))) return false;
   if (/^(?:AGENTS|CLAUDE|CONSTITUTION|KNOWLEDGE|SERVICES|README)\.md$/.test(path)) return true;
-  if (/^memory\/manifest\/(?:index|wikilinks|by_type|by_tag)\.json$/.test(path)) return true;
   if (/^memory\/(?!scripts\/|manifest\/).+\.md$/.test(path)) return true;
   return /^(?:jira_process|slack_observe|architecture|professional(?:\/(?:blog|linkedin))?|patents|music|health|home_assistant|command_center|knowledge_space|okrs\/shared_eng_excellence)\/(?:(?:AGENTS|CLAUDE|CONSTITUTION)\.md|context\/.+\.md)$/.test(
     path,
   );
+}
+
+/** Derived Git indexes are data from the pinned builder, not host configuration.
+ * Their bytes remain bound to the publisher receipt and complete file inventory. */
+function validatePortableGitMetadata(root, actual) {
+  if (actual.has('.git/info/refs')) {
+    // Git may generate its dumb-transport index while committing the portable
+    // seed. Accept only an exact index of the already verified loose branches;
+    // do not widen the boundary to hooks, alternates, tags or other info files.
+    const refs = [...actual.keys()]
+      .filter((path) => /^\.git\/refs\/heads\/[A-Za-z0-9_-]+$/.test(path))
+      .sort()
+      .map((path) => {
+        const value = readFileSync(resolve(root, path), 'utf8');
+        invariant(/^[a-f0-9]{40}\n$/.test(value), 'prepared seed branch ref is invalid');
+        return `${value.trim()}\t${path.slice('.git/'.length)}\n`;
+      })
+      .join('');
+    invariant(
+      readFileSync(resolve(root, '.git/info/refs'), 'utf8') === refs,
+      'prepared seed Git info/refs does not match verified branch refs',
+    );
+  }
+
+  const packRoot = '.git/objects/pack/';
+  const packFiles = [...actual.keys()].filter((path) => path.startsWith(packRoot));
+  const packNames = new Set(
+    packFiles.filter((path) => path.endsWith('.pack')).map((path) => path.slice(packRoot.length)),
+  );
+  for (const path of packFiles) {
+    if (path === `${packRoot}multi-pack-index`) {
+      invariant(packNames.size > 0, 'prepared seed multi-pack-index has no verified packs');
+      continue;
+    }
+    const stem = path.slice(0, path.lastIndexOf('.'));
+    invariant(
+      actual.has(`${stem}.pack`) && actual.has(`${stem}.idx`),
+      'prepared seed Git pack and index must be paired',
+    );
+  }
+  if (actual.has('.git/objects/info/packs')) {
+    const index = readFileSync(resolve(root, '.git/objects/info/packs'), 'utf8');
+    const entries = index.slice(0, -1).split('\n').filter(Boolean);
+    const names = new Set(entries.map((entry) => entry.slice(2)));
+    invariant(
+      /^(?:P pack-[a-f0-9]{40}\.pack\n)*\n$/.test(index) &&
+        entries.length === names.size &&
+        names.size === packNames.size &&
+        [...names].every((name) => packNames.has(name)),
+      'prepared seed Git info/packs does not match verified pack files',
+    );
+  }
 }
 
 function validateSeedContents(seedBaseline, seedPath) {
@@ -243,6 +300,10 @@ function validateSeedContents(seedBaseline, seedPath) {
       !Array.isArray(seedBaseline.files),
     'prepared dynamic seed file manifest is invalid',
   );
+  const policy =
+    seedBaseline.spokePolicy === undefined
+      ? undefined
+      : readMgmtPolicyReceipt(seedBaseline.spokePolicy);
   const root = resolve(seedPath);
   const expected = new Map();
   for (const [path, entry] of Object.entries(seedBaseline.files)) {
@@ -264,7 +325,7 @@ function validateSeedContents(seedBaseline, seedPath) {
       `prepared seed file manifest has an invalid hash or mode for ${path}`,
     );
     invariant(
-      portableKnowledgePath(path),
+      portableKnowledgePath(path, policy),
       `prepared seed path is outside the portable knowledge allowlist: ${path}`,
     );
     invariant(
@@ -303,6 +364,8 @@ function validateSeedContents(seedBaseline, seedPath) {
       `prepared seed file hash or mode does not match baseline.json: ${path}`,
     );
   }
+
+  validatePortableGitMetadata(root, actual);
 
   if (actual.has('.git/config')) {
     const config = execFileSync(
@@ -556,6 +619,9 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
       knowledgeRecipeSha256: seedBaseline.knowledgeRecipeSha256,
       ...(Object.hasOwn(seedBaseline, 'runtimeJiraInputsSha256')
         ? { runtimeJiraInputsSha256: seedBaseline.runtimeJiraInputsSha256 }
+        : {}),
+      ...(Object.hasOwn(seedBaseline, 'spokePolicy')
+        ? { spokePolicy: seedBaseline.spokePolicy }
         : {}),
       files: seedBaseline.files,
     });

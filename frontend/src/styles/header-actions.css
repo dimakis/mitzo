@@ -1,0 +1,37 @@
+/* Header actions share one accent/geometry contract, independent of route CSS. */
+:is(
+    .mobile-workspace-masthead,
+    .workspace-controls,
+    .workspace-page,
+    .conversation-library,
+    .conversation-agents-entry,
+    .conversation-participants,
+    .home-dialog
+  )
+  :is(button, a, summary).header-action.header-action,
+.workspace-page .workspace-heading-actions > :is(button, a),
+.workspace-controls-heading > .chat-top-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-accent);
+  font: inherit;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.header-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-1);
+}
+/* Keep action glyphs consistent even when an older caller requests inline size. */
+.header-action > .ui-icon {
+  width: var(--icon-action-size);
+  height: var(--icon-action-size);
+}

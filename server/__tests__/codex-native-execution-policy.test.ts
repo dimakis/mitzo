@@ -6,6 +6,7 @@ import {
   codexNativeExecutionPolicy,
   codexNativePermissionProfiles,
   assertNativeExecutionRefresh,
+  assertNativeExecutionCurrent,
 } from '../codex-native-execution-policy.js';
 import { codexThreadOptions, codexTurnStartParams } from '../codex-ordinary-packet.js';
 import { codexRuntimeOverrides } from '../codex-runtime-policy.js';
@@ -20,7 +21,132 @@ const input = {
   writeProtectedRoots: ['/operator/runtime'],
 };
 
+it('keeps an admitted command current when another runtime adds redundant protection entries', () => {
+  const initial = codexNativeExecutionPolicy(input);
+  const next = codexNativeExecutionPolicy({
+    ...input,
+    deniedRoots: [...input.deniedRoots, '/private/provider-auth/another-chat'],
+  });
+  expect(next.policyRevision).not.toBe(initial.policyRevision);
+  expect(() => assertNativeExecutionCurrent(initial, next)).not.toThrow();
+  expect(() => assertNativeExecutionRefresh(initial, next)).not.toThrow();
+  expect(() => assertNativeExecutionCurrent(next, initial)).not.toThrow();
+  expect(() => assertNativeExecutionRefresh(next, initial)).not.toThrow();
+});
+
+it.each(['agent', 'auto'] as const)(
+  'retains %s positive read-rule changes across implicit native temporary writes',
+  (mode) => {
+    const initial = codexNativeExecutionPolicy({
+      ...input,
+      mode,
+      writeProtectedRoots: ['/private'],
+    });
+    const next = codexNativeExecutionPolicy({
+      ...input,
+      mode,
+      writeProtectedRoots: ['/private', '/private/tmp/new-runtime'],
+    });
+    expect(() => assertNativeExecutionCurrent(initial, next)).toThrow(
+      'Native execution policy changed',
+    );
+    expect(() => assertNativeExecutionRefresh(initial, next)).toThrow(
+      'Native execution policy changed',
+    );
+    expect(() => assertNativeExecutionCurrent(next, initial)).toThrow(
+      'Native execution policy changed',
+    );
+    expect(() => assertNativeExecutionRefresh(next, initial)).toThrow(
+      'Native execution policy changed',
+    );
+  },
+);
+
+it.each(['profileRevision', 'policyRevision'] as const)(
+  'rejects a substituted %s rather than treating it as redundant discovery',
+  (field) => {
+    const initial = codexNativeExecutionPolicy(input);
+    const forged = Object.freeze({ ...initial, [field]: '0'.repeat(64) });
+    expect(() => assertNativeExecutionCurrent(initial, forged)).toThrow(
+      'Native execution policy changed',
+    );
+    expect(() => assertNativeExecutionRefresh(initial, forged)).toThrow(
+      'Native execution policy changed',
+    );
+  },
+);
+
+it.each([
+  { deniedRoots: [...input.deniedRoots, '/new-private'] },
+  { deniedRoots: ['/private/provider-auth/child'] },
+  { deniedRoots: [...input.deniedRoots, '/private/provider-auth-sibling'] },
+  { deniedRoots: [] },
+  { writeProtectedRoots: [...input.writeProtectedRoots, '/new-runtime'] },
+  { writeProtectedRoots: [] },
+  { mode: 'auto' as const },
+  { bindingRevision: 'replacement-account' },
+  { readableRoots: ['/workspace/one'] },
+  { cwd: '/workspace/two', writableRoots: ['/workspace/two'] },
+])('retains the command fence for a real scope change: %j', (change) => {
+  const initial = codexNativeExecutionPolicy(input);
+  // An empty protection list is malformed at composition and must also fail closed.
+  if (change.deniedRoots?.length === 0) {
+    expect(() => codexNativeExecutionPolicy({ ...input, ...change })).toThrow();
+    return;
+  }
+  const next = codexNativeExecutionPolicy({ ...input, ...change });
+  try {
+    assertNativeExecutionCurrent(initial, next);
+    throw Error('changed authority was accepted');
+  } catch (error) {
+    expect(error).toMatchObject({ code: 'native_policy_changed' });
+    expect((error as Error).message).not.toContain('/new-private');
+  }
+});
+
 describe('native Mac execution permission profile', () => {
+  it('allows Auto networking at both native boundaries while Agent requires approval', () => {
+    const agent = codexNativeExecutionPolicy(input);
+    const auto = codexNativeExecutionPolicy({ ...input, mode: 'auto' });
+    const profiles = codexNativePermissionProfiles(auto).permissions;
+    expect(auto.networkAccess).toBe('enabled');
+    expect(agent.networkAccess).toBe('restricted');
+    expect(auto.permissions).toBe('mitzo-native-auto');
+    expect(profiles['mitzo-native-auto'].filesystem).toEqual(
+      profiles['mitzo-native-agent'].filesystem,
+    );
+    expect(profiles['mitzo-native-agent'].network.enabled).toBe(false);
+    expect(() => assertNativeExecutionRefresh(agent, auto)).not.toThrow();
+    expect(
+      codexThreadOptions({
+        model: 'offline',
+        modelProvider: 'openai',
+        cwd: '/ignored',
+        runtimeConfig: {},
+        webSearch: 'disabled',
+        systemPrompt: '',
+        nativeExecution: auto,
+      }),
+    ).toMatchObject({
+      permissions: 'mitzo-native-auto',
+      approvalsReviewer: 'user',
+      approvalPolicy: 'on-request',
+    });
+    expect(
+      codexTurnStartParams({
+        threadId: 't',
+        commandId: 'c',
+        model: 'offline',
+        prompt: 'run',
+        additionalContext: {},
+        nativeExecution: agent,
+      }),
+    ).toMatchObject({
+      permissions: 'mitzo-native-agent',
+      approvalsReviewer: 'user',
+      approvalPolicy: 'on-request',
+    });
+  });
   it('permits ordinary scratch writes only in the agent profile while retaining credential denials', () => {
     const profiles = codexNativePermissionProfiles(codexNativeExecutionPolicy(input)).permissions;
     for (const root of [':tmpdir', ':slash_tmp']) {
@@ -191,6 +317,18 @@ describe('native Mac execution permission profile', () => {
             '/private/provider-auth{,/**}': 'deny',
           },
           network: { enabled: false },
+        },
+        'mitzo-native-auto': {
+          filesystem: {
+            '/': 'read',
+            ':workspace_roots': { '.': 'write', '.git': 'write' },
+            ':tmpdir': 'write',
+            ':slash_tmp': 'write',
+            '/operator/runtime': 'read',
+            '/private/provider-auth': 'deny',
+            '/private/provider-auth{,/**}': 'deny',
+          },
+          network: { enabled: true },
         },
       },
     });

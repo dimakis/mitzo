@@ -1,3 +1,4 @@
+import { captureGithubPublicationOperationAuthority } from './github-publishing-tool.js';
 import { readGoogleWorkspaceResponse } from './google-workspace-read.js';
 import {
   inspectHostGithubRepository,
@@ -14,8 +15,6 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { createOrdinaryPublicationReview } from './ordinary-publication-review.js';
-import { captureGithubPublicationReviewOwner } from './github-publishing-tool.js';
 import { GoogleWorkspaceManagement } from './google-workspace-management.js';
 import {
   OpenAIKeyManagement,
@@ -404,7 +403,7 @@ export function createConnectionsRuntime(options: {
   };
   const publishingSource = (
     operation: import('./connections/capabilities/types.js').CapabilityOperation,
-  ) => {
+  ): import('./github-publishing-tool.js').GithubPublishingSource | undefined => {
     const live = getLiveCapabilityConversationBinding(operation.conversationId);
     if (
       !live ||
@@ -414,21 +413,23 @@ export function createConnectionsRuntime(options: {
       !live.workspace
     )
       return undefined;
-    if (live.runtime === 'host') return live;
-    return live.sandboxName ? live : undefined;
+    if (live.runtime === 'host')
+      return {
+        runtime: 'host',
+        workspace: live.workspace,
+        gitStorageRoots: live.gitStorageRoots ?? [],
+        ...(live.preparedBase ? { preparedBase: live.preparedBase } : {}),
+      };
+    return live.sandboxName
+      ? {
+          runtime: 'openshell',
+          workspace: live.workspace,
+          sandboxName: live.sandboxName,
+        }
+      : undefined;
   };
   const githubExecutor = createGithubArtifactPublishPrExecutor({
     host: githubHost,
-    reviewCommittedChange: createOrdinaryPublicationReview({
-      resolveOwner: async (operation) => {
-        const owner = captureGithubPublicationReviewOwner(
-          operation.conversationId,
-          operation.turnId,
-        );
-        await owner.assertCurrent();
-        return owner;
-      },
-    }),
     resolveWorkspace: (operation) => publishingSource(operation)?.workspace,
     inspect: async (input) => {
       if (
@@ -439,16 +440,8 @@ export function createConnectionsRuntime(options: {
         ))
       )
         throw new Error('Controller GitHub identity differs from the selected connection');
-      const live = publishingSource(input.operation);
-      if (!live?.workspace) throw new Error('Live publishing workspace unavailable');
-      const source: import('./github-publishing-tool.js').GithubPublishingSource =
-        live.runtime === 'host'
-          ? {
-              runtime: 'host',
-              workspace: live.workspace,
-              gitStorageRoots: live.gitStorageRoots ?? [],
-            }
-          : { runtime: 'openshell', workspace: live.workspace, sandboxName: live.sandboxName! };
+      const source = publishingSource(input.operation);
+      if (!source) throw new Error('Live publishing workspace unavailable');
       if (!(await sourceOrigin(source, input.repositoryPath, input.baseBranch, input.signal)))
         return seedPublication.inspect({
           source,
@@ -460,17 +453,13 @@ export function createConnectionsRuntime(options: {
           authorize: (repository) => requireRepositoryAccess(input.operation, repository),
         });
       const inspection =
-        live.runtime === 'host'
-          ? await inspectHostGithubRepository({
-              ...input,
-              workspace: live.workspace,
-              gitStorageRoots: live.gitStorageRoots ?? [],
-            })
+        source.runtime === 'host'
+          ? await inspectHostGithubRepository({ ...input, ...source })
           : await new OpenShellGithubSandboxTransport(
               runControl,
               options.workspace,
-              live.workspace,
-            ).inspect({ ...input, sandboxName: live.sandboxName! });
+              source.workspace,
+            ).inspect({ ...input, sandboxName: source.sandboxName });
       requireRepositoryAccess(input.operation, githubRepositoryFromOrigin(inspection.originUrl));
       return inspection;
     },
@@ -483,29 +472,15 @@ export function createConnectionsRuntime(options: {
         ))
       )
         throw new Error('Controller GitHub identity differs from the selected connection');
-      const live = publishingSource(input.operation);
-      if (!live?.workspace) throw new Error('Live publishing workspace unavailable');
+      const source = publishingSource(input.operation);
+      if (!source) throw new Error('Live publishing workspace unavailable');
       const repository = await resolveGithubPublishingRepository(
-        live.runtime === 'host'
-          ? {
-              runtime: 'host',
-              workspace: live.workspace,
-              gitStorageRoots: live.gitStorageRoots ?? [],
-            }
-          : { runtime: 'openshell', workspace: live.workspace, sandboxName: live.sandboxName! },
+        source,
         input.repositoryPath,
         input.baseBranch,
         input.signal,
       );
       requireRepositoryAccess(input.operation, repository);
-      const source: import('./github-publishing-tool.js').GithubPublishingSource =
-        live.runtime === 'host'
-          ? {
-              runtime: 'host',
-              workspace: live.workspace,
-              gitStorageRoots: live.gitStorageRoots ?? [],
-            }
-          : { runtime: 'openshell', workspace: live.workspace, sandboxName: live.sandboxName! };
       if (!(await sourceOrigin(source, input.repositoryPath, input.baseBranch, input.signal))) {
         await seedPublication.inspect({
           source,
@@ -518,17 +493,12 @@ export function createConnectionsRuntime(options: {
         });
         return seedPublication.bundle(input.operation.id, input.sourceOid, input.maxBytes);
       }
-      if (live.runtime === 'host')
-        return exportHostGithubBundle({
-          ...input,
-          workspace: live.workspace,
-          gitStorageRoots: live.gitStorageRoots ?? [],
-        });
+      if (source.runtime === 'host') return exportHostGithubBundle({ ...input, ...source });
       return new OpenShellGithubSandboxTransport(
         runControl,
         options.workspace,
-        live.workspace,
-      ).exportBundle({ ...input, sandboxName: live.sandboxName! });
+        source.workspace,
+      ).exportBundle({ ...input, sandboxName: source.sandboxName });
     },
     resolvePublicConfig: (operation) => {
       const connection = store.get(operation.connectionId);
@@ -548,6 +518,10 @@ export function createConnectionsRuntime(options: {
     ...(options.capabilityExecutors ?? {}),
   });
   const capabilities = new CapabilityService({
+    captureMutationAuthority: (operation, callerCurrent) =>
+      operation.capabilityId === 'github.publish-pr'
+        ? captureGithubPublicationOperationAuthority(operation, callerCurrent)
+        : callerCurrent,
     ownsOperation: (operation) => !operation.connectionId.startsWith('sealed-publication-'),
     store: capabilityStore,
     executorRegistry,

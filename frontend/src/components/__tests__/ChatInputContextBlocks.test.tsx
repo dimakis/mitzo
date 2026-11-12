@@ -1,3 +1,4 @@
+import { queuedButton } from '../../test-utils/queued-draft-controls';
 import { createChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -315,7 +316,7 @@ it('retains a queued image/context and active composer through rejected Stop unt
   expect(onSend).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Confirm idle' }));
   expect(onSend).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Resume queue' }));
+  fireEvent.click(queuedButton('Resume queue'));
   await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
   expect(onSend).toHaveBeenCalledExactlyOnceWith(
     'Queued exact draft',

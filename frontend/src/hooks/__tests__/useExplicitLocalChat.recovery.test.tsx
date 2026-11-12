@@ -17,8 +17,10 @@ it.each(['headers', 'body'])(
     let resolveOld!: (value: unknown) => void;
     let signal!: AbortSignal;
     let metadataReads = 0;
-    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    const scopes: unknown[] = [];
+    vi.mocked(apiFetch).mockImplementation(async (url, init, scope) => {
       if (!String(url).endsWith('/meta')) return Response.json(localInventoryFixture());
+      scopes.push(scope);
       metadataReads++;
       if (metadataReads > 1)
         return Response.json({ sessionId: 'chat', repositoryWorkspaceId: 'new-workspace' });
@@ -32,6 +34,7 @@ it.each(['headers', 'body'])(
     });
     const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'chat', true));
     await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(scopes).toEqual(['session-metadata-mount']);
     expect(result.current.metadataUnavailable).toBe(false);
     await act(() => vi.advanceTimersByTimeAsync(15_000));
     expect(result.current.metadataUnavailable).toBe(true);
@@ -42,6 +45,7 @@ it.each(['headers', 'body'])(
     expect(result.current.metadataUnavailable).toBe(false);
     expect(result.current.metadataPending).toBe(false);
     expect(result.current.repositoryWorkspaceId).toBe('new-workspace');
+    expect(scopes).toEqual(['session-metadata-mount', undefined]);
     await act(async () =>
       resolveOld(
         stage === 'headers'

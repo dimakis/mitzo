@@ -68,6 +68,92 @@ const stack = {
     seedPayloadSha256: '0'.repeat(64),
   },
 };
+
+function addFixtureFile(
+  dir: string,
+  baseline: ReturnType<typeof fixture>['baseline'],
+  path: string,
+  content: string,
+) {
+  const fullPath = join(dir, path);
+  mkdirSync(join(fullPath, '..'), { recursive: true });
+  writeFileSync(fullPath, content);
+  chmodSync(fullPath, 0o644);
+  baseline.files[path] = {
+    sha256: createHash('sha256').update(content).digest('hex'),
+    mode: '0644',
+  };
+  const payload: Record<string, unknown> = { ...baseline };
+  delete payload.payloadSha256;
+  baseline.payloadSha256 = createHash('sha256').update(canonicalJsonPayload(payload)).digest('hex');
+}
+
+it('accepts the generated Git ref index only when it exactly indexes verified portable branches', () => {
+  root = '';
+  const { dir, baseline } = fixture('a'.repeat(40));
+  addFixtureFile(dir, baseline, '.git/refs/heads/main', `${'b'.repeat(40)}\n`);
+  const valid = `${'b'.repeat(40)}\trefs/heads/main\n`;
+  addFixtureFile(dir, baseline, '.git/info/refs', valid);
+  expect(() => validateSeedBaseline(baseline, stack, dir)).not.toThrow();
+  for (const content of [
+    '',
+    `${'c'.repeat(40)}\trefs/heads/main\n`,
+    `${'b'.repeat(40)}\trefs/heads/missing\n`,
+    `${'b'.repeat(40)}\trefs/tags/main\n`,
+    `${'b'.repeat(40)}\trefs/heads/../../private\n`,
+    valid + valid,
+  ]) {
+    addFixtureFile(dir, baseline, '.git/info/refs', content);
+    expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/Git info\/refs/);
+  }
+  addFixtureFile(dir, baseline, '.git/info/refs', valid);
+  addFixtureFile(dir, baseline, '.git/refs/heads/main', 'ref: /private/host\n');
+  expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/branch ref/);
+});
+
+it('accepts hash-verified packed Git data only with paired files and an exact transport index', () => {
+  root = '';
+  const { dir, baseline } = fixture('a'.repeat(40));
+  const name = `pack-${'b'.repeat(40)}`;
+  const path = `.git/objects/pack/${name}`;
+  addFixtureFile(dir, baseline, '.git/objects/pack/multi-pack-index', 'opaque builder MIDX bytes');
+  expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/has no verified packs/);
+  addFixtureFile(dir, baseline, `${path}.pack`, 'opaque builder pack bytes');
+  expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/must be paired/);
+  addFixtureFile(dir, baseline, `${path}.idx`, 'opaque builder index bytes');
+  addFixtureFile(dir, baseline, `${path}.rev`, 'opaque builder reverse index bytes');
+  const valid = `P ${name}.pack\n\n`;
+  addFixtureFile(dir, baseline, '.git/objects/info/packs', valid);
+  expect(() => validateSeedBaseline(baseline, stack, dir)).not.toThrow();
+  for (const content of [
+    '\n',
+    `P pack-${'c'.repeat(40)}.pack\n\n`,
+    `P ../private.pack\n\n`,
+    valid.trimEnd() + '\n' + valid,
+    valid.trimEnd(),
+  ]) {
+    addFixtureFile(dir, baseline, '.git/objects/info/packs', content);
+    expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/Git info\/packs/);
+  }
+  addFixtureFile(dir, baseline, '.git/objects/info/packs', valid);
+  writeFileSync(join(dir, `${path}.pack`), 'changed pack bytes');
+  expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/hash or mode/);
+});
+
+it.each([
+  '.git/info/attributes',
+  '.git/objects/info/alternates',
+  '.git/hooks/post-checkout',
+  `.git/objects/pack/pack-${'b'.repeat(40)}.keep`,
+  `.git/objects/pack/pack-${'b'.repeat(40)}.promisor`,
+  '.git/objects/pack/unrelated.pack',
+])('keeps adjacent Git control files forbidden: %s', (path) => {
+  root = '';
+  const { dir, baseline } = fixture('a'.repeat(40));
+  addFixtureFile(dir, baseline, path, 'untrusted');
+  expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/allowlist/);
+});
+
 it('accepts A then knowledge-only B with the same runtime lock and independently verified content', () => {
   root = '';
   const a = fixture('a'.repeat(40));
@@ -188,17 +274,7 @@ it.each([
   root = '';
   const { dir, baseline } = fixture('a'.repeat(40));
   const content = 'Synthetic HA material\n';
-  const fullPath = join(dir, path);
-  mkdirSync(join(fullPath, '..'), { recursive: true });
-  writeFileSync(fullPath, content);
-  chmodSync(fullPath, 0o644);
-  baseline.files[path] = {
-    sha256: createHash('sha256').update(content).digest('hex'),
-    mode: '0644',
-  };
-  const payload: Record<string, unknown> = { ...baseline };
-  delete payload.payloadSha256;
-  baseline.payloadSha256 = createHash('sha256').update(canonicalJsonPayload(payload)).digest('hex');
+  addFixtureFile(dir, baseline, path, content);
   if (allowed) expect(() => validateSeedBaseline(baseline, stack, dir)).not.toThrow();
   else expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/allowlist/);
 });

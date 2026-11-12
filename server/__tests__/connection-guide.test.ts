@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { credentialConnectionToolDefinitions } from '../credential-connection-tools.js';
 import { connectionGuide } from '../connection-guide.js';
-import { MEMORY_CAPTURE_INSTRUCTIONS } from '../session-memory-instructions.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from '../session-credential-tools.js';
 
 describe('runtime-owned connection guidance', () => {
@@ -33,12 +32,7 @@ describe('runtime-owned connection guidance', () => {
     );
   });
   it('keeps the initial hint small and defers workflow detail to the guide', () => {
-    // Preserve the existing workflow budget and bound the added shared capture guidance.
-    expect(
-      CONNECTION_TOOL_INSTRUCTIONS.replace(MEMORY_CAPTURE_INSTRUCTIONS, '').length,
-    ).toBeLessThan(500);
-    expect(MEMORY_CAPTURE_INSTRUCTIONS.length).toBeLessThan(500);
-    expect(CONNECTION_TOOL_INSTRUCTIONS.split(MEMORY_CAPTURE_INSTRUCTIONS)).toHaveLength(2);
+    expect(CONNECTION_TOOL_INSTRUCTIONS.length).toBeLessThan(500);
     expect(CONNECTION_TOOL_INSTRUCTIONS).toContain('GetConnectionGuide');
     expect(CONNECTION_TOOL_INSTRUCTIONS).not.toContain('direct the user to Connections');
   });

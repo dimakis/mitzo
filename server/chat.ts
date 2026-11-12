@@ -1,4 +1,8 @@
 import {
+  reconcilableLocalCodexCommand,
+  retainedLocalCodexRecoveryReservation,
+} from './retained-local-codex-effects.js';
+import {
   assembleCommandPrompt,
   assembleReplyText,
   captureMessageReply,
@@ -9,10 +13,13 @@ import {
 } from './task-worker-authority.js';
 import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
 import { createSdkTurnQuery } from './sdk-turn-query.js';
-import { findSessionRuntimeError } from './session-runtime-error.js';
+import { reportClaudeChildDiagnostic } from './claude-child-diagnostics.js';
+import { claudePersonalSandbox, claudePersonalToolPermission } from './claude-personal-policy.js';
+import { readClaudeAccountHistory } from './claude-account-history.js';
+import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
-import { restoreOwnedVertexInitialPrompt } from './ordinary-local-vertex-replay.js';
+import { createSessionTranscriptReader } from './session-transcript-reader.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
 import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
@@ -27,16 +34,31 @@ import {
   assertTelosWorkCommandAdmission,
 } from './telos-work-command-scope.js';
 import { TelosWorkStore } from './telos-work-store.js';
+import { telosDatabasePath } from './telos-database.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
-import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
+import {
+  agentToolAllowed,
+  assertAgentToolRoute,
+  bindAgentToolSelection,
+} from './agent-tool-selection.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
   SdkHookLifetime,
 } from './ordinary-local-vertex-sdk-query.js';
 import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
 import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
+import type { OrdinarySdkQueryControl } from './ordinary-local-vertex-sdk-query.js';
+import { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
+import { watchAgentMessageTranscript } from './agent-message-transcript.js';
+import { registerAgentMessageRuntime, steerNativeAgentMessage } from './agent-message-runtime.js';
+import { PEER_MESSAGE_INSTRUCTIONS } from './peer-message-instructions.js';
+import { sessionAgentCommunicationTools } from './agent-communication-tools.js';
+import { createAgentMessageApprover } from './agent-communication-permission.js';
+import { getOrdinarySessionPromptPort } from './session-prompt-runtime.js';
+import { agentMessagePrompt } from '@mitzo/protocol';
 import type { AccountBinding, OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
+import { claudeSdkInferenceEnvironment } from './claude-sdk-credentials.js';
 import {
   OrdinaryLocalResponsesOwnedRuntime,
   type OrdinaryLocalResponsesOwnedDispatch,
@@ -72,12 +94,6 @@ import {
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import type { SourceSnapshot } from '@mitzo/protocol';
-import {
-  reconstructMessages,
-  replayEventsToMessages,
-  replayEventsToTranscript,
-  type RawSdkMessage,
-} from './conversation-transcript.js';
 export {
   reconstructMessages,
   replayEventsToMessages,
@@ -105,15 +121,16 @@ import {
   type ProtectedSdkCommandRunner,
 } from './protected-sdk-command.js';
 import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
-import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
-import { MEMORY_CAPTURE_INSTRUCTIONS } from './session-memory-instructions.js';
+import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { retainCodexPreparationFailure } from './codex-preparation-failure.js';
 import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
   hostGithubPublishingSource,
+  githubPublishingGitStorageRoots,
 } from './github-publishing-tool.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { telosArtifactInstructions } from './telos-artifact-tools.js';
@@ -157,6 +174,7 @@ import {
   openCodexChat,
   getCodexRuntime,
   getCodexConversationStore,
+  existingCodexConversationStore,
   trackCodexProviderAdmission,
   publicCodexRuntimeError,
   publicCodexStartupError,
@@ -213,6 +231,7 @@ import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { setSkillPolicy } from './skill-policy.js';
 import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from './query-loop.js';
+import type { SessionChangeEvent } from './session-overview.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
@@ -262,8 +281,7 @@ export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewComma
         getCodexConversationStore().hasAcceptedProviderTurn(id, account),
       work: () => {
         if (work) return work;
-        const path =
-          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+        const path = telosDatabasePath(BASE_REPO);
         const policy = {
           ordinaryConversation: (id: string) =>
             isAvailableTelosWorkConversation(eventStore.getSession(id)),
@@ -349,12 +367,20 @@ export function broadcastDurableSymposiumEvent(
 
 type SessionChangeCallback = (
   clientId: string,
-  event: 'start' | 'end' | 'turn_end' | 'user_message' | 'detach',
+  event: SessionChangeEvent,
   sessionId?: string,
 ) => void;
 let _onSessionChange: SessionChangeCallback | null = null;
 export function setSessionChangeCallback(cb: SessionChangeCallback): void {
   _onSessionChange = cb;
+}
+
+function notifyTurnStart(clientId: string): void {
+  _onSessionChange?.(clientId, 'turn_start');
+}
+
+function notifyTurnEnd(clientId: string): void {
+  _onSessionChange?.(clientId, 'turn_end');
 }
 
 let _onSessionsChanged: (() => void) | null = null;
@@ -380,11 +406,8 @@ import {
 } from './agent-context-delivery.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
-import {
-  shouldAutoRename,
-  extractRecentPrompts,
-  generateSessionNameFallback,
-} from './auto-rename.js';
+import { shouldAutoRename } from './auto-rename.js';
+import { sessionDisplayName, sessionNamingPrompts } from './session-naming-context.js';
 import {
   registerSession,
   updateSessionTitle,
@@ -398,6 +421,7 @@ import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
 import { getAccountUseStore } from './account-use-store.js';
 import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
+import { sessionLearningGuidance, parseSessionLearningPolicy } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -779,9 +803,13 @@ export function getRepoConfig() {
 
 export const AVAILABLE_MODELS = LEGACY_MODELS;
 
-/** Split "claude-opus-4-8:max" → { model: "claude-opus-4-8", effort: "max" } */
-export function parseModelSpec(spec?: string): { model: string; effort: string | undefined } {
+/** Legacy shorthand carries effort after a colon. Selected API model IDs are opaque. */
+export function parseModelSpec(
+  spec?: string,
+  exactModelId = false,
+): { model: string; effort: string | undefined } {
   if (!spec) return { model: '', effort: undefined };
+  if (exactModelId) return { model: spec, effort: undefined };
   const idx = spec.indexOf(':');
   if (idx === -1) return { model: spec, effort: undefined };
   return { model: spec.slice(0, idx), effort: spec.slice(idx + 1) };
@@ -822,6 +850,7 @@ function sdkChildEnvironmentBase(): Record<string, string> {
   // The approved publisher uses these on the controller; models must not inherit them.
   delete env.GH_TOKEN;
   delete env.GITHUB_TOKEN;
+  delete env.MITZO_TELOS_IMPORT_TOKEN;
   return env;
 }
 
@@ -857,11 +886,12 @@ export function nativeExecutionEnv(): Record<string, string> {
 
 export function resolveThinking(
   spec?: string,
+  exactModelId = false,
 ):
   | { type: 'adaptive'; display: 'summarized' }
   | { type: 'enabled'; budgetTokens: number; display: 'summarized' }
   | undefined {
-  const { model, effort } = parseModelSpec(spec);
+  const { model, effort } = parseModelSpec(spec, exactModelId);
   // Opus 4.7+ rejects fixed budgets and omits thinking text unless opted in.
   const adaptiveOnlyOpus = /^claude-opus-(?:4-[7-9]|[5-9])(?:[.@-]|$)/.test(model);
   if (model.includes('opus') && effort === 'max' && !adaptiveOnlyOpus)
@@ -875,9 +905,10 @@ export function resolveThinking(
 export function resolveClaudeEffort(
   spec?: string,
   reasoningEffort?: string | null,
+  exactModelId = false,
 ): 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
   if (reasoningEffort === null) return undefined;
-  const effort = reasoningEffort ?? parseModelSpec(spec).effort;
+  const effort = reasoningEffort ?? parseModelSpec(spec, exactModelId).effort;
   if (
     effort === 'low' ||
     effort === 'medium' ||
@@ -1293,6 +1324,7 @@ export async function startChat(
         payload: Readonly<Record<string, unknown>>,
       ) => void,
       reopen: (selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>,
+      control: OrdinarySdkQueryControl,
     ) => OrdinaryLocalVertexCommandOwner;
   },
 ) {
@@ -1300,6 +1332,10 @@ export async function startChat(
   // repository, registry or transport effects. Keep one generated message ID so
   // the native path cannot later select an unchecked conversation identity.
   const initialMessageId = options.clientMsgId ?? randomUUID();
+  eventStore.deployment.assertAdmission(
+    options.resume ?? options.initialSessionId ?? clientId,
+    initialMessageId,
+  );
   const onStartupAdmission = options.onStartupAdmission;
   let startupAdmissionSettled = false;
   options = {
@@ -1492,6 +1528,7 @@ async function _startChatInner(
         payload: Readonly<Record<string, unknown>>,
       ) => void,
       reopen: (selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>,
+      control: OrdinarySdkQueryControl,
     ) => OrdinaryLocalVertexCommandOwner;
   },
   startupGuard: ChatStartupGuard,
@@ -1577,6 +1614,14 @@ async function _startChatInner(
         lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
       });
     assertAgentToolRoute(agentProfile?.definition, toolRoute);
+    if (
+      toolRoute === 'claude-sdk' &&
+      agentProfile?.definition.tools !== undefined &&
+      !options.ordinarySdkAuthority
+    )
+      throw Error(
+        'Explicit SDK tool profiles require an owned ordinary Local Claude conversation.',
+      );
     // Reject unsupported context before credential preflight, workspace creation,
     // or snapshot persistence. Host Responses and SDK routes retain pack support.
     if (
@@ -1618,7 +1663,9 @@ async function _startChatInner(
       if (
         accountBinding.provider === 'openai' ||
         accountBinding.provider === 'google-vertex' ||
-        accountBinding.provider === 'anthropic-vertex'
+        accountBinding.provider === 'anthropic-vertex' ||
+        accountBinding.provider === 'anthropic-claude' ||
+        accountBinding.provider === 'anthropic-api'
       )
         profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);
       if (accountBinding.provider === 'openai-codex') {
@@ -1705,10 +1752,19 @@ async function _startChatInner(
         } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkChildEnvironmentBase());
+      if (
+        ['anthropic-claude', 'anthropic-api'].includes(accountBinding.provider) &&
+        (!options.ordinarySdkAuthority || openShellRequested)
+      )
+        throw Error(
+          accountBinding.provider === 'anthropic-api'
+            ? 'Anthropic API requires the selected Local Mac Claude SDK runtime'
+            : 'Personal Claude requires the selected Local Mac Claude SDK runtime',
+        );
     }
     if (options.adviserScope) {
       if (!accountBinding || accountBinding.provider !== 'anthropic-vertex')
-        throw Error('Scoped SDK adviser requires the selected Claude account');
+        throw Error('Scoped SDK adviser requires the selected Vertex account');
       options.adviserScope.assertSelection(accountBinding, options.reasoningEffort);
     }
     if (options.ordinaryTurnLifecycle && !codexProfile)
@@ -1846,6 +1902,18 @@ async function _startChatInner(
       selectedModel: options.model ?? accountBinding?.model ?? null,
       reasoningEffort: options.reasoningEffort ?? null,
     });
+  }
+  if (options.ordinarySdkAuthority) {
+    prompt = assembleCommandPrompt(
+      eventStore,
+      options.resume ?? options.initialSessionId!,
+      initialMessageId,
+      {
+        text: prompt,
+        replyToMessageId: options.replyToMessageId,
+        sourceSnapshots: options.sourceSnapshots,
+      },
+    );
   }
   prompt = repositoryChatContext(repositoryWorkspace) + prompt;
   const nativeProviderSelected = !!apiCredentialRef || !!gemini;
@@ -2053,7 +2121,10 @@ async function _startChatInner(
   if (options.replyToMessageId && (!options.resume || !options.clientMsgId))
     throw Error('Replies require an existing conversation and a message identity');
   const repliedPrompt =
-    options.replyToMessageId && options.resume && options.clientMsgId
+    !options.ordinarySdkAuthority &&
+    options.replyToMessageId &&
+    options.resume &&
+    options.clientMsgId
       ? assembleReplyText(
           prompt,
           captureMessageReply(
@@ -2071,7 +2142,7 @@ async function _startChatInner(
         cwd,
         codexProfile || nativeProviderSelected ? undefined : options.images,
         options.contextBlocks,
-        options.sourceSnapshots,
+        options.ordinarySdkAuthority ? undefined : options.sourceSnapshots,
       );
   const userIntent = options.userIntent ?? prompt;
   if (options.reattachOnly && (!options.resume || !codexProfile))
@@ -2170,6 +2241,12 @@ async function _startChatInner(
   }
 
   let newSdkSessionId: string | undefined;
+  let unwatchSdkAgentMessages: (() => void) | undefined;
+  const stopSdkAgentMessageWatch = () => {
+    unwatchSdkAgentMessages?.();
+    unwatchSdkAgentMessages = undefined;
+    abortController.signal.removeEventListener('abort', stopSdkAgentMessageWatch);
+  };
   const assertStartupCurrent = () => {
     abortController.signal.throwIfAborted();
     if (registry.get(clientId) !== session) throw Error('Original startup owner changed');
@@ -2217,10 +2294,15 @@ async function _startChatInner(
     }
 
     // Build session env with worktree paths for the agent (all repos including primary)
-    const sessionEnv = accountEnv
-      ? accountBinding?.provider === 'anthropic-vertex'
-        ? await resolveSdkChildSocket(accountEnv, session.abortController.signal)
-        : accountEnv
+    const selectedSdkEnv =
+      accountBinding?.provider === 'anthropic-api'
+        ? await claudeSdkInferenceEnvironment(accountEnv!, session.abortController.signal)
+        : accountEnv;
+    const sessionEnv = selectedSdkEnv
+      ? accountBinding &&
+        ['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(accountBinding.provider)
+        ? await resolveSdkChildSocket(selectedSdkEnv, session.abortController.signal)
+        : selectedSdkEnv
       : await buildSdkChildEnvironment(session.abortController.signal);
     assertStartupCurrent();
     sessionEnv.MITZO_SESSION_ID = wtId;
@@ -2238,7 +2320,13 @@ async function _startChatInner(
 
     const sdkCredentialBoundary =
       !codexProfile && !apiCredentialRef && !gemini
-        ? credentialSdkBoundary(process.platform, options.ordinarySdkAuthority?.writeRoots())
+        ? credentialSdkBoundary(
+            process.platform,
+            options.ordinarySdkAuthority?.writeRoots(),
+            accountBinding?.provider === 'anthropic-api'
+              ? sessionEnv.ANTHROPIC_BASE_URL
+              : undefined,
+          )
         : undefined;
     options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
 
@@ -2437,7 +2525,13 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         (options.contributorGuidance
           ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
           : '') +
-        bootContextAppend;
+        bootContextAppend +
+        (codexProfile
+          ? ''
+          : sessionLearningGuidance(
+              eventStore.getSession(stateSessionId ?? options.resume ?? wtId)?.learningPolicy ??
+                parseSessionLearningPolicy(),
+            ));
 
     // Recipe-bound chats already have their exact Library definition and context.
     // Loading the legacy definition would compile another, unrelated default bundle.
@@ -2478,6 +2572,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
 
     // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
     let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
+    let sdkPeerMessages: SdkAgentMessageRuntime | undefined;
     let resolvedResume: string | undefined;
     if (options.resume && !codexProfile && !apiKey && !gemini) {
       if (!BASE_REPO) {
@@ -2528,7 +2623,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.sourceSnapshots,
         );
       q = await openCodexChat({
-        deliverRuntimeFailure: (event) =>
+        deliverRetainedEvent: (event) =>
           deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
         agentProfile,
         assertAgentContextAuthorization: assertSandboxContextAuthorization,
@@ -2628,6 +2723,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         onAgentContextAccepted: agentContext ? acceptAgentContext : undefined,
         mcpServers: allMcpServers,
         onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
+        repositoryWorkspace,
         publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
           .filter(Boolean)
           .map((root) => join(root, '.git')),
@@ -2667,6 +2763,38 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         }),
       );
+      const sdkAgentCommunication = options.ordinarySdkAuthority
+        ? () =>
+            sessionAgentCommunicationTools({
+              toolName: 'mcp__mitzo-connections__AgentCommunication',
+              events: eventStore,
+              native: existingCodexConversationStore(),
+              registry,
+              session,
+              conversationId: session.sessionId!,
+              assertRuntimeCurrent: () =>
+                options.ordinarySdkAuthority!.assertCurrent(abortController.signal),
+              assertRuntimeCurrentSync: () =>
+                options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+              approve: createAgentMessageApprover({
+                toolName: 'mcp__mitzo-connections__AgentCommunication',
+                events: eventStore,
+                registry,
+                conversationId: session.sessionId!,
+                assertCurrent: () =>
+                  options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+              }),
+              startQueued: async (recipient) => {
+                const runtime = getCodexRuntime(recipient);
+                if (!runtime) throw Error('Recipient native queue unavailable');
+                await runtime.startQueued();
+              },
+              steer: (recipient, message, assertCurrent) =>
+                steerNativeAgentMessage(getCodexRuntime(recipient), message, assertCurrent),
+              nativeState: (recipient) =>
+                getCodexRuntime(recipient)?.peerMessageState() ?? 'unavailable',
+            })
+        : undefined;
       const connectionServer = createCredentialSdkServer(
         () => session.sessionId ?? options.resume ?? newSdkSessionId,
         session,
@@ -2674,6 +2802,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         options.ordinarySdkAuthority
           ? {
               profilesOnly: true,
+              connectionBoundary: 'sdk-callback',
+              agentCommunication: sdkAgentCommunication,
               assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
               assertCurrentSync: (signal) =>
                 options.ordinarySdkAuthority!.assertCurrentSync(signal),
@@ -2701,12 +2831,24 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
         if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        if (!agentToolAllowed(session, name))
+          return {
+            behavior: 'deny',
+            message: 'Tool is not selected by this session’s published agent profile.',
+          };
+        const personalConfig = options.ordinarySdkAuthority?.configDirectory();
+        if (personalConfig) {
+          const refusal = claudePersonalToolPermission(name, input, cwd, personalConfig);
+          if (refusal) return refusal;
+        }
         if (
           options.ordinarySdkAuthority &&
           name.startsWith('mcp__mitzo-connections__') &&
           ![
+            'mcp__mitzo-connections__ListConnections',
             'mcp__mitzo-connections__SymposiumReadProfiles',
             'mcp__mitzo-connections__SymposiumProposeProfile',
+            'mcp__mitzo-connections__AgentCommunication',
           ].includes(name)
         )
           return {
@@ -2798,33 +2940,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
           assertTurnCallbackEffects();
         },
-        {
-          explicitSelection: () => {
-            // Ordinary SDK provider publication is disabled; an explicit operator
-            // action selects the trusted current command settings separately.
-            if (options.ordinarySdkAuthority) {
-              const id = session.sessionId ?? options.resume ?? '';
-              const settings =
-                eventStore.getOrdinaryWorkspaceConversationSettings(id) ??
-                eventStore.getOrdinaryConversationSettings(id);
-              if (!settings) throw Error('Explicit operator publication selection unavailable');
-              return {
-                model: settings.selection.model,
-                reasoningEffort: settings.selection.thinking ?? null,
-              };
-            }
-            // Legacy SDK queries retain their original model/thinking/effort;
-            // sendToChat refuses model changes for this fixed query.
-            return {
-              model: options.model ?? session.model ?? session.accountBinding?.model ?? '',
-              reasoningEffort: options.reasoningEffort ?? null,
-            };
-          },
-        },
       );
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,
       });
+      const exactSdkModelId = accountBinding?.provider === 'anthropic-api';
       const createSdkWebAccess = (state?: {
         retired: boolean;
         completing: boolean;
@@ -2846,7 +2966,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 ...owner,
                 executionStore: eventStore,
                 env: sessionEnv,
-                model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
+                model: parseModelSpec(session.model ?? accountBinding?.model ?? '', exactSdkModelId)
+                  .model,
                 ...(options.ordinarySdkAuthority
                   ? {
                       assertCurrent: assertWebCurrent,
@@ -2856,6 +2977,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                         options.ordinarySdkAuthority!.assertCurrentSync(signal);
                       },
                       writeRoots: options.ordinarySdkAuthority.writeRoots(),
+                      executable: options.ordinarySdkAuthority.executable(),
                     }
                   : {}),
               }),
@@ -2871,6 +2993,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const sdkOptions: NonNullable<Parameters<typeof query>[0]['options']> = {
         cwd,
         env: sessionEnv,
+        ...(options.ordinarySdkAuthority?.executable()
+          ? { pathToClaudeCodeExecutable: options.ordinarySdkAuthority.executable() }
+          : {}),
+        ...(options.ordinarySdkAuthority?.configDirectory()
+          ? { sandbox: claudePersonalSandbox(options.ordinarySdkAuthority.configDirectory()!) }
+          : {}),
         abortController,
         includePartialMessages: true,
         settingSources:
@@ -2892,14 +3020,17 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             systemPromptAppend +
             WEB_ACCESS_INSTRUCTIONS +
             (options.ordinarySdkAuthority
-              ? ''
-              : GITHUB_PUBLISHING_INSTRUCTIONS + CONNECTION_TOOL_INSTRUCTIONS),
+              ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
+              : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
           ? [
+              'mcp__mitzo-connections__ListConnections',
               'mcp__mitzo-connections__SymposiumReadProfiles',
               'mcp__mitzo-connections__SymposiumProposeProfile',
+              'mcp__mitzo-connections__AgentCommunication',
+              'mcp__mitzo-connections__CaptureMemoryCandidate',
               WEB_ACCESS_SDK_TOOL,
             ]
           : [
@@ -2914,9 +3045,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           'WebFetch',
           ...(options.ordinarySdkAuthority ? [GITHUB_PUBLISH_SDK_TOOL] : []),
         ],
-        thinking: resolveThinking(options.model),
-        effort: resolveClaudeEffort(options.model, options.reasoningEffort),
-        ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
+        thinking: resolveThinking(options.model, exactSdkModelId),
+        effort: resolveClaudeEffort(options.model, options.reasoningEffort, exactSdkModelId),
+        ...(options.model ? { model: parseModelSpec(options.model, exactSdkModelId).model } : {}),
         ...(resolvedResume ? { resume: resolvedResume } : {}),
         ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
         mcpServers: options.ordinarySdkAuthority
@@ -2946,17 +3077,33 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           sdkSessionId: options.ordinarySdkAuthority.sdkSessionId(),
           cwd,
           controller: abortController,
+          onUnsent: (message, error) =>
+            reportRetainedRuntimeFailure({
+              store: eventStore,
+              sessionId: options.ordinarySdkAuthority!.sdkSessionId(),
+              session,
+              onlyIfSaved: true,
+              commandId: (message as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId,
+              error,
+              deliver: (event) =>
+                deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
+            }),
           authorize: authorizeSdkContext,
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
+          beforeInput: (commandId) => {
+            if (!liveOrdinarySdkOwner) throw Error('Original SDK command owner unavailable');
+            liveOrdinarySdkOwner.assertInputCurrent(commandId);
+          },
           adapt: adaptSdkQuery,
           settings: (selection) => ({
-            model: parseModelSpec(selection.model).model,
-            thinking: resolveThinking(selection.model),
-            effort: resolveClaudeEffort(selection.model, selection.thinking),
+            model: parseModelSpec(selection.model, exactSdkModelId).model,
+            thinking: resolveThinking(selection.model, exactSdkModelId),
+            effort: resolveClaudeEffort(selection.model, selection.thinking, exactSdkModelId),
           }),
           inputChanged: (queue) => {
             session.inputQueue = queue as { push(message: unknown): void; close(): void };
           },
+          peerMessages: () => sdkPeerMessages,
           mcpServers: (state) => ({
             'mitzo-web-access': createSdkWebAccess(state),
             'mitzo-connections': createCredentialSdkServer(
@@ -2965,6 +3112,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               registry,
               {
                 profilesOnly: true,
+                connectionBoundary: 'sdk-callback',
+                agentCommunication: sdkAgentCommunication,
                 runCallback: state.runCallback,
                 assertCurrentSync: (signal) => {
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');
@@ -2994,42 +3143,83 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 ? fullPrompt
                 : assemblePrompt(
                     repositoryChatContext(repositoryWorkspace) +
-                      assembleReplyText(
-                        frozenPayload.text,
-                        frozenPayload.replyToMessageId
-                          ? captureMessageReply(
-                              eventStore,
-                              session.sessionId!,
-                              id,
-                              frozenPayload.replyToMessageId,
-                            )
-                          : undefined,
-                      ),
+                      assembleCommandPrompt(eventStore, session.sessionId!, id, frozenPayload),
                     cwd,
                     frozenPayload.images,
                     undefined,
-                    frozenPayload.sourceSnapshots,
+                    undefined,
                   );
             session.model = _admission.selection.model;
-            storeAndEchoIfNew(
-              session.sessionId!,
-              id,
-              frozenPayload.text,
-              clientId,
-              session.transport,
-              session.observers,
-              imagePreviews(frozenPayload.images),
-              undefined,
-              frozenPayload.sourceSnapshots,
-              'user',
-              false,
-            );
+            if (!eventStore.agentCommunication.forCommand(id))
+              storeAndEchoIfNew(
+                session.sessionId!,
+                id,
+                frozenPayload.text,
+                clientId,
+                session.transport,
+                session.observers,
+                imagePreviews(frozenPayload.images),
+                undefined,
+                frozenPayload.sourceSnapshots,
+                'user',
+                false,
+              );
             ownedQuery.push(
               makeUserMessage(message, 'now', id, undefined, undefined, frozenPayload.images),
             );
           },
           ownedQuery.apply,
+          ownedQuery,
         );
+        const sdkOwner = session.ordinaryRuntimeOwner;
+        if (!sdkOwner) throw Error('Original SDK message owner unavailable');
+        sdkPeerMessages = new SdkAgentMessageRuntime({
+          events: eventStore,
+          session,
+          identity: sdkOwner.identity,
+          operatorAuthSessionId: sdkOwner.authSessionId,
+          assertCurrent: () =>
+            options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+          activeCommandId: () => liveOrdinarySdkOwner?.peerTurnTarget(),
+          ordinaryCommandId: () => liveOrdinarySdkOwner?.activeCommandId(),
+          preparing: () =>
+            !!liveOrdinarySdkOwner?.activeCommandId() && !liveOrdinarySdkOwner.peerTurnTarget(),
+          stopped: () => !liveOrdinarySdkOwner?.acceptsPeerMessages(),
+          push: (input) => ownedQuery.push(input),
+          enqueue: async (message, assertCurrent, signal, auth) => {
+            await getOrdinarySessionPromptPort().deliverOrdinary(
+              {
+                sessionId: session.sessionId!,
+                commandId: message.commandId,
+                auth,
+                text: agentMessagePrompt(message),
+              },
+              signal,
+              assertCurrent,
+            );
+          },
+        });
+        registerAgentMessageRuntime(session, sdkPeerMessages);
+        const sdkConversationId = session.sessionId!;
+        const sdkMessageRuntime = sdkPeerMessages;
+        unwatchSdkAgentMessages = watchAgentMessageTranscript(
+          eventStore,
+          sdkConversationId,
+          (event) => {
+            if (
+              abortController.signal.aborted ||
+              registry.findBySessionId(sdkConversationId)?.session !== session ||
+              session.ordinaryRuntimeOwner?.identity !== sdkOwner.identity
+            ) {
+              stopSdkAgentMessageWatch();
+              return;
+            }
+            sdkMessageRuntime.assertCurrent(sdkOwner.authSessionId);
+            deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined);
+          },
+        );
+        abortController.signal.addEventListener('abort', stopSdkAgentMessageWatch, { once: true });
+        if (abortController.signal.aborted) stopSdkAgentMessageWatch();
         await liveOrdinarySdkOwner.enqueue(initialMessageId);
       } else {
         q = createSdkTurnQuery({
@@ -3152,7 +3342,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               systemPromptAppend +
               WEB_ACCESS_INSTRUCTIONS +
               GITHUB_PUBLISHING_INSTRUCTIONS +
-              CONNECTION_TOOL_INSTRUCTIONS;
+              SESSION_TOOL_INSTRUCTIONS;
             acceptAgentContext(
               initialMessageId,
               providerSessionId,
@@ -3164,6 +3354,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         yield message;
       }
     };
+    if (!options.reattachOnly) notifyTurnStart(clientId);
     await runQueryLoop(
       sdkContextEvents(),
       clientId,
@@ -3179,7 +3370,14 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,
         onTerminalOutcome: options.onTerminalOutcome,
-        onEvent: options.onQueryEvent,
+        onEvent: (event) => {
+          if (liveOrdinarySdkOwner && event.type === 'message_start') {
+            if (typeof event.messageId !== 'string')
+              throw Error('Original SDK renderer message identity unavailable');
+            liveOrdinarySdkOwner.messageStarted(event.messageId);
+          }
+          options.onQueryEvent?.(event);
+        },
         initialClientMsgId: initialMessageId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,
@@ -3203,9 +3401,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               /* errors logged internally */
             });
         },
-        onTurnEnd: (cId: string) => {
-          _onSessionChange?.(cId, 'turn_end');
-        },
+        onTurnStart: notifyTurnStart,
+        onTurnEnd: notifyTurnEnd,
         onUserInput: (cId, inputUuid) => {
           const active = registry.get(cId);
           if (active) markFallbackCloseoutInputObserved(active, inputUuid);
@@ -3222,9 +3419,15 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           if (liveOrdinarySdkOwner)
             void liveOrdinarySdkOwner
               .resultObserved(inputUuid, result.is_error === true)
-              .catch(() =>
-                abortController.abort(Error('Original SDK result authority unavailable')),
-              );
+              .catch((err) => {
+                log.error('Original SDK result authority unavailable', {
+                  err,
+                  sessionId: active?.sessionId,
+                  code: 'ordinary_sdk_result_unavailable',
+                  stage: 'provider_terminal',
+                });
+                abortController.abort(err);
+              });
           options.adviserScope?.assertCurrent();
           options.onTurnResult?.(result, inputUuid);
         },
@@ -3287,6 +3490,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       }
     }
   } finally {
+    stopSdkAgentMessageWatch();
     const current = registry.get(clientId);
     if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);
   }
@@ -3377,8 +3581,45 @@ export async function sendOwnedLocalCodexCommand(input: {
       await native.resumeAfterExplicitSend();
     }
     return { ...result, sessionId: input.sessionId };
-  } catch {
+  } catch (cause) {
+    log.warn('Owned ordinary send needs admission or recovery attention', {
+      err: cause,
+      code: 'owned_ordinary_send_unavailable',
+      stage: 'owned_ordinary_admission_or_recovery',
+      sessionId: input.sessionId,
+    });
     throw unavailable();
+  }
+}
+
+async function reconcileOwnedLocalCodexEffects(input: {
+  reservation: Omit<HostRepositoryReservationInput, 'signal'>;
+  workspaceKind: LocalWorkspaceKind;
+  commandId: string;
+  operatorConnectionId: string;
+  signal: AbortSignal;
+}) {
+  // Both explicit Send and the retained queue action inspect through the same
+  // original-command owner. Neither can use the new message's admission to
+  // settle an older turn or dispatch input from this inspection-only runtime.
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...input,
+    enabled: true,
+    eventStore,
+    library: getAgentLibrary(),
+    workspace:
+      input.workspaceKind === 'ordinary'
+        ? getOrdinaryWorkspaces(true)
+        : getRepositoryWorkspaces(true),
+    nativeStore: getCodexConversationStore(),
+    dispatch: async () => {
+      throw Error('Reconciliation cannot dispatch input');
+    },
+  });
+  try {
+    await driver.reconcileRetainedEffects();
+  } finally {
+    driver.close();
   }
 }
 
@@ -3389,6 +3630,14 @@ export async function continueOwnedLocalCodexQueue(
   authorization: import('./auth.js').AuthSession | undefined,
   connectionId?: string,
 ) {
+  if (
+    process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
+    !hasPersistentRevocationAuthority() ||
+    custodianControllerMode ||
+    custodianOwnerMode
+  )
+    throw Error('Original local Codex route unavailable');
+  resolveOwnedTelosWorkCommandScope(sessionId);
   if (!authorization || authorization.expiresAt <= Date.now() || !connectionId)
     throw Error('Original Codex operator required');
   const captured = captureAgentLibraryAuthorization(connectionId);
@@ -3409,42 +3658,60 @@ export async function continueOwnedLocalCodexQueue(
     binding.execution.location !== 'local'
   )
     throw Error('Original local Codex route required');
-  const commandId = recoverableLocalCodexCommand(
+  const native = getCodexConversationStore();
+  const undispatchedId = recoverableLocalCodexCommand(
     eventStore,
-    getCodexConversationStore(),
+    native,
     sessionId,
     authorization.id,
   );
-  if (!commandId) throw Error('Saved input has no safe undispatched recovery');
+  const effectsId =
+    !undispatchedId && !registry.findBySessionId(sessionId)
+      ? reconcilableLocalCodexCommand(eventStore, native, sessionId, authorization.id, () =>
+          meta.ordinaryWorkspaceId ? getOrdinaryWorkspaces(true) : getRepositoryWorkspaces(true),
+        )
+      : undefined;
+  const commandId = undispatchedId ?? effectsId;
+  if (!commandId) {
+    if (native.continuationBlocker(sessionId, meta.accountBinding))
+      throw new SessionRuntimeError('unsettled_effects');
+    throw Error('Saved input has no qualified recovery');
+  }
   const workspaceKind = meta.ordinaryWorkspaceId ? 'ordinary' : 'repository';
   const workspace =
     workspaceKind === 'ordinary'
       ? getOrdinaryWorkspaces(true).getOrdinaryWorkspace(meta.ordinaryWorkspaceId!)
       : getRepositoryWorkspaces(true).get(meta.repositoryWorkspaceId!);
-  const taskRoot = workspace.hostReservation?.taskRoot;
-  if (!taskRoot) throw Error('Original task reservation unavailable');
-  const { request } = RetainedLocalCodexRecovery.captureSaved(
-    eventStore,
-    getCodexConversationStore(),
-    sessionId,
-    authorization.id,
-    commandId,
-  );
+  const reservation = retainedLocalCodexRecoveryReservation(meta, workspace, binding);
+  const request = undispatchedId
+    ? RetainedLocalCodexRecovery.captureSaved(
+        eventStore,
+        native,
+        sessionId,
+        authorization.id,
+        commandId,
+      ).request
+    : undefined;
   const release = reserveRepositoryStartup(sessionId);
   const preparation = new AbortController();
   const timer = setTimeout(() => preparation.abort(), 120000);
   try {
+    if (effectsId) {
+      await reconcileOwnedLocalCodexEffects({
+        workspaceKind,
+        reservation,
+        commandId,
+        operatorConnectionId: connectionId,
+        signal: preparation.signal,
+      });
+      captured.assertCurrent();
+      return;
+    }
     await startOwnedLocalCodexCommand(transport, `${connectionId}:${sessionId}`, {
       command: request,
       commandId,
       workspaceKind,
-      reservation: {
-        id: meta.ordinaryWorkspaceId ?? meta.repositoryWorkspaceId!,
-        conversationId: sessionId,
-        binding: meta.accountBinding,
-        taskRoot,
-        runtimeBinding: binding,
-      },
+      reservation,
       operatorConnectionId: connectionId,
       ownerConnectionId: connectionId,
       signal: preparation.signal,
@@ -3480,6 +3747,7 @@ export async function startOwnedLocalCodexCommand(
     savedRecovery?: boolean;
     /** Trusted silent allocation receipt; explicit first command only. */
     preparationOperationId?: string;
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
     adviserScope?: AdviserTaskScope;
     onSessionPrepared?: (session: ManagedSession) => void;
     onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
@@ -3487,7 +3755,8 @@ export async function startOwnedLocalCodexCommand(
     onEnded?: () => void;
   },
 ): Promise<{ dispatched: boolean; sessionId: string }> {
-  const unavailable = () => new Error('Owned local Codex chat unavailable');
+  const unavailable = (cause?: unknown) =>
+    new Error('Owned local Codex chat unavailable', { cause });
   // Loading these owners can allocate their private stores. Absence stays off.
   if (
     process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
@@ -3610,6 +3879,29 @@ export async function startOwnedLocalCodexCommand(
         reservation.id = adopted.id;
         workspaceKind = 'repository';
       }
+      if (native.continuationBlocker(sessionId, reservation.binding)) {
+        const effectsId = reconcilableLocalCodexCommand(
+          eventStore,
+          native,
+          sessionId,
+          ownerAuthSessionId,
+          () =>
+            workspaceKind === 'ordinary'
+              ? getOrdinaryWorkspaces(true)
+              : getRepositoryWorkspaces(true),
+        );
+        if (effectsId) {
+          await reconcileOwnedLocalCodexEffects({
+            reservation,
+            workspaceKind: workspaceKind ?? 'repository',
+            commandId: effectsId,
+            operatorConnectionId,
+            signal,
+          });
+          signal.throwIfAborted();
+          captured.assertCurrent();
+        }
+      }
     }
     driver = new OrdinaryLocalCodexOwnedRuntime<LocalWorkspaceKind>({
       enabled: true,
@@ -3688,6 +3980,7 @@ export async function startOwnedLocalCodexCommand(
           onEnded: release,
           adviserScope: input.adviserScope,
           onSessionPrepared: input.onSessionPrepared,
+          ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
           onQueryEvent: input.onQueryEvent,
           onTerminalOutcome: input.onTerminalOutcome,
         });
@@ -3741,8 +4034,13 @@ export async function startOwnedLocalCodexCommand(
           },
         });
       },
-      admitAgentMessage: (messageId, assertSenderCurrent, signal) =>
-        retainedDriver.admitAgentMessage(messageId, assertSenderCurrent, signal),
+      admitAgentMessage: (messageId, assertSenderCurrent, signal, assertPermissionCurrent) =>
+        retainedDriver.admitAgentMessage(
+          messageId,
+          assertSenderCurrent,
+          signal,
+          assertPermissionCurrent,
+        ),
       retryInitial: (command) =>
         preparationOperationId !== undefined
           ? retainedDriver.admitPreparedFirst(preparationOperationId, command)
@@ -3781,16 +4079,32 @@ export async function startOwnedLocalCodexCommand(
   } catch (error) {
     try {
       prepared?.close();
-    } catch {
-      /* Preserve receipt/workspace uncertainty. */
+    } catch (cleanupError) {
+      log.warn('Owned local startup cleanup failed', {
+        sessionId: input.reservation.conversationId,
+        code: 'owned_local_startup_cleanup_failed',
+        stage: 'prepared_close',
+        ...codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_admission', cleanupError),
+        ),
+      });
     }
     try {
       release();
-    } catch {
-      /* No automatic retry or custody cleanup. */
+    } catch (cleanupError) {
+      log.warn('Owned local startup cleanup failed', {
+        sessionId: input.reservation.conversationId,
+        code: 'owned_local_startup_cleanup_failed',
+        stage: 'driver_release',
+        ...codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_admission', cleanupError),
+        ),
+      });
     }
     throw (
-      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+      findNativeMacExecutionUnavailable(error) ??
+      findSessionRuntimeError(error) ??
+      unavailable(retainCodexPreparationFailure('runtime_admission', error))
     );
   }
 }
@@ -3823,6 +4137,7 @@ export async function prepareOwnedCodexChat(
     onEnded: () => void;
     adviserScope?: AdviserTaskScope;
     onSessionPrepared?: (session: ManagedSession) => void;
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
     onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
   },
 ): Promise<{ run(): Promise<void>; close(): void }> {
@@ -3898,7 +4213,7 @@ export async function prepareOwnedCodexChat(
         : { repositoryWorkspace: workspace }),
     });
   } catch (error) {
-    throw findSessionRuntimeError(error) ?? unavailable();
+    throw retainCodexPreparationFailure('runtime_admission', error);
   }
 
   const { expected, workspace, payload, profile } = selected;
@@ -3971,7 +4286,7 @@ export async function prepareOwnedCodexChat(
       ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
-    if (localAdmission && options.operatorConnectionId)
+    if (options.operatorConnectionId)
       releaseNativeHostOperator = retainNativeHostToolOperator(
         session,
         options.operatorConnectionId,
@@ -4032,7 +4347,7 @@ export async function prepareOwnedCodexChat(
     env.MITZO_SESSION_ID = sessionId;
     env.MITZO_AGENT_NAME = expected.agentProfile?.definition.name ?? '';
     queryInstance = await openCodexChat({
-      deliverRuntimeFailure: (event) =>
+      deliverRetainedEvent: (event) =>
         deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
       ownedLocal: localAdmission,
       ownedOpenShell: openShellAdmission,
@@ -4061,6 +4376,7 @@ export async function prepareOwnedCodexChat(
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId, true);
       },
+      ordinaryTurnLifecycle: options.ordinaryTurnLifecycle,
       assertAgentContextAuthorization: () => {
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId);
@@ -4099,12 +4415,13 @@ export async function prepareOwnedCodexChat(
       eventStore,
       publishingGitStorageRoots: isOrdinaryWorkspace(workspace)
         ? undefined
-        : [
-            ...(workspace.localSource ? [workspace.localSource.commonDirectory] : []),
-            ...[BASE_REPO, ...Object.values(getRepoConfig().repos)]
+        : githubPublishingGitStorageRoots(
+            session,
+            workspace,
+            [BASE_REPO, ...Object.values(getRepoConfig().repos)]
               .filter(Boolean)
               .map((root) => join(root, '.git')),
-          ],
+          ),
     });
     resolveOwnedTelosWorkCommandScope(sessionId);
     if (closed || abortController.signal.aborted) {
@@ -4113,16 +4430,36 @@ export async function prepareOwnedCodexChat(
     }
     if (registry.findBySessionId(sessionId)?.session !== session) throw unavailable();
     session.queryInstance = queryInstance;
+    if (openShellAdmission && !isOrdinaryWorkspace(workspace)) {
+      // The target proof is durable before native startup. Reclaim only the
+      // controller source; keep the independently materialized task intact.
+      await getRepositoryWorkspaces(true)
+        .releaseSource(workspace.id, boundAccount, sessionId)
+        .catch(() =>
+          log.warn('Repository preparation cleanup remains pending', {
+            repositoryWorkspaceId: workspace.id,
+          }),
+        );
+    }
     eventStore.setSessionState(sessionId, 'STARTING', { clientId });
     options.onSessionResolved?.(sessionId);
   } catch (error) {
     try {
       close();
-    } catch {
-      /* Retain uncertainty even if shutdown cannot finish. */
+    } catch (cleanupError) {
+      log.warn('Owned Codex preparation cleanup remains unconfirmed', {
+        sessionId,
+        clientMsgId: commandId,
+        cleanupFailureCode: 'owned_preparation_cleanup_failed',
+        ...codexRuntimeErrorTelemetry(retainCodexPreparationFailure('runtime_connection', error)),
+        cleanup: codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_connection', cleanupError),
+        ),
+      });
     }
     throw (
-      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+      findNativeMacExecutionUnavailable(error) ??
+      retainCodexPreparationFailure('runtime_connection', error)
     );
   } finally {
     releaseStartup?.();
@@ -4189,7 +4526,8 @@ export async function prepareOwnedCodexChat(
             onFirstEventOutcome: options.onFirstEventOutcome,
             onTerminalOutcome: options.onTerminalOutcome,
             onEvent: options.onQueryEvent,
-            onTurnEnd: (ownerClientId) => _onSessionChange?.(ownerClientId, 'turn_end'),
+            onTurnStart: notifyTurnStart,
+            onTurnEnd: notifyTurnEnd,
             onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
           },
         );
@@ -4243,9 +4581,10 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
     if (!shouldAutoRename(promptCount, sessionMeta.manuallyRenamed)) return;
 
     const events = eventStore.getSessionEvents(sessionId);
-    const prompts = extractRecentPrompts(events);
+    const prompts = sessionNamingPrompts(events, sessionMeta.initialPrompt);
     const newName = await accountSessionName(prompts, sessionMeta.accountBinding);
     if (!newName) return;
+    if (eventStore.getSession(sessionId)?.manuallyRenamed) return;
 
     log.info('auto-renaming session', { sessionId, promptCount, newName });
 
@@ -4523,6 +4862,7 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
+    eventStore.deployment.assertAdmission(session?.sessionId ?? clientId, clientMsgId);
     if (session?.sessionId && eventStore.getSessionRuntimeBinding(session.sessionId))
       throw new Error('Runtime-bound commands require guarded admission');
     if (session?.sessionId)
@@ -4841,6 +5181,7 @@ export async function sendToChat(
             responses ? images : undefined,
           ),
         );
+        notifyTurnStart(clientId);
       } catch (error) {
         failPreparedProviderCommand(error);
       }
@@ -5091,15 +5432,88 @@ export async function interruptChat(
     // Stop all active subagent tasks before interrupting the parent query.
     // Without this, interrupt() only halts the parent — which is blocked
     // waiting for the subagent, so the session hangs.
-    if (session.activeTaskIds.size > 0) {
-      const stops = [...session.activeTaskIds.keys()].map((taskId) =>
-        session
-          .queryInstance!.stopTask(taskId)
-          .catch((err: unknown) => log.warn('stopTask failed', { taskId, err })),
-      );
-      await Promise.allSettled(stops);
+    const runtime = session.queryInstance;
+    const children = [...session.activeTaskIds];
+    const results = await Promise.allSettled(
+      children.map(async ([taskId]) => runtime.stopTask(taskId)),
+    );
+    for (const [index, result] of results.entries()) {
+      if (result.status !== 'rejected') continue;
+      const [taskId, toolId] = children[index];
+      const diagnostic = { code: 'claude_child_stop_failed' as const, correlationId: randomUUID() };
+      log.warn('subagent cancellation could not be confirmed', {
+        stage: 'child_stop',
+        ...diagnostic,
+        clientId,
+        sessionId: session.sessionId,
+        taskId,
+        toolId,
+        err: result.reason,
+      });
+      if (registry.get(clientId) !== session || session.queryInstance !== runtime) continue;
+      const feedbackFailed = (stage: string, err: unknown) => {
+        log.error('subagent cancellation feedback failed; parent interruption continues', {
+          stage,
+          code: 'claude_child_feedback_failed',
+          correlationId: diagnostic.correlationId,
+          clientId,
+          sessionId: session.sessionId,
+          taskId,
+          toolId,
+          err,
+        });
+      };
+      try {
+        reportClaudeChildDiagnostic(runtime, taskId, toolId, diagnostic);
+      } catch (err) {
+        feedbackFailed('child_stop_activity', err);
+      }
+      const failure = {
+        v: 2,
+        type: 'error',
+        nonfatal: true,
+        ts: Date.now(),
+        sessionId: session.sessionId,
+        taskId,
+        ...diagnostic,
+        error: `Subagent cancellation could not be confirmed. Check retained activity before retrying. Reference: ${diagnostic.correlationId}`,
+      };
+      let feedback: Record<string, unknown> = failure;
+      if (session.sessionId) {
+        try {
+          const seq = eventStore.append(session.sessionId, 'error', failure);
+          feedback = { ...failure, seq };
+        } catch (err) {
+          feedbackFailed('child_stop_persistence', err);
+          feedback = {
+            ...failure,
+            retained: false,
+            error: `${failure.error} This feedback could not be saved.`,
+          };
+        }
+      }
+      try {
+        if (session.sessionId)
+          deliverRetainedSessionEvent(feedback, clientId, registry, _connRegistry ?? undefined);
+        else {
+          send(session.transport, feedback);
+          broadcastToObservers(session.observers, feedback);
+        }
+      } catch (err) {
+        // Delivery may be partial; retain the original reference without a blind resend.
+        feedbackFailed('child_stop_delivery', err);
+      }
     }
-    await session.queryInstance.interrupt();
+    if (registry.get(clientId) !== session || session.queryInstance !== runtime) {
+      log.warn('interrupt runtime owner changed', {
+        stage: 'parent_interrupt',
+        code: 'claude_interrupt_owner_changed',
+        clientId,
+        sessionId: session.sessionId,
+      });
+      return false;
+    }
+    await runtime.interrupt();
     // Only push to inputQueue on first delivery — a retried interrupt should
     // still call interrupt() (to halt the agent) but not double-queue the prompt.
     if (!isDup) {
@@ -5216,7 +5630,7 @@ Please perform session closeout:
 
 1. If there is uncommitted work in any worktree, commit it now with a descriptive message
 2. If a reviewed GitHub publish capability is available, invoke it after committing to publish the branch and create or update a pull request. Do not run direct \`git push\` or \`gh pr create\`: the capability displays the required approval and enforces repository and branch scope. If it is unavailable, leave the local commit in place and report that publishing requires the reviewed capability.
-3. ${MEMORY_CAPTURE_INSTRUCTIONS}
+3. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
 4. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
 5. Do not ask for confirmation — just do it`;
 
@@ -5300,7 +5714,7 @@ const USER_CLOSEOUT_PROMPT = `The user has closed this session.
 Please perform session closeout:
 
 1. If there is uncommitted work in any worktree, commit it now with a descriptive message
-2. ${MEMORY_CAPTURE_INSTRUCTIONS}
+2. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
 3. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
 4. Do not ask for confirmation — just do it`;
 
@@ -5589,7 +6003,13 @@ export async function renameSessionById(
   if (!isRegisteredConversation(session))
     throw new Error('Only registered conversations can be renamed; import external history first');
   const provider = session.accountBinding?.provider;
-  if (provider === 'openai' || provider === 'openai-codex' || provider === 'google-vertex') {
+  if (
+    provider === 'openai' ||
+    provider === 'openai-codex' ||
+    provider === 'google-vertex' ||
+    provider === 'anthropic-claude' ||
+    provider === 'anthropic-api'
+  ) {
     if (manual) eventStore.markManuallyRenamed(sessionId);
     eventStore.upsertSession({ sessionId, summary: title });
     return;
@@ -5709,14 +6129,7 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
   return {
     sessions: page.map((m) => ({
       id: m.sessionId,
-      summary:
-        m.summary ||
-        (m.manuallyRenamed
-          ? ''
-          : generateSessionNameFallback([
-              m.initialPrompt ||
-                String(eventStore.getLatestEvent(m.sessionId, 'user_message')?.payload.text ?? ''),
-            ])),
+      summary: sessionDisplayName(m, () => eventStore.getSessionNamingEvents(m.sessionId)),
       lastModified: m.updatedAt,
       branch: m.branch ?? undefined,
       cwd: m.cwd ?? undefined,
@@ -5846,123 +6259,28 @@ export async function importSdkConversation(
   return null;
 }
 
-/** Recover legacy workspace metadata without changing session identity or permissions. */
-async function recoverSessionWorkspace(sessionId: string, dirs?: string[]) {
-  const session = eventStore.getSession(sessionId);
-  if (session?.cwd) return;
-  // Only Claude SDK history can supply legacy workspace metadata. In
-  // particular, a native provider's missing cwd must not scan Claude files.
-  const provider = session?.accountBinding?.provider;
-  if (provider && provider !== 'anthropic-vertex') return;
-  // Discover directories only after the cheap metadata checks above.
-  for (const dir of dirs ?? (await getSessionDirs())) {
-    try {
-      const info = await getSessionInfo(sessionId, { dir });
-      if (typeof info?.cwd !== 'string' || !isAbsolute(info.cwd)) continue;
-      // Preserve a workspace recorded while the SDK lookup was in flight.
-      const current = eventStore.getSession(sessionId);
-      if (!current?.cwd)
-        eventStore.upsertSession({
-          sessionId,
-          cwd: info.cwd,
-          ...(current?.updatedAt !== undefined ? { updatedAt: current.updatedAt } : {}),
-        });
-      return;
-    } catch {
-      // Missing metadata must not prevent reading the saved transcript.
-    }
-  }
-}
-
-function sessionReplayProjection(
-  sessionId: string,
-  events: import('./event-store.js').StoredEvent[],
-) {
-  const session = eventStore.getSession(sessionId);
-  if (session?.accountBinding?.provider !== 'anthropic-vertex')
-    return { events, initialPrompt: session?.initialPrompt ?? undefined };
-  const custody = eventStore.getOrdinaryLocalVertexCustody(sessionId);
-  const command = custody ? eventStore.getSendCommand(custody.initialCommandId) : undefined;
-  return restoreOwnedVertexInitialPrompt(
-    events,
-    session?.initialPrompt ?? undefined,
-    custody && command?.sessionId === sessionId && typeof command.payload.text === 'string'
-      ? { sessionId, commandId: custody.initialCommandId, text: command.payload.text }
-      : undefined,
-  );
-}
-
-export async function getMessages(sessionId: string, throughSeq?: number) {
-  if (!eventStore.getSession(sessionId)) return [];
-  // Primary: replay from durable event store
-  const events =
-    throughSeq === undefined
-      ? eventStore.getSessionEvents(sessionId)
-      : eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
-  if (events.length > 0) {
-    if (throughSeq === undefined) await recoverSessionWorkspace(sessionId);
-    const projection = sessionReplayProjection(sessionId, events);
-    return replayEventsToMessages(projection.events, projection.initialPrompt);
-  }
-
-  // A bounded request must never fall through to a mutable SDK transcript.
-  if (throughSeq !== undefined) return [];
-
-  // Fallback: SDK JSONL for pre-migration sessions
-  let rawMessages: RawSdkMessage[] = [];
-  for (const dir of [
-    ...new Set(
-      [eventStore.getSession(sessionId)?.cwd, ...(await getSessionDirs())].filter(
-        (dir): dir is string => Boolean(dir),
-      ),
-    ),
-  ]) {
-    try {
-      rawMessages = (await getSessionMessages(sessionId, {
-        dir,
-        limit: SESSION_MESSAGES_LIMIT,
-      })) as RawSdkMessage[];
-      if (rawMessages.length > 0) {
-        await recoverSessionWorkspace(sessionId, [dir]);
-        break;
-      }
-    } catch {
-      // Session not in this dir — try next
-    }
-  }
-  try {
-    return reconstructMessages(rawMessages);
-  } catch (err: unknown) {
+/** Keep history reads independent from session/provider orchestration. */
+const transcriptReader = createSessionTranscriptReader({
+  store: eventStore,
+  getSessionDirs,
+  getAccountMessages: async (sessionId, cwd, configDirectory) =>
+    (await readClaudeAccountHistory(sessionId, cwd, configDirectory, SESSION_MESSAGES_LIMIT))
+      .messages as import('./conversation-transcript.js').RawSdkMessage[],
+  getSessionInfo: (sessionId, dir) => getSessionInfo(sessionId, { dir }),
+  getLegacyMessages: async (sessionId, dir) =>
+    (await getSessionMessages(sessionId, {
+      dir,
+      limit: SESSION_MESSAGES_LIMIT,
+    })) as import('./conversation-transcript.js').RawSdkMessage[],
+  onLegacyParseError: (sessionId, error) =>
     log.warn('failed to parse session messages', {
       sessionId,
-      error: err instanceof Error ? err.message : 'unknown',
-    });
-    return [];
-  }
-}
-
-/** REST restore at the immutable reconnect boundary; never falls back to SDK history. */
-export function getReconnectTranscript(sessionId: string, throughSeq: number) {
-  if (!eventStore.getSession(sessionId)) return { messages: [], current: null, currents: [] };
-  const events = eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
-  const projection = sessionReplayProjection(sessionId, events);
-  return replayEventsToTranscript(projection.events, projection.initialPrompt);
-}
-
-/** Full durable transcript and its high-water mark for opening an active session. */
-export async function getSessionTranscript(sessionId: string) {
-  if (!eventStore.getSession(sessionId))
-    return { messages: [], current: null, currents: [], cursor: 0 };
-  const events = eventStore.getSessionEvents(sessionId);
-  if (events.length === 0)
-    return { messages: await getMessages(sessionId), current: null, currents: [], cursor: 0 };
-  await recoverSessionWorkspace(sessionId);
-  const projection = sessionReplayProjection(sessionId, events);
-  return {
-    ...replayEventsToTranscript(projection.events, projection.initialPrompt),
-    cursor: events[events.length - 1].seq,
-  };
-}
+      error: error instanceof Error ? error.message : 'unknown',
+    }),
+});
+export const getMessages = transcriptReader.getMessages;
+export const getReconnectTranscript = transcriptReader.getReconnectTranscript;
+export const getSessionTranscript = transcriptReader.getSessionTranscript;
 
 /** Explicit API continuation uses the retained ordinary session owner. */
 export function canResumeOwnedLocalResponsesDriver(
@@ -6192,6 +6510,7 @@ export async function startOwnedLocalResponsesCommand(
         ownedLocalAuthSessionId: owner.authSessionId,
       });
       session = registry.get(clientId)!;
+      retainNativeHostToolOperator(session, options.operatorConnectionId);
       session.worktreePaths.set('primary', {
         path: selected.expected.workspace.cwd,
         wtId: selected.workspace.id,
@@ -6211,6 +6530,7 @@ export async function startOwnedLocalResponsesCommand(
         assertStartupCurrent: () => owner.assertSetupSync(selected.commandId),
         store: native,
         resume: selected.resume,
+        repositoryWorkspace: selected.workspace,
         conversationId: sessionId,
         binding: selected.binding,
         ...(selected.binding.provider === 'google-vertex'
@@ -6233,9 +6553,7 @@ export async function startOwnedLocalResponsesCommand(
         env,
         configuredSourceEnv: nativeExecutionEnv(),
         mcpServers: loadMcpServers(),
-        publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
-          .filter(Boolean)
-          .map((root) => join(root, '.git')),
+        publishingGitStorageRoots: githubPublishingGitStorageRoots(session, selected.workspace),
       });
       owner.assertSetupSync(selected.commandId);
       session.queryInstance = query;
@@ -6368,7 +6686,8 @@ export async function startOwnedLocalResponsesCommand(
         void runQueryLoop(query!, clientId, registry, controller, eventStore, undefined, {
           connRegistry: _connRegistry ?? undefined,
           initialClientMsgId: commandId,
-          onTurnEnd: (ownerClientId) => _onSessionChange?.(ownerClientId, 'turn_end'),
+          onTurnStart: notifyTurnStart,
+          onTurnEnd: notifyTurnEnd,
         })
           .catch(() => {})
           .finally(close);

@@ -1232,7 +1232,7 @@ describe('session_close_ack', () => {
 // ─── Subagent cancellation ───────────────────────────────────────────────────
 
 describe('subagent_cancelled', () => {
-  it('maps to SUBAGENT_END with summary Cancelled', () => {
+  it('maps to SUBAGENT_END with explicit cancelled status and summary', () => {
     const r = parseServerMessage(
       {
         type: 'subagent_cancelled',
@@ -1250,6 +1250,7 @@ describe('subagent_cancelled', () => {
     expect(r.messagesActions[0]).toEqual({
       type: 'SUBAGENT_END',
       parentBlockId: 'blk-parent-1',
+      status: 'cancelled',
       summary: 'Cancelled',
     });
   });

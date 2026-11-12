@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import type { CapabilityExecutor } from '../connections/capabilities/types.js';
 import {
   GithubPublicationReviewError,
+  type GithubPublicationReviewFailureCode,
   markGithubPublicationNotDispatched,
 } from '../github-publication-review-failure.js';
 
@@ -39,6 +40,24 @@ const template: CapabilityTemplate = {
 const directories: string[] = [];
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
+
+it('retains the exact preflight failure phase without changing mutation recovery state', async () => {
+  const f = await fixture({
+    preflight: async (context) => {
+      expect(context.operation).toEqual(f.store.get(context.operation.id));
+      context.observePhase?.('review_second');
+      expect(context.operation).toEqual(f.store.get(context.operation.id));
+      throw new GithubPublicationReviewError('PUBLICATION_REVIEW_UNAVAILABLE', {
+        reason: 'context_round_limit',
+      });
+    },
+  });
+  const result = await f.service.invoke(request(), new AbortController().signal);
+  expect(result).toMatchObject({ status: 'failed', phase: 'review_second' });
+  expect(f.store.get(result.id)).toMatchObject({ phase: 'review_second' });
+  expect(f.execute).not.toHaveBeenCalled();
+  f.store.close();
 });
 
 async function fixture(
@@ -142,25 +161,31 @@ describe('CapabilityService', () => {
       expect(f.recover).not.toHaveBeenCalled();
     },
   );
-  it('returns trusted review findings before approval without dispatching a publication', async () => {
-    const details = {
-      findings: [{ severity: 'high', path: 'changed.ts', message: 'Missing guard' }],
-    };
-    const f = await fixture({
-      preflight: async () => {
-        throw new GithubPublicationReviewError('PUBLICATION_REVIEW_BLOCKED', details);
-      },
-    });
-    const operation = await f.service.invoke(request(), new AbortController().signal);
-    expect(operation).toMatchObject({
-      status: 'failed',
-      failureCode: 'PUBLICATION_REVIEW_BLOCKED',
-      result: { review: { code: 'PUBLICATION_REVIEW_BLOCKED', details } },
-    });
-    expect(f.approve).not.toHaveBeenCalled();
-    expect(f.execute).not.toHaveBeenCalled();
-    expect(f.store.get(operation.id)?.result).toEqual(operation.result);
-  });
+  it.each<{ code: GithubPublicationReviewFailureCode; details: JsonValue }>([
+    {
+      code: 'PUBLICATION_REVIEW_BLOCKED' as const,
+      details: { findings: [{ severity: 'high', path: 'changed.ts', message: 'Missing guard' }] },
+    },
+    { code: 'PUBLICATION_PREFLIGHT_FAILED' as const, details: { stage: 'reconstruction' } },
+  ])(
+    'persists trusted $code diagnostics before approval without dispatching a publication',
+    async ({ code, details }) => {
+      const f = await fixture({
+        preflight: async () => {
+          throw new GithubPublicationReviewError(code, details);
+        },
+      });
+      const operation = await f.service.invoke(request(), new AbortController().signal);
+      expect(operation).toMatchObject({
+        status: 'failed',
+        failureCode: code,
+        result: { review: { code, details } },
+      });
+      expect(f.approve).not.toHaveBeenCalled();
+      expect(f.execute).not.toHaveBeenCalled();
+      expect(f.store.get(operation.id)?.result).toEqual(operation.result);
+    },
+  );
   it('persists the executor preflight projection and recovery intent before approval', async () => {
     const approvalInput = {
       repository: 'acme/widget',
@@ -826,4 +851,21 @@ it('preserves durable recovery uncertainty when the original runtime revokes dur
   expect(f.store.get(original.id)?.status).toBe('verification_pending');
   expect(f.execute).toHaveBeenCalledTimes(1);
   f.store.close();
+});
+
+it('does not mark dispatch uncertain when recording the execution phase fails', async () => {
+  const f = await fixture();
+  const record = f.store.recordPhase.bind(f.store);
+  vi.spyOn(f.store, 'recordPhase').mockImplementation((id, phase) => {
+    if (phase === 'execution') throw Error('phase storage unavailable');
+    return record(id, phase);
+  });
+  try {
+    const result = await f.service.invoke(request(), new AbortController().signal);
+    expect(result.status).toBe('failed');
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.store.pendingRecovery()).toEqual([]);
+  } finally {
+    f.store.close();
+  }
 });

@@ -117,6 +117,12 @@ it('sends disabled discovered skills and a read-only task-only profile before na
       project_doc_max_bytes: 0,
       'skills.config': [{ path: '/unreviewed/SKILL.md', enabled: false }],
       'mcp_servers.inherited.enabled': false,
+      'features.code_mode': false,
+      'features.code_mode_host': false,
+      'features.shell_tool': false,
+      'features.unified_exec': false,
+      'features.exec_permission_approvals': false,
+      'features.request_permissions_tool': false,
     },
   });
   expect(f.policy.readableRoots).toEqual([f.directory]);

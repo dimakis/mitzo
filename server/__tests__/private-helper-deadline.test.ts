@@ -4,11 +4,27 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { observePrivateHelperBoundary } from './fixtures/private-helper-boundary-diagnostics.js';
 import { executePrivateNativeFileHelper } from '../sandboxed-command.js';
+const diagnostics = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn() }));
+const cleanup = vi.hoisted(() => ({ failure: undefined as unknown, attempted: 0 }));
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    rm: vi.fn(async (...args: Parameters<typeof actual.rm>) => {
+      await actual.rm(...args);
+      if (basename(String(args[0])).startsWith('mitzo-shell-')) {
+        cleanup.attempted++;
+        if (cleanup.failure !== undefined) throw cleanup.failure;
+      }
+    }),
+  };
+});
+vi.mock('../logger.js', () => ({ createLogger: () => diagnostics }));
 vi.mock('node:child_process', async (original) => ({
   ...(await original<typeof import('node:child_process')>()),
   spawn: vi.fn(),
@@ -16,6 +32,8 @@ vi.mock('node:child_process', async (original) => ({
 let root: string;
 beforeEach(async () => {
   vi.clearAllMocks();
+  cleanup.failure = undefined;
+  cleanup.attempted = 0;
   root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-private-deadline-')));
   vi.spyOn(SandboxManager, 'checkDependencies').mockReturnValue({ errors: [], warnings: [] });
 });
@@ -109,7 +127,7 @@ it('narrows the real parent timer and joins a synthetic detached child without r
   await expect(executePrivateNativeFileHelper(input)).rejects.toThrow();
   expect(kill).toHaveBeenCalledTimes(2);
   expect(joined).toBe(true);
-  expect(checks).toBe(3);
+  expect(checks).toBe(2);
   const delays = timer.mock.calls
     .map((call) => call[1])
     .filter((n): n is number => typeof n === 'number');
@@ -147,14 +165,14 @@ it('consumes the same deadline during the full pre-spawn gate and refuses before
   let checks = 0;
   input.revalidate = async function () {
     expect(this).toBe(input);
-    if (++checks === 2) await new Promise((resolve) => setTimeout(resolve, 160));
+    if (++checks === 1) await new Promise((resolve) => setTimeout(resolve, 160));
   };
   await expect(executePrivateNativeFileHelper(input)).rejects.toThrow();
   expect(spawn).not.toHaveBeenCalled();
-  expect(checks).toBe(3);
+  expect(checks).toBe(2);
 });
 
-it.each(['current', 'expired', 'revoked'] as const)(
+it.each(['current', 'expired', 'revoked', 'scope-revoked'] as const)(
   'joins an exit-zero worker and preserves the post-worker %s owner gate',
   async (mode) => {
     let now = Date.now();
@@ -162,10 +180,17 @@ it.each(['current', 'expired', 'revoked'] as const)(
     vi.spyOn(Date, 'now').mockImplementation(() => now);
     let checks = 0;
     let joined = false;
+    input.assertCurrentSync = function () {
+      expect(this).toBe(input);
+      if (joined && mode === 'scope-revoked') throw Error('Original scope revoked');
+    };
     input.revalidate = async function () {
       expect(this).toBe(input);
-      if (++checks === 3) {
-        expect(joined).toBe(true);
+      checks++;
+      // Account for a slow but valid physical proof without rebasing the30s
+      // helper window. A duplicate setup proof would exhaust it.
+      now += 10_000;
+      if (joined) {
         if (mode === 'expired') now = input.deadline + 1;
         if (mode === 'revoked') throw Error('synthetic owner revoked');
       }
@@ -188,15 +213,147 @@ it.each(['current', 'expired', 'revoked'] as const)(
     const running = observePrivateHelperBoundary(input, executePrivateNativeFileHelper, rows);
     if (mode === 'current') await expect(running).resolves.toBeDefined();
     else await expect(running).rejects.toThrow('Private native file helper unavailable');
-    expect(checks).toBe(3);
+    expect(checks).toBe(mode === 'scope-revoked' ? 1 : 2);
     expect(joined).toBe(true);
     const report = rows[0] as {
       remainingMs: number;
       gates: Array<{ kind: string; status: string }>;
     };
     expect(report.gates.filter((gate) => gate.kind === 'async').map((gate) => gate.status)).toEqual(
-      ['returned', 'returned', mode === 'revoked' ? 'rejected' : 'returned'],
+      mode === 'scope-revoked'
+        ? ['returned']
+        : ['returned', mode === 'revoked' ? 'rejected' : 'returned'],
     );
     expect(report.remainingMs > 0).toBe(mode !== 'expired');
+  },
+);
+
+it.each(['expired', 'revoked', 'execution', 'execution-and-revocation'] as const)(
+  'retains the original %s failure and a sanitized helper-stage diagnostic',
+  async (mode) => {
+    let now = Date.now();
+    const input = await fixture(now + 30_000);
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const executionFailure = Error('synthetic private worker details');
+    const ownerFailure = Error('synthetic private account details');
+    let joined = false;
+    let checks = 0;
+    input.revalidate = async () => {
+      checks++;
+      if (!joined) return;
+      if (mode === 'expired') now = input.deadline + 1;
+      else if (mode !== 'execution') throw ownerFailure;
+    };
+    vi.mocked(spawn).mockImplementation(() => {
+      if (mode === 'execution' || mode === 'execution-and-revocation') {
+        joined = true;
+        throw executionFailure;
+      }
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      setImmediate(() => {
+        joined = true;
+        child.emit('close', 0, null);
+      });
+      return child as unknown as ReturnType<typeof spawn>;
+    });
+    let failure: unknown;
+    try {
+      await executePrivateNativeFileHelper(input);
+    } catch (error) {
+      failure = error;
+    }
+    expect(checks).toBe(2);
+    expect(failure).toMatchObject({
+      message: 'Private native file helper unavailable',
+      code: 'private_native_file_helper_unavailable',
+      stage: mode === 'execution' ? 'execution' : 'post_result',
+      cause:
+        mode === 'expired'
+          ? { code: 'private_helper_deadline_exceeded' }
+          : mode === 'revoked'
+            ? ownerFailure
+            : executionFailure,
+    });
+    if (mode === 'execution-and-revocation')
+      expect(failure).toHaveProperty('postResultCause', ownerFailure);
+    expect(diagnostics.warn).toHaveBeenLastCalledWith('Private native file helper failed', {
+      code: 'private_native_file_helper_unavailable',
+      stage: mode === 'execution' ? 'execution' : 'post_result',
+      operation: 'CreateFile',
+      deadlineExceeded: mode === 'expired',
+    });
+    expect(JSON.stringify(diagnostics.warn.mock.calls)).not.toContain('synthetic private');
+  },
+);
+
+it('retains and reports a rejected asynchronous synchronous-owner callback', async () => {
+  const input = await fixture(Date.now() + 30_000);
+  const original = Error('synthetic private async-owner failure');
+  input.assertCurrentSync = async () => {
+    throw original;
+  };
+  await expect(executePrivateNativeFileHelper(input)).rejects.toMatchObject({ cause: original });
+  expect(spawn).not.toHaveBeenCalled();
+  expect(diagnostics.warn).toHaveBeenCalledWith('Private helper synchronous owner rejected', {
+    code: 'private_helper_async_owner_rejected',
+    stage: 'synchronous_owner',
+  });
+  expect(JSON.stringify(diagnostics.warn.mock.calls)).not.toContain('synthetic private');
+});
+
+it.each(['execution', 'execution-and-revocation', 'cleanup-only', 'undefined', 'frozen'] as const)(
+  'retains %s causes through runner cleanup and still refreshes the original owner',
+  async (mode) => {
+    const input = await fixture(Date.now() + 30_000);
+    const original =
+      mode === 'undefined'
+        ? undefined
+        : mode === 'frozen'
+          ? Object.freeze(Error('synthetic private execution details'))
+          : Error('synthetic private execution details');
+    const cleanupFailure = Error('synthetic private cleanup details');
+    const ownerFailure = Error('synthetic private revocation details');
+    cleanup.failure = cleanupFailure;
+    let checks = 0;
+    input.revalidate = async () => {
+      if (++checks === 2 && mode === 'execution-and-revocation') throw ownerFailure;
+    };
+    vi.mocked(spawn).mockImplementation(() => {
+      if (mode !== 'cleanup-only') throw original;
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      setImmediate(() => child.emit('close', 0, null));
+      return child as unknown as ReturnType<typeof spawn>;
+    });
+    let failure: unknown;
+    try {
+      await executePrivateNativeFileHelper(input);
+    } catch (error) {
+      failure = error;
+    }
+    expect(cleanup.attempted).toBe(1);
+    expect(checks).toBe(2);
+    expect(failure).toMatchObject({
+      code: 'private_native_file_helper_unavailable',
+      cause: {
+        code: 'operation_finalization_failed',
+        cause: mode === 'cleanup-only' ? cleanupFailure : original,
+        errors: mode === 'cleanup-only' ? [cleanupFailure] : [original, cleanupFailure],
+      },
+    });
+    if (mode === 'execution-and-revocation')
+      expect(failure).toHaveProperty('postResultCause', ownerFailure);
+    expect(diagnostics.warn).toHaveBeenCalledWith('Operation finalization failed', {
+      code: 'operation_finalization_failed',
+      stage: 'sandbox_command',
+      operationFailed: mode !== 'cleanup-only',
+      failureCount: 1,
+    });
+    expect(JSON.stringify(diagnostics.warn.mock.calls)).not.toContain('synthetic private');
   },
 );

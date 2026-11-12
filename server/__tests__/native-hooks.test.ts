@@ -1,10 +1,17 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createNativeHooks, NativeHooks } from '../native-hooks.js';
 import * as commands from '../protected-sdk-command.js';
+import { sdkProjectCommandFixture } from './fixtures/sdk-project-command.js';
 const roots: string[] = [];
+beforeEach(() => {
+  vi.spyOn(commands, 'createWorkspaceRuntimeCommandRunner').mockReturnValue(
+    sdkProjectCommandFixture,
+  );
+});
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 afterEach(() => vi.restoreAllMocks());
 function setup(hooks: unknown) {
@@ -14,6 +21,64 @@ function setup(hooks: unknown) {
   writeFileSync(join(root, '.claude/settings.json'), JSON.stringify({ hooks }));
   return new NativeHooks(root, 'app', { PATH: '/usr/bin:/bin' });
 }
+it('settles returned read failures by default and keeps the next tool available', async () => {
+  const hooks = setup({});
+  const signal = new AbortController().signal;
+  const failed = await hooks.executeTool('ReadKnowledge', {}, signal, async () => ({
+    content: 'Document revision unavailable',
+    isError: true,
+  }));
+  expect(callbackOutcome(failed)).toBe('settled');
+  expect(failed.content).toBe('Document revision unavailable');
+  expect(
+    await hooks.executeTool('ReadKnowledge', {}, signal, async () => ({
+      content: 'Another document',
+      isError: false,
+    })),
+  ).toMatchObject({ isError: false });
+});
+
+it('reports a thrown tool failure with a safe reason instead of ending the engine loop', async () => {
+  const hooks = setup({});
+  const result = await hooks.executeTool('AnyTool', {}, new AbortController().signal, async () => {
+    throw Object.assign(Error('sensitive upstream payload'), { code: 'ENOMEM' });
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).not.toContain('sensitive upstream payload');
+  expect(JSON.parse(result.content)).toMatchObject({ diagnostic: { reason: 'memory_exhausted' } });
+});
+it('preserves an original settled refusal when cancellation arrives before any post-tool hook', async () => {
+  const hooks = setup({ PostToolUse: [{ hooks: [{ type: 'command', command: 'exit 1' }] }] });
+  const run = vi.spyOn(hooks, 'run');
+  const abort = new AbortController();
+  const refusal = retainCallbackOutcome(
+    { content: 'Tool execution cancelled before execution', isError: true },
+    'settled',
+  );
+  const result = await hooks.executeTool('GitHubRead', {}, abort.signal, async () => {
+    abort.abort(new Error('Original turn completed'));
+    return refusal;
+  });
+  expect(result).toEqual(refusal);
+  expect(callbackOutcome(result)).toBe('settled');
+  expect(run.mock.calls.map(([event]) => event)).toEqual(['PreToolUse']);
+});
+
+it.each(['unqualified failure', 'explicit uncertainty', 'unqualified success'])(
+  'retains %s after cancellation without inventing settlement',
+  async (kind) => {
+    const hooks = setup({});
+    const abort = new AbortController();
+    const result = await hooks.executeTool('Read', {}, abort.signal, async () => {
+      abort.abort();
+      const raw = { content: 'late result', isError: kind !== 'unqualified success' };
+      return kind === 'explicit uncertainty' ? retainCallbackOutcome(raw, 'unknown') : raw;
+    });
+    expect(result.isError).toBe(true);
+    expect(callbackOutcome(result)).toBe('unknown');
+  },
+);
+
 it('preserves rich results and sends only text to project hooks', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-hooks-rich-'));
   roots.push(root);
@@ -49,6 +114,24 @@ it('preserves rich results and sends only text to project hooks', async () => {
     { tool_name: 'Screenshot', tool_input: {}, tool_response: 'screen' },
     expect.any(AbortSignal),
   );
+  const refusal = retainCallbackOutcome(
+    { content: 'validation rejected', isError: true },
+    'settled',
+  );
+  expect(
+    callbackOutcome(
+      await hooks.executeTool('Write', {}, new AbortController().signal, async () => refusal),
+    ),
+  ).toBe('settled');
+  run.mockRejectedValueOnce(Error('read hook partially ran'));
+  expect(
+    callbackOutcome(
+      await hooks.executeTool('Read', {}, new AbortController().signal, async () => ({
+        content: 'unused',
+        isError: false,
+      })),
+    ),
+  ).toBe('unknown');
 });
 
 it('diagnoses oversized post-hook rich output without repeating the effect or exposing image bytes', async () => {
@@ -71,6 +154,7 @@ it('diagnoses oversized post-hook rich output without repeating the effect or ex
   expect(result.content).toMatch(/Tool ran.*bound/);
   expect(JSON.stringify(result)).not.toContain(data);
   expect(execute).toHaveBeenCalledOnce();
+  expect(callbackOutcome(result)).toBe('unknown');
 });
 it.each([true, false])(
   'preserves ordinary custom data in hooks and execution (enabled=%s)',

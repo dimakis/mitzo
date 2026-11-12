@@ -21,6 +21,7 @@ import type {
   RepositoryWorkspaces,
 } from './repository-workspaces.js';
 import { permissionRevision } from './session-permission-revision.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import {
   ordinaryLocalCodexBootstrapId,
   type OrdinaryLocalCodexAdmissionExpectation,
@@ -407,8 +408,8 @@ export class OrdinaryLocalCodexSelectionOwner {
           throw unavailable();
       }
       this.#snapshot ??= identity;
-    } catch {
-      throw unavailable();
+    } catch (error) {
+      throw findSessionRuntimeError(error) ?? unavailable();
     }
   }
   /** Only after the original checkout is claimed, under the uncertain command's lease. */
@@ -444,20 +445,24 @@ export class OrdinaryLocalCodexSelectionOwner {
     try {
       await (this.preparedPrimary()?.workspace ?? this.#workspace).revalidate(this.owners.signal);
       this.assertCurrentSync(expected);
-    } catch {
-      throw unavailable();
+    } catch (error) {
+      throw findSessionRuntimeError(error) ?? unavailable();
     }
   }
   async assertToolCurrent(
     expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    signal: AbortSignal = this.owners.signal,
   ): Promise<void> {
+    signal.throwIfAborted();
     this.assertCurrentSync(expected);
     const primary = this.preparedPrimary();
     const workspace = primary?.workspace ?? this.#workspace;
     if (workspace.get().state === 'claimed')
       await workspace.validate(
         primary ? primary.transition.newWorkspace.directory : expected.workspace.cwd,
+        signal,
       );
+    signal.throwIfAborted();
     this.assertCurrentSync(expected);
   }
 }

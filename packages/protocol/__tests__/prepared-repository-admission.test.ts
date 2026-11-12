@@ -76,6 +76,65 @@ function fixture(path = ':memory:') {
   store.completeOrdinaryLocalCommand('original');
   return store;
 }
+it.each(['commit', 'reconcile'] as const)(
+  'revokes prior learning history atomically with repository %s and keeps recovery idempotent',
+  (route) => {
+    const store = fixture();
+    const source = {
+      messageId: 'old-workspace-message',
+      eventSeq: store.append('session', 'user_message', {
+        messageId: 'old-workspace-message',
+        text: 'Decision made in the old workspace',
+      }),
+    };
+    const candidate = {
+      requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      kind: 'decision',
+      attribution: 'user_statement',
+      text: 'Use the old workspace decision.',
+      sources: [source],
+    };
+    store.captureMemoryCandidate('session', candidate);
+    const deep = store.setSessionLearningMode('session', 'deep', 0);
+    const reserved = store.reservePreparedRepositoryContinuation('session', transition);
+    if (route === 'commit')
+      store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+    else
+      store.reconcilePreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+    const policy = store.getSessionLearningPolicy('session');
+    expect(policy).toMatchObject({
+      mode: 'deep',
+      revision: deep.revision + 1,
+      historyRequest: { status: 'cancelled' },
+    });
+    expect(policy.excludedThroughSeq).toBeGreaterThanOrEqual(source.eventSeq);
+    expect(() => store.setSessionLearningMode('session', 'off', deep.revision)).toThrow(/revision/);
+    expect(store.listSessionLearningSources('session')).toEqual([]);
+    expect(store.memoryCandidateEligibility('session', candidate.requestId).eligible).toBe(false);
+    expect(() =>
+      store.captureMemoryCandidate('session', {
+        ...candidate,
+        requestId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }),
+    ).toThrow(/source_excluded/);
+    store.reconcilePreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+    expect(store.getSessionLearningPolicy('session')).toEqual(policy);
+    const newSource = {
+      messageId: 'new-workspace-message',
+      eventSeq: store.append('session', 'user_message', {
+        messageId: 'new-workspace-message',
+        text: 'Decision made in the new workspace',
+      }),
+    };
+    expect(
+      store.captureMemoryCandidate('session', {
+        ...candidate,
+        requestId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        sources: [newSource],
+      }).status,
+    ).toBe('stored');
+  },
+);
 it('reserves one deterministic uncertain child before mutation and atomically commits only its exact old→new primary', () => {
   const store = fixture();
   const before = store.getOrdinaryLocalCommandAdmission('original');
@@ -210,7 +269,7 @@ it('retains durable uncertainty across process death after metadata commit witho
   expect(cold.getSendCommand('original')?.payload).toEqual(original.payload);
 });
 
-it('preserves current draft settings and retained history while the new-workspace child is only reserved', () => {
+it('preserves pending draft settings and rebound execution settings across database reopen', () => {
   const root = mkdtempSync(join(tmpdir(), 'prepared-settings-cold-'));
   roots.push(root);
   const path = join(root, 'events.db');
@@ -219,17 +278,52 @@ it('preserves current draft settings and retained history while the new-workspac
   first.append('session', 'message_start', { messageId: 'retained-reply' });
   const history = first.getSessionEvents('session');
   const previous = first.getOrdinaryConversationSettings('session');
+  const origin = first.getOrdinaryLocalCommandAdmission('original');
   const reserved = first.reservePreparedRepositoryContinuation('session', transition);
+  first.close();
   const cold = new EventStore(path);
   stores.push(cold);
   expect(cold.getOrdinaryConversationSettings('session')).toEqual(previous);
-  expect(cold.getLatestOrdinaryCommandAdmission('session')).toEqual(
-    first.getOrdinaryLocalCommandAdmission('original'),
-  );
+  expect(cold.getLatestOrdinaryCommandAdmission('session')).toEqual(origin);
   expect(cold.getSessionEvents('session')).toEqual(history);
   expect(() => cold.getOrdinaryLocalCommandAdmission(reserved.childCommandId)).toThrow();
   expect(cold.claimOrdinaryLocalCommandDispatch('original')).toBe(false);
   expect(cold.hasUncertainOrdinaryCommand('session')).toBe(true);
+  cold.suspendUntransferredPreparedRepositoryContinuation(
+    'session',
+    transition.source,
+    transition.oldWorkspace,
+    transition.preparationId,
+  );
+  const resume = {
+    ...original,
+    clientMsgId: 'durable-resume',
+    requestFingerprint: 'durable-resume',
+  };
+  cold.admitOrdinaryLocalContinuation(meta, binding, resume);
+  cold.claimOrdinaryLocalCommandDispatch(resume.clientMsgId);
+  cold.completeOrdinaryLocalCommand(resume.clientMsgId);
+  const originalResume = cold.getOrdinaryLocalCommandAdmission(resume.clientMsgId);
+  cold.reservePreparedRepositoryContinuation('session', transition);
+  cold.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  cold.rebindPreparedRepositoryQueuedCommands('session', reserved.childCommandId, transition, [
+    resume.clientMsgId,
+  ]);
+  const execution = cold.getOrdinaryCommandExecutionAdmission(resume.clientMsgId);
+  cold.close();
+  const reopened = new EventStore(path);
+  stores.push(reopened);
+  expect(reopened.getLatestOrdinaryCommandAdmission('session')).toEqual(execution);
+  expect(
+    reopened.getPreparedRepositoryCommandAdmissionEvidence(
+      resume.clientMsgId,
+      reserved.childCommandId,
+    ),
+  ).toEqual(originalResume);
+  expect(reopened.getSendCommand(resume.clientMsgId)?.payload).toEqual(resume.payload);
+  expect(reopened.getSessionEvents('session')).toEqual(history);
+  expect(reopened.hasUncertainOrdinaryCommand('session')).toBe(true);
+  expect(reopened.claimOrdinaryLocalCommandDispatch(reserved.childCommandId)).toBe(false);
 });
 
 it('observes the same immutable bootstrap across two private adoptions separated by an explicit follow-up', () => {
@@ -586,15 +680,188 @@ it('appends a prepared-workspace execution admission while preserving explicit i
   ).toThrow();
 });
 
+it('observes a resumed bootstrap when a later message prepares the first repository transfer', () => {
+  const store = fixture();
+  const followup = {
+    ...original,
+    clientMsgId: 'prepare-in-followup',
+    requestFingerprint: 'followup-fingerprint',
+    payload: { ...original.payload, text: 'Create the new project now' },
+  };
+  store.admitOrdinaryLocalContinuation(meta, binding, followup);
+  store.claimOrdinaryLocalCommandDispatch(followup.clientMsgId);
+  store.completeOrdinaryLocalCommand(followup.clientMsgId);
+  const reserved = store.reservePreparedRepositoryContinuation('session', {
+    ...transition,
+    source: { ...transition.source, commandId: followup.clientMsgId },
+  });
+  expect(
+    store.observePreparedRepositoryResumedBootstrapAdmission(
+      reserved.childCommandId,
+      original.clientMsgId,
+    ),
+  ).toEqual(store.getOrdinaryLocalCommandAdmission(original.clientMsgId));
+  expect(store.getSession('session')?.cwd).toBe('/old');
+  const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+  const bootstrap = store.getOrdinaryLocalCommandAdmission(original.clientMsgId)!;
+  for (const invalid of [
+    { ...bootstrap, state: 'uncertain' },
+    { ...bootstrap, workspace: { workspaceId: 'other', cwd: '/other' } },
+  ]) {
+    db.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+      JSON.stringify(invalid),
+      original.clientMsgId,
+    );
+    expect(() =>
+      store.observePreparedRepositoryResumedBootstrapAdmission(
+        reserved.childCommandId,
+        original.clientMsgId,
+      ),
+    ).toThrow();
+  }
+});
+
 it('observes a fresh cold bootstrap between the original prepared source and its later workspace transition', () => {
   const store = fixture();
   const initial = store.reservePreparedRepositoryContinuation('session', transition);
-  store.suspendUntransferredPreparedRepositoryContinuation(
-    'session',
-    transition.source,
-    transition.oldWorkspace,
-    transition.preparationId,
+  expect(
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    )?.childCommandId,
+  ).toBe(initial.childCommandId);
+  expect(store.observePreparedRepositoryContinuation(initial.childCommandId).state).toBe(
+    'uncertain',
   );
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      'foreign-preparation',
+    ),
+  ).toThrow();
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      { ...transition.oldWorkspace, id: 'foreign-workspace' },
+      transition.preparationId,
+    ),
+  ).toThrow();
+  const database = (store as unknown as { db: import('better-sqlite3').Database }).db;
+  for (const id of [transition.source.commandId, initial.childCommandId]) {
+    database
+      .prepare('UPDATE send_commands SET error=? WHERE client_msg_id=?')
+      .run('Retained failure', id);
+    expect(() =>
+      store.observeUntransferredPreparedRepositoryContinuation(
+        'session',
+        transition.source,
+        transition.oldWorkspace,
+        transition.preparationId,
+      ),
+    ).toThrow();
+    database.prepare('UPDATE send_commands SET error=NULL WHERE client_msg_id=?').run(id);
+  }
+  store.admitOrdinaryLocalCommand({ ...meta, sessionId: 'foreign-session' }, binding, {
+    ...original,
+    clientMsgId: 'foreign-command',
+    requestFingerprint: 'foreign-fingerprint',
+  });
+  database
+    .prepare('UPDATE send_commands SET session_id=? WHERE client_msg_id=?')
+    .run('foreign-session', transition.source.commandId);
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    ),
+  ).toThrow();
+  database
+    .prepare('UPDATE send_commands SET session_id=? WHERE client_msg_id=?')
+    .run('session', transition.source.commandId);
+  const retained = store.observePreparedRepositoryContinuation(initial.childCommandId);
+  database
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(
+      JSON.stringify({ ...retained, selection: { ...retained.selection, model: 'changed-model' } }),
+      initial.childCommandId,
+    );
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    ),
+  ).toThrow();
+  database
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(JSON.stringify(retained), initial.childCommandId);
+  const startupError =
+    'Recovery required: historical command workspace differs from the current conversation. Original uncertain admission retained; do not replay before reconciliation.';
+  store.failSendCommand(initial.childCommandId, startupError);
+  store.failSendCommand(transition.source.commandId, startupError);
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    ),
+  ).toThrow();
+  database
+    .prepare('UPDATE send_commands SET error=NULL WHERE client_msg_id=?')
+    .run(transition.source.commandId);
+  expect(
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    )?.childCommandId,
+  ).toBe(initial.childCommandId);
+  expect(store.getSendCommand(initial.childCommandId)?.error).toBe(startupError);
+  database
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(JSON.stringify({ ...retained, state: 'reserved' }), initial.childCommandId);
+  expect(() =>
+    store.suspendUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    ),
+  ).toThrow();
+  expect(store.getSendCommand(initial.childCommandId)?.error).toBe(startupError);
+  expect(store.getEventsOfType('session', 'command_preparation_recovered')).toEqual([]);
+  database
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(JSON.stringify(retained), initial.childCommandId);
+  for (let repeat = 0; repeat < 2; repeat++)
+    store.suspendUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    );
+  expect(store.getSendCommand(initial.childCommandId)?.error).toBeNull();
+  expect(
+    store.getEventsOfType('session', 'command_preparation_recovered').map((e) => e.payload),
+  ).toEqual([
+    {
+      commandId: initial.childCommandId,
+      preparationId: transition.preparationId,
+      sourceCommandId: transition.source.commandId,
+      reason: 'untransferred_prepared_repository',
+      previousError: startupError,
+    },
+  ]);
   const resume = {
     ...original,
     clientMsgId: 'fresh-resume',
@@ -616,4 +883,76 @@ it('observes a fresh cold bootstrap between the original prepared source and its
   expect(() =>
     store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, resume.clientMsgId),
   ).toThrow();
+  store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  store.rebindPreparedRepositoryQueuedCommands('session', reserved.childCommandId, transition, [
+    resume.clientMsgId,
+  ]);
+  expect(store.getLatestOrdinaryCommandAdmission('session')).toEqual(
+    store.getOrdinaryCommandExecutionAdmission(resume.clientMsgId),
+  );
+  expect(() => store.getOrdinaryCommandAdmission(resume.clientMsgId)).toThrow(
+    'does not match durable session identity',
+  );
+  expect(
+    store.getPreparedRepositoryCommandAdmissionEvidence(
+      resume.clientMsgId,
+      reserved.childCommandId,
+    ),
+  ).toEqual(expected);
+  const assertRuntimeChangeRefused = () => {
+    database.prepare('UPDATE sessions SET runtime_binding=? WHERE session_id=?').run(
+      JSON.stringify({
+        ...binding,
+        execution: { ...binding.execution, targetRevision: 'changed-target' },
+      }),
+      'session',
+    );
+    try {
+      expect(() => store.getLatestOrdinaryCommandAdmission('session')).toThrow(
+        'Explicit command execution selection changed',
+      );
+      expect(() => store.getOrdinaryLocalCommandExecutionAdmission(resume.clientMsgId)).toThrow(
+        'Explicit command execution selection changed',
+      );
+    } finally {
+      database
+        .prepare('UPDATE sessions SET runtime_binding=? WHERE session_id=?')
+        .run(JSON.stringify(binding), 'session');
+    }
+  };
+  assertRuntimeChangeRefused();
+  const nextTransition = {
+    ...transition,
+    preparationId: '3dbdc62d-20ab-4144-b210-c55bc7f39cda',
+    priorPrimaryCommandId: reserved.childCommandId,
+    source: {
+      ...transition.source,
+      commandId: resume.clientMsgId,
+      turnId: 'second-resumed-turn',
+      callId: 'second-prepare',
+    },
+    oldWorkspace: { kind: 'repository' as const, id: 'new', directory: '/new' },
+    newWorkspace: { ...transition.newWorkspace, id: 'third', directory: '/third' },
+  };
+  store.finalizePreparedRepositoryContinuation(
+    'session',
+    reserved.childCommandId,
+    transition,
+    () => {},
+  );
+  const next = store.reservePreparedRepositoryContinuation('session', nextTransition);
+  expect(store.getLatestOrdinaryCommandAdmission('session')).toEqual(
+    store.getOrdinaryCommandExecutionAdmission(resume.clientMsgId),
+  );
+  expect(store.observePreparedRepositoryContinuation(next.childCommandId).state).toBe('uncertain');
+  expect(store.hasUncertainOrdinaryCommand('session')).toBe(true);
+  expect(() => store.claimOrdinaryLocalCommandDispatch(next.childCommandId)).toThrow();
+  expect(store.getSendCommand(resume.clientMsgId)?.payload).toEqual(resume.payload);
+  assertRuntimeChangeRefused();
+  database
+    .prepare('DELETE FROM ordinary_execution_admissions WHERE command_id=?')
+    .run(resume.clientMsgId);
+  expect(() => store.getLatestOrdinaryCommandAdmission('session')).toThrow(
+    'does not match durable session identity',
+  );
 });

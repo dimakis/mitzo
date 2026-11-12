@@ -134,6 +134,78 @@ function fixture() {
 const value = (result: { content: string } | undefined) => JSON.parse(result!.content);
 
 describe('private Local Mac repository read tools', () => {
+  it('reports a policy lookup timeout without misidentifying the current session as stale', async () => {
+    const f = fixture();
+    f.owner.readPolicy.mockRejectedValue(
+      Object.assign(Error('SECRET policy lookup'), { code: 'ETIMEDOUT' }),
+    );
+    const result = await sessionLocalRepositoryTools(f.owner).execute(
+      'InspectLocalRepository',
+      { path: root },
+      signal(),
+    );
+    expect(value(result)).toMatchObject({
+      error: 'internal_failure',
+      diagnostic: { stage: 'tool_execution', reason: 'deadline' },
+    });
+    expect(result?.content).not.toContain('SECRET');
+    expect(f.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('retains the primary failure and cleanup failure separately', async () => {
+    const f = fixture();
+    f.owner.readPolicy.mockRejectedValue(
+      Object.assign(Error('SECRET primary'), { code: 'ETIMEDOUT' }),
+    );
+    f.dispose.mockImplementation(() => {
+      throw Object.assign(Error('SECRET cleanup'), { code: 'EPERM' });
+    });
+    const result = await sessionLocalRepositoryTools(f.owner).execute(
+      'InspectLocalRepository',
+      { path: root },
+      signal(),
+    );
+    expect(value(result)).toMatchObject({
+      error: 'internal_failure',
+      diagnostic: {
+        phase: 'cleanup',
+        primary: { reason: 'deadline' },
+        cleanup: [{ reason: 'filesystem_denied' }],
+      },
+    });
+    expect(result?.content).not.toContain('SECRET');
+    expect(f.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('withholds successful inspection after cleanup fails without reporting stale custody', async () => {
+    const selected = await repository(join(root, 'target'));
+    const f = fixture();
+    f.dispose.mockImplementation(() => {
+      throw Object.assign(Error('SECRET cleanup'), { code: 'EPERM' });
+    });
+    const result = await sessionLocalRepositoryTools(f.owner).execute(
+      'InspectLocalRepository',
+      { path: selected },
+      signal(),
+    );
+    expect(value(result)).toMatchObject({
+      error: 'internal_failure',
+      diagnostic: { phase: 'cleanup', cleanup: [{ reason: 'filesystem_denied' }] },
+    });
+    expect(result?.content).not.toMatch(/SECRET|Repository instructions/);
+  });
+
+  it('reports cancellation before capture without claiming the session owner changed', async () => {
+    const f = fixture();
+    const result = await sessionLocalRepositoryTools(f.owner).execute(
+      'InspectLocalRepository',
+      { path: root },
+      AbortSignal.abort(),
+    );
+    expect(value(result)).toMatchObject({ error: 'cancelled' });
+    expect(f.owner.capture).not.toHaveBeenCalled();
+  });
+
   it('resolves a configured repository name outside the active task workspace', async () => {
     const canonical = await repository(join(root, 'tools', 'mitzo'));
     const task = await repository(join(root, 'tasks', 'repo-old'));

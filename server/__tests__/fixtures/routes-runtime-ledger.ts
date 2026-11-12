@@ -7,11 +7,16 @@ type RoutesRuntimeLedger = Pick<
   | 'getSendCommand'
   | 'getOrdinaryLocalCommandAdmission'
   | 'getOrdinaryWorkspaceSessionPreparationForConversation'
->;
+> & { deployment: { maintenance: Pick<EventStore['deployment']['maintenance'], 'assertControl'> } };
 
 /** Legacy route fixtures start without a retained runtime or command receipt. */
 export function createRoutesRuntimeLedgerFixture() {
   return {
+    deployment: {
+      maintenance: {
+        assertControl: vi.fn<EventStore['deployment']['maintenance']['assertControl']>(),
+      },
+    },
     getOrdinaryWorkspaceSessionPreparationForConversation: vi
       .fn<EventStore['getOrdinaryWorkspaceSessionPreparationForConversation']>()
       .mockReturnValue(undefined),

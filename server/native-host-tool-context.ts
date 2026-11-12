@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { isAbsolute, resolve } from 'node:path';
 import { checkSkillPolicy, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
@@ -6,7 +6,6 @@ import type { AccountBinding, AgentContextSnapshot, AgentLibraryVersion } from '
 import {
   captureAgentLibraryAuthorization,
   captureAgentLibraryOperation,
-  bindAgentLibraryTransport,
 } from './agent-library-transport.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
@@ -25,31 +24,8 @@ import { MainPublicationAccountSchema } from './telos-main-publication-contract.
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 
 type NativeCall = Parameters<CodexConversationOptions['executeTool']>[3];
-const retainedOperators = new WeakMap<ManagedSession, string>();
-
-/** Retain the already-admitted login under the chat lifetime, independently
- * of its viewer connection. The existing auth registry still owns revocation. */
-export function retainNativeHostToolOperator(
-  session: ManagedSession,
-  operatorConnectionId: string,
-): () => void {
-  const authorization = captureAgentLibraryAuthorization(operatorConnectionId);
-  authorization.assertCurrent();
-  if (
-    !session.ownedLocalAuthSessionId ||
-    session.ownedLocalAuthSessionId !== authorization.auth.id ||
-    retainedOperators.has(session)
-  )
-    throw Error('Original native host operator unavailable');
-  const connectionId = `native-host:${randomUUID()}`;
-  const release = bindAgentLibraryTransport(connectionId, { ...authorization.auth });
-  retainedOperators.set(session, connectionId);
-  return () => {
-    // Keep the selected identity until this session is collected. Releasing it
-    // must not silently fall back to a still-connected viewer's authorization.
-    release();
-  };
-}
+export { retainNativeHostToolOperator } from './native-host-tool-operator.js';
+import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
 
 export interface NativeHostToolContext extends NativeMainPublicationCall {
   readonly callId: string;
@@ -327,7 +303,7 @@ export function captureNativeHostToolContext(owners: {
   const original = owners.registry.findBySessionId(owners.conversationId);
   if (!original || original.session !== owners.session) unavailable();
   const driver = original.session.ordinaryRuntimeOwner;
-  const retainedOperator = retainedOperators.get(original.session);
+  const retainedOperator = retainedNativeHostToolOperator(original.session);
   const connectionId =
     retainedOperator ?? original.session.ownerConnectionId ?? original.clientId.split(':')[0];
   const authorization = captureAgentLibraryAuthorization(connectionId);
@@ -358,13 +334,18 @@ export function captureNativeHostToolContext(owners: {
     );
     const requestHash = createHash('sha256').update(JSON.stringify(owners.input)).digest('hex');
     const identity = { turnId: owners.call.turnId, toolName: owners.toolName, requestHash };
+    // Child callbacks have their own durable claims. Only the original runtime's
+    // private invocation registry can recognize one; cloned labels/facets cannot.
+    const readPending = () =>
+      owners.runtime.pendingSubagentHostTool(owners.call, identity) ??
+      owners.native.pendingNativeHostTool(
+        owners.conversationId,
+        binding,
+        owners.call.callId,
+        identity,
+      );
     const custody = owners.native.readHostCustody(owners.conversationId, binding);
-    const pending = owners.native.pendingNativeHostTool(
-      owners.conversationId,
-      binding,
-      owners.call.callId,
-      identity,
-    );
+    const pending = readPending();
     // The creating login remains custody provenance. A cold resume already
     // admits the current signed primary operator through the same identity rule;
     // retain that rule here without replacing the original custody receipt.
@@ -400,7 +381,7 @@ export function captureNativeHostToolContext(owners: {
         current?.clientId !== original.clientId ||
         current.session !== original.session ||
         current.session.ordinaryRuntimeOwner !== driver ||
-        retainedOperators.get(current.session) !== retainedOperator ||
+        retainedNativeHostToolOperator(current.session) !== retainedOperator ||
         driver?.authSessionId !== authorization.auth.id ||
         owners.registry.isClosingOut(current.clientId) ||
         owners.registry.isUserClose(current.clientId) ||
@@ -424,15 +405,7 @@ export function captureNativeHostToolContext(owners: {
           owners.native.readHostCustody(owners.conversationId, binding),
           custody,
         ) ||
-        !isDeepStrictEqual(
-          owners.native.pendingNativeHostTool(
-            owners.conversationId,
-            binding,
-            owners.call.callId,
-            identity,
-          ),
-          pending,
-        ) ||
+        !isDeepStrictEqual(readPending(), pending) ||
         !isDeepStrictEqual(observation.role, role)
       )
         unavailable();

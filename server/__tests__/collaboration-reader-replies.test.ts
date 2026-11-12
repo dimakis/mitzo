@@ -7,6 +7,7 @@ import { EventStore } from '../event-store.js';
 import {
   OrdinaryCollaborationReplies,
   recordOrdinaryReplySource,
+  captureOrdinaryReplyExecution,
 } from '../collaboration-ordinary-replies.js';
 import { OrdinaryCollaborationDelivery } from '../collaboration-ordinary-delivery.js';
 
@@ -82,12 +83,18 @@ function finalized(origin: ReturnType<typeof prompt>) {
     commandId: 'initial-reviewer',
     reason: 'Offline interrupted acknowledgement',
   });
-  recordOrdinaryReplySource(store, 'reviewer', {
+  const replySource = {
     commandId: 'initial-reviewer',
     messageId: 'visible-review',
     providerThreadId: 'private-thread',
     providerTurnId: 'private-turn',
-  });
+  };
+  recordOrdinaryReplySource(
+    store,
+    'reviewer',
+    replySource,
+    captureOrdinaryReplyExecution(store, 'reviewer', replySource),
+  );
   store.append('reviewer', 'message_start', { messageId: 'visible-review' });
   store.append('reviewer', 'block_start', {
     messageId: 'visible-review',

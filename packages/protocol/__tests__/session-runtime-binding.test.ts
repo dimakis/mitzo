@@ -1,5 +1,6 @@
+import { isOrdinaryCodexWorkspaceBinding } from '../src/session-runtime-binding.js';
 import { describe, expect, it } from 'vitest';
-import { SessionRuntimeBindingV1Schema } from '../src/index.js';
+import { SessionRuntimeBindingV1Schema, SessionRuntimeBindingV2Schema } from '../src/index.js';
 
 const runtimeBinding = {
   version: 1,
@@ -56,4 +57,25 @@ describe('dormant session runtime binding v1', () => {
   ])('rejects unsupported or credential-bearing runtime metadata: %j', (binding) => {
     expect(SessionRuntimeBindingV1Schema.safeParse(binding).success).toBe(false);
   });
+});
+
+it('limits private ordinary routes to V2 Codex bindings for both supported accounts and targets', () => {
+  expect(isOrdinaryCodexWorkspaceBinding(runtimeBinding)).toBe(false);
+  for (const location of ['local', 'openshell']) {
+    for (const [implementation, provider, supported] of [
+      ['codex', 'openai', true],
+      ['codex', 'openai-codex', true],
+      ['responses', 'openai', false],
+      ['claude-sdk', 'anthropic-vertex', false],
+      ['gemini', 'google-vertex', false],
+    ] as const) {
+      const binding = SessionRuntimeBindingV2Schema.parse({
+        version: 2,
+        account: { ...runtimeBinding.account, provider },
+        harness: { implementation },
+        execution: { location, targetId: 'fixture', targetRevision: 'r1' },
+      });
+      expect(isOrdinaryCodexWorkspaceBinding(binding)).toBe(supported);
+    }
+  }
 });

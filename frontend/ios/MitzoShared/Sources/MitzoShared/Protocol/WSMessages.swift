@@ -244,6 +244,8 @@ public enum ServerMessage: Codable, Sendable {
     case messageEnd(MessageEndParams)
     case tokenUpdate(TokenUpdateParams)
     case permissionRequest(PermissionRequestParams)
+    case permissionResolved(PermissionLifecycleParams)
+    case permissionTimeout(PermissionLifecycleParams)
     case toolResult(ToolResultParams)
     case error(error: String, sessionId: String? = nil, clientMsgId: String? = nil)
     case sessionControlRejected(SessionControlRejectedParams)
@@ -326,6 +328,12 @@ public enum ServerMessage: Codable, Sendable {
         case "permission_request":
             let params = try PermissionRequestParams(from: decoder)
             self = .permissionRequest(params)
+
+        case "permission_resolved":
+            self = .permissionResolved(try PermissionLifecycleParams(from: decoder))
+
+        case "permission_timeout":
+            self = .permissionTimeout(try PermissionLifecycleParams(from: decoder))
 
         case "tool_result":
             let params = try ToolResultParams(from: decoder)
@@ -432,6 +440,14 @@ public enum ServerMessage: Codable, Sendable {
             try container.encode("permission_request", forKey: AnyCodingKey("type"))
             try params.encode(to: encoder)
 
+        case .permissionResolved(let params):
+            try container.encode("permission_resolved", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .permissionTimeout(let params):
+            try container.encode("permission_timeout", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
         case .toolResult(let params):
             try container.encode("tool_result", forKey: AnyCodingKey("type"))
             try params.encode(to: encoder)
@@ -515,7 +531,8 @@ public struct SessionControlRejectedParams: Codable, Sendable {
 public struct ReconnectedSession: Codable, Sendable {
     public let sessionId: String
     public let replayed: Int
-    public let running: Bool
+    // Current server summaries omit this legacy field. Absence is unknown.
+    public let running: Bool?
 }
 
 public struct SessionSwitchedParams: Codable, Sendable {
@@ -602,6 +619,7 @@ public struct TokenUpdateParams: Codable, Sendable {
 
 public struct PermissionRequestParams: Codable, Sendable {
     public let permId: String
+    public let sessionId: String?
     public let toolName: String
     public let toolInput: String
     public let title: String?
@@ -610,8 +628,14 @@ public struct PermissionRequestParams: Codable, Sendable {
     public let decisionReason: String?
     public let tier: ToolTier?
     public let approvalScope: ApprovalScope?
+    public let allowSessionGrant: Bool?
     public let sessionGrantDescription: String?
     public let questions: [NotificationQuestion]?
+}
+
+public struct PermissionLifecycleParams: Codable, Sendable {
+    public let permId: String
+    public let sessionId: String?
 }
 
 public struct ToolResultParams: Codable, Sendable {

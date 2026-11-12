@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
 import { useMitzoStore } from '@mitzo/client/hooks';
@@ -39,6 +39,7 @@ export function useTelosChatRoute(conversationId: string | null) {
   ]);
   const connectionStatus = useMitzoStore((s) => s.connection.status);
   const [generation, setGeneration] = useState(0);
+  const metadataReadStarted = useRef(false);
   const [result, setResult] = useState<{
     conversationId: string;
     selectorKey: string;
@@ -75,11 +76,17 @@ export function useTelosChatRoute(conversationId: string | null) {
       return;
     }
     const controller = new AbortController();
+    const shareMount = !metadataReadStarted.current;
+    metadataReadStarted.current = true;
     let selected: string | null = requested;
     void (async () => {
-      const metadata = await apiFetch(`/api/sessions/${encodeURIComponent(conversationId)}/meta`, {
-        signal: controller.signal,
-      })
+      const metadata = await apiFetch(
+        `/api/sessions/${encodeURIComponent(conversationId)}/meta`,
+        {
+          signal: controller.signal,
+        },
+        shareMount ? 'session-metadata-mount' : undefined,
+      )
         .then(async (response) => (response.ok ? response.json() : null))
         .catch(() => null);
       if (controller.signal.aborted) return;

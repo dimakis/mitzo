@@ -15,6 +15,11 @@ import {
   type TelosSourcePermissionOperation,
   type TelosSourcePermissionReceipt,
   type TelosSourcePreview,
+  TelosOutcomeRevisionRequestSchema,
+  TelosOutcomeRevisionReceiptSchema,
+  TelosOutcomeProposalSchema,
+  type TelosOutcomeRevisionRequest,
+  type TelosOutcomeRevisionReceipt,
 } from '@mitzo/protocol';
 import { TelosWorkError } from './telos-work-store.js';
 
@@ -36,6 +41,13 @@ interface Row {
   data_sha256: string;
   receipt: string | null;
 }
+interface RetainedOutcomeRevision {
+  actorId: string;
+  proof: PendingTelosSourceReview;
+  input: TelosOutcomeRevisionRequest;
+  receipt: TelosOutcomeRevisionReceipt;
+  delivered: boolean;
+}
 /** Recovery receipt only; canonical creation/context/artifacts retain their existing owners. */
 export class TelosSourceApprovalStore {
   private db: Database.Database;
@@ -55,6 +67,11 @@ export class TelosSourceApprovalStore {
       CREATE TRIGGER IF NOT EXISTS telos_source_approval_receipt_immutable BEFORE UPDATE OF receipt ON telos_work_source_approvals WHEN OLD.receipt IS NOT NULL AND NEW.receipt IS NOT OLD.receipt BEGIN SELECT RAISE(ABORT,'Reviewed source receipt is immutable'); END;
       CREATE TRIGGER IF NOT EXISTS telos_source_canonical_receipt_immutable BEFORE UPDATE OF canonical_receipt ON telos_work_source_approvals WHEN OLD.canonical_receipt IS NOT NULL AND NEW.canonical_receipt IS NOT OLD.canonical_receipt BEGIN SELECT RAISE(ABORT,'Canonical creation receipt is immutable'); END;
       CREATE TRIGGER IF NOT EXISTS telos_source_approval_no_delete BEFORE DELETE ON telos_work_source_approvals BEGIN SELECT RAISE(ABORT,'Reviewed source approval is retained'); END;`);
+      this.db.exec(`CREATE TABLE IF NOT EXISTS telos_work_outcome_revisions (
+        perm_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, actor_id TEXT NOT NULL,
+        data TEXT NOT NULL, data_sha256 TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0);
+        CREATE TRIGGER IF NOT EXISTS telos_outcome_revision_immutable BEFORE UPDATE OF perm_id,session_id,actor_id,data,data_sha256 ON telos_work_outcome_revisions BEGIN SELECT RAISE(ABORT,'Outcome revision request is immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS telos_outcome_revision_no_delete BEFORE DELETE ON telos_work_outcome_revisions BEGIN SELECT RAISE(ABORT,'Outcome revision request is retained'); END;`);
       this.#telosOwner.seal();
     } catch (error) {
       this.#telosOwner.close();
@@ -113,6 +130,87 @@ export class TelosSourceApprovalStore {
       throw new TelosWorkError('conflict', 'Retry the exact original reviewed source request');
     return row;
   }
+  revision(
+    permId: string,
+    sessionId: string,
+    actorId: string,
+    input?: TelosOutcomeRevisionRequest,
+  ): RetainedOutcomeRevision | null {
+    const row = this.db
+      .prepare('SELECT * FROM telos_work_outcome_revisions WHERE perm_id=?')
+      .get(permId) as
+      | {
+          session_id: string;
+          actor_id: string;
+          data: string;
+          data_sha256: string;
+          delivered: number;
+        }
+      | undefined;
+    if (!row) return null;
+    if (row.session_id !== sessionId || row.actor_id !== actorId)
+      throw new TelosWorkError(
+        'unauthorized',
+        'Revision request belongs to another operator or conversation',
+      );
+    const record = JSON.parse(row.data) as RetainedOutcomeRevision;
+    if (sourceApprovalHash(record) !== row.data_sha256)
+      throw Error('Retained outcome revision integrity unavailable');
+    record.input = TelosOutcomeRevisionRequestSchema.parse(record.input);
+    record.receipt = TelosOutcomeRevisionReceiptSchema.parse(record.receipt);
+    if (
+      record.actorId !== actorId ||
+      record.proof.permId !== permId ||
+      record.proof.sessionId !== sessionId ||
+      record.proof.toolUseId !== record.input.toolUseId ||
+      sourceApprovalHash(record.input) !==
+        sourceApprovalHash(TelosOutcomeRevisionRequestSchema.strip().parse(record.receipt)) ||
+      record.receipt.proposalSha256 !==
+        sourceApprovalHash({ kind: 'create', outcome: record.receipt.originalOutcome }) ||
+      sourceApprovalHash(TelosOutcomeProposalSchema.parse(record.proof.toolInput)) !==
+        sourceApprovalHash(record.receipt.originalOutcome)
+    )
+      throw Error('Retained outcome revision identity unavailable');
+    if (input && sourceApprovalHash(input) !== sourceApprovalHash(record.input))
+      throw new TelosWorkError('conflict', 'Retry the exact original feedback request');
+    return { ...record, delivered: row.delivered === 1 };
+  }
+  prepareRevision(
+    proof: PendingTelosSourceReview,
+    actorId: string,
+    input: TelosOutcomeRevisionRequest,
+    receipt: TelosOutcomeRevisionReceipt,
+  ) {
+    return this.db
+      .transaction(() => {
+        if (this.lookup(proof.permId, proof.sessionId, actorId))
+          throw new TelosWorkError(
+            'conflict',
+            'A save has already started. Recover the original save before requesting changes.',
+          );
+        const prior = this.revision(proof.permId, proof.sessionId, actorId, input);
+        if (prior) return prior;
+        const record = { actorId, proof: structuredClone(proof), input, receipt };
+        this.db
+          .prepare(
+            'INSERT INTO telos_work_outcome_revisions(perm_id,session_id,actor_id,data,data_sha256) VALUES(?,?,?,?,?)',
+          )
+          .run(
+            proof.permId,
+            proof.sessionId,
+            actorId,
+            JSON.stringify(record),
+            sourceApprovalHash(record),
+          );
+        return { ...record, delivered: false };
+      })
+      .immediate();
+  }
+  revisionDelivered(permId: string) {
+    this.db
+      .prepare('UPDATE telos_work_outcome_revisions SET delivered=1 WHERE perm_id=?')
+      .run(permId);
+  }
   prepare(
     proof: PendingTelosSourceReview,
     actorId: string,
@@ -123,6 +221,11 @@ export class TelosSourceApprovalStore {
   ) {
     return this.db
       .transaction(() => {
+        if (this.revision(proof.permId, proof.sessionId, actorId))
+          throw new TelosWorkError(
+            'conflict',
+            'Changes were requested. Review the revised proposal before saving.',
+          );
         const prior = this.find(proof.permId, proof.sessionId, actorId, input);
         if (prior) return prior;
         const retained: RetainedTelosSourceApproval = {

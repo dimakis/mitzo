@@ -61,8 +61,28 @@ it('withholds the browser target until the entry and lazy chat graph are transfo
   await vi.waitFor(() => expect(pending.waitForRequestsIdle).toHaveBeenCalledOnce());
   expect(returned).toBe(false);
   releaseIdle();
-  await started;
+  const target = await started;
   expect(returned).toBe(true);
+  pending.transformRequest.mockClear();
+  pending.waitForRequestsIdle.mockClear();
+  let releaseRoute!: () => void;
+  const route = new Promise<void>((resolve) => {
+    releaseRoute = resolve;
+  });
+  pending.transformRequest.mockReturnValue(route);
+  let warmed = false;
+  const warming = target.warmupEntry('/src/pages/TodoView.tsx').then(() => {
+    warmed = true;
+  });
+  await vi.waitFor(() =>
+    expect(pending.transformRequest).toHaveBeenCalledWith('/src/pages/TodoView.tsx'),
+  );
+  expect(warmed).toBe(false);
+  expect(pending.waitForRequestsIdle).not.toHaveBeenCalled();
+  releaseRoute();
+  await warming;
+  expect(pending.waitForRequestsIdle).toHaveBeenCalledOnce();
+  expect(warmed).toBe(true);
 });
 
 it.each(['/src/main.tsx', '/src/render-app.tsx', '/src/components/ResponsiveChatView.tsx'])(

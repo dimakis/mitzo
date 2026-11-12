@@ -1,6 +1,7 @@
 export interface SessionRemovalOptions {
   archive?: boolean;
   cleanupToken?: string;
+  removalOperationId?: string;
 }
 
 export interface SandboxPoolSettings {

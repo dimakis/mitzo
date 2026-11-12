@@ -21,9 +21,7 @@ const mockSkills: SkillEntry[] = [
 beforeEach(() => {
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue({
-      json: () => Promise.resolve(mockSkills),
-    }),
+    vi.fn().mockImplementation(async () => Response.json(mockSkills)),
   );
 });
 
@@ -42,14 +40,12 @@ async function renderPicker(props: Partial<Parameters<typeof SlashPicker>[0]> = 
 
 describe('SlashPicker', () => {
   it('separates server-advertised app commands from scoped skills', async () => {
-    vi.mocked(fetch).mockImplementation(
-      async (input) =>
-        ({
-          json: async () =>
-            String(input).includes('/api/commands')
-              ? [{ name: 'models', description: 'List account models', scope: 'native' }]
-              : mockSkills,
-        }) as Response,
+    vi.mocked(fetch).mockImplementation(async (input) =>
+      Response.json(
+        String(input).includes('/api/commands')
+          ? [{ name: 'models', description: 'List account models', scope: 'native' }]
+          : mockSkills,
+      ),
     );
     await renderPicker();
     expect(screen.getByText('Skills')).toBeTruthy();

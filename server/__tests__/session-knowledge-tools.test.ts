@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
@@ -9,10 +9,10 @@ import { KnowledgeDraftStore } from '../knowledge-draft-store.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { sessionCredentialTools } from '../session-credential-tools.js';
-import {
-  installKnowledgeDraftRuntime,
-  installMemoryCandidateStore,
-} from '../session-knowledge-tools.js';
+import { installKnowledgeDraftRuntime } from '../session-knowledge-tools.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
+import { hostKnowledgePublication } from './fixtures/host-knowledge-publication.js';
+import { installHostKnowledgeStore, prepareHostKnowledge } from '../published-host-knowledge.js';
 import {
   reviewedHandlerSourceArtifacts,
   reviewedHandlerSourceFingerprint,
@@ -26,6 +26,13 @@ let release: () => void;
 let unbind: () => void;
 let revision: string;
 let refresh: Mock<() => Promise<void>>;
+const logging = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+vi.mock('../logger.js', () => ({ createLogger: () => logging }));
 const identity = { turnId: 'turn', callId: 'call' };
 const input = () => ({
   requestId: 'a186b239-7960-4791-97fb-15c4be27da6d',
@@ -39,49 +46,6 @@ function git(...args: string[]) {
 function tools() {
   return sessionCredentialTools('chat', registry.get('client')!, registry);
 }
-
-it('captures a candidate through the existing permission boundary without refreshing the Library', async () => {
-  const recordMemoryCandidate = vi.fn(() => ({
-    status: 'captured' as const,
-    seq: 7,
-    requestId: input().requestId,
-    accepted: false,
-  }));
-  const dispose = installMemoryCandidateStore({ recordMemoryCandidate });
-  try {
-    const result = await tools().execute(
-      'RecordMemoryCandidate',
-      {
-        requestId: input().requestId,
-        summary: 'Keep knowledge dated.',
-        quotes: ['Keep knowledge dated.'],
-      },
-      new AbortController().signal,
-      identity,
-    );
-    expect(result?.isError).toBe(false);
-    expect(recordMemoryCandidate).toHaveBeenCalledOnce();
-    expect(refresh).not.toHaveBeenCalled();
-    registry.get('client')!.mode = 'ask';
-    expect(
-      (
-        await tools().execute(
-          'RecordMemoryCandidate',
-          {
-            requestId: input().requestId,
-            summary: 'Keep knowledge dated.',
-            quotes: ['Keep knowledge dated.'],
-          },
-          new AbortController().signal,
-          identity,
-        )
-      )?.isError,
-    ).toBe(true);
-    expect(recordMemoryCandidate).toHaveBeenCalledOnce();
-  } finally {
-    dispose();
-  }
-});
 
 it('includes Knowledge draft execution and its registrations in the reviewed runtime integrity check', () => {
   const artifacts: Readonly<Record<string, string>> = reviewedHandlerSourceArtifacts;
@@ -99,6 +63,7 @@ it('includes Knowledge draft execution and its registrations in the reviewed run
   }
 });
 beforeEach(() => {
+  logging.warn.mockClear();
   root = mkdtempSync(join(tmpdir(), 'mitzo-chat-knowledge-'));
   git('init', '-b', 'main');
   git('config', 'user.name', 'Fixture');
@@ -141,6 +106,27 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+it('reads Knowledge after the admitted viewer disconnects and rejects released authority', async () => {
+  const session = registry.get('client')!;
+  session.ownedLocalAuthSessionId = 'login';
+  const releaseOperator = retainNativeHostToolOperator(session, 'operator');
+  try {
+    unbind();
+    session.ownerConnectionId = 'disconnected-viewer';
+    expect(
+      (await tools().execute('ReadKnowledge', { action: 'list' }, new AbortController().signal))
+        ?.isError,
+    ).toBe(false);
+    releaseOperator();
+    expect(
+      (await tools().execute('ReadKnowledge', { action: 'list' }, new AbortController().signal))
+        ?.isError,
+    ).toBe(true);
+  } finally {
+    releaseOperator();
+  }
+});
+
 it('reads the enrolled accepted document, independently of the writable task copy', async () => {
   const api = tools();
   expect(api.definitions.map((d) => d.name)).toEqual(
@@ -167,6 +153,69 @@ it('reads the enrolled accepted document, independently of the writable task cop
     revision,
   });
   expect(store.list()).toEqual([]);
+});
+
+it('reads the selected published turn through ordinary dispatch and rejects revoked operator authority', async () => {
+  const publication = hostKnowledgePublication(realpathSync(root), 'a', 'Accepted turn memory');
+  const reconcile = vi.fn().mockResolvedValue(publication);
+  const restore = installHostKnowledgeStore({ id: 'mgmt', reconcile });
+  try {
+    await prepareHostKnowledge(registry.get('client')!, false, new AbortController().signal);
+    const result = await tools().execute(
+      'ReadKnowledge',
+      { action: 'published', path: 'memory/Observations/lesson.md' },
+      new AbortController().signal,
+      identity,
+    );
+    expect(result?.isError).toBe(false);
+    expect(JSON.parse(result!.content)).toMatchObject({
+      sourceCommit: publication.sourceCommit,
+      content: 'Accepted turn memory',
+    });
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(refresh).not.toHaveBeenCalled();
+    writeFileSync(
+      join(publication.seed, 'memory/Observations/lesson.md'),
+      'private-corrupted-bytes',
+    );
+    const failed = await tools().execute(
+      'ReadKnowledge',
+      { action: 'published', path: 'memory/Observations/lesson.md' },
+      new AbortController().signal,
+      identity,
+    );
+    expect(failed?.isError).toBe(true);
+    expect(JSON.parse(failed!.content)).toMatchObject({
+      status: 'failed',
+      code: 'published_knowledge_read_failed',
+      diagnosticId: expect.any(String),
+    });
+    expect(logging.warn).toHaveBeenCalledWith(
+      'Knowledge operation failed',
+      expect.objectContaining({
+        stage: 'published_read',
+        code: 'published_knowledge_read_failed',
+        reason: 'integrity_mismatch',
+        sessionId: 'chat',
+      }),
+    );
+    expect(JSON.stringify([failed, logging.warn.mock.calls])).not.toContain(
+      'private-corrupted-bytes',
+    );
+    unbind();
+    expect(
+      (
+        await tools().execute(
+          'ReadKnowledge',
+          { action: 'published' },
+          new AbortController().signal,
+          identity,
+        )
+      )?.isError,
+    ).toBe(true);
+  } finally {
+    restore();
+  }
 });
 
 it('saves a visible Library draft at the requested path and returns an honest receipt without publishing', async () => {

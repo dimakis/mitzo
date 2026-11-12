@@ -1,3 +1,5 @@
+// Retain legacy review failure diagnostics for saved operations. No model review
+// runs in ordinary PR publication; this module also owns safe preflight/dispatch errors.
 import type { JsonValue } from './connections/types.js';
 
 const undispatched = new WeakSet<Error>();
@@ -15,6 +17,10 @@ export function consumeGithubPublicationNotDispatched(error: unknown): boolean {
 }
 
 const messages = {
+  PUBLICATION_AUTHORITY_CHANGED:
+    'The publishing operator or runtime changed. Local commits are preserved. Check the operation status before retrying; the reported reason identifies which authority check failed.',
+  PUBLICATION_PREFLIGHT_FAILED:
+    'Publication preflight could not complete. Local commits are preserved and no GitHub write was dispatched. Use the reported stage and operation ID to inspect controller logs and traces before retrying.',
   PUBLICATION_REVIEW_REQUIRED:
     'Independent publication review is required. Request publication again to review the current committed change.',
   PUBLICATION_REVIEW_BLOCKED:

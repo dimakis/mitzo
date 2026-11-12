@@ -371,6 +371,8 @@ for (const theme of ['dark', 'light'])
           },
         });
       }
+      if (url.pathname === '/api/session-launch/defaults' && route.request().method() === 'GET')
+        return route.fulfill({ json: { revision: 0, configuration: null } });
       if (url.pathname === '/api/chat/runtime/capabilities')
         return route.fulfill({ json: localInventoryFixture() });
       if (url.pathname === '/api/accounts')
@@ -417,6 +419,7 @@ for (const theme of ['dark', 'light'])
     });
     await navigate('/todos');
     await expect(page.getByRole('button', { name: 'All outcomes', exact: true })).toBeVisible();
+    await expect(page.getByText('Outcome → Feature → Slice', { exact: true })).toBeVisible();
     const studioRow = page.locator('.telos-tree-row').filter({
       has: page.getByRole('button', { name: records[0].summary, exact: true }),
     });

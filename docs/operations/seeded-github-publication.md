@@ -27,3 +27,25 @@ Symposium publication continues through the sealed, reviewed-artifact workflow a
 Failures before capability dispatch return a diagnostic request ID, stage, safe code and `operationRecorded: false`. Errors after uncertain dispatch do not claim that no operation exists. Recorded operation results include their ID, status and safe failure code. No exception text, subprocess output or credential is returned to a model. An uncertain write remains subject to read-only recovery; neither retries nor account fallback replay it.
 
 Acceptance should cover the shared tool through each provider/runtime combination, user denial, source mutation, revocation, conflicts, a controller restart with the approved base pinned, and remote-head verification. Controlled Git/GitHub fixtures require no model calls. Any real model test must follow the Luna account restriction and canonical staging rules.
+
+## Bounded independent review context
+
+Each ordinary publication still needs two independent approvals within five
+inference rounds per pass and the existing deadlines. A full-file read may also
+supply direct literal dependency candidates from the same pinned Git tree. This
+helps a reviewer follow a small wrapper to its implementation without spending
+an extra inference solely on that delegation. Discovery never executes source
+code or grants filesystem/network authority.
+
+Each context batch adds at most eight complete dependency/instruction files and
+48,000 bytes, with at most 128 candidate records. Partial reads do not trigger
+expansion, dependencies do not recurse, and omitted/binary candidates remain
+explicitly unread. Complete immutable context is deduplicated within each
+independent pass; fresh authority and cancellation checks remain at boundaries.
+Empty full-file reads report zero lines. Strict response-schema failures expose
+only bounded schema fields, issue codes and limits, never raw model text.
+
+Review test adequacy against the changed behavior and applicable contracts.
+Representative existing coverage may suffice for inert content; new instructions,
+configuration, selection or security behavior still require their distinct
+consumer and trust-boundary coverage.

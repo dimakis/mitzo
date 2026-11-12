@@ -4,6 +4,7 @@ import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { waitForNewFixtureReads } from '../support/fixture-reads';
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 const linkedWork = {
   ...createTelosWorkFixtures().homeStudio.items[0],
   itemId: 'work-one',
@@ -35,6 +36,7 @@ const sessions = Array.from({ length: 12 }, (_, index) => ({
   },
 }));
 const bundle = build({
+  plugins: [chatStorageBootstrap()],
   entryPoints: [resolve('tests/fixtures/session-library.tsx')],
   bundle: true,
   external: ['/*.png', '/*.svg'],
@@ -63,8 +65,10 @@ for (const theme of ['dark', 'light'])
       ({ theme, accent, font }) => {
         class OfflineEventSource extends EventTarget {
           readyState = 1;
+          onopen: (() => void) | null = null;
           constructor() {
             super();
+            queueMicrotask(() => this.onopen?.());
             window.addEventListener('offline-session-activity', (event) => {
               this.dispatchEvent(
                 new MessageEvent('session_activity', {
@@ -80,6 +84,24 @@ for (const theme of ['dark', 'light'])
         localStorage.setItem('mitzo-theme', theme);
         localStorage.setItem('mitzo-accent', accent);
         localStorage.setItem('mitzo-font', font);
+        localStorage.setItem(
+          'mitzo-chat-draft:visual-draft',
+          JSON.stringify({
+            version: 1,
+            id: 'visual-draft',
+            text: 'An unsent prompt',
+            images: [],
+            contextBlocks: [],
+            updatedAt: Date.now(),
+            settings: {
+              selection: null,
+              mode: 'agent',
+              isolation: true,
+              search: '',
+              summary: null,
+            },
+          }),
+        );
         if (!sessionStorage.getItem('pins-seeded')) {
           localStorage.setItem('mitzo-today-tokens', 'true');
           localStorage.setItem(
@@ -185,6 +207,48 @@ for (const theme of ['dark', 'light'])
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/sessions');
     await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
+    const newChat = page.getByRole('button', { name: 'New chat', exact: true });
+    const pinToggle = page.getByRole('button', { name: 'Collapse pinned conversations' });
+    const draftToggle = page.locator('.conversation-drafts-section > summary');
+    await expect(draftToggle).toBeVisible();
+    const labelGeometry = async (locator: typeof pinToggle) =>
+      locator.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const label = element.querySelector('span')!.getBoundingClientRect();
+        const count = element.querySelector('span:last-child')!.getBoundingClientRect();
+        const row = element.getBoundingClientRect();
+        return {
+          font: style.fontSize,
+          weight: style.fontWeight,
+          lineHeight: style.lineHeight,
+          labelInset: label.left - row.left,
+          countInset: row.right - count.right,
+          height: row.height,
+          icons: [...element.querySelectorAll('svg')].map(
+            (icon) => icon.getBoundingClientRect().width,
+          ),
+        };
+      });
+    const pinGeometry = await labelGeometry(pinToggle);
+    const draftGeometry = await labelGeometry(draftToggle);
+    expect(draftGeometry.font).toBe(pinGeometry.font);
+    expect(draftGeometry.weight).toBe(pinGeometry.weight);
+    expect(draftGeometry.lineHeight).toBe(pinGeometry.lineHeight);
+    expect(draftGeometry.labelInset).toBeCloseTo(pinGeometry.labelInset, 0);
+    expect(draftGeometry.countInset).toBeCloseTo(pinGeometry.countInset, 0);
+    expect(draftGeometry.icons).toEqual(pinGeometry.icons);
+    for (const height of [pinGeometry.height, draftGeometry.height])
+      expect(height).toBeGreaterThanOrEqual(44);
+    for (const filter of await page.locator('.conversation-filters button').all())
+      expect((await filter.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await newChat.locator('svg').getAttribute('width')).toBe('20');
+    await expect(newChat).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(newChat).toHaveCSS('border-top-width', '0px');
+    if (isMobile) {
+      await page.getByRole('link', { name: 'Search chats', exact: true }).click();
+      await expect(page.getByRole('searchbox', { name: 'Search conversations' })).toBeFocused();
+      await page.getByRole('searchbox', { name: 'Search conversations' }).blur();
+    }
     const pinned = page.getByRole('region', { name: 'Pinned conversations' });
     await expect(pinned.locator('.conversation-pin-row')).toHaveCount(6);
     expect(await pinned.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
@@ -206,6 +270,115 @@ for (const theme of ['dark', 'light'])
       lastEventAt: sessions[index].lastModified,
       ...extra,
     });
+    const rows = page.locator('.session-list .session-item-summary');
+    const initialOrder = await rows.allTextContents();
+    const emit = async (state: string, extra: Record<string, unknown> = {}) => {
+      await page.evaluate(
+        (activities) => {
+          window.dispatchEvent(new CustomEvent('offline-session-activity', { detail: activities }));
+        },
+        [
+          activity(11, state, {
+            waitReason: 'permission',
+            lastEventAt: Date.now(),
+            stateChangedAt: state === 'waiting' ? Date.now() : undefined,
+            completedAt: state === 'done' ? Date.now() : undefined,
+            ...extra,
+          }),
+        ],
+      );
+    };
+    const lastRowBefore = await page.locator('.session-list .session-item').last().boundingBox();
+    await emit('working', {
+      phase: 'reading',
+      turnStartedAt: Date.now() - 60_000,
+      lastMessageAt: sessions[11].lastModified,
+    });
+    await expect(page.locator('.session-list .session-item').last()).toContainText('Reading files');
+    await expect(page.locator('.session-list .session-item').last()).toContainText('elapsed 1m');
+    expect(
+      Math.abs(
+        (await page.locator('.session-list .session-item').last().boundingBox())!.height -
+          lastRowBefore!.height,
+      ),
+    ).toBeLessThanOrEqual(1);
+    const bars = page.locator('.session-list .session-activity-bars');
+    await expect(bars).toBeVisible();
+    await expect(rows).toHaveText(initialOrder);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.locator('.session-list').evaluate((element) => {
+      new MutationObserver(() => {
+        if (
+          [...element.children].some((row) =>
+            row.getAnimations().some((a) => a.id === 'mitzo:reorder'),
+          )
+        )
+          element.setAttribute('data-observed-move', 'true');
+      }).observe(element, { childList: true });
+      element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 77 }));
+    });
+    await emit('waiting');
+    await expect(page.locator('.session-list .session-item').last()).toContainText(
+      'Permission needed',
+    );
+    // Wait beyond the batch window: a held pointer must keep its target still.
+    await page.waitForTimeout(800);
+    await expect(rows).toHaveText(initialOrder);
+    await expect(page.getByRole('button', { name: /1 updated · show latest/ })).toBeVisible();
+    await page.evaluate(() =>
+      document.dispatchEvent(new PointerEvent('pointerup', { pointerId: 77 })),
+    );
+    await expect(rows.first()).toHaveText('Conversation 11');
+    await expect(page.locator('.session-list')).toHaveAttribute('data-observed-move', 'true');
+    await page.screenshot({ path: testInfo.outputPath(`session-library-reordered-${theme}.png`) });
+    await emit('done');
+    await expect(page.locator('.session-list .session-item').first()).toContainText('Finished');
+    await emit('idle');
+    await expect(page.locator('.session-list .session-item').first()).toContainText('Idle');
+    await expect(rows).toHaveText(['Conversation 11', ...initialOrder.slice(0, -1)]);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    // A new user message promotes an already working chat without animation.
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
+      [activity(10, 'working', { lastUserMessageAt: Date.now() + 1000 })],
+    );
+    await expect(rows.first()).toHaveText('Conversation 10');
+    expect(
+      await page
+        .locator('.session-list')
+        .evaluate(
+          (el) =>
+            [...el.children]
+              .flatMap((row) => row.getAnimations())
+              .filter((a) => a.id === 'mitzo:reorder').length,
+        ),
+    ).toBe(0);
+    // A visible assistant update during the same turn also advances freshness.
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
+      [activity(9, 'working', { phase: 'reply', lastMessageAt: Date.now() + 2000 })],
+    );
+    await expect(rows.first()).toHaveText('Conversation 9');
+    await expect(page.locator('.session-list .session-item').first()).toContainText(
+      'Writing a reply',
+    );
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const scroller = page.locator('.session-list-scroll');
+    const searchBox = page.getByRole('searchbox', { name: 'Search conversations' });
+    await searchBox.focus();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'All', exact: true })).toBeFocused();
+    await scroller.evaluate((element) => {
+      element.scrollTop = 400;
+    });
+    await expect(searchBox).not.toBeInViewport();
+    await expect(page.getByRole('button', { name: 'All', exact: true })).not.toBeInViewport();
+    await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath(`session-library-scrolled-${theme}.png`) });
+    await scroller.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect(searchBox).toBeInViewport();
     await page.evaluate(
       (activities) => {
         window.dispatchEvent(new CustomEvent('offline-session-activity', { detail: activities }));
@@ -257,8 +430,9 @@ for (const theme of ['dark', 'light'])
       await page.screenshot({ path: testInfo.outputPath(`session-preview-usage-${theme}.png`) });
       await dialog.getByRole('button', { name: 'Close preview' }).click();
       await page.locator('.session-list-scroll').evaluate((el) => (el.scrollTop = el.scrollHeight));
-      await expect(page.getByText('Conversation 11', { exact: true })).toBeVisible();
-      const last = await page.getByText('Conversation 11', { exact: true }).boundingBox(),
+      const lastRow = page.locator('.session-list .session-item-navigation').last();
+      await expect(lastRow).toBeInViewport();
+      const last = await lastRow.boundingBox(),
         nav = await page.locator('.workspace-tabs').boundingBox();
       expect(last!.y + last!.height).toBeLessThanOrEqual(nav!.y + 1);
       await page.setViewportSize({ width: 320, height: 740 });
@@ -393,6 +567,52 @@ for (const theme of ['dark', 'light'])
     await toggle.uncheck();
     await page.goto('/');
     await expect(page.locator('.session-context-usage')).toHaveCount(0);
+    await page.goto('/activity-composer');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const composer = page.getByRole('region', { name: 'Conversation status' });
+    const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await input.fill('Keep my next draft');
+    const emitComposer = async (phase: string) =>
+      page.evaluate(
+        (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
+        [
+          activity(0, 'working', {
+            phase,
+            turnStartedAt: Date.now() - 60_000,
+            lastMessageAt: Date.now() - 30_000,
+          }),
+        ],
+      );
+    await emitComposer('reading');
+    await expect(composer.getByRole('status')).toHaveText('Reading files');
+    await expect(composer).toContainText('elapsed 1m');
+    await expect(composer.locator('.session-activity-bars i').first()).toHaveCSS(
+      'animation-name',
+      'session-activity-pulse',
+    );
+    await emitComposer('reply');
+    await expect(composer.getByRole('status')).toHaveText('Writing a reply');
+    await expect(input).toHaveValue('Keep my next draft');
+    expect(
+      await composer.evaluate(
+        (el) =>
+          el.getBoundingClientRect().height ===
+          parseFloat(getComputedStyle(el).getPropertyValue('--control-height')),
+      ),
+    ).toBe(true);
+    await expect(page.getByRole('button', { name: 'Stop generation' })).toBeVisible();
+    await composer.getByRole('button', { name: 'Conversation status details' }).click();
+    const status = page.getByRole('dialog', { name: 'Conversation status' });
+    await expect(status.getByText('Last activity', { exact: true })).toBeVisible();
+    await expect(status.getByText('Last message', { exact: true })).toBeVisible();
+    await status.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(input).toHaveValue('Keep my next draft');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: testInfo.outputPath(`session-library-composer-activity-${theme}.png`),
+    });
     expect(errors).toEqual([]);
     expect(mutations).toEqual([]);
   });

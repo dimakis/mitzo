@@ -2,6 +2,70 @@
   "version": 1,
   "surfaces": [
     {
+      "id": "chat-activity",
+      "activeRevision": "additive-freshness-2026-11-06",
+      "revisions": [
+        {
+          "id": "additive-freshness-2026-11-06",
+          "approvedBy": "Dimitri (explicit approval of the chat activity mock and additive implementation)",
+          "approvedOn": "2026-11-06",
+          "approval": {
+            "thread": "Originating Mitzo conversation, MGMT task repo-f8d34b06-e8bc-8aaa-b6f9-a416505f57c3; conversation ID unavailable to this runtime",
+            "quote": "We don't go fucking with any of the designs that we already have approved, right? This is just additional. So let's go do this. This looks class.",
+            "scope": "Activity indicators, explicit timing and freshness ordering across the existing library, filters, search, pins, preview, sidebar and open chat. Preserve all approved designs and existing actions. The prototype's reduced-motion toggle is excluded from product UI; its simulated content, navigation, composer and message bubbles do not replace existing product components."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-activity/activity-freshness.html",
+              "sha256": "45325e7952bb6a8a873be9e41dcdb394d0d26266d56d670ea0799a39cb629896"
+            }
+          ],
+          "invariants": [
+            "Add activity bars and evidence-based labels to existing components using shared semantic tokens and motion timing.",
+            "Keep pin/unpin conversation, Today pins, rename, copy session ID, details, delete, swipe, long press, right click and keyboard actions available through their existing owners.",
+            "Preserve approved chat settings, message dates/actions and the single mounted status row above the existing composer, including all queue, delivery and recovery behavior.",
+            "Separate turn elapsed, completion, waiting, last message and last activity clocks. Unknown starts remain unknown; saved modification time is labelled Updated.",
+            "Messages, completion and approval requests advance freshness in bounded batches. Tool activity does not repeatedly reorder the list; browsing/actions hold position and expose queued updates.",
+            "Pins keep device order, search keeps result order while browsing, and disconnected observations remain display-only last-seen evidence.",
+            "No product motion toggle is introduced. Existing appearance and operating-system motion preferences remain effective."
+          ],
+          "sources": [
+            "frontend/src/components/SessionActivityStatus.tsx",
+            "frontend/src/components/SessionActivityStatus.css",
+            "frontend/src/pages/SessionList.tsx",
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/components/SessionPanel.tsx",
+            "frontend/src/hooks/useSessionOrder.ts",
+            "server/session-activity-events.ts",
+            "server/session-overview.ts"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SessionActivityStatus.test.tsx",
+            "frontend/src/components/__tests__/ComposerActivity.test.tsx",
+            "frontend/src/pages/__tests__/SessionLibraryDesktop.test.tsx",
+            "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+            "server/__tests__/session-overview.test.ts",
+            "tests/offline/session-library.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SessionActivityStatus.test.tsx",
+              "sha256": "a62f2378d06e1ae84859562393690a6a2b3cd9b4675baddd3e3c43533969d97d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ComposerActivity.test.tsx",
+              "sha256": "14250f63ee593371674d6569d62eede154c997fb1f131b54ee6953246b2fb3f2"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/SessionLibraryDesktop.test.tsx",
+              "sha256": "e5774880d3bf9c289b160a93bb30ba67d0f4c147e4271b469f3d7f3c69ab784e"
+            }
+          ],
+          "validation": "docs/features/chat-activity-freshness.md"
+        }
+      ]
+    },
+    {
       "id": "chat-settings",
       "activeRevision": "quick-sheet-2026-10-17",
       "revisions": [
@@ -300,7 +364,7 @@
           "approvedOn": "2026-10-16",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -316,7 +380,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
@@ -360,7 +424,7 @@
           "approvedOn": "2026-10-18",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -376,7 +440,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
@@ -425,6 +489,377 @@
               "record": "docs/design/approved/symposium/test-syntax-approval-2026-10-18.md"
             }
           }
+        }
+      ]
+    },
+    {
+      "id": "chat-status",
+      "activeRevision": "compact-inline-queue-2026-11-12",
+      "revisions": [
+        {
+          "id": "above-composer-2026-11-04",
+          "approvedBy": "Dimitri (explicit placement selection and preservation constraint)",
+          "approvedOn": "2026-11-04",
+          "approval": {
+            "thread": "Originating Mitzo chat, MGMT task repo-1f9ab105-97fc-8dde-b620-7615ed2a54aa; conversation ID unavailable to this runtime",
+            "quote": "I love this. I want it above the composer.",
+            "scope": "Only the above-composer combined status and agreed draft/send presentation. Preserve existing message dates, copy/read-aloud controls, composer icons/features, keyboard dispatch semantics, and runtime delivery/recovery fences. The simplified prototype message bubbles and toolbar are not replacement designs."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-status/status-above-composer.html",
+              "sha256": "7b4cce395218cb1766272e9f567b7b19c9d512c1e9cc6cf1e95cb40770526739"
+            }
+          ],
+          "invariants": [
+            "One always-mounted, single-line status row above the existing composer, using the shared control height and an overlay for full detail.",
+            "Keep message dates, copy, read aloud, reply menus and all existing composer tools and capabilities.",
+            "Routine autosaving stays quiet; actual failures and approvals remain visible. Independent issues remain actionable after another clears.",
+            "Existing queue editing, ordering, pause/resume, attachments, cancellation and recovery remain available through details without changing their owners or dispatch semantics.",
+            "Submitted text and image previews leave together while the original payload remains retained; late receipts cannot erase newer or foreign drafts.",
+            "Routine recovery feedback cannot replace a running agent label with a misleading conversation reconnect label. Genuine blocked/uncertain outcomes retain their explicit checks.",
+            "Shared theme, accent, font, motion, keyboard and touch targets remain effective; the Chat settings approval is unchanged."
+          ],
+          "sources": [
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/components/ComposerStatus.css",
+            "frontend/src/lib/composer-status-context.ts",
+            "frontend/src/components/ChatInput.tsx",
+            "frontend/src/components/ChatStatusMessage.tsx",
+            "frontend/src/components/CodexQueueStatus.tsx",
+            "frontend/src/components/WorkspaceActionMenu.tsx",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+            "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+            "tests/offline/chat-queue-steering.spec.ts",
+            "frontend/src/components/__tests__/ChatInputCommandStrip.test.tsx",
+            "frontend/src/components/__tests__/MessageActions.test.tsx"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+              "sha256": "0cb49ba69f1519d678e36c392a0be04843cf40e7c5238247e26763b533844b85"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+              "sha256": "18bce758f08927f108db65f411f421090b4e74bcde1ebb4b999381738e8010b4"
+            },
+            {
+              "path": "tests/offline/chat-queue-steering.spec.ts",
+              "sha256": "140987f86a77ba33f4ce9b504ae12c31014c1ec6393cb6ee8b56e81cd4daee8e"
+            }
+          ],
+          "validation": "docs/features/chat-composer-status.md"
+        },
+        {
+          "id": "direct-interrupt-2026-11-06",
+          "approvedBy": "Dimitri (explicit rejection of the correction overflow and direction to use an icon)",
+          "approvedOn": "2026-11-06",
+          "approval": {
+            "thread": "Originating Mitzo chat, MGMT task repo-ac8d1e1d-5617-8629-8a32-b83f31ae4d92; conversation ID unavailable to this runtime",
+            "quote": "a second … menu with a single button? Wtf is this. Let’s dig and fix; I also don’t want the text. Just give me an icon like the rest of the composer; It actually seems I can’t interrupt with a screenshot/ image",
+            "scope": "Replace only the one-item Send options overflow with a direct icon-only lightning action beside Queue and Stop, and support screenshots/images through native correction delivery. Preserve the approved status row, other composer tools and all runtime/delivery boundaries."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-status/status-above-composer.html",
+              "sha256": "7b4cce395218cb1766272e9f567b7b19c9d512c1e9cc6cf1e95cb40770526739"
+            },
+            {
+              "path": "docs/design/approved/chat-status/direct-interrupt-2026-11-06.md",
+              "sha256": "0d142e6781a8afd5bad10dc5bc209f9235de8bdae408488b470993d570055608"
+            }
+          ],
+          "invariants": [
+            "One always-mounted, single-line status row above the existing composer, using the shared control height and an overlay for full detail.",
+            "Keep message dates, copy, read aloud, reply menus and all existing composer tools and capabilities.",
+            "Routine autosaving stays quiet; actual failures and approvals remain visible. Independent issues remain actionable after another clears.",
+            "Existing queue editing, ordering, pause/resume, attachments, cancellation and recovery remain available through details without changing their owners or dispatch semantics.",
+            "Submitted text and image previews leave together while the original payload remains retained; late receipts cannot erase newer or foreign drafts.",
+            "Routine recovery feedback cannot replace a running agent label with a misleading conversation reconnect label. Genuine blocked/uncertain outcomes retain their explicit checks.",
+            "Shared theme, accent, font, motion, keyboard and touch targets remain effective; the Chat settings approval is unchanged.",
+            "Correction is a direct icon-only lightning button with an accessible name and restriction tooltip; no Send options overflow or visible button text.",
+            "Native screenshot corrections retain exact attachment bytes and their original turn across uncertain delivery and reload; changed payloads cannot replace a retained correction.",
+            "Dispatch locks never depend on animation frames; pending receipts still fence duplicate submissions."
+          ],
+          "sources": [
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/components/ComposerStatus.css",
+            "frontend/src/lib/composer-status-context.ts",
+            "frontend/src/components/ChatInput.tsx",
+            "frontend/src/components/ChatStatusMessage.tsx",
+            "frontend/src/components/CodexQueueStatus.tsx",
+            "frontend/src/components/WorkspaceActionMenu.tsx",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+            "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+            "tests/offline/chat-queue-steering.spec.ts",
+            "frontend/src/components/__tests__/ChatInputCommandStrip.test.tsx",
+            "frontend/src/components/__tests__/MessageActions.test.tsx",
+            "frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx",
+            "frontend/src/hooks/__tests__/useTurnSteering.test.tsx",
+            "tests/browser/composer-layout.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+              "sha256": "0cb49ba69f1519d678e36c392a0be04843cf40e7c5238247e26763b533844b85"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+              "sha256": "f4534e3c51b092d69eaa73f4a156b6488354256765377b6ad5e7e18927d38cd5"
+            },
+            {
+              "path": "tests/offline/chat-queue-steering.spec.ts",
+              "sha256": "1bbd2b696dccfe394c5b8faf3ee4754d379228c7c37fee91ca905839cf032893"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx",
+              "sha256": "158933a4001e7d46782df7dcc73f9e0a8aecacf28201ac42c2f7faf6adf2ee6b"
+            },
+            {
+              "path": "frontend/src/hooks/__tests__/useTurnSteering.test.tsx",
+              "sha256": "1467a53e2163b0f39b3ac4c6032404c2e6db7c0cc966d15743fd3041e5555e5a"
+            },
+            {
+              "path": "tests/browser/composer-layout.spec.ts",
+              "sha256": "f1e4b8140d4aa12bdf04f2e142c1f2c171f9f526d1173bea9036561517300a87"
+            }
+          ],
+          "validation": "docs/features/chat-composer-status.md"
+        },
+        {
+          "id": "compact-inline-queue-2026-11-12",
+          "approvedBy": "Dimitri (explicit approval of compact revision 3 and instruction to build and open a PR)",
+          "approvedOn": "2026-11-12",
+          "approval": {
+            "thread": "Mitzo chat in MGMT task repo-129e0088-815f-8b2b-a064-053790a2b1cf; conversation ID unavailable to this runtime",
+            "quote": "I love this. Let’s build and open a or",
+            "scope": "Build the approved compact revision 3: inline queue above the composer, bounded scrolling, retained information, minimize, direct dispatch ordering across shared engine/runtime owners. Preserve toolbar, settings, ownership, capability and delivery boundaries."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-status/compact-inline-queue-2026-11-12.html",
+              "sha256": "17026ebce4444c45eb912b8f0f75a907be349c6ec820668fc8e4f09b0ddc1b90"
+            }
+          ],
+          "invariants": [
+            "Retain the single mounted status row, existing composer tools, message actions, appearance preferences and guarded runtime owners.",
+            "Queued drafts appear inline above the composer without a card shell or status-popup dependency; minimizing retains count, next-preview and pause.",
+            "Single-line previews and compact dispatch states scroll within 14dvh or 2.5 shared control heights; full inline details are bounded to 28dvh or five control heights.",
+            "Reorder and Make next change only numbered pending dispatch order; the existing shared composer drains the new first message after a response.",
+            "Retain complete text, attachments, reply/context references, editing and removal; a late save cannot close another editor or erase the composer draft.",
+            "Unconfirmed delivery rows cannot move or be crossed; identity and original target remain owned by the existing dispatch/recovery path.",
+            "Failed order saves remain visible and hold automatic draining until explicit retry succeeds; unavailable steering exposes a reason.",
+            "Use semantic tokens, shared MotionPresence and touch-sized controls without changing the approved Chat settings design.",
+            "Callback-level engine/runtime coverage does not claim that unsupported native steering or deployed runtime support exists."
+          ],
+          "sources": [
+            "frontend/src/components/ChatInput.tsx",
+            "frontend/src/components/QueuedDraftTray.tsx",
+            "frontend/src/components/QueuedDraftTray.css",
+            "frontend/src/hooks/useQueuedMessages.ts",
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/QueuedDraftTray.compact.test.tsx",
+            "frontend/src/components/__tests__/QueuedDraftTray.test.tsx",
+            "frontend/src/hooks/__tests__/useQueuedMessages.ordering.test.ts",
+            "frontend/src/hooks/__tests__/useQueuedMessages.test.ts",
+            "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+            "tests/offline/chat-queue-steering.spec.ts",
+            "tests/browser/composer-layout.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/QueuedDraftTray.compact.test.tsx",
+              "sha256": "c531e5d830bbfe632d4c44e6e9541f39b1645b1cd6b7e1a98f8f88e84acfb7f1"
+            },
+            {
+              "path": "frontend/src/hooks/__tests__/useQueuedMessages.ordering.test.ts",
+              "sha256": "10ec8a467afa590352f3f175e3b682607c0ea20f2ea6dcf3feaa6b28725290b4"
+            },
+            {
+              "path": "tests/offline/chat-queue-steering.spec.ts",
+              "sha256": "66288dbc3bf6d48ef18257e6367516f5729d0c4ae38f3bc16255ca2475904a82"
+            }
+          ],
+          "validation": "docs/features/compact-chat-queue.md"
+        }
+      ]
+    },
+    {
+      "id": "codex-subagents",
+      "activeRevision": "nested-child-activity-2026-11-05",
+      "revisions": [
+        {
+          "id": "nested-child-activity-2026-11-05",
+          "approvedBy": "Dimitri (originating approval and current implementation direction)",
+          "approvedOn": "2026-11-05",
+          "approval": {
+            "thread": "911e7aaf-f8a0-8aaf-862e-c322cfd6c163",
+            "quote": "yep, this is excellent, I like this. lets just ensure that we don't get rid of the other icons in the screen chat, for terminal etc. the mock has left these out",
+            "scope": "Nested child row and inspection with targeted Message/Stop; final v005 refinements preserve chat toolbar, phone layout, context wheel and Resources. Approval recovered from original conversation; current user requested implementation on 5 November."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/codex-subagents/nested.html",
+              "sha256": "e85c12ffb0c004319474c1ed49cd7b5c744e3a4bcb574073477c306198dfa267"
+            }
+          ],
+          "invariants": [
+            "One collapsed count/status row beneath the spawning agent; expand child names and states.",
+            "Child inspection retains task, public output/tool activity and explicit recipient with Message and Stop.",
+            "Parent and sibling drafts survive inspection and navigation; focus returns to the originating child.",
+            "Preserve existing composer, toolbar, Terminal, context wheel and Resources; children do not become Symposium participants.",
+            "Shared dialog, semantic tokens and motion; reachable footer, independent scrolling, 44px targets and phone/desktop widths.",
+            "Unavailable authority disables controls while retaining saved output; uncertain delivery keeps its original request identity."
+          ],
+          "sources": [
+            "frontend/src/components/NativeSubagents.tsx",
+            "frontend/src/components/NativeSubagents.css",
+            "frontend/src/components/ToolPill.tsx",
+            "frontend/src/hooks/useNativeSubagents.ts",
+            "frontend/src/components/ChatArea.tsx",
+            "frontend/src/components/ComposerTools.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+            "tests/offline/native-subagents.spec.ts",
+            "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+              "sha256": "90556b4248ca66e47e978c5a3e7b8672a9f66098230dc774f5d91e65ca199d4b"
+            },
+            {
+              "path": "tests/offline/native-subagents.spec.ts",
+              "sha256": "32359e1c7a446c2792ca45331d3bc488cf270378ad95ca269e12901e89ad256f"
+            },
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+              "sha256": "251b6f7c834cfc5088e347b83e55343c99ba33c4f077017ae4f8aaa54a29b84d"
+            }
+          ],
+          "implementationEvidence": [],
+          "validation": "docs/design/approved/codex-subagents/VALIDATION.md"
+        }
+      ]
+    },
+    {
+      "id": "cohesive-chat",
+      "activeRevision": "compact-linked-chat-2026-11-10",
+      "revisions": [
+        {
+          "id": "compact-linked-chat-2026-11-10",
+          "approvedBy": "Dimitri (approved v007 Design A and explicit implementation amendments)",
+          "approvedOn": "2026-11-10",
+          "approval": {
+            "thread": "Mitzo conversation e137e614-dff3-8059-b715-7fca773fa2b7",
+            "quote": "This is fire. 🔥 let’s build this and open a pr and let’s get it merged",
+            "scope": "Design A compact session review; Links & access; retained Symposium robot entry; implicit exact-source reply navigation; quiet peer events and Drafts rows. Subsequent explicit direction covers unboxed accent header actions/search focus, actionable approvals, compact deletable timers and stable initial Chats hydration. The derived public reference anonymizes sample identifiers and paths; prior approval references remain intact."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-links-access/cohesive-ux-v007.html",
+              "sha256": "7dd8b32ead8da550338b000d4975214bf977c668f878fd1d8567a4cbef1ac530"
+            },
+            {
+              "path": "docs/design/approved/chat-links-access/approval-and-timer-direction.md",
+              "sha256": "9cdd06f0af0167e60b377d9722ee51f691224a84cedd8c992fe94904890b2851"
+            }
+          ],
+          "invariants": [
+            "Use the existing theme, accent, font, UiIcon, scales and shared sheet; avoid generic card wrappers for lists and transcript events.",
+            "Keep Symposium joining/lifecycle behavior, one composer status owner and existing appearance settings. Header actions have clear backgrounds, accent icons, equal touch targets and visible focus.",
+            "Show exact-source author/time/text quotes in transcript and composer. Tap jumps/highlights and returns to the opener; unavailable sources retain their reference without guessing.",
+            "Chronological launch receipts scroll with the transcript. Links & access owns related chat navigation; linking/unlinking grants no execution access. New chat requires explicit reviewed approval and existing runtime/delivery fences.",
+            "Permissions and Connections use Back within the compact sheet. Preserve scope, expiry, revocation, stale/unavailable evidence and unsent grant edits.",
+            "Drafts is a counted collapsible section with three latest rows and All drafts; retain draft, attachment, repository and discard ownership.",
+            "Approval actions remain outside scrolling request details. Known concrete fields lead; unknown shapes retain full details. Never infer or broaden scope, conceal expiry or alter decision semantics.",
+            "Timer deletion confirms and revision-fences removal, stops future checks, and retains command/delivery evidence. Complete prompts remain available in a disclosure.",
+            "Use already observed freshness on the first Chats render; reserve metadata/status geometry and offer late initial reordering explicitly while preserving subsequent live batching/browsing behavior."
+          ],
+          "sources": [
+            "frontend/src/components/SessionChatLinks.tsx",
+            "frontend/src/components/SessionAccess.tsx",
+            "frontend/src/components/SessionLaunchCards.tsx",
+            "frontend/src/components/AgentMessageCard.tsx",
+            "frontend/src/components/ReplyQuote.tsx",
+            "frontend/src/components/ApprovalRequestSummary.tsx",
+            "frontend/src/components/SessionTimersDialog.tsx",
+            "frontend/src/pages/SessionList.tsx",
+            "frontend/src/hooks/useSessionOrder.ts",
+            "frontend/src/styles/header-actions.css",
+            "frontend/src/styles/chat-sheets.css",
+            "server/session-launch-routes.ts",
+            "server/session-launch-store.ts",
+            "server/session-prompt-store.ts"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/HeaderActions.test.tsx",
+            "frontend/src/components/__tests__/ChatReplyContext.test.tsx",
+            "frontend/src/components/__tests__/PeerMessagePresentation.test.tsx",
+            "frontend/src/components/__tests__/SessionChatLinks.test.tsx",
+            "frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx",
+            "frontend/src/components/__tests__/SessionTimersDialog.test.tsx",
+            "frontend/src/pages/__tests__/SessionListDrafts.test.tsx",
+            "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+            "tests/offline/session-launch.spec.ts",
+            "tests/offline/session-access.spec.ts",
+            "tests/offline/session-library.spec.ts",
+            "tests/offline/session-timers.spec.ts",
+            "tests/offline/agent-messages.spec.ts",
+            "tests/offline/chat-drafts-updates.spec.ts",
+            "server/__tests__/session-chat-links.test.ts",
+            "server/__tests__/session-launch-routes.test.ts",
+            "server/__tests__/session-prompt-store.test.ts",
+            "server/__tests__/session-prompt-service.test.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/HeaderActions.test.tsx",
+              "sha256": "c08579e15fae217f40dd647ad9852325f9a6d1f8cc78c0530ba752e7ce879ae2"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatReplyContext.test.tsx",
+              "sha256": "f1e48af400bd7406686eed96f860b47794509c083ea1a2cf86972cbbee7fe60d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/PeerMessagePresentation.test.tsx",
+              "sha256": "f71575d3f3a0b9ba3636db00d614c5b67ae9814bf6e5902e4d54ebbfb02738d9"
+            },
+            {
+              "path": "frontend/src/components/__tests__/SessionChatLinks.test.tsx",
+              "sha256": "4507a3569794b1deca9c6d2b17012b97fcbe856a306206f564ff0cfb6c746758"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx",
+              "sha256": "de68b3c132924a24357c2dcffa1f3ea4c6bdb3dcab7216fc7548b952abea3e82"
+            },
+            {
+              "path": "frontend/src/components/__tests__/SessionTimersDialog.test.tsx",
+              "sha256": "45eeb66a7d25220d8862457e5367593836ed59b47cc19520d878a26a56295e0d"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/SessionListDrafts.test.tsx",
+              "sha256": "528acc84c470af59d47337d21a3a0f7de4bb60470d796f96a7dd6a6b0c137edd"
+            },
+            {
+              "path": "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+              "sha256": "6a4e985987d3697d89a14a668679850b10e6419c99ecfb2dcabbe020bcad7022"
+            }
+          ],
+          "validation": "docs/features/cohesive-chat-ux.md"
         }
       ]
     }

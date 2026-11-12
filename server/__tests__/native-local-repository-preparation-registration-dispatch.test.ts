@@ -162,6 +162,20 @@ it.runIf(process.platform === 'darwin')(
     );
     expect(bad.response.success).toBe(false);
     expect(captureNativeLocalRepositoryPreparationSource).not.toHaveBeenCalled();
+    // Reuse this signed callback fixture for the incident's conflicting selectors.
+    const conflict = await f.a.call(
+      { path: join(f.f.root, 'not-created'), source: { kind: 'new', name: 'my-project' } },
+      { tool: 'PrepareLocalRepository' },
+    );
+    expect(conflict.response.success).toBe(false);
+    expect(JSON.parse(conflict.value as string)).toMatchObject({
+      error: 'invalid_input',
+      diagnostic: { reason: 'invalid_input', effectStatus: 'not_started' },
+      retry: 'after_correction',
+    });
+    expect(executeLocalRepositoryPreparation).not.toHaveBeenCalled();
+    expect(captureNativeLocalRepositoryPreparationSource).not.toHaveBeenCalled();
+    expect(f.permissions).toHaveLength(0);
     // The HTTP startup operator and the phone's event connection are distinct.
     // Detaching the phone must not end an admitted native tool operation.
     f.detachViewer();

@@ -1,9 +1,14 @@
+import { retainReadOnlyCallbackOutcome } from './turn-callbacks.js';
 import type {
   AgentToolCatalogEntry,
   AgentToolReference,
   SymposiumProfileDefinition,
 } from '@mitzo/protocol';
-import { connectCodexMcpTools, type McpToolsOptions } from './codex-mcp-tools.js';
+import {
+  closeMcpAfterFailure,
+  connectCodexMcpTools,
+  type McpToolsOptions,
+} from './codex-mcp-tools.js';
 import type { McpServerConfig } from './mcp-config.js';
 import { TASK_MCP_SERVER_NAME } from './host-mcp-servers.js';
 import { telosWorkerTaskDefinitions } from './telos-worker-task-tools.js';
@@ -77,6 +82,11 @@ export async function connectSelectedTaskMcpTools(
       return { wireName: tool.definition.name, reference };
     });
     const names = new Set(admitted.map((entry) => entry.wireName));
+    const reads = new Set(
+      admitted
+        .filter((entry) => entry.reference.id === 'mitzo:TaskStatus')
+        .map((entry) => entry.wireName),
+    );
     return {
       ...peer,
       admitted,
@@ -84,19 +94,24 @@ export async function connectSelectedTaskMcpTools(
       execute: (...args: Parameters<typeof peer.execute>) => {
         if (!names.has(args[0])) throw Error('Task tool is not selected');
         options.assertRuntimeCurrent?.();
-        return peer.execute(...args);
+        return reads.has(args[0])
+          ? retainReadOnlyCallbackOutcome(args[3], () => peer.execute(...args))
+          : peer.execute(...args);
       },
     };
   } catch (error) {
-    await peer.close();
-    throw error;
+    return closeMcpAfterFailure(peer, error);
   }
 }
 
 type McpPeer = Pick<
   Awaited<ReturnType<typeof connectCodexMcpTools>>,
   'definitions' | 'displayName' | 'execute' | 'close'
-> & { assertToolCurrent?: (name: string) => void; outputScope?: (name: string) => string };
+> & {
+  assertToolCurrent?: (name: string) => void;
+  outputScope?: (name: string) => string;
+  ensureToolCurrent?: (name: string, signal: AbortSignal) => Promise<void>;
+};
 /** Keep each original peer's executor, permission, cancellation and close owners. */
 export function combineMcpToolPeers(primary: McpPeer, task: McpPeer): McpPeer {
   const owners = new Map<string, McpPeer>();
@@ -107,6 +122,12 @@ export function combineMcpToolPeers(primary: McpPeer, task: McpPeer): McpPeer {
     }
   return {
     definitions: [...primary.definitions, ...task.definitions],
+    ensureToolCurrent: async (name, signal) => {
+      const owner = owners.get(name);
+      if (!owner) throw Error('MCP tool is not selected');
+      await owner.ensureToolCurrent?.(name, signal);
+      owner.assertToolCurrent?.(name);
+    },
     displayName: (name) => owners.get(name)?.displayName(name) ?? name,
     outputScope: (name) => {
       const owner = owners.get(name);
@@ -120,7 +141,13 @@ export function combineMcpToolPeers(primary: McpPeer, task: McpPeer): McpPeer {
       owner.assertToolCurrent(name);
     },
     close: async () => {
-      await Promise.allSettled([primary.close(), task.close()]);
+      const results = await Promise.allSettled([primary.close(), task.close()]);
+      const failures = results.filter((result) => result.status === 'rejected');
+      if (failures.length)
+        throw new AggregateError(
+          failures.map((result) => result.reason),
+          'MCP cleanup failed',
+        );
     },
     execute: (...args) => {
       const owner = owners.get(args[0]);

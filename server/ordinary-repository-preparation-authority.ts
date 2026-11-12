@@ -8,6 +8,10 @@ import { OpenShellRuntimeManager } from './openshell-runtime.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
 import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import {
+  captureClaudeSdkCredentials,
+  verifyClaudeSdkCredentials,
+} from './claude-sdk-credentials.js';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
 import {
   readPrivateRuntimeSettings,
@@ -46,7 +50,20 @@ async function credentialDigest(
     ? privateFile(process.env.MITZO_ACCOUNT_PROFILES_FILE)
     : undefined;
   let credential: unknown;
-  if (binding.provider === 'anthropic-vertex' || binding.provider === 'google-vertex') {
+  if (binding.provider === 'anthropic-claude' || binding.provider === 'anthropic-api') {
+    if (selection.runOn !== 'local') throw unavailable();
+    const env = profiles.sdkEnv(
+      binding,
+      Object.fromEntries(
+        ['HOME', 'PATH', 'TMPDIR'].flatMap((key) =>
+          process.env[key] === undefined ? [] : [[key, process.env[key]!]],
+        ),
+      ),
+    );
+    const personal = captureClaudeSdkCredentials(env);
+    await verifyClaudeSdkCredentials(personal, env, signal);
+    credential = personal.snapshot();
+  } else if (binding.provider === 'anthropic-vertex' || binding.provider === 'google-vertex') {
     const env =
       binding.provider === 'anthropic-vertex'
         ? profiles.sdkEnv(binding, {})

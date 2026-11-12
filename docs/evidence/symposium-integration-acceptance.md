@@ -2,6 +2,612 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 12 November 2026 source-acceptance checkpoint
+
+This checkpoint contributes landing evidence to the existing map without changing
+its ownership. GitHub merge receipts were checked on 12 November. Older sections
+retain their original dates, failure evidence and candidate-stage limitations;
+their preparation wording is not the current source-acceptance state.
+
+| Requirement and owner                                                                                                   | Exact source/PR                                                                                                                                                | Evidence and remaining boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fresh join-to-answer and retained history: production UI, collaboration application and ordinary prompt/reply owners    | Accepted #1261 `878317bd3d994e6b9d9a153579db09f0bf868dc3`, #1276 `8978f4a1061ef2073967d7691b880af867d85d5e`, #1279 `048b3e05d1509074531f2d43ae165ad2c0de4f27`. | Integrated silent joining, explicit attributed turns, independent reply recovery and delivery beyond the visible page. The original dated application and owner-omission evidence is retained below.                                                                                                                                                                                                                                                                                                          |
+| Defaults/explicit recipients, Stop and streaming: messaging, ordinary command/effects and attributed progress owners    | Accepted #1280 `14fb28b0d03a0d780b663f1ef0697699ec546b88`.                                                                                                     | Independent same-account outcomes, partial failures, exact Stop identities and visible-to-final reply recovery. Joining, reading and observation invoke no inference.                                                                                                                                                                                                                                                                                                                                         |
+| Per-prompt context and saved bytes: authenticated review/compiler, snapshot authority and ordinary input adapter        | Accepted #1281 `0b8b94f1dd6519f7fcfb5b9eafdb352f03dc475e`; #1282 `d61ae5b25677df50a8b00470f9c01e4a15aaa661`.                                                   | #1282 CI 43208651729 and final Centaur review 5874486159 qualify head `9acb69fe`. Its accepted-base selection passed 114 focused account/application/context/native checks and compilation. Current desktop/mobile light/dark context-review PNGs were inspected; these visual fixtures are separate from backend integration.                                                                                                                                                                                |
+| Context-only forwarding: public UI/client, authenticated forwarding application, durable journal and ordinary consumers | Accepted #1284 `33bed3962a26d7ce21208610d11b0e85e1aa106d`.                                                                                                     | 114 tests pass across nine forwarding/application/context/API/notification files, including 20 forwarding-hook cases, production UI confirmation recovery and an older-artifact ordinary-consumer journey. CI 43231140948 and final Centaur review 5876732894 qualify head `9eed8f803`; required App status and guarded merge passed. Current desktop/mobile light/dark forwarding captures were inspected. Unsent cancellation restores only the exact journal, preserving prior ambiguity and replacements. |
+| Personal Claude: ordinary SDK preparation/queue/input/reply owners                                                      | #1289, source in this change.                                                                                                                                  | 155 focused tests pass across nine actual application, SDK owner/query, dispatch, API-account, native-executable and notification files on the integrated source. They cover silent preparation, attributed turns, exact Stop/restart, cold continuation and refusal of recovered shared commands lacking their original source observer. Current-head hosted CI, independent final security review and source acceptance remain required; no live provider/device qualification follows from these fixtures. |
+| Approved UX and qualification closure                                                                                   | Existing protected design ledger and dated renders; current #1282 CI artifacts.                                                                                | Saved-version, unavailable-selection, edited-brief and footer controls were inspected on desktop/mobile in both themes. Reconcile each milestone criterion and unfinished descendant against accepted evidence before closure. Other-conversation/Telos-artifact picker UI, full live account/runtime/OpenShell qualification, physical iOS and production activation remain outside these receipts.                                                                                                          |
+
+The native-executable fixture correction inherited from #1282 preserves the full
+buffer, length/hash, forced short reads, launch checks and 5000 ms deadline. Hosted
+job 131154015735 records all 13 tests passing in 56 ms. The earlier downstream timeout
+attempts remain retained; replacing the expensive generic property comparison
+with a native strict byte comparison does not establish a new runtime capability.
+
+The final candidate also integrates accepted #1319
+`8175174b0d9c1076e266c0d864fc83917585903b`. Its read-only connection discovery
+uses the same ordinary Claude SDK surface. The combined source passes 129 tests
+across eight application, SDK owner/query/effects, dispatch, connection-discovery,
+tool-catalog and joined ordinary-chat files, including queued and cold queries,
+profile restrictions, cancellation and revoked authority. Server compilation and
+all 2318 source fingerprints pass; the merge preserves every key from both
+parents. The earlier 155-test selection remains evidence for its preceding source,
+not an additional current-head total. Combined hosted CI and trusted current-head
+security verification remain required.
+
+Focused selections overlap and must not be added into a single test total. The
+source PRs and their exact-head CI/review receipts establish bounded acceptance;
+they do not independently prove the full feature or authorize production activation.
+
+## 10 November 2026 one-prompt context source candidate
+
+This slice follows #1280 and composes the actual retained review/compiler,
+ordinary settings, shared composer, application messaging and native dispatch
+owners. The browser submits selectors; it cannot supply source bytes, settings,
+capacity authority or an execution binding. Review creates no session or command.
+Only an explicit send starts the selected ordinary turns. New prompt-audience
+metadata is additive; historical joining/snapshot capacity contracts remain intact.
+
+The actual Add-agent application journey selects source text, reviews and edits
+its brief, refreezes and attaches it before the first turn. No external native
+request occurs during these reviews. The first native packet contains the exact
+new brief and source, excludes the discarded brief and private fixture marker,
+and the later reader receives that first message's retained shared context before
+its own requested turn. The attachment disappears automatically after its exact
+accepted receipt; the next message sends snapshot null without manual removal.
+The seven-turn multi-responder, streaming, Stop and uncertain-recovery journey
+continues unchanged in the same real application composition.
+
+128 checks pass across application review (33), messaging recovery (68), send
+consumer (18), context hook (8) and actual application UI (1). Failure cases cover
+changed source/settings/audience/policy, source removal/rejoin, renewed verified
+primary login versus an unverified foreign realm, exact retries, queued reader
+delivery, packet overflow, eight distinct 100,000-character pending snapshots
+refused before source compilation, lost review/send responses, remount, ignored
+abort, newer auth loss winning queued restoration, response mismatch and failed
+browser persistence. A consumed attachment cannot erase a newer edit or alter
+the original send journal. If consumption persistence fails, automatic reuse blocks.
+An additional 23 router checks pass, including both review routes' operator and
+same-origin boundaries and refusal of caller-injected settings/capacity/identity.
+Protected design checks pass (109 passed, one existing skip); 14 offline browser
+cases are listed across the selected composer fixture and its safe prerequisites.
+
+Focused read-only reviews identified and verified fixes for aggregate source
+preparation, creating-login ACLs and one-shot attachment retirement. Protocol,
+harness and client builds pass. Local runs use one worker and a 1 GiB heap; full
+compilation is delegated to hosted CI after the retained local heap failure.
+The context dialog reuses HomeDialog, ConversationAgents controls/styles, shared
+motion and UiIcon. Offline browser fixtures retain approved references and add
+review/edit/refreeze, Escape focus restoration, narrow overflow/touch checks and
+light/dark captures. They are listed, not locally executed; hosted rendered
+evidence and independent approved-reference comparison remain required.
+
+Explicit saved-artifact version selection and exact forwarding remain open,
+alongside broader milestone qualification. Conversation-so-far review retains
+referenced artifact versions through the existing compiler. This candidate,
+#1280 and #1279 do not constitute deployment or live user acceptance. The earlier
+uncertain live Telos update remains preserved without replay or a completion claim.
+
+## 10 November 2026 multiple-responder source candidate
+
+The replacement owner integrated accepted recovery main `048b3e05` after #1279
+landed, preserving the original full/source reviews and all responder additions.
+The combined head passed 661 offline application/native recovery checks. A later
+trusted-ledger reconciliation identified the remaining singleton observer defect:
+removing the last other participant disabled polling, hiding a subsequent remote
+join and answer. A component regression reproduced that exact missed answer.
+Observation now retains the existing authorized collaboration view independently
+of whether the shared composer is active. Auth epochs, audience renewal, abort and
+owner checks remain unchanged. The repair and existing real HTTP observer journey
+pass with 122 focused/design checks (one existing skip); hosted singleton rejoin
+browser cases retain an unsent draft in light/dark desktop/mobile layouts. Current
+hosted evidence and trusted verification of both historical findings remain gates.
+
+This separate candidate builds on the long-discussion slice in #1279. It reuses
+the approved Defaults, All and multi-selection composer controls. The sending
+owner resolves every recipient, verifies every readiness receipt, and retains the
+original default/all/selected intent, membership/policy and request identity.
+Changing the picker or policy cannot retarget an outstanding request.
+
+The ordinary prompt adapter observes the exact command's durable provider terminal
+and native store settlement. Missing custody, pending thread dispatch, ownership
+conflicts or unsettled effects yield uncertainty. Observation cannot dispatch,
+acknowledge recovery or release a queue. Settlement is renewed on every observation;
+loss of previously completed proof becomes uncertain and can later settle again.
+Unexpected storage/programming errors remain observable. Shared answer text and
+provider context ACK are independent of this outcome observation.
+
+The actual Add-agent/application journey now uses two independent same-account
+native threads through seven external-only synthetic native turns: Defaults partial
+success, a definitive context-capacity failure, explicit selected retry of only the
+failed agent, and an ambiguous later failure. Successful answers remain visible.
+The exact ambiguous request remains retained through unmount/remount, observation
+and retry with no eighth turn. Conservative conversation-wide effects qualification
+may also mark earlier receipts uncertain; it never deletes their accepted answers.
+
+Local evidence uses one worker and a 1 GiB Node heap:
+
+- 67 cases pass across sending-hook, recovery owner and actual fresh-agent UI.
+  New regressions forbid clearing the original request because finalized text is
+  visible or because settlement proof is lost during the refresh await.
+- 21 integration/consumer cases pass, including the separate 27-turn real composer
+  journey, ordinary prompt dispatch and transcript presentation.
+- Six selected native-store settlement cases pass; the other 72 cases in that
+  file were filtered, not executed. Earlier adapter checks passed 56 cases.
+- Protocol, harness and client builds passed. Full frontend compilation exceeded
+  the local 1 GiB heap; its uncertain run/log are preserved and hosted compilation
+  remains required. No full local compile success is claimed.
+- Two focused read-only reviews verified the repaired journal/settlement defects
+  and current permission/effects fences without remaining concrete blockers.
+
+Offline browser cases cover partial results, uncertainty, reload, selection,
+keyboard focus, minimum touch controls and mobile overflow in light/dark themes.
+They are listed but not locally executed: the host sandbox blocks browser launch.
+Hosted execution, actual rendered artifacts and approved-reference comparison are
+required. No protected reference, design token or check is changed.
+
+The shared Stop control now uses the exact retained reply command and a deterministic
+delivery-scoped interruption ID through `OrdinarySessionPromptPort.stopOrdinary`.
+Current auth, contributor control, account/runtime binding and registry custody
+are renewed after an asynchronous import and immediately before the native owner's
+atomic compare/claim/interrupt. A claimed native request never reissues an RPC;
+requested cancellation remains separate from provider terminal/effects evidence.
+An old control response cannot label or block Stop on a new same-owner request.
+
+The actual seven-turn application journey requests Stop while the fourth native
+turn is held. Exactly one `turn/interrupt` targets that original thread/turn;
+repeating Stop emits none, and cancellation ACK does not make the original terminal.
+A concurrent definite provider failure then settles normally, and the explicit
+selected retry retains the same native thread. The hook's 17 cases include lost
+Stop response/remount and same-owner completed/late-success/late-failure control
+races. The prompt port's 23 cases include successor, durable claim, settled,
+foreign and revoked owner, plus contributor/account custody changing during a yield.
+The permission and response-race findings from focused review were repaired.
+Browser cases now render the existing Stop control and retain its intent on reload;
+hosted execution and visual evidence remain pending.
+
+Live replies now use a separate authenticated progress projection, independent
+of finalized answer persistence. Every source requires the accepted version-2
+native mapping, exact command and pinned historical admission. The dedicated
+in-progress reader reuses the bounded ordinary visible-block decoder; frozen
+prefixes and finalized replies still require their original complete-message
+qualification. Reasoning, tool deltas and provider thread/turn identifiers never
+enter the public progress response. Current auth, continuous membership, source
+availability and exact settings are renewed before return. Per-source refusals
+do not prevent later eligible sources; unexpected storage errors still propagate.
+
+The actual application test emits a held external native turn's text delta, waits
+for that attributed streaming bubble, remounts and reads it again without another
+native turn. It then performs the exact Stop journey. Verified partial text from
+the failed turn persists once as a finalized answer beside its separate failure
+outcome. The seven-turn count and original failure/retry assertions remain.
+The expanded recovery suite passes 59 cases; 15 reply-source cases pass, including
+in-progress text, private reasoning exclusion, strict frozen/finalized readers,
+wrong command, hidden source, duplicate start, legacy mapping and oversized text.
+Five progress-hook cases cover auth-loss publication ordering, verified same-login
+restoration, late responses, stale audience and failed reads. Transcript checks
+verify attributed live text, visible refusal and exact-source finalization without
+hiding another live source for the same delivery. Focused read-only reviews found
+and verified fixes for auth epoch/restoration and live/final handoff races.
+
+Protocol/harness/client builds and scoped lint pass. Local full frontend checking
+remains limited by the previously retained 1 GiB heap failure. Browser fixtures
+include desktop/mobile light/dark captures with live text and Stop, but have only
+been listed locally under the host browser guard. Hosted renders and independent
+approved-reference comparison remain required. The accepted Claude integration
+was preserved when these later source changes were reapplied; none implicitly
+enrolls a Claude participant in the Local Codex adapter.
+
+This is unmerged candidate evidence, not full feature completion. Per-prompt
+reviewed context, forwarding and remaining combined
+qualification remain open. All original 16 criteria and the uncertain live Telos
+edit remain retained. No live models, deployment or runtime/device acceptance occur.
+
+## 10 November 2026 long-discussion delivery candidate
+
+The published candidate is [PR #1279](https://github.com/dimakis/mitzo/pull/1279).
+It now integrates accepted Claude #1232/main `f7fd876a3dbb44ec252e90fc8ba37e27ea19d968`
+after a real conflict. The only conflict was the runtime source-registry revision;
+all accepted Claude source and incoming pins are retained. Its ordinary account,
+repository preparation, SDK custody and native history paths were checked against
+the combined tree. Symposium continues to require its explicit Local Codex adapter;
+accepting Personal Claude does not implicitly enroll another collaboration runtime.
+Fresh combined CI and trusted review remain required; earlier green jobs are not
+approval of this integrated head. The later multiple-responder/Stop commits and
+uncommitted streaming work are separately retained and excluded from this PR.
+The combined tree passes 66 focused checks across the 27-turn actual composer,
+all 52 recovery cases, Personal Claude account/policy/custody and ordinary SDK
+owned-runtime consumers. These tests substitute external account/native execution
+and make no live subscription/model calls. The source-artifact check passes;
+full hosted compilation and CI are still required for the published integration.
+
+Replacement owner `0906bac2-29eb-8ccf-a77c-29783118c415` continues the original
+16 milestone criteria on accepted #1276/main `8978f4a1061ef2073967d7691b880af867d85d5e`.
+This slice separates the latest-50 display projection from delivery inventory.
+`CollaborationConversationStore.pendingDeliveryPage` reads current revisions with
+an exact recipient's pending/unclaimed receipt, bounded to 50 records per page
+and a fixed upper sequence. `ApplicationCollaborationMessaging` compiles the
+complete authorized packet incrementally with a 512 KiB encoded UTF-8 limit.
+Ordinary admission, final lifecycle checks and provider ACK remain the owners of
+execution and delivery. No schema, runtime, scheduler or automatic turn is added.
+
+`NODE_OPTIONS=--max-old-space-size=1024 npx vitest run
+server/__tests__/collaboration-application-ui.test.tsx
+server/__tests__/collaboration-application-messaging-recovery.test.ts --maxWorkers=1`
+passes **53 tests** locally. Nine added owner cases cover continued sending after
+display overflow, 105 pending context records across three pages, owner restart,
+exact retry, an old unclaimed reply, plain/JSON-escaped byte overflow before any
+acceptance or claim, unlink/rejoin, an old attributed reply with renewed source
+visibility, and observable unexpected storage failure. Counts overlap existing
+recovery evidence and are not summed as feature acceptance totals.
+
+The existing real application UI journey now executes 26 acknowledged exchanges
+through authenticated routes, Git/SQLite, ordinary admission and the native driver,
+then sends a 27th turn from the production composer. It waits for that prompt's
+exact delivery/command and finalized reply `projectionId` in the actual UI. Its
+25-reply display bound cannot substitute for that identity assertion. Only external
+account/runtime metadata and native RPC are synthetic; no paid model calls occur.
+The original test deadline, approved UI/reference bytes and display limit remain.
+Read-only correctness and consumer reviews found no implementation blockers; the
+consumer review's final-reply identity fence was incorporated and verified.
+
+This is candidate evidence pending publication, combined CI and exact-head Centaur
+approval. The rest of the milestone remains active: Defaults/multiple responders,
+per-prompt reviewed context, exact forwarding, streaming, broader recovery and
+combined qualification. The live Telos evidence edit remains unavailable/uncertain
+under its retained original request; no replay or completion claim is made. Source
+landing, offline acceptance, deployment and live user acceptance stay separate.
+
+Initial hosted run `42773240655` failed two checks. The 105-item owner regression
+exceeded its unchanged five-second deadline while repeatedly dispatching setup
+turns; setup now seeds acknowledged history through the real durable store and
+keeps the pending-reader dispatch, page/order/ACK, restart and retry assertions.
+The separate real application journey still executes its 27 native turns.
+The desktop browser check caught an existing session-launch race: automatic
+capability review published a new configuration with identical runtime choices,
+making the next explicit host edit look stale before React rerendered. Three
+deterministic regression variants failed, then passed after semantic no-op reviews
+stopped rewriting configuration. Existing stale-callback checks remain. The browser
+now also checks that the selected host stays selected before approval. No deadline,
+coverage, design reference or assertion was weakened; fresh combined CI is required.
+
+Accepted main then advanced to #1256 `5886a67d754aa2fd0eba1e018115cb9f78046357`,
+which independently repaired the same launch-editor race. Integration adopts its
+accepted component and unit tests unchanged, preserves its stronger account/model/
+permission browser assertions and adds the two selected-host checks above. The
+shared source manifest retains incoming Telos workflow/CLI-policy pins alongside
+the unique Symposium history changes. Conflicts and this combined result require
+fresh CI and targeted trusted review; stale PR base metadata is not merge evidence.
+
+## 10 November 2026 finalized-reply recovery and complete joining controls
+
+Accepted main `279e6703dedebaeb130993fd6e2657b2aed73c0a` contains #1252's
+ordinary directed dispatch and #1261's shared composer, readiness and replies.
+The dispatch/UI implementation in draft #1244 (`f8bd8ae`) is superseded by those
+accepted owners. Its independent finalized-reply recovery remains unique and is
+ported here through `ApplicationCollaborationMessaging`; the obsolete dispatcher,
+application routes and UI are not reinstated. Retire #1244 after this replacement
+lands, preserving its review and source history rather than merging duplicate code.
+
+The current-main regressions produced eight assertion failures: queued
+interleaving, 501 prior messages, over 512 KiB of history, oversized reply text,
+over 100 text blocks and a prompt outside the recent shared view. Recovery now
+enumerates retained prompts and exact ordinary source mappings in bounded keyset
+pages, checks finalized visible text independently, and uses the existing reply
+owner to verify pinned native execution and attribution. Ordinary full-prefix
+snapshot qualification is unchanged. No read requests inference or redispatch.
+
+Malformed mapping fields, oversized mapping payloads and empty answers have typed
+per-source refusals; structured diagnostics omit source text. Later eligible
+answers still project. Unexpected storage/programming failures propagate.
+Local read-only review identified these additional cases and an unpinned
+historical-execution lookup; all were repaired with failing-then-passing tests.
+The mapping reader bounds payload bytes before hydration, and reply projection
+uses its retained execution fingerprint before promoting a delivery receipt.
+
+Offline checks on this replacement:
+
+- 84 recovery, ordinary-reply and visible-source tests pass, including source
+  pagination across malformed/oversized IDs and exact repeated reads.
+- 81 application/UI/provenance/transcript checks pass through real authentication,
+  HTTP, Git/SQLite, preparation, admission and the native driver. External runtime,
+  account declarations and native RPC alone are synthetic. Counts include shared
+  fixture tests and are not unique feature-acceptance totals.
+- The production composer journey additionally sends a later explicit prompt after
+  remount, proving distinct command/delivery attribution and exactly two native
+  turns. The recording transport now emits unique turn/item IDs and the ordinary
+  `turn/started` event; its earlier incomplete stream explained a missing second
+  answer in the fixture. No production transport relaxation was needed.
+- Protocol/harness/client builds, scoped lint, formatting, source fingerprints and
+  diff checks pass. Approved references and protected checks are unchanged.
+
+Hosted mobile WebKit screenshots at `93ccabec` exposed a remaining Add-agent
+footer defect at 390px in the light theme: the explanatory note collapsed into
+one-word lines beside the buttons. Independent visual review confirmed the
+approved HTML specifies a 72px minimum note track, while component CSS used zero.
+The footer now restores that minimum through three shared spacing tokens and
+keeps wrapping. A separate, additional `symposium-footer.spec.ts` checks the actual
+production preview's note width, footer reachability and overflow at 320/390px and
+desktop in light/dark themes; the protected approval tests and ledger are intact.
+The design contract (109 passes, one existing skip), 13 protected component checks
+and browser discovery pass locally. Corrected renders at `9d3f0cae` passed root
+and independent visual comparison: 320/390px dark/light Add-agent footers remain
+readable, desktop Add-agent controls align, and Before-joining retains the approved
+hierarchy. The current candidate preserves those UI bytes. Retained artifacts:
+[mobile WebKit](https://github.com/dimakis/mitzo/actions/runs/42734183215/artifacts/13726154193)
+and [desktop Chromium](https://github.com/dimakis/mitzo/actions/runs/42734183215/artifacts/13726961053).
+The additional footer browser cases passed in hosted CI. No local browser pass is
+claimed; the superseded run's asynchronous Thinking-control assertion failed in
+the application unit test and was corrected by awaiting the loaded control.
+Current-head CI and trusted review remain separate landing gates.
+
+The complete production Add-agent UI journey exposed two further gaps: retaining
+the pending repository ID in the parent aborted the original preparation POST,
+and the first application review omitted its required initial joining brief.
+The picker now distinguishes its own ID echo from restored requests, retaining
+normal external-clear cancellation and changed-model recovery. The joining hook
+captures the initial brief before journaling and preserves exact edited/retry bytes.
+The application adapter still refuses missing briefs before reading sources.
+
+`collaboration-application-fresh-agent-ui.test.tsx` crosses the real Agents,
+runtime/repository picker, local Git preparation, initial review, edited refreeze,
+silent join, explicit stale-readiness refresh, shared composer and attributed
+native reply. It asserts no initial ordinary command or native turn at joining,
+and the exact edited brief in the requested turn. A second independently joined
+agent on the same account then receives the prior prompt and attributed finalized
+answer before its own explicit composer turn. The two sessions use distinct native
+threads and distinct reply commands/deliveries; the pending context receipt belongs
+to the second command. Passive reading requests no turn. The fixture mounts the
+production listener transport composition; synthetic discovery implements only
+external metadata RPC. Native inference is synthetic. No inner owner is replaced.
+The combined UI/hook/application checks pass (120 cases including shared fixture
+prerequisites); protected design checks pass (109 cases, one existing skip).
+The final closure run passes 85 application, delivery, recovery and sending-hook
+cases, including durable partial provider outcomes, Stop/terminal observation,
+concurrent exact retries and retained uncertainty without replay.
+
+The schema-valid unknown-fingerprint regression also failed before repair and
+passes with a typed missing-execution-reference refusal. The ordinary execution
+owner retains its original error text/class ancestry; only historical reply
+observation translates that specific error. Runtime identity/storage failures
+remain observable. CI exposed a private-database access in the corruption fixture;
+injection at the append boundary corrects its type safety without relaxing the
+validated source writer. Local browser attempts remain blocked by macOS process
+registration and the explicit host guard; rendered evidence comes from the
+hosted artifacts above.
+
+#1242 is not a remaining dependency: accepted #1266/#1272 supply its retained
+operator and callback settlement behavior. The active owner independently
+verified those paths (176 checks, 11 existing skips) and retained the stronger
+callback-consumer regression in #1257. That evidence is separate from this PR's
+current-head CI/review, which remain mandatory before merge.
+
+This qualifies bounded source/offline application behavior and reviewed
+presentation only. Physical iOS, live runtime/account routes and the broader
+multi-recipient/Defaults milestone remain separate acceptance work. No staging,
+deployment or live inference was performed.
+
+## 7 November 2026 interrupted landing and review corrections
+
+PR #1261 was recovered after an interrupted main integration. Accepted base
+`c38e253855552edc81711ec02366218d08469d73` and reviewed candidate `2615046`
+are retained in its history. Centaur review `5813506337` reported five blockers;
+this follow-up corrects their shared-draft, scrolling, source Stop, terminal
+recovery and input-validation paths. It remains candidate self-verification
+until current-head CI and Centaur verify the changes.
+
+Shared drafts are excluded from ordinary draft discovery, and unresolved send
+receipts resist generic discard. The ordinary screen remains mounted as its
+first session identity is assigned, while shared state is fenced by source,
+client and verified login. The host observes the existing startup/login owner
+instead of starting another authentication operation. Ordinary and shared
+transcripts keep separate scroll refs, and an active source turn retains its
+original composer and Stop callback. Oversized input settles with a visible
+refusal and retained draft instead of an unhandled promise rejection.
+
+The native Codex owner now retains its exact provider terminal notification in
+the existing event store. Observation reads only the original command's terminal
+record; queue consumption, generic cleanup, restart and abandonment cannot prove
+completion. Completed, failed and interrupted turns can release the original
+send fence without an assistant body. Six owner cases cover definite and
+ambiguous outcomes, and the actual authenticated application test verifies the
+native notification through the typed observation client. The application and
+router rerun passes all 25 cases, including the production composer/remount path.
+The focused UI/design/owner run passes 315 tests with one existing skip; its route
+subset initially hit the sandbox listener restriction before the permitted rerun.
+
+The two older responsive-screen fixtures now preserve authentication exports and
+apply store selectors accurately; their 16 continuity cases pass unchanged.
+The new offline composer fixture clicks its auto-closing single-recipient picker
+and verifies the selected name explicitly. Protected design tests, ledgers and
+references remain unchanged. Browser CI on the reviewed candidate exposed
+navigation/remount and authentication-state failures; their rendered follow-up
+is still required. Its native repository workflow also failed with diagnostic
+`2a6e1e7a-b688-4b8a-92bd-e1c478f1a154` during materialization. The retained log
+establishes a roughly 50-second failing phase under host load, but does not
+establish the underlying cause; the next candidate must pass that gate too.
+
+The full fresh-agent edited review/refreeze/join UI journey, independent visual
+acceptance, runtime/device qualification and parent milestone remain open.
+No staging or deployment is authorized by this source landing.
+
+Follow-up CI run `42392570863` passed both formerly failing unit shards and the
+mobile Chromium shard containing the approved-design/composer journeys. Its
+supplemental coordinator journey exposed an older cancelled-body observation
+marker: `<stream>` was parsed as JSON even when a later complete response was
+present. The readiness helper now ignores only that exact retained marker.
+All four focused observer tests pass, including actual malformed-JSON refusal;
+the original complete-response requirements and ten-second deadline are intact.
+Current-head CI and independent review are still required after this correction.
+
+Centaur follow-up `5813858175` verified four findings on `2fe0c18` and retained
+one terminal-recovery blocker (`CEN-8BC16F8431AD`). Observation now reads the
+original receipt's exact durable command outcome even after its recipient is
+hidden or unlinked. It retains the command/session identity check, does not
+reopen that recipient's transcript, and grants no new dispatch authority. All
+28 focused recovery tests pass, including unavailable recipients and uncertain
+non-provider outcomes that must remain fenced.
+
+That CI run also passed all four unit shards, native repository/authorization
+workflows and composed/joined consumer coverage. Three browser shards exposed
+the same initial-history source-release scroll defect: mounting restored history
+measured its initial top position as a reader scroll-away. The transcript now
+retains initial follow intent until a scroll or source jump changes it. A new
+regression test failed before the correction; all 48 focused scroll/source tests
+pass afterward, retaining reader scroll-away and source-anchor protections.
+Browser verification and final Centaur approval must cover the next published
+head; these local checks do not establish either gate.
+
+## 7 November 2026 shared composer implementation checkpoint
+
+Candidate `feat/symposium-shared-composer`, baseline accepted main
+`44e872c8a615e30bd75ac9738101dfbfaa1d6aa7`, follows merged #1237 and #1252.
+This is implementation self-verification for child `c3ac6bfcc3b29e20`, not
+independent acceptance or installed-runtime qualification. Earlier entries keep
+their original verification dates.
+
+The production responsive host supplies the existing verified auth and transport
+identity to the ordinary collaboration owner. Agents uses the existing review
+and repository preparation surfaces. One explicit selected responder is enabled
+only after read-only server readiness. Compact linked names survive projection
+without treating a linked participant as a pending join. A retained request fence
+survives text clearing and remount; observational recovery cannot initiate work.
+
+`server/__tests__/collaboration-application-ui.test.tsx` runs the real authenticated
+HTTP/application/Git/SQLite/ordinary dispatch and reply owners, using the existing
+review/join/restart prerequisites. The production composer submits exactly one
+turn containing the edited brief and selected source, excluding hidden content.
+The finalized reply is attributed to the joined participant and survives remount
+without duplication. External source/account/runtime declarations and native RPC
+are synthetic; DOM scrolling is a JSDOM seam. This test starts after the API join:
+the combined fresh-agent UI review/refreeze/join acceptance journey remains open.
+
+The final application/recovery run passes 17 tests across three files with one
+worker and a 1 GiB Node heap. Admission can precede the first durable transcript
+record; reconciliation now waits for that record instead of rejecting a valid
+queued command as a changed snapshot. Its focused regression preserves errors for
+unrelated inconsistent histories. Earlier local runs failed the ordinary disk
+admission guard when space dropped below its required margin; after the operator
+freed space, the unchanged guard and positive assertions pass. No resource guard
+was bypassed. The interrupted cleanup/test command had no completion receipt and
+is not counted as successful verification.
+
+The messaging-owner omission control fails the unchanged positive composer
+assertion while its three API prerequisites pass. Exact app source was restored.
+A reply-owner omission attempt coincided with the disk refusal and is inconclusive;
+it is not evidence for that owner. Hook tests cover server refusal and exact-request
+recovery across remount without resending changed text. Draft tests cover acceptance
+without deleting shared recipient/recovery state.
+
+The focused regression command passes another 333 tests across 20 files, with one
+skip: the affected composer/joining/presentation/draft components and hooks,
+protocol/client projection, ordinary dispatcher/router and existing design
+contracts. Protocol/harness/client TypeScript builds, targeted semantic diagnostics
+for changed frontend/server sources, ESLint and registered source fingerprint
+checks pass. Attempting whole-graph frontend diagnostics exceeded the mandated
+1 GiB heap; full builds remain for CI. The final UI application rerun passes all
+four prerequisites/composer cases after cleanup of its temporary scrolling seam.
+
+`tests/offline/symposium-composer.spec.ts` adds six cases across existing desktop,
+mobile and narrow-mobile projects in both themes. It uses production UI with
+intercepted HTTP, no backend/model, and retains screenshot artifacts in CI. Test
+discovery passes. Local execution stopped at the repository's sandbox guard before
+browser launch, including through the approved escalation route. No browser result
+or rendered comparison is claimed; CI or a permitted normal host must supply it.
+The approved ledger, reference images and protected design checks are unchanged.
+
+Outstanding acceptance includes the combined fresh-agent UI journey, rendered
+comparison, exact-head CI/Centaur review, broad build checks and runtime/device
+qualification. The child, milestone and parent remain active. No staging,
+deployment or live inference is authorized by this checkpoint.
+
+## 7 November 2026 directed prompt/reply implementation checkpoint
+
+Implementation evidence on `feat/symposium-directed-replies`, based on accepted
+main `3079701d8f714945f8478508382e17ff20c61299`. This contributes to the existing
+map and does not replace independent acceptance, the approved design, or the
+milestone's 16 criteria. Earlier baselines below retain their original dates.
+
+| Milestone criteria                                      | Candidate evidence                                                                                                                                                                                                                                                                | Remaining boundary                                                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1, 8, 10, 12: ordinary application journey and contract | `collaboration-application-messaging.test.ts` reuses the real authenticated review/join/restart fixture and consumes its original silent preparation through the shared ordinary dispatcher. Exact joining content, explicit prompt and finalized attributed reply pass.          | API/backend journey only; existing shared composer remains disabled. No installed runtime is qualified.                      |
+| 2, 3, 11: identity and recovery                         | Original allocation stays intact. Exact concurrent message retries share the same message/command and create only one native turn. Changed requests conflict. Finalized reply projection can reconcile from durable source records; ambiguous command effects are never replayed. | Full crash/restart/Stop/partial-recipient matrix remains open. Existing joining recovery evidence is preserved.              |
+| 6, 7, 13: readers, responders and independent execution | Only explicit responders dispatch; pending authorized context is delivered through an ordinary turn. Context delivery waits for its exact native acknowledgement. Reply projection never triggers a response loop.                                                                | Full Defaults/@ fan-out, failed-recipient retries, long discussion paging and independent-account qualification remain open. |
+| 8, 10, 12, 15: authority and actual composition         | Unknown recipients and unsupported snapshots refuse before command effects. Revoking reviewed source access during real ordinary preparation prevents another provider turn. Omitting the production messaging owner must fail the unchanged positive API assertion.              | Broader combined Telos regression and native/runtime qualification remain open.                                              |
+| 4, 5, 14: approved UX                                   | No UI, reference or protected design-check changes in this increment.                                                                                                                                                                                                             | Recipient readiness, composer enablement, rendered comparison and physical device evidence remain outstanding.               |
+| 9, 16: evidence and qualification                       | Focused offline tests use one worker and a 1 GiB Node heap. Real Git/SQLite/app/ordinary owners remain; only external source/account/runtime declarations and native RPC are synthetic. Local dependencies reuse the accepted release, including its native SQLite owner.         | Exact-head review/CI, source acceptance, live account/runtime qualification and production activation are separate.          |
+
+Core test command: `NODE_OPTIONS=--max-old-space-size=1024 node node_modules/vitest/vitest.mjs run server/__tests__/collaboration-application-messaging.test.ts --maxWorkers=1 --no-cache`.
+The three inherited review/durable-read/join cases and new prompt/reply case pass.
+Final focused regression run: 190 tests pass across 14 files, one worker/1 GiB.
+Protocol/harness/client TypeScript builds, focused semantic checks of five server
+modules, ESLint and registered source fingerprint checks pass. Full server builds
+and broader tests remain CI responsibilities under the local memory limit.
+The first integration attempt stopped at the sandbox's loopback listener fence;
+network permission was then granted for the offline HTTP fixture. Broader existing
+owned-chat regressions initially hit protected host defaults; rerunning with
+temporary `MITZO_CODEX_PRIVATE_DIR` and `MITZO_INTERNAL_TOKEN_PATH` passed.
+No permission guard or assertion was weakened to access host configuration.
+
+Landing fixes for Centaur review `5811819783` preserve one command owner for every
+queued context packet and refuse overlapping unclaimed reply intent before accepting
+a new message. Delayed ACKs in either order and concurrent partial fan-out are covered.
+Follow-up review `5811912577` verified those three fixes and identified
+`CEN-CC5FB78CE31F`: concurrent identical fan-out requests could race the new guard.
+The dispatcher now renews the exact request receipt after context preparation,
+before applying that guard. A delayed-first-recipient regression preserves one
+message and one command per recipient for both concurrent callers.
+Reconciliation skips hidden/unlinked responders and defers oversized ordinary history
+without suppressing unrelated integrity errors. Existing timer/peer dispatch retains
+tool-failure continuation. The actual-app case also preserves the shared transcript
+after hiding its already projected responder. The non-blocking lifecycle cleanup
+follow-up `CEN-864F4410A950` remains open: definitive preparation failure and owner
+teardown need bounded callback cleanup while uncertain queued commands retain fences.
+
+Broader CI run `42368546667` exposed a test-observer failure in the unchanged
+Telos advisor-refine journey: a failed browser response-body read was represented
+as the string `<unavailable>`, which permanently poisoned JSON readiness parsing.
+The observer now retains a null body; complete real metadata/messages, destination
+selection, loading-state assertions and the ten-second deadline remain required.
+Actual malformed JSON remains a failure. Twenty-five focused readiness/setup tests
+pass, including failed-read recovery and both negative controls. Restoring only
+the original marker makes the positive regression fail; the corrected source is
+restored exactly afterward. A local attempt at the actual browser journey stopped
+at Chromium's macOS Mach-port sandbox permission fence before its assertions, so
+it is not positive application evidence. The retained browser journey remains a CI
+gate. Body-read failure is observed; its underlying cause was not retained.
+
+The omission control temporarily removes only `messaging: collaborationMessaging`
+from the real app mount and restores the exact source in a finally block. Its raw
+receipt is retained in the task checkout's `.scratch/messaging-owner-omission.txt`.
+An earlier control failed before app initialization because the local native SQLite
+dependency was absent; that invalid control is retained separately, not counted as
+owner-omission evidence. The release's existing native dependency was reused before
+the valid control. This is implementation self-verification, not independent review.
+
+### Landing integration with accepted main 0ea37beb
+
+The prior candidate `736993dbe87368291ada8436389e84ebf828748d` passed all 33
+CI jobs in run `42369675317`, including the actual advisor-refine browser journey,
+and received trusted Centaur final LGTM/merge review `5812085243`. Main then
+advanced to accepted `0ea37bebba1528025f14b0d2ae099f0eefa69067` (PR #1254),
+which retains ordinary-session tool authentication across browser disconnects.
+The application code merged automatically. The sole registry conflict preserves
+both sets of registered sources, adds the accepted session-library operator test,
+and renews all fingerprints with runtime revision
+`v1.0.942-symposium-directed-prompts-integration`.
+
+Read-only correctness/security integration reviews found no blocker in the
+combined session ownership, revocation, queue and dispatch fences. Focused semantic
+checks report zero diagnostics across six affected production modules. Combined
+local regressions record 287 passes, 11 skips and 19 failures across 19 files;
+all failures occur in the native AgentCommunication fixture during owned-runtime
+admission (`Owned local Codex runtime unavailable`), before those assertions.
+The other 18 files pass. This is not counted as a green local suite or evidence
+that the failed native cases work. Fresh combined-result CI and targeted Centaur
+integration verification remain required on the published merge candidate; the
+prior head's approval does not satisfy those gates.
+
 ## Executed application baseline
 
 Accepted main `dcbad645a3179731de96957299bb775eb094bff8`, tree

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { UiIcon } from './UiIcon';
+import { ApprovalRequestSummary } from './ApprovalRequestSummary';
+import { approvalPresentation } from '../lib/approval-presentation';
 import { useTelosSourceReview } from './TelosSourceReview';
 import { sessionApprovalServer, type QuestionAnswers, type UserQuestion } from '@mitzo/protocol';
 
@@ -80,6 +82,17 @@ export function PermissionBanner({
     recoveryOnly: reviewKind === 'telos_source' && recoveryOnly === true,
   });
   const reviewingSource = reviewKind === 'telos_source';
+  const creatingOutcome =
+    reviewingSource && ['TelosCreateOutcome', 'mcp__telos__TelosCreateOutcome'].includes(toolName);
+  const changesTrigger = useRef<HTMLButtonElement>(null);
+  const wasRequestingChanges = useRef(false);
+  useEffect(() => {
+    if (sourceReview.requestingChanges)
+      document.getElementById('telos-feedback-' + permId)?.focus();
+    else if (wasRequestingChanges.current && !sourceReview.changesSent)
+      changesTrigger.current?.focus({ preventScroll: true });
+    wasRequestingChanges.current = sourceReview.requestingChanges;
+  }, [sourceReview.requestingChanges, sourceReview.changesSent, permId]);
   const recoveringSource = reviewingSource && recoveryOnly === true;
   const [remaining, setRemaining] = useState(() =>
     Math.max(0, Math.ceil((deadline.at - Date.now()) / 1000)),
@@ -124,7 +137,7 @@ export function PermissionBanner({
       ? recoveringSource
         ? 'Recover Telos save'
         : 'Save to Telos'
-      : title || displayName || toolName;
+      : approvalPresentation(toolInput, toolName).heading || title || displayName || toolName;
   let sessionSearch = false;
   if (toolName === 'RequestWebAccess' && approvalScope === 'session' && !questions) {
     try {
@@ -147,7 +160,7 @@ export function PermissionBanner({
   return createPortal(
     <section
       className={`perm-banner perm-banner--visible${tierClass}`}
-      aria-busy={submitting || sourceReview.saving}
+      aria-busy={submitting || sourceReview.saving || sourceReview.changesSending}
       aria-label={
         questions ? 'Agent questions' : recoveringSource ? 'Save recovery' : 'Approval required'
       }
@@ -236,7 +249,14 @@ export function PermissionBanner({
           ))
         ) : (
           <>
-            {description && <p className="perm-banner-desc">{description}</p>}
+            {!reviewingSource && (
+              <ApprovalRequestSummary
+                key={permId}
+                input={toolInput}
+                toolName={toolName}
+                description={description}
+              />
+            )}
             <p className="perm-banner-scope">
               {recoveringSource
                 ? 'Retry only the same reviewed save. Dismiss keeps any saved item and its retained source.'
@@ -255,7 +275,7 @@ export function PermissionBanner({
                               ? `Session allowance covers all ${server} tools.`
                               : 'Session allowance covers this tool until the task ends.')}
             </p>
-            {(toolInput || reviewingSource) && (
+            {reviewingSource && (
               <details key={permId} className="perm-banner-details" open>
                 <summary>
                   <UiIcon name="forward" size={16} />
@@ -269,7 +289,7 @@ export function PermissionBanner({
         )}
       </div>
       <div
-        className={`perm-banner-actions${questions ? ' perm-banner-actions--questions' : ''}${reviewingSource || (allowSessionGrant === false && !questions) ? ' perm-banner-actions--source' : ''}`}
+        className={`perm-banner-actions${questions ? ' perm-banner-actions--questions' : ''}${reviewingSource || (allowSessionGrant === false && !questions) ? ' perm-banner-actions--source' : ''}${sourceReview.canRequestChanges || sourceReview.requestingChanges ? ' perm-banner-actions--revision' : ''}`}
       >
         {(submitting || sourceReview.saving) && (
           <p className="perm-banner-scope perm-banner-submitting" role="status">
@@ -294,27 +314,72 @@ export function PermissionBanner({
             <button
               className="perm-banner-btn perm-banner-btn--once"
               aria-label={
-                recoveringSource
-                  ? 'Retry same save'
-                  : approvalScope === 'conversation'
-                    ? 'Grant to conversation'
-                    : 'Allow Once'
+                sourceReview.requestingChanges
+                  ? sourceReview.changesLocked && !sourceReview.changesSending
+                    ? 'Retry sending changes'
+                    : 'Send changes'
+                  : recoveringSource
+                    ? 'Retry same save'
+                    : sourceReview.quickSave
+                      ? 'Create outcome'
+                      : approvalScope === 'conversation'
+                        ? 'Grant to conversation'
+                        : 'Allow Once'
               }
               disabled={
                 submitting ||
                 (!recoveringSource && remaining === 0) ||
-                (reviewingSource && !sourceReview.ready)
+                (sourceReview.requestingChanges
+                  ? !sourceReview.feedbackReady ||
+                    sourceReview.changesSending ||
+                    sourceReview.changesSent
+                  : reviewingSource && !sourceReview.ready)
               }
               onClick={() =>
-                reviewingSource ? void sourceReview.approve() : respond(permId, 'once', toolName)
+                sourceReview.requestingChanges
+                  ? void sourceReview.sendChanges()
+                  : reviewingSource
+                    ? void sourceReview.approve()
+                    : respond(permId, 'once', toolName)
               }
             >
-              {recoveringSource
-                ? 'Retry same save'
-                : approvalScope === 'conversation'
-                  ? 'Grant'
-                  : 'Once'}
+              {sourceReview.requestingChanges
+                ? sourceReview.changesSending
+                  ? 'Sending…'
+                  : sourceReview.changesLocked
+                    ? 'Retry sending changes'
+                    : 'Send changes'
+                : recoveringSource
+                  ? 'Retry same save'
+                  : sourceReview.quickSave
+                    ? sourceReview.saving
+                      ? 'Creating…'
+                      : 'Create outcome'
+                    : approvalScope === 'conversation'
+                      ? 'Grant'
+                      : 'Once'}
             </button>
+            {sourceReview.requestingChanges ? (
+              <button
+                type="button"
+                className="perm-banner-btn"
+                disabled={sourceReview.changesLocked || sourceReview.changesSending}
+                onClick={sourceReview.backToProposal}
+              >
+                Back to proposal
+              </button>
+            ) : (
+              sourceReview.canRequestChanges && (
+                <button
+                  type="button"
+                  className="perm-banner-btn"
+                  ref={changesTrigger}
+                  onClick={sourceReview.startChanges}
+                >
+                  Request changes
+                </button>
+              )
+            )}
             {!reviewingSource && allowSessionGrant !== false && (
               <button
                 className="perm-banner-btn perm-banner-btn--always"
@@ -329,10 +394,21 @@ export function PermissionBanner({
         )}
         <button
           className="perm-banner-btn perm-banner-btn--deny"
-          disabled={submitting || sourceReview.saving || (!recoveringSource && sourceReview.saved)}
+          disabled={
+            submitting ||
+            sourceReview.saving ||
+            sourceReview.changesLocked ||
+            (!recoveringSource && sourceReview.saved)
+          }
           onClick={() => respond(permId, 'deny', toolName)}
         >
-          {questions ? 'Cancel' : recoveringSource ? 'Dismiss' : 'Deny'}
+          {questions
+            ? 'Cancel'
+            : recoveringSource
+              ? 'Dismiss'
+              : creatingOutcome
+                ? 'Cancel'
+                : 'Deny'}
         </button>
       </div>
     </section>,

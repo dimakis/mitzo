@@ -4,11 +4,6 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { chatStorage } from '../../lib/large-chat-storage';
 import { QueuedDraftTray } from '../QueuedDraftTray';
-import type { ReactNode } from 'react';
-vi.mock('../HomeDialog', () => ({
-  HomeDialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
-    open ? <div role="dialog">{children}</div> : null,
-}));
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -34,7 +29,7 @@ it('does not close a newer queued-prompt editor when an earlier save finishes', 
       busy={false}
       running
       blocked={false}
-      textOnlySteer
+      nativeSteer
       onPause={vi.fn()}
       onSend={vi.fn()}
       onUpdate={() => true}
@@ -49,6 +44,6 @@ it('does not close a newer queued-prompt editor when an earlier save finishes', 
   const input = screen.getByRole('textbox', { name: 'Prompt' });
   fireEvent.change(input, { target: { value: 'New unsaved edit' } });
   await act(async () => finish());
-  expect(screen.getByRole('dialog')).toBeDefined();
+  expect(screen.getByRole('region', { name: 'Queued prompt' })).toBeDefined();
   expect(input).toHaveValue('New unsaved edit');
 });

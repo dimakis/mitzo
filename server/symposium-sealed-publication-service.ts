@@ -457,6 +457,7 @@ export class SealedPublicationService {
         }
 
         const executor = createGithubArtifactPublishPrExecutor({
+          approvalMetadata: 'verbatim',
           host: publisher,
           resolveWorkspace: () => source?.workspace,
           resolvePublicConfig: () => ({

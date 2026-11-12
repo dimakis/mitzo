@@ -1,4 +1,9 @@
-import { queueDraft, openQueuedEditor } from '../../test-utils/queued-draft-controls';
+import {
+  openQueuedEditor,
+  queueDraft,
+  queuedText,
+  sendCorrection,
+} from '../../test-utils/queued-draft-controls';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi, beforeEach } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -67,6 +72,47 @@ const props = {
   running: false,
   sessionId: 'preview-session',
 };
+it.each([99, 100])(
+  'pastes a complete new image draft while %i submitted images await their receipt',
+  async (count) => {
+    const draft = {
+      ...createChatDraft(),
+      text: 'Outgoing pages',
+      images: Array.from({ length: count }, (_, index) => ({
+        data: `page-${index}`,
+        mediaType: 'image/png',
+        preview: `data:image/png;base64,page-${index}`,
+      })),
+    };
+    let receipt: SendMessageOptions['onDelivery'];
+    const onSend = vi.fn<ComponentProps<typeof ChatInput>['onSend']>(
+      (_text, _images, _context, onDelivery) => {
+        receipt = onDelivery;
+        return true;
+      },
+    );
+    render(<ChatInput {...props} sessionId={undefined} savedChatDraft={draft} onSend={onSend} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(screen.queryByAltText('Attachment 1')).toBeNull();
+    const files = ['next-one.png', 'next-two.png'].map(
+      (name) => new File(['pixels'], name, { type: 'image/png' }),
+    );
+    fireEvent.paste(screen.getByLabelText('Message Mitzo'), {
+      clipboardData: {
+        items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+      },
+    });
+    await screen.findByAltText('Attachment 2');
+    act(() => receipt?.('accepted'));
+    expect(onSend.mock.calls[0][1]).toHaveLength(count);
+    expect(screen.getByAltText('Attachment 1').getAttribute('src')).toContain('next-one.png');
+    expect(screen.getByAltText('Attachment 2').getAttribute('src')).toContain('next-two.png');
+    expect(getChatDraft(draft.id)?.images.map((image) => image.data)).toEqual([
+      'next-one.png',
+      'next-two.png',
+    ]);
+  },
+);
 async function attach(container: HTMLElement, names = ['one.png', 'two.png']) {
   fireEvent.change(container.querySelector('input[type="file"]')!, {
     target: { files: names.map((name) => new File(['pixels'], name, { type: 'image/png' })) },
@@ -219,7 +265,7 @@ it.each(['accepted', 'failed'] as const)(
     fireEvent.change(screen.getByLabelText('Message Mitzo'), {
       target: { value: 'Exact request' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Interrupt and send now' }));
+    sendCorrection();
     fireEvent.click(screen.getByRole('button', { name: 'Preview attachment 1' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save preview' }));
     act(() => receipt?.(status));
@@ -264,7 +310,7 @@ it.each(['session', 'generation', 'storage'] as const)(
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(onSend).not.toHaveBeenCalled();
     const pending = change === 'session' ? 'Destination pending' : 'Old queued';
-    expect(screen.getByText(pending)).toBeTruthy();
+    expect(queuedText(pending)).toBeTruthy();
     // A real completion in the destination scope can still drain its own queue.
     rerender(<ChatInput {...destinationProps} running />);
     rerender(<ChatInput {...destinationProps} running={false} />);
@@ -330,7 +376,7 @@ it('closes a saved draft image preview on A-to-B navigation and ignores the stal
   expect(getChatDraft(first.id)?.images[0].data).toBe('first');
   expect(getChatDraft(second.id)?.images[0].data).toBe('second');
 });
-it('keeps a saved draft image edit after acceptance of the older submitted image revision', () => {
+it('keeps a new draft image edit after acceptance of the older submitted image revision', async () => {
   const draft = {
     ...createChatDraft(),
     text: 'Image request',
@@ -346,8 +392,12 @@ it('keeps a saved draft image edit after acceptance of the older submitted image
       return true;
     },
   );
-  render(<ChatInput {...props} sessionId={undefined} onSend={onSend} savedChatDraft={draft} />);
+  const { container } = render(
+    <ChatInput {...props} sessionId={undefined} onSend={onSend} savedChatDraft={draft} />,
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(screen.queryByAltText('Attachment 1')).toBeNull();
+  await attach(container, ['next.png']);
   fireEvent.click(screen.getByRole('button', { name: 'Preview attachment 1' }));
   fireEvent.click(screen.getByRole('button', { name: 'Save preview' }));
   act(() => receipt?.('accepted'));

@@ -57,6 +57,7 @@ describe('initPushNotifications', () => {
   it.each([
     'ALLOW_ONCE_ACTION',
     'ALLOW_SESSION_ACTION',
+    'ALLOW_CONVERSATION_ACTION',
     'ALLOW_SEARCH_SESSION_ACTION',
     'DENY_PERMISSION_ACTION',
   ])(

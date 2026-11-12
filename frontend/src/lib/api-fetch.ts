@@ -22,6 +22,15 @@ export const CONVERSATION_JOINING_RECOVERY_PREFIX = 'mitzo-conversation-joining-
 let authGeneration = 0;
 let authenticationRestored = false;
 const pendingTelosReads = new SharedReadRequests();
+const pendingSessionMetadataReads = new SharedReadRequests();
+let metadataBatchTimer: ReturnType<typeof setTimeout> | undefined;
+let metadataBatchGeneration = 0;
+function retireSessionMetadataReads(): void {
+  metadataBatchGeneration++;
+  if (metadataBatchTimer !== undefined) clearTimeout(metadataBatchTimer);
+  metadataBatchTimer = undefined;
+  pendingSessionMetadataReads.retire();
+}
 const pendingTodoReads = new Map<string, Promise<Response>>();
 const COOKIE_AUTH_VERIFICATION_MS = 30_000;
 const COOKIE_AUTH_CHECK_TIMEOUT_MS = 5_000;
@@ -57,6 +66,8 @@ function clearJoiningRecovery(): void {
 }
 
 function dispatchAuthEvent(name: string, source: AuthEventSource = 'local'): void {
+  retireSessionMetadataReads();
+  pendingSessionMetadataReads.clear();
   pendingTelosReads.clear();
   pendingTodoReads.clear();
   verifiedCookieAuth = null;
@@ -171,7 +182,11 @@ export function getEventSourceUrl(path: string): string {
   return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
 }
 
-export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function apiFetch(
+  path: string,
+  init?: RequestInit,
+  readScope?: 'session-metadata-mount',
+): Promise<Response> {
   const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
   const headers = new Headers(init?.headers);
   const token = getStoredAuthToken();
@@ -188,28 +203,66 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     /^\/api\/telos\/work\/items\/[^/?]+$/.test(path) &&
     (!init?.method || init.method === 'GET') &&
     Object.keys(init ?? {}).every((key) => ['method', 'credentials', 'signal'].includes(key));
+  const metadataPath = /^\/api\/sessions\/[^/?]+\/meta(?:\?|$)/.test(path);
+  const shareMetadataRead =
+    readScope === 'session-metadata-mount' &&
+    metadataPath &&
+    !path.includes('?') &&
+    (!init?.method || init.method === 'GET') &&
+    Object.keys(init ?? {}).every((key) => ['method', 'credentials', 'signal'].includes(key));
+  const mutation = !['GET', 'HEAD'].includes((init?.method ?? 'GET').toUpperCase());
+  const metadataBoundary = mutation || (metadataPath && !shareMetadataRead);
+  if (metadataBoundary) retireSessionMetadataReads();
   let response: Response;
-  if (shareTelosRead) {
-    const key = JSON.stringify([requestAuthGeneration, token, url]);
-    response = await pendingTelosReads.read(
-      key,
-      (signal) => fetch(url, { ...request, signal }),
-      init?.signal,
-    );
-  } else if (shareRead) {
-    // Page, Today and badge reads share only outstanding identical requests.
-    // Auth generations prevent a new login from joining an old user's request.
-    const key = JSON.stringify([requestAuthGeneration, token, url]);
-    let pending = pendingTodoReads.get(key);
-    if (!pending) {
-      pending = fetch(url, request).finally(() => {
-        if (pendingTodoReads.get(key) === pending) pendingTodoReads.delete(key);
-      });
-      pendingTodoReads.set(key, pending);
+  try {
+    if (shareMetadataRead) {
+      const key = JSON.stringify([requestAuthGeneration, token, url]);
+      const pending = pendingSessionMetadataReads.read(
+        key,
+        async (signal) => {
+          const result = await fetch(url, { ...request, signal });
+          // Keep each hook's body deadline attached to the shared transport.
+          // The original body remains unread for the independent consumers.
+          if (result.ok) await result.clone().arrayBuffer();
+          return result;
+        },
+        init?.signal,
+      );
+      // Only initial hook mounts opt in. Explicit reads/revisions bypass and
+      // retire this batch even before its timer; nothing settled is cached.
+      if (metadataBatchTimer === undefined) {
+        const batch = metadataBatchGeneration;
+        metadataBatchTimer = setTimeout(() => {
+          if (batch === metadataBatchGeneration) retireSessionMetadataReads();
+        }, 0);
+      }
+      response = await pending;
+    } else if (shareTelosRead) {
+      const key = JSON.stringify([requestAuthGeneration, token, url]);
+      response = await pendingTelosReads.read(
+        key,
+        (signal) => fetch(url, { ...request, signal }),
+        init?.signal,
+      );
+    } else if (shareRead) {
+      // Page, Today and badge reads share only outstanding identical requests.
+      // Auth generations prevent a new login from joining an old user's request.
+      const key = JSON.stringify([requestAuthGeneration, token, url]);
+      let pending = pendingTodoReads.get(key);
+      if (!pending) {
+        pending = fetch(url, request).finally(() => {
+          if (pendingTodoReads.get(key) === pending) pendingTodoReads.delete(key);
+        });
+        pendingTodoReads.set(key, pending);
+      }
+      response = (await pending).clone();
+    } else {
+      response = await fetch(url, request);
     }
-    response = (await pending).clone();
-  } else {
-    response = await fetch(url, request);
+  } finally {
+    // Also retire reads started while a write was in flight, including an
+    // uncertain/failed response. This is request sharing, never authority caching.
+    if (metadataBoundary) retireSessionMetadataReads();
   }
   if (
     response.ok &&

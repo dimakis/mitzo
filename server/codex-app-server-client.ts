@@ -32,6 +32,7 @@ import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
 import { tracer } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 
 export const SUPPORTED_CODEX_CLI_VERSION = readFileSync(
   new URL('../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
@@ -106,6 +107,9 @@ export class CodexTurnCompletedError extends Error {
 
 export interface CodexServerRequestContext {
   readonly requestId: string | number;
+  /** Private owning-conversation proof for this exact RPC. Only refusals before
+   * tool claim/execution qualify; an error class alone cannot prove settlement. */
+  readonly registerPreExecutionRefusal?: (error: CodexHostToolRequestError) => void;
   /** Trusted owner fences run synchronously immediately before the RPC reply. */
   readonly registerResponseFence?: (assertCurrent: () => void) => void;
 }
@@ -195,6 +199,9 @@ export class CodexTransportError extends Error {
         | 'invalid_json'
         | 'invalid_envelope'
         | 'notification_handler_failed'
+        | 'host_tool_admission_timeout'
+        | 'host_response_fence_failed'
+        | 'reply_provenance_failed'
         | 'child_exit'
         | 'process_error'
         | 'stream_error';
@@ -206,6 +213,7 @@ export class CodexTransportError extends Error {
       frameBytes?: number;
       limitBytes?: number;
     },
+    options?: ErrorOptions,
   ) {
     super(
       {
@@ -215,6 +223,7 @@ export class CodexTransportError extends Error {
         environment_pending:
           'Approved integration environment is pending. No model turn was started.',
       }[category],
+      options,
     );
     this.name = 'CodexTransportError';
   }
@@ -467,6 +476,7 @@ export class CodexAppServerClient {
   private buffer = Buffer.alloc(0);
   private bufferedBytes = 0;
   private closed = false;
+  private checkingHostResponse = false;
   private ready = false;
   private initializing?: Promise<void>;
   private initializationFrame?: JsonObject;
@@ -838,6 +848,7 @@ export class CodexAppServerClient {
         'thread/fork',
         'thread/read',
         'thread/turns/list',
+        'thread/items/list',
         'turn/start',
         'turn/steer',
         'turn/interrupt',
@@ -853,7 +864,12 @@ export class CodexAppServerClient {
     return this.sendRequest(method, params);
   }
 
-  close(error: Error = new CodexTransportError('connection')) {
+  close(
+    error: Error = new CodexTransportError(
+      'connection',
+      this.checkingHostResponse ? { reason: 'host_response_fence_failed' } : undefined,
+    ),
+  ) {
     if (this.closed) return;
     this.closed = true;
     clearTimeout(this.environmentRetryTimer);
@@ -987,6 +1003,33 @@ export class CodexAppServerClient {
       requestId: id,
       registerResponseFence: (assertCurrent: () => void) => responseFences.push(assertCurrent),
     });
+    const mayReply = () => {
+      if (this.closed || signal.aborted) return false;
+      // Both success and refusal replies resume provider inference. Keep the
+      // same final authority fence and reentrant-close diagnostic for each.
+      this.checkingHostResponse = true;
+      try {
+        for (const assertCurrent of responseFences) {
+          const result: unknown = assertCurrent();
+          if (result !== undefined) {
+            void Promise.resolve(result).catch(() => {});
+            throw new CodexTransportError('connection');
+          }
+        }
+      } catch (cause) {
+        this.close(
+          new CodexTransportError(
+            'connection',
+            { reason: 'host_response_fence_failed' },
+            { cause },
+          ),
+        );
+        return false;
+      } finally {
+        this.checkingHostResponse = false;
+      }
+      return !this.closed && !signal.aborted;
+    };
     Promise.resolve()
       .then(() => {
         signal.throwIfAborted();
@@ -994,18 +1037,22 @@ export class CodexAppServerClient {
       })
       .then(
         (result) => {
-          if (this.closed || signal.aborted) return;
-          for (const assertCurrent of responseFences) {
-            const result: unknown = assertCurrent();
-            if (result !== undefined) {
-              void Promise.resolve(result).catch(() => {});
-              throw new CodexTransportError('connection');
-            }
-          }
-          if (!this.closed && !signal.aborted) this.write({ id, result });
+          if (mayReply()) this.write({ id, result });
         },
         (error: unknown) => {
-          if (this.closed || signal.aborted) return;
+          // A policy refusal can precede response-fence registration. Returning
+          // a generic RPC error would resume inference on the stale sandbox.
+          if (findSessionRuntimeError(error)?.code === 'native_policy_changed') {
+            this.close(
+              new CodexTransportError(
+                'connection',
+                { reason: 'host_response_fence_failed' },
+                { cause: error },
+              ),
+            );
+            return;
+          }
+          if (!mayReply()) return;
           if (method === 'item/tool/call') {
             const known = error instanceof CodexHostToolRequestError;
             createLogger('codex-app-server-client').warn('Codex host tool request rejected', {
@@ -1032,7 +1079,9 @@ export class CodexAppServerClient {
           }
         },
       )
-      .catch(() => this.close())
+      .catch((cause: unknown) =>
+        this.close(new CodexTransportError('connection', undefined, { cause })),
+      )
       .finally(() => this.activeHostRequests.delete(id));
   }
 

@@ -1,4 +1,7 @@
 import { MessageActions } from './MessageActions';
+import { ReplyQuote, REPLY_NAVIGATION_EVENT } from './ReplyQuote';
+import { SessionLaunchCards } from './SessionLaunchCards';
+import type { SessionLaunchRecord } from '@mitzo/protocol';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import './ChatCommandMetadata.css';
 import { useTelosCreatedItems } from '../hooks/useTelosCreatedItems';
@@ -10,8 +13,18 @@ import { UiIcon } from './UiIcon';
 import { CompactionMarker } from './CompactionMarker';
 import type { ContextCompaction } from '@mitzo/protocol';
 import { seatAccentColor } from '../lib/seat-color';
-import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  Fragment,
+  type ReactNode,
+} from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
+import { AgentMessageCard } from './AgentMessageCard';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 import { telosWorkerReceipt } from './TelosWorkerReceiptCard';
@@ -45,6 +58,9 @@ export interface SymposiumContextItem {
 }
 
 export interface ChatAreaProps {
+  launchRequests?: SessionLaunchRecord[];
+  onLaunchUpdate?(): void;
+  launchDisabled?: boolean;
   onReply?: (message: MessageReplyContext) => void;
   compactions?: ContextCompaction[];
   sessionId?: string;
@@ -60,6 +76,7 @@ export interface ChatAreaProps {
   /** Source-bound previews for shared messages; ordinary callers use sessionId. */
   messageSessionId?(messageId: string): string | undefined;
   /** Additional transcript cards inside the same scroll area. */
+  beforeMessages?: ReactNode;
   afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
   canShareMessage?: (message: FinishedMessage) => boolean;
@@ -136,6 +153,44 @@ function SeatAttribution({
   );
 }
 
+function MessageShareAction({ inActions, onShare }: { inActions: boolean; onShare(): void }) {
+  const share = (
+    <button
+      type="button"
+      className="symposium-share-action"
+      onClick={(event) => {
+        const disclosure = event.currentTarget.closest('details');
+        if (disclosure) {
+          disclosure.open = false;
+          disclosure.querySelector('summary')?.focus();
+        }
+        onShare();
+      }}
+    >
+      Share excerpt
+    </button>
+  );
+  return inActions ? (
+    <details
+      className="conversation-message-actions"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.currentTarget.open = false;
+          event.currentTarget.querySelector('summary')?.focus();
+        }
+      }}
+    >
+      <summary aria-label="Message actions">
+        <UiIcon name="more" />
+      </summary>
+      {share}
+    </details>
+  ) : (
+    share
+  );
+}
+
 function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
   return provenance
     ? `symposium:${JSON.stringify([provenance.seatId, provenance.membershipGeneration ?? null, messageId])}`
@@ -143,6 +198,9 @@ function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
 }
 
 export function ChatArea({
+  launchRequests = [],
+  onLaunchUpdate,
+  launchDisabled,
   onReply,
   compactions = [],
   sessionId,
@@ -151,6 +209,7 @@ export function ChatArea({
   current,
   currentByMessage = {},
   contextItems = [],
+  beforeMessages,
   afterMessages,
   renderMessageAttribution,
   renderMessageOutcome,
@@ -170,6 +229,61 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  const [replyReturn, setReplyReturn] = useState<{
+    source: HTMLElement;
+    reply: HTMLButtonElement;
+    sessionId?: string;
+  } | null>(null);
+  const [replyNotice, setReplyNotice] = useState('');
+  useEffect(() => {
+    replyReturn?.source.classList.add('chat-reply-target');
+    return () => replyReturn?.source.classList.remove('chat-reply-target');
+  }, [replyReturn]);
+  const navigateReply = useCallback(
+    (messageId: string, opener: HTMLButtonElement) => {
+      const target = Array.from(
+        scrollRef.current?.querySelectorAll<HTMLElement>('[data-reply-source]') ?? [],
+      ).find((element) => element.dataset.replySource === messageId);
+      if (!target) {
+        setReplyNotice('Original message is not loaded in this conversation.');
+        return;
+      }
+      setReplyNotice('');
+      setReplyReturn({ source: target, reply: opener, sessionId });
+      target.scrollIntoView({ block: 'center' });
+      target.focus({ preventScroll: true });
+    },
+    [scrollRef, sessionId],
+  );
+  useEffect(() => {
+    if (!sessionId) return;
+    const navigate = (event: Event) => {
+      if (
+        !(event instanceof CustomEvent) ||
+        event.detail?.sessionId !== sessionId ||
+        !(event.detail.opener instanceof HTMLButtonElement) ||
+        typeof event.detail.messageId !== 'string'
+      )
+        return;
+      navigateReply(event.detail.messageId, event.detail.opener);
+    };
+    window.addEventListener(REPLY_NAVIGATION_EVENT, navigate);
+    return () => window.removeEventListener(REPLY_NAVIGATION_EVENT, navigate);
+  }, [sessionId, navigateReply]);
+  const replySources = useMemo(
+    () =>
+      new Map(
+        messages
+          .filter((message) => !message.symposiumProvenance)
+          .flatMap((message) => [
+            [message.messageId, message] as const,
+            ...(message.agentMessage
+              ? [[message.agentMessage.message.commandId, message] as const]
+              : []),
+          ]),
+      ),
+    [messages],
+  );
   const requests = useMemo(
     () =>
       new Map(
@@ -190,28 +304,18 @@ export function ChatArea({
     cancelled: 'Cancelled',
     steering: 'Sending correction…',
     steered: 'Correction sent to current turn',
-    uncertain: 'Correction delivery not confirmed',
+    uncertain: 'Message delivery not confirmed',
   };
-  function quote(reply: MessageReplyContext) {
-    return (
-      <button
-        type="button"
-        className="chat-reply-link"
-        aria-label={`Replying to: ${reply.text.slice(0, 120)}`}
-        onClick={() => {
-          const target = Array.from(
-            scrollRef.current?.querySelectorAll<HTMLElement>('[data-reply-source]') ?? [],
-          ).find((element) => element.dataset.replySource === reply.messageId);
-          target?.scrollIntoView({ block: 'center' });
-          target?.focus({ preventScroll: true });
-        }}
-      >
-        <span className="chat-reply-author">{reply.role === 'user' ? 'You' : 'Mitzo'}</span>
-        <span className="chat-reply-excerpt">{reply.text}</span>
-      </button>
-    );
+  function quote(reply: MessageReplyContext, author = reply.role === 'user' ? 'You' : 'Mitzo') {
+    return <ReplyQuote reply={reply} author={author} onNavigate={navigateReply} />;
   }
-  function withActions(message: FinishedMessage, children: ReactNode) {
+  function withActions(
+    message: Pick<FinishedMessage, 'messageId' | 'role' | 'timestamp' | 'symposiumProvenance'> & {
+      blocks: ChatBlock[];
+    },
+    children: ReactNode,
+    complete = true,
+  ) {
     const text = message.blocks
       .filter((block) => block.blockType === 'text')
       .map((block) => block.content)
@@ -227,9 +331,9 @@ export function ChatArea({
           text,
           timestamp: message.timestamp,
         }}
-        onReply={onReply}
+        onReply={complete ? onReply : undefined}
         readAloud={
-          voice?.ttsAvailable
+          complete && voice?.ttsAvailable
             ? {
                 active: speakingBlockId === message.messageId,
                 onSpeak: (text) => speakBlock(message.messageId, text),
@@ -244,26 +348,30 @@ export function ChatArea({
   }
   function replyLabel(message: FinishedMessage | StreamingMessage) {
     if (message.symposiumProvenance || !message.replyToMessageId) return null;
-    const original = requests.get(message.replyToMessageId);
-    const text = original?.blocks.find((block) => block.blockType === 'text')?.content;
-    if (!text) return <div className="chat-command-meta">Answering an earlier message</div>;
-    const label = `Replying to: ${text.length > 120 ? text.slice(0, 120) + '…' : text}`;
-    return (
-      <button
-        type="button"
-        className="chat-reply-link"
-        aria-label={label}
-        onClick={() => {
-          const target = Array.from(
-            scrollRef.current?.querySelectorAll<HTMLElement>('[data-command-request]') ?? [],
-          ).find((element) => element.dataset.commandRequest === message.replyToMessageId);
-          target?.scrollIntoView({ block: 'center' });
-          target?.focus({ preventScroll: true });
-        }}
-      >
-        <span className="chat-reply-author">You</span>
-        <span className="chat-reply-excerpt">{text}</span>
-      </button>
+    const original = replySources.get(message.replyToMessageId);
+    const text =
+      original?.agentMessage?.message.text ??
+      original?.blocks
+        .filter((block) => block.blockType === 'text')
+        .map((block) => block.content)
+        .join('\n\n');
+    if (!original || !text)
+      return (
+        <div className="chat-reply-unavailable">
+          <span>Original message unavailable</span>
+          <small>Reference: {message.replyToMessageId}</small>
+        </div>
+      );
+    return quote(
+      {
+        messageId: original.agentMessage?.message.commandId ?? original.messageId,
+        role: original.role === 'user' ? 'user' : 'assistant',
+        text,
+        ...((original.agentMessage?.timestamp ?? original.timestamp) != null
+          ? { timestamp: original.agentMessage?.timestamp ?? original.timestamp }
+          : {}),
+      },
+      original.agentMessage?.senderName ?? (original.role === 'user' ? 'You' : 'Mitzo'),
     );
   }
   const source = useTelosSourceNavigation();
@@ -333,7 +441,9 @@ export function ChatArea({
       shouldFollowStreamRef.current = distanceFromBottom <= SCROLL_NEAR_BOTTOM_PX;
     };
 
-    updateFollowState();
+    // A mounted transcript can already contain restored history while a source
+    // lookup owns its position. Initial geometry is not a reader scroll-away;
+    // retain follow intent until an actual scroll or source jump changes it.
     el.addEventListener('scroll', updateFollowState, { passive: true });
     return () => el.removeEventListener('scroll', updateFollowState);
   }, [scrollRef]);
@@ -404,8 +514,9 @@ export function ChatArea({
     }
   }, [messages, scrollRef, sourceKey]);
 
-  // Auto-scroll during streaming only while the reader has chosen to follow it.
-  useEffect(() => {
+  // Settle the new content before paint, avoiding a visible old-position frame.
+  // Keyboard and composer resizing use the same retained follow intent above.
+  useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && (!sourceKey || jumpedSource.current === sourceKey) && shouldFollowStreamRef.current) {
       el.scrollTop = el.scrollHeight;
@@ -467,126 +578,176 @@ export function ChatArea({
     }
   }, []);
 
+  const launchRows = launchRequests.map((request) => ({
+    before: orderedTurns.find(
+      (turn) =>
+        turn.kind === 'finished' &&
+        turn.value.timestamp != null &&
+        turn.value.timestamp >= request.createdAt,
+    ),
+    key: `launch:${request.proposalId}`,
+    scope: 'launch',
+    value: (
+      <SessionLaunchCards
+        requests={[request]}
+        onUpdate={onLaunchUpdate ?? (() => {})}
+        disabled={launchDisabled}
+      />
+    ),
+  }));
   const transcriptRows: ActivityRow<ReactNode>[] = orderedTurns.flatMap(
     (turn): ActivityRow<ReactNode>[] => {
-      if (turn.kind === 'context') {
-        const item = turn.value;
-        return [
-          {
-            key: `context:${item.deliveryId}:${item.attemptId}`,
-            scope: 'context',
-            value: (
-              <article
-                key={`context:${item.deliveryId}:${item.attemptId}`}
-                className="msg-turn symposium-context-card"
-                style={{ borderLeft: `3px solid ${seatAccentColor(item.recipientSeatId)}` }}
-              >
-                <strong>
-                  {item.receipt === 'received'
-                    ? `Received context: ${item.sourceSeatId ?? 'you'} to ${item.recipientSeatId}`
-                    : `Dispatch uncertain for ${item.recipientSeatId}`}
-                </strong>
-                {item.sourceMessageId && (
-                  <small>Excerpt from {item.sourceSeatId ?? 'your message'}</small>
-                )}
-                <p>{item.content}</p>
-              </article>
-            ),
-          },
-        ];
-      }
-      if (turn.kind === 'finished') {
-        const msg = turn.value;
-        if (msg.role === 'user') {
-          const textBlock = msg.blocks.find((b) => b.blockType === 'text');
+      const renderRows = (): ActivityRow<ReactNode>[] => {
+        if (turn.kind === 'context') {
+          const item = turn.value;
           return [
             {
-              key: turnKey(msg.messageId, msg.symposiumProvenance),
-              scope: 'user',
-              endsTurn: true,
+              key: `context:${item.deliveryId}:${item.attemptId}`,
+              scope: 'context',
               value: (
-                <>
-                  {renderMessageAttribution?.(msg.messageId)}
-                  <div
-                    className="chat-user-request"
-                    data-command-request={msg.messageId}
-                    data-reply-source={msg.messageId}
-                    tabIndex={-1}
-                  >
-                    {msg.inReplyTo && quote(msg.inReplyTo)}
-                    {withActions(
-                      msg,
-                      <UserBubble
-                        key={turnKey(msg.messageId, msg.symposiumProvenance)}
-                        sourceAnchor={sourceAnchor(msg)}
-                        text={textBlock?.content}
-                        images={msg.images}
-                        contextBlocks={msg.contextBlocks}
-                        contextInjections={msg.contextInjections}
-                        timestamp={msg.timestamp}
-                        readAloud={
-                          voice?.ttsAvailable
-                            ? {
-                                active: speakingBlockId === msg.messageId,
-                                onSpeak: (text) => speakBlock(msg.messageId, text),
-                                onStop: stopBlock,
-                              }
-                            : undefined
-                        }
-                      />,
-                    )}
-                    {!msg.symposiumProvenance &&
-                      msg.commandState &&
-                      !['running', 'completed', 'ended', 'steered'].includes(msg.commandState) && (
-                        <div className="chat-command-meta chat-command-meta--user" role="status">
-                          {msg.steersMessageId && msg.commandState === 'failed'
-                            ? 'Correction not accepted'
-                            : commandLabels[msg.commandState]}
-                        </div>
-                      )}
-                  </div>
-                  {createdItemCards(msg)}
-                  {renderMessageOutcome?.(msg.messageId)}
-                </>
+                <article
+                  key={`context:${item.deliveryId}:${item.attemptId}`}
+                  className="msg-turn symposium-context-card"
+                  style={{ borderLeft: `3px solid ${seatAccentColor(item.recipientSeatId)}` }}
+                >
+                  <strong>
+                    {item.receipt === 'received'
+                      ? `Received context: ${item.sourceSeatId ?? 'you'} to ${item.recipientSeatId}`
+                      : `Dispatch uncertain for ${item.recipientSeatId}`}
+                  </strong>
+                  {item.sourceMessageId && (
+                    <small>Excerpt from {item.sourceSeatId ?? 'your message'}</small>
+                  )}
+                  <p>{item.content}</p>
+                </article>
               ),
             },
           ];
         }
-      }
-      const streaming = turn.kind === 'streaming';
-      const msg = turn.value;
-      const blocks: ChatBlock[] =
-        turn.kind === 'streaming'
-          ? turn.value.blockOrder.flatMap((id) => {
-              const block = turn.value.blocks.get(id);
-              return block ? [block] : [];
-            })
-          : turn.value.blocks;
-      const ownerKey = `${sessionId ?? 'chat'}:${turnKey(msg.messageId, msg.symposiumProvenance)}`;
-      const provenance = msg.symposiumProvenance;
-      const attribution =
-        !streaming && renderMessageAttribution ? (
+        if (turn.kind === 'finished') {
+          const msg = turn.value;
+          if (msg.agentMessage)
+            return [
+              {
+                key: `agent:${msg.messageId}`,
+                scope: 'context',
+                value: <AgentMessageCard projection={msg.agentMessage} />,
+              },
+            ];
+          if (msg.role === 'user') {
+            const textBlock = msg.blocks.find((b) => b.blockType === 'text');
+            return [
+              {
+                key: turnKey(msg.messageId, msg.symposiumProvenance),
+                scope: 'user',
+                endsTurn: true,
+                value: (
+                  <>
+                    {renderMessageAttribution?.(msg.messageId)}
+                    <div
+                      className="chat-user-request"
+                      data-command-request={msg.messageId}
+                      data-reply-source={msg.messageId}
+                      tabIndex={-1}
+                    >
+                      {msg.inReplyTo && quote(msg.inReplyTo)}
+                      {withActions(
+                        msg,
+                        <UserBubble
+                          key={turnKey(msg.messageId, msg.symposiumProvenance)}
+                          sourceAnchor={sourceAnchor(msg)}
+                          text={textBlock?.content}
+                          images={msg.images}
+                          contextBlocks={msg.contextBlocks}
+                          contextInjections={msg.contextInjections}
+                          timestamp={msg.timestamp}
+                          readAloud={
+                            voice?.ttsAvailable
+                              ? {
+                                  active: speakingBlockId === msg.messageId,
+                                  onSpeak: (text) => speakBlock(msg.messageId, text),
+                                  onStop: stopBlock,
+                                }
+                              : undefined
+                          }
+                        />,
+                      )}
+                      {!msg.symposiumProvenance &&
+                        msg.commandState &&
+                        !['running', 'completed', 'ended', 'steered'].includes(
+                          msg.commandState,
+                        ) && (
+                          <div className="chat-command-meta chat-command-meta--user" role="status">
+                            {msg.steersMessageId && msg.commandState === 'failed'
+                              ? 'Correction not accepted'
+                              : commandLabels[msg.commandState]}
+                          </div>
+                        )}
+                    </div>
+                    {createdItemCards(msg)}
+                    {renderMessageOutcome?.(msg.messageId)}
+                  </>
+                ),
+              },
+            ];
+          }
+        }
+        const streaming = turn.kind === 'streaming';
+        const msg = turn.value;
+        const blocks: ChatBlock[] =
+          turn.kind === 'streaming'
+            ? turn.value.blockOrder.flatMap((id) => {
+                const block = turn.value.blocks.get(id);
+                return block ? [block] : [];
+              })
+            : turn.value.blocks;
+        const ownerKey = `${sessionId ?? 'chat'}:${turnKey(msg.messageId, msg.symposiumProvenance)}`;
+        const provenance = msg.symposiumProvenance;
+        const attribution = renderMessageAttribution ? (
           renderMessageAttribution(msg.messageId)
         ) : (
           <SeatAttribution provenance={msg.symposiumProvenance} compact={compactAttribution} />
         );
-      const scope = JSON.stringify([
-        sessionId ?? null,
-        provenance?.seatId,
-        provenance?.membershipGeneration,
-        provenance?.configRevision,
-        provenance && 'accountBinding' in provenance ? provenance.accountBinding : null,
-      ]);
-      // Filter non-visible text before assigning first/last-row controls so
-      // speaker attribution and sharing stay attached to retained content.
-      const firstVisibleText = blocks.find(
-        (block) => block.blockType === 'text' && block.content?.trim(),
-      );
-      const rows = blocks
-        .filter((block) => block.blockType !== 'text' || block.content?.trim())
-        .map((block, index): ActivityRow<ReactNode> => {
+        const scope = JSON.stringify([
+          sessionId ?? null,
+          provenance?.seatId,
+          provenance?.membershipGeneration,
+          provenance?.configRevision,
+          provenance && 'accountBinding' in provenance ? provenance.accountBinding : null,
+        ]);
+        // Filter non-visible text before assigning first/last-row controls so
+        // speaker attribution and sharing stay attached to retained content.
+        const firstVisibleText = blocks.find(
+          (block) => block.blockType === 'text' && block.content?.trim(),
+        );
+        const finished = turn.kind === 'finished' ? turn.value : undefined;
+        const actionMessage = finished ?? {
+          messageId: msg.messageId,
+          role: 'assistant' as const,
+          symposiumProvenance: msg.symposiumProvenance,
+          blocks,
+        };
+        const share =
+          finished && onShareMessage && (!canShareMessage || canShareMessage(finished)) ? (
+            <MessageShareAction
+              inActions={shareInActions}
+              onShare={() => onShareMessage(finished.messageId, finished.symposiumProvenance)}
+            />
+          ) : null;
+        const footer = finished ? (
+          <>
+            {createdItemCards(finished)}
+            {renderMessageOutcome?.(msg.messageId)}
+            {share}
+          </>
+        ) : null;
+        const visibleBlocks = blocks.filter(
+          (block) => block.blockType !== 'text' || block.content?.trim(),
+        );
+        const rows = visibleBlocks.map((block, index): ActivityRow<ReactNode> => {
           const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
           const keepVisible =
+            Boolean(block.rawInput?.nativeSubagentCommandId) ||
             Boolean(progress) ||
             Boolean(telosWorkerReceipt(block, sessionId)) ||
             (!completedWebsiteRead(block) &&
@@ -648,81 +809,24 @@ export function ChatArea({
             streaming,
             keepVisible,
             value: (
-              <div
-                data-reply-source={msg.messageId}
-                tabIndex={-1}
-                className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
-              >
-                {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
-                {block === firstVisibleText && replyLabel(msg)}
-                {!streaming && turn.kind === 'finished' && block.blockType === 'text'
-                  ? withActions(turn.value, content)
-                  : content}
-              </div>
+              <>
+                <div
+                  data-reply-source={block === firstVisibleText ? msg.messageId : undefined}
+                  tabIndex={-1}
+                  className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
+                >
+                  {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
+                  {block === firstVisibleText && replyLabel(msg)}
+                  {block.blockType === 'text'
+                    ? withActions(actionMessage, content, !streaming)
+                    : content}
+                </div>
+                {index === visibleBlocks.length - 1 && footer}
+              </>
             ),
           };
         });
-      if (!streaming && turn.kind === 'finished') {
-        const last = rows.at(-1);
-        if (last)
-          last.value = (
-            <>
-              {last.value}
-              {createdItemCards(turn.value)}
-              {renderMessageOutcome?.(msg.messageId)}
-            </>
-          );
-      }
-      if (
-        !streaming &&
-        'role' in msg &&
-        onShareMessage &&
-        (!canShareMessage || canShareMessage(msg))
-      ) {
-        const shareButton = (
-          <button
-            type="button"
-            className="symposium-share-action"
-            onClick={(event) => {
-              const disclosure = event.currentTarget.closest('details');
-              if (disclosure) {
-                disclosure.open = false;
-                disclosure.querySelector('summary')?.focus();
-              }
-              onShareMessage(msg.messageId, msg.symposiumProvenance);
-            }}
-          >
-            Share excerpt
-          </button>
-        );
-        const share = shareInActions ? (
-          <details
-            className="conversation-message-actions"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                event.currentTarget.open = false;
-                event.currentTarget.querySelector('summary')?.focus();
-              }
-            }}
-          >
-            <summary aria-label="Message actions">
-              <UiIcon name="more" />
-            </summary>
-            {shareButton}
-          </details>
-        ) : (
-          shareButton
-        );
-        const last = rows.at(-1);
-        if (last)
-          last.value = (
-            <>
-              {last.value}
-              {share}
-            </>
-          );
-        else
+        if (!rows.length && share)
           rows.push({
             key: `${ownerKey}:share`,
             scope,
@@ -737,14 +841,15 @@ export function ChatArea({
               </div>
             ),
           });
-      }
-      return rows;
+        return rows;
+      };
+      return [...launchRows.filter((row) => row.before === turn), ...renderRows()];
     },
   );
 
   // The lifecycle carries the last app message identity. Unknown positions stay
   // explicit at the end rather than being attributed to an invented message.
-  const rowsWithCompactions = [...transcriptRows];
+  const rowsWithCompactions = [...transcriptRows, ...launchRows.filter((row) => !row.before)];
   for (const record of [...compactions].reverse()) {
     let position = -1;
     if (record.afterMessageId)
@@ -769,6 +874,7 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
+        {beforeMessages}
         {messages.length === 0 &&
           !current &&
           Object.keys(currentByMessage).length === 0 &&
@@ -788,6 +894,23 @@ export function ChatArea({
           ),
         )}
         {afterMessages}
+        {replyNotice && <p role="status">{replyNotice}</p>}
+        {replyReturn && replyReturn.sessionId === sessionId && (
+          <button
+            type="button"
+            className="chat-reply-return"
+            onClick={() => {
+              if (replyReturn.reply.isConnected) {
+                replyReturn.reply.scrollIntoView({ block: 'center' });
+                replyReturn.reply.focus({ preventScroll: true });
+              } else setReplyNotice('The reply is no longer loaded in this conversation.');
+              setReplyReturn(null);
+            }}
+          >
+            <UiIcon name="undo" size={16} />
+            Back to reply
+          </button>
+        )}
       </div>
 
       {permission && (

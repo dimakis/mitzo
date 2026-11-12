@@ -1,4 +1,16 @@
+import { localCommandStatusMessage } from '@mitzo/client';
 import type { MessageReplyContext } from '@mitzo/protocol';
+import { SessionLaunchConfigSchema, supportsUserTurnSteering } from '@mitzo/protocol';
+import { SessionLaunchDefaultsControl } from '../components/SessionLaunchDefaultsControl';
+import { QuickSettingsSupplement } from '../components/QuickChatSettings';
+import {
+  sessionLaunchRuntime,
+  savedRepositorySelectionReason,
+  unsupportedSessionExtraToolsReason,
+  unsupportedSessionContextReason,
+} from '../lib/session-launch-defaults';
+import { SessionLaunchOrigin } from '../components/SessionLaunchCards';
+import { useSessionLaunch } from '../hooks/useSessionLaunch';
 import { useTurnSteering } from '../hooks/useTurnSteering';
 import { chatStorage } from '../lib/large-chat-storage';
 import { chatModelSettings } from '../lib/chat-model-settings';
@@ -9,6 +21,7 @@ import { useTelosChatRoute } from '../hooks/useTelosChatRoute';
 import { TelosChatRouteLayout } from '../components/TelosChatRouteLayout';
 import { TelosWorkControls } from '../components/TelosWorkControls';
 import { ChatStatusMessage } from '../components/ChatStatusMessage';
+import { ComposerStatusProvider } from '../components/ComposerStatus';
 import { TelosAdvisorDraft } from '../components/TelosAdvisorDraft';
 import { bindChatDraftToSession, getSessionChatDraft } from '../lib/chat-drafts';
 import { TelosRoleSetup } from '../components/TelosRoleSetup';
@@ -16,7 +29,7 @@ import { readTelosRoleIntent } from '../hooks/useTelosRoleSetup';
 import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
 import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
-import { ConversationAgents } from '../components/ConversationAgents';
+import { SharedConversationAgents as ConversationAgents } from '../components/SharedConversation';
 import { conversationRepositoryLabel } from '../lib/conversation-repository-label';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
@@ -26,6 +39,8 @@ import {
   selectedRuntimeRoute,
 } from '../lib/chat-runtime-route';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
+import { chatComposerCapabilities } from '../lib/chat-composer-capabilities';
+import { isChatExecutionLocked } from '../lib/chat-runtime-selection';
 import { AgentSettingsFields } from '../components/AgentSettingsPicker';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
 import {
@@ -95,21 +110,20 @@ import { onKeyboardToggle } from '../lib/keyboard';
 import type { ImageAttachment } from '../types/chat';
 
 export function ChatView() {
+  return (
+    <ComposerStatusProvider>
+      <ChatViewContent />
+    </ComposerStatusProvider>
+  );
+}
+
+function ChatViewContent() {
   const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
-  useEffect(
-    () =>
-      onKeyboardToggle((visible) => {
-        setKeyboardOpen(visible);
-        if (visible) {
-          requestAnimationFrame(() => {
-            scrollRef.current?.scrollTo({ top: scrollRef.current!.scrollHeight });
-          });
-        }
-      }),
-    [],
-  );
+  // ChatArea owns scroll intent during viewport/composer resizing. Opening the
+  // keyboard must not pull a reader away from an older message.
+  useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
   const { sessionId } = useParams<{ sessionId?: string }>();
   const searchParams = useChatDraftSearch(!sessionId);
   const [agentProfile, setAgentProfile] = useState<AgentProfileSelection | null>(null);
@@ -198,6 +212,7 @@ export function ChatView() {
     !briefingLaunchReason &&
     !launchDeliveryPending;
   const newChatDraft = useNewChatDraft(searchParams.get('draft'), chatDraftRevision, draftEnabled);
+  const markDraftEdited = newChatDraft.markEdited;
   const retainedLocalCommand = useMitzoStore((s) => s.localCommand);
   const selectLocalCommandDraft = useMitzoStore((s) => s.selectLocalCommandDraft);
   const selectLocalCommandSession = useMitzoStore((s) => s.selectLocalCommandSession);
@@ -239,8 +254,32 @@ export function ChatView() {
     searchParams.toString(),
     newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
     JSON.stringify([messages.branch, sessionMetadataRevision]),
+    markDraftEdited,
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
+  const [clearedExtraToolsScope, setClearedExtraToolsScope] = useState<string | null>(null);
+  const currentExtraTools =
+    clearedExtraToolsScope === newChatDraft.draft.id
+      ? undefined
+      : (searchParams.get('extraTools') ??
+        new URLSearchParams(newChatDraft.draft.settings.search).get('extraTools') ??
+        undefined);
+  const extraToolsReason = unsupportedSessionExtraToolsReason(currentExtraTools, explicitNew);
+  const [clearedDefaultContextScope, setClearedDefaultContextScope] = useState<string | null>(null);
+  const currentDefaultContext = useMemo(
+    () =>
+      clearedDefaultContextScope === newChatDraft.draft.id
+        ? []
+        : ((explicitNew ? getChatDraft(newChatDraft.draft.id)?.contextBlocks : undefined) ??
+          newChatDraft.draft.contextBlocks),
+    [
+      clearedDefaultContextScope,
+      newChatDraft.draft.id,
+      newChatDraft.draft.contextBlocks,
+      explicitNew,
+    ],
+  );
+  const defaultContextReason = unsupportedSessionContextReason(currentDefaultContext, explicitNew);
   const conversationRepository = conversationRepositoryLabel({
     routeConversationId: sessionId,
     conversationId: activeSessionId,
@@ -255,7 +294,7 @@ export function ChatView() {
   const steerTarget = messages.messages
     .filter((message) => message.role === 'user' && message.commandState === 'running')
     .at(-1)?.messageId;
-  const supportsSteering = localBound && localRuntime.binding?.harness.implementation === 'codex';
+  const supportsSteering = localBound && supportsUserTurnSteering(localRuntime.binding);
   const turnSteering = useTurnSteering(activeSessionId, steerTarget, !!supportsSteering);
 
   const defaultWorkspaceAvailable =
@@ -300,11 +339,12 @@ export function ChatView() {
     setRoleDraftError(null);
     return true;
   }, []);
-  const controlsBlocked =
+  const conversationScopeBlocked =
     roleSetupLocked ||
-    (localBound && !localRuntime.commandAvailable) ||
     localRuntime.metadataPending ||
     (!!sessionId && sessionId !== activeSessionId);
+  const controlsBlocked =
+    conversationScopeBlocked || (localBound && !localRuntime.commandAvailable);
 
   const [builderLinkError, setBuilderLinkError] = useState('');
   const builderSources = activeSessionId
@@ -321,9 +361,30 @@ export function ChatView() {
   const missingDraftReason = newChatDraft.missing
     ? 'This draft is unavailable. Open Drafts or start a new chat.'
     : undefined;
+  const defaultsReason =
+    draftEnabled && !newChatDraft.restored && !newChatDraft.edited
+      ? newChatDraft.defaults.loading
+        ? 'Loading saved agent configuration…'
+        : newChatDraft.defaults.error
+          ? 'Saved agent configuration is unavailable. Retry session defaults or choose settings explicitly.'
+          : undefined
+      : undefined;
   const draftSearch = new URLSearchParams(searchParams);
   draftSearch.delete('draft');
   draftSearch.delete('prompt');
+  if (explicitNew) {
+    const profile = localRuntime.intent.agentProfile;
+    if (profile) {
+      draftSearch.set('agentProfile', profile.profileId);
+      draftSearch.set('profileRevision', String(profile.revision));
+      if (profile.kind) draftSearch.set('agentProfileKind', profile.kind);
+      else draftSearch.delete('agentProfileKind');
+    } else
+      for (const key of ['agentProfile', 'profileRevision', 'agentProfileKind'])
+        draftSearch.delete(key);
+    if (currentExtraTools) draftSearch.set('extraTools', currentExtraTools);
+  }
+  if (clearedExtraToolsScope === newChatDraft.draft.id) draftSearch.delete('extraTools');
   const settingsSearch = draftSearch.toString();
 
   const connected = connection.status === 'connected';
@@ -359,6 +420,10 @@ export function ChatView() {
     [activeSessionId, newChatDraft.draft.id],
   );
   const isSymposium = trustedSessionType === 'symposium';
+  const sessionLaunch = useSessionLaunch(
+    sessionId || activeSessionId,
+    !isSymposium && (!sessionId || sessionId === activeSessionId),
+  );
   const ordinaryControls = !activeSessionId || trustedSessionType === 'chat';
   const accountScope = !sessionId && !activeSessionId ? newChatDraft.draft.id : activeSessionId;
   const [accountChoice, setAccountChoice] = useState<{
@@ -404,10 +469,21 @@ export function ChatView() {
     scope: string;
     message: string;
   } | null>(null);
+  const [clearedSavedRepositoryScope, setClearedSavedRepositoryScope] = useState<string | null>(
+    null,
+  );
+  const savedRepositoryId = newChatDraft.draft.settings.savedRepositoryWorkspaceId;
+  const savedRepositoryReason = draftEnabled
+    ? savedRepositorySelectionReason(
+        savedRepositoryId,
+        repositoryChoice?.scope === repositoryScope ? repositoryChoice.selection : null,
+        clearedSavedRepositoryScope === newChatDraft.draft.id,
+      )
+    : undefined;
   const repositoryAccountReason =
     repositoryAccountError?.scope === newChatDraft.draft.id
       ? repositoryAccountError.message
-      : undefined;
+      : savedRepositoryReason;
   const [removedRepositoryScope, setRemovedRepositoryScope] = useState<string | null>(null);
   const initialRepositoryId =
     draftEnabled && removedRepositoryScope !== newChatDraft.draft.id
@@ -553,15 +629,19 @@ export function ChatView() {
   );
 
   const storeMode = useMitzoStore((s) => s.config.mode);
-  const initialDraftMode = newChatDraft.restored
-    ? newChatDraft.draft.settings.mode
-    : searchParams.get('extraTools')
-      ? 'auto'
-      : storeMode;
+  const initialDraftMode =
+    newChatDraft.restored || newChatDraft.defaultsApplied
+      ? newChatDraft.draft.settings.mode
+      : searchParams.get('extraTools')
+        ? 'auto'
+        : storeMode;
   const [draftOptions, setDraftOptions] = useState({
     id: newChatDraft.draft.id,
     mode: initialDraftMode,
-    isolation: newChatDraft.restored ? newChatDraft.draft.settings.isolation : true,
+    isolation:
+      newChatDraft.restored || newChatDraft.defaultsApplied
+        ? newChatDraft.draft.settings.isolation
+        : true,
   });
   const mode = !draftEnabled
     ? storeMode
@@ -571,27 +651,36 @@ export function ChatView() {
   const isolation =
     draftOptions.id === newChatDraft.draft.id
       ? draftOptions.isolation
-      : newChatDraft.restored
+      : newChatDraft.restored || newChatDraft.defaultsApplied
         ? newChatDraft.draft.settings.isolation
         : true;
   const setIsolation = useCallback(
     (value: boolean | ((old: boolean) => boolean)) => {
+      markDraftEdited();
       setDraftOptions({
         id: newChatDraft.draft.id,
         mode,
         isolation: typeof value === 'function' ? value(isolation) : value,
       });
     },
-    [newChatDraft.draft.id, mode, isolation],
+    [newChatDraft.draft.id, mode, isolation, markDraftEdited],
   );
   const restoredOptionsScope = useRef<string | null>(null);
   useEffect(() => {
-    if (!draftEnabled || restoredOptionsScope.current === newChatDraft.draft.id) return;
-    restoredOptionsScope.current = newChatDraft.draft.id;
-    setDraftOptions({ id: newChatDraft.draft.id, mode: initialDraftMode, isolation });
+    const optionsScope = `${newChatDraft.draft.id}:${newChatDraft.defaultsRevision}`;
+    if (!draftEnabled || restoredOptionsScope.current === optionsScope) return;
+    restoredOptionsScope.current = optionsScope;
+    setDraftOptions({
+      id: newChatDraft.draft.id,
+      mode: initialDraftMode,
+      isolation: newChatDraft.defaultsApplied ? newChatDraft.draft.settings.isolation : isolation,
+    });
     if (initialDraftMode !== storeMode && modeChangeReady !== false) storeSetMode(initialDraftMode);
   }, [
     newChatDraft.draft.id,
+    newChatDraft.defaultsRevision,
+    newChatDraft.defaultsApplied,
+    newChatDraft.draft.settings.isolation,
     draftEnabled,
     initialDraftMode,
     isolation,
@@ -640,6 +729,8 @@ export function ChatView() {
               mode,
               isolation,
               repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId ?? null,
+              savedRepositoryWorkspaceId:
+                clearedSavedRepositoryScope === newChatDraft.draft.id ? null : savedRepositoryId,
               search: settingsSearch,
             },
           }
@@ -658,6 +749,8 @@ export function ChatView() {
       mode,
       isolation,
       repositorySelection?.repositoryWorkspaceId,
+      clearedSavedRepositoryScope,
+      savedRepositoryId,
       explicitNew,
       localRuntime.intent,
       localRuntime.inventory,
@@ -764,7 +857,7 @@ export function ChatView() {
       (!repositoryHandoff.present || repositoryHandoff.assignedConversationId === activeSessionId)
     ) {
       awaitingNewSession.current = false;
-      navigate(`/chat/${activeSessionId}`, { replace: true });
+      navigate(`/chat/${activeSessionId}`, { replace: true, state: { chatAssignment: true } });
     }
   }, [
     activeSessionId,
@@ -815,6 +908,7 @@ export function ChatView() {
     replyTo?: MessageReplyContext,
     queuedCommandId?: string,
   ): boolean {
+    if (defaultsReason || extraToolsReason || defaultContextReason) return false;
     if (
       (activeSessionId && !isSessionMetadataCurrent(activeSessionId, sessionMetadataRevision)) ||
       roleSetupRequested ||
@@ -993,7 +1087,7 @@ export function ChatView() {
         : {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
-      extraTools: searchParams.get('extraTools') ?? undefined,
+      extraTools: currentExtraTools,
       ...(!activeSessionId && agentProfile ? { agentProfile } : {}),
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     };
@@ -1039,7 +1133,7 @@ export function ChatView() {
       return;
     }
     if (localBound) {
-      if (!supportsSteering || images?.length || ctxBlocks?.length || repositoryHandoff.present) {
+      if (!supportsSteering || ctxBlocks?.length || repositoryHandoff.present) {
         onDelivery?.('failed');
         return;
       }
@@ -1051,6 +1145,7 @@ export function ChatView() {
         queuedCommandId,
         retainedSteeringTarget,
         onDefinitiveRefusal,
+        images?.map(({ data, mediaType }) => ({ data, mediaType })),
       );
       return;
     }
@@ -1087,6 +1182,7 @@ export function ChatView() {
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
     if (controlsBlocked) return;
+    markDraftEdited();
     if (draftEnabled) setDraftOptions({ id: newChatDraft.draft.id, mode: newMode, isolation });
     storeSetMode(newMode);
   }
@@ -1131,6 +1227,70 @@ export function ChatView() {
     !repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
       <AccountModelPicker
         presentation="settings"
+        defaultsControl={
+          !activeSessionId
+            ? (() => {
+                const runtime = sessionLaunchRuntime(localRuntime.intent);
+                const configuration = SessionLaunchConfigSchema.safeParse({
+                  version: 1,
+                  runtime,
+                  mode,
+                  isolation,
+                  repositoryWorkspaceId:
+                    repositorySelection?.repositoryWorkspaceId ??
+                    (clearedSavedRepositoryScope === newChatDraft.draft.id
+                      ? null
+                      : savedRepositoryId) ??
+                    null,
+                  contextBlocks:
+                    clearedDefaultContextScope === newChatDraft.draft.id
+                      ? []
+                      : (getChatDraft(newChatDraft.draft.id)?.contextBlocks ??
+                        newChatDraft.draft.contextBlocks),
+                  extraTools: (currentExtraTools ?? '').split(',').filter(Boolean),
+                });
+                return (
+                  <>
+                    <SessionLaunchDefaultsControl
+                      configuration={configuration.success ? configuration.data : null}
+                      defaults={newChatDraft.defaults}
+                      disabled={controlsBlocked || messages.running}
+                    />
+                    {extraToolsReason && (
+                      <QuickSettingsSupplement page="defaults">
+                        <p role="status">{extraToolsReason}</p>
+                        <button
+                          type="button"
+                          className="home-secondary"
+                          onClick={() => {
+                            markDraftEdited();
+                            setClearedExtraToolsScope(newChatDraft.draft.id);
+                          }}
+                        >
+                          Clear additional tools for this chat
+                        </button>
+                      </QuickSettingsSupplement>
+                    )}
+                    {defaultContextReason && (
+                      <QuickSettingsSupplement page="defaults">
+                        <p role="status">{defaultContextReason}</p>
+                        <button
+                          type="button"
+                          className="home-secondary"
+                          onClick={() => {
+                            markDraftEdited();
+                            setClearedDefaultContextScope(newChatDraft.draft.id);
+                          }}
+                        >
+                          Clear saved context for this chat
+                        </button>
+                      </QuickSettingsSupplement>
+                    )}
+                  </>
+                );
+              })()
+            : undefined
+        }
         controlled={
           explicitNew || localRuntime.commandAvailable
             ? {
@@ -1151,7 +1311,7 @@ export function ChatView() {
                   ),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
                 accountReference: localRuntime.intent.accountReference ?? null,
-                onRefresh: localRuntime.refresh,
+                onRefresh: localRuntime.refreshModels,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
                   (!briefingOwnedDraft ||
@@ -1256,10 +1416,12 @@ export function ChatView() {
       presentation="settings"
       executionLocked={preparedExecutionLocked}
       runtime={localRuntime}
-      disabled={
-        (messages.running && !localRuntime.continuation) ||
-        (!!localCommand && localCommand.state !== 'consumed')
-      }
+      disabled={isChatExecutionLocked({
+        draftId: draftEnabled ? newChatDraft.draft.id : null,
+        running: messages.running,
+        continuation: localRuntime.continuation,
+        command: localCommand,
+      })}
     />
   );
   const runtimeModelLabel =
@@ -1330,7 +1492,26 @@ export function ChatView() {
 
   const settings = !isSymposium ? (
     <AgentSettingsFields
-      repository={repositoryControl}
+      repository={
+        <>
+          {repositoryControl}
+          {savedRepositoryReason && (
+            <QuickSettingsSupplement page="repository">
+              <p role="status">{savedRepositoryReason}</p>
+              <button
+                type="button"
+                className="home-secondary"
+                onClick={() => {
+                  markDraftEdited();
+                  setClearedSavedRepositoryScope(newChatDraft.draft.id);
+                }}
+              >
+                Use default repository
+              </button>
+            </QuickSettingsSupplement>
+          )}
+        </>
+      }
       agent={agentControl}
       accountModel={accountModelControl}
       execution={executionControl}
@@ -1338,6 +1519,7 @@ export function ChatView() {
         activeSessionId ? (
           <details className="composer-session-details" open>
             <summary>Session details</summary>
+            <SessionLaunchOrigin origin={sessionLaunch.origin} />
             <dl>
               <dt>Account</dt>
               <dd>
@@ -1451,6 +1633,8 @@ export function ChatView() {
             />
           )}
           <SessionAccess
+            launches={isSymposium ? undefined : sessionLaunch}
+            disabled={controlsBlocked || localRuntime.metadataPending}
             sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
             selection={accountSelection}
             connected={connected}
@@ -1724,6 +1908,8 @@ export function ChatView() {
             actions: (
               <>
                 <SessionAccess
+                  launches={isSymposium ? undefined : sessionLaunch}
+                  disabled={controlsBlocked || localRuntime.metadataPending}
                   sessionId={activeSessionId ?? undefined}
                   selection={accountSelection}
                   connected={connected}
@@ -1756,12 +1942,31 @@ export function ChatView() {
           readOnly={controlsBlocked || localBound}
           sessionId={sessionId ?? activeSessionId}
           chat={{
+            launchRequests: !isSymposium ? sessionLaunch.requests : undefined,
+            onLaunchUpdate: sessionLaunch.refresh,
+            launchDisabled:
+              controlsBlocked || localRuntime.metadataPending || Boolean(sessionLaunch.error),
             onReply:
               !isSymposium && activeSessionId && !controlsBlocked
                 ? (message) => setReplySelection({ session: activeSessionId, message })
                 : undefined,
+            beforeMessages: !isSymposium ? (
+              <SessionLaunchOrigin origin={sessionLaunch.origin} />
+            ) : undefined,
             afterMessages: !isSymposium ? (
               <>
+                {sessionLaunch.error && (
+                  <p role="alert">
+                    {sessionLaunch.error}
+                    <button
+                      type="button"
+                      className="session-links-new"
+                      onClick={sessionLaunch.refresh}
+                    >
+                      Refresh links
+                    </button>
+                  </p>
+                )}
                 <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
                 <TelosWorkControls data={telosRoute.data} conversationId={activeSessionId} />
               </>
@@ -1848,7 +2053,7 @@ export function ChatView() {
                 }
               />
               <CodexQueueStatus
-                sessionId={controlsBlocked ? null : activeSessionId}
+                sessionId={conversationScopeBlocked ? null : activeSessionId}
                 deliveryStatus={
                   (retainedLocalCommand && !ownsLocalCommand) ||
                   (localCommand && localCommand.state !== 'consumed')
@@ -1894,195 +2099,229 @@ export function ChatView() {
                   }}
                 />
               )}
-              <ChatInput
-                steeringTargetCommandId={steerTarget}
-                replyTarget={
-                  replySelection?.session === activeSessionId ? replySelection?.message : undefined
-                }
-                onClearReply={() =>
-                  setReplySelection((current) =>
-                    current?.session === activeSessionId ? null : current,
-                  )
-                }
-                collaboration={
-                  activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
-                    <OrdinaryCollaborationEntry sessionId={activeSessionId} compact />
-                  ) : undefined
-                }
-                compactions={compactionHistory.records}
-                compactionError={compactionHistory.error}
-                compactionTruncated={compactionHistory.truncated}
-                sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
-                boundedFirstCommand={localFirstCommand || controlsBlocked}
-                guardedConversation={localRuntime.commandAvailable}
-                validateSend={
-                  localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable
-                    ? (text, images) => prepareOrdinaryCommand(text, images).reason
-                    : localRuntime.continuation &&
-                        activeSessionId &&
-                        localRuntime.repositoryWorkspaceId
-                      ? (text, images) =>
-                          prepareLocalContinuationCommand(
-                            localRuntime.intent,
-                            localRuntime.inventory,
-                            {
-                              sessionId: activeSessionId,
-                              clientMsgId: createBrowserId(),
-                              repositoryWorkspaceId: localRuntime.repositoryWorkspaceId!,
-                              mode: localRuntime.mode ?? 'agent',
-                              retainedAgentProfile: localRuntime.agentProfile,
-                              retainedAgentContext: localRuntime.agentContext,
-                              nativeConstraint: localRuntime.nativeConstraint,
-                              text,
-                              images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
-                            },
-                          ).reason
-                      : localFirstCommand &&
-                          (repositorySelection?.repositoryWorkspaceId || defaultWorkspaceAvailable)
+              {newChatDraft.defaultsHydrating ? (
+                <ChatStatusMessage status="Loading saved agent configuration…" busy />
+              ) : (
+                <ChatInput
+                  composerCapabilities={chatComposerCapabilities({
+                    ordinary: explicitNew || localBound,
+                    location:
+                      localRuntime.binding?.execution.location ??
+                      localRuntime.intent.execution.location,
+                    sessionId: activeSessionId,
+                    draftId: newChatDraft.draft.id,
+                    blocked: controlsBlocked || repositoryHandoff.present || isSymposium,
+                  })}
+                  steeringTargetCommandId={steerTarget}
+                  replyTarget={
+                    replySelection?.session === activeSessionId
+                      ? replySelection?.message
+                      : undefined
+                  }
+                  onClearReply={() =>
+                    setReplySelection((current) =>
+                      current?.session === activeSessionId ? null : current,
+                    )
+                  }
+                  collaboration={
+                    activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
+                      <OrdinaryCollaborationEntry sessionId={activeSessionId} compact />
+                    ) : undefined
+                  }
+                  compactions={compactionHistory.records}
+                  compactionError={compactionHistory.error}
+                  compactionTruncated={compactionHistory.truncated}
+                  sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
+                  boundedFirstCommand={localFirstCommand || controlsBlocked}
+                  guardedConversation={localRuntime.commandAvailable}
+                  cwd={localRuntime.cwd}
+                  skillWorkspaceId={
+                    activeSessionId ? undefined : repositorySelection?.repositoryWorkspaceId
+                  }
+                  validateSend={
+                    localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable
+                      ? (text, images) => prepareOrdinaryCommand(text, images).reason
+                      : localRuntime.continuation &&
+                          activeSessionId &&
+                          localRuntime.repositoryWorkspaceId
                         ? (text, images) =>
-                            prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
-                              clientMsgId: createBrowserId(),
-                              repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId,
-                              mode,
-                              text,
-                              sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
-                              images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
-                            }).reason
-                        : undefined
-                }
-                savedChatDraft={launch || savedLaunch ? undefined : savedChatDraft}
-                acceptedComposerDraft={
-                  localCommand?.state === 'consumed' && localCommand.sessionId === activeSessionId
-                    ? localCommand.composerDraft
-                    : undefined
-                }
-                composerGeneration={chatDraftRevision}
-                key={
-                  repositoryHandoff.present
-                    ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
-                    : undefined
-                }
-                onSend={(
-                  text,
-                  images,
-                  context,
-                  onDelivery,
-                  onSessionAssigned,
-                  composerDraft,
-                  replyTo,
-                  queuedCommandId,
-                ) =>
-                  handleSend(
+                            prepareLocalContinuationCommand(
+                              localRuntime.intent,
+                              localRuntime.inventory,
+                              {
+                                sessionId: activeSessionId,
+                                clientMsgId: createBrowserId(),
+                                repositoryWorkspaceId: localRuntime.repositoryWorkspaceId!,
+                                mode: localRuntime.mode ?? 'agent',
+                                retainedAgentProfile: localRuntime.agentProfile,
+                                retainedAgentContext: localRuntime.agentContext,
+                                nativeConstraint: localRuntime.nativeConstraint,
+                                text,
+                                images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+                              },
+                            ).reason
+                        : localFirstCommand &&
+                            (repositorySelection?.repositoryWorkspaceId ||
+                              defaultWorkspaceAvailable)
+                          ? (text, images) =>
+                              prepareLocalFirstCommand(
+                                localRuntime.intent,
+                                localRuntime.inventory,
+                                {
+                                  clientMsgId: createBrowserId(),
+                                  repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId,
+                                  mode,
+                                  text,
+                                  sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
+                                  images: images?.map(({ data, mediaType }) => ({
+                                    data,
+                                    mediaType,
+                                  })),
+                                },
+                              ).reason
+                          : undefined
+                  }
+                  savedChatDraft={launch || savedLaunch ? undefined : savedChatDraft}
+                  externalContextBlocks={explicitNew ? currentDefaultContext : undefined}
+                  onExternalContextBlockToggle={
+                    explicitNew ? newChatDraft.removeContextBlock : undefined
+                  }
+                  acceptedComposerDraft={
+                    localCommand?.state === 'consumed' && localCommand.sessionId === activeSessionId
+                      ? localCommand.composerDraft
+                      : undefined
+                  }
+                  composerGeneration={chatDraftRevision}
+                  key={
+                    repositoryHandoff.present
+                      ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
+                      : undefined
+                  }
+                  onSend={(
                     text,
                     images,
                     context,
-                    false,
                     onDelivery,
                     onSessionAssigned,
                     composerDraft,
                     replyTo,
                     queuedCommandId,
-                  )
-                }
-                onStop={handleStop}
-                onInterrupt={localBound && !supportsSteering ? undefined : handleInterrupt}
-                interruptLabel={supportsSteering ? 'Steer current turn' : undefined}
-                interruptDisabledReason={
-                  supportsSteering
-                    ? !steerTarget
-                      ? 'Waiting for the active turn to be confirmed.'
-                      : undefined
-                    : undefined
-                }
-                running={repositoryHandoff.present ? false : messages.running}
-                initialText={initialPrompt}
-                draftControl={repositoryDraftControl}
-                draftStorageKey={
-                  repositoryHandoff.present
-                    ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
-                    : launch?.draftId
-                      ? chatDraftTextKey(launch.draftId)
-                      : newChatDraft.missing
-                        ? chatDraftStorageKey(newChatDraft.draft.id)
+                  ) =>
+                    handleSend(
+                      text,
+                      images,
+                      context,
+                      false,
+                      onDelivery,
+                      onSessionAssigned,
+                      composerDraft,
+                      replyTo,
+                      queuedCommandId,
+                    )
+                  }
+                  onStop={handleStop}
+                  onInterrupt={localBound && !supportsSteering ? undefined : handleInterrupt}
+                  interruptLabel={supportsSteering ? 'Steer current turn' : undefined}
+                  interruptDisabledReason={
+                    supportsSteering
+                      ? !steerTarget
+                        ? 'Waiting for the active turn to be confirmed.'
                         : undefined
-                }
-                sendDisabledAction={
-                  localCommand && !['pending', 'consumed'].includes(localCommand.state)
-                    ? {
-                        label: 'Retry',
-                        onClick: () => {
-                          recoverLocalCommand();
-                        },
-                        disabled:
-                          !connected || !localCommand.request || localCommand.state === 'blocked',
-                      }
-                    : undefined
-                }
-                sendDisabledReason={
-                  (invalidRoleSetup
-                    ? 'This work conversation setup is unavailable. Return to the work item and choose a supported role.'
-                    : roleIntent
-                      ? 'Open the bound work chat before sending a message.'
+                      : localBound
+                        ? 'Steering is unavailable for this engine and runtime. Your prompt remains queued.'
+                        : undefined
+                  }
+                  running={repositoryHandoff.present ? false : messages.running}
+                  awaitingApproval={
+                    !explicitNew && !repositoryHandoff.present && !!messages.permission
+                  }
+                  initialText={initialPrompt}
+                  draftControl={repositoryDraftControl}
+                  draftStorageKey={
+                    repositoryHandoff.present
+                      ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
+                      : launch?.draftId
+                        ? chatDraftTextKey(launch.draftId)
+                        : newChatDraft.missing
+                          ? chatDraftStorageKey(newChatDraft.draft.id)
+                          : undefined
+                  }
+                  sendDisabledAction={
+                    localCommand && !['pending', 'consumed'].includes(localCommand.state)
+                      ? {
+                          label: 'Retry',
+                          onClick: () => {
+                            recoverLocalCommand();
+                          },
+                          disabled:
+                            localCommand.state !== 'blocked' &&
+                            (!connected || !localCommand.request),
+                        }
+                      : undefined
+                  }
+                  sendDisabledReason={
+                    (invalidRoleSetup
+                      ? 'This work conversation setup is unavailable. Return to the work item and choose a supported role.'
+                      : roleIntent
+                        ? 'Open the bound work chat before sending a message.'
+                        : undefined) ??
+                    defaultsReason ??
+                    extraToolsReason ??
+                    defaultContextReason ??
+                    builderSourceReason ??
+                    briefingLaunchReason ??
+                    localRuntime.reason ??
+                    defaultWorkspaceReason ??
+                    (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
+                    (localRuntime.commandAvailable &&
+                    localCommand &&
+                    localCommand.state !== 'consumed'
+                      ? localCommandStatusMessage(localCommand.state)
                       : undefined) ??
-                  builderSourceReason ??
-                  briefingLaunchReason ??
-                  localRuntime.reason ??
-                  defaultWorkspaceReason ??
-                  (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
-                  (localRuntime.commandAvailable &&
-                  localCommand &&
-                  localCommand.state !== 'consumed'
-                    ? localCommand.state === 'pending'
-                      ? 'Sending…'
-                      : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                        ? 'Delivery not confirmed.'
-                        : 'Something went wrong.'
-                    : undefined) ??
-                  (explicitNew && localCommand && localCommand.state !== 'consumed'
-                    ? localCommand.state === 'pending'
-                      ? 'Sending…'
-                      : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                        ? 'Delivery not confirmed.'
-                        : 'Something went wrong.'
-                    : undefined) ??
-                  (localFirstCommand && (!localTransportAvailable || !connected)
-                    ? 'Execution connection is unavailable. Reconnect before sending.'
-                    : undefined) ??
-                  (explicitNew &&
-                  !defaultWorkspaceAvailable &&
-                  !repositorySelection?.repositoryWorkspaceId
-                    ? 'Prepare a repository before sending the command.'
-                    : undefined) ??
-                  (launchDeliveryPending
-                    ? 'Waiting for this launch’s delivery confirmation. Its draft is retained.'
-                    : undefined) ??
-                  (launchAccountError || undefined) ??
-                  missingDraftReason ??
-                  repositoryAccountReason ??
-                  (launch?.briefing
-                    ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
-                    : undefined) ??
-                  repositoryHandoffReason ??
-                  (!activeSessionId && !explicitNew ? agentProfileBlocked : undefined) ??
-                  (!activeSessionId && repositorySelection?.blocked
-                    ? 'Prepare or remove the repository before sending.'
-                    : !activeSessionId && !accountSelection
-                      ? 'Select an account before sending.'
-                      : undefined)
-                }
-                voice={voice}
-                branch={messages.branch || undefined}
-                isolation={isolation}
-                onIsolationChange={!activeSessionId && !explicitNew ? setIsolation : undefined}
-                isWorktree={messages.isWorktree}
-                wtId={messages.wtId || undefined}
-                sessionId={repositoryHandoff.present ? undefined : (commandSessionId ?? undefined)}
-                tokenState={tokens}
-                messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
-                current={sessionId && sessionId !== activeSessionId ? null : messages.current}
-                bootContext={bootContext}
-                sessionContext={sessionContext}
-              />
+                    (explicitNew && localCommand && localCommand.state !== 'consumed'
+                      ? localCommandStatusMessage(localCommand.state)
+                      : undefined) ??
+                    (localFirstCommand && (!localTransportAvailable || !connected)
+                      ? 'Execution connection is unavailable. Reconnect before sending.'
+                      : undefined) ??
+                    (explicitNew &&
+                    !defaultWorkspaceAvailable &&
+                    !repositorySelection?.repositoryWorkspaceId
+                      ? 'Prepare a repository before sending the command.'
+                      : undefined) ??
+                    (launchDeliveryPending
+                      ? 'Waiting for this launch’s delivery confirmation. Its draft is retained.'
+                      : undefined) ??
+                    (launchAccountError || undefined) ??
+                    missingDraftReason ??
+                    repositoryAccountReason ??
+                    (launch?.briefing
+                      ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
+                      : undefined) ??
+                    repositoryHandoffReason ??
+                    (!activeSessionId && !explicitNew ? agentProfileBlocked : undefined) ??
+                    (!activeSessionId && repositorySelection?.blocked
+                      ? 'Prepare or remove the repository before sending.'
+                      : !activeSessionId && !accountSelection
+                        ? 'Select an account before sending.'
+                        : undefined)
+                  }
+                  voice={voice}
+                  branch={messages.branch || undefined}
+                  isolation={isolation}
+                  onIsolationChange={!activeSessionId && !explicitNew ? setIsolation : undefined}
+                  isWorktree={messages.isWorktree}
+                  wtId={messages.wtId || undefined}
+                  sessionId={
+                    repositoryHandoff.present ? undefined : (commandSessionId ?? undefined)
+                  }
+                  tokenState={tokens}
+                  messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
+                  current={sessionId && sessionId !== activeSessionId ? null : messages.current}
+                  bootContext={bootContext}
+                  sessionContext={sessionContext}
+                />
+              )}
             </div>
           }
         />

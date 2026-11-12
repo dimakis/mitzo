@@ -1,3 +1,6 @@
+import { hasUnsentRetainedAgentMessage } from '../retained-application-effects.js';
+import { retainedCallbackOutcome } from '../turn-callbacks.js';
+import { sessionAgentCommunicationTools } from '../agent-communication-tools.js';
 import { afterEach, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -27,9 +30,20 @@ it('retains exact attributed peer messages, request identity and uncertain deliv
     text: 'Can you review the result?',
   };
   const origin = { turnId: 'native-a-turn', callId: 'native-a-call' };
+  expect(
+    hasUnsentRetainedAgentMessage(events, 'a', { operation: 'send', ...input }, () => {}),
+  ).toBe(true);
+  expect(() =>
+    hasUnsentRetainedAgentMessage(events, 'a', { operation: 'send', ...input }, () => {
+      throw Error('revoked');
+    }),
+  ).toThrow('revoked');
   const first = events.agentCommunication.reserve('a', 'signed-operator', origin, input);
   expect(first.senderConversationId).toBe('a');
   expect(first.status).toBe('pending');
+  expect(
+    hasUnsentRetainedAgentMessage(events, 'a', { operation: 'send', ...input }, () => {}),
+  ).toBe(false);
   expect(events.agentCommunication.reserve('a', 'signed-operator', origin, input)).toEqual(first);
   expect(() =>
     events.agentCommunication.reserve('a', 'signed-operator', origin, {
@@ -92,4 +106,20 @@ it('correlates an explicit reply with its original participants and never manufa
   expect(reply.replyTo).toBe(first.messageId);
   expect(events.agentCommunication.inbox('a').messages).toHaveLength(1);
   expect(events.agentCommunication.inbox('b').messages).toHaveLength(1);
+});
+
+it('retains a settled refusal when no original sender exists and no message can be reserved', async () => {
+  const tools = sessionAgentCommunicationTools({
+    registry: { findBySessionId: () => undefined },
+    conversationId: 'missing',
+    session: {},
+  } as never);
+  const failure = await tools
+    .execute({ operation: 'list' }, new AbortController().signal, {
+      turnId: 'original-turn',
+      callId: 'original-call',
+    })
+    .catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(Error);
+  expect(retainedCallbackOutcome(failure as Error)).toBe('settled');
 });

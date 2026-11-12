@@ -71,7 +71,7 @@ vi.mock('@mitzo/harness', async (importOriginal) => {
   };
 });
 
-import { getPendingCountBySession } from '@mitzo/harness';
+import { getPendingCountBySession, registerPending, removePending } from '@mitzo/harness';
 const mockGetPending = getPendingCountBySession as ReturnType<typeof vi.fn>;
 
 // ─── Mock worktree module ────────────────────────────────────────────────────
@@ -90,6 +90,37 @@ describe('SessionOverviewEmitter', () => {
   let emitter: SessionOverviewEmitter;
   let deps: SessionOverviewDeps;
 
+  it.each([false, true])(
+    'shows the latest admitted model for an ordinary chat (live: %s)',
+    (live) => {
+      const meta = {
+        sessionId: 'session-1',
+        selectedModel: 'astra-fixture',
+        accountBinding: {
+          accountId: 'personal',
+          accountLabel: 'Personal',
+          provider: 'openai-codex',
+          model: 'astra-fixture',
+          profileRevision: 'fixture',
+        },
+        lastSpeaker: 'assistant',
+        lastSpeakerAt: Date.now(),
+        updatedAt: Date.now(),
+      } as SessionMeta;
+      deps = makeDeps();
+      vi.mocked(deps.registry.getActiveSessions).mockReturnValue(
+        live ? [makeActiveSession({ model: 'astra-fixture' })] : [],
+      );
+      vi.mocked(deps.eventStore.getSession).mockReturnValue(meta);
+      vi.mocked(deps.eventStore.getAttentionSessions).mockReturnValue(live ? [] : [meta]);
+      deps.eventStore.getLatestOrdinaryCommandAdmission = vi
+        .fn()
+        .mockReturnValue({ selection: { model: 'sol-fixture' } });
+      emitter = new SessionOverviewEmitter(deps);
+      expect(emitter.getSnapshot()[0]).toMatchObject({ model: 'sol-fixture' });
+    },
+  );
+
   beforeEach(() => {
     vi.useFakeTimers();
     mockGetPending.mockReturnValue(0);
@@ -103,6 +134,148 @@ describe('SessionOverviewEmitter', () => {
   });
 
   // ─── getSnapshot ──────────────────────────────────────────────────────────
+
+  it('broadcasts approval creation and resolution without waiting for provider traffic', () => {
+    deps = makeDeps();
+    emitter = new SessionOverviewEmitter(deps);
+    registerPending('overview-test', 'Read', vi.fn(), {}, undefined, 'session-1', {
+      permId: 'overview-test',
+      sessionId: 'session-1',
+      toolName: 'Read',
+      toolInput: '',
+    });
+    vi.advanceTimersByTime(201);
+    expect(deps.sseRegistry.broadcast).toHaveBeenCalledWith('session_activity', []);
+    vi.mocked(deps.sseRegistry.broadcast).mockClear();
+    removePending('overview-test');
+    vi.advanceTimersByTime(201);
+    expect(deps.sseRegistry.broadcast).toHaveBeenCalledWith('session_activity', []);
+    emitter.destroy();
+    vi.mocked(deps.sseRegistry.broadcast).mockClear();
+    registerPending('overview-test', 'Read', vi.fn(), {}, undefined, 'session-1', {
+      permId: 'overview-test',
+      toolName: 'Read',
+      toolInput: '',
+    });
+    vi.advanceTimersByTime(201);
+    expect(deps.sseRegistry.broadcast).not.toHaveBeenCalled();
+    removePending('overview-test');
+  });
+
+  it('publishes separate clocks and phases from current-owner live events', () => {
+    vi.setSystemTime(1000);
+    const session = makeActiveSession({ turnInProgress: false });
+    deps = makeDeps({
+      registry: {
+        get: () => session,
+        getActiveSessions: () => [session],
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    deps.eventStore.updateLastSpeaker = vi.fn();
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.sessionChanged(session.clientId, 'user_message');
+    emitter.sessionChanged(session.clientId, 'turn_start');
+    vi.setSystemTime(2000);
+    emitter.observeEvent(session.clientId, {
+      sessionId: 'session-1',
+      type: 'block_start',
+      blockType: 'tool_use',
+      toolName: 'Read',
+    });
+    expect(emitter.getSnapshot()[0]).toMatchObject({
+      phase: 'reading',
+      turnStartedAt: 1000,
+      lastMessageAt: 1000,
+      lastEventAt: 2000,
+    });
+    vi.setSystemTime(3000);
+    emitter.observeEvent(session.clientId, {
+      sessionId: 'foreign',
+      type: 'block_start',
+      blockType: 'text',
+      messageId: 'x',
+    });
+    expect(emitter.getSnapshot()[0].lastEventAt).toBe(2000);
+    emitter.observeEvent(session.clientId, {
+      sessionId: 'session-1',
+      type: 'block_start',
+      blockType: 'text',
+      messageId: 'm',
+    });
+    expect(emitter.getSnapshot()[0]).toMatchObject({ phase: 'reply', lastMessageAt: 3000 });
+    vi.setSystemTime(4000);
+    emitter.sessionChanged(session.clientId, 'turn_end');
+    expect(emitter.getSnapshot()[0]).toMatchObject({
+      state: 'done',
+      completedAt: 4000,
+      lastMessageAt: 4000,
+    });
+  });
+
+  it('does not infer execution from registration or retained input before admission', () => {
+    const session = makeActiveSession({ turnInProgress: false });
+    deps = makeDeps({
+      registry: {
+        get: () => session,
+        getActiveSessions: () => [session],
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    deps.eventStore.updateLastSpeaker = vi.fn();
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.sessionChanged(session.clientId, 'start');
+    emitter.sessionChanged(session.clientId, 'user_message');
+    expect(emitter.getSnapshot()[0].state).not.toBe('working');
+    // A rejected/cancelled admission has no provider result. Retention cannot
+    // create a turn, or clear another command's already running turn.
+    emitter.sessionChanged(session.clientId, 'turn_start');
+    emitter.sessionChanged(session.clientId, 'user_message');
+    expect(emitter.getSnapshot()[0].state).toBe('working');
+    emitter.sessionChanged(session.clientId, 'turn_end');
+    emitter.sessionChanged(session.clientId, 'start');
+    emitter.sessionChanged(session.clientId, 'user_message');
+    expect(emitter.getSnapshot()[0].state).not.toBe('working');
+    expect(session.turnInProgress).toBe(false);
+  });
+
+  it.each([true, false])(
+    'keeps a running turn working between messages (attached=%s)',
+    (attached) => {
+      const session = makeActiveSession({ attached, hasSnapshot: false });
+      deps = makeDeps({
+        registry: {
+          get: () => session,
+          getActiveSessions: () => [session],
+        } as unknown as SessionOverviewDeps['registry'],
+      });
+      emitter = new SessionOverviewEmitter(deps);
+      emitter.setTurnRunning(session.clientId, true);
+      emitter.updateSpeaker('session-1', 'assistant');
+      vi.advanceTimersByTime(6 * 60_000);
+      expect(emitter.getSnapshot()[0]).toMatchObject({ state: 'working', awaitingReply: false });
+      emitter.setTurnRunning(session.clientId, false);
+      expect(emitter.getSnapshot()[0]).toMatchObject({ state: 'done', awaitingReply: true });
+      vi.advanceTimersByTime(5 * 60_000);
+      expect(emitter.getSnapshot()[0].state).toBe('idle');
+    },
+  );
+
+  it('does not renew completion time when an untouched session is read again', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: () => [makeActiveSession()],
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getSession: () => ({ lastSpeakerAt: Date.now() - 10 * 60_000 }),
+        getAttentionSessions: () => [],
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    const first = emitter.getSnapshot()[0];
+    vi.advanceTimersByTime(60_000);
+    const second = emitter.getSnapshot()[0];
+    expect(first.state).toBe('idle');
+    expect(second.lastEventAt).toBe(first.lastEventAt);
+  });
 
   it('returns empty array when no active sessions', () => {
     deps = makeDeps();
@@ -861,6 +1034,21 @@ describe('SessionOverviewEmitter', () => {
 
   // ─── Background uncommitted work refresh ────────────────────────────────
 
+  it('does not run host Git for a session bound to OpenShell', async () => {
+    mockHasUncommittedWorkAsync.mockClear();
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: () => [makeActiveSession({ cwd: '/sandbox/workspaces/mgmt' })],
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    deps.eventStore.getSessionRuntimeBinding = vi.fn(() => ({
+      execution: { location: 'openshell' },
+    })) as never;
+    emitter = new SessionOverviewEmitter(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockHasUncommittedWorkAsync).not.toHaveBeenCalled();
+  });
+
   it('does not call git synchronously during compute', async () => {
     mockHasUncommittedWorkAsync.mockClear();
     mockHasUncommittedWorkAsync.mockImplementation(async () => 'M dirty.ts');
@@ -986,6 +1174,26 @@ describe('SessionOverviewEmitter', () => {
     // Simulate user sends a message → no longer awaiting reply
     emitter.updateSpeaker('session-1', 'user');
     expect(emitter.getSnapshot()[0].awaitingReply).toBe(false);
+  });
+
+  it('retains a distinct user-message timestamp through assistant and activity updates', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession()]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.updateSpeaker('session-1', 'user');
+    const sentAt = Date.now();
+    expect(emitter.getSnapshot()[0]).toMatchObject({ lastUserMessageAt: sentAt });
+    vi.advanceTimersByTime(1000);
+    emitter.updateSpeaker('session-1', 'assistant');
+    emitter.touch('client-1');
+    expect(emitter.getSnapshot()[0]).toMatchObject({ lastUserMessageAt: sentAt });
+    emitter.updateSpeaker('session-1', 'user');
+    expect(emitter.getSnapshot()[0]).toMatchObject({ lastUserMessageAt: Date.now() });
+    emitter.forget('client-1', 'session-1');
+    expect(emitter.getSnapshot()[0]).not.toHaveProperty('lastUserMessageAt', sentAt);
   });
 
   it('forget clears speakerCache when sessionId is provided', () => {

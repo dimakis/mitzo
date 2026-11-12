@@ -7,6 +7,10 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { INITIAL_MESSAGES_STATE, messagesReducer } from '@mitzo/client';
+vi.mock('../../hooks/useSessionLaunchDefaults', async () => ({
+  useSessionLaunchDefaults: (await import('../../test-utils/no-session-launch-defaults'))
+    .noSessionLaunchDefaults,
+}));
 
 function openAgentSettings() {
   const trigger = screen.getByRole('button', { name: /^Workspace controls,/ });

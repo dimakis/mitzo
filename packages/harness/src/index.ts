@@ -27,12 +27,26 @@ export type { SseClient } from './sse-registry.js';
 
 // Permissions
 export {
+  githubReadCommandRepository,
+  githubCommandConsentDescription,
+} from './github-command-consent.js';
+export {
+  assertToolGuardCurrent,
+  DEFAULT_TOOL_GUARD_POLICY,
+  runGuardedTool,
+  runBoundedToolCleanup,
+  ToolGuardTimeoutError,
+  withToolGuardPhase,
+} from './tool-guard.js';
+export type { ToolGuardObservation, ToolGuardPhase, ToolGuardPolicy } from './tool-guard.js';
+export {
   onPermissionLifecycle,
   registerPending,
   resolvePending,
   removePending,
   hasPending,
   isCompletePendingBashCommand,
+  isCompletePendingToolInput,
   getPendingSessionId,
   denyPendingBySession,
   getPendingCountBySession,
@@ -43,6 +57,8 @@ export {
   dismissReviewedTelosSourcePermission,
 } from './permissions.js';
 export type { PendingTelosSourceReview } from './permissions.js';
+export { onPermissionAudit, recordPermissionAudit } from './permission-audit.js';
+export type { PermissionAuditEvent } from './permission-audit.js';
 
 // Tool tiers
 export type { ToolTier } from './tool-tiers.js';
@@ -65,6 +81,7 @@ export {
 export type { OnDemandCreateFn, CheckWorktreePolicyOptions } from './worktree-guard.js';
 
 // Notifications
+export { registerPermissionNotificationOwner } from './permission-notification-owner.js';
 export * as ntfy from './notify.js';
 export * as pushover from './pushover.js';
 
@@ -96,6 +113,7 @@ export {
   extractRecentPrompts,
   generateSessionName,
   generateSessionNameFallback,
+  isGenericSessionName,
   createAnthropicClient,
   setClientFactory,
   resetClientFactory,

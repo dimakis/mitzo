@@ -1,4 +1,5 @@
 import { capturePrivateRepositoryPublicationEntries } from './private-repository-publication-entries.js';
+import { joinRetainedFinalizers } from './retained-finalization.js';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, writeFile, cp } from 'node:fs/promises';
@@ -76,15 +77,21 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     operation.assertCurrentSync();
     owner.assertCurrentSync();
   };
-  const full = async () => {
+  const nativeProof = () => owner.assertCurrent();
+  const sourceProof = () => operation.assertCurrent();
+  // Private captured bytes need the original native owner and their own
+  // physical custody. Source authority is refreshed when source/destination
+  // effects or outward task delivery are actually exercised.
+  const assertOwner = async (proof: () => Promise<void>) => {
     current();
-    // The consumed original decision owner includes the actual source owner;
-    // a still-current native read facet alone cannot substitute for that proof.
-    const pending: unknown = operation.assertCurrent();
+    const pending: unknown = proof();
     if (!(pending instanceof Promise) || (await pending) !== undefined) throw unavailable();
-    await owner.assertCurrent();
     current();
   };
+  const nativeFull = () => assertOwner(nativeProof);
+  // The consumed source proof already includes the native context. Its source
+  // predicates are required for publication/delivery, not private computation.
+  const sourceFull = () => assertOwner(sourceProof);
   const read = async <T>(
     action: (
       access: LocalRepositoryReadAccess,
@@ -95,17 +102,21 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     const reader = await captureNativeLocalRepositoryReader(context, {
       deadline: preparationReadDeadline(deadline, context.signal),
     });
+    let readFailure: { cause: unknown } | undefined;
     try {
       return await action(new LocalRepositoryReadAccess(reader), reader);
+    } catch (cause) {
+      readFailure = { cause };
+      throw cause;
     } finally {
-      try {
-        await reader.dispose();
-      } finally {
-        await full();
-      }
+      await joinRetainedFinalizers(
+        'repository_read',
+        [() => reader.dispose(), sourceFull],
+        readFailure,
+      );
     }
   };
-  await full();
+  current();
   const artifact = operation.objects;
   const end = artifact && Object.getOwnPropertyDescriptor(artifact, 'deadline');
   const dispose = artifact && Object.getOwnPropertyDescriptor(artifact, 'dispose');
@@ -131,14 +142,15 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   const admin = join(common, 'worktrees', `repo-${facts.workspaceId}`);
   const denied = freezeNativeReadExclusions(owner.scope.deniedRoots);
   let publication: Readonly<QualifiedLocalRepositoryPublication> | undefined;
+  let publicationFailure: { cause: unknown } | undefined;
   try {
     // This is the INITIAL parser's historical witness, never a new baseline or
     // current success. The fixed helper's complete preflight checks it freshly
     // alongside every original root/parent/edge/absence BEFORE the first write.
     packedRefs = retainPreparationPackedRefs(operation.publicationPackedRefs);
     // Relocate (do not remove) the original allocation-reader disposal fence to
-    // this actual artifact-use boundary. Source metadata/base is freshly checked.
-    await full();
+    // this actual private artifact-use boundary under its original native owner.
+    await nativeFull();
     const view = await verifyLocalRepositoryPreparationObjectData(
       artifact,
       context,
@@ -147,22 +159,12 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       factsSha256,
       packedRefs,
     );
-    // Preserve the genuine consumed object-stage fence even though its READ
-    // capture/disposal already completed before human source-effect approval.
-    await full();
     const scratch = view.scratch;
     const scratchAnchor = Object.freeze({ rootPath: scratch, identity: view.scratchIdentity });
-    await full();
-    // The last full callback is an await too. Recheck actual private custody/
-    // config/copied bytes after it, before staging setup; worker fences remain.
-    await verifyLocalRepositoryPreparationObjectData(
-      artifact,
-      context,
-      operation.requestSha256,
-      facts,
-      factsSha256,
-      packedRefs,
-    );
+    // The artifact is bound private custody. Staging re-verifies its identities
+    // and fixed bytes across worker wrapping; no source/effect boundary occurs
+    // between this verification and private setup requiring another full proof.
+    current();
     await mkdir(join(scratch, 'checkout'), { mode: 0o700 });
     current();
     const staging = join(scratch, 'checkout');
@@ -178,7 +180,9 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       timeoutMs: 30000,
       deadline,
       assertCurrentSync: current,
-      revalidate: full,
+      // The executor guards current() before and after its proof, so passing
+      // the original native proof avoids wrapping the same SQL guards twice.
+      revalidate: nativeProof,
     });
     const entries: NativeExclusiveTreeEntry[] = [];
     // Git can retain empty trees and uninitialized gitlinks. Materialize any
@@ -229,6 +233,30 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       }
     }
     current();
+    const publishTask = async (plan: NativePreparationPublicationPlan) => {
+      const roots = nativePreparationPublicationWriteRoots(plan);
+      const transport: NativeFileHelperTransport = async (invocation) => {
+        // The executor owns live sync checks and the full source proof at the
+        // actual pre-worker/post-result boundaries. Do not repeat them in this
+        // data-only transport wrapper; both publication layouts use it.
+        const result = await executePrivateNativeFileHelper({
+          requestJson: invocation.requestJson,
+          cwd: scratch,
+          writableRoots: roots,
+          deniedRoots: denied,
+          signal: context.signal,
+          timeoutMs: invocation.timeoutMs,
+          deadline,
+          maxOutputBytes: invocation.maxOutputBytes,
+          assertCurrentSync: current,
+          revalidate: sourceProof,
+        });
+        return { stdout: result.stdout ?? '', isError: result.isError };
+      };
+      return snapshotQualifiedLocalRepositoryPublication(
+        await publishNativePreparedRepository(plan, context.signal, 30000, transport),
+      );
+    };
     if (facts.layout === 'standalone') {
       const git = join(scratch, 'standalone-git');
       await mkdir(git, { mode: 0o700 });
@@ -306,27 +334,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         metadata: [],
         deniedRoots: denied,
       };
-      const roots = nativePreparationPublicationWriteRoots(plan);
-      const transport: NativeFileHelperTransport = async (invocation) => {
-        current();
-        const result = await executePrivateNativeFileHelper({
-          requestJson: invocation.requestJson,
-          cwd: scratch,
-          writableRoots: roots,
-          deniedRoots: denied,
-          signal: context.signal,
-          timeoutMs: invocation.timeoutMs,
-          deadline,
-          maxOutputBytes: invocation.maxOutputBytes,
-          assertCurrentSync: current,
-          revalidate: full,
-        });
-        current();
-        return { stdout: result.stdout ?? '', isError: result.isError };
-      };
-      publication = snapshotQualifiedLocalRepositoryPublication(
-        await publishNativePreparedRepository(plan, context.signal, 30000, transport),
-      );
+      publication = await publishTask(plan);
     } else {
       const metadataFiles: NativePreparationPublicationPlan['metadata'][number][] = [];
       const publish = async (bytes: Buffer) => {
@@ -351,6 +359,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
       );
       let index: Buffer;
+      let indexFailure: { cause: unknown } | undefined;
       try {
         const before = await indexFile.stat();
         if (!before.isFile() || before.nlink !== 1 || before.size > 16 * 1024 * 1024)
@@ -364,8 +373,11 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
           before.ctimeMs !== after.ctimeMs
         )
           throw unavailable();
+      } catch (cause) {
+        indexFailure = { cause };
+        throw cause;
       } finally {
-        await indexFile.close();
+        await joinRetainedFinalizers('repository_index', [() => indexFile.close()], indexFailure);
       }
       await publish(Buffer.from(`ref: refs/heads/${facts.featureBranch}\n`));
       await publish(Buffer.from('../..\n'));
@@ -400,40 +412,24 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         metadata: metadataFiles,
         deniedRoots: denied,
       };
-      const roots = nativePreparationPublicationWriteRoots(plan);
-      const transport: NativeFileHelperTransport = async (invocation) => {
-        current();
-        const result = await executePrivateNativeFileHelper({
-          requestJson: invocation.requestJson,
-          cwd: scratch,
-          writableRoots: roots,
-          deniedRoots: denied,
-          signal: context.signal,
-          timeoutMs: invocation.timeoutMs,
-          deadline,
-          maxOutputBytes: invocation.maxOutputBytes,
-          assertCurrentSync: current,
-          revalidate: full,
-        });
-        current();
-        return { stdout: result.stdout ?? '', isError: result.isError };
-      };
-      publication = snapshotQualifiedLocalRepositoryPublication(
-        await publishNativePreparedRepository(plan, context.signal, 30000, transport),
-      );
+      publication = await publishTask(plan);
     }
+  } catch (cause) {
+    publicationFailure = { cause };
+    throw cause;
   } finally {
-    try {
-      await disposeArtifact();
-    } finally {
-      await full();
-    }
+    await joinRetainedFinalizers(
+      'repository_publication',
+      [disposeArtifact, nativeFull],
+      publicationFailure,
+    );
   }
   if (!publication) throw unavailable();
   const taskIdentity = await read(async (access) =>
     captureQualifiedLocalRepositoryTask(access, facts, publication!),
   );
-  await full();
+  // read() already joined disposal and refreshed the complete original owner.
+  // Only immutable result assembly remains; retain the live synchronous fence.
   current();
   return Object.freeze({ publication, taskIdentity });
 }

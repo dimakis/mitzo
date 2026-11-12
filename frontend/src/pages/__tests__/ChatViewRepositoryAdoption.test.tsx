@@ -10,6 +10,7 @@ import { ChatView } from '../ChatView';
 import { DesktopChatView } from '../DesktopChatView';
 import { apiFetch } from '../../lib/api-fetch';
 import { metadataConnection as channel } from '../../../../packages/client/src/__tests__/fixtures/metadata-connection.js';
+import { statusButton } from '../../test-utils/queued-draft-controls';
 vi.mock('../../../../packages/client/src/sse-connection.js', async () => ({
   SseConnection: (
     await import('../../../../packages/client/src/__tests__/fixtures/metadata-connection.js')
@@ -68,6 +69,8 @@ for (const Page of [ChatView, DesktopChatView]) {
       const adoptedId = '22222222-2222-4222-8222-222222222222';
       const sessionId = 'bound-session';
       let workspaceId = oldId;
+      let uncertain = false;
+      let recovering = false;
       let hold = false;
       const pending: Array<(response: Response) => void> = [];
       const metadata = () => ({
@@ -76,7 +79,27 @@ for (const Page of [ChatView, DesktopChatView]) {
         branch: 'same-task-branch',
         repositoryWorkspaceId: workspaceId,
         repositoryContext: { workspaceId, repository: 'example/repo' },
-        runtimeCommandScope: 'conversation',
+        runtimeCommandScope: uncertain ? 'first-command-only' : 'conversation',
+        runtimeCommandReason: uncertain
+          ? 'A previous command has an unconfirmed dispatch. Its original receipt and workspace are retained.'
+          : undefined,
+        codexQueue: recovering
+          ? {
+              paused: true,
+              connected: false,
+              recovering: false,
+              queued: 0,
+              interrupted: 1,
+              canContinue: true,
+              operation: {
+                commandId: 'completed-command',
+                attempt: 1,
+                state: 'completed',
+                effectStatus: 'unknown',
+                nextAction: 'reconcile_completion_phase',
+              },
+            }
+          : undefined,
         mode: 'agent',
         agentProfile: inventory.agentProfiles[0],
         accountBinding: { ...inventory.accounts[0].account, model: 'luna-fixture' },
@@ -94,6 +117,11 @@ for (const Page of [ChatView, DesktopChatView]) {
       });
       const sent: Array<Record<string, unknown>> = [];
       const fetch = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+        if (url.endsWith('/codex-queue/continue')) {
+          uncertain = false;
+          recovering = false;
+          return Response.json({ ok: true });
+        }
         if (url === '/local/send' || url === '/local/continue') {
           const body = JSON.parse(String(init?.body));
           sent.push(body);
@@ -208,6 +236,70 @@ for (const Page of [ChatView, DesktopChatView]) {
         payload: { text: 'so is it not operational now?' },
       });
       expect(JSON.stringify(sent[0])).not.toContain(oldId);
+      // Reuse the mounted mobile/desktop consumer instead of another app journey.
+      if (event === 'session_info') {
+        await waitFor(() => expect(draft).toHaveValue(''));
+        act(() => channel.listener({ type: 'session_end', sessionId }));
+        uncertain = true;
+        act(() =>
+          channel.listener({
+            type: 'session_info',
+            sessionId,
+            branch: 'same-task-branch',
+            cwd: '/adopted-task',
+            worktree: false,
+          }),
+        );
+        await screen.findAllByText(/A previous command has an unconfirmed dispatch/);
+        fireEvent.change(draft, { target: { value: 'the next prompt' } });
+        expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+
+        const completed = {
+          type: 'ordinary_command_completed',
+          sessionId,
+          messageId: sent[0].clientMsgId,
+          status: 'completed',
+        };
+        const reads = () => fetch.mock.calls.filter(([url]) => url.endsWith('/meta')).length;
+        const before = reads();
+        act(() => channel.listener(completed));
+        await waitFor(() => expect(reads()).toBeGreaterThan(before));
+        await screen.findAllByText(/A previous command has an unconfirmed dispatch/);
+        expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+        expect(sent).toHaveLength(1);
+
+        uncertain = false;
+        act(() => channel.listener(completed));
+        await waitFor(() =>
+          expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled(),
+        );
+        expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(draft);
+        expect(draft).toHaveValue('the next prompt');
+        expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('luna-next');
+        expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+        expect(sent).toHaveLength(1);
+        uncertain = true;
+        recovering = true;
+        act(() => channel.listener({ type: 'session_end', sessionId }));
+        const reconnect = await waitFor(() => statusButton('Continue chat'));
+        expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+        fireEvent.click(reconnect);
+        await waitFor(() =>
+          expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled(),
+        );
+        expect(draft).toHaveValue('the next prompt');
+        expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('luna-next');
+        expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+        expect(sent).toHaveLength(1);
+        fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+        await waitFor(() => expect(sent).toHaveLength(2));
+        expect(sent[1]).toMatchObject({
+          sessionId,
+          repositoryWorkspaceId: adoptedId,
+          payload: { text: 'the next prompt' },
+          selection: { model: 'luna-next', thinking: 'high' },
+        });
+      }
     },
   );
 }

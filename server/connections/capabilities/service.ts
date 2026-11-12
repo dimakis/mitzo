@@ -80,6 +80,12 @@ function persistedApprovalProjection(
 }
 
 export interface CapabilityServiceOptions {
+  /** Capture once for a newly admitted mutation, before any async boundary.
+   * Existing read-only recovery must not acquire replacement mutation authority. */
+  captureMutationAuthority?(
+    operation: CapabilityOperation,
+    callerCurrent?: () => Promise<void>,
+  ): (() => Promise<void>) | undefined;
   ownsOperation?(operation: CapabilityOperation): boolean;
   /** Synchronous retained-owner fence immediately before recovery persistence. */
   beforeRecoveryPersist?(operation: CapabilityOperation): void;
@@ -413,7 +419,7 @@ export class CapabilityService {
     if (!grant || grant.status !== 'active' || !grant.accountIds.includes(request.accountId))
       throw new Error('Capability grant is unavailable');
     const input = validateCapabilityInput(template.inputSchema, request.input);
-    assertCompleteApprovalProjection(template.inputSchema);
+    assertCompleteApprovalProjection(template.inputSchema, template.id);
     // Some reviewed contracts repeat the connection ID in their structured
     // input for executor readability. It is a consistency assertion, never a
     // selector: the trusted request binding above remains authoritative.
@@ -430,7 +436,19 @@ export class CapabilityService {
     }
     let operation = begun.operation;
     this.inFlight.set(operation.id, null);
+    const observePhase: NonNullable<
+      import('./types.js').CapabilityExecutionContext['observePhase']
+    > = (phase) => {
+      signal.throwIfAborted();
+      // Keep the admitted snapshot aligned with our own diagnostic-only write.
+      // No authority fields are refreshed or accepted from a stale caller.
+      Object.assign(operation, this.options.store.recordPhase(operation.id, phase));
+    };
     try {
+      observePhase('authority');
+      assertRuntimeCurrent =
+        this.options.captureMutationAuthority?.(operation, assertRuntimeCurrent) ??
+        assertRuntimeCurrent;
       const executor = this.options.executorRegistry.resolve(template);
       // An executor may turn the validated request into a narrower, reviewed
       // action card. Persist that exact projection and recovery lookup before
@@ -439,10 +457,12 @@ export class CapabilityService {
       if (assertRuntimeCurrent) await assertRuntimeCurrent();
       signal.throwIfAborted();
       if (executor.preflight) {
+        observePhase('preflight');
         const preflight = await executor.preflight({
           operation,
           input,
           signal,
+          observePhase,
           ...(assertRuntimeCurrent ? { assertRuntimeCurrent } : {}),
         });
         if (assertRuntimeCurrent) await assertRuntimeCurrent();
@@ -456,6 +476,7 @@ export class CapabilityService {
         });
       }
       const approvalInput = persistedApprovalProjection(operation.approvalInput) ?? input;
+      observePhase('approval');
       const approved = await approve(
         {
           capabilityId: template.id,
@@ -515,12 +536,14 @@ export class CapabilityService {
       // onward the only safe path is read-after-write recovery.
       if (assertRuntimeCurrent) await assertRuntimeCurrent();
       signal.throwIfAborted();
+      observePhase('execution');
       operation = this.options.store.transition(operation.id, 'running', 'verification_pending');
       const executed = await executor.execute({
         operation,
         input,
         approvalInput: persistedApprovalProjection(operation.approvalInput),
         signal,
+        observePhase,
         ...(assertRuntimeCurrent ? { assertRuntimeCurrent } : {}),
       });
       const sensitive = Object.values(input).filter(
@@ -537,6 +560,7 @@ export class CapabilityService {
         externalResultId: executed.externalResultId,
       });
       signal.throwIfAborted();
+      observePhase('verification');
       await executor.verify(
         {
           operation,
@@ -572,6 +596,17 @@ export class CapabilityService {
           : {}),
       });
     } finally {
+      // Cleanup failure cannot turn a verified write into an apparent failure.
+      // The host publisher retains its own custody if cleanup is unconfirmed.
+      try {
+        await this.options.executorRegistry.resolve(template).releasePreflight?.(operation.id);
+      } catch {
+        try {
+          this.options.store.recordCleanupFailure(operation.id);
+        } catch {
+          // A failed cleanup audit must also preserve the durable operation result.
+        }
+      }
       this.inFlight.delete(operation.id);
     }
   }

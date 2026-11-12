@@ -1165,8 +1165,12 @@ test('grouped editor keeps every action reachable with compact desktop and touch
   if (isMobile) await page.setViewportSize({ width: 320, height: 740 });
   await mockDocument(page, 'alpha');
   if (!isMobile) {
-    const home = page.getByRole('button', { name: 'Home', exact: true });
-    const iconBounds = (await home.getByRole('img', { name: 'Mitzo', exact: true }).boundingBox())!;
+    const home = page.getByRole('link', { name: 'Mitzo home', exact: true });
+    await expect(home).toHaveCount(1);
+    await expect(home).toBeInViewport();
+    await expect(home.locator('img')).toHaveAttribute('src', '/mitzo-wordmark.png');
+    await expect(page.locator('.viewer-header .mitzo-logo')).toHaveCount(0);
+    const iconBounds = (await home.locator('img').boundingBox())!;
     const buttonBounds = (await home.boundingBox())!;
     expect(iconBounds.width).toBeLessThanOrEqual(buttonBounds.width);
     expect(iconBounds.height).toBeLessThanOrEqual(buttonBounds.height);

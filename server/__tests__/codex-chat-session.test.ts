@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { retainAgentContextAuthority } from '../agent-context-authority.js';
+import { revokeAuthSession } from '../auth.js';
+import { callbackOutcome } from '../turn-callbacks.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
@@ -6,6 +9,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+// Offline controller fixtures must not inspect the operator's real private home.
+vi.mock('node:os', async (original) => {
+  const actual = await original<typeof import('node:os')>();
+  return { ...actual, homedir: () => `${actual.tmpdir()}/mitzo-chat-offline-home` };
+});
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn(),
   close: vi.fn(),
@@ -13,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   turnDispatchCount: 0,
   searchSkills: vi.fn(),
   searchWeb: vi.fn(),
-  mcpClose: vi.fn(),
+  mcpClose: vi.fn(async () => {}),
   connect: vi.fn(),
   permissionHandler: vi.fn(),
   assertPermissionModeChange: vi.fn(),
@@ -27,9 +35,11 @@ const mocks = vi.hoisted(() => ({
   recordKnowledgeAdoption: vi.fn(),
   recordAgentContextAdoption: vi.fn(),
   privateDirectory: '/tmp',
-  conversationOptions: undefined as Record<string, unknown> | undefined,
+  conversationOptions: undefined as
+    (Record<string, unknown> & { systemPrompt?: string }) | undefined,
   useTls: false,
   custodianController: false,
+  nativeDeniedRoots: ['/offline/owned-login'],
 }));
 // These controller tests already replace the conversation, provider and lease.
 // Use a source-faithful qualified lease marker and an explicit synthetic scope;
@@ -49,7 +59,7 @@ vi.mock('../owned-local-codex-native-policy.js', async (original) => {
         cwd: input.session.cwd!,
         readableRoots: input.readableRoots ?? ['/'],
         writableRoots: [input.session.cwd!],
-        deniedRoots: ['/offline/owned-login'],
+        deniedRoots: mocks.nativeDeniedRoots,
       });
     },
   };
@@ -79,6 +89,12 @@ vi.mock('../codex-conversation-store.js', async (original) => ({
     markStartupProviderInitializing() {}
     readArtifactRuntime() {
       return null;
+    }
+    read() {
+      return { threadId: null };
+    }
+    commands() {
+      return [];
     }
     readRuntimeMigration() {
       return null;
@@ -112,7 +128,10 @@ vi.mock('../codex-conversation.js', () => ({
     admitExplicitSend = mocks.send;
   },
 }));
-vi.mock('../codex-mcp-tools.js', () => ({ connectCodexMcpTools: mocks.connect }));
+vi.mock('../codex-mcp-tools.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../codex-mcp-tools.js')>()),
+  connectCodexMcpTools: mocks.connect,
+}));
 vi.mock('../codex-private-path.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../codex-private-path.js')>()),
   codexPrivateDirectory: () => mocks.privateDirectory,
@@ -133,15 +152,21 @@ import {
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
-import { CodexAppServerClient, CodexRequestError } from '../codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  CodexRequestError,
+  CodexTransportError,
+} from '../codex-app-server-client.js';
 import { CodexStartupError } from '../codex-startup-error.js';
 import { RuntimePolicyAttestationError } from '../openshell-runtime-policy.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import * as repositoryWorkspaceRuntime from '../repository-workspace-runtime.js';
 import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
 import * as knowledgeStoreConfig from '../knowledge-store-config.js';
 import { ConnectionsService } from '../connections-service.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
+import * as githubPublishing from '../github-publishing-tool.js';
 import { getLiveCapabilityConversationBinding } from '../capability-conversation-binding.js';
 import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
 import { SymposiumProfileStore } from '../symposium-profiles.js';
@@ -155,6 +180,7 @@ import { installHostKnowledgeStore } from '../published-host-knowledge.js';
 import { hostKnowledgePublication } from './fixtures/host-knowledge-publication.js';
 
 beforeEach(() => {
+  mocks.nativeDeniedRoots = ['/offline/owned-login'];
   vi.spyOn(OpenShellRuntimeManager.prototype, 'inspectTaskCapabilities').mockResolvedValue({
     mgmtCli: false,
     meetingPrep: false,
@@ -195,14 +221,22 @@ it('uses assigned GitHub credentials instead of the legacy fallback on a new run
   expect(ordinaryRuntimeServiceProviders(['github'], [])).toEqual(['github']);
 });
 
-it('preserves reviewed runtime recovery reasons and references through wrappers', async () => {
-  const { SessionRuntimeError } = await import('../session-runtime-error.js');
-  const original = new SessionRuntimeError('unsettled_effects', { cause: Error('Bearer secret') });
-  const message = publicCodexRuntimeError(Error('Owned runtime unavailable', { cause: original }));
-  expect(message).toContain('unresolved tool or completion effects');
-  expect(message).toContain(original.diagnosticId);
-  expect(message).not.toContain('Bearer secret');
-});
+it.each([
+  ['unsettled_effects', 'unresolved tool or completion effects'],
+  ['knowledge_unavailable', 'release a compatible runtime'],
+] as const)(
+  'preserves reviewed %s reasons and references through wrappers',
+  async (code, explanation) => {
+    const { SessionRuntimeError } = await import('../session-runtime-error.js');
+    const original = new SessionRuntimeError(code, { cause: Error('Bearer secret') });
+    const message = publicCodexRuntimeError(
+      Error('Owned runtime unavailable', { cause: original }),
+    );
+    expect(message).toContain(explanation);
+    expect(message).toContain(original.diagnosticId);
+    expect(message).not.toContain('Bearer secret');
+  },
+);
 
 it('forwards only recognized sanitized Codex diagnostics', () => {
   expect(
@@ -313,6 +347,8 @@ function ownedLocalOptions(
   cwd = '/tmp',
   agentProfile?: import('@mitzo/protocol').AgentLibraryVersion,
   mode: 'ask' | 'agent' | 'auto' = 'agent',
+  authenticationSignal?: AbortSignal,
+  retainedAuthenticationFailure?: () => unknown,
 ) {
   const eventStore = new EventStore(':memory:');
   // This qualified Mac lease fixture must select the same host branch on CI.
@@ -350,7 +386,13 @@ function ownedLocalOptions(
   };
   const selection = {
     version: 1 as const,
-    agent: { profileId: 'owned-agent', revision: 1 },
+    agent: agentProfile
+      ? {
+          profileId: agentProfile.profileId,
+          revision: agentProfile.revision,
+          ...(agentProfile.kind ? { kind: agentProfile.kind } : {}),
+        }
+      : { profileId: 'owned-agent', revision: 1 },
     context: { source: 'none' as const, revision: null },
     permission: { mode, revision: 0 },
     model: 'owned-model',
@@ -407,6 +449,8 @@ function ownedLocalOptions(
     expected,
     lease,
     bridge,
+    authenticationSignal,
+    retainedAuthenticationFailure,
   });
   const opts = {
     ...options(new AbortController()),
@@ -783,9 +827,9 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'SymposiumReadProfiles' }),
-    expect.objectContaining({ name: 'RecordMemoryCandidate' }),
     expect.objectContaining({ name: 'ReadKnowledge' }),
     expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
+    expect.objectContaining({ name: 'CaptureMemoryCandidate' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
     expect.objectContaining({ name: 'TelosAdoptSource' }),
     expect.objectContaining({ name: 'TelosGetItem' }),
@@ -800,6 +844,14 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     'never use a sandbox-local todo script',
   );
   expect(mocks.conversationOptions?.systemPrompt).toContain('TelosFindArtifacts');
+  expect(mocks.conversationOptions?.systemPrompt).toContain('propose Telos');
+  expect(mocks.conversationOptions?.systemPrompt).toContain(
+    'outcome -> feature items -> session-sized slices',
+  );
+  expect(mocks.conversationOptions?.systemPrompt).toContain(
+    'Simple one-session tasks stay in chat',
+  );
+  expect(mocks.conversationOptions?.systemPrompt?.split('## Telos work planning').length).toBe(2);
   expect(mocks.connect).not.toHaveBeenCalled();
   await expect(chat.setPermissionMode?.('agent')).resolves.toBeUndefined();
   await expect(chat.setPermissionMode?.('ask')).rejects.toThrow('Ask mode');
@@ -812,9 +864,13 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     milestones: ['Expose the trusted host tool'],
     profile: 'manual',
   };
+  const reviewedInput = { ...input, workLevel: 'outcome' };
   mocks.permissionHandler.mockResolvedValueOnce({
     behavior: 'allow',
-    updatedInput: { ...input, __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001' },
+    updatedInput: {
+      ...reviewedInput,
+      __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001',
+    },
   });
   const fetch = vi.fn().mockResolvedValue(
     new Response(
@@ -827,13 +883,13 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
         permId: 'permission',
         sessionId: 'conversation',
         sourceSnapshotId: 'snapshot',
-        operation: { kind: 'create', outcome: input },
+        operation: { kind: 'create', outcome: reviewedInput },
         receipt: {
           commandId: 'command',
           actorId: 'operator:user',
           work: {
             itemId: 'telos-live',
-            kind: 'outcome',
+            kind: 'coordinator',
             parentId: null,
             revision: 'a'.repeat(64),
             links: [],
@@ -876,7 +932,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   });
   expect(mocks.permissionHandler).toHaveBeenCalledWith(
     'TelosCreateOutcome',
-    input,
+    reviewedInput,
     expect.objectContaining({ forcePrompt: true, allowSessionGrant: false }),
   );
   expect(fetch).toHaveBeenCalledWith(
@@ -885,10 +941,18 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
       headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
     }),
   );
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+    approvalReceiptId: '00000000-0000-4000-8000-000000000001',
+    proposal: reviewedInput,
+    operation: 'create',
+  });
   mocks.useTls = true;
   mocks.permissionHandler.mockResolvedValueOnce({
     behavior: 'allow',
-    updatedInput: { ...input, __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001' },
+    updatedInput: {
+      ...reviewedInput,
+      __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001',
+    },
   });
   await executeTool('TelosCreateOutcome', input, new AbortController().signal, {
     turnId: 'actual-turn',
@@ -1085,9 +1149,9 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
       expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({ name: 'SymposiumReadProfiles' }),
-      expect.objectContaining({ name: 'RecordMemoryCandidate' }),
       expect.objectContaining({ name: 'ReadKnowledge' }),
       expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
+      expect.objectContaining({ name: 'CaptureMemoryCandidate' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({ name: 'TelosAdoptSource' }),
       expect.objectContaining({ name: 'TelosGetItem' }),
@@ -1111,10 +1175,10 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'Use RequestGithubPublish to publish committed local changes',
+      'the publication route for runtimes without authorized native GitHub tools',
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'Do not substitute direct git push or gh API writes after denial',
+      'do not run both or bypass a policy or authorization denial',
     );
     const adoptionEvidence = {
       storeId: 'notes',
@@ -1584,6 +1648,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       request: import('../connections/capabilities/types.js').CapabilityRequest,
       signal: AbortSignal,
       approve: import('../connections/capabilities/types.js').CapabilityApproval,
+      current?: import('../connections/capabilities/types.js').CapabilityCurrentAssertion,
     ) => {
       // The production service validates unknown tool input before it becomes
       // approval-card data. This session fixture supplies that already-typed
@@ -1600,6 +1665,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
         },
         signal,
       );
+      await current?.();
       return {
         id: 'operation-1',
         status: approved ? 'verification_pending' : 'denied',
@@ -1677,7 +1743,9 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       item.name.startsWith('Capability_github_publish_pr'),
     );
     expect(tool).toBeDefined();
-    expect(mocks.conversationOptions?.systemPrompt).toContain('Use RequestGithubPublish');
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      'RequestGithubPublish is the managed alternative',
+    );
     expect(mocks.conversationOptions?.systemPrompt).not.toContain(
       'GitHub publishing is unavailable',
     );
@@ -1685,6 +1753,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       expect.objectContaining({ images: [{ data: 'cHJldmlldw==', mediaType: 'image/png' }] }),
     );
     expect(getLiveCapabilityConversationBinding('capability-conversation')).toMatchObject({
+      runtimeOwnerId: expect.stringMatching(/^[a-f0-9-]{36}$/),
       accountId: 'work',
       connectionId: 'github-connection',
       connectionRevision: 4,
@@ -1740,8 +1809,22 @@ it('preserves image attachments while binding a trusted capability, forcing appr
     await expect(
       executeTool(tool!.name, capabilityInput, new AbortController().signal, {
         turnId: 'turn-1',
-        callId: 'call-1',
+        callId: 'missing-call',
       }),
+    ).rejects.toThrow('Original native capability call required');
+    expect(invoke).not.toHaveBeenCalled();
+    let callCurrent = true;
+    const nativeCall = Object.defineProperty(
+      { turnId: 'turn-1', callId: 'call-1' },
+      'assertCurrentSync',
+      {
+        value: () => {
+          if (!callCurrent) throw Error('Original native call expired');
+        },
+      },
+    );
+    await expect(
+      executeTool(tool!.name, capabilityInput, new AbortController().signal, nativeCall),
     ).resolves.toMatchObject({ isError: true });
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1751,7 +1834,12 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       }),
       expect.any(AbortSignal),
       expect.anything(),
+      expect.any(Function),
     );
+    const capturedCall = invoke.mock.calls[0][3]!;
+    callCurrent = false;
+    await expect(capturedCall()).rejects.toThrow('Original native call expired');
+    expect(() => capturedCall.assertCurrentSync!()).toThrow('Original native call expired');
     expect(mocks.permissionHandler).toHaveBeenCalledWith(
       'ExecuteProviderCapability',
       expect.any(Object),
@@ -2710,9 +2798,7 @@ it('does not require Telos outcome capture for ordinary artifact contributors in
     systemPrompt: 'Selected artifact contributor instructions.',
     contributorGuidance: 'Contribute to the selected document.',
   });
-  expect(mocks.conversationOptions?.systemPrompt).not.toContain(
-    'Telos is the de facto persistent home',
-  );
+  expect(mocks.conversationOptions?.systemPrompt).not.toContain('## Telos work planning');
   expect(mocks.conversationOptions?.systemPrompt).not.toContain(
     'Use TelosCreateOutcome for durable Telos capture',
   );
@@ -3240,7 +3326,12 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
     query = await openCodexChat({ ...f.opts, adviserScope: scope });
     const captured = mocks.conversationOptions!;
     expect(captured.tools).toEqual([]);
-    expect(captured.prepareSystemPrompt).toBeUndefined();
+    expect(
+      await (captured.prepareSystemPrompt as (signal: AbortSignal) => Promise<string>)(
+        new AbortController().signal,
+      ),
+    ).toBe('');
+    expect(captured.onApplicationContextAccepted).toBeUndefined();
     expect(reconcile).not.toHaveBeenCalled();
     expect(captured.disableWebSearch).toBe(true);
     expect(captured.disableProjectDocuments).toBe(true);
@@ -3300,6 +3391,57 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
     disposeHostMemory();
   }
 });
+
+it.each([
+  { code: 'auth_expired', timing: 'timer' },
+  { code: 'auth_revoked', timing: 'revoke' },
+  { code: 'auth_expired', timing: 'before-timer' },
+] as const)(
+  'retains $code after $timing invalidation and admission cleanup',
+  async ({ code, timing }) => {
+    vi.clearAllMocks();
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const auth = { id: crypto.randomUUID(), expiresAt: Date.now() + 60_000 };
+    const scope = retainAgentContextAuthority(auth, controller);
+    const f = ownedLocalOptions('/tmp', undefined, 'agent', controller.signal, scope.failure);
+    const guard = () => f.ownedLocal.assertCurrentSync();
+    let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      query = await openCodexChat({ ...f.opts, assertAgentContextAuthorization: guard });
+      if (timing === 'before-timer') {
+        vi.setSystemTime(auth.expiresAt);
+        vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => scope.assertCurrent());
+        expect(guard).toThrow('Owned local Codex chat unavailable');
+        expect(controller.signal.aborted).toBe(false);
+      } else if (timing === 'timer') vi.advanceTimersByTime(60_001);
+      else revokeAuthSession(auth);
+      f.ownedLocal.close();
+      expect(guard).toThrow('Owned local Codex chat unavailable');
+      const onError = mocks.conversationOptions!.onError as (error: Error) => void;
+      onError(new Error('Generic transport closure'));
+      onError(new Error('Duplicate transport closure'));
+      const errors = f.eventStore
+        .getEventsAfter('owned-session', 0)
+        .filter((event) => event.type === 'error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.runtimeFailure).toMatchObject({ runtimeFailureCode: code });
+      expect(errors[0].payload.error).toContain('Sign in again');
+      expect(errors[0].payload.error).not.toContain('Generic transport');
+    } finally {
+      query?.close();
+      scope.release();
+      f.eventStore.close();
+    }
+  },
+);
 
 it('rechecks owned command authority immediately before native enqueue and provider dispatch', async () => {
   vi.clearAllMocks();
@@ -3529,10 +3671,18 @@ it('uses the already verified owned client locally regardless of global OpenShel
       providerThreadId: 'private-owned-thread',
       providerTurnId: 'private-owned-turn',
     };
+    expect(() => (config.onProviderMessageSource as (source: unknown) => void)(source)).toThrow(
+      CodexTransportError,
+    );
+    (config.onProviderAccepted as (id: string, threadId: string, turnId: string) => void)(
+      'owned-command',
+      'private-owned-thread',
+      'private-owned-turn',
+    );
     (config.onProviderMessageSource as (source: unknown) => void)(source);
     expect(
       f.eventStore.getOrdinaryReplySourceEvents('owned-session', 'visible-owned-reply'),
-    ).toEqual([{ version: 1, ...source }]);
+    ).toEqual([{ version: 2, ...source, executionFingerprint: 'owned-fingerprint' }]);
     expect(() => (config.onProviderDispatch as (id: string) => void)('owned-command')).toThrow(
       'Owned local Codex chat unavailable',
     );
@@ -3658,17 +3808,35 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     .spyOn(native, 'createNativeToolExecutor')
     .mockReturnValue(nativeExecute as never);
   const f = ownedLocalOptions();
+  f.opts.repositoryWorkspace = {
+    ...f.opts.repositoryWorkspace!,
+    connectionId: 'local',
+    repository: 'local/source-id',
+  };
+  const publishingFactory = vi.spyOn(githubPublishing, 'createGithubPublishingTool');
   f.opts.session.accountBinding = f.opts.binding;
   f.opts.registry = {
     ...f.opts.registry,
     findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
     get: () => f.opts.session,
   } as never;
+  f.opts.session.ownerConnectionId = 'owned-client';
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  const releasePublisher = bindAgentLibraryTransport('owned-client', {
+    id: 'owned-publisher-login',
+    expiresAt: Date.now() + 60000,
+  });
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
     chat = await openCodexChat(f.opts);
+    expect(publishingFactory.mock.calls[0]![3]).toBe(f.opts.session);
     const config = mocks.conversationOptions!;
     expect(config.systemPrompt).toContain('RequestGithubPublish');
+    expect(config.systemPrompt).toContain(
+      'Use GitHubRead for routine repository, PR, review and CI reads',
+    );
+    expect(config.systemPrompt).toContain('When the user selects gh, use it');
+    expect(config.systemPrompt).toContain('Run offline tests with the existing workspace');
     expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
       [
         ...native.nativeToolDefinitions
@@ -3677,9 +3845,15 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         ...profileToolDefinitions.map((tool) => tool.name),
         ...nativeConnectionToolNames,
         ...knowledgeToolDefinitions.map((tool) => tool.name),
+        'CaptureMemoryCandidate',
         'AgentReadTasks',
         'AgentProposeTask',
         'AgentCommunication',
+        'TaskExecution',
+        'SchedulePrompt',
+        'SessionTimers',
+        'SendSessionMessage',
+        'StartSession',
         'ReadToolOutput',
         'SearchSkills',
         'RequestWebAccess',
@@ -3695,16 +3869,8 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     // private native invocation facet explicitly, retaining the original lease fence.
     const publicationCall = (callId: string) => {
       const context = { turnId: 'turn', callId };
-      Object.defineProperty(context, 'captureInferenceSelection', {
-        value: () => {
-          f.lease.assertCurrentSync();
-          return Object.freeze({
-            commandId: 'owned-command',
-            model: f.expected.selection.model,
-            reasoningEffort: f.expected.selection.thinking ?? null,
-            assertCurrentSync: () => f.lease.assertCurrentSync(),
-          });
-        },
+      Object.defineProperty(context, 'assertCurrentSync', {
+        value: () => f.lease.assertCurrentSync(),
       });
       return Object.freeze(context);
     };
@@ -3714,18 +3880,18 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         execute(name, {}, new AbortController().signal, { turnId: 'turn', callId: name }),
       ).rejects.toThrow('Tool unavailable for owned local Codex chat');
     expect(f.lease.assertCurrent).not.toHaveBeenCalled();
-    const missingSelection = await execute(
+    const missingAuthority = await execute(
       'RequestGithubPublish',
       {},
       new AbortController().signal,
       {
         turnId: 'turn',
-        callId: 'missing-private-selection',
+        callId: 'missing-private-authority',
       },
     );
-    expect(missingSelection.isError).toBe(true);
-    expect(JSON.parse(missingSelection.content)).toMatchObject({
-      code: 'PUBLICATION_REVIEW_UNAVAILABLE',
+    expect(missingAuthority.isError).toBe(true);
+    expect(JSON.parse(missingAuthority.content)).toMatchObject({
+      code: 'GITHUB_PUBLICATION_FAILED',
       operationRecorded: false,
     });
     await expect(
@@ -3738,14 +3904,14 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       templateId: 'github-readonly',
       status: 'active',
       desiredAccountIds: [f.opts.binding.accountId],
-      publicConfig: { allowedRepositories: ['example/repo'] },
+      publicConfig: { allowedRepositories: ['fixture/repo'] },
     };
     const invoke = vi.fn(async () => ({
       id: 'published',
       status: 'succeeded',
-      result: { url: 'https://github.com/example/repo/pull/1' },
+      result: { url: 'https://github.com/fixture/repo/pull/1' },
     }));
-    const resolve = vi.fn(async () => 'example/repo');
+    const resolve = vi.fn(async () => 'fixture/repo');
     setConnectionsRuntime({
       store: { list: () => [connection], get: () => connection },
       verifyGithubPublishingIdentity: vi.fn(async () => true),
@@ -3760,7 +3926,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       execute(
         'RequestGithubPublish',
         {
-          repositoryPath: f.opts.session.cwd,
+          repositoryPath: realpathSync(f.opts.session.cwd!),
           baseBranch: 'main',
           title: 'Owned work',
           body: 'Review',
@@ -3771,8 +3937,16 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       ),
     ).resolves.toMatchObject({ isError: false });
     expect(resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ runtime: 'host', workspace: realpathSync(f.opts.session.cwd!) }),
-      f.opts.session.cwd,
+      expect.objectContaining({
+        runtime: 'host',
+        workspace: realpathSync(f.opts.session.cwd!),
+        preparedBase: {
+          repositoryPath: realpathSync(f.opts.session.cwd!),
+          baseBranch: 'main',
+          baseOid: 'a'.repeat(40),
+        },
+      }),
+      realpathSync(f.opts.session.cwd!),
       'main',
       expect.any(AbortSignal),
     );
@@ -3820,10 +3994,12 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     expect(mcpExecute).toHaveBeenCalledOnce();
   } finally {
     chat?.close();
+    releasePublisher();
     setConnectionsRuntime(null);
     f.eventStore.close();
     nativeFactory.mockRestore();
     connectionFactory.mockRestore();
+    publishingFactory.mockRestore();
   }
 });
 
@@ -4351,7 +4527,7 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
       'ListIntegrationTools',
       'ReadToolOutput',
     ]);
-    expect(sourceOptions.connect).toHaveBeenCalledOnce();
+    expect(sourceOptions.connect).not.toHaveBeenCalled();
     const execute = mocks.conversationOptions!.executeTool as (
       name: string,
       input: Record<string, unknown>,
@@ -4378,6 +4554,60 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
       ).content,
     );
     expect(peerCall).not.toHaveBeenCalled();
+    // A retained result from the same pinned source can reconnect lazily. Its
+    // original tool's policy must remain current across that asynchronous work.
+    let releaseDiscovery!: () => void;
+    const listing = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        releaseDiscovery = resolve;
+      });
+      return { tools: [{ name: 'search', inputSchema: { type: 'object' } }] };
+    });
+    sourceOptions.connect.mockImplementationOnce(async () => ({
+      listTools: listing,
+      callTool: peerCall,
+      close: peerClose,
+    }));
+    mocks.readToolOutput.mockReturnValue({
+      toolName: wire,
+      content: 'retained source evidence',
+      sourceScope: actualMcp.mcpToolOutputScope(sources.selected, sourceOptions, {
+        name: 'search',
+        inputSchema: { type: 'object' },
+      }),
+    });
+    const retainedContext = {
+      turnId: 'turn',
+      callId: 'retained-reconnect',
+      assertCurrentSync: vi.fn(),
+      registerResponseFence: vi.fn(),
+    };
+    const readRetained = () =>
+      execute(
+        'ReadToolOutput',
+        { outputId: '22222222-2222-4222-8222-222222222222' },
+        new AbortController().signal,
+        retainedContext,
+      );
+    const pendingRetained = readRetained();
+    await vi.waitFor(() => expect(listing).toHaveBeenCalledOnce());
+    f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
+    releaseDiscovery();
+    await expect(pendingRetained).rejects.toThrow('permission_denied');
+    expect(peerCall).not.toHaveBeenCalled();
+    f.opts.session.activeSkillPolicy = null;
+    expect(JSON.parse((await readRetained()).content).content).toBe('retained source evidence');
+    // Codex retires the invocation before the transport runs response fences.
+    // Policy remains enforceable after that normal lifecycle transition.
+    retainedContext.assertCurrentSync.mockImplementation(() => {
+      throw Error('Original native tool callback is no longer current');
+    });
+    expect(retainedContext.registerResponseFence.mock.calls.at(-1)![0]).not.toThrow();
+    f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
+    expect(retainedContext.registerResponseFence.mock.calls.at(-1)![0]).toThrow(
+      'permission_denied',
+    );
+    f.opts.session.activeSkillPolicy = null;
     const call = () =>
       execute(
         'InvokeIntegrationTool',
@@ -4643,6 +4873,12 @@ it.each([false, true])(
       expect(mocks.conversationOptions?.tools).toContainEqual(
         expect.objectContaining({ name: 'TelosStartSlice' }),
       );
+      const prompt = mocks.conversationOptions!.systemPrompt!;
+      expect(prompt).toContain('propose Telos');
+      expect(prompt).toContain('outcome -> feature items -> session-sized slices');
+      expect(prompt).toContain('one dedicated working session');
+      expect(prompt).toContain('merge-queue orchestrator');
+      expect(prompt.split('## Telos work planning')).toHaveLength(2);
       const execute = mocks.conversationOptions!.executeTool as (
         name: string,
         input: Record<string, unknown>,
@@ -4835,6 +5071,8 @@ it('exposes slice allocation to a retained OpenShell lead without enabling selec
   expect(mocks.conversationOptions?.tools).toContainEqual(
     expect.objectContaining({ name: 'TelosStartSlice' }),
   );
+  expect(mocks.conversationOptions?.systemPrompt).toContain('propose Telos');
+  expect(mocks.conversationOptions?.systemPrompt?.split('## Telos work planning')).toHaveLength(2);
   chat.close();
   store.close();
 });
@@ -5576,6 +5814,9 @@ it.each([
         expect(names).toEqual(
           [
             'AskUserQuestion',
+            'DescribeIntegrationTool',
+            'InvokeIntegrationTool',
+            'ListIntegrationTools',
             'TelosReadArtifact',
             'TelosSaveArtifact',
             'TelosStartSlice',
@@ -5589,14 +5830,28 @@ it.each([
           context: { turnId: string; callId: string },
         ) => Promise<unknown>;
         mocks.permissionHandler.mockClear();
-        for (const name of [
-          'TaskComplete',
-          'mcp__task-board__TaskComplete',
-          'InvokeIntegrationTool',
-        ])
+        for (const name of ['TaskComplete', 'mcp__task-board__TaskComplete'])
           await expect(
             execute(name, {}, new AbortController().signal, { turnId: 'lead-turn', callId: name }),
           ).rejects.toThrow(/not selected|unavailable/i);
+        const contract = JSON.parse(
+          (
+            (await execute(
+              'DescribeIntegrationTool',
+              { toolId: 'TelosSaveArtifact' },
+              new AbortController().signal,
+              { turnId: 'lead-turn', callId: 'describe-artifact' },
+            )) as { content: string }
+          ).content,
+        );
+        expect(
+          await execute(
+            'InvokeIntegrationTool',
+            { toolId: contract.toolId, catalogRevision: contract.catalogRevision, arguments: {} },
+            new AbortController().signal,
+            { turnId: 'lead-turn', callId: 'proxy-artifact' },
+          ),
+        ).toMatchObject({ isError: true, content: expect.stringContaining('direct_tool') });
         expect(mocks.permissionHandler).not.toHaveBeenCalled();
         expect(f.opts.session.taskContext).toBeFalsy();
       }
@@ -5687,6 +5942,7 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
   f.opts.mcpServers = { 'task-board': taskConfig, ambient: { command: 'unselected-peer' } };
   const taskCall = vi.fn(async ({ name }: { name: string }) => ({
     content: [{ type: 'text', text: `original ${name} receipt` }],
+    isError: false,
   }));
   const taskClose = vi.fn(async () => {});
   const connect = vi.fn(async (config: unknown) => {
@@ -5790,18 +6046,32 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
     const status = await describeTask('TaskStatus');
     taskCall.mockClear();
     mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
-    expect(
-      await execute(
-        'InvokeIntegrationTool',
-        { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
-        new AbortController().signal,
-        {
-          turnId: 'original-turn',
-          callId: 'denied',
-        },
-      ),
-    ).toMatchObject({ isError: true });
+    const denied = await execute(
+      'InvokeIntegrationTool',
+      { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
+      new AbortController().signal,
+      {
+        turnId: 'original-turn',
+        callId: 'denied',
+      },
+    );
+    expect(denied).toMatchObject({ isError: true });
+    expect(callbackOutcome(denied)).toBe('settled');
     expect(taskCall).not.toHaveBeenCalled();
+    taskCall.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'Task status unavailable' }],
+      isError: true,
+    });
+    const failedRead = await execute(
+      'InvokeIntegrationTool',
+      { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
+      new AbortController().signal,
+      { turnId: 'original-turn', callId: 'failed-status' },
+    );
+    expect(failedRead).toMatchObject({ isError: true });
+    expect(callbackOutcome(failedRead)).toBe('settled');
+    expect(taskCall).toHaveBeenCalledOnce();
+    taskCall.mockClear();
     await expect(
       execute('mcp__task-board__TaskBlock', {}, new AbortController().signal, {
         turnId: 'original-turn',
@@ -6069,6 +6339,53 @@ it('refreshes retained native initialization and only the admitted child policy 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it.each([null, 'Bash', 'Read', 'Write', 'Edit'])(
+  'qualifies PrepareLocalRepository against actual native registration with missing %s',
+  async (missing) => {
+    const { assertSessionLaunchTools } = await import('../session-launch-tools-selection.js');
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const definition = {
+      name: 'Exact repository preparation selection',
+      role: 'agent' as const,
+      instructions: 'Use only the selected tools',
+      expectedOutput: 'Receipt',
+      acceptanceCriteria: ['Qualification agrees with the actual registration'],
+      modelPolicyRole: 'agent' as const,
+      tools: [
+        'PrepareLocalRepository',
+        ...['Bash', 'Read', 'Write', 'Edit'].filter((name) => name !== missing),
+      ].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+    };
+    const before = structuredClone(definition);
+    const f = ownedLocalOptions('/tmp', {
+      profileId: 'exact-repository-preparation',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    });
+    f.opts.assertAgentContextAuthorization = vi.fn();
+    let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      chat = await openCodexChat(f.opts);
+      const tools = mocks.conversationOptions!.tools as Array<{ name: string }>;
+      expect(tools.some((tool) => tool.name === 'PrepareLocalRepository')).toBe(missing === null);
+      const qualification = assertSessionLaunchTools(['PrepareLocalRepository'], definition);
+      if (missing) await expect(qualification).rejects.toThrow(/Bash.*Read.*Write.*Edit/);
+      else await expect(qualification).resolves.toBeUndefined();
+      expect(definition).toEqual(before);
+    } finally {
+      chat?.close();
+      f.eventStore.close();
+    }
+  },
+);
 
 it.each([
   { mode: 'ask', selected: true, eligible: true },
@@ -6388,84 +6705,129 @@ it.each(['local', 'openshell'] as const)(
   },
 );
 
-it('projects large GitHub reads after hooks and refuses output from a former native runtime', async () => {
-  const native = await import('../native-tool-executor.js');
-  const full = 'github record '.repeat(1500) + 'tail-record';
-  const factory = vi
-    .spyOn(native, 'createNativeToolExecutor')
-    .mockReturnValue(vi.fn(async () => ({ content: full, is_error: false })) as never);
-  const f = ownedLocalOptions();
-  f.opts.registry = {
-    ...f.opts.registry,
-    findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
-    get: () => f.opts.session,
-  } as never;
-  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
-  try {
-    mocks.retainToolOutput.mockReturnValue('22222222-2222-4222-8222-222222222222');
-    query = await openCodexChat(f.opts);
-    const execute = mocks.conversationOptions!.executeTool as (
-      name: string,
-      input: Record<string, unknown>,
-      signal: AbortSignal,
-      context: { turnId: string; callId: string },
-    ) => Promise<{ content: string; isError: boolean }>;
-    expect(
-      (mocks.conversationOptions!.tools as { name: string }[]).some(
-        (tool) => tool.name === 'ReadToolOutput',
-      ),
-    ).toBe(true);
-    const context = { turnId: 'turn', callId: 'read' };
-    const hook = vi.spyOn((await import('../native-hooks.js')).NativeHooks.prototype, 'run');
-    const preview = JSON.parse(
-      (await execute('GitHubRead', { endpoint: '/user' }, new AbortController().signal, context))
-        .content,
-    );
-    expect(preview).toMatchObject({
-      complete: false,
-      outputId: '22222222-2222-4222-8222-222222222222',
+it.each(['authenticated', 'public'] as const)(
+  'projects large %s GitHub reads after hooks and refuses output from a former native runtime',
+  async (access) => {
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
     });
-    expect(hook).toHaveBeenCalledWith(
-      'PostToolUse',
-      expect.objectContaining({ tool_response: full }),
-      expect.any(AbortSignal),
-    );
-    const sourceScope = mocks.retainToolOutput.mock.calls.at(-1)![4];
-    expect(mocks.retainToolOutput).toHaveBeenLastCalledWith(
-      'owned-session',
-      f.opts.binding,
-      'GitHubRead',
-      full,
-      expect.stringMatching(/^[a-f0-9]{64}$/),
-    );
-    const readOutput = () =>
-      execute(
-        'ReadToolOutput',
-        { outputId: preview.outputId, query: 'tail-record' },
-        new AbortController().signal,
-        context,
+    mocks.permissionHandler.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    const native = await import('../native-tool-executor.js');
+    const full = 'github record '.repeat(1500) + 'tail-record';
+    const input =
+      access === 'public'
+        ? { endpoint: '/repos/example/project/issues', access }
+        : { endpoint: '/user' };
+    const factory = vi
+      .spyOn(native, 'createNativeToolExecutor')
+      .mockReturnValue(vi.fn(async () => ({ content: full, is_error: false })) as never);
+    const f = ownedLocalOptions();
+    f.opts.registry = {
+      ...f.opts.registry,
+      findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
+      get: () => f.opts.session,
+    } as never;
+    let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      mocks.retainToolOutput.mockReturnValue('22222222-2222-4222-8222-222222222222');
+      query = await openCodexChat(f.opts);
+      const execute = mocks.conversationOptions!.executeTool as (
+        name: string,
+        input: Record<string, unknown>,
+        signal: AbortSignal,
+        context: { turnId: string; callId: string },
+      ) => Promise<{ content: string; isError: boolean }>;
+      expect(
+        (mocks.conversationOptions!.tools as { name: string }[]).some(
+          (tool) => tool.name === 'ReadToolOutput',
+        ),
+      ).toBe(true);
+      const context = { turnId: 'turn', callId: 'read', registerResponseFence: vi.fn() };
+      const hook = vi.spyOn((await import('../native-hooks.js')).NativeHooks.prototype, 'run');
+      const preview = JSON.parse(
+        (await execute('GitHubRead', input, new AbortController().signal, context)).content,
       );
-    mocks.readToolOutput.mockReturnValue({ toolName: 'GitHubRead', content: full, sourceScope });
-    expect(JSON.parse((await readOutput()).content).content).toBe('tail-record');
-    mocks.readToolOutput.mockReturnValueOnce({
-      toolName: 'GitHubRead',
-      content: full,
-      sourceScope: '0'.repeat(64),
-    });
-    expect(await readOutput()).toMatchObject({
-      isError: true,
-      content: expect.stringContaining('output_unavailable'),
-    });
-    vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
-      throw Error('Revoked owner');
-    });
-    await expect(readOutput()).rejects.toThrow('Owned local Codex chat unavailable');
-  } finally {
-    query?.close();
-    f.eventStore.close();
-    factory.mockRestore();
-  }
-});
+      expect(factory).toHaveBeenLastCalledWith(
+        'owned-client',
+        f.opts.registry,
+        expect.objectContaining({ githubReadRuntimeId: expect.any(String) }),
+      );
+      expect(preview).toMatchObject({
+        complete: false,
+        outputId: '22222222-2222-4222-8222-222222222222',
+      });
+      expect(hook).toHaveBeenCalledWith(
+        'PostToolUse',
+        expect.objectContaining({ tool_response: full }),
+        expect.any(AbortSignal),
+      );
+      const sourceScope = mocks.retainToolOutput.mock.calls.at(-1)![4];
+      expect(mocks.retainToolOutput).toHaveBeenLastCalledWith(
+        'owned-session',
+        f.opts.binding,
+        'GitHubRead',
+        full,
+        expect.stringMatching(/^[a-f0-9]{64}$/),
+      );
+      const readOutput = () =>
+        execute(
+          'ReadToolOutput',
+          { outputId: preview.outputId, query: 'tail-record' },
+          new AbortController().signal,
+          context,
+        );
+      mocks.readToolOutput.mockReturnValue({ toolName: 'GitHubRead', content: full, sourceScope });
+      expect(JSON.parse((await readOutput()).content).content).toBe('tail-record');
+      expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+        'GitHubRead',
+        input,
+        expect.objectContaining({
+          forcePrompt: access !== 'public',
+          sessionGrantKey: expect.stringMatching(
+            access === 'public' ? /^github-public-read-v1:/ : /^github-read-v1:/,
+          ),
+        }),
+      );
+      mocks.permissionHandler.mockResolvedValueOnce({
+        behavior: 'deny',
+        message: 'GitHub read consent revoked',
+      });
+      await expect(readOutput()).rejects.toThrow('GitHub read consent revoked');
+      const originalBinding = f.opts.session.accountBinding;
+      f.opts.session.accountBinding = { ...f.opts.binding, accountId: 'another-account' };
+      expect(await readOutput()).toMatchObject({
+        isError: true,
+        content: expect.stringContaining('output_unavailable'),
+      });
+      f.opts.session.accountBinding = originalBinding;
+      f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
+      expect(context.registerResponseFence.mock.calls.at(-1)![0]).toThrow();
+      f.opts.session.activeSkillPolicy = null;
+      mocks.readToolOutput.mockReturnValueOnce({
+        toolName: 'GitHubRead',
+        content: full,
+        sourceScope: '0'.repeat(64),
+      });
+      expect(await readOutput()).toMatchObject({
+        isError: true,
+        content: expect.stringContaining('output_unavailable'),
+      });
+      vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+        throw Error('Revoked owner');
+      });
+      await expect(readOutput()).rejects.toThrow('Owned local Codex chat unavailable');
+    } finally {
+      query?.close();
+      f.eventStore.close();
+      factory.mockRestore();
+    }
+  },
+);
 
 /** Synthetic provider/physical RPC; no sandbox, credentials or model calls. */
 async function openOwnedOpenShellEfficiencyFixture(
@@ -6551,44 +6913,131 @@ async function openOwnedOpenShellEfficiencyFixture(
   };
 }
 
-it('offers Telos backlog tools to a default native chat without a retained Telos role', async () => {
-  vi.clearAllMocks();
-  mocks.initialize.mockResolvedValue(undefined);
-  mocks.send.mockResolvedValue(undefined);
-  mocks.connect.mockResolvedValue({
-    definitions: [],
-    close: mocks.mcpClose,
-    displayName: (name: string) => name,
-  });
-  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
-  const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
-    await import('../telos-main-publication-runtime.js');
-  const canonical = createTelosCanonicalData();
-  const f = ownedLocalOptions();
-  f.opts.assertAgentContextAuthorization = vi.fn();
-  initializeTelosMainPublicationRuntime({
-    registry: f.opts.registry,
-    events: f.eventStore,
-    databasePath: () => canonical.dbPath,
-  });
-  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
-  try {
-    query = await openCodexChat(f.opts);
-    const tools = mocks.conversationOptions!.tools as { name: string }[];
-    for (const name of [
-      'TelosListItems',
-      'TelosSearchItems',
-      'TelosManageItem',
-      'TelosCreateChild',
-    ])
-      expect(tools.some((tool) => tool.name === name)).toBe(true);
-  } finally {
-    query?.close();
-    closeTelosMainPublicationRuntime();
-    f.eventStore.close();
-    canonical.close();
-  }
-});
+it.each(['default', 'selected', 'artifacts', 'excluded', 'unauthorized'] as const)(
+  'offers reviewed Telos capture without a retained role and preserves profile scope (%s)',
+  async (mode) => {
+    vi.clearAllMocks();
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+    const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
+      await import('../telos-main-publication-runtime.js');
+    const canonical = createTelosCanonicalData();
+    const definition = {
+      name: 'Native capture',
+      role: 'agent' as const,
+      instructions: 'Capture reviewed work.',
+      expectedOutput: 'Canonical creation receipt',
+      acceptanceCriteria: ['Reviewed capture'],
+      modelPolicyRole: 'agent' as const,
+      tools: (mode === 'selected'
+        ? ['TelosCreateOutcome', 'TelosAdoptSource']
+        : mode === 'artifacts'
+          ? ['TelosSaveArtifact', 'TelosReadArtifact']
+          : ['ListConnections']
+      ).map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+    };
+    const profile = {
+      profileId: 'owned-agent',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    const f = ownedLocalOptions(
+      '/tmp',
+      ['selected', 'artifacts', 'excluded'].includes(mode) ? profile : undefined,
+    );
+    const { SessionRegistry } = await import('@mitzo/harness');
+    const registry = new SessionRegistry();
+    registry.register('owned-client', {
+      ...f.opts.session,
+      sessionId: f.opts.conversationId,
+      sessionAllowList: new Set<string>(),
+      transport: { send: () => {}, isOpen: () => true },
+    });
+    f.opts.registry = registry;
+    f.opts.session = registry.get('owned-client')!;
+    if (mode !== 'unauthorized') f.opts.assertAgentContextAuthorization = vi.fn();
+    initializeTelosMainPublicationRuntime({
+      registry: f.opts.registry,
+      events: f.eventStore,
+      databasePath: () => canonical.dbPath,
+    });
+    let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      query = await openCodexChat(f.opts);
+      const tools = mocks.conversationOptions!.tools as { name: string }[];
+      const execute = mocks.conversationOptions!
+        .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+      const signal = new AbortController().signal;
+      const call = { turnId: 'capture-turn', callId: 'describe-capture' };
+      const permissionCalls = mocks.permissionHandler.mock.calls.length;
+      for (const name of ['TelosCreateOutcome', 'TelosAdoptSource']) {
+        const available = ['default', 'selected'].includes(mode);
+        expect(tools.some((tool) => tool.name === name)).toBe(available);
+        const result = await execute('DescribeIntegrationTool', { toolId: name }, signal, call);
+        expect(result.isError).toBe(!available);
+        expect(JSON.parse(result.content)).toMatchObject(
+          available
+            ? { toolId: name, name, invocation: 'direct', inputSchema: { type: 'object' } }
+            : { error: 'tool_not_selected' },
+        );
+        if (available) {
+          const proxied = await execute(
+            'InvokeIntegrationTool',
+            {
+              toolId: name,
+              catalogRevision: JSON.parse(result.content).catalogRevision,
+              arguments: {},
+            },
+            signal,
+            call,
+          );
+          expect(proxied.isError).toBe(true);
+          expect(JSON.parse(proxied.content)).toMatchObject({ error: 'direct_tool' });
+        }
+      }
+      // Fresh ordinary chats have no role-scoped progress. Artifact tools
+      // follow the exact explicit profile used by launch qualification.
+      for (const name of ['TelosGetItem', 'TelosUpdateItem'])
+        expect(tools.some((tool) => tool.name === name)).toBe(false);
+      for (const name of ['TelosSaveArtifact', 'TelosReadArtifact'])
+        expect(tools.some((tool) => tool.name === name)).toBe(mode === 'artifacts');
+      for (const name of [
+        'TelosListItems',
+        'TelosSearchItems',
+        'TelosManageItem',
+        'TelosCreateChild',
+        'TelosCreateFeature',
+      ]) {
+        expect(tools.some((tool) => tool.name === name)).toBe(mode === 'default');
+        const result = await execute('DescribeIntegrationTool', { toolId: name }, signal, call);
+        expect(result.isError).toBe(mode !== 'default');
+        if (mode === 'default')
+          expect(JSON.parse(result.content)).toMatchObject({ toolId: name, invocation: 'direct' });
+      }
+      const inventory = JSON.parse(
+        (await execute('ListIntegrationTools', { query: 'TelosCreateOutcome' }, signal, call))
+          .content,
+      );
+      expect(inventory.tools.map((tool: { toolId: string }) => tool.toolId)).toEqual(
+        ['default', 'selected'].includes(mode) ? ['TelosCreateOutcome'] : [],
+      );
+      expect(mocks.permissionHandler).toHaveBeenCalledTimes(permissionCalls);
+    } finally {
+      query?.close();
+      closeTelosMainPublicationRuntime();
+      registry.dispose();
+      f.eventStore.close();
+      canonical.close();
+    }
+  },
+);
 
 it.each([
   'normal',
@@ -6601,6 +7050,8 @@ it.each([
   'foreign-operator',
   'child-changed-policy',
   'child-changed-viewer',
+  'feature-changed-policy',
+  'feature-changed-viewer',
 ])(
   'exposes discoverable Telos backlog maintenance in an ordinary OpenShell chat (%s)',
   async (mode) => {
@@ -6635,6 +7086,7 @@ it.each([
         'TelosSearchItems',
         'TelosManageItem',
         'TelosCreateChild',
+        'TelosCreateFeature',
       ])
         expect(tools.some((tool) => tool.name === name)).toBe(true);
       const execute = f.captured.executeTool as (
@@ -6655,6 +7107,7 @@ it.each([
           ['TelosSearchItems', { query: 'studio' }],
           ['TelosManageItem', { operation: 'read', itemId: 'studio' }],
           ['TelosCreateChild', { parentId: 'studio' }],
+          ['TelosCreateFeature', {}],
         ] as const)
           await expect(run(name, input)).rejects.toThrow(/skill|permission/i);
         return;
@@ -6724,7 +7177,11 @@ it.each([
         note: 'Clarify this outcome.',
       };
       if (mode.includes('changed-policy') || mode.includes('changed-viewer')) {
-        const toolName = mode.startsWith('child-') ? 'TelosCreateChild' : 'TelosManageItem';
+        const toolName = mode.startsWith('child-')
+          ? 'TelosCreateChild'
+          : mode.startsWith('feature-')
+            ? 'TelosCreateFeature'
+            : 'TelosManageItem';
         const exact =
           toolName === 'TelosCreateChild'
             ? {
@@ -6737,7 +7194,16 @@ it.each([
                 acceptanceCriteria: ['Dimensions recorded'],
                 note: 'Plan the next step.',
               }
-            : edit;
+            : toolName === 'TelosCreateFeature'
+              ? {
+                  requestId: 'revoked-feature',
+                  summary: 'Create the feature',
+                  intent: 'Save the feature',
+                  rationale: 'Track delivery',
+                  acceptanceCriteria: ['Feature saved'],
+                  note: 'Approved feature',
+                }
+              : edit;
         setSkillPolicy(f.registry, clientId, [toolName]);
         mocks.permissionHandler.mockImplementationOnce(async (_name, input) => {
           if (mode.endsWith('changed-policy')) setSkillPolicy(f.registry, clientId, []);
@@ -6753,6 +7219,7 @@ it.each([
         expect((await run(toolName, exact)).isError).toBe(true);
         expect(canonical.work.readRecord('studio', canonical.actor).summary).toBe('Home studio');
         expect(canonical.work.listItems({ parentId: 'studio' }, canonical.actor).items).toEqual([]);
+        expect(canonical.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
         return;
       }
       expect((await run('TelosManageItem', edit)).isError).toBe(false);
@@ -6790,6 +7257,30 @@ it.each([
       expect(mocks.permissionHandler).toHaveBeenCalledWith(
         'TelosCreateChild',
         child,
+        expect.objectContaining({
+          forcePrompt: true,
+          allowSessionGrant: false,
+          approvalScope: 'request',
+        }),
+      );
+      const feature = {
+        requestId: 'ordinary-feature',
+        summary: 'Improve Telos creation',
+        intent: 'Save a standalone feature contract',
+        rationale: 'A feature can stand alone',
+        acceptanceCriteria: ['Saved without an outcome wrapper'],
+        note: 'User approved the feature.',
+      };
+      const savedFeature = await run('TelosCreateFeature', feature);
+      expect(savedFeature.isError, savedFeature.content).toBe(false);
+      expect(JSON.parse(savedFeature.content)).toMatchObject({
+        item: { parentId: null, summary: feature.summary },
+        preparation: { dedicatedConversationCreated: false },
+      });
+      expect(await run('TelosCreateFeature', feature)).toEqual(savedFeature);
+      expect(mocks.permissionHandler).toHaveBeenCalledWith(
+        'TelosCreateFeature',
+        feature,
         expect.objectContaining({
           forcePrompt: true,
           allowSessionGrant: false,
@@ -7182,6 +7673,15 @@ it('delivers selected host memory on the retained provider thread and records on
     ) => void;
     const context = await prepare(AbortSignal.timeout(5000));
     expect(context).toContain(publication.sourceCommit);
+    expect(context).toContain('<session_learning mode="auto">');
+    expect(opts.eventStore.append).not.toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.anything(),
+    );
+    expect(() =>
+      acknowledge('command', 'same-provider-thread', 'turn', context + 'changed'),
+    ).toThrow();
     expect(opts.eventStore.append).not.toHaveBeenCalledWith(
       opts.conversationId,
       'published_knowledge_adopted',
@@ -7199,10 +7699,394 @@ it('delivers selected host memory on the retained provider thread and records on
       }),
     );
     expect(reconcile).toHaveBeenCalledOnce();
+    opts.eventStore.setSessionLearningMode(opts.conversationId, 'off', 0);
+    const offContext = await prepare(AbortSignal.timeout(5000));
+    expect(offContext).toContain(publication.sourceCommit);
+    expect(offContext).not.toContain('<session_learning');
+    acknowledge('off-command', 'same-provider-thread', 'off-turn', offContext);
+    expect(opts.eventStore.append).toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.objectContaining({ commandId: 'off-command', turnId: 'off-turn' }),
+    );
   } finally {
     chat?.close();
     dispose();
     fixture.eventStore.close();
     rmSync(root, { recursive: true, force: true });
+  }
+});
+it('discovers and executes StartSession through the actual owned native default-agent registration without starting work', async () => {
+  const { SessionRegistry } = await import('@mitzo/harness');
+  const { readBuiltinAgentLibraryProfile, bindAgentLibraryTransport } =
+    await import('../agent-library-transport.js');
+  const { DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION } =
+    await import('@mitzo/protocol');
+  const { initializeSessionLaunches, closeSessionLaunches } =
+    await import('../session-launch-controller.js');
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'native-start-session-')));
+  const profile = readBuiltinAgentLibraryProfile({
+    kind: 'builtin',
+    profileId: DEFAULT_MITZO_PROFILE_ID,
+    revision: DEFAULT_MITZO_PROFILE_REVISION,
+  })!;
+  const f = ownedLocalOptions(root, profile);
+  const registry = new SessionRegistry();
+  registry.register('launch-native-client', {
+    ...f.opts.session,
+    sessionId: 'owned-session',
+    accountBinding: f.opts.binding,
+    ownerConnectionId: 'launch-native-operator',
+    sessionAllowList: new Set(),
+    transport: { send() {}, isOpen: () => true },
+  });
+  f.opts.registry = registry;
+  f.opts.session = registry.get('launch-native-client')!;
+  const release = bindAgentLibraryTransport('launch-native-operator', {
+    id: 'launch-native-login',
+    expiresAt: Date.now() + 60000,
+  });
+  const controller = initializeSessionLaunches(join(root, 'events.db'), vi.fn());
+  const configuration = {
+    version: 1 as const,
+    runtime: {
+      version: 1 as const,
+      account: {
+        accountId: f.opts.binding!.accountId,
+        model: 'owned-model',
+        reasoningEffort: null,
+      },
+      accountReference: f.expected.binding.account,
+      agentProfile: {
+        kind: 'builtin' as const,
+        profileId: profile.profileId,
+        revision: profile.revision,
+      },
+      execution: { location: 'local' as const, targetId: 'owned-mac' },
+    },
+    mode: 'agent' as const,
+    isolation: true,
+    repositoryWorkspaceId: null,
+    contextBlocks: [],
+    extraTools: [],
+  };
+  controller.defaults.save('user', { expectedRevision: 0, configuration });
+  const validate = vi.spyOn(controller.launches.port, 'validate');
+  const start = vi.spyOn(controller.launches.port, 'start');
+  const workspace = vi.spyOn(repositoryWorkspaceRuntime, 'getOrdinaryWorkspaces');
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockClear();
+  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    query = await openCodexChat(f.opts);
+    const captured = mocks.conversationOptions!;
+    const sourceProviderCalls = mocks.send.mock.calls.length;
+    const definitions = captured.tools as import('@mitzo/harness').ToolDefinition[];
+    expect(definitions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'StartSession' })]),
+    );
+    const execute =
+      captured.executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const signal = new AbortController().signal;
+    const call = { turnId: 'native-turn', callId: 'native-call', assertCurrentSync: vi.fn() };
+    const discovered = JSON.parse(
+      (await execute('ListIntegrationTools', { query: 'StartSession' }, signal, call)).content,
+    );
+    expect(discovered.tools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'StartSession' })]),
+    );
+    const described = JSON.parse(
+      (await execute('DescribeIntegrationTool', { toolId: 'StartSession' }, signal, call)).content,
+    );
+    expect(described.inputSchema.required).toEqual(
+      expect.arrayContaining(['requestId', 'title', 'prompt']),
+    );
+    const input = {
+      requestId: '438ff964-cffa-4fc8-b20b-1e064c812b91',
+      title: 'Approval notifications',
+      prompt: 'Continue the reviewed work.',
+    };
+    const response = await execute('StartSession', input, signal, call);
+    expect(response.isError, response.content).toBe(false);
+    const proposal = JSON.parse(response.content);
+    expect(proposal).toMatchObject({
+      sourceSessionId: 'owned-session',
+      state: 'pending',
+      childSessionId: null,
+      configuration,
+    });
+    expect(controller.launches.store.forSession('owned-session', 'user')).toHaveLength(1);
+    expect(f.eventStore.getSession(proposal.childSessionId ?? 'missing-child')).toBeNull();
+    expect(validate).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(workspace).not.toHaveBeenCalled();
+    expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
+    expect(await execute('StartSession', input, signal, call)).toEqual(response);
+  } finally {
+    query?.close();
+    release();
+    closeSessionLaunches();
+    registry.dispose();
+    f.eventStore.close();
+    validate.mockRestore();
+    start.mockRestore();
+    workspace.mockRestore();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it.each([
+  'success',
+  'import_failure',
+  'receipt_failure',
+  'migration_resume',
+  'uncommitted_migration',
+] as const)(
+  'orders repository startup target verification and receipt persistence before native admission: %s',
+  async (outcome) => {
+    vi.clearAllMocks();
+    for (const [key, value] of Object.entries({
+      MITZO_OPENSHELL_ENABLED: '1',
+      MITZO_OPENSHELL_IMAGE: 'mitzo-runtime:1',
+      MITZO_OPENSHELL_POLICY: '/config/policy.yaml',
+      MITZO_OPENSHELL_SEED: '/seed/mgmt',
+    }))
+      vi.stubEnv(key, value);
+    // This fixture proves repository admission ordering. Lifecycle persistence
+    // has separate consumer coverage; earlier cases intentionally close its singleton.
+    const lifecycleSpies = [
+      vi
+        .spyOn(lifecycleController, 'restoreOpenShellLifecycleIfNeeded')
+        .mockResolvedValue(undefined),
+      vi
+        .spyOn(lifecycleController, 'registerOpenShellLifecycleProvisional')
+        .mockImplementation(() => {}),
+      vi.spyOn(lifecycleController, 'registerOpenShellLifecycle').mockImplementation(() => {}),
+      vi
+        .spyOn(lifecycleController, 'registerMigratedOpenShellLifecycle')
+        .mockImplementation(() => {}),
+      vi.spyOn(lifecycleController, 'markOpenShellLifecycleIdle').mockImplementation(() => {}),
+    ];
+    const resuming = outcome === 'migration_resume' || outcome === 'uncommitted_migration';
+    const order: string[] = [];
+    const runtime = {
+      sandboxName: 'sandbox',
+      sandboxId: 'physical',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: 'openshell',
+      gateway: 'openshell',
+      workspace: 'default',
+      gatewayInsecure: false,
+    };
+    const manifest = {
+      version: 1 as const,
+      workspaceId: 'repository',
+      repository: 'example/repo',
+      baseBranch: 'main',
+      featureBranch: 'mitzo/task',
+      baseOid: 'a'.repeat(40),
+      tree: 'b'.repeat(40),
+      bundleSha256: 'c'.repeat(64),
+    };
+    const receipt = {
+      ...manifest,
+      head: manifest.baseOid,
+      directory: runtime.workdir,
+      sandboxName: runtime.sandboxName,
+      sandboxId: runtime.sandboxId,
+    };
+    const cleanup = vi.fn(async () => {
+      order.push('cleanup');
+    });
+    const prepare = vi.fn(async () => {
+      order.push('export');
+      return { seed: '/private/opaque-import', manifest, cleanup };
+    });
+    const persist = vi.fn(async () => {
+      order.push('persist');
+      if (outcome === 'receipt_failure') throw Error('receipt failure');
+    });
+    const repositories = vi
+      .spyOn(repositoryWorkspaceRuntime, 'getRepositoryWorkspaces')
+      .mockReturnValue({
+        startupMaterialization: prepare,
+        recordSandboxMaterialization: persist,
+      } as unknown as ReturnType<typeof repositoryWorkspaceRuntime.getRepositoryWorkspaces>);
+    const ensure = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+      .mockImplementation(async (...args) => {
+        if (!resuming) expect(args[3]?.seed).toBe('/private/opaque-import');
+        order.push('ensure');
+        return runtime;
+      });
+    const materialize = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'materializeRepository')
+      .mockImplementation(async (...args) => {
+        expect(args[2].manifest).toEqual(manifest);
+        expect(args[3]).toBe(!resuming);
+        order.push('import');
+        if (outcome === 'import_failure') throw Error('import failure');
+        return receipt;
+      });
+    const retained = {
+      ...receipt,
+      sandboxName: 'original-sandbox',
+      sandboxId: 'original-physical',
+    };
+    const migration = {
+      phase: outcome === 'uncommitted_migration' ? 'restored' : 'committed',
+      identity: {
+        conversation: 'repository-startup',
+        accountId: 'work',
+        sandboxId: retained.sandboxId,
+      },
+      source: {
+        runtime: { ...runtime, sandboxName: retained.sandboxName, sandboxId: retained.sandboxId },
+      },
+      candidateName: runtime.sandboxName,
+      candidate: { runtime },
+    } as unknown as import('../openshell-runtime-migration.js').RuntimeMigration;
+    const { CodexConversationStore } = await import('../codex-conversation-store.js');
+    const artifact = {
+      runtime,
+      route: { kind: 'api' as const, provider: 'openai-work', model: 'test-model' },
+    };
+    const readArtifact = resuming
+      ? vi.spyOn(CodexConversationStore.prototype, 'readArtifactRuntime').mockReturnValue(artifact)
+      : undefined;
+    const readMigration = resuming
+      ? vi
+          .spyOn(CodexConversationStore.prototype, 'readRuntimeMigration')
+          .mockReturnValue(migration)
+      : undefined;
+    const migrate = resuming
+      ? vi.spyOn(migrationAdapter, 'prepareRetainedRuntimeMigration').mockResolvedValue(artifact)
+      : undefined;
+    mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+    mocks.initialize.mockImplementation(async () => {
+      order.push('initialize');
+    });
+    mocks.send.mockResolvedValue(undefined);
+    try {
+      const opening = openCodexChat({
+        ...options(new AbortController()),
+        conversationId: 'repository-startup',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.invalid',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'openai-work',
+        },
+        resume: resuming,
+        repositoryWorkspace: {
+          ...manifest,
+          id: manifest.workspaceId,
+          sandbox: true,
+          ...(resuming ? { sandboxMaterialization: retained } : {}),
+        },
+        env: {},
+      });
+      if (outcome === 'success' || outcome === 'migration_resume') {
+        const query = await opening;
+        expect(order).toEqual(
+          resuming
+            ? ['ensure', 'import', 'persist', 'initialize']
+            : ['export', 'ensure', 'import', 'persist', 'cleanup', 'initialize'],
+        );
+        expect(persist.mock.calls[0]!.slice(0, 5)).toEqual([
+          'repository',
+          expect.any(Object),
+          'repository-startup',
+          receipt,
+          expect.any(AbortSignal),
+        ]);
+        query.close();
+      } else {
+        await expect(opening).rejects.toThrow(
+          outcome === 'import_failure'
+            ? 'import failure'
+            : outcome === 'uncommitted_migration'
+              ? 'physical identity changed'
+              : 'receipt failure',
+        );
+        expect(mocks.initialize).not.toHaveBeenCalled();
+        expect(mocks.send).not.toHaveBeenCalled();
+        if (outcome === 'import_failure') expect(persist).not.toHaveBeenCalled();
+      }
+      expect(cleanup).toHaveBeenCalledTimes(resuming ? 0 : 1);
+    } finally {
+      for (const spy of lifecycleSpies) spy.mockRestore();
+      readArtifact?.mockRestore();
+      readMigration?.mockRestore();
+      migrate?.mockRestore();
+      repositories.mockRestore();
+      ensure.mockRestore();
+      materialize.mockRestore();
+    }
+  },
+);
+
+it('retains the active native command across redundant global protection discovery but rejects real drift', async () => {
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const f = ownedLocalOptions();
+  f.opts.assertAgentContextAuthorization = vi.fn();
+  const preparation = await import('../native-local-repository-preparation.js');
+  const workspaces = vi
+    .spyOn(repositoryWorkspaceRuntime, 'getRepositoryWorkspaces')
+    .mockReturnValue({} as never);
+  const prepared = vi
+    .spyOn(preparation, 'executeNativeLocalRepositoryPreparation')
+    .mockRejectedValue(Error('Reached original preparation owner'));
+  const chat = await openCodexChat(f.opts);
+  try {
+    const opts =
+      mocks.conversationOptions as unknown as import('../codex-conversation.js').CodexConversationOptions;
+    const original = opts.nativeExecution!;
+    opts.assertNativeExecutionCurrent!(original, 'owned-command');
+    mocks.nativeDeniedRoots.push('/offline/owned-login/another-chat');
+    expect(() => opts.assertNativeExecutionCurrent!(original, 'owned-command')).not.toThrow();
+    await expect(
+      opts.executeTool(
+        'PrepareLocalRepository',
+        { path: '/offline/source' },
+        new AbortController().signal,
+        { turnId: 'original-turn', callId: 'prepare-equivalent-policy' },
+      ),
+    ).rejects.toThrow('Reached original preparation owner');
+    mocks.nativeDeniedRoots.push('/offline/separate-credential');
+    expect(() => opts.assertNativeExecutionCurrent!(original, 'owned-command')).toThrow(
+      'Native execution policy changed',
+    );
+    await expect(
+      opts.executeTool(
+        'PrepareLocalRepository',
+        { path: '/offline/source' },
+        new AbortController().signal,
+        { turnId: 'original-turn', callId: 'prepare-changed-policy' },
+      ),
+    ).rejects.toThrow('Native execution policy changed');
+    expect(prepared).toHaveBeenCalledTimes(1);
+  } finally {
+    workspaces.mockRestore();
+    prepared.mockRestore();
+    chat.close();
+    f.eventStore.close();
   }
 });

@@ -8,7 +8,7 @@ import {
   PendingHostTaskError,
   pendingHostTaskDecisionHash,
 } from './pending-host-task.js';
-import { inputSchema } from './local-repository-preparation-authorization.js';
+import { parseLocalRepositoryPreparationInput } from './local-repository-preparation-input.js';
 import { localRepositoryPreparationId, repositorySourceIdentity } from './local-repository-base.js';
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
@@ -90,14 +90,12 @@ export async function executeNativeLocalRepositoryPreparation(
       };
       return withCodexToolCleanup(async () => {
         current();
-        const input = inputSchema.parse(rawInput);
+        const input = parseLocalRepositoryPreparationInput(rawInput);
         const binding = context.session.accountBinding;
         if (!binding) throw unavailable();
         const sourceIntent = input.source ?? { kind: 'existing' as const, path: input.path! };
         const sourceIdentity = repositorySourceIdentity(sourceIntent);
         if (pendingHostTaskDecisionHash(rawInput) !== context.requestHash) throw unavailable();
-        await context.assertCurrent();
-        current();
         let existing;
         try {
           existing = workspaces.findLocalRepositoryPreparation({
@@ -121,6 +119,7 @@ export async function executeNativeLocalRepositoryPreparation(
             error.code !== 'pending_host_task_base_conflict'
           )
             throw error;
+          await context.assertCurrent();
           current();
           return {
             error: 'repository_base_conflict' as const,
@@ -152,9 +151,8 @@ export async function executeNativeLocalRepositoryPreparation(
                 taskIdentity,
                 sourceGitDirectory,
               );
-              await context.assertCurrent();
               current();
-            }, [() => reader.dispose()]);
+            }, [() => reader.dispose(), () => context.assertCurrent(), current]);
             current();
             return {
               preparationId: existing.id,
@@ -210,8 +208,8 @@ export async function executeNativeLocalRepositoryPreparation(
           ),
         );
         current();
-        strict(await Reflect.apply(full, context, []));
-        current();
+        // The original operation already joined object cleanup and refreshed
+        // this native owner. Receipt parsing below is immutable data only.
         if (
           receipt.state !== 'materialized' ||
           receipt.request.conversationId !== context.conversationId ||

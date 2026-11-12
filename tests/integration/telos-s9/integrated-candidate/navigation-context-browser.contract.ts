@@ -8,6 +8,7 @@ import { createJoinedOrdinaryApplication } from './joined-ordinary-application';
 it('restores filtered searched pinned outcome-list scroll after nested item and ordinary-chat return at narrow and desktop widths', async () => {
   const h = await createJoinedOrdinaryApplication({ viewport: { width: 320, height: 900 } });
   const { canonical, api, page, front, f, prepared, nativeSessions, chat } = h;
+  await front.warmupEntry('/src/pages/TodoView.tsx');
   const insert = canonical.db.prepare(`INSERT INTO items
     (id,parent_id,summary,intent,rationale,acceptance_criteria,profile,priority,categories,context_hints,first_seen,last_seen,created_at,updated_at)
     VALUES(?,?,?,?,?,?,'manual',5,?,'{}',?,?,?,?)`);

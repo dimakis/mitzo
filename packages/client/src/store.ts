@@ -20,13 +20,19 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
 import {
   splitContextPrompt,
+  RuntimeFailureSchema,
+  runtimeFailureMessage,
   type OrdinaryRuntimeContinuationCommand,
   type OrdinaryRuntimeFirstCommand,
   type OrdinaryWorkspaceFirstCommand,
 } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
-import { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
+import {
+  messagesReducer,
+  INITIAL_MESSAGES_STATE,
+  mergeAgentMessageReceipt,
+} from './slices/messages.js';
 import type { MessagesState, MessagesAction } from './slices/messages.js';
 import { INITIAL_SESSIONS_STATE } from './slices/sessions.js';
 import type { SessionsState } from './slices/sessions.js';
@@ -61,7 +67,14 @@ import { MitzoApiClient } from './api-client.js';
 import { MitzoConnection } from './connection.js';
 import type { MitzoConnectionConfig } from './connection.js';
 import { SseConnection } from './sse-connection.js';
-import { SendOutbox, hasReviewedSource } from './send-outbox.js';
+import { SendOutbox, hasReviewedSource, type SendOutboxStorage } from './send-outbox.js';
+import {
+  CommandDeliveryDiagnosticSchema,
+  commandDeliveryMessage,
+  localCommandStatusMessage,
+  type CommandDeliveryDiagnostic,
+  type CommandDeliveryObserver,
+} from './command-delivery-diagnostic.js';
 import type { SseConnectionConfig } from './sse-connection.js';
 import type { ChatConnection } from './chat-connection.js';
 import { messageIdentity } from './message-identity.js';
@@ -150,6 +163,8 @@ export interface MitzoStoreState {
   sessionMetadataRevision: number;
   /** Local composer fence only; never provider input or dispatch authority. */
   isSessionMetadataCurrent(sessionId: string, revision: number): boolean;
+  /** Refresh display/readiness after an explicit action; never dispatch authority. */
+  invalidateSessionMetadata(sessionId: string): void;
 
   // Current server-issued transport identity; never persisted across reconnect.
   getTransportConnectionId(): string | null;
@@ -164,6 +179,7 @@ export interface MitzoStoreState {
     sessionId?: string;
     originDraftId?: string;
     composerDraft?: ComposerDraftReceipt;
+    deliveryDiagnostic?: CommandDeliveryDiagnostic;
   } | null;
   sendLocalFirstCommand(
     request: OrdinaryRuntimeFirstCommand | OrdinaryRuntimeContinuationCommand,
@@ -255,11 +271,12 @@ export interface MitzoStoreOptions {
   /** Durable HTTP admission of initial reviewed briefing commands while WS receives events. */
   reviewedSendConfig?: {
     url: string;
-    storage: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+    storage: SendOutboxStorage;
   };
   localFirstCommandConfig?: {
     url: string;
-    storage: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+    storage: SendOutboxStorage;
+    onDeliveryDiagnostic?: CommandDeliveryObserver;
   };
   /** Start with transports latched off until restoreAuthentication() after an explicit login. */
   initiallyAuthenticated?: boolean;
@@ -320,6 +337,7 @@ function mergeLiveWithDurable(
   const durableContext = durableText && splitContextPrompt(durableText.content);
   return {
     ...liveContent,
+    ...mergeAgentMessageReceipt(live, durable),
     ...(durable.inReplyTo ? { inReplyTo: durable.inReplyTo } : {}),
     ...(durable.replyToMessageId ? { replyToMessageId: durable.replyToMessageId } : {}),
     ...(durable.steersMessageId ? { steersMessageId: durable.steersMessageId } : {}),
@@ -394,7 +412,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return false;
       if (typeof id !== 'string' || sessionInterests.has(id)) return true;
       if (event.type === 'session_id') return true;
-      if (event.type === 'permission_request' && !parserState.currentSessionId) return true;
+      if (awaitingPermissionAssignment(event)) return true;
       const command = event.type === 'user_message' ? event.messageId : event.clientMsgId;
       if (typeof command !== 'string' || !deliveryObservers.has(command)) return false;
       const origin = deliveryOrigins.get(command);
@@ -481,7 +499,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (event.type !== '_local_command_state') return;
             if (event.state === 'idle') {
               visibleLocalCommandId = undefined;
-              store.setState({ localCommand: null, sendStatus: null });
+              store.setState({
+                localCommand: null,
+                sendStatus: null,
+                ...(store.getState().localCommand?.state === 'blocked' &&
+                store.getState().sendError === localCommandStatusMessage('blocked')
+                  ? { sendError: null }
+                  : {}),
+              });
               return;
             }
             let request: LocalCommandRequest | undefined;
@@ -514,7 +539,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               });
             const locationLabel = request?.runOn === 'openshell' ? 'OpenShell' : 'Local';
             const visible =
-              localCommandScope == null
+              state === 'blocked' ||
+              (localCommandScope == null
                 ? visibleLocalCommandId === undefined ||
                   visibleLocalCommandId === request?.clientMsgId
                 : 'draftId' in localCommandScope
@@ -523,8 +549,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                     localCommandSessionId(
                       request,
                       ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : sessionId,
-                    );
+                    ));
             if (visible) {
+              const runtimeFailure = RuntimeFailureSchema.safeParse(event.runtimeFailure);
+              const deliveryDiagnostic = CommandDeliveryDiagnosticSchema.safeParse(
+                event.deliveryDiagnostic,
+              ).data;
               visibleLocalCommandId = request?.clientMsgId;
               let messages = store.getState().messages;
               const ownState =
@@ -537,12 +567,22 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 request.runtime.harness === 'codex' &&
                 state === 'consumed' &&
                 event.acknowledged === true &&
-                (!ownState || ['sending', 'queued'].includes(ownState))
+                (!ownState || ['sending', 'queued', 'uncertain'].includes(ownState))
               )
                 messages = messagesReducer(messages, {
                   type: 'COMMAND_STATE',
                   messageId: request.clientMsgId,
                   commandState: 'queued',
+                });
+              if (
+                request &&
+                ['retained', 'reserved', 'uncertain'].includes(state) &&
+                (!ownState || ownState === 'sending')
+              )
+                messages = messagesReducer(messages, {
+                  type: 'COMMAND_STATE',
+                  messageId: request.clientMsgId,
+                  commandState: 'uncertain',
                 });
               const hasReply =
                 request &&
@@ -555,9 +595,21 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 ['completed', 'ended', 'interrupted', 'failed', 'cancelled'].includes(ownState);
               store.setState({
                 messages,
+                ...(state === 'blocked'
+                  ? { sendError: localCommandStatusMessage(state) }
+                  : runtimeFailure.success && ['retained', 'reserved', 'uncertain'].includes(state)
+                    ? { sendError: runtimeFailureMessage(runtimeFailure.data) }
+                    : deliveryDiagnostic && state === 'uncertain'
+                      ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
+                      : event.receiptConfirmed === true || ['pending', 'consumed'].includes(state)
+                        ? { sendError: null }
+                        : deliveryDiagnostic
+                          ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
+                          : {}),
                 localCommand: {
                   request,
                   ...(composerDraft ? { composerDraft } : {}),
+                  ...(deliveryDiagnostic ? { deliveryDiagnostic } : {}),
                   ...(ordinaryDelivery ? { ordinaryPhase: ordinaryDelivery.phase } : {}),
                   ...(ordinaryDelivery?.version === 1
                     ? { preparedSessionId: ordinaryDelivery.sessionId }
@@ -835,16 +887,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const observer = deliveryObservers.get(id);
     const origin = deliveryOrigins.get(id);
     const sessionId = deliverySessions.get(id) ?? origin?.observedSessionId;
-    if (source === 'local' && status === 'uncertain' && !origin?.sessionId)
+    if (source === 'local' && status === 'uncertain')
       store.setState((s) => ({
         messages: {
           ...s.messages,
-          // No acknowledged conversation owns this draft's optimistic spinner.
-          // Retain its message and frozen recovery request; a selected session,
-          // real stream or newer draft keeps its independently owned busy state.
+          // The failed send owns only its optimistic spinner, including in an
+          // idle retained chat. Real streams, an already busy origin, navigation
+          // and newer input keep their independently owned running state.
           ...(origin?.control === 'send' &&
           !origin.running &&
-          s.sessions.active === null &&
+          (origin.sessionId ?? null) === s.sessions.active &&
           origin.historyRequest === historyRequest &&
           origin.launchGeneration === launchGeneration &&
           !s.messages.current &&
@@ -923,6 +975,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     | undefined;
   let awaitingSessionId = false;
+  const unassignedPermissions = new Map<string, Record<string, unknown>>();
+  function awaitingPermissionAssignment(event: Record<string, unknown>): boolean {
+    return (
+      awaitingSessionId &&
+      !parserState.currentSessionId &&
+      ['permission_request', 'permission_resolved', 'permission_timeout'].includes(
+        String(event.type),
+      )
+    );
+  }
   let awaitingModeHydration: string | undefined;
 
   function fetchAndRestoreMessages(
@@ -1115,7 +1177,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (boundedRestore === currentBoundedRestore) boundedRestore = undefined;
         if (request === historyRequest) {
           recoveryInFlight = false;
-          if (throughSeq !== undefined) store.setState({ historyLoading: false });
+          // An accepted receipt can supersede an opening history request too.
+          // The current owner must finish that loading state on every path.
+          store.setState({ historyLoading: false });
         }
       });
   }
@@ -1252,6 +1316,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     getTransportConnectionId: () => connection.getConnectionId(),
     isSessionMetadataCurrent: (sessionId, revision) =>
       get().sessions.active === sessionId && get().sessionMetadataRevision === revision,
+    invalidateSessionMetadata: (sessionId) => {
+      if (get().sessions.active === sessionId)
+        set((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
+    },
 
     dispatchMessages(action: MessagesAction) {
       if (action.type === 'SET_SESSION_CONTEXT') contextDisplayWritten = true;
@@ -1263,6 +1331,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      unassignedPermissions.clear();
       ++launchGeneration;
       set({ pendingSession: null, pendingSessionSending: false });
       if (id !== parserState.currentSessionId) unconfirmedPermissionResponses.clear();
@@ -1392,6 +1461,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      unassignedPermissions.clear();
       localCommandScope = null;
       visibleLocalCommandId = undefined;
       ++launchGeneration;
@@ -1475,7 +1545,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     recoverLocalCommand() {
       return (
         !!reviewedAuthenticated &&
-        !!connection.getConnectionId() &&
+        (get().localCommand?.state === 'blocked' || !!connection.getConnectionId()) &&
         !!localOutbox?.retryLocalCommand(get().localCommand?.request?.clientMsgId)
       );
     },
@@ -2041,6 +2111,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState((s) => ({
         sessions: { ...s.sessions, active: sessionId },
       }));
+      const earlyRequests = [...unassignedPermissions.values()];
+      unassignedPermissions.clear();
+      for (const request of earlyRequests)
+        if (
+          request.sessionId === sessionId &&
+          (typeof request.expiresAt !== 'number' || request.expiresAt > Date.now())
+        )
+          wsListener(request);
       store.getState().refreshSessions();
     },
 
@@ -2575,7 +2653,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // Session-scoped event filtering for multiplexed v2 connections:
     // - No sessionId on the event → global (task_state, inbox_updated, etc.) → always accept
     // - sessionId matches currentSessionId → accept
-    // - No active session AND event is session_id/session_end → accept (new session assignment)
+    // - No active session AND event is session_id → accept (new session assignment)
     // - Otherwise → drop (foreign session event)
     if (eventSessionId) {
       if (parserState.currentSessionId) {
@@ -2592,12 +2670,24 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           return true;
         }
       } else {
-        // Allow session_id (new session assignment) and permission_request
-        // (can arrive before session_id on the first turn) through when no
-        // active session. Drop everything else (session_end, etc.) to prevent
-        // foreign session bleed.
-        const isFirstTurnEvent = msg.type === 'session_id' || msg.type === 'permission_request';
-        if (!isFirstTurnEvent) {
+        // Preserve the first-turn race without displaying an unowned card.
+        // Only the eventual assignment can select which buffered chat owns it.
+        if (awaitingPermissionAssignment(msg) && typeof msg.permId === 'string') {
+          if (msg.type === 'permission_request') {
+            if (!unassignedPermissions.has(msg.permId) && unassignedPermissions.size >= 32) {
+              const oldest = unassignedPermissions.keys().next().value;
+              if (oldest) unassignedPermissions.delete(oldest);
+            }
+            unassignedPermissions.set(msg.permId, msg);
+          } else if (unassignedPermissions.get(msg.permId)?.sessionId === eventSessionId) {
+            unassignedPermissions.delete(msg.permId);
+          }
+          return true;
+        }
+        // An approval cannot identify which new draft owns it. Wait for the
+        // authoritative session assignment before accepting session events;
+        // otherwise another chat's card has no response/dismissal route.
+        if (msg.type !== 'session_id') {
           if (
             msg.type === 'session_reconnect_snapshot' &&
             typeof msg.cursor === 'number' &&
@@ -2652,8 +2742,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState((state) => ({ queueRevision: state.queueRevision + 1 }));
     if (
       selectedEventSession &&
-      (msg.type === 'session_info' || msg.type === 'session_reconnect_snapshot')
+      (msg.type === 'session_info' ||
+        msg.type === 'session_reconnect_snapshot' ||
+        msg.type === 'session_end' ||
+        commandPreparationEnded)
     )
+      // A mounted chat may have read eligibility while dispatch was uncertain.
+      // Completion invalidates that read; only fresh metadata can unblock sending.
       store.setState((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
 
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)

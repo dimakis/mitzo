@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import type { Express, NextFunction, Request, Response } from 'express';
@@ -35,11 +36,13 @@ vi.mock('../internal-token.js', () => ({
 let app: Express;
 let store: EventStore;
 let root: string;
+let privateRoot: string;
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-output-app-'));
+  privateRoot = mkdtempSync(join(tmpdir(), 'mitzo-output-private-'));
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
-  vi.stubEnv('TELOS_DB_PATH', join(root, 'todo.db'));
+  vi.stubEnv('TELOS_DB_PATH', join(privateRoot, 'todo.db'));
   vi.stubEnv('MCP_CONFIG_PATH', join(root, 'no-mcp.json'));
   vi.stubGlobal(
     'fetch',
@@ -68,6 +71,7 @@ beforeAll(async () => {
 afterAll(() => {
   store?.close();
   if (root) rmSync(root, { recursive: true, force: true });
+  if (privateRoot) rmSync(privateRoot, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });

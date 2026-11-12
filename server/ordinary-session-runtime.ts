@@ -41,6 +41,16 @@ const Account = z.discriminatedUnion('provider', [
   }),
   z.strictObject({
     ...accountReference.shape,
+    provider: z.literal('anthropic-claude'),
+    auth: z.strictObject({ kind: z.literal('claude-host-login') }),
+  }),
+  z.strictObject({
+    ...accountReference.shape,
+    provider: z.literal('anthropic-api'),
+    auth: z.strictObject({ kind: z.literal('anthropic-api-key') }),
+  }),
+  z.strictObject({
+    ...accountReference.shape,
     provider: z.literal('google-vertex'),
     auth: z.strictObject({ kind: z.literal('vertex-adc') }),
   }),
@@ -185,7 +195,9 @@ export function resolveOrdinarySessionRuntime(
       : account.provider === 'openai'
         ? (chosen.harness === 'responses' && target.location === 'local') ||
           chosen.harness === 'codex'
-        : account.provider === 'anthropic-vertex'
+        : account.provider === 'anthropic-vertex' ||
+            account.provider === 'anthropic-claude' ||
+            account.provider === 'anthropic-api'
           ? chosen.harness === 'claude-sdk' && target.location === 'local'
           : chosen.harness === 'gemini' && target.location === 'local';
   if (!supported) return rejected('unsupported_tuple');

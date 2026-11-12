@@ -18,6 +18,10 @@ import { TelosSourceApproval, TelosSourceSaveUncertainError } from './telos-sour
 import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
 import { z } from 'zod';
 import { createLogger } from './logger.js';
+import {
+  describeTelosOperationFailure,
+  retainTelosDiagnosticFailure,
+} from './telos-operation-failure.js';
 import { isAuthSessionCurrent, type AuthSession } from './auth.js';
 import type { Request } from 'express';
 import {
@@ -25,59 +29,10 @@ import {
   TelosSourceMaterialPageRequestSchema,
   TelosSourceMaterialCursorSchema,
   TelosSourcePermissionApproveRequestSchema,
+  TelosOutcomeRevisionRequestSchema,
 } from '@mitzo/protocol';
 
 const log = createLogger('telos-source');
-const failureCodes = new Map([
-  ['SQLITE_BUSY', 'sqlite_busy'],
-  ['SQLITE_BUSY_SNAPSHOT', 'sqlite_busy'],
-  ['SQLITE_LOCKED', 'sqlite_busy'],
-  ['SQLITE_ERROR', 'sqlite_unavailable'],
-  ['SQLITE_CANTOPEN', 'sqlite_unavailable'],
-  ['SQLITE_CORRUPT', 'sqlite_unavailable'],
-  ['SQLITE_NOTADB', 'sqlite_unavailable'],
-  ['SQLITE_FULL', 'resource_exhausted'],
-  ['EACCES', 'filesystem_denied'],
-  ['EPERM', 'filesystem_denied'],
-  ['ENOSPC', 'resource_exhausted'],
-  ['EMFILE', 'resource_exhausted'],
-  ['ENFILE', 'resource_exhausted'],
-  ['MITZO_OWNER_BUSY', 'owner_unavailable'],
-  ['MITZO_OWNER_UNSUPPORTED', 'owner_unavailable'],
-]);
-/** Classification is descriptive only. Never serialize the exception, SQL,
- * schema issue values, paths or arbitrary upstream names/codes. Data descriptors
- * avoid executing diagnostic getters; malformed correlation stays unknown. */
-function sourceFailure(error: unknown): Record<string, string> {
-  let errorKind = 'unknown';
-  try {
-    const seen = new Set<Error>();
-    for (let cause = error; cause instanceof Error && seen.size < 4 && !seen.has(cause);) {
-      seen.add(cause);
-      errorKind = cause instanceof TypeError ? 'type' : 'error';
-      const code: unknown = Object.getOwnPropertyDescriptor(cause, 'code')?.value;
-      const reason = typeof code === 'string' ? failureCodes.get(code) : undefined;
-      if (typeof code === 'string' && reason)
-        return {
-          reason,
-          errorKind: code.startsWith('SQLITE_') ? 'sqlite' : 'error',
-          errorCode: code,
-        };
-      if (cause instanceof z.ZodError) return { reason: 'invalid_schema', errorKind: 'validation' };
-      if (cause instanceof SyntaxError) return { reason: 'invalid_json', errorKind: 'syntax' };
-      if (
-        cause instanceof TypeError &&
-        Object.getOwnPropertyDescriptor(cause, 'message')?.value ===
-          'The database connection is not open'
-      )
-        return { reason: 'database_closed', errorKind: 'type' };
-      cause = Object.getOwnPropertyDescriptor(cause, 'cause')?.value;
-    }
-  } catch {
-    // Diagnostics cannot replace the original source outcome.
-  }
-  return { reason: 'unexpected', errorKind };
-}
 
 /** Host-authenticated source selection/adoption only. No HTTP source bytes,
  * caller actors, model settings, allocator receipts or internal-token fallback.
@@ -92,7 +47,7 @@ export function createTelosSourceRouter(options: {
   sourceConversation?(id: string): boolean;
   createOutcome?(
     input: TelosOutcomeCreation,
-    assertCurrentSync?: () => void,
+    assertCurrentSync: () => void,
   ): Promise<{ itemId: string }>;
   verifyInternal?(req: Request): boolean;
   sessionId?(clientId: string): string | undefined;
@@ -175,7 +130,7 @@ export function createTelosSourceRouter(options: {
         artifacts,
         assertAuthorized,
         store: approvalStore,
-        createOutcome: async (input: TelosOutcomeCreation, assertCurrentSync?: () => void) => {
+        createOutcome: async (input: TelosOutcomeCreation, assertCurrentSync: () => void) => {
           if (!options.createOutcome) throw new Error('Canonical creator unavailable');
           return options.createOutcome(input, assertCurrentSync);
         },
@@ -188,11 +143,15 @@ export function createTelosSourceRouter(options: {
     } catch (error) {
       const known = error instanceof TelosWorkError;
       const uncertain = error instanceof TelosSourceSaveUncertainError;
-      if (!known && !uncertain) {
+      if (!known && (!uncertain || Object.getOwnPropertyDescriptor(error, 'cause')?.value)) {
         try {
-          log.warn('Reviewed source operation failed', { phase, ...sourceFailure(error) });
-        } catch {
-          // A log sink failure must preserve the original response and cause.
+          log.warn('Reviewed source operation failed', {
+            phase,
+            ...(uncertain ? { saveStatus: 'unconfirmed' } : {}),
+            ...describeTelosOperationFailure(error),
+          });
+        } catch (diagnosticCause) {
+          retainTelosDiagnosticFailure(error, diagnosticCause, { stage: phase });
         }
       }
       res
@@ -222,14 +181,22 @@ export function createTelosSourceRouter(options: {
           permId: TelosWorkIdSchema,
           sessionId: TelosWorkIdSchema,
           afterSequence: z.coerce.number().int().nonnegative().safe().default(0),
+          beforeSequence: z.coerce.number().int().positive().safe().optional(),
         })
+        .refine((value) => value.beforeSequence === undefined || value.afterSequence === 0)
         .safeParse({ permId: req.params.permId, ...req.query });
       if (!input.success) {
         res.status(400).json({ code: 'invalid', error: 'Invalid source permission' });
         return;
       }
       await run(res, actor, (_capture, approval) =>
-        approval.review(input.data.permId, input.data.sessionId, actor, input.data.afterSequence),
+        approval.review(
+          input.data.permId,
+          input.data.sessionId,
+          actor,
+          input.data.afterSequence,
+          input.data.beforeSequence,
+        ),
       );
     },
   );
@@ -258,7 +225,7 @@ export function createTelosSourceRouter(options: {
       await run(res, actor, (_capture, approval) => approval.materials(id.data, input.data, actor));
     },
   );
-  for (const operation of ['preview', 'approve'] as const)
+  for (const operation of ['preview', 'approve', 'request-changes'] as const)
     router.post(
       '/api/telos/work/source/permissions/:permId/' + operation,
       options.operatorAuth,
@@ -268,18 +235,22 @@ export function createTelosSourceRouter(options: {
         if (!actor) return;
         const id = TelosWorkIdSchema.safeParse(req.params.permId),
           input = (
-            operation === 'preview'
-              ? TelosSourcePermissionPreviewRequestSchema
-              : TelosSourcePermissionApproveRequestSchema
+            operation === 'request-changes'
+              ? TelosOutcomeRevisionRequestSchema
+              : operation === 'preview'
+                ? TelosSourcePermissionPreviewRequestSchema
+                : TelosSourcePermissionApproveRequestSchema
           ).safeParse(req.body);
         if (!id.success || !input.success) {
           res.status(400).json({ code: 'invalid', error: 'Invalid source permission request' });
           return;
         }
         await run(res, actor, (_capture, approval) =>
-          operation === 'preview'
-            ? approval.preview(id.data, input.data, actor)
-            : approval.approve(id.data, input.data, actor),
+          operation === 'request-changes'
+            ? approval.requestChanges(id.data, input.data, actor)
+            : operation === 'preview'
+              ? approval.preview(id.data, input.data, actor)
+              : approval.approve(id.data, input.data, actor),
         );
       },
     );

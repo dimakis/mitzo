@@ -17,6 +17,7 @@ import {
   sendOwnedOpenShellCodexCommand,
 } from './ordinary-openshell-codex-entry.js';
 import { sessionHarnessForProvider } from './session-harness-routing.js';
+import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 
 type LocalOptions = Parameters<typeof startOwnedLocalCodexCommand>[2];
 export interface OwnedOrdinaryDispatchInput {
@@ -30,6 +31,8 @@ export interface OwnedOrdinaryDispatchInput {
   ownerConnectionId?: string;
   ownerAuthSessionId?: string;
   signal: AbortSignal;
+  /** Live scoped caller fence, retained by SDK continuation admission across I/O. */
+  assertCurrent?(): void;
   continuation: boolean;
   recovery?: boolean;
   existingOwner: boolean;
@@ -38,6 +41,7 @@ export interface OwnedOrdinaryDispatchInput {
   profile?: AgentLibraryVersion;
   sandboxWorkdir?: string;
   onSessionPrepared?: LocalOptions['onSessionPrepared'];
+  ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
   onQueryEvent?: LocalOptions['onQueryEvent'];
   onTerminalOutcome?: LocalOptions['onTerminalOutcome'];
   onEnded?: LocalOptions['onEnded'];
@@ -50,6 +54,7 @@ export interface OwnedOrdinaryDispatchInput {
  */
 export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchInput) {
   input.signal.throwIfAborted();
+  input.assertCurrent?.();
   const { reservation, sessionId, commandId, command, operatorConnectionId, signal } = input;
   const runtime = (
     command as {
@@ -74,13 +79,14 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
     (!input.continuation && runtime.harness !== sessionHarnessForProvider(binding.account.provider))
   )
     throw Error('Exact ordinary dispatch selection required');
+  const localCodex =
+    binding.harness.implementation === 'codex' && binding.execution.location === 'local';
+  const localSdk =
+    binding.harness.implementation === 'claude-sdk' && binding.execution.location === 'local';
   if (
-    (input.adviserScope ||
-      input.onSessionPrepared ||
-      input.onQueryEvent ||
-      input.onTerminalOutcome ||
-      input.onEnded) &&
-    (binding.harness.implementation !== 'codex' || binding.execution.location !== 'local')
+    ((input.adviserScope || input.onQueryEvent || input.onTerminalOutcome || input.onEnded) &&
+      !localCodex) ||
+    (input.onSessionPrepared && !localCodex && !localSdk)
   )
     throw Error('Scoped callbacks are unavailable on this execution target');
   const continuation = input.continuation;
@@ -102,10 +108,19 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
       const ownerAuthSessionId = input.ownerAuthSessionId;
       if (!ownerAuthSessionId) throw Error('Exact ordinary operator identity required');
       return continuation && existing
-        ? sendOwnedLocalVertexCommand(common)
+        ? sendOwnedLocalVertexCommand({
+            ...common,
+            assertCurrent: input.assertCurrent,
+            ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+          })
         : startOwnedLocalVertexCommand(input.transport, input.clientId, {
             ...startup,
             ownerAuthSessionId,
+            ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+            ...(!continuation && input.preparationOperationId
+              ? { preparationOperationId: input.preparationOperationId }
+              : {}),
+            ...(input.onSessionPrepared ? { onSessionPrepared: input.onSessionPrepared } : {}),
           });
     }
     case 'gemini':
@@ -174,6 +189,9 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
             resume: continuation,
             recovery: input.recovery,
             ...(input.onSessionPrepared ? { onSessionPrepared: input.onSessionPrepared } : {}),
+            ...(input.ordinaryTurnLifecycle
+              ? { ordinaryTurnLifecycle: input.ordinaryTurnLifecycle }
+              : {}),
             ...(input.onQueryEvent ? { onQueryEvent: input.onQueryEvent } : {}),
             ...(input.onTerminalOutcome ? { onTerminalOutcome: input.onTerminalOutcome } : {}),
             ...(input.onEnded ? { onEnded: input.onEnded } : {}),

@@ -1,3 +1,4 @@
+import { callbackOutcome } from '../turn-callbacks.js';
 import { expect, it, vi } from 'vitest';
 import { AgentToolReferencesSchema } from '@mitzo/protocol';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
@@ -124,6 +125,44 @@ it('closes the original peer if a selected operation is absent and never substit
   expect(f.close).toHaveBeenCalledOnce();
   expect(f.call).not.toHaveBeenCalled();
 });
+it.each(['rejection', 'timeout'])(
+  'retains missing task admission and cleanup failures together on cleanup %s',
+  async (kind) => {
+    const f = fixture();
+    const cleanup = Error('private shutdown diagnostic');
+    f.close.mockImplementationOnce(() =>
+      kind === 'rejection' ? Promise.reject(cleanup) : new Promise<void>(() => {}),
+    );
+    f.connect.mockResolvedValueOnce({
+      listTools: async () => ({ tools: [{ name: 'TaskBlock', inputSchema: { type: 'object' } }] }),
+      callTool: f.call,
+      close: f.close,
+    });
+    await expect(
+      connectSelectedTaskMcpTools([ref], { 'task-board': f.config }, scope, {
+        ...f.options,
+        toolGuardPolicy: { executionMs: 100, approvalMs: 100, cleanupMs: 20 },
+      }),
+    ).rejects.toMatchObject({
+      message: 'MCP operation and cleanup failed',
+      cause: expect.objectContaining({
+        message: 'Selected task operation is unavailable on the original task server',
+      }),
+      errors: [
+        expect.objectContaining({
+          message: 'MCP cleanup failed',
+          errors: [
+            kind === 'rejection'
+              ? cleanup
+              : expect.objectContaining({ code: 'ETIMEDOUT', phase: 'cleanup' }),
+          ],
+        }),
+      ],
+    });
+    expect(f.close).toHaveBeenCalledOnce();
+    expect(f.call).not.toHaveBeenCalled();
+  },
+);
 it('keeps configured receipt tools and scoped task tools together without launching an ambient source or expanding either selection', async () => {
   const f = fixture();
   const catalog = new ConfiguredToolCatalog(':memory:');
@@ -175,6 +214,8 @@ it('keeps configured receipt tools and scoped task tools together without launch
         { name: 'mitzo_mcp_forged' },
       ]),
     ).toHaveLength(3);
+    expect(connect).not.toHaveBeenCalled();
+    await peers.ensureToolCurrent?.(configured.definitions[0].name, f.abort.signal);
     expect(connect).toHaveBeenCalledOnce();
     expect(f.connect).toHaveBeenCalledOnce();
     expect(connect).toHaveBeenCalledWith(
@@ -184,6 +225,21 @@ it('keeps configured receipt tools and scoped task tools together without launch
     const permission = vi.fn(async () => ({ behavior: 'allow' as const }));
     for (const tool of peers.definitions)
       expect((await peers.execute(tool.name, {}, permission, f.abort.signal)).isError).toBe(false);
+    f.call.mockImplementationOnce(async () =>
+      Object.assign({ content: [{ type: 'text', text: 'read failed' }] }, { isError: true }),
+    );
+    const taskWire = task.definitions[0].name;
+    expect(callbackOutcome(await peers.execute(taskWire, {}, permission, f.abort.signal))).toBe(
+      'settled',
+    );
+    configuredCall.mockImplementationOnce(async () =>
+      Object.assign({ content: [{ type: 'text', text: 'peer failure' }] }, { isError: true }),
+    );
+    expect(
+      callbackOutcome(
+        await peers.execute(configured.definitions[0].name, {}, permission, f.abort.signal),
+      ),
+    ).toBe('unknown');
     expect(permission).toHaveBeenCalledWith('mcp__task-board__TaskStatus', {}, f.abort.signal);
     expect(permission).toHaveBeenCalledWith(
       'mcp__selected__search',
@@ -191,8 +247,8 @@ it('keeps configured receipt tools and scoped task tools together without launch
       f.abort.signal,
       expect.objectContaining({ sessionGrantKey: expect.stringContaining('configured-mcp:') }),
     );
-    expect(f.call).toHaveBeenCalledOnce();
-    expect(configuredCall).toHaveBeenCalledOnce();
+    expect(f.call).toHaveBeenCalledTimes(2);
+    expect(configuredCall).toHaveBeenCalledTimes(2);
     await expect(async () =>
       peers!.execute('mcp__task-board__TaskSet', {}, permission, f.abort.signal),
     ).rejects.toThrow(/not selected/);

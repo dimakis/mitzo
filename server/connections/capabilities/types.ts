@@ -15,6 +15,32 @@ export type CapabilityOperationStatus =
   | 'cancelled'
   | 'failed';
 
+/** Observational only: phases never replace mutation/recovery state or grants. */
+export const CAPABILITY_OPERATION_PHASES = [
+  'authority',
+  'preflight',
+  'workspace',
+  'inspection',
+  'validation',
+  'branch_policy',
+  'export',
+  'reconstruction',
+  // Historical diagnostic values remain readable for retained operations.
+  'review',
+  'review_first',
+  'review_second',
+  'review_context',
+  'cleanup',
+  'lookup',
+  'approval_projection',
+  'approval',
+  'execution',
+  'push',
+  'pr_mutation',
+  'verification',
+] as const;
+export type CapabilityOperationPhase = (typeof CAPABILITY_OPERATION_PHASES)[number];
+
 export interface CapabilityGrant {
   id: string;
   connectionId: string;
@@ -45,6 +71,7 @@ export interface CapabilityOperation {
   /** Minimal redacted intent required for read-only post-write recovery. */
   recoveryIntent?: JsonValue | null;
   status: CapabilityOperationStatus;
+  phase?: CapabilityOperationPhase;
   externalResultId: string | null;
   /** Already redacted and capped; never holds a request input or a credential. */
   result: JsonValue | null;
@@ -63,6 +90,10 @@ export interface CapabilityConnection {
   desiredAccountIds: readonly string[];
 }
 
+/** An async physical qualification may retain an exact synchronous call fence.
+ * It is server-owned callback metadata, never serialized capability input. */
+export type CapabilityCurrentAssertion = (() => Promise<void>) & { assertCurrentSync?: () => void };
+
 export interface CapabilityExecutionContext {
   /** `operation.id` is the mandatory external idempotency and recovery key. */
   operation: CapabilityOperation;
@@ -72,6 +103,7 @@ export interface CapabilityExecutionContext {
   signal: AbortSignal;
   /** Trusted retained owner; never accepted from capability input. */
   assertRuntimeCurrent?: () => Promise<void>;
+  observePhase?: (phase: CapabilityOperationPhase) => void;
 }
 
 export interface CapabilityExecutorResult {
@@ -97,6 +129,8 @@ export interface CapabilityExecutor {
   preflight?(context: CapabilityExecutionContext): Promise<CapabilityPreflightResult>;
   execute(context: CapabilityExecutionContext): Promise<CapabilityExecutorResult>;
   verify(context: CapabilityExecutionContext, result: CapabilityExecutorResult): Promise<void>;
+  /** Release only operation-owned preparation resources, including denied approval. */
+  releasePreflight?(operationId: string): Promise<void>;
   /**
    * Restart/reconnect recovery. Must use durable operation identity and a
    * read-after-write query only; it must never issue a mutation.

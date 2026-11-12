@@ -13,6 +13,7 @@ import {
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
   defaultMitzoProfileDefinition,
+  KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE,
 } from '../../packages/protocol/src/index';
 import { sha256Hex } from '../../frontend/src/lib/browser-crypto';
 import { readFile } from 'node:fs/promises';
@@ -112,6 +113,7 @@ for (const theme of ['dark', 'light']) {
           return route.abort();
         }
         const fixtures: Record<string, unknown> = {
+          '/api/session-launch/defaults': { revision: 0, configuration: null },
           '/api/auth/check': { authenticated: true },
           '/api/config': { quickActions: [], contextBlocks: {} },
           '/api/chat/runtime/capabilities': inventory,
@@ -361,6 +363,10 @@ for (const workspaceChoice of ['select', 'default'] as const) {
                 ok: false,
                 code: 'retained_command',
                 error: 'Conversation runtime unavailable',
+                runtimeFailure: {
+                  runtimeFailureCode: 'knowledge_unavailable',
+                  diagnosticId: '22222222-2222-4222-8222-222222222222',
+                },
                 clientMsgId: request.clientMsgId,
                 sessionId: 'retained-api',
                 state: 'uncertain',
@@ -401,6 +407,7 @@ for (const workspaceChoice of ['select', 'default'] as const) {
             return route.abort();
           }
           const fixtures: Record<string, unknown> = {
+            '/api/session-launch/defaults': { revision: 0, configuration: null },
             '/api/auth/check': { authenticated: true },
             '/api/config': { quickActions: [], contextBlocks: {} },
             '/api/chat/runtime/capabilities': inventory,
@@ -489,7 +496,23 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           await expect(composer).toHaveValue('Develop Mitzo from latest main');
           const recover = page.getByRole('button', { name: 'Retry', exact: true });
           await expect(recover).toBeVisible();
-          await expect(page.getByText('Delivery not confirmed.', { exact: true })).toHaveCount(1);
+          await expect(
+            page.getByRole('region', { name: 'Conversation status', exact: true }),
+          ).toBeVisible();
+          await page.getByRole('button', { name: 'Conversation status details' }).click();
+          const statusDialog = page.getByRole('dialog', { name: 'Conversation status' });
+          await expect(
+            statusDialog.getByText('Delivery not confirmed.', { exact: true }),
+          ).toHaveCount(1);
+          if (accountId === 'api')
+            await expect(
+              statusDialog.getByText(
+                KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE +
+                  ' Reference: 22222222-2222-4222-8222-222222222222',
+                { exact: true },
+              ),
+            ).toBeVisible();
+          await statusDialog.getByRole('button', { name: 'Close', exact: true }).click();
           await expect(
             page.getByText(
               /command retained|Review retained|Review the retained|Delivery was not confirmed/,
@@ -730,6 +753,7 @@ for (const [theme, unsupportedContext] of [
           return route.abort();
         }
         const fixtures: Record<string, unknown> = {
+          '/api/session-launch/defaults': { revision: 0, configuration: null },
           '/api/auth/check': { authenticated: true },
           '/api/config': { quickActions: [], contextBlocks: {} },
           '/api/chat/runtime/capabilities': inventory,

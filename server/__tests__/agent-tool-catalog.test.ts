@@ -1,14 +1,21 @@
+import { isReadOnlyBuiltinToolCall } from '../builtin-tool-behavior.js';
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
 
-it.each(['TelosListItems', 'TelosSearchItems', 'TelosManageItem', 'TelosCreateChild'])(
+it.each([
+  'TelosListItems',
+  'TelosSearchItems',
+  'TelosManageItem',
+  'TelosCreateChild',
+  'TelosCreateFeature',
+])(
   'makes %s selectable for ordinary native backlog triage without requiring a lead role',
   (name) => {
     expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
       routes: ['codex-owned-local'],
       behavior:
-        name === 'TelosManageItem' ? 'mixed' : name === 'TelosCreateChild' ? 'write' : 'read',
+        name === 'TelosManageItem' ? 'mixed' : name.startsWith('TelosCreate') ? 'write' : 'read',
       requirement: expect.stringContaining('operator'),
     });
     const session = {};
@@ -79,8 +86,20 @@ it('denies wrappers and aliases by exact identity and captures selection once', 
 });
 it('keeps legacy behavior but blocks explicit selections on unsupported routes and unknown versions', () => {
   expect(() => assertAgentToolRoute(undefined, 'claude-sdk')).not.toThrow();
-  for (const route of ['claude-sdk', 'openshell', 'symposium'])
+  for (const route of ['openshell', 'symposium'])
     expect(() => assertAgentToolRoute({ tools: [] } as never, route)).toThrow(/not supported/i);
+  expect(() =>
+    assertAgentToolRoute(
+      { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } as never,
+      'claude-sdk',
+    ),
+  ).not.toThrow();
+  expect(() =>
+    assertAgentToolRoute(
+      { tools: [{ id: 'mitzo:ConnectionRequest', version: 1 }] } as never,
+      'claude-sdk',
+    ),
+  ).toThrow(/unavailable/i);
   expect(() => assertAgentToolRoute({ tools: [] } as never, 'codex')).not.toThrow();
   expect(() => assertAgentToolRoute({ tools: [] } as never, 'local-api')).not.toThrow();
   expect(() =>
@@ -101,6 +120,23 @@ it('keeps legacy behavior but blocks explicit selections on unsupported routes a
   expect(() =>
     assertAgentToolRoute({ tools: [{ id: 'mitzo:Unknown', version: 1 }] } as never, 'local-api'),
   ).toThrow(/unavailable/i);
+});
+
+it('keeps required structured questions available to explicit Claude SDK profiles', () => {
+  const session = {};
+  bindAgentToolSelection(
+    session,
+    { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } as never,
+    'claude-sdk',
+  );
+  expect(agentToolAllowed(session, 'AskUserQuestion')).toBe(true);
+  expect(agentToolAllowed(session, 'Bash')).toBe(false);
+  expect(() =>
+    assertAgentToolRoute(
+      { tools: [{ id: 'mitzo:AskUserQuestion', version: 1 }] } as never,
+      'claude-sdk',
+    ),
+  ).not.toThrow();
 });
 
 it('refuses missing connection dependencies before exposing an unusable selected operation', async () => {
@@ -237,7 +273,6 @@ it.each([
   'HomeAssistantDashboard',
   'PrepareConnectionSetup',
   'GetConnectionSetup',
-  'RecordMemoryCandidate',
   'ReadKnowledge',
   'SaveKnowledgeDraft',
   'RequestWebAccess',
@@ -250,4 +285,33 @@ it.each([
   const excluded = {};
   bindAgentToolSelection(excluded, { tools: [] } as never, 'codex-owned-local');
   expect(agentToolAllowed(excluded, name)).toBe(false);
+});
+
+it('shares reviewed read identities with recovery and qualifies mixed operations narrowly', () => {
+  for (const tool of agentToolCatalog().filter(
+    (tool) => tool.id.startsWith('mitzo:') && tool.source !== 'Task Board',
+  )) {
+    expect(isReadOnlyBuiltinToolCall(tool.name, {})).toBe(tool.behavior === 'read');
+  }
+  for (const [name, input] of [
+    ['RequestWebAccess', { operation: 'fetch' }],
+    ['ConnectionRequest', { method: 'GET' }],
+    ['ConnectionRequest', { method: 'HEAD' }],
+    ['TelosManageItem', { operation: 'read' }],
+  ] as const)
+    expect(isReadOnlyBuiltinToolCall(name, input)).toBe(true);
+  for (const [name, input] of [
+    ['RequestWebAccess', { operation: 'search' }],
+    ['RequestWebAccess', { operation: 'request_access' }],
+    ['RequestWebAccess', { operation: 'revoke_access' }],
+    ['ConnectionRequest', { method: 'POST' }],
+    ['ConnectionRequest', { method: 'get' }],
+    ['TelosManageItem', { operation: 'update' }],
+    ['RequestGithubPublish', {}],
+    ['PrepareLocalRepository', {}],
+    ['api_unreviewed', { method: 'GET' }],
+    ['mcp__external__Read', { readOnlyHint: true }],
+    ['InvokeIntegrationTool', { toolId: 'Read' }],
+  ] as const)
+    expect(isReadOnlyBuiltinToolCall(name, input)).toBe(false);
 });

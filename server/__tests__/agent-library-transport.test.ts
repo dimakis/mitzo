@@ -9,8 +9,10 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   invalidate: vi.fn(),
   revoked: (() => {}) as () => void,
+  isAuthSessionCurrent: vi.fn().mockReturnValue(true),
 }));
 vi.mock('../auth.js', () => ({
+  isAuthSessionCurrent: mocks.isAuthSessionCurrent,
   registerAuthSession: (_auth: unknown, onRevoked: () => void) => {
     mocks.revoked = onRevoked;
     return () => {};
@@ -27,6 +29,19 @@ import {
   withAgentLibraryRecoveryAuthorization,
 } from '../agent-library-transport.js';
 const cleanups: (() => void)[] = [];
+it('retains operation authorization across disconnect while enforcing logout and expiry', () => {
+  const auth = { id: 'publication-login', expiresAt: Date.now() + 10000 };
+  const disconnect = bindAgentLibraryTransport('publication', auth);
+  const transport = captureAgentLibraryAuthorization('publication');
+  const operation = captureAgentLibraryAuthorization('publication', { lifetime: 'operation' });
+  disconnect();
+  expect(() => transport.assertCurrent()).toThrow(/revoked/);
+  expect(() => operation.assertCurrent()).not.toThrow();
+  mocks.isAuthSessionCurrent.mockReturnValueOnce(false);
+  expect(() => operation.assertCurrent()).toThrow(/revoked/);
+  auth.expiresAt = Date.now() - 1;
+  expect(() => operation.assertCurrent()).toThrow(/expired|revoked/);
+});
 it('scopes a recovery to its verified login and releases the binding after admission', async () => {
   const auth = { id: 'verified-recovery', expiresAt: Date.now() + 10000 };
   let connectionId: string | undefined;

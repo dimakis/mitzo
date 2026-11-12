@@ -1,4 +1,8 @@
 import { assembleCommandPrompt } from './message-reply-context.js';
+import {
+  freezeOrdinarySkillCommand,
+  prepareOrdinarySkillCommand,
+} from './ordinary-composer-skills.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile as readResponsesAgentProfile } from './ordinary-codex-agent-profile.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
@@ -387,6 +391,8 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     for (const commandId of queue.cancelledIds) this.#commands.delete(commandId);
   }
   async claimNextCommand(): Promise<string | undefined> {
+    if (!this.owners.eventStore.deployment.canDispatch(this.owners.reservation.conversationId))
+      return;
     this.assertOwner();
     const reservation = this.owners.reservation,
       native = this.owners.nativeStore;
@@ -425,6 +431,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
         reservation.binding,
         (candidate) => {
           if (
+            !this.owners.eventStore.deployment.canDispatch(reservation.conversationId) ||
             candidate !== id ||
             this.owners.eventStore.getOrdinaryLocalResponsesCommandAdmission(id)?.state !==
               'consumed'
@@ -641,6 +648,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       this.owners.reservation.conversationId,
       request.clientMsgId,
       payload,
+      { expandSkills: false },
     );
     if (this.#adc && payload.images?.length)
       throw Error('Google Vertex image attachments are unsupported');
@@ -744,7 +752,18 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
           : undefined,
       ),
       events = this.owners.eventStore;
+    const preparedSkill =
+      descriptor.state === 'reserved'
+        ? await prepareOrdinarySkillCommand(this.owners.workspace, this.owners.reservation, {
+            store: events,
+            id: request.clientMsgId,
+            text: payload.text,
+            signal: this.#signal,
+          })
+        : undefined;
     const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+      freezePrompt: (meta, id, payload, admit) =>
+        freezeOrdinarySkillCommand(events, meta, id, payload, admit, preparedSkill),
       enabled: true,
       adapter: this.#adc ? 'gemini' : 'responses',
       catalog,

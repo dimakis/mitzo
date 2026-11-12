@@ -1,7 +1,13 @@
 import type { ApiHarnessConnection } from './account-harness-connection.js';
 import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import { z } from 'zod';
-import { observeLocalCodexPhase } from './local-codex-observation.js';
+import { observeLocalCodexPhase, observeLocalCodexSyncPhase } from './local-codex-observation.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
+import {
+  CodexToolValidationError,
+  type CodexToolValidationStage,
+} from './codex-tool-validation-error.js';
+import { createLogger } from './logger.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import { custodianControllerMode } from './symposium-custodian-mode.js';
@@ -65,6 +71,7 @@ export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease
   ): Promise<void>;
   assertModelSelectionCurrentSync?(model: string, thinking: string | null): void;
   assertToolCurrent?(signal: AbortSignal): Promise<void>;
+  qualifyCredentialRefresh?(signal: AbortSignal): void | Promise<void>;
   qualifyModelSelection?(model: string, thinking: string | null): Promise<void>;
   custodySnapshot?(): {
     login: HostCodexAuthenticationCustody;
@@ -72,7 +79,8 @@ export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease
   };
 }
 type Expected = OrdinaryLocalCodexAdmissionExpectation & { bootstrapId?: string };
-const unavailable = () => new Error('Host Codex bootstrap unavailable');
+const unavailable = (cause?: unknown) => new Error('Host Codex bootstrap unavailable', { cause });
+const log = createLogger('frozen-host-codex-bootstrap');
 function strictVoid(result: unknown): void {
   if (result === undefined) return;
   void Promise.resolve(result).catch(() => {});
@@ -104,7 +112,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       assertRuntimeCurrentSync(): void;
       assertSelectionCurrent(expected: Readonly<Expected>): Promise<void>;
       /** Current physical checkout only; full preparation was qualified at bootstrap. */
-      assertToolSelectionCurrent?(expected: Readonly<Expected>): Promise<void>;
+      assertToolSelectionCurrent?(expected: Readonly<Expected>, signal: AbortSignal): Promise<void>;
       assertSelectionCurrentSync(expected: Readonly<Expected>): void;
       /** Private clean-qualified cold entry only. This independent authority
        * defers the recursive async workspace stage until the real lease exists;
@@ -371,9 +379,21 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         !['openai-codex', 'openai'].includes(expected.binding.account.provider)
       )
         throw unavailable();
-      const observed = this.owners.assertQualifiedColdSelectionBeforeBootstrapSync
-        ? await this.observeQualifiedColdBeforeBootstrap(expected)
-        : await this.observe(expected);
+      const bootstrapId = expected.bootstrapId;
+      const observed = await observeLocalCodexPhase('bootstrap_qualification', () =>
+        this.owners.assertQualifiedColdSelectionBeforeBootstrapSync
+          ? this.observeQualifiedColdBeforeBootstrap(expected)
+          : this.observe(expected),
+      );
+      this.assertSync(expected);
+      if (expected.binding.account.provider === 'openai-codex')
+        await FrozenHostCodexLogin.prepare(
+          this.profile(expected),
+          this.owners.signal,
+          this.owners.retainedCustody && !('kind' in this.owners.retainedCustody.login)
+            ? this.owners.retainedCustody.login
+            : undefined,
+        );
       this.assertSync(expected);
       if (this.#attempted) throw unavailable();
       if (!claimBeforeBootstrap()) return undefined;
@@ -439,32 +459,38 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           })
         : undefined;
       const login = api
-        ? retained
-          ? await FrozenHostCodexApiLogin.reopen(
-              authBinding,
-              retained.login,
-              keyAuthority!,
-              this.owners.signal,
-            )
-          : await FrozenHostCodexApiLogin.capture(authBinding, {
-              privateRoot: this.owners.privateRoot,
-              bootstrapId: expected.bootstrapId,
-              authority: keyAuthority!,
-              signal: this.owners.signal,
-            })
-        : retained
-          ? FrozenHostCodexLogin.reopen(ownedProfile, retained.login, this.owners.signal)
-          : FrozenHostCodexLogin.capture(ownedProfile, {
-              privateRoot: this.owners.privateRoot,
-              signal: this.owners.signal,
-              bootstrapId: expected.bootstrapId,
-            });
-      const executable = retained
-        ? FrozenHostCodexExecutable.reopen(retained.executable)
-        : FrozenHostCodexExecutable.captureReusable(
-            observed.executablePath,
-            this.owners.privateRoot ?? codexPrivateDirectory(),
+        ? await observeLocalCodexPhase('bootstrap_login', async () =>
+            retained
+              ? await FrozenHostCodexApiLogin.reopen(
+                  authBinding,
+                  retained.login,
+                  keyAuthority!,
+                  this.owners.signal,
+                )
+              : await FrozenHostCodexApiLogin.capture(authBinding, {
+                  privateRoot: this.owners.privateRoot,
+                  bootstrapId,
+                  authority: keyAuthority!,
+                  signal: this.owners.signal,
+                }),
+          )
+        : observeLocalCodexSyncPhase('bootstrap_login', () =>
+            retained
+              ? FrozenHostCodexLogin.reopen(ownedProfile, retained.login, this.owners.signal)
+              : FrozenHostCodexLogin.capture(ownedProfile, {
+                  privateRoot: this.owners.privateRoot,
+                  signal: this.owners.signal,
+                  bootstrapId,
+                }),
           );
+      const executable = observeLocalCodexSyncPhase('bootstrap_executable', () =>
+        retained
+          ? FrozenHostCodexExecutable.reopen(retained.executable)
+          : FrozenHostCodexExecutable.captureReusable(
+              observed.executablePath,
+              this.owners.privateRoot ?? codexPrivateDirectory(),
+            ),
+      );
       executable.assertForLoginHome(login.privateHome);
       if (retained && executable.companionUpgradePlan()) {
         if (!this.owners.completeRetainedRuntimeBundle) throw unavailable();
@@ -486,63 +512,107 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             this.owners.lifecycle,
             selected,
           ));
-      loginLease =
+      let validationLive = false;
+      loginLease = await observeLocalCodexPhase('bootstrap_connect', async () =>
         login instanceof FrozenHostCodexApiLogin
-          ? await login.connect(async (home) => {
-              this.assertSync(expected, undefined, executable);
-              if (this.owners.launchApi)
-                return this.owners.launchApi(home, executable, authBinding, !!retained, connection);
-              if (!this.owners.lifecycle) throw unavailable();
-              if (retained)
-                return CodexAppServerClient.launchIsolatedApiResume(
-                  home,
-                  this.owners.baseEnv,
-                  this.owners.lifecycle,
+          ? await login.connect(
+              async (home) => {
+                this.assertSync(expected, undefined, executable);
+                if (this.owners.launchApi)
+                  return this.owners.launchApi(
+                    home,
+                    executable,
+                    authBinding,
+                    !!retained,
+                    connection,
+                  );
+                if (!this.owners.lifecycle) throw unavailable();
+                if (retained)
+                  return CodexAppServerClient.launchIsolatedApiResume(
+                    home,
+                    this.owners.baseEnv,
+                    this.owners.lifecycle,
+                    executable,
+                    connection,
+                  );
+                const result = await CodexAppServerClient.launchIsolatedApi({
+                  privateHome: home,
                   executable,
+                  binding: authBinding,
                   connection,
-                );
-              const result = await CodexAppServerClient.launchIsolatedApi({
-                privateHome: home,
-                executable,
-                binding: authBinding,
-                connection,
-                signal: this.owners.signal,
-                lifecycle: this.owners.lifecycle,
-                base: this.owners.baseEnv,
-                resolveKey: (binding, signal) =>
-                  keyAuthority!.resolveKey(binding.accountId, signal),
-                assertCurrentSync: () => this.assertSync(expected, undefined, executable),
-                assertCurrent: async () => {
-                  this.assertSync(expected, undefined, executable);
-                  await keyAuthority!.assertReady(this.owners.signal);
-                  this.assertSync(expected, undefined, executable);
-                },
-              });
-              return result.client;
-            })
-          : await login.connect((home) => {
-              this.assertSync(expected, undefined, executable);
-              return launch(home, executable);
-            });
+                  signal: this.owners.signal,
+                  lifecycle: this.owners.lifecycle,
+                  base: this.owners.baseEnv,
+                  resolveKey: (binding, signal) =>
+                    keyAuthority!.resolveKey(binding.accountId, signal),
+                  assertCurrentSync: () => this.assertSync(expected, undefined, executable),
+                  assertCurrent: async () => {
+                    this.assertSync(expected, undefined, executable);
+                    await keyAuthority!.assertReady(this.owners.signal);
+                    this.assertSync(expected, undefined, executable);
+                  },
+                });
+                return result.client;
+              },
+              (failure) => this.owners.lifecycle?.onClose(failure),
+              () => validationLive,
+            )
+          : await login.connect(
+              (home) => {
+                this.assertSync(expected, undefined, executable);
+                return launch(home, executable);
+              },
+              (failure) => this.owners.lifecycle?.onClose(failure),
+              () => validationLive,
+            ),
+      );
       const ownedLogin = loginLease;
       let retired = false;
       const loginClose = ownedLogin.close;
       const closeLease = () => {
+        if (retired) return;
         retired = true;
         Reflect.apply(loginClose, ownedLogin, []);
       };
       this.#routingBinding = structuredClone(ownedLogin.binding);
+      const retireValidation = (
+        error: unknown,
+        stage: CodexToolValidationStage,
+        cancelled = false,
+      ) => {
+        const reviewed = findSessionRuntimeError(error);
+        // Initial model/account qualification has not handed a live owner to
+        // its consumer. Preserve startup refusal/cancellation classification.
+        if (!validationLive && !reviewed) {
+          closeLease();
+          return unavailable(error);
+        }
+        const failure = reviewed ?? new CodexToolValidationError(stage, error, cancelled);
+        if (!retired) {
+          try {
+            this.owners.lifecycle?.onClose(failure);
+          } catch {
+            log.warn('Host tool validation diagnostic delivery failed', {
+              bootstrapId: expected.bootstrapId,
+              workspaceId: expected.workspace.workspaceId,
+              ...failure.telemetry(),
+            });
+          }
+        }
+        closeLease();
+        return reviewed ?? unavailable(failure);
+      };
       const assertCurrentSync = () => {
         try {
           if (retired) throw unavailable();
           this.assertSync(expected, ownedLogin, executable);
-        } catch {
-          closeLease();
-          throw unavailable();
+        } catch (error) {
+          throw retireValidation(error, 'runtime_fence');
         }
       };
       let qualifiedModels: Array<{ id: string; reasoningEfforts?: string[] }> = [];
       const assertToolCurrent = async (signal: AbortSignal = this.owners.signal) => {
+        let stage: CodexToolValidationStage = 'credential_refresh';
         try {
           const workspaceCurrent =
             this.owners.assertToolSelectionCurrent ?? this.owners.assertSelectionCurrent;
@@ -567,14 +637,17 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
                 throw unavailable();
             }
           };
+          await ownedLogin.qualifyCredentialRefresh?.(signal);
           current();
+          stage = 'workspace_check';
           strictVoid(
             await observeLocalCodexPhase('workspace_check', () =>
-              Reflect.apply(workspaceCurrent, this.owners, [expected]),
+              Reflect.apply(workspaceCurrent, this.owners, [expected, signal]),
             ),
           );
           current();
           if (!full || !('value' in full) || typeof full.value !== 'function') throw unavailable();
+          stage = 'credential_check';
           strictVoid(
             await observeLocalCodexPhase('credential_check', () =>
               Reflect.apply(
@@ -585,9 +658,8 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             ),
           );
           current();
-        } catch {
-          closeLease();
-          throw unavailable();
+        } catch (error) {
+          throw retireValidation(error, stage, signal.aborted);
         }
       };
       const qualifyModels = async (
@@ -648,9 +720,9 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
               throw unavailable();
           }
           qualifiedModels = models;
-        } catch {
+        } catch (error) {
           closeLease();
-          throw unavailable();
+          throw unavailable(error);
         }
       };
       const bootstrapOwners = this.owners;
@@ -672,10 +744,13 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         ].map((key) => [key, Object.getOwnPropertyDescriptor(bootstrapOwners, key)]),
       );
       const loginReferences = Object.fromEntries(
-        ['assertCurrentSync', 'assertCurrent', 'assertCredentialCurrent', 'close'].map((key) => [
-          key,
-          Object.getOwnPropertyDescriptor(ownedLogin, key),
-        ]),
+        [
+          'assertCurrentSync',
+          'assertCurrent',
+          'assertCredentialCurrent',
+          'qualifyCredentialRefresh',
+          'close',
+        ].map((key) => [key, Object.getOwnPropertyDescriptor(ownedLogin, key)]),
       );
       const full = loginReferences.assertCredentialCurrent ?? loginReferences.assertCurrent;
       const withQualifiedWorkspaceReadOwner = async (
@@ -764,9 +839,9 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           current();
           await revalidate();
           current();
-        } catch {
+        } catch (error) {
           closeLease();
-          throw unavailable();
+          throw unavailable(error);
         } finally {
           live = false;
           lifetime.abort(unavailable());
@@ -799,6 +874,13 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           executable: executable.custodySnapshot(),
         }),
         close: closeLease,
+        qualifyCredentialRefresh: (signal) => {
+          this.owners.signal.throwIfAborted();
+          signal.throwIfAborted();
+          if (retired) throw unavailable();
+          this.assertSync(expected, undefined, executable);
+          return ownedLogin.qualifyCredentialRefresh?.(signal);
+        },
         withQualifiedWorkspaceReadOwner,
         assertCurrent: assertToolCurrent,
         assertToolCurrent,
@@ -816,12 +898,15 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       await observeLocalCodexPhase('model_qualification', () =>
         qualifyModels(this.selections(expected)),
       );
+      validationLive = true;
       return await operation(this.#lease);
     } catch (error) {
       loginLease?.close();
+      const failure = findSessionRuntimeError(error);
+      if (failure) throw failure;
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
-      throw unavailable();
+      throw unavailable(error);
     }
   }
 }

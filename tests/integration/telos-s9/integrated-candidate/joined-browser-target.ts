@@ -132,18 +132,21 @@ export async function createJoinedFrontend(app: Express, privateRoot: string) {
       fs: { allow: [root, resolve('node_modules'), privateRoot] },
     },
   });
+  const warmup = async (entries: readonly string[]) => {
+    await Promise.all([...new Set(entries)].map((entry) => vite.transformRequest(entry)));
+    await vite.waitForRequestsIdle();
+  };
   // Finish cold development transforms before the browser acceptance deadline.
   // Import analysis skips dynamic imports: main defers render-app until storage
   // initializes, and that app entry separately loads the lazy chat route.
   // Errors remain startup failures; the browser still mounts the real app and
   // performs its fresh exact role review within the unchanged ten-second phase.
   try {
-    await Promise.all([
-      vite.transformRequest('/src/main.tsx'),
-      vite.transformRequest('/src/render-app.tsx'),
-      vite.transformRequest('/src/components/ResponsiveChatView.tsx'),
+    await warmup([
+      '/src/main.tsx',
+      '/src/render-app.tsx',
+      '/src/components/ResponsiveChatView.tsx',
     ]);
-    await vite.waitForRequestsIdle();
   } catch (error) {
     await vite.close();
     throw error;
@@ -165,6 +168,9 @@ export async function createJoinedFrontend(app: Express, privateRoot: string) {
     server,
     port: address.port,
     origin: `http://127.0.0.1:${address.port}`,
+    // Prepare only the lazy entry selected by a focused route journey. This
+    // keeps Vite compilation outside interaction deadlines without warming every route.
+    warmupEntry: (entry: string) => warmup([entry]),
     async close() {
       await vite.close();
       await new Promise<void>((done, reject) => server.close((e) => (e ? reject(e) : done())));

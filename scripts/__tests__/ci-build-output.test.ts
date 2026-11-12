@@ -9,7 +9,8 @@ type Step = {
   with?: Record<string, string | boolean>;
   env?: Record<string, string>;
 };
-const { jobs } = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
+const { jobs, env } = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
+  env: Record<string, string>;
   jobs: Record<
     string,
     { needs?: string | string[]; outputs?: Record<string, string>; steps: Step[] }
@@ -28,7 +29,8 @@ it('builds server and frontend in parallel, publishing separate immutable artifa
     expect(runs).toContain(check);
   expect(runs).toContain('python3 scripts/test-ci-build-output.py');
   expect(runs).not.toMatch(/^npm run build$/m);
-  expect(jobs['frontend-build']?.needs).toBeUndefined();
+  expect(jobs['frontend-build']?.needs).toEqual(['changes']);
+  expect([jobs['frontend-build']?.needs].flat()).not.toContain('preflight');
   for (const [owner, scope] of [
     ['preflight', 'server'],
     ['frontend-build', 'frontend'],
@@ -59,6 +61,15 @@ it('builds server and frontend in parallel, publishing separate immutable artifa
     )?.env?.MITZO_PR_BASE,
   ).toBe('${{ github.event.pull_request.base.sha }}');
   expect([jobs.ci.needs].flat()).toContain('frontend-build');
+  for (const step of jobs['frontend-build'].steps.filter(
+    (step) =>
+      step.run?.includes('ios-web') ||
+      step.run?.includes('vite build --mode ios') ||
+      step.id === 'ios-web-output',
+  ))
+    expect((step as Step & { if?: string }).if).toBe(
+      "${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}",
+    );
 });
 
 it.each(['core', 'unit', 'offline'])(
@@ -121,4 +132,29 @@ it('does not collide with retained producer artifacts on a failed-only retry', (
       expect(render(1), name).not.toBe(render(2));
     }
   }
+});
+
+it('pins one exact Node patch across compiled artifact producers and consumers', () => {
+  expect(env.MITZO_CI_NODE_VERSION).toMatch(/^24\.\d+\.\d+$/);
+  for (const job of Object.values(jobs)) {
+    for (const step of job.steps) {
+      if (
+        step.uses?.startsWith('actions/setup-node@') ||
+        step.uses === './.github/actions/ci-node'
+      ) {
+        expect(step.with?.['node-version']).toBe('${{ env.MITZO_CI_NODE_VERSION }}');
+      }
+    }
+  }
+  const action = load(readFileSync('.github/actions/ci-node/action.yml', 'utf8')) as {
+    runs: { steps: Step[] };
+  };
+  expect(action.runs.steps.find((step) => step.uses === 'actions/setup-node@v7')?.with).toEqual({
+    'node-version': '${{ inputs.node-version }}',
+    cache: 'npm',
+  });
+  expect(action.runs.steps.filter((step) => step.run).map((step) => step.run)).toEqual([
+    'npm install --global npm@11.18.0',
+    'npm install --no-audit',
+  ]);
 });

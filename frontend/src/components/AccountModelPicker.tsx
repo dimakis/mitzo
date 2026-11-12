@@ -1,5 +1,11 @@
 import type { SessionRuntimeBindingV1 } from '@mitzo/protocol';
-import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
+import {
+  getDefaultAccountModel,
+  setDefaultAccountModel,
+  accountModelPreference,
+  rememberAccountModel,
+  withAccountThinking as withThinking,
+} from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { AdviserSubscriptions } from './AdviserSubscriptions';
 import { UiIcon } from './UiIcon';
@@ -15,13 +21,14 @@ import {
   QuickSettingsSupplement,
 } from './QuickChatSettings';
 import { ModelBrandMark } from './SettingsBrandMark';
-
 import type { AccountSelection } from '../types/account-selection';
 export type { AccountSelection } from '../types/account-selection';
 export interface Account {
   id: string;
   label: string;
   modelDiscovery?: { stale: boolean };
+  /** Account defaults remain visible intent even when this environment has no route. */
+  configuredModels?: Account['models'];
   models: {
     id: string;
     label: string;
@@ -47,19 +54,6 @@ const catalogSchema = z.array(
     models: modelsSchema,
   }),
 );
-
-function withThinking(selection: AccountSelection, account: Account): AccountSelection {
-  const model = account.models.find((m) => m.id === selection.model);
-  if (selection.reasoningEffort === null) return selection;
-  const effort = model?.reasoningEfforts?.includes(selection.reasoningEffort ?? '')
-    ? selection.reasoningEffort
-    : model?.defaultReasoningEffort;
-  return {
-    accountId: selection.accountId,
-    model: selection.model,
-    ...(effort && model?.reasoningEfforts?.includes(effort) ? { reasoningEffort: effort } : {}),
-  };
-}
 
 /** Visible form labels belong to staged dialogs; inline chat controls keep their geometry. */
 function PickerField({
@@ -192,6 +186,7 @@ export function AccountModelPicker(
         lockAccount={props.lockAccount}
         presentation={props.presentation}
         canSaveDefault={!props.sessionId && !props.lockAccountModel && !props.lockAccount}
+        defaultsControl={props.defaultsControl}
       />
     );
   const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}:${JSON.stringify(props.allowedAccountIds?.slice().sort() ?? null)}`;
@@ -219,7 +214,9 @@ function SessionAccountModelPicker({
   onDraftSelectionChange,
   allowedAccountIds,
   presentation = 'default',
+  defaultsControl,
 }: {
+  defaultsControl?: ReactNode;
   presentation?: 'default' | 'settings';
   draftOnly?: boolean;
   preferWorkOpenAI?: boolean;
@@ -670,10 +667,11 @@ function SessionAccountModelPicker({
     const nextAccount = accounts.find((a) => a.id === id);
     if (!nextAccount || disabled || requiredSelection || lockAccountModel) return;
     setEditingAlias(false);
-    const next = withThinking(
-      { accountId: nextAccount.id, model: nextAccount.models[0].id },
-      nextAccount,
-    );
+    if (scope === 'chat' && !draftOnly) rememberAccountModel(selection, account);
+    const next =
+      scope === 'chat' && !draftOnly
+        ? accountModelPreference(nextAccount)
+        : withThinking({ accountId: nextAccount.id, model: nextAccount.models[0].id }, nextAccount);
     setDraftUnavailable(false);
     setNeedsConfirmation(false);
     setSelection(next);
@@ -682,6 +680,7 @@ function SessionAccountModelPicker({
   const changeModel = (id: string) => {
     if (disabled || requiredSelection || lockAccountModel) return;
     const next = withThinking({ accountId: selection.accountId, model: id }, account);
+    if (scope === 'chat' && !draftOnly) rememberAccountModel(next, account);
     setDraftUnavailable(false);
     setSelection(next);
     onChange(explicitSelection || needsConfirmation ? null : next);
@@ -689,6 +688,7 @@ function SessionAccountModelPicker({
   const changeThinking = (value: string) => {
     if (disabled) return;
     const next = { ...selection, reasoningEffort: value || null };
+    if (scope === 'chat' && !draftOnly) rememberAccountModel(next, account);
     setSelection(next);
     onChange(explicitSelection || needsConfirmation ? null : next);
   };
@@ -943,44 +943,52 @@ function SessionAccountModelPicker({
           </button>
         </QuickSettingsSupplement>
       )}
-      {scope === 'chat' && !legacy && (
-        <PickerOptions collapsible={presentation === 'settings'} saved={!!savedDefault}>
-          {!sessionId && !requiredSelection && !lockAccountModel && !draftOnly && (
-            <>
-              <button
-                disabled={disabled || draftUnavailable}
-                onClick={() => {
-                  setDefaultAccountModel(selection);
-                  setSavedDefault(selection);
-                }}
-              >
-                Make default for new chats
-              </button>
-              {savedDefault && (
-                <button
-                  disabled={disabled}
-                  onClick={() => {
-                    setDefaultAccountModel(null);
-                    setSavedDefault(null);
-                    setNeedsConfirmation(true);
-                    onChange(null);
-                  }}
-                >
-                  Clear new-chat default
-                </button>
-              )}
-              <span>
-                {savedDefault
-                  ? 'Saved default for new chats on this browser.'
-                  : 'No saved account default. Review the account before sending.'}
-              </span>
-            </>
-          )}
-          <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
-            Refresh models
-          </button>
-        </PickerOptions>
+      {!quick && defaultsControl !== undefined && scope === 'chat' && !legacy && (
+        <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
+          Refresh models
+        </button>
       )}
+      {defaultsControl !== undefined
+        ? defaultsControl
+        : scope === 'chat' &&
+          !legacy && (
+            <PickerOptions collapsible={presentation === 'settings'} saved={!!savedDefault}>
+              {!sessionId && !requiredSelection && !lockAccountModel && !draftOnly && (
+                <>
+                  <button
+                    disabled={disabled || draftUnavailable}
+                    onClick={() => {
+                      setDefaultAccountModel(selection);
+                      setSavedDefault(selection);
+                    }}
+                  >
+                    Make default for new chats
+                  </button>
+                  {savedDefault && (
+                    <button
+                      disabled={disabled}
+                      onClick={() => {
+                        setDefaultAccountModel(null);
+                        setSavedDefault(null);
+                        setNeedsConfirmation(true);
+                        onChange(null);
+                      }}
+                    >
+                      Clear new-chat default
+                    </button>
+                  )}
+                  <span>
+                    {savedDefault
+                      ? 'Saved default for new chats on this browser.'
+                      : 'No saved account default. Review the account before sending.'}
+                  </span>
+                </>
+              )}
+              <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
+                Refresh models
+              </button>
+            </PickerOptions>
+          )}
     </>
   );
   if (presentation !== 'settings') return fields;
@@ -1024,7 +1032,9 @@ function ControlledAccountModelPicker({
   onRefresh,
   canSaveDefault = false,
   presentation = 'default',
+  defaultsControl,
 }: {
+  defaultsControl?: ReactNode;
   presentation?: 'default' | 'settings';
   accounts: Account[];
   selection: AccountSelection | null;
@@ -1145,71 +1155,89 @@ function ControlledAccountModelPicker({
             return;
           }
           const chosen = accounts.find((a) => a.id === id);
-          if (chosen)
-            (onAccountChange ?? onChange)({
-              accountId: id,
-              model: selection?.model ?? chosen.models[0]?.id ?? '',
-              reasoningEffort: selection?.reasoningEffort ?? null,
-            });
+          if (chosen) {
+            if (canSaveDefault && account && selection) rememberAccountModel(selection, account);
+            (onAccountChange ?? onChange)(
+              selection?.accountId === chosen.id ? selection : accountModelPreference(chosen),
+            );
+          }
         },
         pendingAccount ? `Confirm account: ${account!.label}` : undefined,
       )}
       {field('Model', selection?.model ?? '', account?.models ?? [], (id) => {
-        if (selection && id) onChange({ ...selection, model: id });
+        if (selection && id && account) {
+          const next = withThinking({ ...selection, model: id }, account);
+          if (canSaveDefault) rememberAccountModel(next, account);
+          onChange(next);
+        }
       })}
       {field(
         'Thinking',
         selection?.reasoningEffort ?? '',
         model?.reasoningEfforts?.map((id) => ({ id, label: id })) ?? [],
         (effort) => {
-          if (selection) onChange({ ...selection, reasoningEffort: effort || null });
+          if (selection) {
+            const next = { ...selection, reasoningEffort: effort || null };
+            if (canSaveDefault && account) rememberAccountModel(next, account);
+            onChange(next);
+          }
         },
       )}
-      {quick && presentation === 'settings' && (
-        <PickerOptions collapsible saved={!!savedDefault}>
-          {canSaveDefault && (
-            <>
-              <button
-                disabled={
-                  disabled ||
-                  pendingAccount ||
-                  !account ||
-                  !model ||
-                  (!!selection?.reasoningEffort &&
-                    !model.reasoningEfforts?.includes(selection.reasoningEffort))
-                }
-                onClick={() => {
-                  if (!selection) return;
-                  setDefaultAccountModel(selection, accountReference);
-                  setSavedDefault(selection);
-                }}
-              >
-                Make default for new chats
-              </button>
-              {savedDefault && (
-                <button
-                  disabled={disabled}
-                  onClick={() => {
-                    setDefaultAccountModel(null);
-                    setSavedDefault(null);
-                  }}
-                >
-                  Clear new-chat default
+      {defaultsControl !== undefined
+        ? defaultsControl
+        : quick &&
+          presentation === 'settings' && (
+            <PickerOptions collapsible saved={!!savedDefault}>
+              {canSaveDefault && (
+                <>
+                  <button
+                    disabled={
+                      disabled ||
+                      pendingAccount ||
+                      !account ||
+                      !model ||
+                      (!!selection?.reasoningEffort &&
+                        !model.reasoningEfforts?.includes(selection.reasoningEffort))
+                    }
+                    onClick={() => {
+                      if (!selection) return;
+                      setDefaultAccountModel(selection, accountReference);
+                      setSavedDefault(selection);
+                    }}
+                  >
+                    Make default for new chats
+                  </button>
+                  {savedDefault && (
+                    <button
+                      disabled={disabled}
+                      onClick={() => {
+                        setDefaultAccountModel(null);
+                        setSavedDefault(null);
+                      }}
+                    >
+                      Clear new-chat default
+                    </button>
+                  )}
+                </>
+              )}
+              <p>
+                {savedDefault
+                  ? 'Saved default for new chats on this browser.'
+                  : 'No saved account default. Review the account before sending.'}
+              </p>
+              {onRefresh && (
+                <button disabled={disabled} onClick={onRefresh}>
+                  Refresh models
                 </button>
               )}
-            </>
+            </PickerOptions>
           )}
-          <p>
-            {savedDefault
-              ? 'Saved default for new chats on this browser.'
-              : 'No saved account default. Review the account before sending.'}
-          </p>
-          {onRefresh && (
-            <button disabled={disabled} onClick={onRefresh}>
-              Refresh models
-            </button>
-          )}
-        </PickerOptions>
+      {account?.modelDiscovery?.stale && (
+        <QuickSettingsSupplement page="model">
+          <span role="status">
+            Model refresh failed. Showing the last available list. Refresh models to retry.
+          </span>
+        </QuickSettingsSupplement>
       )}
       {quick && onRefresh && (
         <QuickSettingsSupplement page="model">
@@ -1217,6 +1245,11 @@ function ControlledAccountModelPicker({
             Refresh models
           </button>
         </QuickSettingsSupplement>
+      )}
+      {!quick && defaultsControl !== undefined && onRefresh && (
+        <button disabled={disabled} onClick={onRefresh}>
+          Refresh models
+        </button>
       )}
     </>
   );

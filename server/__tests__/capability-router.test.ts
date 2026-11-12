@@ -77,16 +77,26 @@ describe('capability operations router', () => {
       .post('/api/connections/reauthorize')
       .set('x-browser', 'yes')
       .send({ passphrase: 'correct' });
+    const publication = {
+      ...body,
+      capabilityId: 'github.publish-pr',
+      input: { body: '界'.repeat(65_536) },
+    };
+    const escapedPublication = JSON.stringify(publication).replaceAll('界', '\\u754c');
+    expect(Buffer.byteLength(escapedPublication)).toBeGreaterThan(32 * 1024);
     const accepted = await request(app)
       .post('/api/capability-operations')
       .set('x-browser', 'yes')
       .set('x-csrf-token', auth.body.csrf)
-      .send(body);
+      .set('Content-Type', 'application/json')
+      .send(escapedPublication);
     expect(accepted.status).toBe(202);
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: 'authoritative-account',
         conversationId: 'conversation-1',
+        capabilityId: 'github.publish-pr',
+        input: publication.input,
       }),
       expect.anything(),
       expect.anything(),

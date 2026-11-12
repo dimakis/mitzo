@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
 import { CodexTurnUsage, observedCodexUsage } from './codex-turn-usage.js';
 import { CodexTextProjection } from './codex-text-projection.js';
 import type { StreamEvent } from '@mitzo/harness';
@@ -22,6 +23,28 @@ export class CodexSessionEvents {
   private runtimeTools = new Map<string, string>();
   private turnFinished = false;
   private activeTurnId?: string;
+  private unexplainedToolFailure = false;
+  private unexplainedFailure?: ToolFailure;
+  private nativeFailures = new Map<string, ToolFailure>();
+  private recoverySuppressed = false;
+  isToolFailureRecoverySuppressed(): boolean {
+    return this.recoverySuppressed;
+  }
+  private suppressUnsafeRecovery(failure: ToolFailure): void {
+    this.recoverySuppressed ||=
+      failure.effectStatus === 'unknown' ||
+      ['permission_denied', 'cancelled'].includes(failure.code) ||
+      ['none', 'reconnect', 'inspect_operation'].includes(failure.recovery);
+  }
+  getUnexplainedFailure(): ToolFailure | undefined {
+    return this.unexplainedToolFailure ? this.unexplainedFailure : undefined;
+  }
+  recordNativeFailure(itemId: string, failure: ToolFailure): void {
+    if (!this.turnFinished && this.commandTools.has(itemId)) {
+      this.nativeFailures.set(itemId, ToolFailureSchema.parse(failure));
+      this.suppressUnsafeRecovery(failure);
+    }
+  }
   private usage: CodexTurnUsage;
   constructor(
     private conversationId: string,
@@ -62,7 +85,8 @@ export class CodexSessionEvents {
               kind === 'thinking' ? { type: 'thinking', thinking: '' } : { type: 'text', text: '' },
           });
         },
-        delta: (kind, text) =>
+        delta: (kind, text) => {
+          if (kind === 'text' && text.trim()) this.unexplainedToolFailure = false;
           this.stream({
             type: 'content_block_delta',
             index: 0,
@@ -70,7 +94,8 @@ export class CodexSessionEvents {
               kind === 'thinking'
                 ? { type: 'thinking_delta', thinking: text }
                 : { type: 'text_delta', text },
-          }),
+          });
+        },
         complete: (kind, text) => {
           this.stream({ type: 'content_block_stop', index: 0 });
           this.emit({
@@ -146,8 +171,12 @@ export class CodexSessionEvents {
     }
     if (method === 'turn/started') {
       this.turnFinished = false;
+      this.unexplainedToolFailure = false;
+      this.unexplainedFailure = undefined;
+      this.nativeFailures.clear();
       const turnId = object(params.turn).id;
       if (typeof turnId === 'string' && !this.startedTurns.has(turnId)) {
+        this.recoverySuppressed = false;
         this.activeTurnId = turnId;
         this.startedTurns.add(turnId);
         this.usage.start(turnId);
@@ -239,9 +268,16 @@ export class CodexSessionEvents {
       this.toolResult(
         toolId,
         output ||
-          (exitCode === undefined ? String(commandItem.status ?? '') : `exit code ${exitCode}`),
+          (commandItem.status === 'declined'
+            ? 'Command was not approved. If the approval expired, request it again to continue.'
+            : exitCode === undefined
+              ? String(commandItem.status ?? '')
+              : `exit code ${exitCode}`),
         commandItem.status !== 'completed' || (exitCode !== undefined && exitCode !== 0),
+        undefined,
+        this.nativeFailures.get(commandItem.id),
       );
+      this.nativeFailures.delete(commandItem.id);
       return;
     }
     if (
@@ -370,11 +406,24 @@ export class CodexSessionEvents {
         this.toolResult(toolId, 'File change interrupted before completion.', true);
       }
       this.fileTools.clear();
+      for (const tools of [this.commandTools, this.runtimeTools]) {
+        for (const toolId of tools.values())
+          this.toolResult(
+            toolId,
+            'Tool call interrupted before a result was received. Its outcome is unknown; check current state before retrying.',
+            true,
+          );
+        tools.clear();
+      }
       this.emit({
         type: 'result',
         session_id: this.conversationId,
         is_error: turn.status !== 'completed',
         ...(providerFailure ? { provider_failure: providerFailure } : {}),
+        ...(this.unexplainedToolFailure && !providerFailure ? { tool_failure_notice: true } : {}),
+        ...(this.unexplainedToolFailure && !providerFailure && this.unexplainedFailure
+          ? { tool_failure: this.unexplainedFailure }
+          : {}),
         usage_status: 'unknown',
       });
     }
@@ -413,12 +462,23 @@ export class CodexSessionEvents {
     });
     return id;
   }
-  toolResult(id: string, content: string, isError: boolean, contentItems?: CodexToolContentItem[]) {
+  toolResult(
+    id: string,
+    content: string,
+    isError: boolean,
+    contentItems?: CodexToolContentItem[],
+    failure?: ToolFailure,
+  ) {
     const result = normalizeCodexToolResult({
       content,
       isError,
       ...(contentItems ? { contentItems } : {}),
     });
+    this.unexplainedToolFailure = result.isError;
+    this.unexplainedFailure = result.isError
+      ? (failure ?? toolFailure('internal_failure', 'execution', 'unknown'))
+      : undefined;
+    if (this.unexplainedFailure) this.suppressUnsafeRecovery(this.unexplainedFailure);
     let precedingText = false;
     const blocks = result.contentItems?.map((item) => {
       if (item.type === 'inputText') {

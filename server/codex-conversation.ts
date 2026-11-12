@@ -1,3 +1,15 @@
+import { qualifyToolResult } from './tool-failure-reporting.js';
+import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
+import {
+  assertToolGuardCurrent,
+  runGuardedTool,
+  runBoundedToolCleanup,
+  ToolGuardTimeoutError,
+  type ToolGuardPolicy,
+} from '@mitzo/harness';
+import { CodexSubagents } from './codex-subagents.js';
+import { subagentScope } from './codex-subagent-store.js';
+import { observeNativeApprovalCheck } from './local-codex-observation.js';
 import {
   CodexSteerInputSchema,
   type CodexSteerInput,
@@ -12,7 +24,19 @@ import {
   retainedCallbackOutcome,
 } from './turn-callbacks.js';
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
-import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
+import {
+  observeNativeRecoveryTurn,
+  type SettledNativeEffects,
+} from './codex-interrupted-effects.js';
+import type { RetainedHostResultObserver } from './retained-native-effect-evidence.js';
+import { beginOperationObservation } from './operation-observation.js';
+import {
+  startCommandTimingSpan,
+  finishCommandTimingSpan,
+  recordCommandQueueReason,
+  type QueueReason,
+} from './command-timing-trace.js';
+import { CodexOutputTiming } from './codex-output-timing.js';
 import {
   codexApplicationContextFragments,
   codexDynamicToolsOption,
@@ -32,6 +56,7 @@ import { searchCodex } from './codex-approved-search.js';
 import { BorrowedCodexSearch } from './codex-borrowed-search.js';
 import { context, trace, SpanStatusCode, type Span, type Context } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
+import { CodexNativeFileChange } from './codex-native-file-change.js';
 import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
@@ -139,21 +164,17 @@ export interface CodexStartupConfigObservation {
 
 /** Server-only snapshot from an original verified native host-tool invocation.
  * Base roots exclude retained upstream grants. Its fence expires with that call. */
-export interface NativeBaseReadScope {
-  readonly nativeTarget: Readonly<CodexNativeTurnTarget>;
-  readonly callId: string;
-  readonly toolName: string;
-  readonly requestHash: string;
-  readonly bindingRevision: string;
-  readonly profileRevision: string;
-  readonly policyRevision: string;
-  readonly readableRoots: readonly string[];
-  readonly workspaceRoots: readonly string[];
-  readonly deniedRoots: readonly string[];
-  assertCurrentSync(): void;
-}
+export type { NativeBaseReadScope } from './native-base-read-scope.js';
+import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
+  enableToolFailureContinuation?: boolean;
+  /** Original live owner admits the exact durable child under unchanged authority. */
+  admitToolFailureContinuation?(input: CodexCommandInput): boolean | void;
+  /** Trusted execution policy, never provider/model input. */
+  toolGuardPolicy?: Readonly<ToolGuardPolicy>;
+  /** Enabled only by the owned native Mac adapter, never inherited runtime configuration. */
+  enableNativeSubagents?: boolean;
   adviserScope?: AdviserTaskScope;
   /** Read-only idle health deadline; never changes model RPC timeouts. */
   idleProbeTimeoutMs?: number;
@@ -163,6 +184,9 @@ export interface CodexConversationOptions {
   beforeEnqueue?: (input: CodexCommandInput) => void;
   /** A guarded enqueue may retain uncertainty until its outer receipt commits. */
   canClaimCommand?: (commandId: string) => boolean;
+  /** Maintenance fences new FIFO claims; active tool and terminal receipts still settle. */
+  canStartCommand?: () => boolean;
+  assertSubagentControlAdmission?: () => void;
   /** Owning physical custody must persist before the first native thread effect. */
   beforeThreadInitialization?: (store: CodexConversationStore, binding: AccountBinding) => void;
   ownerKind?: 'ordinary' | 'symposium';
@@ -189,15 +213,10 @@ export interface CodexConversationOptions {
       /** Actual native callbacks supply this fence. Legacy non-native bridges
        * keep labels only; new authority-bearing owners must refuse its absence. */
       assertCurrentSync?(): void;
+      /** Trusted RPC delivery owner; registration is limited to this original call. */
+      registerResponseFence?(assertCurrent: () => void): void;
       /** Nonenumerable original-call capability, absent without a native base policy. */
       captureNativeBaseReadScope?(): NativeBaseReadScope;
-      /** Private original-command selection; never copied into tool labels or arguments. */
-      captureInferenceSelection?(): Readonly<{
-        commandId: string;
-        model: string;
-        reasoningEffort: string | null;
-        assertCurrentSync(): void;
-      }>;
     }>,
   ): Promise<CodexToolResult>;
   /** Called only after an exact host tool result can be replayed durably. */
@@ -230,7 +249,10 @@ export interface CodexConversationOptions {
       turnId: string;
       assertCurrentSync(): void;
       fileChangePaths?: readonly string[];
+      /** Server-attributed child identity, never supplied by the model. */
+      subagentName?: string;
       registerResponseFence?(assertCurrent: () => void): void;
+      observeFailure?(failure: ToolFailure): void;
     }>,
   ) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
@@ -296,6 +318,11 @@ export interface CodexConversationOptions {
    * response write. A later queued command cannot retarget an active grant. */
   assertNativeExecutionCurrent?: (policy: CodexNativeExecutionPolicy, commandId: string) => void;
   verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
+  /** Original non-native-policy recovery owner; fresh synchronous authority
+   * after acquiring the reconciliation writer lock, never supplied by JSON. */
+  assertRecoveryCurrent?: () => void;
+  /** Original application receipts can settle known historical host refusals. */
+  observeRetainedHostResult?: RetainedHostResultObserver;
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
@@ -439,6 +466,7 @@ type ActiveCommand = {
   callbackSettlement?: Promise<void>;
   callbacksSettled?: boolean;
   callbackEffectsUnknown?: boolean;
+  toolGuardRetired?: boolean;
   settledToolCallbacks?: Set<string>;
   command: CodexCommand;
   /** Set before invoking turn/start, including synchronous close/rejection. */
@@ -467,6 +495,7 @@ type ActiveCommand = {
   abort: AbortController;
   span?: Span;
   firstOutputSpan?: Span;
+  outputTiming?: CodexOutputTiming;
   preparationSpan?: Span;
   traceContext: Context;
   nativeExecution?: CodexNativeExecutionPolicy;
@@ -483,6 +512,9 @@ export type CodexTargetedInterruptResult =
   | { status: 'claimed'; receipt: CodexTargetedInterruptReceipt; replayed: boolean };
 
 export class CodexConversation {
+  private subagentOwner?: CodexSubagents;
+  private lastSubagentCommandId?: string;
+  private subagentAnchors = new Set<string>();
   private client: Rpc;
   private transportGeneration = 0;
   private replaySavedSources = false;
@@ -560,6 +592,8 @@ export class CodexConversation {
     };
   }
   private createClient() {
+    this.subagentOwner?.close();
+    this.subagentOwner = undefined;
     const generation = ++this.transportGeneration;
     return this.opts.createClient({
       onNotification: (m, p) => {
@@ -572,6 +606,8 @@ export class CodexConversation {
           return Promise.reject(new CodexTransportError('connection'));
         if (this.borrowedSearch?.owns(p))
           return Promise.reject(new Error('Search request has no executable tools'));
+        const children = this.getSubagents();
+        if (children?.owns(p.threadId)) return children.request(m, p, s, requestContext);
         const active = this.active;
         if (!active || p.threadId !== this.threadId || p.turnId !== active.turnId)
           return this.request(m, p, s, requestContext);
@@ -580,6 +616,7 @@ export class CodexConversation {
           () =>
             this.request(m, p, s, requestContext, (error) => {
               preExecutionRefusal = error;
+              requestContext?.registerPreExecutionRefusal?.(error);
             }),
           (error) =>
             (preExecutionRefusal !== undefined && error === preExecutionRefusal) ||
@@ -598,53 +635,241 @@ export class CodexConversation {
       onClose: (error) => this.transportClosed(generation, error),
     });
   }
+  getSubagents(): CodexSubagents | undefined {
+    if (
+      !this.opts.enableNativeSubagents ||
+      !this.opts.nativeExecution ||
+      !this.binding ||
+      !this.threadId ||
+      !this.ready ||
+      this.closed
+    )
+      return undefined;
+    if (this.active) this.lastSubagentCommandId = this.active.command.id;
+    if (this.subagentOwner) {
+      if (!this.paused && this.active) this.subagentOwner.parentResumed();
+      return this.subagentOwner;
+    }
+    const client = this.client;
+    const generation = this.transportGeneration;
+    const binding = this.binding;
+    const scope = subagentScope(this.opts.conversationId, binding);
+    let anchorsReconciled = false;
+    this.subagentOwner = new CodexSubagents({
+      scope,
+      store: this.opts.store.subagents,
+      root: () => {
+        const policy = this.opts.nativeExecution;
+        const commandId =
+          this.active?.command.id ??
+          this.lastSubagentCommandId ??
+          this.opts.store.subagents.list(scope)[0]?.commandId;
+        return !this.closed &&
+          this.ready &&
+          generation === this.transportGeneration &&
+          policy &&
+          commandId &&
+          this.threadId
+          ? {
+              threadId: this.threadId,
+              commandId,
+              model: this.binding!.model,
+              modelProvider: this.opts.modelProvider ?? 'openai',
+              policy,
+            }
+          : undefined;
+      },
+      assertCurrent: (child, cancelling) => {
+        if (
+          this.closed ||
+          !this.ready ||
+          (this.paused && !cancelling) ||
+          (this.active?.toolGuardRetired && !cancelling) ||
+          generation !== this.transportGeneration ||
+          this.client !== client ||
+          this.binding?.profileRevision !== binding.profileRevision
+        )
+          throw Error('Original native subagent transport unavailable');
+        if (!this.opts.assertNativeExecutionCurrent || !this.opts.nativeExecution)
+          throw Error('Native subagent policy owner unavailable');
+        this.opts.assertNativeExecutionCurrent(this.opts.nativeExecution, child.commandId);
+      },
+      request: async (method, params, beforeDispatch) => {
+        await this.opts.prepareAgentContext?.(
+          this.opts.startupSignal ?? new AbortController().signal,
+        );
+        if (
+          this.closed ||
+          !this.ready ||
+          this.client !== client ||
+          generation !== this.transportGeneration
+        )
+          throw Error('Original subagent transport unavailable');
+        if (method === 'turn/start' || method === 'turn/steer')
+          this.opts.assertSubagentControlAdmission?.();
+        beforeDispatch?.();
+        return client.request(method, params);
+      },
+      tools: this.opts.tools,
+      nativeOrigin: (child, cancelling) => {
+        const state = this.opts.store.read(this.opts.conversationId, binding);
+        const attempt = this.opts.store.nativeCommandAttempt(
+          this.opts.conversationId,
+          binding,
+          child.commandId,
+        );
+        if (
+          !attempt ||
+          state.threadId !== child.rootThreadId ||
+          (state.recovery && !cancelling) ||
+          (child.commandAttempt !== undefined && child.commandAttempt !== attempt) ||
+          (child.threadGeneration !== undefined &&
+            child.threadGeneration !== state.threadGeneration)
+        )
+          throw Error('Original child command unavailable');
+        const accepted = this.opts.store.readNativeExecution(this.opts.conversationId, binding, {
+          id: child.commandId,
+          attempt,
+        });
+        if (
+          accepted?.phase !== 'accepted' ||
+          accepted.threadId !== child.rootThreadId ||
+          accepted.generation !== state.threadGeneration
+        )
+          throw Error('Original child acceptance unavailable');
+        return {
+          commandId: child.commandId,
+          attempt,
+          generation: state.threadGeneration,
+        };
+      },
+      executeTool: this.opts.executeTool,
+      requestNativeApproval: this.opts.requestNativeApproval,
+      requestUserInput: this.opts.requestUserInput,
+      validateModel: (model, commandId) => {
+        // Owned admissions validate the complete model/thinking pair. A child
+        // belongs to its spawning command, even after the parent moves on.
+        const command = this.opts.store
+          .commands(this.opts.conversationId, binding)
+          .find((entry) => entry.id === commandId);
+        if (!command) throw Error('Original subagent model selection unavailable');
+        this.validateModel(model, command.reasoningEffort);
+      },
+      onChild: (child) => {
+        if (!this.mapper) return false;
+        if (this.subagentAnchors.has(child.commandId)) return true;
+        if (!anchorsReconciled) {
+          // Receipts belong to children, but one marker represents a command.
+          // Reconcile before emission, within the child's reporting boundary.
+          for (const retained of this.opts.store.subagents.list(scope))
+            if (
+              retained.rootThreadId === this.threadId &&
+              retained.policyRevision === this.opts.nativeExecution?.policyRevision &&
+              retained.activityAnchored !== false
+            )
+              this.subagentAnchors.add(retained.commandId);
+          anchorsReconciled = true;
+          if (this.subagentAnchors.has(child.commandId)) return true;
+        }
+        const toolId = this.mapper.toolStart(child.threadId, 'Agent', {
+          description: 'Subagents',
+          subagent_type: 'Codex',
+          nativeSubagentCommandId: child.commandId,
+        });
+        this.mapper.toolResult(
+          toolId,
+          'Native subagent activity observed. Open it to check inspection status and available output.',
+          false,
+        );
+        this.subagentAnchors.add(child.commandId);
+        return true;
+      },
+    });
+    return this.subagentOwner;
+  }
+  pendingSubagentHostTool(
+    call: object,
+    identity: { turnId: string; toolName: string; requestHash: string },
+  ) {
+    return this.subagentOwner?.pendingHostTool(call, identity);
+  }
+  private retainNativeTransportDiagnostic(
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    error: unknown,
+  ) {
+    if (!this.binding) return;
+    try {
+      const diagnostic = error instanceof CodexTransportError ? error.diagnostic : undefined;
+      this.opts.store.recordTransportDiagnostic(this.opts.conversationId, this.binding, command, {
+        stage: 'native_transport',
+        reason:
+          diagnostic &&
+          [
+            'child_exit',
+            'process_error',
+            'stream_error',
+            'reply_provenance_failed',
+            'notification_handler_failed',
+            'host_tool_admission_timeout',
+            'host_response_fence_failed',
+          ].includes(diagnostic.reason)
+            ? (diagnostic.reason as
+                | 'child_exit'
+                | 'process_error'
+                | 'stream_error'
+                | 'reply_provenance_failed'
+                | 'notification_handler_failed'
+                | 'host_tool_admission_timeout'
+                | 'host_response_fence_failed')
+            : error instanceof CodexTransportError && error.category === 'timeout'
+              ? 'timeout'
+              : error instanceof CodexTransportError && error.category === 'protocol'
+                ? 'protocol'
+                : 'connection',
+        ...(diagnostic?.reason === 'child_exit'
+          ? { exitCode: diagnostic.exitCode, signal: diagnostic.signal }
+          : {}),
+        ...(diagnostic?.stream ? { stream: diagnostic.stream } : {}),
+        ...(diagnostic?.causeCode ? { causeCode: diagnostic.causeCode } : {}),
+        ...this.diagnosticRuntimeIdentity(),
+      });
+    } catch {
+      // Closing and fencing unknown work must survive diagnostic storage failure.
+      log.warn('Native transport diagnostic could not be retained', {
+        conversationId: this.opts.conversationId,
+      });
+    }
+  }
   private transportClosed(generation: number, error: Error, requireRecoveryPersistence = false) {
     if (this.closed || generation !== this.transportGeneration) return;
     const failure =
       error instanceof CodexTransportError && error.diagnostic
         ? { failure: codexRuntimeErrorTelemetry(error) }
         : {};
-    if (this.binding && this.active) {
-      try {
-        const diagnostic = error instanceof CodexTransportError ? error.diagnostic : undefined;
-        this.opts.store.recordTransportDiagnostic(
-          this.opts.conversationId,
-          this.binding,
-          this.active.command,
-          {
-            stage: 'native_transport',
-            reason:
-              diagnostic &&
-              ['child_exit', 'process_error', 'stream_error'].includes(diagnostic.reason)
-                ? (diagnostic.reason as 'child_exit' | 'process_error' | 'stream_error')
-                : error instanceof CodexTransportError && error.category === 'timeout'
-                  ? 'timeout'
-                  : error instanceof CodexTransportError && error.category === 'protocol'
-                    ? 'protocol'
-                    : 'connection',
-            ...(diagnostic?.reason === 'child_exit'
-              ? { exitCode: diagnostic.exitCode, signal: diagnostic.signal }
-              : {}),
-            ...(diagnostic?.stream ? { stream: diagnostic.stream } : {}),
-            ...(diagnostic?.causeCode ? { causeCode: diagnostic.causeCode } : {}),
-            ...this.diagnosticRuntimeIdentity(),
-          },
-        );
-      } catch {
-        // Closing and fencing unknown work must survive diagnostic storage failure.
-        log.warn('Native transport diagnostic could not be retained', {
-          conversationId: this.opts.conversationId,
-        });
-      }
-    }
+    if (this.active) this.retainNativeTransportDiagnostic(this.active.command, error);
     this.retainEmptyCompletionPhase();
     if (this.opts.transportClosure === 'terminal') {
+      const active = this.active;
       try {
         this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed', ...failure });
       } finally {
         // Use the existing terminal owner: cancel host work, retain ambiguous
         // provider state, and notify the adapter so its stream and MCPs close.
-        this.close();
+        try {
+          this.close();
+        } finally {
+          // Closing the iterator alone looks like normal completion to the chat
+          // adapter. Report unexpected active loss through its durable error
+          // channel even if an observer or cleanup fails. close() first retains
+          // any exact provider completion and fences reentrant close callbacks.
+          if (active && !active.providerCompletionRetained && !active.interruptRequested)
+            this.opts.onError?.(
+              findSessionRuntimeError(error) ??
+                (error instanceof CodexTransportError
+                  ? error
+                  : new CodexTransportError('connection')),
+            );
+        }
       }
       return;
     }
@@ -697,7 +922,7 @@ export class CodexConversation {
       );
     }
     this.paused = true;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     this.opts.onTransportClosed?.({
       activeTurn: !!active,
       ...failure,
@@ -920,8 +1145,9 @@ export class CodexConversation {
     this.resetMapper(this.threadId, !state.threadId);
     this.ready = true;
     this.startupObserverInitializing = false;
+    await this.getSubagents()?.restore();
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
   }
   private async contextRequest(client: Rpc, method: string, params: ObjectValue) {
     const signal =
@@ -1250,7 +1476,7 @@ export class CodexConversation {
       if (deadline !== undefined) this.capacityAdmissionDeadlines.set(child.id, deadline);
       this.clearCapacityTimer();
       this.paused = false;
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       await this.pump();
       return 'queued' as const;
     } catch (error) {
@@ -1268,7 +1494,7 @@ export class CodexConversation {
           current.sourceCommandId,
         );
         this.paused = true;
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
       }
       throw error;
     } finally {
@@ -1319,7 +1545,7 @@ export class CodexConversation {
     );
     this.clearCapacityTimer();
     this.paused = true;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     if (this.active?.command.id === recovery.childCommandId) await this.interrupt();
     return 'stopped' as const;
   }
@@ -1368,10 +1594,16 @@ export class CodexConversation {
       this.commandContexts.set(input.id, context.active());
       // The durable enqueue has returned; time waiting for this exact command's claim.
       const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
-      if (timing) this.queueTimingSpans.set(input.id, timing);
+      if (timing) {
+        this.queueTimingSpans.set(input.id, timing);
+        recordCommandQueueReason(
+          timing,
+          this.active ? 'active_turn' : this.paused ? 'recovery' : 'queued',
+        );
+      }
       this.opts.onCommandQueued?.(input.id);
     }
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     return { model, reasoningEffort };
   }
   async admitExplicitSend(
@@ -1518,7 +1750,7 @@ export class CodexConversation {
       this.commandContexts.delete(commandId);
       finishCommandTimingSpan(this.queueTimingSpans.get(commandId), 'cancelled');
       this.queueTimingSpans.delete(commandId);
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
     }
     return result;
   }
@@ -1537,7 +1769,7 @@ export class CodexConversation {
       confirmAmbiguous,
     );
     if (result !== 'queued') return result;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     await this.acknowledgeRecovery();
     return result;
   }
@@ -1562,12 +1794,12 @@ export class CodexConversation {
     const delays = [1000, 2000, 5000, 10000, 30000];
     if (attempt >= delays.length) {
       this.recoveryPhase = undefined;
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       return;
     }
     const epoch = this.automaticRecoveryEpoch;
     this.recoveryPhase = 'reconnecting';
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     this.automaticRecoveryTimer = setTimeout(() => {
       this.automaticRecoveryTimer = undefined;
       this.automaticRecoveryRunning = { epoch };
@@ -1605,19 +1837,56 @@ export class CodexConversation {
   }
   async acknowledgeRecovery(automaticEpoch?: number) {
     if (this.recovery) return this.recovery;
-    const span = tracer.startSpan('codex.transport.recovery');
-    const operation = this.continueRecovery(automaticEpoch).finally(() => span.end());
+    const observation = beginOperationObservation('codex.transport.recovery');
+    let stage = 'transport';
+    let target: CodexNativeTurnTarget | undefined;
+    const operation = observation.run(() =>
+      this.continueRecovery(automaticEpoch, (next, observed) => {
+        stage = next;
+        target = observed ?? target;
+        observation.annotate({
+          'mitzo.recovery.stage': stage,
+          ...(target ? { 'mitzo.command.id': target.commandId } : {}),
+        });
+      }).then(
+        () => {
+          observation.end();
+        },
+        (error: unknown) => {
+          const code = findSessionRuntimeError(error)?.code ?? 'recovery_unavailable';
+          observation.annotate({ 'mitzo.recovery.code': code });
+          observation.end(true);
+          log.warn('Codex recovery failed', {
+            conversationId: this.opts.conversationId,
+            stage,
+            ...(target
+              ? { commandId: target.commandId, turnId: target.turnId, attempt: target.attempt }
+              : {}),
+            runtimeFailureCode: code,
+            ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
+          });
+          throw error;
+        },
+      ),
+    );
     const shared = operation.finally(() => {
       if (this.recovery === shared) {
         this.recovery = undefined;
         this.recoveryPhase = undefined;
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
       }
     });
     this.recovery = shared;
     return shared;
   }
-  private async continueRecovery(automaticEpoch?: number) {
+  private async continueRecovery(
+    automaticEpoch?: number,
+    observeStage?: (
+      stage: 'transport' | 'binding' | 'history' | 'effects' | 'acknowledgement' | 'dispatch',
+      target?: CodexNativeTurnTarget,
+    ) => void,
+  ) {
+    observeStage?.('transport');
     if (this.closed) throw new Error('Codex conversation unavailable');
     const recoveryControlEpoch = this.automaticRecoveryEpoch;
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
@@ -1646,6 +1915,13 @@ export class CodexConversation {
     const nativeTarget = exactRecovery
       ? this.opts.store.nativeRecoveryTarget(this.opts.conversationId, this.binding!)
       : undefined;
+    const inspectFailedEffects =
+      !!nativeTarget &&
+      !completionTarget &&
+      !!this.opts.nativeExecution &&
+      this.opts.store.continuationBlocker(this.opts.conversationId, this.binding!)?.commandId ===
+        nativeTarget.commandId;
+    observeStage?.('binding', nativeTarget);
     const assertRecoveryAuthority = async () => {
       const verified = await this.verifyCurrentBinding(this.binding);
       if (!isDeepStrictEqual(verified, this.binding))
@@ -1659,35 +1935,58 @@ export class CodexConversation {
     };
     await assertRecoveryAuthority();
     let nativeStatus: 'completed' | 'failed' | 'interrupted' | undefined;
+    let interruptedEffects: SettledNativeEffects | undefined;
     const recoveryThreadId = exactRecovery ? nativeTarget?.threadId : this.threadId;
     if ((automaticEpoch !== undefined || exactRecovery) && recoveryThreadId) {
-      const page = z
-        .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
-        .parse(
-          await this.client.request('thread/turns/list', {
-            threadId: recoveryThreadId,
-            limit: 1,
-            sortDirection: 'desc',
-            itemsView: 'notLoaded',
-          }),
-        );
-      if (
-        (exactRecovery && page.data.length === 0) ||
-        page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status))
-      )
-        throw new SessionRuntimeError('provider_active');
+      observeStage?.('history');
       if (nativeTarget) {
-        if (page.data.length !== 1 || page.data[0].id !== nativeTarget.turnId)
-          throw new SessionRuntimeError('provider_identity');
-        nativeStatus = z.enum(['completed', 'failed', 'interrupted']).parse(page.data[0].status);
+        const phase =
+          completionTarget &&
+          this.opts.store.completionPhase(
+            this.opts.conversationId,
+            this.binding!,
+            completionTarget.commandId,
+            completionTarget.attempt,
+          );
+        const observed = await observeNativeRecoveryTurn(
+          (method, params) => this.client.request(method, params),
+          this.opts.conversationId,
+          nativeTarget,
+          !!phase && phase.observedOutcome === 'completed' && !phase.priorEffectsUnknown,
+          async () => {
+            assertRecoveryContinuation();
+            await assertRecoveryAuthority();
+            assertRecoveryContinuation();
+          },
+          this.opts.cwd,
+          inspectFailedEffects,
+        );
+        nativeStatus = observed.status;
+        interruptedEffects = observed.settledEffects;
         await assertRecoveryAuthority();
+      } else {
+        const page = z
+          .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
+          .parse(
+            await this.client.request('thread/turns/list', {
+              threadId: recoveryThreadId,
+              limit: 1,
+              sortDirection: 'desc',
+              itemsView: 'notLoaded',
+            }),
+          );
+        if (
+          (exactRecovery && page.data.length === 0) ||
+          page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status))
+        )
+          throw new SessionRuntimeError('provider_active');
       }
     }
     // A provider turn may continue after turn/start returns. Recovery progress
     // is only for workspace startup and transport reattachment, not generation.
     if (this.recoveryPhase) {
       this.recoveryPhase = undefined;
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
     }
     // Neither metadata nor a progress observer may release work through a
     // retired transport or undo a Stop that arrived during the reconnect.
@@ -1699,6 +1998,8 @@ export class CodexConversation {
         !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
     )
       throw new Error('Automatic recovery was cancelled');
+    assertRecoveryContinuation();
+    observeStage?.('effects');
     if (nativeTarget && nativeStatus) {
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
@@ -1723,17 +2024,69 @@ export class CodexConversation {
           completionTarget,
           this.binding!,
           this.opts.nativeExecution,
+          interruptedEffects,
+          assertRecoveryContinuation,
         );
       assertRecoveryContinuation();
     }
+    if (
+      nativeTarget &&
+      nativeStatus === 'failed' &&
+      inspectFailedEffects &&
+      interruptedEffects &&
+      !completionTarget &&
+      this.opts.nativeExecution
+    ) {
+      const policy = this.opts.nativeExecution;
+      const current = () => {
+        assertRecoveryContinuation();
+        this.assertNativeExecutionOwner();
+        if (!this.opts.assertRecoveryCurrent)
+          throw Error('Failed effects require a current recovery owner');
+        for (const check of [
+          () => this.opts.assertRecoveryCurrent!(),
+          () => this.opts.assertNativeExecutionCurrent!(policy, nativeTarget.commandId),
+        ]) {
+          const result: unknown = check();
+          if (result !== undefined) {
+            void Promise.resolve(result).catch((cause: unknown) => {
+              log.warn('Asynchronous recovery authority failed', {
+                conversationId: this.opts.conversationId,
+                commandId: nativeTarget.commandId,
+                stage: 'effects',
+                failureCode: 'async_recovery_authority',
+                ...(cause instanceof Error ? codexRuntimeErrorTelemetry(cause) : {}),
+              });
+            });
+            throw Error('Failed effect recovery authority must be synchronous');
+          }
+        }
+        assertRecoveryContinuation();
+      };
+      this.opts.store.reconcileRetainedNativeEffects(
+        this.opts.conversationId,
+        this.binding!,
+        nativeTarget,
+        undefined,
+        policy,
+        nativeStatus,
+        interruptedEffects,
+        current,
+        assertRecoveryContinuation,
+        undefined,
+        this.opts.observeRetainedHostResult,
+      );
+    }
     assertRecoveryContinuation();
+    observeStage?.('acknowledgement');
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!, nativeTarget);
     this.paused = false;
+    observeStage?.('dispatch');
     await this.pump();
   }
   private async reconnect() {
     this.recoveryPhase = 'reconnecting';
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     if (this.opts.reconnectGuard) return this.opts.reconnectGuard(() => this.reconnectBound());
     return this.reconnectBound();
   }
@@ -1741,11 +2094,11 @@ export class CodexConversation {
     if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
     if (this.opts.beforeReconnect) {
       this.recoveryPhase = 'starting_workspace';
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       await this.opts.beforeReconnect();
     }
     this.recoveryPhase = 'reconnecting';
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     const client = this.createClient();
     this.client = client;
     const startupGeneration = this.transportGeneration;
@@ -1834,6 +2187,7 @@ export class CodexConversation {
           configuration,
           this.opts.profile.workspaceId,
           this.opts.nativeExecution,
+          this.opts.enableNativeSubagents,
         ),
         ...(this.opts.nativeExecution
           ? codexNativePermissionProfiles(this.opts.nativeExecution)
@@ -1984,7 +2338,7 @@ export class CodexConversation {
             : new Error('Codex recovery state could not be saved'),
         );
       }
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       throw error;
     }
   }
@@ -2010,13 +2364,61 @@ export class CodexConversation {
       target.commandId,
       target.attempt,
     );
-    if (
-      phase?.observedOutcome !== 'completed' ||
-      this.opts.store.commandStatus(this.opts.conversationId, binding, target.commandId) !==
-        'completed'
-    )
+    if (phase?.observedOutcome !== 'completed')
       throw Error('Completion phase effects remain unknown; preserve the original native lineage');
-    await this.reconcileKnownCompletionPhase(target, binding, this.opts.nativeExecution);
+    const controlEpoch = this.automaticRecoveryEpoch;
+    const assertCurrent = () => {
+      if (
+        this.closed ||
+        generation !== this.transportGeneration ||
+        controlEpoch !== this.automaticRecoveryEpoch
+      )
+        throw Error('Completion phase recovery owner changed before native lineage replacement');
+    };
+    let interruptedEffects: SettledNativeEffects | undefined;
+    const status = this.opts.store.commandStatus(
+      this.opts.conversationId,
+      binding,
+      target.commandId,
+    );
+    if (status === 'interrupted' && !phase.priorEffectsUnknown) {
+      const verified = await this.verifyCurrentBinding(binding);
+      if (!isDeepStrictEqual(verified, binding))
+        throw Error('Completion phase account binding changed');
+      this.assertNativeExecutionOwner();
+      if (this.opts.nativeExecution)
+        this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, target.commandId);
+      assertCurrent();
+      const observed = await observeNativeRecoveryTurn(
+        (method, params) => this.client.request(method, params),
+        this.opts.conversationId,
+        target,
+        true,
+        async () => {
+          assertCurrent();
+          const current = await this.verifyCurrentBinding(binding);
+          if (!isDeepStrictEqual(current, binding))
+            throw Error('Completion phase account binding changed');
+          this.assertNativeExecutionOwner();
+          if (this.opts.nativeExecution)
+            this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, target.commandId);
+          assertCurrent();
+        },
+        this.opts.cwd,
+      );
+      assertCurrent();
+      if (observed.status !== 'interrupted' || !observed.settledEffects)
+        throw Error('Interrupted native effects changed before lineage replacement');
+      interruptedEffects = observed.settledEffects;
+    } else if (status !== 'completed')
+      throw Error('Completion phase requires a settled native outcome before lineage replacement');
+    await this.reconcileKnownCompletionPhase(
+      target,
+      binding,
+      this.opts.nativeExecution,
+      interruptedEffects,
+      assertCurrent,
+    );
     if (
       this.closed ||
       generation !== this.transportGeneration ||
@@ -2331,7 +2733,15 @@ export class CodexConversation {
   }
   private pump(): Promise<void> {
     if (this.pumping) return this.pumping;
-    if (this.active || this.paused || this.closed) return Promise.resolve();
+    if (this.closed) return Promise.resolve();
+    if (this.active || this.paused) {
+      this.recordQueueReason(this.active ? 'active_turn' : 'recovery');
+      return Promise.resolve();
+    }
+    if (this.opts.canStartCommand?.() === false) {
+      this.recordQueueReason('deployment');
+      return Promise.resolve();
+    }
     const next = this.queue().find((command) => command.status === 'queued');
     const commandContext = next && this.commandContexts.get(next.id);
     this.pumping = context
@@ -2341,10 +2751,22 @@ export class CodexConversation {
       });
     return this.pumping;
   }
+  private notifyQueueChange() {
+    this.recordQueueReason(this.active ? 'active_turn' : this.paused ? 'recovery' : 'queued');
+    this.opts.onQueueChange?.();
+  }
+  private recordQueueReason(reason: QueueReason) {
+    for (const span of this.queueTimingSpans.values()) recordCommandQueueReason(span, reason);
+  }
   private finishTurnSpan(
     status: 'completed' | 'interrupted' | 'failed',
     failureCategory: 'none' | 'provider' | 'dispatch' | 'transport' | 'close' | 'acknowledgment',
   ) {
+    this.active?.outputTiming?.close(
+      failureCategory === 'none' || failureCategory === 'provider'
+        ? 'terminal_before_output'
+        : 'failed_before_output',
+    );
     this.active?.firstOutputSpan?.setAttribute(
       'mitzo.first_output.result',
       failureCategory === 'none' || failureCategory === 'provider'
@@ -2368,7 +2790,10 @@ export class CodexConversation {
     // this queue again after the original coordinator commits consumption.
     if (this.opts.canClaimCommand && this.binding) {
       const next = this.opts.store.nextQueuedCommandId(this.opts.conversationId, this.binding);
-      if (next && this.opts.canClaimCommand(next) === false) return;
+      if (next && this.opts.canClaimCommand(next) === false) {
+        this.recordQueueReason('admission');
+        return;
+      }
     }
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
       const boundary = this.opts.beforeRuntimeAdmission;
@@ -2435,7 +2860,7 @@ export class CodexConversation {
         // explicit recovery pause even when only our idle transport was closed.
         this.paused = true;
         this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
         throw error;
       }
     }
@@ -2451,10 +2876,18 @@ export class CodexConversation {
         this.opts.conversationId,
         this.binding!,
       );
-      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) return;
+      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) {
+        this.recordQueueReason('admission');
+        return;
+      }
+    }
+    if (this.opts.canStartCommand?.() === false) {
+      this.recordQueueReason('deployment');
+      return;
     }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
+    recordCommandQueueReason(this.queueTimingSpans.get(command.id), 'eligible');
     finishCommandTimingSpan(this.queueTimingSpans.get(command.id), 'claimed');
     this.queueTimingSpans.delete(command.id);
     const continuation = this.opts.store.capacityContinuation(
@@ -2480,7 +2913,7 @@ export class CodexConversation {
     this.commandContexts.delete(command.id);
     this.active = active;
     let transportGeneration = this.transportGeneration;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     try {
       active.preparationSpan = startCommandTimingSpan(
         'codex.command.preparation',
@@ -2565,6 +2998,12 @@ export class CodexConversation {
       await this.opts.prepareAgentContext?.(active.abort.signal);
       active.abort.signal.throwIfAborted();
       active.preparationStage = 'dispatch_authority';
+      if (command.toolFailureContinuation)
+        this.opts.store.assertClaimedToolFailureContinuation(
+          this.opts.conversationId,
+          this.binding!,
+          command,
+        );
       this.opts.onProviderDispatch?.(command.id);
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
@@ -2599,6 +3038,9 @@ export class CodexConversation {
       const dispatchSpan = tracer.startSpan('codex.turn.dispatch', {}, turnContext);
       const ackSpan = tracer.startSpan('codex.turn.acknowledgment', {}, turnContext);
       active.firstOutputSpan = tracer.startSpan('codex.turn.first_output', {}, turnContext);
+      active.outputTiming = new CodexOutputTiming(turnContext);
+      if (command.reasoningEffort)
+        active.span.setAttribute('gen_ai.request.reasoning_effort', command.reasoningEffort);
       let response: unknown;
       let dispatched = false;
       try {
@@ -2629,6 +3071,12 @@ export class CodexConversation {
         // A synchronous transport close can reenter close() from request().
         // Once invocation is attempted, missing ACK/history is uncertainty.
         active.preparationStage = 'provider_request';
+        if (command.toolFailureContinuation)
+          this.opts.store.assertClaimedToolFailureContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            command,
+          );
         active.providerSubmitted = true;
         const pendingAck = this.client.request('turn/start', params);
         dispatchSpan.end();
@@ -2776,7 +3224,7 @@ export class CodexConversation {
                 : new Error('Codex provider thread ownership requires recovery'),
             );
             this.retireTransportForRecovery();
-            this.opts.onQueueChange?.();
+            this.notifyQueueChange();
             return;
           }
           active.ownershipPending = false;
@@ -2813,6 +3261,10 @@ export class CodexConversation {
       // transportClosed() already paused and persisted this command. Do not
       // propagate the old RPC rejection into the adapter's close path.
       if (transportGeneration !== this.transportGeneration) return;
+      // ACK observers and buffered first replies run on this awaited dispatch
+      // path. Retain their bounded cause before recovery clears the active owner.
+      if (this.active === active && error instanceof CodexTransportError)
+        this.retainNativeTransportDiagnostic(active.command, error);
       // An exact, definitive rejection with no competing native turn identity
       // proves this request did not start a turn. Transport errors/lost responses
       // remain fenced, including a contradictory turn/started notification.
@@ -2843,7 +3295,7 @@ export class CodexConversation {
         this.paused = true;
         active.abort.abort();
         if (this.active === active) this.active = undefined;
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
         throw error;
       }
       const replaceProviderThread = requiresProviderThreadReplacement(error);
@@ -2874,7 +3326,7 @@ export class CodexConversation {
       this.recordPreDispatchFailure(active);
       if (this.active === active) this.active = undefined;
       if (replaceProviderThread || active.accepted) this.retireTransportForRecovery();
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       throw error;
     } finally {
       finishCommandTimingSpan(active.preparationSpan, 'stopped');
@@ -2915,25 +3367,58 @@ export class CodexConversation {
     target: CodexNativeTurnTarget,
     binding: AccountBinding,
     policy?: CodexNativeExecutionPolicy,
+    interruptedEffects?: SettledNativeEffects,
+    assertCurrent?: () => void,
   ) {
     const verified = await this.verifyCurrentBinding(binding);
     if (!isDeepStrictEqual(verified, binding))
       throw Error('Completion phase account binding changed');
-    if (policy) {
-      this.assertNativeExecutionOwner();
-      const checked: unknown = this.opts.assertNativeExecutionCurrent!(policy, target.commandId);
-      if (checked !== undefined) {
-        void Promise.resolve(checked).catch(() => {});
-        throw Error('Completion phase workspace authority must be synchronous');
+    const current = () => {
+      assertCurrent?.();
+      if (policy) {
+        this.assertNativeExecutionOwner();
+        const checked: unknown = this.opts.assertNativeExecutionCurrent!(policy, target.commandId);
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          throw Error('Completion phase workspace authority must be synchronous');
+        }
+      } else if (interruptedEffects) {
+        if (!this.opts.assertRecoveryCurrent)
+          throw Error('Interrupted effects require a current synchronous recovery owner');
+        const checked: unknown = this.opts.assertRecoveryCurrent();
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          throw Error('Completion phase recovery authority must be synchronous');
+        }
       }
-    }
-    this.opts.store.reconcileCompletionPhase(
+    };
+    const phase = this.opts.store.completionPhase(
       this.opts.conversationId,
       binding,
-      target,
-      createHash('sha256').update(this.opts.cwd).digest('hex'),
-      policy?.policyRevision,
+      target.commandId,
+      target.attempt,
     );
+    const workspaceDigest = createHash('sha256').update(this.opts.cwd).digest('hex');
+    if (policy && phase && phase.policyRevision !== policy.policyRevision)
+      this.opts.store.reconcileHistoricalNativeCompletionPhase(
+        this.opts.conversationId,
+        binding,
+        target,
+        workspaceDigest,
+        policy,
+        interruptedEffects,
+        current,
+      );
+    else
+      this.opts.store.reconcileCompletionPhase(
+        this.opts.conversationId,
+        binding,
+        target,
+        workspaceDigest,
+        policy?.policyRevision,
+        interruptedEffects,
+        current,
+      );
   }
   /** Only the original live recovery owner knows that no completion callback
    * existed. Reconstructed/plain owners never manufacture this evidence. */
@@ -3042,6 +3527,8 @@ export class CodexConversation {
       );
   }
   private notification(method: string, params: ObjectValue) {
+    const children = this.getSubagents();
+    if (children?.notification(method, params) && params.threadId !== this.threadId) return;
     if (this.closed || params.threadId !== this.threadId) return;
     if (method === 'item/started' && this.active && params.turnId === this.active.turnId) {
       const identity = z
@@ -3051,19 +3538,7 @@ export class CodexConversation {
         .object({
           type: z.literal('fileChange'),
           id: z.string().min(1),
-          changes: z.array(
-            z.object({
-              path: z.string().min(1),
-              kind: z.discriminatedUnion('type', [
-                z.object({ type: z.literal('add') }).strict(),
-                z.object({ type: z.literal('delete') }).strict(),
-                z
-                  .object({ type: z.literal('update'), move_path: z.string().min(1).nullable() })
-                  .strict(),
-              ]),
-              diff: z.string(),
-            }),
-          ),
+          changes: z.array(CodexNativeFileChange),
         })
         .safeParse(params.item);
       if (identity.success) {
@@ -3094,6 +3569,8 @@ export class CodexConversation {
         this.active.nativeFileChangeRevisions.set(identity.data.id, consistent ? revision : null);
       }
     }
+    if (this.active?.turnId && params.turnId === this.active.turnId)
+      this.active.outputTiming?.observe(method, params);
     if (
       this.active?.firstOutputSpan &&
       [
@@ -3346,6 +3823,16 @@ export class CodexConversation {
               attempt: this.active.command.attempt,
             })
           : undefined;
+      const failedToolSource =
+        status === 'completed' &&
+        !this.active.interruptRequested &&
+        !this.active.callbackEffectsUnknown &&
+        this.opts.enableToolFailureContinuation !== false &&
+        this.opts.ownerKind !== 'symposium' &&
+        !this.opts.adviserScope &&
+        (!this.opts.canClaimCommand || this.opts.admitToolFailureContinuation)
+          ? { commandId: this.active.command.id }
+          : undefined;
       this.finishTurnSpan(status, status === 'failed' ? 'provider' : 'none');
       if (['completed', 'interrupted', 'failed'].includes(turn.data.status ?? '')) {
         this.opts.onProviderTerminal?.(this.active.command.id, turn.data.id, status);
@@ -3424,11 +3911,62 @@ export class CodexConversation {
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
       this.mapper?.notification(method, params, providerFailure);
+      // Terminal projection seals unfinished native items as unknown. Persist
+      // command-wide negative evidence before considering the final failure.
+      const finalToolFailure = failedToolSource && this.mapper?.getUnexplainedFailure();
+      if (!this.closed && failedToolSource && finalToolFailure) {
+        let child: CodexCommandInput | undefined;
+        try {
+          if (this.mapper?.isToolFailureRecoverySuppressed())
+            this.opts.store.recordToolFailureRecoverySuppression(
+              this.opts.conversationId,
+              this.binding!,
+              failedToolSource.commandId,
+              turn.data.id,
+            );
+          child = this.opts.store.queueToolFailureContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            failedToolSource.commandId,
+            turn.data.id,
+            finalToolFailure,
+          );
+          if (child) {
+            const admitted = this.opts.admitToolFailureContinuation?.(child);
+            if (admitted !== true) this.opts.beforeEnqueue?.(child);
+            this.opts.store.assertToolFailureContinuation(
+              this.opts.conversationId,
+              this.binding!,
+              child,
+            );
+            this.opts.onCommandQueued?.(child.id);
+            log.info('Tool failure continuation admitted', {
+              conversationId: this.opts.conversationId,
+              sourceCommandId: failedToolSource.commandId,
+              commandId: child.id,
+            });
+          }
+        } catch {
+          if (child) {
+            try {
+              this.opts.store.cancelQueued(this.opts.conversationId, this.binding!, child.id);
+            } catch {
+              /* Preserve uncertain receipt. */
+            }
+          }
+          this.opts.onError?.(
+            new Error(
+              'Tool recovery admission failed; saved work and the original failure are preserved.',
+            ),
+          );
+          this.close();
+        }
+      }
       if (providerFailure)
         this.opts.onError?.(
           new ProviderFailureError(providerFailure, codexTurnFailureDiagnostic(turn.data.error)),
         );
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       // Completion can arrive before turn/start resolves. Wait for that request to settle.
       Promise.resolve(this.pumping)
         .then(() => (recoverQueuedFollowUp ? this.acknowledgeRecovery() : this.pump()))
@@ -3475,6 +4013,7 @@ export class CodexConversation {
         generation !== this.transportGeneration ||
         this.client !== client ||
         this.active !== active ||
+        active?.toolGuardRetired ||
         active?.abort !== activeAbort ||
         active?.command !== command ||
         command?.id !== commandId ||
@@ -3564,6 +4103,7 @@ export class CodexConversation {
     requestContext?: NativeRequestContext,
     onToolRefusal?: HostToolRefusal,
   ): Promise<ObjectValue> {
+    if (this.active?.toolGuardRetired) throw new CodexTransportError('connection');
     if (
       [
         'item/commandExecution/requestApproval',
@@ -3584,45 +4124,81 @@ export class CodexConversation {
         ? active?.nativeFileChangeRevisions?.get(fileItemId)
         : undefined;
       const approvalSignal = AbortSignal.any([signal, ...(active ? [active.abort.signal] : [])]);
-      const assertCurrentSync = () => {
-        approvalSignal.throwIfAborted();
-        if (
-          this.closed ||
-          !active ||
-          this.active !== active ||
-          generation !== this.transportGeneration ||
-          !threadId ||
-          !turnId ||
-          this.threadId !== threadId ||
-          active.turnId !== turnId ||
-          active.completions.has(turnId) ||
-          params.threadId !== threadId ||
-          params.turnId !== turnId ||
-          !requestContext ||
-          !['string', 'number'].includes(typeof requestContext.requestId)
-        )
-          throw new Error('Codex native approval identity mismatch');
-        if (
-          fileItemId &&
-          (!isDeepStrictEqual(active.nativeFileChanges?.get(fileItemId), fileChangePaths) ||
-            active.nativeFileChangeRevisions?.get(fileItemId) !== fileChangeRevision)
-        )
-          throw new Error('Codex native file approval changed');
-        if (active.nativeExecution)
-          this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+      const assertCurrentSync = (
+        stage: Parameters<typeof observeNativeApprovalCheck>[0] = 'handler',
+      ) => {
+        observeNativeApprovalCheck(stage, 'signal', () => approvalSignal.throwIfAborted());
+        observeNativeApprovalCheck(stage, 'identity', () => {
+          if (
+            this.closed ||
+            !active ||
+            active.toolGuardRetired ||
+            this.active !== active ||
+            generation !== this.transportGeneration ||
+            !threadId ||
+            !turnId ||
+            this.threadId !== threadId ||
+            active.turnId !== turnId ||
+            active.completions.has(turnId) ||
+            params.threadId !== threadId ||
+            params.turnId !== turnId ||
+            !requestContext ||
+            !['string', 'number'].includes(typeof requestContext.requestId)
+          )
+            throw new Error('Codex native approval identity mismatch');
+        });
+        observeNativeApprovalCheck(stage, 'file_items', () => {
+          if (
+            fileItemId &&
+            (!isDeepStrictEqual(active?.nativeFileChanges?.get(fileItemId), fileChangePaths) ||
+              active?.nativeFileChangeRevisions?.get(fileItemId) !== fileChangeRevision)
+          )
+            throw new Error('Codex native file approval changed');
+        });
+        if (active?.nativeExecution)
+          observeNativeApprovalCheck(stage, 'execution_policy', () =>
+            this.opts.assertNativeExecutionCurrent?.(active.nativeExecution!, active.command.id),
+          );
       };
-      assertCurrentSync();
+      assertCurrentSync('before_handler');
       if (!this.opts.requestNativeApproval) throw new Error('Codex native approvals unavailable');
-      requestContext!.registerResponseFence?.(assertCurrentSync);
+      requestContext!.registerResponseFence?.(() => assertCurrentSync('reply'));
+      // A recovery explanation cannot manufacture a fresh approval cycle.
+      if (active!.command.toolFailureContinuation)
+        return method === 'item/permissions/requestApproval'
+          ? { permissions: {}, scope: 'turn' }
+          : {
+              decision:
+                Array.isArray(params.availableDecisions) &&
+                !params.availableDecisions.includes('decline') &&
+                params.availableDecisions.includes('cancel')
+                  ? 'cancel'
+                  : 'decline',
+            };
       const response = await this.opts.requestNativeApproval(method, params, approvalSignal, {
         ...requestContext!,
         commandId: active!.command.id,
         threadId: threadId!,
         turnId: turnId!,
-        assertCurrentSync,
+        assertCurrentSync: () => assertCurrentSync('handler'),
+        observeFailure: (failure: ToolFailure) => {
+          assertCurrentSync('handler');
+          if (typeof params.itemId === 'string') {
+            this.mapper?.recordNativeFailure(params.itemId, failure);
+            this.opts.store.recordToolFailure(
+              this.opts.conversationId,
+              this.binding!,
+              active!.command.id,
+              turnId!,
+              params.itemId,
+              failure,
+              'native_approval',
+            );
+          }
+        },
         ...(fileItemId ? { fileChangePaths: fileChangePaths ?? undefined } : {}),
       });
-      assertCurrentSync();
+      assertCurrentSync('after_handler');
       return response;
     }
     if (method === 'item/tool/requestUserInput') {
@@ -3711,10 +4287,13 @@ export class CodexConversation {
     const publicId = this.mapper!.toolStart(call.callId, display.name, display.input);
     let result: CodexToolResult;
     let callbackOpen = true;
+    let executionSignal = toolSignal;
     const callbackBinding = this.binding!;
     // Keep existing label-only JSON/strict store contracts unchanged. Spreading
     // or cloning labels deliberately cannot carry this private callback fence.
     const observeOriginalCallCurrent = () => {
+      assertToolGuardCurrent();
+      executionSignal.throwIfAborted();
       toolSignal.throwIfAborted();
       if (
         !callbackOpen ||
@@ -3722,6 +4301,7 @@ export class CodexConversation {
         this.paused ||
         !this.ready ||
         this.active !== active ||
+        active.toolGuardRetired ||
         active.interruptRequested ||
         active.completions.has(call.turnId) ||
         this.binding !== callbackBinding ||
@@ -3755,27 +4335,13 @@ export class CodexConversation {
       callId: call.callId,
     };
     Object.defineProperty(invocation, 'assertCurrentSync', { value: assertOriginalCallCurrent });
-    const inferenceModel = active.command.model ?? callbackBinding.model;
-    const inferenceEffort = active.command.reasoningEffort ?? null;
-    const inferenceSelection = Object.freeze({
-      commandId: active.command.id,
-      model: inferenceModel,
-      reasoningEffort: inferenceEffort,
-      assertCurrentSync: () => {
-        assertOriginalCallCurrent();
-        if (
-          (active.command.model ?? callbackBinding.model) !== inferenceModel ||
-          (active.command.reasoningEffort ?? null) !== inferenceEffort
-        )
-          throw Error('Original native command inference selection changed');
-      },
-    });
-    Object.defineProperty(invocation, 'captureInferenceSelection', {
-      value: () => {
-        inferenceSelection.assertCurrentSync();
-        return inferenceSelection;
-      },
-    });
+    if (requestContext?.registerResponseFence)
+      Object.defineProperty(invocation, 'registerResponseFence', {
+        value: (assertCurrent: () => void) => {
+          assertOriginalCallCurrent();
+          requestContext.registerResponseFence!(assertCurrent);
+        },
+      });
     const nativePolicy = active.nativeExecution;
     if (nativePolicy) {
       const pending = observeOriginalCallCurrent();
@@ -3858,11 +4424,85 @@ export class CodexConversation {
       }
     })();
     const toolStarted = performance.now();
+    let originalExecution: Promise<CodexToolResult> | undefined;
     try {
       result = normalizeCodexToolResult(
-        await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
+        await runGuardedTool(
+          {
+            signal: toolSignal,
+            policy: this.opts.toolGuardPolicy,
+            onSettled: (observation) => {
+              if (observation.outcome === 'timeout') {
+                active.callbackEffectsUnknown = true;
+                active.toolGuardRetired = true;
+              }
+              log.info('Tool guard settled', {
+                conversationId: this.opts.conversationId,
+                callId: call.callId,
+                tool: call.tool,
+                ...observation,
+              });
+            },
+            onLateSettlement: (outcome) => {
+              log.warn('Retired tool callback settled', {
+                conversationId: this.opts.conversationId,
+                callId: call.callId,
+                tool: call.tool,
+                outcome,
+              });
+            },
+          },
+          (signal) => {
+            executionSignal = signal;
+            originalExecution = this.opts.executeTool(
+              call.tool,
+              call.arguments,
+              signal,
+              invocation,
+            );
+            return originalExecution;
+          },
+        ).catch(async (error: unknown) => {
+          // Join the original cancellation cleanup within a bounded lifetime.
+          // Its guard remains retired; only an exact consumed RPC's private
+          // settled refusal can qualify custody, never ordinary Stop/abort.
+          if (originalExecution && toolSignal.aborted && error === toolSignal.reason) {
+            try {
+              const original = await runBoundedToolCleanup(
+                () => originalExecution!,
+                this.opts.toolGuardPolicy?.cleanupMs,
+              );
+              if (
+                original.isError &&
+                retainedCallbackOutcome(original) === 'settled' &&
+                signal.aborted &&
+                error === signal.reason &&
+                !active.interruptRequested &&
+                !active.abort.signal.aborted &&
+                requestContext?.requestId !== undefined &&
+                ((error instanceof CodexServerRequestResolvedError &&
+                  error.requestId === requestContext.requestId) ||
+                  (error instanceof CodexTurnCompletedError &&
+                    error.requestId === requestContext.requestId &&
+                    error.threadId === call.threadId &&
+                    error.turnId === call.turnId))
+              )
+                return original;
+            } catch {
+              /* Preserve original cancellation and uncertainty. */
+            }
+          }
+          throw error;
+        }),
       );
+      // Only a returned, reviewed read result can qualify a failed callback here.
+      // Explicit owner uncertainty, thrown exceptions and cancellation stay fenced.
+      qualifyToolResult(call.tool, call.arguments, toolSignal, result);
     } catch (error) {
+      if (error instanceof ToolGuardTimeoutError) {
+        active.callbackEffectsUnknown = true;
+        active.toolGuardRetired = true;
+      }
       result = codexToolFailureResult(
         error,
         toolSignal.aborted,
@@ -3957,7 +4597,7 @@ export class CodexConversation {
             call.callId,
           )
         )
-          this.opts.onQueueChange?.();
+          this.notifyQueueChange();
       } catch {
         result = {
           content:
@@ -3989,7 +4629,30 @@ export class CodexConversation {
     }
     if (callbackOutcome(result) === 'settled')
       (active.settledToolCallbacks ??= new Set()).add(call.callId);
-    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
+    let failure: ToolFailure | undefined;
+    if (result.isError) {
+      try {
+        const parsed = ToolFailureSchema.safeParse(JSON.parse(result.content).failure);
+        if (parsed.success)
+          failure =
+            callbackOutcome(result) === 'settled'
+              ? parsed.data
+              : toolFailure(parsed.data.code, parsed.data.phase, 'unknown');
+        if (failure && callbackOutcome(result) === 'settled')
+          this.opts.store.recordToolFailure(
+            this.opts.conversationId,
+            this.binding!,
+            active.command.id,
+            call.turnId,
+            call.callId,
+            failure,
+            'host_tool',
+          );
+      } catch {
+        /* Tool text is not authoritative recovery metadata. */
+      }
+    }
+    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems, failure);
     try {
       this.opts.onToolObservation?.({
         toolName: call.tool,
@@ -4001,6 +4664,9 @@ export class CodexConversation {
     } catch {
       /* Observability cannot change an executed result. */
     }
+    // The failure is retained and projected first. Retire this provider owner
+    // before it can issue further effects while the original call is uncertain.
+    if (active.toolGuardRetired) this.close();
     return retainCallbackOutcome(
       {
         success: !result.isError,
@@ -4009,6 +4675,14 @@ export class CodexConversation {
       callbackOutcome(result),
     );
   }
+  /** Missing turn capture is not evidence that ordinary admission is safe. */
+  peerMessageState(): 'busy' | 'idle' | 'stopped' | 'preparing' {
+    if (this.closed || this.paused) return 'stopped';
+    if (!this.ready || !this.binding) return 'preparing';
+    if (this.active) return this.captureInterruptTarget() ? 'busy' : 'preparing';
+    return this.pumping ? 'preparing' : 'idle';
+  }
+
   /** Accepted, durably correlated live turn only; no pending/startup target. */
   captureInterruptTarget(): CodexInterruptTarget | undefined {
     const active = this.active;
@@ -4096,6 +4770,84 @@ export class CodexConversation {
     });
     return { status: 'claimed', receipt: claim.receipt, replayed: false };
   }
+  /** Deployment pauses the original parent and its owned child tree. Claims remain
+   * uncertain until separately observed terminal/effect evidence settles. */
+  async pauseForDeployment(requestId: string, target: CodexInterruptTarget, authorize: () => void) {
+    authorize();
+    const result = await this.interruptIfCurrent(requestId, target);
+    authorize();
+    if (result.status === 'claimed' && !result.replayed)
+      await this.subagentOwner?.interruptAll(authorize);
+    return result;
+  }
+  deploymentChildActivity() {
+    return this.subagentOwner?.hasPendingActivity() ?? false;
+  }
+  async observeDeploymentSettlement(rawTarget: CodexNativeTurnTarget, authorize: () => void) {
+    const target = CodexNativeTurnTargetSchema.parse(rawTarget);
+    if (!this.deploymentTurnSettled(target)) return false;
+    const client = this.client,
+      generation = this.transportGeneration,
+      binding = this.binding!;
+    const current = () => {
+      authorize();
+      if (
+        !this.deploymentTurnSettled(target) ||
+        this.client !== client ||
+        this.transportGeneration !== generation ||
+        this.binding !== binding
+      )
+        throw Error('Original deployment pause owner changed');
+      if (this.opts.nativeExecution)
+        this.opts.assertNativeExecutionCurrent?.(this.opts.nativeExecution, target.commandId);
+    };
+    current();
+    await this.verifyCurrentBinding(binding);
+    current();
+    const observed = await observeNativeRecoveryTurn(
+      (method, params) => {
+        current();
+        return client.request(method, params);
+      },
+      this.opts.conversationId,
+      target,
+      true,
+      async () => {
+        current();
+        await this.verifyCurrentBinding(binding);
+        current();
+      },
+      this.opts.cwd,
+    );
+    current();
+    if (observed.status === 'failed')
+      throw Error('Failed native deployment effects need inspection');
+    if (observed.status === 'interrupted') {
+      if (!observed.settledEffects) throw Error('Fresh interrupted native effect proof required');
+      this.opts.store.assertDeploymentHostEffects(
+        this.opts.conversationId,
+        binding,
+        target,
+        this.opts.nativeExecution?.policyRevision,
+        observed.settledEffects,
+        current,
+      );
+    }
+    current();
+    return true;
+  }
+  deploymentTurnSettled(target: CodexNativeTurnTarget) {
+    const terminal = this.terminalTurns.get(JSON.stringify([target.threadId, target.turnId]));
+    return (
+      !this.closed &&
+      !this.active &&
+      !this.deploymentChildActivity() &&
+      terminal?.commandId === target.commandId &&
+      ['completed', 'interrupted', 'failed'].includes(terminal.status) &&
+      !!this.binding &&
+      this.opts.store.deploymentTurnSettled(this.opts.conversationId, this.binding, target)
+    );
+  }
   /** A correction uses the accepted turn's unchanged settings. It never starts,
    * interrupts, retries or reorders a command. A durable claim fences lost ACKs. */
   async steer(raw: CodexSteerInput, authorize: () => void): Promise<CodexSteerResult> {
@@ -4133,7 +4885,14 @@ export class CodexConversation {
       this.opts.assertSteeringCurrent();
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
-    } catch {
+    } catch (error) {
+      log.warn('Correction refused before native submission', {
+        conversationId: this.opts.conversationId,
+        commandId: active.command.id,
+        requestId: input.requestId,
+        phase: 'admission',
+        ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
+      });
       return { status: 'rejected' };
     }
     if (!this.opts.store.claimSteering(this.opts.conversationId, this.binding, input, target)) {
@@ -4182,7 +4941,13 @@ export class CodexConversation {
       const ack = await client.request('turn/steer', {
         threadId: target.threadId,
         expectedTurnId: target.turnId,
-        input: [{ type: 'text', text }],
+        input: [
+          { type: 'text', text },
+          ...(input.images ?? []).map((image) => ({
+            type: 'image',
+            url: `data:${image.mediaType};base64,${image.data}`,
+          })),
+        ],
       });
       if (z.object({ turnId: z.literal(target.turnId) }).safeParse(ack).success)
         status = 'accepted';
@@ -4198,27 +4963,36 @@ export class CodexConversation {
   }
   async interrupt() {
     if (this.closed) return;
+    const client = this.client;
+    const threadId = this.threadId;
+    const active = this.active;
+    const turnId = active?.turnId;
     this.cancelAutomaticRecovery();
     this.paused = true;
-    const active = this.active;
     // The interrupt request is not a terminal result. Keep active work running
     // durably until its matching turn/completed notification confirms it.
     if (this.binding) this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
-    if (!active) return;
-    active.interruptRequested = true;
-    active.abort.abort();
-    if (active.turnId) {
-      try {
-        await this.client.request('turn/interrupt', {
-          threadId: this.threadId,
-          turnId: active.turnId,
-        });
-      } catch (error) {
-        if (!this.closed) throw error;
-      }
+    if (active) {
+      active.interruptRequested = true;
+      active.abort.abort();
     }
+    const interruptParent = async () => {
+      if (turnId) {
+        try {
+          await client.request('turn/interrupt', {
+            threadId,
+            turnId,
+          });
+        } catch (error) {
+          if (!this.closed) throw error;
+        }
+      }
+    };
+    const parent = interruptParent();
+    await Promise.all([parent, this.subagentOwner?.interruptAll()]);
   }
   close() {
+    this.subagentOwner?.close();
     this.commandContexts.clear();
     for (const span of this.queueTimingSpans.values()) finishCommandTimingSpan(span, 'closed');
     this.queueTimingSpans.clear();
@@ -4293,7 +5067,7 @@ export class CodexConversation {
         try {
           attempt(() => this.client.close());
         } finally {
-          attempt(() => this.opts.onQueueChange?.());
+          attempt(() => this.notifyQueueChange());
           attempt(() => this.opts.onClosed?.());
         }
       }

@@ -1,4 +1,6 @@
 import { afterAll, expect, it, vi } from 'vitest';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 const setup = await vi.hoisted(async () => {
   const fs = await import('node:fs');
   const os = await import('node:os');
@@ -41,6 +43,7 @@ import * as library from '../agent-library-runtime.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
 import { googleWorkspaceChatFixture } from './fixtures/google-workspace-chat.js';
 import { resolvePending } from '../permissions.js';
+import { SessionCapabilityGrants } from '../session-capability-grants.js';
 const cleanups: Array<() => void | Promise<void>> = [];
 afterAll(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
@@ -176,6 +179,81 @@ it('reads Google documents through an admitted Local Mac chat while credentials 
       },
       new AbortController().signal,
     );
+  const approvals = () =>
+    transport.send.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.type === 'permission_request');
+  const nextApproval = async (before: number) => {
+    await vi.waitFor(() => expect(approvals().length).toBeGreaterThan(before), { timeout: 10000 });
+    return approvals().at(-1)!;
+  };
+  // Reuse the admitted chat to prove gh takes the native approval path, without
+  // executing GitHub commands, contacting GitHub or creating another app journey.
+  expect(names).not.toContain('GitHubCli');
+  expect(thread.developerInstructions).toContain('Use native gh');
+  expect(thread.developerInstructions).toContain('git remote set-url');
+  expect(thread.developerInstructions).not.toContain(
+    'Another repository needs its own verified preparation',
+  );
+  expect(JSON.stringify(thread.config)).not.toContain('.config/gh');
+  const project = join(f.root, 'new projects', 'example');
+  for (const operation of [
+    {
+      id: 'gh',
+      command: 'gh pr checks 358 --repo owner/repo',
+      additionalPermissions: {
+        network: { enabled: true },
+        fileSystem: { read: [join(homedir(), '.config', 'gh')], write: null },
+      },
+    },
+    {
+      id: 'project',
+      command: `mkdir -p '${project}/src' && git -C '${project}' init -b main && git -C '${project}' remote add origin https://example.invalid/team/project.git && git -C '${project}' remote set-url origin https://example.invalid/team/renamed.git`,
+      additionalPermissions: {
+        network: null,
+        fileSystem: { read: null, write: [join(f.root, 'new projects')] },
+      },
+    },
+  ]) {
+    for (const decision of ['once', 'deny'] as const) {
+      const before = approvals().length;
+      const command = operation.command;
+      const fences: Array<() => void> = [];
+      const pending = callbacks!.onRequest(
+        'item/commandExecution/requestApproval',
+        {
+          threadId: 'real-host-thread',
+          turnId: 'real-host-turn',
+          itemId: `native-${operation.id}-${decision}`,
+          startedAtMs: Date.now(),
+          kind: 'command',
+          environmentId: 'local',
+          command,
+          additionalPermissions: operation.additionalPermissions,
+          availableDecisions: ['accept', 'decline'],
+        },
+        new AbortController().signal,
+        {
+          requestId: `native-${operation.id}-${decision}`,
+          registerResponseFence: (fence) => fences.push(fence),
+        },
+      );
+      const approval = await Promise.race([
+        nextApproval(before),
+        pending.then((result) => {
+          throw Error(`Native request settled before approval: ${JSON.stringify(result)}`);
+        }),
+      ]);
+      expect(approval.toolName).toBe('NativeCommandApproval');
+      expect(JSON.parse(approval.toolInput).params.command).toBe(command);
+      expect(JSON.parse(approval.toolInput).params.additionalPermissions).toEqual(
+        operation.additionalPermissions,
+      );
+      resolvePending(approval.permId, decision, undefined, f.reservation.conversationId);
+      expect(await pending).toEqual({ decision: decision === 'once' ? 'accept' : 'decline' });
+      for (const fence of fences) expect(fence).not.toThrow();
+    }
+  }
   expect(names).toContain('GoogleWorkspaceRead');
   const listing = await call(
     'ListIntegrationTools',
@@ -183,21 +261,13 @@ it('reads Google documents through an admitted Local Mac chat while credentials 
     'google-discovery',
   );
   expect(JSON.stringify(listing)).toContain('GoogleWorkspaceRead');
+  const beforeGoogleRead = approvals().length;
   const read = call(
     'GoogleWorkspaceRead',
     { operation: 'drive.export', fileId: 'fixture-document', mimeType: 'text/plain' },
     'google-read',
   );
-  await vi.waitFor(
-    () =>
-      expect(transport.send.mock.calls.some(([event]) => event.type === 'permission_request')).toBe(
-        true,
-      ),
-    { timeout: 10000 },
-  );
-  const approval = transport.send.mock.calls
-    .map(([event]) => event)
-    .find((event) => event.type === 'permission_request')!;
+  const approval = await nextApproval(beforeGoogleRead);
   expect(approval.description).toContain('fixture@example.test');
   expect(google.contentReads()).toHaveLength(0);
   expect(resolvePending(approval.permId, 'once', undefined, f.reservation.conversationId)).toBe(
@@ -208,14 +278,6 @@ it('reads Google documents through an admitted Local Mac chat while credentials 
   expect(JSON.stringify(googleResult)).toContain('Google document content from the approved read');
   expect(google.contentReads()).toHaveLength(1);
   expect(JSON.stringify(googleResult)).not.toContain('SECRET');
-  const approvals = () =>
-    transport.send.mock.calls
-      .map(([event]) => event)
-      .filter((event) => event.type === 'permission_request');
-  const nextApproval = async (before: number) => {
-    await vi.waitFor(() => expect(approvals().length).toBeGreaterThan(before), { timeout: 10000 });
-    return approvals().at(-1)!;
-  };
   const readInput = {
     operation: 'drive.export',
     fileId: 'fixture-document',
@@ -258,12 +320,42 @@ it('reads Google documents through an admitted Local Mac chat while credentials 
   );
   expect(retained).toMatchObject({ success: true });
   expect(JSON.stringify(retained)).toContain('Approved long Google document.');
+  const grants = new SessionCapabilityGrants(chat.registry);
+  const grant = grants.create(auth.id, {
+    sessionIds: [f.reservation.conversationId],
+    capability: {
+      kind: 'google-read',
+      email: 'fixture@example.test',
+      resource: { kind: 'file', id: 'fixture-document' },
+    },
+    durationMinutes: 60,
+  });
+  const beforeReusable = approvals().length;
+  const reusable = await call('GoogleWorkspaceRead', readInput, 'reusable-google-read');
+  expect(reusable).toMatchObject({ success: true });
+  expect(approvals()).toHaveLength(beforeReusable);
+  const reusablePreview = JSON.parse((reusable.contentItems as Array<{ text: string }>)[0]!.text);
+  expect(
+    await call(
+      'ReadToolOutput',
+      { outputId: reusablePreview.outputId, limit: 1000 },
+      'reusable-retained',
+    ),
+  ).toMatchObject({ success: true });
+  await grants.revoke(auth.id, f.reservation.conversationId, grant.id);
+  const revokedOutput = await call(
+    'ReadToolOutput',
+    { outputId: reusablePreview.outputId, limit: 1000 },
+    'revoked-retained',
+  );
+  expect(revokedOutput).toMatchObject({ success: false });
+  expect(JSON.stringify(revokedOutput)).not.toContain('Approved long Google document.');
   const retiredRead = call('GoogleWorkspaceRead', readInput, 'retired-google-read');
   const retiredApproval = await nextApproval(approvals().length);
   setConnectionsRuntime(null);
   resolvePending(retiredApproval.permId, 'once', undefined, f.reservation.conversationId);
   expect(await retiredRead).toMatchObject({ success: false });
-  expect(google.contentReads()).toHaveLength(2);
+  expect(google.contentReads()).toHaveLength(3);
   expect(JSON.stringify(transport.send.mock.calls)).not.toContain('SECRET');
   const profiles = JSON.stringify(thread.config);
   expect(profiles).toContain('.config/gws');

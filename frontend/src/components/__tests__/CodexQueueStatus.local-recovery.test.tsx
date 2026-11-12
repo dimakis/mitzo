@@ -5,7 +5,10 @@ import { ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS } from '@mitzo/protocol';
 import { apiFetch } from '../../lib/api-fetch';
 import { CodexQueueStatus } from '../CodexQueueStatus';
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
+  apiFetch: vi.fn(),
+}));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) =>
     select({ getTransportConnectionId: () => 'current-signed-sse', queueRevision: 0 }),
@@ -43,8 +46,8 @@ it.each([false, true])(
     );
     render(<CodexQueueStatus sessionId="retained-local" />);
     await act(async () => {});
-    expect(screen.getByRole('status').textContent).toContain('Your message is saved.');
-    fireEvent.click(screen.getByRole('button', { name: 'Reconnect and continue' }));
+    expect(screen.getByRole('status').textContent).toContain('Your work is saved.');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue chat' }));
     await act(async () => {});
     expect(apiFetch).toHaveBeenCalledWith('/api/sessions/retained-local/codex-queue/continue', {
       method: 'POST',
@@ -75,7 +78,7 @@ it('does not offer recovery for failed work without an authoritative safe contin
   } as Response);
   render(<CodexQueueStatus sessionId="uncertain-local" />);
   await act(async () => {});
-  expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Continue chat' })).toBeNull();
   expect(screen.getByRole('status').textContent).toContain('cannot be retried');
 });
 
@@ -99,7 +102,7 @@ it('keeps eligible saved local recovery explicit instead of starting legacy back
   });
   render(<CodexQueueStatus sessionId="explicit-saved-recovery" />);
   await act(async () => {});
-  expect(screen.getByRole('button', { name: 'Reconnect and continue' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Continue chat' })).toBeTruthy();
   expect(vi.mocked(apiFetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(
     false,
   );

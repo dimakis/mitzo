@@ -580,7 +580,7 @@ test('drafts: Chats hides the shortcut with no saved drafts', async ({ page }, t
   expect(fixture.errors).toEqual([]);
 });
 
-test('drafts: save status describes confirmed device storage and disappears when empty', async ({
+test('drafts: autosave status stays quiet and hides when empty', async ({
   page,
   isMobile,
 }, testInfo) => {
@@ -600,7 +600,9 @@ test('drafts: save status describes confirmed device storage and disappears when
     await expect(input).toHaveValue('');
     await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
     await input.fill('Just a test.');
-    await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
+    await expect(
+      page.getByText(/Draft saved on this device|Saving draft on this device/),
+    ).toHaveCount(0);
     await expect
       .poll(() =>
         readChatStorage(page, (storage) =>
@@ -630,6 +632,8 @@ test('drafts: Chats has a dedicated Drafts destination and New chat opens blank'
     'mitzo-font': 'georgia',
   });
   await page.goto('/sessions');
+  await expect(page.locator('.conversation-drafts-section > summary')).toBeVisible();
+  await page.locator('.conversation-drafts-section > summary').click();
   await expect(page.getByRole('link', { name: /Drafts/ })).toBeVisible();
   await expect(page.getByText(/Update available.*Deploy Mitzo/)).toBeHidden();
   await page.screenshot({
@@ -724,7 +728,9 @@ test('drafts: unsent new input saves separately and legacy input migrates withou
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('');
   await input.fill('A separate new message');
-  await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
+  await expect(
+    page.getByText(/Draft saved on this device|Saving draft on this device/),
+  ).toHaveCount(0);
   await page.goto('/sessions/drafts');
   await expect(page.getByRole('link', { name: /Existing legacy briefing draft/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /A separate new message/ })).toBeVisible();
@@ -1310,6 +1316,7 @@ test('drafts: deferred voice replies stay with their owner while same-draft dict
   await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
   await pendingVoice(page, 3);
   await page.getByRole('link', { name: isMobile ? 'Back to chats' : 'Chats', exact: true }).click();
+  await page.locator('.conversation-drafts-section > summary').click();
   await page.getByRole('link', { name: /Drafts/ }).click();
   await page.getByRole('link', { name: /Original saved draft A/ }).click();
   await expect(input).toHaveValue(first.text);
@@ -1419,6 +1426,7 @@ for (const theme of ['dark', 'light']) {
     await page
       .getByRole('link', { name: isMobile ? 'Back to chats' : 'Chats', exact: true })
       .click();
+    await page.locator('.conversation-drafts-section > summary').click();
     await page.getByRole('link', { name: /Drafts/ }).click();
     await page.getByRole('link', { name: /Explore this saved morning briefing/ }).click();
     await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();

@@ -11,8 +11,22 @@ import {
   SourceSnapshotsSchema,
   LocalCodexFirstCommandReceiptSchema,
   OrdinaryCodexRetainedCommandObservationSchema,
+  OrdinaryRuntimeEntryFailureSchema,
+  RuntimeFailureSchema,
+  type RuntimeFailure,
 } from '@mitzo/protocol';
+import {
+  CommandDeliveryDiagnosticSchema,
+  type CommandDeliveryDiagnostic,
+  type CommandDeliveryObserver,
+} from './command-delivery-diagnostic.js';
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
+export type SendOutboxStorage = Pick<Storage, 'getItem' | 'setItem'> & {
+  flush?: () => Promise<void>;
+  /** Reopen/hydrate device storage only; never dispatch or replace saved intent. */
+  recover?: () => Promise<void>;
+  subscribe?: (listener: () => void) => () => void;
+};
 interface Entry {
   body: Record<string, unknown>;
   scope: number;
@@ -21,20 +35,28 @@ interface Entry {
   localDraftId?: string;
   ordinaryDelivery?: OrdinaryCommandDelivery;
   composerDraft?: ComposerDraftReceipt;
+  runtimeFailure?: RuntimeFailure;
+  deliveryDiagnostic?: CommandDeliveryDiagnostic;
 }
 interface Config {
   url: string;
   fetch: (url: string, init?: RequestInit) => Promise<Response>;
   notify: (event: Record<string, unknown>) => void;
   headers?: () => Record<string, string>;
-  storage?: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+  storage?: SendOutboxStorage;
   timeoutMs?: number;
   requireDurableBriefings?: boolean;
   /** Independent launch commands survive tab replacement; never inherit another launch’s session. */
   durableLaunches?: boolean;
   /** Strict first-command route: durable intent, manual exact recovery, no legacy fallback. */
   localFirstCommand?: boolean;
+  onDeliveryDiagnostic?: CommandDeliveryObserver;
 }
+
+type DeliveryAttempt = Pick<
+  CommandDeliveryDiagnostic,
+  'operation' | 'stage' | 'httpStatus' | 'startedAt'
+> & { timedOut?: boolean };
 
 export function hasReviewedSource(body: Record<string, unknown>): boolean {
   return (
@@ -69,9 +91,19 @@ export class SendOutbox {
   private receiptReads = new Map<Entry, AbortController>();
   private receiptRechecks = new Set<Entry>();
   private completingLocal = new Map<Entry, number>();
+  private localStates = new WeakMap<Entry, string>();
+  private persistenceCause: unknown;
+  private unsubscribeStorage?: () => void;
+  private storageRecovery?: object;
 
   constructor(private config: Config) {
     this.key = `mitzo-send-outbox:${config.url}`;
+    this.restore();
+  }
+
+  /** Re-read original durable intent after a failed read; never substitute an empty queue. */
+  private restore(): boolean {
+    const config = this.config;
     try {
       const saved: unknown = JSON.parse(config.storage?.getItem(this.key) ?? '[]');
       if (config.localFirstCommand) {
@@ -86,6 +118,8 @@ export class SendOutbox {
               (key) =>
                 ![
                   'body',
+                  'runtimeFailure',
+                  'deliveryDiagnostic',
                   'scope',
                   'uncertain',
                   'localReceipt',
@@ -106,6 +140,9 @@ export class SendOutbox {
               ? undefined
               : OrdinaryCommandDeliverySchema.parse(entry.ordinaryDelivery);
           const body = parseLocalCommandDelivery(entry.body, ordinaryDelivery);
+          entry.deliveryDiagnostic = CommandDeliveryDiagnosticSchema.safeParse(
+            entry.deliveryDiagnostic,
+          ).data;
           if (
             entry.localReceipt &&
             (!['reserved', 'uncertain', 'consumed'].includes(entry.localReceipt.state) ||
@@ -120,6 +157,9 @@ export class SendOutbox {
             throw Error('Invalid Local receipt');
           return {
             ...entry,
+            // Saved diagnostics are display hints only. Invalid future/device
+            // values cannot invalidate or replace the original command.
+            runtimeFailure: RuntimeFailureSchema.safeParse(entry.runtimeFailure).data,
             body,
             ...(ordinaryDelivery ? { ordinaryDelivery } : {}),
             ...(entry.composerDraft !== undefined
@@ -138,19 +178,31 @@ export class SendOutbox {
             typeof entry.body.clientMsgId === 'string' &&
             typeof entry.body.prompt === 'string',
         );
-    } catch {
+      this.invalidLocalRecovery = false;
+      return true;
+    } catch (cause) {
+      if (config.localFirstCommand && !this.invalidLocalRecovery)
+        console.warn('[mitzo] Saved command recovery unavailable', {
+          stage: 'storage',
+          code: 'local_recovery_unavailable',
+          exceptionType: cause instanceof Error ? cause.name : 'Error',
+        });
       this.invalidLocalRecovery = !!config.localFirstCommand;
+      return false;
     }
   }
 
   start(): void {
     this.active = true;
     if (this.config.localFirstCommand) {
+      this.unsubscribeStorage ??= this.config.storage?.subscribe?.(() => {
+        if (this.active && this.invalidLocalRecovery) this.wake();
+      });
+      if (this.invalidLocalRecovery) this.restore();
       if (this.invalidLocalRecovery)
         this.config.notify({ type: '_local_command_state', state: 'blocked' });
       else {
-        const entry = this.selectedLocalEntry();
-        if (entry) this.notifyLocal(entry, 'uncertain');
+        this.notifySelectedLocal();
         this.wake();
       }
       return;
@@ -162,6 +214,10 @@ export class SendOutbox {
    * request or a guarded command's deliberate recovery decision. */
   wake(): void {
     if (this.config.localFirstCommand) {
+      if (this.invalidLocalRecovery) {
+        if (!this.active || !this.restore()) return;
+        this.notifySelectedLocal();
+      }
       // Connectivity and view selection permit observation only. They never
       // replay retained intent, including an already completed device action.
       const entry = this.selectedLocalScope ? this.selectedLocalEntry() : undefined;
@@ -219,8 +275,17 @@ export class SendOutbox {
   }
 
   private selectLocalScope(scope: typeof this.selectedLocalScope): void {
-    if (!this.config.localFirstCommand || this.invalidLocalRecovery) return;
+    if (!this.config.localFirstCommand) return;
     this.selectedLocalScope = scope;
+    if (this.invalidLocalRecovery && !this.restore()) {
+      this.config.notify({ type: '_local_command_state', state: 'blocked' });
+      return;
+    }
+    this.notifySelectedLocal();
+    this.wake();
+  }
+
+  private notifySelectedLocal(): void {
     const entry = this.selectedLocalEntry();
     if (entry)
       this.notifyLocal(
@@ -230,18 +295,58 @@ export class SendOutbox {
           : 'uncertain',
       );
     else this.config.notify({ type: '_local_command_state', state: 'idle' });
-    this.wake();
   }
 
   /** Deliberate recovery resubmits only the frozen request, never a rebuilt draft. */
   retryLocalCommand(commandId?: string): boolean {
-    if (
-      !this.config.localFirstCommand ||
-      !this.active ||
-      this.invalidLocalRecovery ||
-      !this.entries.length
-    )
-      return false;
+    if (!this.config.localFirstCommand || !this.active) return false;
+    if (this.invalidLocalRecovery) {
+      if (this.storageRecovery) return false;
+      const finish = () => {
+        if (this.restore()) {
+          this.notifySelectedLocal();
+          this.wake();
+          return true;
+        }
+        this.config.notify({ type: '_local_command_state', state: 'blocked' });
+        return false;
+      };
+      if (!this.config.storage?.recover) return finish();
+      else {
+        const owner = (this.storageRecovery = {});
+        void (async () => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([
+              this.config.storage!.recover!(),
+              new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(() => reject(Error('Storage recovery timed out')), 15_000);
+              }),
+            ]);
+            // Storage notifications may already have recovered the queue. Never
+            // overwrite newer in-memory delivery or revive a retired auth scope.
+            if (this.active && this.storageRecovery === owner && this.invalidLocalRecovery)
+              finish();
+          } catch (cause) {
+            if (this.active && this.storageRecovery === owner && this.invalidLocalRecovery) {
+              console.warn('[mitzo] Saved command recovery unavailable', {
+                stage: 'hydrate',
+                code: 'local_recovery_unavailable',
+                exceptionType: cause instanceof DOMException ? cause.name : 'Error',
+              });
+              this.config.notify({ type: '_local_command_state', state: 'blocked' });
+            }
+          } finally {
+            if (timer) clearTimeout(timer);
+            if (this.storageRecovery === owner) this.storageRecovery = undefined;
+          }
+        })();
+      }
+      // Recovering a previously unreadable queue is observation only. A separate
+      // explicit retry may send the now-visible original command.
+      return true;
+    }
+    if (!this.entries.length) return false;
     const entry = commandId
       ? this.entries.find((entry) => entry.body.clientMsgId === commandId)
       : this.selectedLocalEntry();
@@ -257,6 +362,9 @@ export class SendOutbox {
   }
 
   stop(): void {
+    this.storageRecovery = undefined;
+    this.unsubscribeStorage?.();
+    this.unsubscribeStorage = undefined;
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
     this.receiptRechecks.clear();
@@ -285,6 +393,7 @@ export class SendOutbox {
         body,
         ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : undefined,
       );
+      if (this.invalidLocalRecovery) this.restore();
       if (this.invalidLocalRecovery || !this.active) {
         this.enqueueFailure = this.invalidLocalRecovery ? 'blocked' : 'inactive';
         return false;
@@ -358,6 +467,7 @@ export class SendOutbox {
 
   /** Reject queued prompts and surface an in-flight prompt as delivery-ambiguous. */
   rejectAll(error: string): void {
+    this.storageRecovery = undefined;
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
     this.receiptRechecks.clear();
@@ -405,10 +515,19 @@ export class SendOutbox {
     }
   }
 
-  private notifyLocal(entry: Entry, state: string, acknowledged = false) {
+  private notifyLocal(
+    entry: Entry,
+    state: string,
+    acknowledged = false,
+    runtimeFailure: RuntimeFailure | undefined = entry.runtimeFailure,
+  ) {
+    this.localStates.set(entry, state);
     this.config.notify({
       type: '_local_command_state',
       state,
+      ...(runtimeFailure ? { runtimeFailure } : {}),
+      ...(entry.deliveryDiagnostic ? { deliveryDiagnostic: entry.deliveryDiagnostic } : {}),
+      ...(entry.localReceipt?.state === 'consumed' ? { receiptConfirmed: true } : {}),
       ...(acknowledged ? { acknowledged: true } : {}),
       request: structuredClone(entry.body),
       ...(entry.composerDraft ? { composerDraft: structuredClone(entry.composerDraft) } : {}),
@@ -419,6 +538,73 @@ export class SendOutbox {
       ...(entry.localDraftId ? { originDraftId: entry.localDraftId } : {}),
       ...(entry.localReceipt ? { sessionId: entry.localReceipt.sessionId } : {}),
     });
+  }
+
+  private deliveryFailure(
+    entry: Entry,
+    attempt: DeliveryAttempt,
+    code?: CommandDeliveryDiagnostic['code'],
+    cause?: unknown,
+  ) {
+    const diagnostic: CommandDeliveryDiagnostic = {
+      operation: attempt.operation,
+      stage: attempt.stage,
+      startedAt: attempt.startedAt,
+      elapsedMs: Math.max(0, Date.now() - attempt.startedAt),
+      ...(attempt.httpStatus ? { httpStatus: attempt.httpStatus } : {}),
+      code:
+        code ??
+        (attempt.timedOut
+          ? attempt.stage === 'storage'
+            ? 'storage_timeout'
+            : 'timeout'
+          : attempt.stage === 'storage'
+            ? 'storage_failed'
+            : attempt.stage === 'handoff'
+              ? 'handoff_failed'
+              : attempt.stage === 'response'
+                ? 'invalid_receipt'
+                : 'transport_failed'),
+    };
+    // A later pending observation must not erase the original submission failure.
+    if (attempt.operation === 'submit' || entry.deliveryDiagnostic?.operation !== 'submit')
+      entry.deliveryDiagnostic = diagnostic;
+    if (!this.persist()) diagnostic.persistenceFailed = true;
+    const event = {
+      clientMsgId: String(entry.body.clientMsgId),
+      ...(this.localSession(entry) ? { sessionId: this.localSession(entry) } : {}),
+      diagnostic,
+    };
+    try {
+      this.config.onDeliveryDiagnostic?.(event, cause);
+    } catch {
+      console.warn('[mitzo] Command delivery diagnostic observer failed', {
+        clientMsgId: event.clientMsgId,
+        code: 'diagnostic_observer_failed',
+      });
+    }
+  }
+
+  private async flushLocal(attempt: DeliveryAttempt): Promise<void> {
+    if (!this.config.storage?.flush) return;
+    const previousStage = attempt.stage;
+    attempt.stage = 'storage';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.config.storage.flush(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            attempt.timedOut = true;
+            reject(new Error('Local delivery storage deadline exceeded'));
+          }, 15_000);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    // A failed flush keeps its failing stage for the caller's diagnostic.
+    attempt.stage = previousStage;
   }
 
   /** A streamed/persisted reply is a hint to observe acceptance, never a grant
@@ -437,6 +623,12 @@ export class SendOutbox {
     const controller = new AbortController();
     this.receiptReads.set(entry, controller);
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let receiptConfirmed = false;
+    const attempt: DeliveryAttempt = {
+      operation: 'receipt',
+      stage: 'request',
+      startedAt: Date.now(),
+    };
     try {
       const { response, raw } = await Promise.race([
         this.config
@@ -446,16 +638,25 @@ export class SendOutbox {
             body: JSON.stringify(entry.body),
             signal: controller.signal,
           })
-          .then(async (response) => ({ response, raw: await response.json() })),
+          .then(async (response) => {
+            attempt.stage = 'response';
+            attempt.httpStatus = response.status;
+            return { response, raw: await response.json() };
+          }),
         new Promise<never>((_, reject) => {
           controller.signal.addEventListener(
             'abort',
             () => reject(Error('Receipt read interrupted')),
             { once: true },
           );
-          timer = setTimeout(() => controller.abort(), 15_000);
+          timer = setTimeout(() => {
+            attempt.timedOut = true;
+            controller.abort();
+          }, 15_000);
         }),
       ]);
+      if (timer) clearTimeout(timer);
+      timer = undefined;
       if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
       const receipt = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
       if (
@@ -467,19 +668,50 @@ export class SendOutbox {
           receipt.data.sessionId !== entry.ordinaryDelivery.sessionId) ||
         (typeof entry.body.sessionId === 'string' &&
           receipt.data.sessionId !== entry.body.sessionId)
-      )
-        return;
-      entry.localReceipt = { sessionId: receipt.data.sessionId, state: 'consumed' };
-      entry.uncertain = false;
-      if (!this.persist()) {
-        entry.uncertain = true;
+      ) {
+        this.deliveryFailure(
+          entry,
+          attempt,
+          response.status === 409 && raw?.code === 'receipt_pending'
+            ? 'receipt_pending'
+            : !response.ok
+              ? 'http_rejected'
+              : 'invalid_receipt',
+        );
+        if (this.activeLocalEntry !== entry && !this.localReady.includes(entry))
+          this.notifyLocal(entry, this.localStates.get(entry) ?? 'uncertain');
         return;
       }
-      if (this.config.storage?.flush) await this.config.storage.flush();
+      receiptConfirmed = true;
+      delete entry.runtimeFailure;
+      delete entry.deliveryDiagnostic;
+      entry.localReceipt = { sessionId: receipt.data.sessionId, state: 'consumed' };
+      entry.uncertain = false;
+      attempt.stage = 'storage';
+      if (!this.persist()) {
+        entry.uncertain = true;
+        throw new Error('Local receipt could not be retained', { cause: this.persistenceCause });
+      }
+      if (this.config.storage?.flush) await this.flushLocal(attempt);
       if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
-      await this.retireLocal(entry, true);
-    } catch {
-      // Observation failure never resends a command or overwrites its UI state.
+      attempt.stage = 'handoff';
+      await this.retireLocal(entry, true, attempt);
+    } catch (cause) {
+      // Read failures preserve the prior UI state. Once acceptance is proven,
+      // completion storage failures must not restore an obsolete login reason.
+      if (generation === this.generation && this.active && this.entries.includes(entry)) {
+        this.deliveryFailure(
+          entry,
+          attempt,
+          controller.signal.aborted && !attempt.timedOut ? 'cancelled' : undefined,
+          cause,
+        );
+        if (receiptConfirmed || this.activeLocalEntry !== entry)
+          this.notifyLocal(
+            entry,
+            receiptConfirmed ? 'uncertain' : (this.localStates.get(entry) ?? 'uncertain'),
+          );
+      }
     } finally {
       if (timer) clearTimeout(timer);
       if (this.receiptReads.get(entry) === controller) {
@@ -495,7 +727,11 @@ export class SendOutbox {
       }
     }
   }
-  private async retireLocal(entry: Entry, releaseTransport = false): Promise<void> {
+  private async retireLocal(
+    entry: Entry,
+    releaseTransport = false,
+    attempt: DeliveryAttempt = { operation: 'receipt', stage: 'handoff', startedAt: Date.now() },
+  ): Promise<void> {
     const generation = this.generation;
     const index = this.entries.indexOf(entry);
     if (index < 0) return;
@@ -505,20 +741,21 @@ export class SendOutbox {
       // Hide only this entry from reentrant UI callbacks, while retaining its
       // durable receipt until the source handoff has successfully committed.
       this.notifyLocal(entry, 'consumed', true);
-      if (this.config.storage?.flush) await this.config.storage.flush();
+      if (this.config.storage?.flush) await this.flushLocal(attempt);
       if (generation !== this.generation) {
         this.completingLocal.delete(entry);
         this.persist();
         return;
       }
       this.completingLocal.delete(entry);
-      if (!this.persist()) throw Error('Local completion could not be retained');
-      if (this.config.storage?.flush) await this.config.storage.flush();
-    } catch {
+      if (!this.persist())
+        throw new Error('Local completion could not be retained', { cause: this.persistenceCause });
+      if (this.config.storage?.flush) await this.flushLocal(attempt);
+    } catch (cause) {
       this.completingLocal.delete(entry);
       if (!this.entries.includes(entry))
         this.entries.splice(Math.min(index, this.entries.length), 0, entry);
-      this.persist();
+      this.deliveryFailure(entry, attempt, undefined, cause);
       this.notifyLocal(entry, 'uncertain');
       return;
     }
@@ -534,8 +771,14 @@ export class SendOutbox {
       try {
         // Sensitive launch proof can retire only after the outbox removal is durable.
         this.config.notify({ type: '_local_command_retired', clientMsgId: entry.body.clientMsgId });
-      } catch {
-        // Cleanup failure cannot resurrect admitted work or overwrite its success.
+      } catch (cause) {
+        // Cleanup failure is observable without resurrecting admitted work.
+        this.deliveryFailure(
+          entry,
+          { operation: 'receipt', stage: 'cleanup', startedAt: Date.now() },
+          'cleanup_failed',
+          cause,
+        );
       }
     }
     // Exact consumed acceptance releases only this original HTTP wait. Its
@@ -574,10 +817,16 @@ export class SendOutbox {
     this.busyGeneration = generation;
     this.activeAbort = abort;
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    const attempt: DeliveryAttempt = {
+      operation: 'submit',
+      stage: 'storage',
+      startedAt: Date.now(),
+    };
     try {
       entry.uncertain = true;
-      if (!this.persist()) throw Error('Local intent could not be retained');
-      if (this.config.storage?.flush) await this.config.storage.flush();
+      if (!this.persist())
+        throw new Error('Local intent could not be retained', { cause: this.persistenceCause });
+      if (this.config.storage?.flush) await this.flushLocal(attempt);
       if (
         generation !== this.generation ||
         !this.active ||
@@ -585,6 +834,7 @@ export class SendOutbox {
         !this.entries.includes(entry)
       )
         return;
+      attempt.stage = 'request';
       const { response, raw } = await Promise.race([
         this.config
           .fetch(this.localUrl(entry), {
@@ -593,17 +843,23 @@ export class SendOutbox {
             body: JSON.stringify(entry.body),
             signal: abort.signal,
           })
-          .then(async (response) => ({ response, raw: await response.json() })),
+          .then(async (response) => {
+            attempt.stage = 'response';
+            attempt.httpStatus = response.status;
+            return { response, raw: await response.json() };
+          }),
         new Promise<never>((_, reject) => {
           abort.signal.addEventListener('abort', () => reject(Error('Delivery interrupted')), {
             once: true,
           });
-          timeout = setTimeout(
-            () => abort.abort(),
-            this.config.timeoutMs ?? ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS,
-          );
+          timeout = setTimeout(() => {
+            attempt.timedOut = true;
+            abort.abort();
+          }, this.config.timeoutMs ?? ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS);
         }),
       ]);
+      if (timeout) clearTimeout(timeout);
+      timeout = undefined;
       if (generation !== this.generation || !this.entries.includes(entry)) return;
       const success = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
       const observation = OrdinaryCodexRetainedCommandObservationSchema.safeParse(raw);
@@ -613,29 +869,72 @@ export class SendOutbox {
           raw?.sessionId === entry.ordinaryDelivery.sessionId) &&
         (typeof entry.body.sessionId !== 'string' || raw?.sessionId === entry.body.sessionId);
       if (matching && response.status === 202 && success.success) {
+        delete entry.runtimeFailure;
+        delete entry.deliveryDiagnostic;
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
         if (success.data.state === 'consumed') entry.uncertain = false;
+        attempt.stage = 'storage';
         if (!this.persist()) {
           entry.uncertain = true;
-          throw Error('Local receipt could not be retained');
+          throw new Error('Local receipt could not be retained', { cause: this.persistenceCause });
         }
-        if (this.config.storage?.flush) await this.config.storage.flush();
+        if (this.config.storage?.flush) await this.flushLocal(attempt);
         if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
-        if (success.data.state === 'consumed') await this.retireLocal(entry);
+        attempt.stage = 'handoff';
+        if (success.data.state === 'consumed') await this.retireLocal(entry, false, attempt);
         else this.notifyLocal(entry, success.data.state, true);
         this.persist();
       } else if (matching && response.status === 409 && observation.success) {
+        this.deliveryFailure(entry, attempt, 'runtime_failed');
+        entry.runtimeFailure =
+          'runtimeFailure' in observation.data ? observation.data.runtimeFailure : undefined;
         entry.localReceipt = {
           sessionId: observation.data.sessionId,
           state: observation.data.state,
         };
-        if (!this.persist()) throw Error('Local observation could not be retained');
-        if (this.config.storage?.flush) await this.config.storage.flush();
-        this.notifyLocal(entry, 'retained');
-      } else this.notifyLocal(entry, 'uncertain');
-    } catch {
-      if (generation === this.generation && this.entries.includes(entry))
+        attempt.stage = 'storage';
+        if (!this.persist())
+          throw new Error('Local observation could not be retained', {
+            cause: this.persistenceCause,
+          });
+        if (this.config.storage?.flush) await this.flushLocal(attempt);
+        attempt.stage = 'handoff';
+        this.notifyLocal(
+          entry,
+          'retained',
+          false,
+          'runtimeFailure' in observation.data ? observation.data.runtimeFailure : undefined,
+        );
+      } else {
+        const failure = OrdinaryRuntimeEntryFailureSchema.safeParse(raw);
+        if (matching && response.status === 409 && failure.success) {
+          entry.runtimeFailure = failure.data.runtimeFailure;
+          attempt.stage = 'storage';
+          if (!this.persist())
+            throw new Error('Local diagnostic could not be retained', {
+              cause: this.persistenceCause,
+            });
+          if (this.config.storage?.flush) await this.flushLocal(attempt);
+          if (generation !== this.generation || !this.active || !this.entries.includes(entry))
+            return;
+        }
+        this.deliveryFailure(
+          entry,
+          { ...attempt, stage: 'response' },
+          !response.ok ? 'http_rejected' : 'invalid_receipt',
+        );
         this.notifyLocal(entry, 'uncertain');
+      }
+    } catch (cause) {
+      if (generation === this.generation && this.entries.includes(entry)) {
+        this.deliveryFailure(
+          entry,
+          attempt,
+          abort.signal.aborted && !attempt.timedOut ? 'cancelled' : undefined,
+          cause,
+        );
+        this.notifyLocal(entry, 'uncertain');
+      }
     } finally {
       if (timeout) clearTimeout(timeout);
       if (generation === this.generation) {
@@ -649,14 +948,15 @@ export class SendOutbox {
 
   private persist(): boolean {
     try {
-      if (!this.config.storage) return false;
+      if (!this.config.storage || this.invalidLocalRecovery) return false;
       const retained = [...this.entries];
       for (const [entry, index] of this.completingLocal)
         if (!retained.includes(entry)) retained.splice(Math.min(index, retained.length), 0, entry);
       this.config.storage.setItem(this.key, JSON.stringify(retained));
       return true;
-    } catch {
+    } catch (cause) {
       // Ordinary sends retain their existing in-memory fallback.
+      this.persistenceCause = cause;
       return false;
     }
   }

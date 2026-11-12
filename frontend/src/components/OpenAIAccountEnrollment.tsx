@@ -1,6 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { enrollOpenAIAccount, getOpenAIAccounts } from '../lib/connections-api';
+import { createBrowserId } from '../lib/browser-crypto';
+import {
+  discoverApiModels,
+  enrollOpenAIAccount,
+  getOpenAIAccounts,
+  OpenAIAccountEnrollmentFailure,
+} from '../lib/connections-api';
 import type { EnrolledOpenAIAccount } from '../types/connections';
+
+const enmaasModels = ['rits/zai-org/glm-5-3', 'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017'];
+
+function validProviderEndpoint(value: string) {
+  const endpoint = value.trim();
+  if (!endpoint || endpoint.length > 2048) return false;
+  try {
+    const url = new URL(endpoint);
+    const host = url.hostname.toLowerCase().replace(/\.+$/, '');
+    return (
+      url.protocol === 'https:' &&
+      !!host &&
+      url.toString().replace(/\/+$/, '').length <= 2048 &&
+      host !== 'localhost' &&
+      !host.endsWith('.localhost') &&
+      !host.includes(':') &&
+      !/^\d+\.\d+\.\d+\.\d+$/.test(host) &&
+      !url.username &&
+      !url.password &&
+      !endpoint.includes('?') &&
+      !endpoint.includes('#')
+    );
+  } catch {
+    return false;
+  }
+}
 
 export function OpenAIAccountEnrollment({
   csrf,
@@ -18,6 +50,24 @@ export function OpenAIAccountEnrollment({
   const [label, setLabel] = useState('');
   const [projectLabel, setProjectLabel] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [provider, setProvider] = useState('openai');
+  const [protocol, setProtocol] = useState<'responses' | 'messages'>('responses');
+  const [authentication, setAuthentication] = useState<'api-key' | 'bearer'>('api-key');
+  const [endpoint, setEndpoint] = useState('');
+  const [catalog, setCatalog] = useState<{ id: string; label: string }[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [explicitModels, setExplicitModels] = useState('');
+  const [discovering, setDiscovering] = useState(false);
+  const [partial, setPartial] = useState(false);
+  const discoveryGeneration = useRef(0);
+  const invalidateDiscovery = useCallback(() => {
+    discoveryGeneration.current++;
+  }, []);
+  const custom = provider !== 'openai';
+  const endpointValid = validProviderEndpoint(endpoint);
+  const modelIds = [...new Set([...selected, ...explicitModels.split(/[\s,]+/).filter(Boolean)])];
+  const modelsValid =
+    modelIds.length > 0 && modelIds.length <= 200 && modelIds.every((id) => id.length <= 256);
   const [billingConfirmed, setBillingConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reviewRequired, setReviewRequired] = useState(false);
@@ -51,23 +101,76 @@ export function OpenAIAccountEnrollment({
     void refresh();
     return () => {
       mounted.current = false;
+      invalidateDiscovery();
     };
-  }, [refresh]);
+  }, [refresh, invalidateDiscovery]);
   useEffect(() => {
     if (!authorized || enabled === false || unresolved) {
+      discoveryGeneration.current++;
+      setDiscovering(false);
       setApiKey('');
       setBillingConfirmed(false);
     }
   }, [authorized, enabled, unresolved]);
+  const resetDiscovery = () => {
+    discoveryGeneration.current++;
+    setDiscovering(false);
+    setCatalog([]);
+    setSelected([]);
+    setPartial(false);
+    setBillingConfirmed(false);
+    setMessage('');
+  };
+  const discover = async () => {
+    if (discovering || busy || !endpointValid || !apiKey.trim()) return;
+    if (!authorized || (expiresAt !== undefined && expiresAt <= Date.now())) {
+      setApiKey('');
+      onReauthorizationNeeded();
+      return;
+    }
+    const generation = ++discoveryGeneration.current;
+    setDiscovering(true);
+    setBillingConfirmed(false);
+    setMessage('');
+    try {
+      const result = await discoverApiModels({
+        csrf,
+        endpoint: endpoint.trim(),
+        apiKey,
+        ...(protocol === 'messages' ? { protocol, authentication } : {}),
+      });
+      if (!mounted.current || generation !== discoveryGeneration.current) return;
+      setCatalog(result.models);
+      setSelected([]);
+      setPartial(result.partial);
+      if (!result.models.length)
+        setMessage('The catalog returned no models. Enter explicit model IDs to continue.');
+    } catch {
+      if (mounted.current && generation === discoveryGeneration.current)
+        setMessage(
+          'Could not read the provider catalog. Check the endpoint and key, or enter explicit model IDs.',
+        );
+    } finally {
+      if (mounted.current && generation === discoveryGeneration.current) setDiscovering(false);
+    }
+  };
   const submit = async () => {
-    if (pending.current || reviewRequired || unresolved || created || !enabled) return;
+    if (pending.current || discovering || reviewRequired || unresolved || created || !enabled)
+      return;
     if (!authorized || (expiresAt !== undefined && expiresAt <= Date.now())) {
       setApiKey('');
       setBillingConfirmed(false);
       onReauthorizationNeeded();
       return;
     }
-    if (!label.trim() || !projectLabel.trim() || !apiKey.trim() || !billingConfirmed) return;
+    if (
+      !label.trim() ||
+      !projectLabel.trim() ||
+      !apiKey.trim() ||
+      !billingConfirmed ||
+      (custom && (!endpointValid || !modelsValid))
+    )
+      return;
     pending.current = true;
     setBusy(true);
     setMessage('');
@@ -75,7 +178,7 @@ export function OpenAIAccountEnrollment({
     setApiKey('');
     setBillingConfirmed(false);
     try {
-      requestId.current ??= crypto.randomUUID();
+      requestId.current ??= createBrowserId();
       const account = await enrollOpenAIAccount({
         csrf,
         requestId: requestId.current,
@@ -83,6 +186,26 @@ export function OpenAIAccountEnrollment({
         projectLabel: projectLabel.trim(),
         apiKey: oneShot,
         billingConfirmed: true,
+        ...(custom
+          ? {
+              connection: {
+                endpoint: endpoint.trim(),
+                protocol,
+                ...(protocol === 'messages' ? { authentication } : {}),
+                qualification: {
+                  source: 'operator',
+                  streaming: true,
+                  toolCalls: true,
+                  continuation: true,
+                  cancellation: true,
+                },
+              },
+              models: modelIds.map((id) => ({
+                id,
+                label: catalog.find((model) => model.id === id)?.label || id,
+              })),
+            }
+          : {}),
       });
       if (!mounted.current) return;
       if (account.state === 'ready') setCreated(account);
@@ -90,10 +213,15 @@ export function OpenAIAccountEnrollment({
         setReviewRequired(true);
         setMessage('Enrollment needs attention. Check account status before trying again.');
       }
-    } catch {
+    } catch (error) {
       if (mounted.current) {
-        setReviewRequired(true);
-        setMessage('Could not confirm enrollment. Review account status before trying again.');
+        if (error instanceof OpenAIAccountEnrollmentFailure && error.retrySetup) {
+          requestId.current = null;
+          setMessage(error.message);
+        } else {
+          setReviewRequired(true);
+          setMessage('Could not confirm enrollment. Review account status before trying again.');
+        }
       }
     } finally {
       if (mounted.current) {
@@ -106,19 +234,19 @@ export function OpenAIAccountEnrollment({
   return (
     <section
       className="connections-card openai-account-enrollment"
-      aria-labelledby="openai-enrollment-heading"
+      aria-label="Add a new AI API account"
     >
-      <h2 id="openai-enrollment-heading">Add a new OpenAI API account</h2>
+      <h2>Add a new AI API account</h2>
       <p>
         Existing tasks keep their current account. Select this new account when starting a new chat.
       </p>
       {message && <p role="alert">{message}</p>}
       {enabled === null ? (
         <p role="status">Loading account setup…</p>
-      ) : !enabled ? (
-        <p>Adding OpenAI API accounts is unavailable.</p>
       ) : created ? (
         <p role="status">{created.label} is ready for new chats.</p>
+      ) : !enabled ? (
+        <p>Adding AI API accounts is unavailable.</p>
       ) : unresolved ? (
         <p role="status">
           A previous enrollment must be reviewed before adding another account. Check its status and
@@ -138,10 +266,91 @@ export function OpenAIAccountEnrollment({
           }}
         >
           <label className="connections-field">
+            Provider
+            <select
+              value={provider}
+              disabled={busy || discovering}
+              onChange={(event) => {
+                const value = event.target.value;
+                resetDiscovery();
+                setProvider(value);
+                setProtocol('responses');
+                setAuthentication(value === 'enmaas' ? 'bearer' : 'api-key');
+                setEndpoint(value === 'enmaas' ? 'https://api.enmaas.devshift.net/v1' : '');
+                setExplicitModels(value === 'enmaas' ? enmaasModels.join('\n') : '');
+                setApiKey('');
+              }}
+            >
+              <option value="openai">OpenAI</option>
+              <option value="enmaas">EnMaaS</option>
+              <option value="custom">Custom API</option>
+            </select>
+          </label>
+          {custom && (
+            <label className="connections-field">
+              Model API
+              <select
+                value={protocol}
+                disabled={busy || discovering}
+                onChange={(event) => {
+                  const next = event.target.value as 'responses' | 'messages';
+                  resetDiscovery();
+                  setProtocol(next);
+                  setExplicitModels(
+                    provider === 'enmaas' && next === 'responses' ? enmaasModels.join('\n') : '',
+                  );
+                  if (provider === 'enmaas')
+                    setEndpoint(
+                      'https://api.enmaas.devshift.net' + (next === 'responses' ? '/v1' : ''),
+                    );
+                  setApiKey('');
+                }}
+              >
+                <option value="responses">Responses · Codex</option>
+                <option value="messages">Anthropic Messages · Claude</option>
+              </select>
+            </label>
+          )}
+          {custom && protocol === 'messages' && (
+            <label className="connections-field">
+              Key authentication
+              <select
+                value={authentication}
+                disabled={busy || discovering}
+                onChange={(event) => {
+                  resetDiscovery();
+                  setAuthentication(event.target.value as 'api-key' | 'bearer');
+                }}
+              >
+                <option value="api-key">Anthropic API key</option>
+                <option value="bearer">Bearer token</option>
+              </select>
+            </label>
+          )}
+          {custom && (
+            <label className="connections-field">
+              API base URL
+              <input
+                type="url"
+                required
+                value={endpoint}
+                maxLength={2048}
+                aria-invalid={endpoint.trim().length > 0 && !endpointValid}
+                aria-describedby="api-provider-endpoint-help"
+                disabled={busy}
+                onChange={(event) => {
+                  resetDiscovery();
+                  setExplicitModels('');
+                  setEndpoint(event.target.value);
+                }}
+              />
+            </label>
+          )}
+          <label className="connections-field">
             Account label
             <input
               value={label}
-              maxLength={80}
+              maxLength={120}
               disabled={busy}
               onChange={(event) => setLabel(event.target.value)}
             />
@@ -167,38 +376,136 @@ export function OpenAIAccountEnrollment({
               maxLength={16384}
               value={apiKey}
               disabled={busy}
-              onChange={(event) => setApiKey(event.target.value)}
+              onChange={(event) => {
+                resetDiscovery();
+                setApiKey(event.target.value);
+              }}
             />
           </label>
-          <p className="workspace-muted">
-            Validation runs one brief gpt-6-luna request with low reasoning, billed to the newly
-            entered key’s project.
-          </p>
+          {custom && (
+            <>
+              <p className="workspace-muted" id="api-provider-endpoint-help">
+                Use a public HTTPS provider hostname without credentials, query or fragment.
+              </p>
+              <p className="workspace-muted">
+                {protocol === 'messages'
+                  ? 'Uses the existing Claude Agent SDK engine with the selected provider’s API key. Enter the provider base URL before /v1/messages; Google Vertex authentication is disabled.'
+                  : 'Uses the Codex engine with a Responses-compatible API.'}{' '}
+                Get models sends this key to the selected provider for a catalog read; it makes no
+                inference call.
+              </p>
+              <button
+                type="button"
+                className="workspace-text-link"
+                disabled={busy || discovering || !endpointValid || !apiKey.trim()}
+                onClick={() => void discover()}
+              >
+                {discovering ? 'Getting models…' : 'Get models'}
+              </button>
+              {partial && (
+                <p role="status">
+                  This is a partial catalog. Select models or enter additional model IDs.
+                </p>
+              )}
+              {catalog.length > 0 && (
+                <label className="connections-field">
+                  Available models
+                  <select
+                    multiple
+                    size={Math.min(catalog.length, 8)}
+                    value={selected}
+                    disabled={busy || discovering}
+                    onChange={(event) => {
+                      setBillingConfirmed(false);
+                      setSelected(
+                        Array.from(event.target.selectedOptions, (option) => option.value),
+                      );
+                    }}
+                  >
+                    {catalog.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="connections-field">
+                Additional model IDs
+                <textarea
+                  value={explicitModels}
+                  maxLength={20000}
+                  disabled={busy || discovering}
+                  onChange={(event) => {
+                    setBillingConfirmed(false);
+                    setExplicitModels(event.target.value);
+                  }}
+                  placeholder="One model ID per line"
+                />
+              </label>
+              <p className="workspace-muted">
+                Catalogs may omit working models. Explicit IDs are saved without a model call or key
+                validation. Confirm that the selected models support{' '}
+                {protocol === 'messages' ? 'Claude Messages' : 'Codex Responses'} streaming, tools,
+                follow-up turns and cancellation.
+              </p>
+              {provider === 'enmaas' && (
+                <p className="workspace-muted">
+                  {protocol === 'messages'
+                    ? 'Choose your permitted Anthropic models from the catalog or enter their exact model IDs. These models may incur charges.'
+                    : 'The two hosted models are prefilled. Other catalog models may incur charges. GLM compatibility with Codex tools needs separate verification.'}
+                </p>
+              )}
+            </>
+          )}
+          {!custom && (
+            <p className="workspace-muted">
+              Validation runs one brief gpt-6-luna request with low reasoning, billed to the newly
+              entered key’s project.
+            </p>
+          )}
           <label className="connections-key-confirmation">
             <input
               type="checkbox"
               checked={billingConfirmed}
-              disabled={busy}
+              disabled={busy || discovering}
               onChange={(event) => setBillingConfirmed(event.target.checked)}
             />
-            <span>I authorize this validation charge to the project associated with this key.</span>
+            <span>
+              {custom
+                ? `I authorize sending this key to the selected endpoint and confirm the selected models support the ${protocol === 'messages' ? 'Claude' : 'Codex'} features listed above.`
+                : 'I authorize this validation charge to the project associated with this key.'}
+            </span>
           </label>
           <button
             className="workspace-primary"
             disabled={
-              busy || !label.trim() || !projectLabel.trim() || !apiKey.trim() || !billingConfirmed
+              busy ||
+              discovering ||
+              !label.trim() ||
+              !projectLabel.trim() ||
+              !apiKey.trim() ||
+              !billingConfirmed ||
+              (custom && (!endpointValid || !modelsValid))
             }
           >
-            {busy ? 'Validating new account…' : 'Validate and add account'}
+            {busy
+              ? custom
+                ? 'Saving account…'
+                : 'Validating new account…'
+              : custom
+                ? 'Save API account'
+                : 'Validate and add account'}
           </button>
         </form>
       )}
       {accounts.length > 0 && (
-        <div aria-label="Enrolled OpenAI API accounts">
+        <div aria-label="Enrolled AI API accounts">
           <h3>Enrolled accounts</h3>
           {accounts.map((account) => (
             <p key={account.id}>
-              {account.label} · {account.projectLabel} ·{' '}
+              {account.label} · {account.projectLabel}
+              {account.endpoint ? ` · ${account.endpoint}` : ''} ·{' '}
               {account.state === 'ready'
                 ? 'Ready'
                 : account.state === 'connecting'
@@ -206,6 +513,7 @@ export function OpenAIAccountEnrollment({
                   : account.state === 'failed'
                     ? 'Validation failed'
                     : 'Needs attention'}
+              {account.errorCode ? ` · ${account.errorCode}` : ''}
             </p>
           ))}
         </div>

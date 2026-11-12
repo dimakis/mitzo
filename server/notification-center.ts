@@ -8,6 +8,9 @@ import type {
 import { hasPending, onPermissionLifecycle } from './permissions.js';
 import { NotificationStore } from './notification-store.js';
 import { createLogger } from './logger.js';
+import { registerPermissionNotificationOwner } from '@mitzo/harness';
+import * as ntfy from './notify.js';
+import * as pushover from './pushover.js';
 const log = createLogger('notifications');
 // Allow an overnight quiet-hours delay, but never replay old completion banners.
 const COMPLETION_PUSH_MAX_AGE_MS = 12 * 60 * 60 * 1000;
@@ -56,18 +59,20 @@ export function nextDeliveryAt(prefs: NotificationPreferences, now: number): num
 }
 export class NotificationCenter {
   private unsubscribe: () => void;
+  private releaseDeliveryOwner: () => void;
   private timer?: ReturnType<typeof setInterval>;
   private resolutionRefresh?: ReturnType<typeof setImmediate>;
   private flushing = false;
   private pendingBadges = 0;
   private released = false;
+  private sourceScans = 0;
   private assertAvailable(): void {
     if (this.released) throw Error('Notification owner released');
   }
   /** Stop an idle owner without starting or draining delivery. The caller owns the store. */
   closeIdle(): void {
     if (this.released) return;
-    if (this.flushing || this.pendingBadges || this.resolutionRefresh)
+    if (this.flushing || this.pendingBadges || this.resolutionRefresh || this.sourceScans)
       throw Error('Notification owner active');
     this.released = true;
     this.close();
@@ -76,6 +81,24 @@ export class NotificationCenter {
   private badgeQueue = Promise.resolve();
   private badgeRetryAt?: number;
   private inboxReconciler?: () => boolean;
+  private asyncInboxReconciler?: () => Promise<boolean>;
+  setAsyncInboxReconciler(reconcile: () => Promise<boolean>): void {
+    this.assertAvailable();
+    this.asyncInboxReconciler = reconcile;
+  }
+  async reconcileAsync(): Promise<void> {
+    this.assertAvailable();
+    this.sourceScans++;
+    try {
+      const changed = await this.asyncInboxReconciler?.();
+      this.assertAvailable();
+      if (changed) this.changed();
+    } finally {
+      this.sourceScans--;
+    }
+    // The synchronous route then checks permissions immediately before reading
+    // or responding, without computing a discarded feed or scanning twice.
+  }
   setInboxReconciler(reconcile: () => boolean): void {
     this.assertAvailable();
     this.inboxReconciler = reconcile;
@@ -85,11 +108,19 @@ export class NotificationCenter {
     private deps: Dependencies,
   ) {
     store.reconcilePermissions(hasPending);
+    this.releaseDeliveryOwner = registerPermissionNotificationOwner();
     this.unsubscribe = onPermissionLifecycle((event) => {
       if (this.released) return;
       if (event.type === 'requested') this.permission(event.request);
       else {
         store.resolvePermission(event.permId, event.resolution);
+        log.info('Approval notification resolved', {
+          stage: 'notification_resolution',
+          code: 'approval_notification_resolved',
+          notificationId: `permission:${event.permId}`,
+          permId: event.permId,
+          resolution: event.resolution,
+        });
         // Persist authority immediately, but keep feed scans and notification
         // delivery off the approval response stack. Concurrent resolutions need
         // only one refresh of the final durable state.
@@ -97,8 +128,13 @@ export class NotificationCenter {
           this.resolutionRefresh = undefined;
           try {
             this.changed();
-          } catch {
-            log.warn('approval notification refresh failed; durable resolution retained');
+          } catch (error) {
+            log.warn('approval notification refresh failed; durable resolution retained', {
+              stage: 'notification_refresh',
+              code: 'approval_refresh_failed',
+              permId: event.permId,
+              error: String(error),
+            });
           }
         });
       }
@@ -126,8 +162,13 @@ export class NotificationCenter {
           const status = await this.deps.badge?.(count);
           this.badgeRetryAt =
             !this.deps.badge || status === 'accepted' ? undefined : Date.now() + 60000;
-        } catch {
+        } catch (error) {
           this.badgeRetryAt = Date.now() + 60000;
+          log.warn('notification badge delivery failed; retry scheduled', {
+            stage: 'notification_delivery',
+            code: 'badge_delivery_failed',
+            error: String(error),
+          });
         }
       })
       .finally(() => {
@@ -150,11 +191,22 @@ export class NotificationCenter {
     clearImmediate(this.resolutionRefresh);
     this.resolutionRefresh = undefined;
     this.unsubscribe();
+    this.releaseDeliveryOwner();
   }
   private publish(input: Parameters<NotificationStore['record']>[0], notify = true): void {
     this.assertAvailable();
     if (!this.store.record(input)) return;
-    if (notify) this.store.queue(input.id, Date.now());
+    if (notify) {
+      this.store.queue(input.id, Date.now());
+      log.info('Notification queued', {
+        stage: 'notification_queue',
+        code: 'notification_queued',
+        notificationId: input.id,
+        kind: input.kind,
+        sessionId: input.sessionId,
+        permId: input.permId,
+      });
+    }
     this.changed();
   }
   private permission(request: PermissionRequest): void {
@@ -206,13 +258,14 @@ export class NotificationCenter {
     unattended: boolean,
   ): void {
     this.assertAvailable();
+    if (!snippet.trim()) return;
     const prefs = this.store.preferences();
     this.publish(
       {
         id: `turn:${sessionId}:${seq}`,
         kind: 'session',
         title: title || 'Session update',
-        body: snippet || 'The agent finished its turn.',
+        body: snippet,
         sessionId,
       },
       prefs.completion === 'all' || (prefs.completion === 'unattended' && unattended),
@@ -306,15 +359,28 @@ export class NotificationCenter {
           this.store.delivery(item.id, 'cancelled');
           continue;
         }
+        // Each decision needs its own alert. Durable notification identity and
+        // deliveredDevices deduplicate this request, never another one in its chat.
         const at = nextDeliveryAt(this.store.preferences(), Date.now());
         if (at === null || at > Date.now()) continue;
-        if (!this.deps.configured() || this.deps.devices() === 0) continue;
+        const native = this.deps.configured() && this.deps.devices() > 0;
+        const deliveredDevices = this.store.deliveredDevices(item.id);
+        // Once any native device accepted this alert, only retry its remaining
+        // native devices. A temporary registration loss must not alert another channel.
+        if (!native && deliveredDevices.some((device) => !device.startsWith('legacy:'))) continue;
+        const legacy = item.permId
+          ? pushover.isConfigured()
+            ? 'pushover'
+            : ntfy.isConfigured()
+              ? 'ntfy'
+              : undefined
+          : undefined;
+        if (!native && !legacy) continue;
         const prefs = this.store.preferences();
         const category = item.permId
           ? permissionNotificationCategory(item.request, prefs.sensitivePreviews)
           : undefined;
-        const quickApproval =
-          category === 'SESSION_APPROVAL' || category === 'SESSION_SEARCH_PERMISSION';
+        const quickApproval = category !== undefined && category !== 'SESSION_PERMISSION';
         const message: NotificationPush = {
           title:
             prefs.sensitivePreviews || item.kind === 'test'
@@ -325,7 +391,7 @@ export class NotificationCenter {
                   ? 'Mitzo has a question'
                   : 'Mitzo update',
           body: quickApproval
-            ? `${item.body}\n${item.request!.toolName}\n${item.request!.toolInput}\n${item.request!.sessionGrantDescription ?? 'Allow for session keeps this approval until the session ends.'}`
+            ? `${item.body}\n${item.request!.toolName}\n${item.request!.toolInput}\n${item.request!.sessionGrantDescription ?? (item.request!.approvalScope === 'conversation' ? 'Grant access to this conversation until revoked.' : item.request!.allowSessionGrant === false ? 'Allow once covers only this request.' : 'Allow for session keeps this approval until the session ends.')}`
             : prefs.sensitivePreviews || item.kind === 'test'
               ? item.body
               : 'Open Mitzo to review this notification.',
@@ -350,7 +416,7 @@ export class NotificationCenter {
               ? 'SESSION_UPDATE'
               : 'NOTIFICATION_UPDATE',
           threadId: item.sessionId,
-          deliveredDevices: this.store.deliveredDevices(item.id),
+          deliveredDevices,
         };
         // Leave room for the APNs envelope; never truncate a request while
         // retaining buttons that imply its full details have been displayed.
@@ -361,8 +427,35 @@ export class NotificationCenter {
           delete message.data.approvalInput;
           delete message.data.approvalToolName;
         }
-        const result = await this.deps.push(message);
+        let result: NotificationDeliveryResult;
+        let transportError: { err: unknown } | undefined;
+        try {
+          result = native
+            ? await this.deps.push(message)
+            : await this.deliverLegacy(legacy!, item, message);
+        } catch (err) {
+          transportError = { err };
+          result = { status: 'failed', acceptedDevices: [] };
+        }
         const { status } = result;
+        const diagnostic = {
+          stage: 'notification_delivery',
+          code: transportError
+            ? 'notification_transport_failed'
+            : `notification_delivery_${status}`,
+          notificationId: item.id,
+          kind: item.kind,
+          sessionId: item.sessionId,
+          permId: item.permId,
+          channel: native ? 'apns' : legacy,
+          acceptedDeviceCount: result.acceptedDevices.length,
+        };
+        if (status === 'failed')
+          log.warn(
+            transportError ? 'Notification transport failed' : 'Notification delivery failed',
+            { ...diagnostic, ...transportError },
+          );
+        else if (status === 'accepted') log.info('Notification delivery completed', diagnostic);
         if (status === 'unavailable') continue;
         this.store.delivery(
           item.id,
@@ -374,6 +467,32 @@ export class NotificationCenter {
     } finally {
       this.flushing = false;
     }
+  }
+  private async deliverLegacy(
+    channel: 'pushover' | 'ntfy',
+    item: MitzoNotification,
+    message: NotificationPush,
+  ): Promise<NotificationDeliveryResult> {
+    const device = `legacy:${channel}`;
+    if (message.deliveredDevices?.includes(device))
+      return { status: 'accepted', acceptedDevices: [] };
+    const accepted =
+      channel === 'pushover'
+        ? await pushover.sendPermissionNotification(
+            message.title,
+            message.body,
+            item.permId!,
+            item.sessionId,
+            { reviewOnly: true },
+          )
+        : await ntfy.sendPermissionNotification(
+            message.title,
+            message.body,
+            item.permId!,
+            item.sessionId,
+            { reviewOnly: true },
+          );
+    return { status: accepted ? 'accepted' : 'failed', acceptedDevices: accepted ? [device] : [] };
   }
 }
 let current: NotificationCenter | undefined;
@@ -416,8 +535,14 @@ export function recordSeatAccessNotification(
 ) {
   try {
     current?.seatAccessRequest(sessionId, requestId, kind, seatName, expiresAt);
-  } catch {
-    /* Delivery failure cannot change access authority. */
+  } catch (error) {
+    log.warn('could not record seat access notification', {
+      stage: 'notification_record',
+      code: 'seat_access_record_failed',
+      sessionId,
+      requestId,
+      error: String(error),
+    });
   }
 }
 export function resolveSeatAccessNotification(
@@ -427,7 +552,13 @@ export function resolveSeatAccessNotification(
 ) {
   try {
     current?.resolveSeatAccessRequest(sessionId, requestId, resolution);
-  } catch {
-    /* Approval remains recorded by its owning service. */
+  } catch (error) {
+    log.warn('could not resolve seat access notification; authority remains with its owner', {
+      stage: 'notification_resolution',
+      code: 'seat_access_resolution_failed',
+      sessionId,
+      requestId,
+      error: String(error),
+    });
   }
 }

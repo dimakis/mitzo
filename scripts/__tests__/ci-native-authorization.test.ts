@@ -4,34 +4,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 import { expect, it } from 'vitest';
+import {
+  nativeAuthorityCases as required,
+  completeNativeAuthorityReport as fixture,
+} from './fixtures/native-authorization-report.js';
 
 // Execute the actual required workflow's reporter validator. A green Vitest
 // flag must not qualify omitted or skipped platform-specific authority cases.
 const workflow = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
-  jobs: Record<string, { steps: Array<{ name?: string; run?: string }> }>;
+  jobs: Record<
+    string,
+    { steps: Array<{ name?: string; run?: string; env?: Record<string, string> }> }
+  >;
 };
 const step = workflow.jobs['ordinary-journey'].steps.find(
   (entry) => entry.name === 'Verify signed native operator lifetime and repository tools',
 )!;
 const validator = step.run!.split("node --input-type=module <<'NODE'\n")[1].split('\nNODE')[0];
-const required = [
-  ['native-host-operator-lifetime.test.ts', 9],
-  ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
-  ['native-local-repository-read-tools.test.ts', 14],
-  ['native-reader-path-authorization.test.ts', 13],
-] as const;
-function fixture() {
-  return {
-    success: true,
-    testResults: required.map(([file, count]) => ({
-      name: '/fixture/server/__tests__/' + file,
-      assertionResults: Array.from({ length: count }, (_, index) => ({
-        fullName: file + ' case ' + index,
-        status: 'passed',
-      })),
-    })),
-  };
-}
 function validate(report: ReturnType<typeof fixture>) {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-native-ci-report-'));
   try {
@@ -48,10 +37,20 @@ function validate(report: ReturnType<typeof fixture>) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
-it('accepts all forty actual authority cases and only the named optional diagnostic', () => {
+it('accepts all forty-seven actual authority cases and only the named optional diagnostic', () => {
   expect(step.run!.split("node --input-type=module <<'NODE'\n")[0]).toContain(
     'server/__tests__/native-reader-path-authorization.test.ts',
   );
+  expect(step.run!.split("node --input-type=module <<'NODE'\n")[0]).toContain(
+    'server/__tests__/qualified-local-repository-materializer.test.ts',
+  );
+  expect(step.run!.split("node --input-type=module <<'NODE'\n")[0]).toContain(
+    'server/__tests__/qualified-local-repository-operation-owner.test.ts',
+  );
+  expect(step.env).toMatchObject({
+    MITZO_SANDBOX_INTEGRATION: '1',
+    MITZO_PREPARATION_OWNER_PROFILE: '0',
+  });
   expect(validate(fixture())).toBe(0);
   const report = fixture();
   report.testResults[2].assertionResults.push({
@@ -66,9 +65,11 @@ it.each(required)('rejects omitted required platform coverage from %s', (file) =
   expect(validate(report)).toBe(1);
 });
 it.each(['pending', 'skipped', 'failed'])('rejects a %s required native reader case', (status) => {
-  const report = fixture();
-  report.testResults[3].assertionResults[0].status = status;
-  expect(validate(report)).toBe(1);
+  for (const index of [3, 4, 5]) {
+    const report = fixture();
+    report.testResults[index].assertionResults[0].status = status;
+    expect(validate(report)).toBe(1);
+  }
 });
 it('rejects partial, additional, substituted or unsuccessful native reader evidence', () => {
   for (const change of ['partial', 'additional', 'substitute', 'failure']) {

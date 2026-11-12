@@ -21,6 +21,9 @@ export function storedEventToClientMessage(
   const privateType = event.type ?? payloadType;
   if (
     privateType === 'ordinary_reply_source' ||
+    privateType === 'ordinary_sdk_turn_accepted' ||
+    privateType === 'ordinary_sdk_turn_settled' ||
+    privateType === 'ordinary_sdk_interrupt_claimed' ||
     privateType === 'ordinary_collaboration_context_staged' ||
     privateType === 'ordinary_collaboration_context_prepared' ||
     privateType === 'ordinary_collaboration_context_accepted'
@@ -31,7 +34,7 @@ export function storedEventToClientMessage(
     return {
       type: privateType,
       ...(event.type === 'ordinary_reply_source' &&
-      event.payload.version === 1 &&
+      (event.payload.version === 1 || event.payload.version === 2) &&
       typeof event.payload.commandId === 'string' &&
       typeof event.payload.messageId === 'string'
         ? { messageId: event.payload.messageId, replyToMessageId: event.payload.commandId }

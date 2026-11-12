@@ -14,6 +14,7 @@ interface Props {
   expanded?: boolean;
   onExpand?: () => void;
   onDismiss: () => void;
+  onSchedule?: () => void;
   isolation?: boolean;
   onIsolationChange?: (enabled: boolean) => void;
   branch?: string;
@@ -30,6 +31,7 @@ export function ComposerTools({
   expanded,
   onExpand,
   onDismiss,
+  onSchedule,
   isolation,
   onIsolationChange,
   branch,
@@ -135,10 +137,26 @@ export function ComposerTools({
           <UiIcon name="plus" size={16} />
           <span className="composer-tools-label">Attach images or PDF</span>
         </button>
+        {onSchedule && (
+          <button
+            type="button"
+            className="chat-input-btn"
+            aria-label="Schedule prompt"
+            title="Schedule prompt"
+            onClick={() => {
+              setToolsExpanded(false);
+              onSchedule();
+            }}
+          >
+            <UiIcon name="clock" />
+            <span className="composer-tools-label">Schedule prompt</span>
+          </button>
+        )}
         {terminalHref &&
           (inRouter ? (
             <Link
               className="chat-input-btn"
+              aria-label="Terminal"
               to={terminalHref}
               onClick={() => setToolsExpanded(false)}
             >
@@ -148,6 +166,7 @@ export function ComposerTools({
           ) : (
             <a
               className="chat-input-btn"
+              aria-label="Terminal"
               href={terminalHref}
               onClick={() => setToolsExpanded(false)}
             >

@@ -20,19 +20,19 @@ type Preparation = Omit<
 >;
 
 export interface OrdinaryCollaborationJoiningAuthority {
-  /** Reauthorize the retained review's original operator, exact source/settings and
-   * authoritative native capacity. Caller settings and saved capacity numbers are
-   * not authority. No production resolver exists until the runtime supplies proof.
+  /** Reauthorize the retained review's original operator and exact source/settings.
+   * Caller settings and saved capacity numbers are not authority. A retained join
+   * identifies the original reservation on an exact confirmation retry.
    */
   authorizeConfirmation(
-    input: Scope & { input: CollaborationJoinInput },
+    input: Scope & { input: CollaborationJoinInput; join?: CollaborationJoin },
     signal: AbortSignal,
   ): Promise<void>;
-  /** Fresh source/access/settings/capacity fence, also after asynchronous allocation.
+  /** Fresh source/access/settings fence, also after asynchronous allocation.
    * This check must support already-linked recovery without granting execution.
    */
   authorizeJoin(input: JoinScope, signal: AbortSignal): Promise<void>;
-  /** Reauthorize the original operator/source/settings/native capacity and separately
+  /** Reauthorize the original operator/source/settings and separately
    * approve current membership with the exact original review. Do not reinterpret the
    * original review as compiled at the newer revision. Already-linked request retries
    * authorize observation only; the store alone decides whether the receipt is exact.
@@ -72,7 +72,7 @@ export interface OrdinaryCollaborationJoiningPort {
 
 /** Orchestration only. EventStore owns joins/receipts; RepositoryWorkspaces owns
  * durable silent preparation. No second ledger, provider start, send or queue.
- * Deliberately not installed in production without exact native capacity authority.
+ * Joining is silent; requested turns retain ordinary capacity/admission ownership.
  */
 export class OrdinaryCollaborationJoining implements OrdinaryCollaborationJoiningPort {
   constructor(
@@ -96,8 +96,12 @@ export class OrdinaryCollaborationJoining implements OrdinaryCollaborationJoinin
     const scope = this.scope(operatorId, collaborationId);
     const input = CollaborationJoinInputSchema.parse(structuredClone(raw));
     signal.throwIfAborted();
+    const retained = this.deps.store.collaborationConversation.getJoinForRequest(
+      collaborationId,
+      input,
+    );
     await this.deps.authority.authorizeConfirmation(
-      { ...scope, input: structuredClone(input) },
+      { ...scope, input: structuredClone(input), ...(retained ? { join: retained } : {}) },
       signal,
     );
     signal.throwIfAborted();

@@ -142,6 +142,11 @@ it('executes the exact real Playwright selection in fresh browser-free worker ba
       JSON.parse(readFileSync(join(evidence, batch.name + '.json'), 'utf8')),
     );
     expect(new Set(reports.map((report: { pid: number }) => report.pid)).size).toBe(3);
+    for (const report of reports)
+      for (const result of report.results) {
+        expect(Number.isFinite(result.durationMs)).toBe(true);
+        expect(result.durationMs).toBeGreaterThanOrEqual(0);
+      }
     for (const batch of summary.batches)
       expect(
         readFileSync(join(root, 'playwright-report/offline', batch.name, 'index.html'), 'utf8'),

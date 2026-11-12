@@ -1,3 +1,6 @@
+import { reviewQueuedDrafts, closeComposerStatus } from '../support/composer-status';
+import { readChatStorage } from '../support/persisted-chat-storage';
+import { navigateWithServiceHealth } from '../support/service-health-navigation';
 import {
   settingRow,
   chooseSetting,
@@ -39,6 +42,8 @@ async function offline(
   const controls: string[] = [];
   const forbidden: string[] = [];
   const errors: string[] = [];
+  const inventory =
+    location === 'local' ? localInventoryFixture() : ordinaryRuntimeInventoryFixture();
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(
     ({ restore, intent }) => {
@@ -126,8 +131,7 @@ async function offline(
         gateOff
           ? { status: 503, json: { ok: false, code: 'entry_disabled', error: 'Unavailable' } }
           : {
-              json:
-                location === 'local' ? localInventoryFixture() : ordinaryRuntimeInventoryFixture(),
+              json: inventory,
             },
       );
     if (
@@ -236,6 +240,7 @@ async function offline(
         return route.fulfill({ json: { ok: true } });
       }
       const fixtures: Record<string, unknown> = {
+        '/api/session-launch/defaults': { revision: 0, configuration: null },
         '/api/auth/check': { authenticated: true },
         '/api/config': { quickActions: [], contextBlocks: {} },
         '/api/accounts': [],
@@ -278,7 +283,7 @@ async function offline(
       return route.fulfill({ status: 404, body: '' });
     }
   });
-  return { requests, forbidden, errors, attachments, controls };
+  return { requests, forbidden, errors, attachments, controls, inventory };
 }
 async function emitLocalState(page: Page, state: 'running' | 'idle') {
   await page.evaluate(
@@ -490,7 +495,7 @@ async function assertWorkspaceHeadingFits(page: Page) {
     page.locator('.workspace-controls-context').boundingBox(),
     toggle.boundingBox(),
     toggle.locator('[data-icon="settings"]').boundingBox(),
-    page.getByRole('button', { name: 'Access', exact: true }).boundingBox(),
+    page.getByRole('button', { name: 'Links & access', exact: true }).boundingBox(),
   ]);
   expect(context).not.toBeNull();
   expect(settings).not.toBeNull();
@@ -560,6 +565,70 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   expect(fixture.forbidden).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });
+
+for (const theme of ['dark', 'light'] as const)
+  test(`Ordinary delivery failure keeps the original follow-up through retry (${theme})`, async ({
+    page,
+  }, info) => {
+    const fixture = await offline(page, false, false, true);
+    const attempts: Array<Record<string, unknown>> = [];
+    await page.addInitScript((appearance) => {
+      localStorage.setItem('mitzo-theme', appearance);
+      localStorage.setItem('mitzo-accent', appearance === 'dark' ? 'mint' : 'teal');
+      localStorage.setItem('mitzo-font', appearance === 'dark' ? 'system' : 'georgia');
+    }, theme);
+    await page.route('**/api/chat/local-codex/continue', async (route) => {
+      const body = route.request().postDataJSON();
+      attempts.push(body);
+      if (attempts.length === 1) return route.abort('failed');
+      return route.fulfill({
+        status: 202,
+        json: {
+          ok: true,
+          clientMsgId: body.clientMsgId,
+          sessionId,
+          dispatched: true,
+          state: 'consumed',
+        },
+      });
+    });
+    await page.route('**/api/chat/local-codex/continue/receipt', (route) =>
+      route.fulfill({
+        status: 409,
+        json: {
+          ok: false,
+          code: 'receipt_pending',
+          clientMsgId: attempts[0]?.clientMsgId,
+          sessionId,
+        },
+      }),
+    );
+    await page.goto(`/chat/${sessionId}`);
+    const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+    if ((await workspace.getAttribute('aria-expanded')) === 'true') await workspace.click();
+    const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await input.fill('I missed the approval. Please try again.');
+    await input.press('Enter');
+    await expect(page.getByText('Message delivery not confirmed', { exact: true })).toBeVisible();
+    await expect(page.getByText('Correction delivery not confirmed', { exact: true })).toHaveCount(
+      0,
+    );
+    expect(attempts).toHaveLength(1);
+    const retry = page.getByRole('button', { name: 'Retry', exact: true });
+    await expect(retry).toBeEnabled();
+    await retry.focus();
+    await expect(retry).toBeFocused();
+    await page.screenshot({
+      path: info.outputPath(`local-ordinary-delivery-${theme}.png`),
+      fullPage: true,
+    });
+    await retry.press('Enter');
+    await expect.poll(() => attempts.length).toBe(2);
+    expect(attempts[1]).toEqual(attempts[0]);
+    await expect(page.getByText('Message delivery not confirmed', { exact: true })).toHaveCount(0);
+    expect(fixture.forbidden).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
 
 test('Local first command: screenshot above the former 1 MiB command cap remains sendable', async ({
   page,
@@ -740,7 +809,9 @@ test('Local conversation: future thinking and queued command retain independent 
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Queued follow-up');
   await page.getByRole('button', { name: 'Queue message', exact: true }).click();
+  await reviewQueuedDrafts(page);
   await expect(page.getByRole('region', { name: 'Up next' })).toBeVisible();
+  await closeComposerStatus(page);
   expect(fixture.requests).toHaveLength(1);
   await emitLocalState(page, 'idle');
   await expect.poll(() => fixture.requests.length).toBe(2);
@@ -762,7 +833,7 @@ test('OpenShell conversation: default route starts and continues without legacy 
   const fixture = await offline(page, false, false, true, 'openshell');
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/chat');
+  await navigateWithServiceHealth(page, () => page.goto('/chat'));
   await openAgentSettings(page);
   await expect(page.getByRole('button', { name: 'OpenShell', exact: true })).toHaveAttribute(
     'aria-pressed',
@@ -772,18 +843,48 @@ test('OpenShell conversation: default route starts and continues without legacy 
   await chooseSetting(page, 'Thinking level', 'low');
   await chooseAgent(page, JSON.stringify(['saved', 'agent', 1]));
   await expect(page.getByText('Runs with Codex')).toBeVisible();
-  await expect(
-    page
-      .getByRole('status')
-      .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
-  ).not.toHaveCount(0);
+  const staleChoices = page
+    .getByRole('status')
+    .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' });
+  // Projecting the explicitly chosen agent into the draft URL preserves review.
+  await expect(staleChoices).toHaveCount(0);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await openAgentSettings(page);
+  await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Inspect OpenShell checkout');
+  await expect(page).toHaveURL(/draft=/);
+  const draftId = new URL(page.url()).searchParams.get('draft')!;
+  await expect
+    .poll(() =>
+      readChatStorage(
+        page,
+        (storage, key) => {
+          const draft = JSON.parse(storage.getItem(key) ?? 'null');
+          return {
+            text: draft?.text,
+            capabilityRevision: draft?.settings.runtimeSelection?.capabilityRevision,
+          };
+        },
+        `mitzo-chat-draft:${draftId}`,
+      ),
+    )
+    .toEqual({
+      text: 'Inspect OpenShell checkout',
+      capabilityRevision: fixture.inventory.capabilityRevision,
+    });
+  // Exercise actual inventory drift, rather than the former URL projection bug.
+  fixture.inventory.capabilityRevision = 'combined-caps-r2';
+  await navigateWithServiceHealth(page, () => page.reload());
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+    'Inspect OpenShell checkout',
+  );
+  await expect(staleChoices).not.toHaveCount(0);
   await expect(
-    page
-      .getByRole('status')
-      .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
-  ).toHaveCount(0);
+    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+  ).toBeDisabled();
+  expect(fixture.requests).toHaveLength(0);
+  await openAgentSettings(page);
+  await expect(staleChoices).not.toHaveCount(0);
+  await page.getByRole('button', { name: 'OpenShell', exact: true }).click();
+  await expect(staleChoices).toHaveCount(0);
   await openChatSetting(page, 'repository');
   await page
     .getByRole('combobox', { name: 'GitHub repository' })
@@ -808,7 +909,9 @@ test('OpenShell conversation: default route starts and continues without legacy 
   ).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Queue message', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Queue message', exact: true }).click();
+  await reviewQueuedDrafts(page);
   await expect(page.getByRole('region', { name: 'Up next' })).toBeVisible();
+  await closeComposerStatus(page);
   expect(fixture.requests).toHaveLength(1);
   await emitLocalState(page, 'idle');
   await expect.poll(() => fixture.requests.length).toBe(2);

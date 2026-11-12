@@ -1,12 +1,20 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, symlinkSync, existsSync } from 'fs';
 import { join, relative } from 'path';
 import { tmpdir, homedir } from 'os';
 import { AccountAliases } from '../account-aliases.js';
+import { EventStore as AuthEventStore } from '../event-store.js';
+import { codexPrivateDirectory, protectCodexProfileRoots } from '../codex-private-path.js';
+import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
+import { InboxScanner } from '../inbox-scanner.js';
+
+// Individual cases restore environment stubs; keep subsequent reads synthetic too.
+beforeEach(resetOfflineUserEnvironment);
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
 const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
@@ -98,14 +106,16 @@ vi.mock('../chat.js', async () => {
     setTaskStore: vi.fn(),
     eventStore: {
       ...createRoutesRuntimeLedgerFixture(),
+      removals: { read: vi.fn(), assertArchivable: vi.fn() },
       setSessionState: vi.fn(),
       append: vi.fn(),
       getLatestEvent: vi.fn().mockReturnValue(null),
+      getSessionEventCursor: vi.fn().mockReturnValue(0),
       getEventsAfter: vi.fn().mockReturnValue([]),
       getSessionEvents: vi.fn().mockReturnValue([]),
       getEventsOfType: vi.fn().mockReturnValue([]),
       getLatestWorktreePath: vi.fn().mockReturnValue(null),
-      searchSessions: vi.fn().mockReturnValue([
+      searchSessionsAsync: vi.fn().mockResolvedValue([
         {
           sessionId: 's1',
           summary: 'Test',
@@ -215,6 +225,7 @@ const overviewBroadcast = vi.fn();
 let app: Server;
 let authCookie: string;
 let authSessionId: string;
+let authRevocations: AuthEventStore;
 let setOpenShellLifecycleService: typeof import('../app.js').setOpenShellLifecycleService;
 
 async function getAuthCookie(agent: request.Agent): Promise<string> {
@@ -257,6 +268,8 @@ beforeAll(async () => {
   process.env.NTFY_AUTH_TOKEN = 'test-ntfy-token';
 
   const mod = await import('../app.js');
+  authRevocations = new AuthEventStore(':memory:');
+  (await import('../auth.js')).setAuthRevocationStore(authRevocations);
   app = await listenOnLoopback(mod.app);
   setOpenShellLifecycleService = mod.setOpenShellLifecycleService;
   mod.setOverviewEmitter({
@@ -272,6 +285,7 @@ afterAll(async () => {
   const { releaseTransportConnection } = await import('../transport-auth-ownership.js');
   releaseTransportConnection('conn-abc', authSessionId);
   releaseTransportConnection('conn-other', authSessionId);
+  authRevocations?.close();
 });
 
 beforeEach(async () => {
@@ -757,8 +771,11 @@ describe('session routes', () => {
     expect(getSessionTranscript).toHaveBeenCalledWith('s1');
   });
 
-  it('DELETE /api/sessions/:id — hides session', async () => {
-    const res = await request(app).delete('/api/sessions/s1').set('Cookie', authCookie);
+  it('DELETE /api/sessions/:id?archive=1 — archives session explicitly', async () => {
+    const res = await request(app)
+      .delete('/api/sessions/s1?archive=1')
+      .set('Cookie', authCookie)
+      .send({});
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(hideSession).toHaveBeenCalledWith('s1');
@@ -771,12 +788,16 @@ describe('session routes', () => {
       sessionType: 'symposium',
       cwd: '/host/workspace',
     } as ReturnType<typeof eventStore.getSession>);
-    const res = await request(app).delete('/api/sessions/symposium').set('Cookie', authCookie);
+    const res = await request(app)
+      .post('/api/sessions/symposium/prepare-deletion')
+      .set('Cookie', authCookie)
+      .send({});
     expect(res.status).toBe(409);
     expect(hideSession).not.toHaveBeenCalled();
     await request(app)
       .delete('/api/sessions/symposium?archive=1')
       .set('Cookie', authCookie)
+      .send({})
       .expect(200);
   });
 
@@ -1004,6 +1025,10 @@ describe('session routes', () => {
 // --- Session Search Routes ---
 
 describe('session search routes', () => {
+  beforeEach(() =>
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(tmpdir(), `mitzo-search-route-${process.pid}`)),
+  );
+  afterEach(() => vi.unstubAllEnvs());
   it('returns saved model and aliased account for inactive search hits outside the recent page', async () => {
     const original = vi.mocked(eventStore.getSession).getMockImplementation()!;
     const aliases = new AccountAliases(join(TEST_REPO, '.mitzo', 'account-aliases.json'));
@@ -1025,7 +1050,7 @@ describe('session search routes', () => {
           } as ReturnType<typeof eventStore.getSession>)
         : original(id),
     );
-    vi.mocked(eventStore.searchSessions).mockReturnValueOnce(
+    vi.mocked(eventStore.searchSessionsAsync).mockResolvedValueOnce(
       ['off-page-chat', 'unrecorded-chat'].map((sessionId) => ({
         sessionId,
         summary: 'Older matching conversation',
@@ -1060,7 +1085,12 @@ describe('session search routes', () => {
     expect(res.body.results).toHaveLength(1);
     expect(res.body.results[0].sessionId).toBe('s1');
     expect(res.body.results[0].snippet).toBe('...matched text...');
-    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('matched', 20);
+    expect(vi.mocked(eventStore.searchSessionsAsync)).toHaveBeenCalledWith(
+      'matched',
+      20,
+      expect.any(AbortSignal),
+      codexPrivateDirectory(),
+    );
   });
 
   it('GET /api/sessions/search — empty query returns empty results', async () => {
@@ -1077,7 +1107,12 @@ describe('session search routes', () => {
 
   it('GET /api/sessions/search — clamps limit to 50', async () => {
     await request(app).get('/api/sessions/search?q=test&limit=999').set('Cookie', authCookie);
-    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('test', 50);
+    expect(vi.mocked(eventStore.searchSessionsAsync)).toHaveBeenCalledWith(
+      'test',
+      50,
+      expect.any(AbortSignal),
+      codexPrivateDirectory(),
+    );
   });
 
   it('GET /api/sessions/search — unauthenticated returns 401', async () => {
@@ -1371,6 +1406,169 @@ describe('briefing routes', () => {
 });
 
 describe('inbox routes', () => {
+  it.each(['delete', 'approve'] as const)(
+    'retains internal-token inbox %s access after reconciliation',
+    async (operation) => {
+      const { INTERNAL_TOKEN } = await import('../internal-token.js');
+      const filename = `internal-${operation}.md`;
+      writeFileSync(join(INBOX_DIR, filename), SAMPLE_INBOX_ITEM);
+      const action =
+        operation === 'delete'
+          ? request(app).delete('/api/inbox/' + filename)
+          : request(app).post('/api/inbox/' + filename + '/approve');
+      expect((await action.set('x-internal-token', INTERNAL_TOKEN)).status).toBe(200);
+    },
+  );
+  it.each(['delete', 'approve'] as const)(
+    'revalidates inbox %s after logout during reconciliation',
+    async (operation) => {
+      const { notificationCenter } = await import('../app.js');
+      const { login } = await import('../auth.js');
+      const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+      const filename = `authority-${operation}-logout.md`;
+      const source = join(INBOX_DIR, filename);
+      const destination = join(INBOX_DIR, 'archive', filename);
+      writeFileSync(source, SAMPLE_INBOX_ITEM);
+      let release!: () => void;
+      let entered!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reached = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const scan = vi
+        .spyOn(notificationCenter, 'reconcileAsync')
+        .mockImplementationOnce(async () => {
+          entered();
+          await waiting;
+        });
+      const action =
+        operation === 'delete'
+          ? request(app).delete('/api/inbox/' + filename)
+          : request(app).post('/api/inbox/' + filename + '/approve');
+      const pending = action.set('Authorization', 'Bearer ' + token).then((response) => response);
+      try {
+        await reached;
+        expect(
+          (
+            await request(app)
+              .post('/api/auth/logout')
+              .set('Authorization', 'Bearer ' + token)
+          ).status,
+        ).toBe(200);
+        release();
+        expect((await pending).status).toBe(401);
+        expect(readFileSync(source, 'utf8')).toBe(SAMPLE_INBOX_ITEM);
+        expect(existsSync(destination)).toBe(false);
+      } finally {
+        release();
+        await pending;
+        scan.mockRestore();
+      }
+    },
+  );
+  it.each(
+    (['approve', 'delete'] as const).flatMap((action) =>
+      (['private', 'authority'] as const).flatMap((kind) =>
+        (['source', 'destination'] as const).map((target) => ({ action, kind, target })),
+      ),
+    ),
+  )(
+    'rejects $action when $kind $target enrollment changes during a scan',
+    async ({ action, kind, target }) => {
+      const { notificationCenter } = await import('../app.js');
+      const filename = `authorization-race-${action}-${kind}-${target}.md`;
+      const source = join(INBOX_DIR, filename);
+      const destination = join(INBOX_DIR, 'archive', filename);
+      writeFileSync(source, SAMPLE_INBOX_ITEM);
+      let release!: () => void;
+      let entered!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reached = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const scan = vi.spyOn(notificationCenter, 'reconcileAsync').mockImplementationOnce(() => {
+        entered();
+        return waiting;
+      });
+      const operation =
+        action === 'approve'
+          ? request(app).post(`/api/inbox/${filename}/approve`)
+          : request(app).delete(`/api/inbox/${filename}`);
+      const pending = operation.set('Cookie', authCookie).then((response) => response);
+      try {
+        // Reaching the awaited scan proves middleware already authorized the file.
+        await reached;
+        const path = target === 'source' ? source : destination;
+        if (kind === 'private') protectCodexProfileRoots([path]);
+        else registerWorkspaceRuntimeAuthorityPaths([path]);
+        release();
+        const response = await pending;
+        expect(response.status).toBe(403);
+        expect(response.body).toEqual({ error: 'Path not allowed' });
+        expect(readFileSync(source, 'utf8')).toBe(SAMPLE_INBOX_ITEM);
+        expect(existsSync(destination)).toBe(false);
+      } finally {
+        release();
+        await pending;
+        scan.mockRestore();
+      }
+    },
+  );
+  it('DELETE drains an older source scan before removing an unindexed item', async () => {
+    const { notificationCenter } = await import('../app.js');
+    const filename = 'delete-scan-race.md';
+    writeFileSync(join(INBOX_DIR, filename), SAMPLE_INBOX_ITEM);
+    let release!: () => void;
+    let captured!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reached = new Promise<void>((resolve) => {
+      captured = resolve;
+    });
+    const original = InboxScanner.prototype.scan;
+    let blocked = false;
+    const scan = vi.spyOn(InboxScanner.prototype, 'scan').mockImplementation(async function (
+      this: InboxScanner,
+      directory,
+    ) {
+      if (directory === join(INBOX_DIR, 'archive') && !blocked) {
+        blocked = true;
+        captured();
+        await waiting;
+      }
+      return original.call(this, directory);
+    });
+    const pending = notificationCenter.reconcileAsync();
+    await reached;
+    let entered!: () => void;
+    const received = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    app.prependOnceListener('request', () => entered());
+    const deleting = request(app)
+      .delete('/api/inbox/' + filename)
+      .set('Cookie', authCookie)
+      .then((response) => response);
+    try {
+      await received;
+      release();
+      const response = await deleting;
+      await pending;
+      expect(response.status).toBe(200);
+      const record = notificationCenter.store.get('inbox:' + filename);
+      expect(record).toBeDefined();
+      expect(record!.archivedAt).not.toBeNull();
+    } finally {
+      release();
+      await pending;
+      scan.mockRestore();
+    }
+  });
   it('GET /api/inbox — returns inbox items', async () => {
     const res = await request(app).get('/api/inbox').set('Cookie', authCookie);
     expect(res.status).toBe(200);
@@ -1403,11 +1601,19 @@ describe('inbox routes', () => {
   it('POST /api/inbox/:filename/approve — moves to archive', async () => {
     // Create a fresh item for this test
     writeFileSync(join(INBOX_DIR, '20260401_000000_01_test.md'), SAMPLE_INBOX_ITEM);
+    const { notificationCenter } = await import('../app.js');
+    await notificationCenter.reconcileAsync();
+    const id = 'inbox:20260401_000000_01_test.md';
+    expect(notificationCenter.store.get(id)?.archivedAt).toBeNull();
+    const changed = vi.spyOn(notificationCenter, 'changed');
     const res = await request(app)
       .post('/api/inbox/20260401_000000_01_test.md/approve')
       .set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
+    expect(notificationCenter.store.get(id)?.archivedAt).not.toBeNull();
+    expect(changed).toHaveBeenCalled();
+    changed.mockRestore();
   });
 
   it('POST /api/inbox/:filename/approve — nonexistent returns 404', async () => {

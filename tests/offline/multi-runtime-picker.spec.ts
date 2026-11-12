@@ -12,6 +12,7 @@ import { extname, resolve } from 'node:path';
 import { sha256Hex } from '../../frontend/src/lib/browser-crypto';
 import { SymposiumProfileDefinitionSchema } from '../../packages/protocol/src/symposium';
 import { multiRuntimeInventoryFixture } from '../../frontend/src/test-utils/multi-runtime-inventory-fixture';
+import { SessionLaunchConfigSchema, type SessionLaunchDefaults } from '@mitzo/protocol';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
 
@@ -27,6 +28,7 @@ async function offlinePicker(
   const inventory = options.inventory ?? multiRuntimeInventoryFixture({ nativeLocalApi: true });
   const forbidden: string[] = [];
   const errors: string[] = [];
+  let defaults: SessionLaunchDefaults = { revision: 0, configuration: null };
   let releaseCapabilities: () => void = () => undefined;
   const capabilitiesReady = options.holdCapabilities
     ? new Promise<void>((resolve) => {
@@ -71,6 +73,20 @@ async function offlinePicker(
       return route.abort();
     }
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/session-launch/defaults') {
+        if (route.request().method() === 'PUT') {
+          const body = route.request().postDataJSON();
+          expect(body.expectedRevision).toBe(defaults.revision);
+          defaults = {
+            revision: defaults.revision + 1,
+            configuration:
+              body.configuration === null
+                ? null
+                : SessionLaunchConfigSchema.parse(body.configuration),
+          };
+        } else expect(route.request().method()).toBe('GET');
+        return route.fulfill({ json: defaults });
+      }
       if (url.pathname === '/api/chat/runtime/capabilities') await capabilitiesReady;
       if (route.request().method() !== 'GET') {
         if (
@@ -173,6 +189,46 @@ for (const appearance of ['dark', 'light'] as const) {
       await expect(back).toBeFocused();
       await expect(panel.locator('.quick-settings-editor:not([inert])')).toHaveCount(1);
       await expect(panel.locator('.quick-settings-row[hidden]:visible')).toHaveCount(0);
+      if (field === 'execution') {
+        // Reuse this mounted phone/desktop journey to exercise browser disabled
+        // controls while another owner retains recovery state. Never dispatch it.
+        const previous = await page.evaluate(() => {
+          const store = (
+            window as unknown as {
+              __mitzoStore: ReturnType<typeof import('@mitzo/client').createMitzoStore>;
+            }
+          ).__mitzoStore;
+          const { messages, localCommand } = store.getState();
+          store.setState({
+            messages: { ...messages, running: true },
+            localCommand: { state: 'blocked', originDraftId: 'another-draft' },
+          });
+          return { running: messages.running, localCommand };
+        });
+        await panel.getByRole('button', { name: 'Local Mac', exact: true }).click();
+        await expect(panel.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+        await panel.getByRole('button', { name: 'OpenShell', exact: true }).click();
+        await expect(panel.getByRole('button', { name: 'OpenShell', exact: true })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+        await page.evaluate((previous) => {
+          const store = (
+            window as unknown as {
+              __mitzoStore: ReturnType<typeof import('@mitzo/client').createMitzoStore>;
+            }
+          ).__mitzoStore;
+          if (store.getState().localCommand?.originDraftId !== 'another-draft')
+            throw Error('Editing the draft changed retained recovery ownership');
+          store.setState({
+            messages: { ...store.getState().messages, running: previous.running },
+            localCommand: previous.localCommand,
+          });
+        }, previous);
+      }
       expect(
         await panel.locator('.quick-settings-row[hidden]').evaluateAll((rows) => {
           const focus = document.activeElement;
@@ -976,24 +1032,21 @@ for (const appearance of ['light', 'dark'] as const) {
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
     ).toBeDisabled();
 
-    // Replacement is explicit; it must not discard an unsupported thinking choice.
+    // Explicit model edits normalize unsupported thinking; metadata refresh and environment edits retain intent.
     await chooseSetting(page, 'Model', 'local-model');
-    await expect(thinking).toHaveAttribute('data-value', 'high');
+    await expect(thinking).toHaveAttribute('data-value', '');
     await expect(
       settingChoices(page, 'Thinking level').locator('[data-setting-value="high"]'),
-    ).toHaveAttribute('disabled', '');
-    await expect(
-      settingChoices(page, 'Thinking level').locator('[data-setting-value="high"]'),
-    ).toHaveText('Unavailable thinking level: high');
+    ).toHaveCount(0);
     await chooseSetting(page, 'Thinking level', 'low');
     await chooseSetting(page, 'Account', 'vertex');
     await expect(page.getByText('Runs with Claude', { exact: true })).toBeVisible();
-    await expect(model).toHaveAttribute('data-value', 'local-model');
+    await expect(model).toHaveAttribute('data-value', 'claude-model');
     await expect(
       settingChoices(page, 'Model').locator('[data-setting-value="claude-model"]'),
     ).toHaveCount(1);
     await chooseSetting(page, 'Model', 'claude-model');
-    await expect(thinking).toHaveAttribute('data-value', 'low');
+    await expect(thinking).toHaveAttribute('data-value', '');
     await chooseSetting(page, 'Thinking level', 'high');
     await openChatSetting(page, 'execution');
     await openshell.click();
@@ -1049,8 +1102,8 @@ for (const appearance of ['light', 'dark'] as const) {
     // Keep the existing Vertex identity proof above before choosing another account.
     await chooseSetting(page, 'Account', 'google');
     await expect(account).toHaveAttribute('data-value', 'google');
-    await expect(model).toHaveAttribute('data-value', 'claude-model');
-    await expect(thinking).toHaveAttribute('data-value', 'high');
+    await expect(model).toHaveAttribute('data-value', 'gemini-fixture');
+    await expect(thinking).toHaveAttribute('data-value', '');
     await expect(page.getByText(/^Runs with /)).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
@@ -1062,13 +1115,10 @@ for (const appearance of ['light', 'dark'] as const) {
     ]);
     await expect(page.getByText('Runs with Gemini', { exact: true })).toBeVisible();
     await expect(account).toHaveAttribute('data-value', 'google');
-    await expect(model).toHaveAttribute('data-value', 'claude-model');
+    await expect(model).toHaveAttribute('data-value', 'gemini-fixture');
     await expect(
       settingChoices(page, 'Model').locator('[data-setting-value="claude-model"]'),
-    ).toHaveAttribute('disabled', '');
-    await expect(
-      settingChoices(page, 'Model').locator('[data-setting-value="claude-model"]'),
-    ).toHaveText('Unavailable model: claude-model');
+    ).toHaveCount(0);
     await expect(
       settingChoices(page, 'Model').locator('[data-setting-value="gemini-fixture"]'),
     ).toHaveCount(1);
@@ -1077,10 +1127,10 @@ for (const appearance of ['light', 'dark'] as const) {
     ).toHaveCount(0);
     await expect(composer).toHaveValue('Keep this development draft across environments');
     await chooseSetting(page, 'Model', 'gemini-fixture');
-    await expect(thinking).toHaveAttribute('data-value', 'high');
+    await expect(thinking).toHaveAttribute('data-value', '');
     await expect(
       settingChoices(page, 'Thinking level').locator('[data-setting-value="high"]'),
-    ).toHaveAttribute('disabled', '');
+    ).toHaveCount(0);
     await chooseSetting(page, 'Thinking level', 'low');
     await expect
       .poll(() =>

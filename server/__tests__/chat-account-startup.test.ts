@@ -34,6 +34,49 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
+
+it.each(['auto', 'deep', 'off'] as const)(
+  'delivers learning mode %s through real SDK prompt composition with a fake query',
+  async (mode) => {
+    vi.resetModules();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-sdk-learning-'));
+    stubWorkspace(root);
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
+    vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_DIR', join(root, 'private'));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+    const chat = await import('../chat.js');
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    chat.eventStore.upsertSession({ sessionId: id, cwd: root });
+    if (mode !== 'auto') chat.eventStore.setSessionLearningMode(id, mode, 0);
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    let inspected = false;
+    vi.mocked(query).mockImplementation(({ options }) => {
+      const append = (options?.systemPrompt as { append: string }).append;
+      expect(append.match(/<session_learning /g) ?? []).toHaveLength(mode === 'off' ? 0 : 1);
+      if (mode !== 'off') {
+        expect(append).toContain(`<session_learning mode="${mode}">`);
+        expect(append).toContain('After compaction');
+        expect(append).toContain('Zero candidates is normal');
+      }
+      inspected = true;
+      throw Error('Fake SDK stops before model dispatch');
+    });
+    try {
+      await chat.startChat({ send: () => {}, isOpen: () => true }, 'sdk-learning', 'hello', {
+        cwd: root,
+        isolation: false,
+        mode: 'auto',
+        initialSessionId: id,
+      });
+      expect(inspected).toBe(true);
+      expect(chat.eventStore.getSessionLearningPolicy(id).mode).toBe(mode);
+    } finally {
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 it('delivers the exact dated briefing snapshot to the mocked Codex provider and durable user history', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-source-provider-'));
@@ -196,6 +239,7 @@ it.each([false, true])(
           {
             signal: new AbortController().signal,
             toolUseID: 'restricted-call',
+            requestId: 'restricted-request',
           },
         ),
       );

@@ -109,9 +109,10 @@ it('Actual App Stop cancels only the selected unrelated outcome while retaining 
   for (let index = 0; index < ids.length; index++) {
     await page.goto(front.origin + '/chat/' + ids[index]);
     await h.waitForPreparedConversation(ids[index]);
-    await page.getByRole('button', { name: 'Pause queue', exact: true }).click();
+    const queue = page.getByRole('region', { name: 'Up next', exact: true });
+    await queue.getByRole('button', { name: 'Pause queue', exact: true }).click();
     await browserExpect(
-      page.getByRole('button', { name: 'Resume queue', exact: true }),
+      queue.getByRole('button', { name: 'Resume queue', exact: true }),
     ).toBeVisible();
     await composer.fill('Start only outcome ' + index + ' for this offline probe.');
     const [first] = await Promise.all([

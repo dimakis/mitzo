@@ -1,3 +1,4 @@
+import { RepositoryPreparationCapacityError } from '../repository-preparation-capacity.js';
 import express from 'express';
 import request from 'supertest';
 import { expect, it, vi } from 'vitest';
@@ -6,13 +7,14 @@ import type { AccountBinding } from '@mitzo/protocol';
 import { RepositorySourceLimitError, RepositorySpaceError } from '../github-repository-source.js';
 
 it.each([
-  ['preview', false],
-  ['prepare', false],
-  ['preview', true],
-  ['prepare', true],
+  ['preview', 'source'],
+  ['prepare', 'source'],
+  ['preview', 'space'],
+  ['prepare', 'space'],
+  ['prepare', 'capacity'],
 ] as const)(
-  'reports a useful preparation error for %s (space=%s) without exposing arbitrary failures',
-  async (operation, space) => {
+  'reports a useful preparation error for %s (%s) without exposing arbitrary failures',
+  async (operation, kind) => {
     const app = express();
     app.use(express.json());
     app.use((_req, res, next) => {
@@ -20,7 +22,11 @@ it.each([
       next();
     });
     const effect = vi.fn(async () => {
-      throw space ? new RepositorySpaceError() : new RepositorySourceLimitError();
+      throw kind === 'space'
+        ? new RepositorySpaceError()
+        : kind === 'capacity'
+          ? new RepositoryPreparationCapacityError()
+          : new RepositorySourceLimitError();
     });
     app.use(
       '/repositories',
@@ -44,12 +50,25 @@ it.each([
         : {}),
     };
     const response = await request(app).post(path).send(body);
-    expect(response.status).toBe(space ? 507 : 413);
+    expect(response.status).toBe(kind === 'space' ? 507 : kind === 'capacity' ? 409 : 413);
     expect(response.body).toMatchObject({
-      code: space ? 'repository_space' : 'repository_source_limit',
-      error: expect.stringContaining(space ? 'free space' : '512 MiB'),
+      code:
+        kind === 'space'
+          ? 'repository_space'
+          : kind === 'capacity'
+            ? 'repository_preparation_capacity'
+            : 'repository_source_limit',
+      error: expect.stringContaining(
+        kind === 'space' ? 'free space' : kind === 'capacity' ? 'eight' : '512 MiB',
+      ),
     });
-    expect(response.body.error).toContain(space ? '3 GiB' : 'smaller repository');
+    expect(response.body.error).toContain(
+      kind === 'space'
+        ? '3 GiB'
+        : kind === 'capacity'
+          ? 'Retire an unused preparation'
+          : 'smaller repository',
+    );
     effect.mockImplementationOnce(async () => {
       throw Error('private credential and path');
     });

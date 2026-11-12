@@ -3,6 +3,8 @@ import { promisify } from 'node:util';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readOnlyGitExecutable } from './read-only-git.js';
+import { parseReadOnlyGitConfig } from './read-only-git-config.js';
+import { SessionRuntimeError } from './session-runtime-error.js';
 import {
   inspectLocalRepositoryWorktree,
   type LocalRepositorySource,
@@ -73,7 +75,7 @@ export async function snapshotRepositoryTaskCheckout(
       throw new Error('Retained repository task metadata is unavailable');
   }
   if ((await readFile(head, 'utf8')).trim() !== `ref: refs/heads/${featureBranch}`)
-    throw new Error('Retained repository task branch changed');
+    throw new SessionRuntimeError('workspace_branch_changed');
   // Qualify mutable standalone metadata before Git can load its local config,
   // common-store redirection or shallow/alternate paths. The bounded inspector
   // parses config bytes outside the repository without following includes.
@@ -92,24 +94,7 @@ export async function snapshotRepositoryTaskCheckout(
       (await realpath(path)) !== path
     )
       throw new Error('Standalone Git configuration is unavailable');
-    const parser = run(
-      '/usr/bin/git',
-      ['config', '--no-includes', '--file', '-', '--null', '--list'],
-      {
-        cwd: '/',
-        timeout: 5000,
-        maxBuffer: 131072,
-        env: {
-          PATH: '/usr/bin:/bin',
-          HOME: '/nonexistent',
-          GIT_CONFIG_SYSTEM: '/dev/null',
-          GIT_CONFIG_GLOBAL: '/dev/null',
-          GIT_CONFIG_NOSYSTEM: '1',
-        },
-      },
-    );
-    parser.child.stdin?.end(await readFile(path));
-    for (const setting of (await parser).stdout.split('\0').filter(Boolean)) {
+    for (const setting of await parseReadOnlyGitConfig(await readFile(path))) {
       const separator = setting.indexOf('\n');
       const key = setting.slice(0, separator === -1 ? undefined : separator).toLowerCase();
       const value = separator === -1 ? undefined : setting.slice(separator + 1);

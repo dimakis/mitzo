@@ -96,24 +96,10 @@
 }
 .conversation-pins {
   flex-shrink: 0;
-  margin-bottom: var(--space-4);
+  margin: 0;
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
   min-width: 0;
-}
-.conversation-pins-toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: var(--control-height);
-  padding: var(--space-2);
-  border: 0;
-  background: transparent;
-  color: var(--color-muted);
-  font-size: var(--text-xs);
-  text-align: left;
-}
-.conversation-pin-count {
-  margin-left: auto;
 }
 .conversation-pins-scroll {
   max-height: min(calc((var(--control-height) + var(--space-3)) * 4), 40dvh);
@@ -182,6 +168,8 @@
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  /* MotionList preserves the visible row during a reorder. */
+  overflow-anchor: none;
   padding: var(--space-1) var(--space-1) var(--space-6);
 }
 .session-library-body--split {
@@ -195,6 +183,7 @@
   align-self: stretch;
   position: relative;
   min-width: 0;
+  width: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -204,8 +193,8 @@
 .session-preview-divider::before {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
+  inset: 0;
+  margin: auto;
   width: 1px;
   background: var(--color-border);
 }
@@ -359,6 +348,29 @@
 }
 .conversation-library .session-item-meta {
   line-height: 1.5;
+  font-size: var(--text-xs);
+  min-height: 1.5em;
+  flex-wrap: nowrap;
+}
+.conversation-library .session-item-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-library .session-item-navigation > .session-activity-status {
+  min-height: 1.5em;
+  flex-wrap: nowrap;
+}
+.conversation-library .session-activity-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.conversation-library .session-activity-status time {
+  flex-shrink: 0;
+}
+.conversation-library .conversation-list-caption {
+  min-height: var(--control-height);
 }
 .conversation-model,
 .conversation-account {
@@ -399,9 +411,7 @@
     max-width: none;
     margin: 0;
   }
-  .conversation-library > .session-list-header,
-  .conversation-library > .conversation-search,
-  .conversation-library > .conversation-filters {
+  .conversation-library > .session-list-header {
     max-width: none;
   }
 }

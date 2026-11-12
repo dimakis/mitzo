@@ -1,3 +1,5 @@
+import { reviewQueuedDrafts, closeComposerStatus } from '../support/composer-status';
+import { expectMotionSettled } from '../support/motion-settled';
 import { createTelosWorkFixtures } from '../../frontend/src/test-utils/telos-work-fixtures';
 import { readChatStorage } from '../support/persisted-chat-storage';
 import {
@@ -1058,6 +1060,7 @@ test('Today details and nickname controls inherit appearance and remain usable w
     await page.getByRole('button', { name: 'Manage pins' }).click();
     const pinPopup = page.getByRole('dialog');
     await expect(pinPopup).toBeVisible();
+    await expectMotionSettled(pinPopup);
     const popupBounds = (await pinPopup.boundingBox())!;
     expect(popupBounds.x).toBeCloseTo((page.viewportSize()!.width - popupBounds.width) / 2, 0);
     for (const direction of ['up', 'down']) {
@@ -1354,8 +1357,7 @@ test('Settings previews and persists every accent and font across navigation and
   await page.goto('/sessions');
   expect(
     await page
-      .locator('.workspace-primary')
-      .first()
+      .getByRole('button', { name: 'New chat', exact: true })
       .evaluate((element) => getComputedStyle(element).color),
   ).toBe(accent);
   expect(
@@ -2055,7 +2057,7 @@ test('combined conversation empty and failed status retain Access and drafts wit
   await page.goto('https://mitzo-ui.test/chat/offline-symposium');
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeDisabled();
   await expect(page.locator('.chat-input[aria-busy="true"]')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Access', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Links & access', exact: true })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('symposium-loading.png'),
     animations: 'disabled',
@@ -2073,7 +2075,7 @@ test('combined conversation empty and failed status retain Access and drafts wit
   await page.reload();
   await expect(page.getByText('Offline status unavailable', { exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Message recipient' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Access', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Links & access', exact: true })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('symposium-error.png'),
     animations: 'disabled',
@@ -2611,6 +2613,44 @@ test('reviewed launches let users dismiss Agent settings and reach Send at a sho
   await expect(settings).toHaveAttribute('aria-expanded', 'false');
   await expect(settings).toBeFocused();
   await expect(settingRow(page, 'Model')).toBeHidden();
+  // Reuse this rendered composer journey for the storage-blocked recovery state.
+  // Functional storage/receipt ownership is covered through the real adapter in unit tests.
+  await page.evaluate(() => {
+    const store = (
+      window as unknown as {
+        __mitzoStore: {
+          setState(state: object): void;
+          getState(): { recoverLocalCommand(): boolean };
+        };
+      }
+    ).__mitzoStore;
+    const recover = store.getState().recoverLocalCommand;
+    store.setState({
+      localCommand: { state: 'blocked' },
+      recoverLocalCommand: () => {
+        store.setState({ localCommand: null, recoverLocalCommand: recover });
+        return true;
+      },
+    });
+  });
+  const retryStorage = page.getByRole('button', { name: 'Retry', exact: true });
+  await expect(retryStorage).toBeEnabled();
+  await page.getByRole('button', { name: 'Conversation status details', exact: true }).click();
+  const status = page.getByRole('dialog', { name: 'Conversation status', exact: true });
+  await expect(status).toContainText('Saved outgoing messages are unavailable');
+  const dialogRetry = status.getByRole('button', { name: 'Retry', exact: true });
+  await expectMotionSettled(dialogRetry);
+  expect((await dialogRetry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    await expect(dialogRetry).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath(`storage-recovery-${theme}.png`) });
+  }
+  await dialogRetry.click();
+  await expect(status).not.toContainText('Saved outgoing messages are unavailable');
+  await closeComposerStatus(page);
   const send = page.getByRole('button', { name: 'Send launch prompt', exact: true });
   await send.scrollIntoViewIfNeeded();
   await expect(send).toBeInViewport();
@@ -4068,7 +4108,9 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
   ).toBeVisible();
   await expect(stop).toBeVisible();
   await expect(draft).toHaveValue('Next untouched draft');
+  await reviewQueuedDrafts(page);
   await expect(page.locator('.queued-draft-row')).toContainText('Queued child follow-up');
+  await closeComposerStatus(page);
   expect(sent).toHaveLength(0);
   for (const theme of ['dark', 'light']) {
     await page.evaluate((value) => {
@@ -4086,7 +4128,9 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
   confirmIdle();
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
   expect(sent).toHaveLength(0);
+  await reviewQueuedDrafts(page);
   await page.getByRole('button', { name: 'Resume queue', exact: true }).click();
+  await closeComposerStatus(page);
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({
     sessionId,
@@ -4208,11 +4252,13 @@ test('rejected running Enter recovers exact input without overwriting newer draf
     page.getByText('An active child reply continues after interrupt refusal.', { exact: true }),
   ).toBeVisible();
   await expect(input).toHaveValue('Newer untouched draft');
+  await reviewQueuedDrafts(page);
   await expect(page.locator('.queued-draft-row')).toHaveCount(2);
   await expect(page.locator('.queued-draft-row').nth(1)).toContainText('Exact refused interrupt');
   await expect(
     page.getByText('Use contributor controls for this input.', { exact: false }),
   ).toBeVisible();
+  await closeComposerStatus(page);
   emit({ type: 'session_state_changed', sessionId, state: 'idle' });
   await expect.poll(() => sent.filter((message) => message.type === 'send').length).toBe(1);
   expect(sent.filter((message) => message.type === 'send')[0].prompt).toBe(
@@ -4224,6 +4270,7 @@ test('rejected running Enter recovers exact input without overwriting newer draf
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
   expect(sent.filter((message) => message.type === 'send')).toHaveLength(1);
   await expect(input).toHaveValue('Newer untouched draft');
+  await reviewQueuedDrafts(page);
   await page.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }).click();
   await expect(page.getByRole('textbox', { name: 'Prompt', exact: true })).toHaveValue(
     'Exact refused interrupt',
@@ -4316,6 +4363,7 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
     error: 'Use contributor controls to send to this conversation.',
   });
   await expect(draft).toHaveValue('Newer untouched ordinary draft');
+  await reviewQueuedDrafts(page);
   await expect(page.locator('.queued-draft-row')).toContainText('Exact refused ordinary input');
   const retainedQueue = () =>
     readChatStorage(page, (storage) => storage.getItem('mitzo-queue-idle-owned-child'));
@@ -4323,6 +4371,9 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   expect(await retainedQueue()).not.toContain('data:image');
   const retry = page.getByRole('button', { name: 'Send queued prompt 1', exact: true });
   await expect(retry).toBeVisible();
+  // Measure the real 44px target after its disclosure/popover entrance, not
+  // WebKit's intermediate compositor geometry. Keep the exact accessibility floor.
+  await expectMotionSettled(retry);
   expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => {
@@ -4330,7 +4381,9 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
       document.documentElement.dataset.accent = 'teal';
       document.documentElement.dataset.font = 'georgia';
     }, theme);
+    await closeComposerStatus(page);
     await expect(draft).toBeInViewport();
+    await reviewQueuedDrafts(page);
     await expect(retry).toBeInViewport();
     await page.screenshot({
       path: testInfo.outputPath(`ordinary-send-recovery-${theme}.png`),
@@ -4347,6 +4400,7 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   expect(sent[1].clientMsgId).not.toBe(sent[0].clientMsgId);
   emit({ type: 'user_message', sessionId, messageId: sent[1].clientMsgId, text: sent[1].prompt });
   await expect(page.locator('.queued-draft-row')).toHaveCount(0);
+  await closeComposerStatus(page);
   await expect(draft).toHaveValue('Newer untouched ordinary draft');
 });
 

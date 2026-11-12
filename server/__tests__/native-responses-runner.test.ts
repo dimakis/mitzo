@@ -76,6 +76,24 @@ describe('deferred Gemini durable compatibility', () => {
       content: 'written',
     })),
   });
+  it('delivers the failure reason to Gemini, continues, and retains it across restart', async () => {
+    fetchMock.mockResolvedValueOnce(response(1));
+    const opts = options();
+    opts.executeTool.mockRejectedValueOnce(
+      Object.assign(Error('private upstream payload'), { code: 'ENOMEM' }),
+    );
+    const events = await collect(new NativeResponsesRunner(opts).run('write'));
+    expect(opts.executeTool).toHaveBeenCalledOnce();
+    expect(store.load('app-id', binding)?.status).toBe('idle');
+    const nextRequest = JSON.stringify(JSON.parse(fetchMock.mock.calls.at(-1)![1].body).contents);
+    expect(nextRequest).toContain('memory_exhausted');
+    expect(nextRequest).not.toContain('private upstream payload');
+    expect(JSON.stringify(events)).toContain('memory_exhausted');
+    store.close();
+    store = new NativeResponsesStore(join(root, 'continuation.db'));
+    await collect(new NativeResponsesRunner(options()).run('continue'));
+    expect(JSON.stringify(fetchMock.mock.calls.at(-1)![1].body)).toContain('memory_exhausted');
+  });
   it('persists signed history and tool outcomes before another request, without exposing credentials', async () => {
     fetchMock.mockResolvedValueOnce(response(1));
     const opts = options();
@@ -211,27 +229,22 @@ describe('deferred Gemini durable compatibility', () => {
     );
     expect(opts.executeTool).not.toHaveBeenCalled();
   });
-  it('captures the active provider inference selection only during its original tool turn', async () => {
+  it('captures only its original active provider call authority', async () => {
     fetchMock.mockResolvedValueOnce(response(1)).mockResolvedValueOnce(response());
-    const opts = { ...options(), reasoningEffort: 'low' };
+    const opts = options();
     const runner = new NativeResponsesRunner(opts);
-    expect(() => runner.captureInferenceSelection()).toThrow();
-    let captured: ReturnType<typeof runner.captureInferenceSelection> | undefined;
+    expect(() => runner.captureActiveCallAuthority()).toThrow();
+    let authority: ReturnType<typeof runner.captureActiveCallAuthority> | undefined;
     opts.executeTool.mockImplementation(async (block) => {
-      captured = runner.captureInferenceSelection();
-      expect(Object.isFrozen(captured)).toBe(true);
-      expect(captured).toMatchObject({ model: binding.model, reasoningEffort: 'low' });
-      expect(() => captured!.assertCurrentSync()).not.toThrow();
+      authority = runner.captureActiveCallAuthority();
+      expect(Object.isFrozen(authority)).toBe(true);
+      expect(() => authority!.assertCurrentSync()).not.toThrow();
       return { type: 'tool_result', tool_use_id: block.id, content: 'done' };
     });
     await collect(runner.run('publish'));
-    expect(captured).toBeDefined();
-    expect(() => captured!.assertCurrentSync()).toThrow();
-    expect(() => runner.captureInferenceSelection()).toThrow();
-    expect(runner.currentInferenceSelection()).toEqual({
-      model: binding.model,
-      reasoningEffort: 'low',
-    });
+    expect(authority).toBeDefined();
+    expect(() => authority!.assertCurrentSync()).toThrow();
+    expect(() => runner.captureActiveCallAuthority()).toThrow();
   });
   it('runs and resumes Gemini tool turns with the same durable native tool loop', async () => {
     const googleBinding = { ...binding, provider: 'google-vertex', model: 'gemini-3.8-flash' };

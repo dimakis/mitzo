@@ -149,6 +149,42 @@ function v2msg(type: string, rest: Record<string, unknown> = {}) {
   return expect.objectContaining({ v: 2, type, ...rest });
 }
 
+it('reports completion only at the provider result, across message gaps and later turns', async () => {
+  const transport = fakeTransport();
+  const registry = fakeRegistry(transport);
+  registry.setSessionId('client', 'session');
+  const onTurnStart = vi.fn();
+  const onTurnEnd = vi.fn();
+  const gaps: unknown[] = [];
+  const completions: number[] = [];
+  async function* stream() {
+    for (let turn = 0; turn < 2; turn++) {
+      yield { type: 'provider_turn_start', session_id: 'session', turn_id: `turn-${turn}` };
+      for (let message = 0; message < 2; message++) {
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: `${turn}-${message}` } },
+        };
+        yield { type: 'assistant', session_id: 'session', message: { content: [] } };
+        gaps.push({
+          snapshot: registry.get('client')!.currentSnapshot,
+          completed: onTurnEnd.mock.calls.length,
+        });
+      }
+      yield { type: 'result', session_id: 'session' };
+      completions.push(onTurnEnd.mock.calls.length);
+    }
+  }
+  await runQueryLoop(stream(), 'client', registry, new AbortController(), undefined, undefined, {
+    onTurnStart,
+    onTurnEnd,
+  });
+  expect(onTurnStart).toHaveBeenCalledWith('client');
+  expect(onTurnEnd).toHaveBeenCalledTimes(2);
+  expect(gaps).toEqual([0, 0, 1, 1].map((completed) => ({ snapshot: null, completed })));
+  expect(completions).toEqual([1, 2]);
+});
+
 it('updates two interleaved message snapshots without searching their block arrays', async () => {
   const run = async (sessionId: string) => {
     const transport = fakeTransport();
@@ -437,6 +473,42 @@ describe('runQueryLoop', () => {
       }
     },
   );
+
+  it('notifies the final written outcome after message flush and never reuses it for another turn', async () => {
+    const record = vi
+      .spyOn(notificationCenter, 'recordTurnNotification')
+      .mockImplementation(() => {});
+    const reply = 'Fixed Watch approvals. 18 tests passed. PR #1207 awaits review.';
+    try {
+      await runQueryLoop(
+        eventStream([
+          { type: 'stream_event', event: { type: 'message_start', message: { id: 'final' } } },
+          {
+            type: 'stream_event',
+            event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+          },
+          {
+            type: 'stream_event',
+            event: {
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'text_delta', text: reply },
+            },
+          },
+          { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+          { type: 'assistant', message: { content: [] }, session_id: 'notification-chat' },
+          { type: 'result', session_id: 'notification-chat' },
+          { type: 'result', session_id: 'notification-chat' },
+        ]),
+        clientId,
+        registry,
+        abortController,
+      );
+      expect(record.mock.calls.map((call) => call[2])).toEqual([reply, '']);
+    } finally {
+      record.mockRestore();
+    }
+  });
 
   it('notifies failure instead of completion when the provider rejects a request without a reply', async () => {
     const completed = vi
@@ -2499,6 +2571,40 @@ describe('runQueryLoop', () => {
         numTurns: 1,
         state: 'ENDED',
       });
+    });
+
+    it('retains actionable feedback when Codex ends after an unexplained tool failure', async () => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'sess-tool-feedback';
+      registry.get(clientId)!.sessionId = sessionId;
+      store.upsertSession({ sessionId, cwd: '/tmp' });
+      const events: Record<string, unknown>[] = [];
+      const mapper = new CodexSessionEvents(sessionId, 'thread', 'model', (event) =>
+        events.push(event),
+      );
+      mapper.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+      mapper.toolResult(
+        mapper.toolStart('call', 'Bash', { command: 'offline-check' }),
+        'declined',
+        true,
+      );
+      mapper.notification('turn/completed', {
+        threadId: 'thread',
+        turn: { id: 'turn', status: 'completed' },
+      });
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
+      const saved = store.getEventsAfter(sessionId, 0);
+      const feedback = saved.filter((event) => event.type === 'error');
+      expect(feedback).toHaveLength(1);
+      expect(feedback[0].payload.error).toMatch(/Inspect the original operation receipt/);
+      expect(feedback[0].payload.error).toMatch(/do not repeat an uncertain effect/);
+      expect(saved.some((event) => event.type === 'session_end')).toBe(true);
+      expect(
+        transport.sent.some(
+          (event) => event.type === 'error' && event.error === feedback[0].payload.error,
+        ),
+      ).toBe(true);
+      store.close();
     });
 
     it('persists one Codex turn when several renderer blocks end without a result', async () => {

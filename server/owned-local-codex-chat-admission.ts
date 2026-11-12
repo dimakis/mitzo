@@ -1,4 +1,6 @@
 import { assembleCommandPrompt } from './message-reply-context.js';
+import { admitToolFailureContinuation } from './tool-failure-continuation.js';
+import { agentContextAuthenticationFailure } from './agent-context-authority.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
   CHAT_MAX_IMAGES,
@@ -78,6 +80,9 @@ interface Owner {
   lease: FrozenHostCodexBootstrapLease;
   bridge: OwnedCodexLifecycleBridge;
   authSessionId?: string;
+  /** Diagnostic-only original login lifetime; survives admission/lease cleanup. */
+  authenticationSignal?: AbortSignal;
+  retainedAuthenticationFailure?: () => unknown;
   custody?: HostCodexCustody;
   /** Current actual private cold workspace owner; never reconstructed live delegation. */
   qualifiedColdPrimary?: Readonly<{ commandId: string; assertCurrentSync(): void }>;
@@ -85,6 +90,8 @@ interface Owner {
   recovery?: RetainedLocalCodexRecovery;
   /** Private live owner observation, invoked only after exact dispatch admission. */
   authorizeNativeThreadDispatch?: (commandId: string) => void;
+  /** Fresh live peer consent is never reconstructed from retained queue rows. */
+  assertAgentMessagePermissionCurrent?: () => void;
   preparedRepositoryBoundary?: {
     assertCurrentSync(): void;
     adopt(
@@ -165,7 +172,10 @@ export class OwnedLocalCodexChatAdmission {
         owner.expected.agentProfile,
         owner.expected.agentContext,
       );
-      const admission = new OwnedLocalCodexChatAdmission(owner);
+      const admission = new OwnedLocalCodexChatAdmission({
+        ...owner,
+        assertAgentMessagePermissionCurrent: undefined,
+      });
       admission.#resume = true;
       admission.#continuation = true;
       admission.assertReceipt(true);
@@ -182,6 +192,7 @@ export class OwnedLocalCodexChatAdmission {
         const child = new OwnedLocalCodexChatAdmission({
           ...owner,
           recovery: undefined,
+          assertAgentMessagePermissionCurrent: undefined,
           commandId: queued.id,
           expected: { ...structuredClone(owner.expected), selection: receipt.selection },
         });
@@ -263,6 +274,34 @@ export class OwnedLocalCodexChatAdmission {
       (this.#continuation || binding.model === this.#expected.selection.model)
     );
   }
+  admitToolFailureContinuation(input: CodexCommandInput): void {
+    if (this.#primary) return this.#primary.admitToolFailureContinuation(input);
+    this.assertCurrentSync();
+    const sourceId = input.toolFailureContinuation?.sourceCommandId;
+    const source =
+      sourceId === this.owner.commandId
+        ? this
+        : sourceId
+          ? this.#continuations.get(sourceId)
+          : undefined;
+    if (!source || !this.owner.nativeStore || !source.#dispatched) throw unavailable();
+    admitToolFailureContinuation({
+      events: this.owner.eventStore,
+      native: this.owner.nativeStore,
+      sessionId: this.owner.sessionId,
+      account: this.#binding,
+      location: 'local',
+      expected: source.#expected,
+      input,
+      assertCurrent: () => this.assertCurrentSync(),
+      register: () => {
+        if (!this.#continuations.has(input.id)) this.admitContinuation(input.id, source.#expected);
+        const child = this.#continuations.get(input.id)!;
+        if (!child.#enqueued) this.assertBeforeEnqueue(input);
+        else child.assertReceipt();
+      },
+    });
+  }
   /** Register only an already claimed durable continuation. Native FIFO admission
    * remains unavailable until the owning coordinator supplies this capability.
    * A future command may vary inference settings, never runtime or context.
@@ -270,8 +309,10 @@ export class OwnedLocalCodexChatAdmission {
   admitContinuation(
     commandId: string,
     expectedInput: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    assertPermissionCurrent?: () => void,
   ): void {
-    if (this.#primary) return this.#primary.admitContinuation(commandId, expectedInput);
+    if (this.#primary)
+      return this.#primary.admitContinuation(commandId, expectedInput, assertPermissionCurrent);
     try {
       this.assertCurrentSync();
       if (
@@ -302,6 +343,7 @@ export class OwnedLocalCodexChatAdmission {
         recovery: undefined,
         commandId,
         expected,
+        assertAgentMessagePermissionCurrent: assertPermissionCurrent,
       });
       if (child.#payload.systemPrompt !== this.#payload.systemPrompt) throw unavailable();
       child.#continuation = true;
@@ -761,6 +803,16 @@ export class OwnedLocalCodexChatAdmission {
   assertCurrentSync(): void {
     this.observeCurrentSync(this.owner.eventStore, this.owner.sessionId);
   }
+  authenticationFailure() {
+    try {
+      return (
+        agentContextAuthenticationFailure(this.owner.retainedAuthenticationFailure?.()) ??
+        agentContextAuthenticationFailure(this.owner.authenticationSignal?.reason)
+      );
+    } catch {
+      return undefined;
+    }
+  }
   /** The actual admission owner supplies fresh facts for its caller's immediate
    * pure comparisons. Callers cannot supply a checked observation or retain
    * one to authorize another effect. Mutable owner callbacks run before reading. */
@@ -933,6 +985,10 @@ export class OwnedLocalCodexChatAdmission {
       this.#expected.selection.model,
       this.#expected.selection.thinking,
     );
+    if (this.owner.eventStore.agentCommunication.forCommand(commandId)) {
+      if (!this.owner.assertAgentMessagePermissionCurrent) throw unavailable();
+      this.owner.assertAgentMessagePermissionCurrent();
+    }
     this.#dispatched = true;
     this.owner.authorizeNativeThreadDispatch?.(commandId);
   }

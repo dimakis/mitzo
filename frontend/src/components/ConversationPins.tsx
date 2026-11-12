@@ -4,11 +4,14 @@ import { useConversationPins } from '../hooks/useConversationPins';
 import { useSessionInteraction, type SessionActionPoint } from '../hooks/useSessionInteraction';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
-import { formatRelativeTime } from '../lib/formatTime';
+import type { SessionActivity } from '@mitzo/protocol';
+import { SessionActivityStatus } from './SessionActivityStatus';
 import { recordTitle } from '../lib/record-title';
 import '../styles/session-library.css';
 type Props = {
   sessions: Session[];
+  activities?: Map<string, SessionActivity>;
+  connected?: boolean;
   selectedId?: string;
   onSelect: (id: string, session: Session) => void;
   onPreview?: (session: Session) => void;
@@ -32,7 +35,13 @@ function PinRow({ session, props }: { session: Session; props: Props }) {
         title={title}
       >
         <span>{title}</span>
-        <small>{formatRelativeTime(session.lastModified)}</small>
+        <small>
+          <SessionActivityStatus
+            activity={props.activities?.get(session.id)}
+            modifiedAt={session.lastModified}
+            connected={props.connected}
+          />
+        </small>
       </button>
       <button
         type="button"
@@ -54,13 +63,13 @@ export function ConversationPins(props: Props) {
     <section className="conversation-pins" aria-label="Pinned">
       <button
         type="button"
-        className="conversation-pins-toggle"
+        className="conversation-pins-toggle collection-section-toggle"
         aria-expanded={!pins.collapsed}
         aria-controls={id}
         aria-label={`${pins.collapsed ? 'Expand' : 'Collapse'} pinned conversations`}
         onClick={() => pins.setCollapsed(!pins.collapsed)}
       >
-        <UiIcon name={pins.collapsed ? 'forward' : 'down'} size={16} />
+        <UiIcon name="down" size={16} />
         <UiIcon name="pin" size={16} />
         <span>Pinned</span>
         <span className="conversation-pin-count">{pins.pins.length}</span>

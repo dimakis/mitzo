@@ -344,12 +344,23 @@ export class TelosSourceCapture {
     });
   }
 
+  /** Read the exact completed command before requiring authority for new writes.
+   * Missing/partial receipts never authorize capture, creation or source changes. */
+  completedCreation(raw: unknown, actor: TelosWorkActor): TelosWorkCommandReceipt | null {
+    this.operator(actor);
+    const input = TelosSourceCreateRequestSchema.parse(raw);
+    return (
+      this.options.work.sourceCreation(input.requestId, hash(JSON.stringify(input)), actor)
+        ?.receipt ?? null
+    );
+  }
+
   async createReviewed(
     raw: unknown,
     actor: TelosWorkActor,
     createOutcome: (
       body: TelosOutcomeCreation,
-      assertCurrentSync?: () => void,
+      assertCurrentSync: () => void,
     ) => Promise<{ itemId: string }>,
     readPreparedPreview?: () => TelosSourcePreview,
     assertOperationCurrent?: () => void,

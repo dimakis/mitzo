@@ -16,6 +16,7 @@ import {
   joiningSetupFixture,
 } from '../../frontend/src/preview/conversation-joining-fixture';
 import type { ConversationJoiningOwner } from '../../frontend/src/lib/conversation-joining-review';
+import { ConversationRepositoryPicker } from '../../frontend/src/components/ConversationRepositoryPicker';
 import { createBrowserId, sha256Hex } from '../../frontend/src/lib/browser-crypto';
 import { restoreCookieAuthentication } from '../../frontend/src/lib/api-fetch';
 import '../../frontend/src/styles/tokens.css';
@@ -55,6 +56,11 @@ const owner: ConversationJoiningOwner = {
         status: 'needs_reviewed_summary',
         reason: 'Choose less context before joining.',
       };
+    if (mode === 'unmeasured')
+      snapshot.snapshot.capacity = {
+        status: 'unverified',
+        reason: 'Context capacity is unavailable. Joining starts no model response.',
+      };
     return snapshot;
   },
   async confirm(input) {
@@ -85,8 +91,36 @@ const owner: ConversationJoiningOwner = {
 };
 function Fixture() {
   const [open, setOpen] = useState(false);
+  const [setup, setSetup] = useState(() => ({
+    ...joiningSetupFixture(),
+    selection: {
+      accountId:
+        new URLSearchParams(location.search).get('account') === 'api'
+          ? 'offline-api'
+          : 'offline-claude',
+      model: 'offline-fixture',
+      reasoningEffort: null,
+    },
+  }));
   const flow = useConversationJoiningReview(owner);
   const close = () => setOpen(false);
+  if (mode === 'repository')
+    return (
+      <main className="conversation-agents-body">
+        <h2>
+          {setup.selection.accountId === 'offline-api'
+            ? 'Separate API-key participant'
+            : 'Personal Claude subscription'}
+        </h2>
+        <ConversationRepositoryPicker
+          setup={setup}
+          onChange={(values) =>
+            setSetup((current) => ({ ...current, ...values, selection: current.selection }))
+          }
+        />
+        {setup.repositoryWorkspaceId && <p role="status">Participant repository prepared</p>}
+      </main>
+    );
   return (
     <>
       <div data-fixture-controls>

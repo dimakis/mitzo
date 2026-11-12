@@ -4,6 +4,7 @@ import {
   getPendingTelosSourceReview,
   resolveReviewedTelosSourcePermission,
   capturePendingTelosSourceReviewCurrent,
+  resolvePending,
 } from '@mitzo/harness';
 import {
   TelosOutcomeProposalSchema,
@@ -17,6 +18,10 @@ import {
   type TelosSourcePermissionOperation,
   type TelosSourcePermissionPreviewRequest,
   type TelosOutcomeCreation,
+  type TelosSourcePermissionReview,
+  type TelosWorkCommandReceipt,
+  TelosOutcomeRevisionRequestSchema,
+  TelosOutcomeRevisionReceiptSchema,
 } from '@mitzo/protocol';
 import { TelosWorkError, type TelosWorkActor, type TelosWorkStore } from './telos-work-store.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
@@ -36,10 +41,33 @@ import {
 } from './native-telos-worker-materials.js';
 
 const adopt = z.strictObject({ itemId: z.string().min(1).max(200) });
+/** Suggest only public text already qualified by the source owner. Saving still
+ * requires a compiled preview and the operator's explicit approval. */
+function latestExchange(
+  messages: Pick<
+    TelosSourcePermissionReview['messages'][number],
+    'author' | 'messageId' | 'blocks' | 'unavailableReason'
+  >[],
+): string[] {
+  const eligible = messages.filter(
+    (message) => !message.unavailableReason && message.blocks.some((block) => block.content.trim()),
+  );
+  const lastUser = eligible.map((message) => message.author).lastIndexOf('operator');
+  const start =
+    lastUser < 0
+      ? Math.max(0, eligible.length - 1)
+      : lastUser === eligible.length - 1 &&
+          lastUser > 0 &&
+          eligible[lastUser - 1].author !== 'operator'
+        ? lastUser - 1
+        : lastUser;
+  return eligible.slice(start).map((message) => message.messageId);
+}
 export class TelosSourceSaveUncertainError extends Error {
-  constructor() {
+  constructor(options?: ErrorOptions) {
     super(
       'Source save uncertain. Retry the exact original reviewed request to recover its receipt.',
+      options,
     );
   }
 }
@@ -57,7 +85,7 @@ export class TelosSourceApproval {
       assertAuthorized?(): void;
       createOutcome(
         input: TelosOutcomeCreation,
-        assertCurrentSync?: () => void,
+        assertCurrentSync: () => void,
       ): Promise<{ itemId: string; receipt?: unknown }>;
     },
   ) {
@@ -133,6 +161,62 @@ export class TelosSourceApproval {
     )
       resolveReviewedTelosSourcePermission(pending, record.id);
   }
+  private captureInput(record: RetainedTelosSourceApproval) {
+    const { input, operation, proof } = record;
+    return {
+      requestId: sourceApprovalHash([proof.permId, proof.toolUseId, input.requestId]),
+      selection: {
+        ...input.selection,
+        requestId: input.requestId,
+        expectedMembershipRevision: 0,
+        sourceConversationId: input.sessionId,
+        purpose:
+          operation.kind === 'create'
+            ? 'Create reviewed Telos outcome'
+            : 'Adopt reviewed Telos source',
+        joiningBrief: '',
+      },
+      previewSha256: input.previewSha256,
+    };
+  }
+  private complete(record: RetainedTelosSourceApproval, receipt: TelosWorkCommandReceipt) {
+    const source = receipt.work.sources.find(
+      (source) =>
+        source.artifacts.at(-1)?.sha256 === record.input.previewSha256 &&
+        source.source?.namespace === 'mitzo' &&
+        source.source.conversationId === record.input.sessionId,
+    );
+    if (!source) throw new Error('Saved reviewed source receipt unavailable');
+    const canonicalCreation =
+      record.operation.kind === 'create' ? this.options.store.canonical(record.id) : null;
+    if (
+      record.operation.kind === 'create' &&
+      (!canonicalCreation || canonicalCreation.item.id !== receipt.work.itemId)
+    )
+      throw new Error('Actual canonical creation receipt unavailable');
+    const result = TelosSourcePermissionReceiptSchema.parse({
+      permId: record.proof.permId,
+      sessionId: record.input.sessionId,
+      receipt,
+      sourceSnapshotId: source.snapshotId,
+      canonicalCreation,
+    });
+    this.options.store.complete(record.id, result);
+    record.receipt = result;
+    return result;
+  }
+  private reconcileCompletedCreation(record: RetainedTelosSourceApproval, actor: TelosWorkActor) {
+    this.operator(actor);
+    if (record.receipt || record.operation.kind !== 'create') return;
+    const receipt = this.capture.completedCreation(
+      { ...this.captureInput(record), outcome: record.operation.outcome },
+      actor,
+    );
+    if (receipt) {
+      this.complete(record, receipt);
+      this.resume(record);
+    }
+  }
   private operation(
     proof: ReturnType<TelosSourceApproval['pending']>,
     actor: TelosWorkActor,
@@ -185,10 +269,62 @@ export class TelosSourceApproval {
       for (const pin of record.preview.packet.context.artifacts) scope?.assertPin(pin);
     };
   }
-  async review(permId: string, sessionId: string, actor: TelosWorkActor, afterSequence = 0) {
+  /** Feedback ends only the original pending proposal. It never authorizes a
+   * canonical save or resumes a prepared/uncertain creation attempt. */
+  async requestChanges(permId: string, raw: unknown, actor: TelosWorkActor) {
+    const actorId = this.operator(actor);
+    const input = TelosOutcomeRevisionRequestSchema.parse(raw);
+    let record = this.options.store.revision(permId, input.sessionId, actorId, input);
+    if (record?.delivered) return record.receipt;
+    // Receipt recovery is an authenticated read of the exact retained request.
+    // A consumed, expired or revoked invocation cannot authorize redelivery, and
+    // its absence alone cannot prove whether the agent received the feedback.
+    if (record && !getPendingTelosSourceReview(permId, input.sessionId))
+      return { ...record.receipt, deliveryStatus: 'unconfirmed' as const };
+    const proof = this.pending(permId, input.sessionId, actor);
+    const current = this.pendingCurrent(proof, actor);
+    const operation = this.operation(proof, actor);
+    if (
+      operation.kind !== 'create' ||
+      proof.toolUseId !== input.toolUseId ||
+      sourceApprovalHash(operation) !== input.proposalSha256 ||
+      (record && !isDeepStrictEqual(record.proof, proof))
+    )
+      throw new TelosWorkError('conflict', 'Original outcome proposal changed; review again');
+    current();
+    record ??= this.options.store.prepareRevision(
+      proof,
+      actorId,
+      input,
+      TelosOutcomeRevisionReceiptSchema.parse({
+        ...input,
+        kind: 'telos_outcome_changes_requested',
+        permId,
+        originalOutcome: operation.outcome,
+        nextAction:
+          'Revise the original outcome using this feedback, then call TelosCreateOutcome again for fresh approval. No outcome was created.',
+      }),
+    );
+    current();
+    if (!resolvePending(permId, 'deny', undefined, input.sessionId, JSON.stringify(record.receipt)))
+      throw new TelosWorkError(
+        'conflict',
+        'Feedback retained but delivery to the original agent is unconfirmed',
+      );
+    this.options.store.revisionDelivered(permId);
+    return record.receipt;
+  }
+  async review(
+    permId: string,
+    sessionId: string,
+    actor: TelosWorkActor,
+    afterSequence = 0,
+    beforeSequence?: number,
+  ) {
     const actorId = this.operator(actor),
       retained = this.options.store.lookup(permId, sessionId, actorId);
     if (retained) {
+      this.reconcileCompletedCreation(retained, actor);
       this.preparedMaterialCurrent(retained, actor)?.();
       const { preview, input, proof, operation, receipt } = retained;
       return TelosSourcePermissionReviewSchema.parse({
@@ -226,8 +362,13 @@ export class TelosSourceApproval {
     const materialScope = this.materialScope(proof, operation, actor);
     if (!Number.isSafeInteger(afterSequence) || afterSequence < 0)
       throw new TelosWorkError('invalid', 'Invalid source cursor');
-    const anchors = this.options.events.getSymposiumPerspectiveEvents(sessionId, afterSequence, 51);
-    const rawPage = anchors.slice(0, 50);
+    const anchors = this.options.events.getSymposiumPerspectiveEvents(
+      sessionId,
+      afterSequence,
+      51,
+      beforeSequence,
+    );
+    const rawPage = beforeSequence === undefined ? anchors.slice(0, 50) : anchors.slice(-50);
     const page = rawPage.filter((e) => e.type === 'user_message' || e.type === 'message_end');
     const cursor = rawPage.at(-1)?.seq ?? afterSequence;
     const source = createTelosConversationSource({
@@ -297,6 +438,10 @@ export class TelosSourceApproval {
       artifactsHasMore: materialPage.hasMore,
       cursor,
       hasMore: anchors.length > 50,
+      ...(beforeSequence !== undefined && rawPage.length ? { earlierCursor: rawPage[0].seq } : {}),
+      ...(beforeSequence === Number.MAX_SAFE_INTEGER && operation.kind === 'create'
+        ? { suggestedMessageIds: latestExchange(messages) }
+        : {}),
     });
   }
   private discoverMaterials(
@@ -437,6 +582,7 @@ export class TelosSourceApproval {
         )
       )
         throw new TelosWorkError('conflict', 'Retry the exact original reviewed source request');
+      this.reconcileCompletedCreation(retained, actor);
       this.preparedMaterialCurrent(retained, actor)?.();
       return {
         permId,
@@ -481,6 +627,7 @@ export class TelosSourceApproval {
         compiled.assertCurrent.requiresLiveNativeCall ? true : undefined,
       );
     }
+    this.reconcileCompletedCreation(record, actor);
     if (record.receipt) {
       this.resume(record);
       return record.receipt;
@@ -499,19 +646,8 @@ export class TelosSourceApproval {
     };
     assertFreshWrite();
     try {
-      const operation = record.operation,
-        requestId = sourceApprovalHash([permId, record.proof.toolUseId, input.requestId]);
-      const selection = {
-        ...input.selection,
-        requestId: input.requestId,
-        expectedMembershipRevision: 0,
-        sourceConversationId: input.sessionId,
-        purpose:
-          operation.kind === 'create'
-            ? 'Create reviewed Telos outcome'
-            : 'Adopt reviewed Telos source',
-        joiningBrief: '',
-      };
+      const operation = record.operation;
+      const captureInput = this.captureInput(record);
       const readPreparedPreview = () => {
         assertFreshWrite();
         const retained = this.options.store.find(permId, input.sessionId, actorId, input);
@@ -529,10 +665,8 @@ export class TelosSourceApproval {
         operation.kind === 'create'
           ? await this.capture.createReviewed(
               {
-                requestId,
+                ...captureInput,
                 outcome: operation.outcome,
-                selection,
-                previewSha256: input.previewSha256,
               },
               actor,
               async (body, assertCurrentSync) => {
@@ -547,43 +681,20 @@ export class TelosSourceApproval {
           : await this.capture.adopt(
               {
                 itemId: operation.itemId,
-                requestId,
-                selection,
+                ...captureInput,
                 expectedRevision: operation.expectedRevision,
-                previewSha256: input.previewSha256,
               },
               actor,
               readPreparedPreview,
               assertFreshWrite,
             );
       this.operator(actor);
-      const source = receipt.work.sources.find(
-        (source) =>
-          source.artifacts.at(-1)?.sha256 === input.previewSha256 &&
-          source.source?.namespace === 'mitzo' &&
-          source.source.conversationId === input.sessionId,
-      );
-      if (!source) throw new Error('Saved reviewed source receipt unavailable');
-      const canonicalCreation =
-        operation.kind === 'create' ? this.options.store.canonical(record.id) : null;
-      if (
-        operation.kind === 'create' &&
-        (!canonicalCreation || canonicalCreation.item.id !== receipt.work.itemId)
-      )
-        throw new Error('Actual canonical creation receipt unavailable');
-      const result = TelosSourcePermissionReceiptSchema.parse({
-        permId,
-        sessionId: input.sessionId,
-        receipt,
-        sourceSnapshotId: source.snapshotId,
-        canonicalCreation,
-      });
-      this.options.store.complete(record.id, result);
+      const result = this.complete(record, receipt);
       this.resume(record);
       return result;
     } catch (error) {
       if (error instanceof TelosWorkError) throw error;
-      throw new TelosSourceSaveUncertainError();
+      throw new TelosSourceSaveUncertainError({ cause: error });
     }
   }
   execute(approvalReceiptId: string, sessionId: string, rawProposal: unknown) {

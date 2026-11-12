@@ -1,25 +1,5 @@
 import { randomUUID } from 'node:crypto';
-
-const messages = {
-  input_not_dispatched:
-    'This message was not sent to the provider because its original runtime could not be prepared. Completed work will not be rerun.',
-  repair_refused:
-    'This historical repair could not be qualified safely. Original work and queued messages are retained; nothing was dispatched.',
-  runtime_unavailable:
-    'The execution runtime could not continue. The conversation, workspace and saved messages are retained.',
-  callbacks_pending:
-    'The provider finished, but an original tool callback has not settled. Saved messages remain queued. Completed work will not be rerun.',
-  callbacks_failed:
-    'An original tool callback could not finish safely. Its outcome needs reconciliation before saved messages can continue. Completed work will not be rerun.',
-  turn_completed:
-    'This provider turn has already finished. A new tool callback cannot execute on that turn.',
-  unsettled_effects:
-    'A previous turn has unresolved tool or completion effects. Saved messages remain queued while its original outcome is reconciled. Completed work will not be rerun.',
-  provider_active:
-    'The previous provider turn is still active. Saved messages remain queued until its exact outcome is confirmed.',
-  provider_identity:
-    'The provider outcome does not match the retained command and turn. The original work and saved messages are retained for inspection.',
-} as const;
+import { SESSION_RUNTIME_MESSAGES as messages } from '@mitzo/protocol';
 export function sessionRuntimeMessage(code: keyof typeof messages): string {
   return messages[code];
 }

@@ -49,7 +49,7 @@ Repeated native workspace checks dominated the trace: 204 observations totalled
 The 7 GiB hosted runner reported normal macOS pressure and no swap throughout;
 low free memory alone does not prove resource exhaustion.
 
-Delivery and publication now occupy two independent macOS jobs, retaining the
+At that point, delivery and publication occupied two independent macOS jobs, retaining the
 same one-worker fresh-process isolation and all case deadlines/assertions. The
 completion-route follow-on expands the inventory to five delivery and two
 publication cases, requiring both subscription and API account journeys.
@@ -64,6 +64,61 @@ The measured publication duration bounds the useful parallel test time at about
 7.5 minutes before setup, queueing and aggregation. This is an estimate, not a
 measured end-to-end improvement: the extra macOS job may wait for hosted capacity.
 Compare subsequent clean runs including queue delays before claiming a speedup.
+
+## macOS queue and setup audit, 3 November 2026
+
+Five completed runs at the audited execution layout
+([41519410267](https://github.com/dimakis/mitzo/actions/runs/41519410267),
+[41526834020](https://github.com/dimakis/mitzo/actions/runs/41526834020),
+[41543336990](https://github.com/dimakis/mitzo/actions/runs/41543336990),
+[41547179087](https://github.com/dimakis/mitzo/actions/runs/41547179087) and
+[41622453461](https://github.com/dimakis/mitzo/actions/runs/41622453461))
+each submitted nine macOS jobs and peaked at five running simultaneously. The
+longest per-run macOS admission delays were 11m47s–28m41s; Linux jobs typically
+started in two seconds. Job creation-to-start time excludes prerequisite waits.
+The slowest queues therefore reflect available concurrency, while execution also
+remains substantial. These observations do not prove a provider capacity incident.
+
+Across those runs, median aggregate repeated setup was 15m02s: npm installation
+7m37s, checkout/Node/npm-version setup 2m51s, eight workspace compilations 1m59s,
+six Python/browser preparations 2m04s, and six native fixture downloads 25s.
+The category medians are not additive. These are runner-minutes across parallel
+jobs, not elapsed candidate time or measured savings. Delivery and publication
+together used a median 29m22s including setup, excluding queue time.
+
+The execution layout now keeps five macOS jobs: the Apple SDK/Keychain/simulator
+job, native repository and authorization workflows, and three joined acceptance
+shards. Two dedicated prepared-consumer groups and two supplemental application
+shards execute on Linux, retaining their original complete selections. The
+prepared fixtures already substitute physical native readers and artifact
+qualification; they prove application custody/admission/delivery/publication,
+not kernel isolation. Supplemental portable execution uses an explicit test-only
+CLI adapter with the real private Python CLI, HTTP, databases, browser and restart
+owners. Its reports explicitly distinguish portable application coverage from
+native isolation qualification. Canonical/joined macOS consumers continue through
+the real protected launcher and actual native repository boundaries.
+
+The canonical artifact journey executes once in joined shard three's unchanged
+`s6-app-owners` group. The separate native repository job no longer repeats that
+file or its unused browser/Python setup. The final gate still requires both
+native repository workflows and joined completeness; all twelve joined groups
+and fourteen App file cases remain mandatory. The Linux platform-refusal test
+remains in full unit discovery. Pure notification cold-boot process fixtures run
+in Linux preflight; the actual notification simulator check remains on macOS.
+
+Shared setup actions consolidate workflow definitions without claiming faster
+execution by themselves. Portable workspace JavaScript and distinct iOS-mode web
+assets are built by existing Linux producers and transferred under explicit
+portable scopes. Platform-bound server/frontend transfers retain their original
+host identity requirements; dependencies and native binaries are never transferred.
+Every scope retains exact candidate/tree/run, Node and content checks. Portable
+scopes bind the committed lockfile, source-locked dependency resolutions and
+actual compiler version, allowing only platform-optional install differences;
+the producer's host and installed-lock digest remain retained provenance.
+Existing platform-bound scopes still require exact installed-lock equality.
+Native Capacitor synchronization, Apple builds, Keychain and simulator
+execution remain on macOS. Compare artifact preparation/download overhead and
+complete required checks before claiming an end-to-end improvement.
 
 ## Executable qualification and hosted fixture budgets, 28 October 2026
 
@@ -108,7 +163,7 @@ assertions intact. All native operation and authorization deadlines remain.
 
 ## Execution and completeness
 
-The six canonical, joined and supplemental macOS jobs use one conservative
+The native repository, joined and portable supplemental jobs use one conservative
 `ordinary` selection over the complete PR diff, including both sides of renames.
 Ordinary prose-only documentation and iOS-only changes skip these unrelated
 server/browser journeys; the latter still selects native Swift/build coverage.
@@ -126,13 +181,13 @@ still fails. No acceptance case, assertion or deadline is removed.
   files retain a path-hash partition. Complete discovery and exact once-only file
   coverage remain mandatory in `ci-unit-gate.mjs`.
 - The seven composed prepared-repository delivery/publication cases have a
-  separate one-worker macOS owner with delivery/publication matrix groups. The
+  separate one-worker Linux owner with delivery/publication matrix groups. The
   delivery file's five cases run in one fresh Vitest process, and a separate job
   runs a fresh process for the publication file's two cases. These exercise
-  LocalMac behavior with synthetic provider/model transport; no live model or
+  LocalMac application behavior with synthetic native/provider/model transport; no live model or
   account credentials are used. Only these two files transfer from the four
   Linux shards. Full discovery still lists them, the unit gate requires both
-  declared paths and rejects Linux execution of either, and every other discovered
+  declared paths and rejects execution of either in the four unit shards; every other discovered
   file remains covered exactly once by Linux. Local unsharded tests retain both.
   The owner validates exact file and full case identities, counts, statuses and
   successful process exits, rejecting skips, duplicates, stale or partial reports.
@@ -271,8 +326,9 @@ before replacing that archive's outputs. Missing, mismatched, partial, corrupted
 linked, wrong-scope or oversized output fails closed; no cross-run cache is used.
 Unit execution also requires successful restoration. Failed-only retries retain
 each successful producer's output ID; a full rerun publishes new immutable IDs.
-macOS owners continue to build their own platform prerequisites, and dependencies
-are never transferred. Production frontend input/output evidence remains retained
+macOS owners restore only the explicit portable workspace and iOS-web scopes,
+then build their native prerequisites locally. Dependencies are never transferred.
+Production frontend input/output evidence remains retained
 by its producer. The final CI gate explicitly requires both producers to succeed.
 Local build commands keep compiling as before; only the verified CI layout path
 uses the prebuilt assets. Measure upload/download, producer completion and queue time before claiming an
@@ -391,3 +447,13 @@ This extends the permitted navigation-to-assertion sequence within the unchanged
 or history assertions, or wait for unrelated collection hydration.
 
 The complete native non-git journey keeps its 120-second local envelope and uses a finite 180-second CI envelope. Retained hosted-runner evidence completed it in 106–112 seconds and cut off a valid final replay at 120 seconds. This is a composed fixture allowance; production, individual request, helper, approval and handoff deadlines remain unchanged. Timeouts still require diagnosis rather than automatic retry.
+
+## Exact Node version for compiled transfers, 30 October 2026
+
+Run [41127643011](https://github.com/dimakis/mitzo/actions/runs/41127643011)
+produced server artifacts with Node 24.22.1, but a unit consumer selected
+24.22.0 from its runner cache. The exact-host transfer check correctly rejected
+the artifact before running tests. CI now selects 24.22.1 through one shared
+workflow value for every Node setup; the candidate, dependency and host identity
+checks remain unchanged. An ordinary major-version selector can resolve to
+different cached patch versions during runner-image transitions.

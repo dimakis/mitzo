@@ -38,6 +38,7 @@ public func notificationServerURL(_ origin: String?) -> URL? {
 /// request. Only the same live request that was reviewed can be answered.
 public func watchNotificationResponse(
     reviewed: MitzoNotification, current: MitzoNotification, decision: NotificationResponse.Decision,
+    answers: [String: [String]]? = nil,
     at milliseconds: Double = Date().timeIntervalSince1970 * 1000
 ) -> NotificationResponse? {
     guard reviewed.id == current.id, reviewed.sessionId == current.sessionId,
@@ -46,11 +47,16 @@ public func watchNotificationResponse(
           current.id == "permission:\(request.permId)" else { return nil }
     switch decision {
     case .once:
-        guard current.kind == "approval", request.questions == nil,
-              request.approvalScope != .conversation else { return nil }
+        if let questions = request.questions {
+            guard current.kind == "question", validNotificationAnswers(answers, questions: questions) else { return nil }
+        } else {
+            guard current.kind == "approval", request.reviewKind == nil,
+                  request.approvalScope != .conversation else { return nil }
+        }
     case .session:
-        guard current.kind == "approval", request.questions == nil else { return nil }
+        guard current.kind == "approval", request.questions == nil, request.reviewKind == nil,
+              request.allowSessionGrant != false else { return nil }
     case .deny: break
     }
-    return NotificationResponse(sessionId: sessionID, decision: decision)
+    return NotificationResponse(sessionId: sessionID, decision: decision, answers: decision == .once ? answers : nil)
 }

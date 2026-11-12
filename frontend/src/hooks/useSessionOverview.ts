@@ -1,5 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
-import { eventBus } from '../lib/event-bus-singleton';
+import { useMemo, useSyncExternalStore } from 'react';
+import {
+  subscribeSessionActivity as subscribe,
+  getSessionActivitySnapshot as getSnapshot,
+} from '../lib/session-activity-store';
 import { sessionNeedsYouReason } from '../lib/session-attention';
 import type { SessionActivity } from '@mitzo/protocol';
 
@@ -34,22 +37,16 @@ export interface UseSessionOverviewReturn {
   attendCount: number;
   /** Whether SSE is connected. */
   connected: boolean;
+  /** Display-only evidence; never use this to override current HTTP state. */
+  lastKnownActivities: SessionActivity[];
 }
 
 export function useSessionOverview(): UseSessionOverviewReturn {
-  const [activities, setActivities] = useState<SessionActivity[]>([]);
-  const [connected, setConnected] = useState(eventBus.connected);
-
-  useEffect(() => {
-    const unsubActivity = eventBus.on('session_activity', (data) => {
-      setActivities(data as SessionActivity[]);
-    });
-    const unsubConnection = eventBus.onConnectionChange((c) => setConnected(c));
-    return () => {
-      unsubActivity();
-      unsubConnection();
-    };
-  }, []);
+  const { activities, lastKnownActivities, connected } = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
 
   const sorted = useMemo(() => sortByTier(activities), [activities]);
   const attendCount = useMemo(
@@ -57,5 +54,5 @@ export function useSessionOverview(): UseSessionOverviewReturn {
     [activities],
   );
 
-  return { activities: sorted, attendCount, connected };
+  return { activities: sorted, attendCount, connected, lastKnownActivities };
 }

@@ -9,6 +9,7 @@ import {
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { CodexConversationOptions } from './codex-conversation.js';
+import { ordinaryCodexCommandExecution } from './ordinary-codex-command-execution.js';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -97,18 +98,9 @@ export class OrdinaryCollaborationDelivery {
   ) {}
 
   private command(sessionId: string, commandId: string, requireClaimed = false) {
-    const command = this.store.getSendCommand(commandId);
-    const admission = this.store.getOrdinaryCommandAdmission(commandId);
-    if (
-      !command ||
-      command.sessionId !== sessionId ||
-      command.error ||
-      !admission ||
-      admission.binding.version !== 2 ||
-      admission.binding.harness.implementation !== 'codex' ||
-      (requireClaimed && admission.state === 'reserved')
-    )
-      conflict();
+    const admission = ordinaryCodexCommandExecution(this.store, sessionId, commandId, {
+      requireClaimed,
+    });
     return CollaborationSettingsSchema.parse({
       binding: admission.binding,
       selection: admission.selection,

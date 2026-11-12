@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -12,6 +13,8 @@ import { getAgentLibrary } from '../agent-library-runtime.js';
 import { getRepositoryWorkspaces } from '../repository-workspace-runtime.js';
 import { openCodexChat, getCodexConversationStore } from '../codex-chat-session.js';
 import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
+import { CodexStartupError } from '../codex-startup-error.js';
+import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
 import type { OrdinaryLocalCodexOwnedRuntime } from '../ordinary-local-codex-owned-runtime.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 
@@ -133,6 +136,41 @@ let startOpenShell: typeof import('../ordinary-openshell-codex-entry.js').startO
 let root: string;
 let tasks: TaskStore;
 let sequence = 0;
+
+it('preserves an OpenShell initialization failure through the real driver and chat consumer', async () => {
+  const { ownedOpenShellFixture } = await import('./fixtures/owned-openshell-runtime.js');
+  const resources = { stores: [], natives: [], roots: [] } as Parameters<
+    typeof ownedOpenShellFixture
+  >[0];
+  const f = ownedOpenShellFixture(resources, true, chat.eventStore, undefined, { api: true });
+  const original = new CodexStartupError('sandbox_preparation', Error('private sandbox cause'));
+  vi.mocked(openCodexChat).mockRejectedValueOnce(original);
+  f.owners.dispatch.mockImplementation(async (dispatch) => {
+    await chat.prepareOwnedCodexChat(
+      { isOpen: () => true, send: vi.fn() },
+      'shell-consumer',
+      dispatch,
+      {
+        operatorConnectionId: 'authenticated-browser',
+        ownerAuthSessionId: 'fixture-owner-login',
+        onEnded: f.owners.close,
+      },
+    );
+  });
+  try {
+    await expect(
+      f.driver.admitPreparedFirst(f.preparationOperationId!, f.meta, f.command('shell-first')),
+    ).rejects.toBe(original);
+    expect(openCodexChat).toHaveBeenCalledWith(
+      expect.objectContaining({ ownedOpenShell: expect.anything(), conversationId: 'session' }),
+    );
+    expect(f.events.getOrdinaryOpenShellCommandAdmission('shell-first')?.state).toBe('uncertain');
+    expect(f.native.commands('session', f.account)).toEqual([]);
+  } finally {
+    resources.natives.forEach((store) => store.close());
+    resources.roots.forEach((directory) => rmSync(directory, { recursive: true, force: true }));
+  }
+});
 const profiles = new AccountProfiles(
   [
     {
@@ -569,9 +607,15 @@ it('releases a new idle driver for an exact duplicate without preparing a query 
 it('releases driver failure without exposing its private evidence or starting a query', async () => {
   const f = request();
   runtime.mode = 'failure';
-  await expect(chat.startOwnedLocalCodexCommand(f.transport, f.clientId, f.args)).rejects.toThrow(
-    'Owned local Codex chat unavailable',
-  );
+  const failure = await chat
+    .startOwnedLocalCodexCommand(f.transport, f.clientId, f.args)
+    .catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(Error);
+  expect((failure as Error).message).toBe('Owned local Codex chat unavailable');
+  expect((failure as Error).cause).toBeInstanceOf(CodexStartupError);
+  const telemetry = codexRuntimeErrorTelemetry(failure as Error);
+  expect(telemetry).toMatchObject({ startupPhase: 'runtime_admission' });
+  expect(JSON.stringify(telemetry)).not.toContain('private admission evidence');
   expect(runtime.instances[0].close).toHaveBeenCalledOnce();
   expect(openCodexChat).not.toHaveBeenCalled();
 });

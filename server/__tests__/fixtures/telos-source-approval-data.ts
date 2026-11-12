@@ -142,6 +142,7 @@ export function createTelosSourceApprovalData() {
   let executed: ReturnType<TelosSourceApproval['execute']> | null = null;
   let toolResult: TelosToolResult | null = null;
   let denials = 0;
+  let denialMessage: string | null = null;
   let activePermission: string | null = null;
 
   return {
@@ -163,14 +164,20 @@ export function createTelosSourceApprovalData() {
     material,
     actor,
     messages,
-    async request(input: { kind: 'create' | 'adopt'; marker: 'native' | 'sdk'; itemId?: string }) {
+    async request(input: {
+      kind: 'create' | 'adopt';
+      marker: 'native' | 'sdk';
+      itemId?: string;
+      summary?: string;
+      nativeSourceScope?: { operatorId: string; assertCurrentSync(): void };
+    }) {
       executed = null;
       toolResult = null;
       const proposal =
         input.kind === 'adopt'
           ? { itemId: input.itemId ?? 'studio' }
           : {
-              summary: 'Studio acoustic treatment',
+              summary: input.summary ?? 'Studio acoustic treatment',
               intent: 'Record clearly',
               rationale: 'Make music',
               acceptanceCriteria: ['Acoustic plan approved'],
@@ -186,14 +193,20 @@ export function createTelosSourceApprovalData() {
       settlement = handler(toolName, proposal, {
         signal: controller.signal,
         toolUseID: randomUUID(),
+        ...(input.nativeSourceScope ? { nativeSourceScope: input.nativeSourceScope } : {}),
       }).then((resolution) => {
         if (resolution.behavior === 'deny') {
           denials++;
+          denialMessage = resolution.message;
           return;
         }
-        const approval = resolution.updatedInput?.__mitzoTelosApproval;
+        const reviewedInput = resolution.updatedInput;
+        if (!reviewedInput) throw Error('Actual reviewed source input missing');
+        const approval = reviewedInput.__mitzoTelosApproval;
         if (typeof approval !== 'string') throw Error('Actual source approval receipt missing');
-        executed = service.execute(approval, 'planning', proposal);
+        const { __mitzoTelosApproval, ...reviewedProposal } = reviewedInput;
+        void __mitzoTelosApproval;
+        executed = service.execute(approval, 'planning', reviewedProposal);
         toolResult = formatTelosSourceResult(executed);
       });
       const event = await arrival;
@@ -305,6 +318,9 @@ export function createTelosSourceApprovalData() {
     },
     toolResult() {
       return toolResult;
+    },
+    denialMessage() {
+      return denialMessage;
     },
     drainEvents() {
       return queued.splice(0);

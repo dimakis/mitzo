@@ -3,6 +3,8 @@ import { workspaceRuntimePrivateFiles } from './workspace-runtime-private-paths.
 import { realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { telosPrivateStorageRoots } from './telos-private-paths.js';
+import { claudeAccountsDirectory } from './claude-account-store.js';
 export function codexPrivateDirectory() {
   const path = process.env.MITZO_CODEX_PRIVATE_DIR || join(homedir(), '.mitzo', 'private', 'codex');
   if (!isAbsolute(path)) throw new Error('Codex private directory must be absolute');
@@ -39,9 +41,16 @@ export function protectCodexProfileRoots(roots: string[]) {
   }
 }
 
-export function privateCodexRoots(extraRoots: string[] = []): string[] {
+type PrivatePathOptions = { allowHostGithubCredentials?: boolean };
+
+export function privateCodexRoots(
+  extraRoots: string[] = [],
+  options: PrivatePathOptions = {},
+): string[] {
   protectCodexProfileRoots(configuredKnowledgeLibraryPrivatePaths());
   protectCodexProfileRoots(workspaceRuntimePrivateFiles());
+  protectCodexProfileRoots(telosPrivateStorageRoots());
+  protectCodexProfileRoots([claudeAccountsDirectory()]);
   return [
     codexPrivateDirectory(),
     process.env.CODEX_HOME || join(homedir(), '.codex'),
@@ -56,10 +65,13 @@ export function privateCodexRoots(extraRoots: string[] = []): string[] {
       '.config/gcloud',
       '.config/openshell',
       '.config/gws',
-      '.config/gh',
       '.cursor/mcp.json',
       'Library/Keychains',
     ].map((p) => join(homedir(), p)),
+    // Owned Local Mac native execution uses the ordinary host gh login. Omit
+    // only this default entry; explicit/runtime protections still win after
+    // canonicalization, including when gh's directory aliases private storage.
+    ...(!options.allowHostGithubCredentials ? [join(homedir(), '.config', 'gh')] : []),
     join(process.cwd(), '.env'),
     ...(process.env.MITZO_KEYCHAIN_HELPER ? [process.env.MITZO_KEYCHAIN_HELPER] : []),
     ...(process.env.MITZO_KEYCHAIN_CONNECTIONS_DIR
@@ -84,8 +96,11 @@ export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
 }
 
 /** Freeze known private roots for one delivery/query, retaining canonical alias checks. */
-export function privateCodexPathSnapshot(extraRoots: string[] = []) {
-  const roots = privateCodexRoots(extraRoots);
+export function privateCodexPathSnapshot(
+  extraRoots: string[] = [],
+  options: PrivatePathOptions = {},
+) {
+  const roots = privateCodexRoots(extraRoots, options);
   return {
     roots,
     isPrivate: (path: string) => {

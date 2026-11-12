@@ -221,6 +221,18 @@ export async function readConnectionsAccess(
             href: `/connections?manage=openai&connection=${encodeURIComponent(account.id)}`,
           },
         ];
+      if (
+        source === 'accounts' &&
+        account.provider === 'anthropic-claude' &&
+        /^claude-[0-9a-f-]{36}$/.test(account.id)
+      )
+        row.actions = [
+          {
+            id: 'claude-account-controls',
+            label: 'Manage Claude account',
+            href: `/connections?manage=claude&connection=${encodeURIComponent(account.id)}`,
+          },
+        ];
       row.verification.reason =
         account.signIn || keyManaged
           ? 'Effective conversation access has not been checked.'

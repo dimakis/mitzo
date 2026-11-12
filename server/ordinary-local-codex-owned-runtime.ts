@@ -1,3 +1,10 @@
+import { findSessionRuntimeError } from './session-runtime-error.js';
+import { retainCodexPreparationFailure } from './codex-preparation-failure.js';
+import { reconcileRetainedLocalCodexEffects } from './retained-local-codex-effects.js';
+import {
+  freezeOrdinarySkillCommand,
+  prepareOrdinarySkillCommand,
+} from './ordinary-composer-skills.js';
 import { assembleCommandPrompt } from './message-reply-context.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
@@ -65,18 +72,17 @@ import {
   performPreparedRepositoryPrimaryTransition,
   reconcilePreparedRepositoryTransitionProjection,
 } from './owned-prepared-repository-transition.js';
-import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
 import {
-  capturePreparedRepositoryReader,
-  preparedRepositoryValidationReadMs,
-} from './local-repository-native-read.js';
-import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
+  withPreparedRepositoryLeaseRead,
+  withPreparedRepositoryWorkspaceRead,
+} from './prepared-repository-workspace-read.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from './owned-local-codex-native-policy.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { CredentialSetupNotification } from './credential-setup-continuation.js';
 import { RetainedLocalCodexRecovery } from './retained-local-codex-recovery.js';
 
-const unavailable = () => new Error('Owned local Codex runtime unavailable');
+const unavailable = (cause?: unknown) =>
+  new Error('Owned local Codex runtime unavailable', { cause });
 function strictSync(result: unknown): void {
   if (result === undefined) return;
   void Promise.resolve(result).catch(() => {});
@@ -282,6 +288,26 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     proof.prepareQueue();
     return this.admitCommand(request, true, undefined, proof);
   }
+  /** Explicit reconciliation only: no coordinator claim, enqueue or model turn. */
+  async reconcileRetainedEffects(): Promise<void> {
+    this.assertCurrent();
+    if (
+      !this.owners.enabled ||
+      custodianControllerMode ||
+      custodianOwnerMode ||
+      !hasPersistentRevocationAuthority()
+    )
+      throw unavailable();
+    if (this.#admission || !this.owners.nativeStore || !this.#authSessionId) throw unavailable();
+    await reconcileRetainedLocalCodexEffects({
+      ...this.owners,
+      native: this.owners.nativeStore,
+      runtime: this.#runtime,
+      authSessionId: this.#authSessionId,
+      signal: this.#signal,
+      assertCurrent: () => this.assertCurrent(),
+    });
+  }
   private async admitCommand(
     raw: unknown,
     resume: boolean,
@@ -318,6 +344,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         this.#reservation.conversationId,
         request.clientMsgId,
         rawPayload,
+        { expandSkills: false },
       );
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
@@ -564,66 +591,31 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           ? new PreparedRepositoryWorkspaceOwner(this.owners.workspace, coldFacts, coldPrimary, {
               assertCurrentSync: assertColdEvidence,
               withReadAccess: async (operationSignal, action) => {
-                const lease = coldCurrentLease();
-                if (!lease || (this.#lease && this.#lease !== lease)) throw unavailable();
-                const withReadOwner = lease.withQualifiedWorkspaceReadOwner;
-                if (!withReadOwner) throw unavailable();
-                let completed = false;
-                const result: unknown = await Reflect.apply(withReadOwner, lease, [
-                  AbortSignal.any([this.#signal, operationSignal]),
-                  async (current) => {
-                    const selectedPolicy = () =>
-                      composeOwnedLocalNativeExecutionPolicyForWorkspace(
-                        {
-                          binding: lease.binding,
-                          readableRoots: this.owners.nativeExecutionReadRoots,
-                          assertCurrentSync: () => current.assertCurrentSync(),
-                        },
-                        () => ({
-                          cwd: coldFacts.newWorkspace.directory,
-                          workspaceRoots: [coldFacts.newWorkspace.directory],
-                          mode: this.owners.eventStore.getSession(this.#reservation.conversationId)!
-                            .mode,
-                          authSessionId: this.#authSessionId,
-                        }),
-                      );
-                    await withPreparedRepositoryBarrierReadScope(
-                      selectedPolicy(),
-                      this.owners.commandId,
-                      {
-                        signal: current.signal,
-                        selectedPolicy,
-                        assertCurrentSync: () => current.assertCurrentSync(),
-                        revalidate: () => current.revalidate(),
-                      },
-                      async (scope) => {
-                        const reader = await capturePreparedRepositoryReader(scope, {
-                          deadline: Date.now() + preparedRepositoryValidationReadMs,
-                        });
-                        try {
-                          const result: unknown = await action(
-                            new LocalRepositoryReadAccess(reader),
-                          );
-                          if (result !== undefined) throw unavailable();
-                        } finally {
-                          try {
-                            await reader.dispose();
-                          } finally {
-                            await scope.revalidate();
-                          }
-                        }
-                      },
-                    );
-                    completed = true;
+                await withPreparedRepositoryLeaseRead(
+                  () => {
+                    const lease = coldCurrentLease();
+                    if (!lease || (this.#lease && this.#lease !== lease)) throw unavailable();
+                    return lease;
                   },
-                ]);
-                if (
-                  result !== undefined ||
-                  !completed ||
-                  lease !== coldCurrentLease() ||
-                  lease.withQualifiedWorkspaceReadOwner !== withReadOwner
-                )
-                  throw unavailable();
+                  AbortSignal.any([this.#signal, operationSignal]),
+                  this.owners.commandId,
+                  (current) =>
+                    composeOwnedLocalNativeExecutionPolicyForWorkspace(
+                      {
+                        binding: current.binding,
+                        readableRoots: this.owners.nativeExecutionReadRoots,
+                        assertCurrentSync: () => current.assertCurrentSync(),
+                      },
+                      () => ({
+                        cwd: coldFacts.newWorkspace.directory,
+                        workspaceRoots: [coldFacts.newWorkspace.directory],
+                        mode: this.owners.eventStore.getSession(this.#reservation.conversationId)!
+                          .mode,
+                        authSessionId: this.#authSessionId,
+                      }),
+                    ),
+                  action,
+                );
               },
             })
           : undefined;
@@ -728,7 +720,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               },
             }
           : {}),
-        assertToolSelectionCurrent: (expected) => selection.assertToolCurrent(expected),
+        assertToolSelectionCurrent: (expected, signal) =>
+          selection.assertToolCurrent(expected, signal),
         assertSelectionCurrentSync: (expected) => selection.assertCurrentSync(expected),
         signal: this.#signal,
         privateRoot: this.owners.privateRoot,
@@ -811,7 +804,25 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       });
       capturedBootstrap = bootstrap;
       capturedLeaseGetter = bootstrap.currentLease;
+      const preparedSkill =
+        descriptor.state === 'reserved' && this.#workspaceOwner.kind === 'repository'
+          ? await prepareOrdinarySkillCommand(this.owners.workspace, this.#reservation, {
+              store: this.owners.eventStore,
+              id: request.clientMsgId,
+              text: payload.text,
+              signal: this.#signal,
+            })
+          : undefined;
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+        freezePrompt: (meta, id, payload, admit) =>
+          freezeOrdinarySkillCommand(
+            this.owners.eventStore,
+            meta,
+            id,
+            payload,
+            admit,
+            preparedSkill,
+          ),
         recovery,
         enabled: this.owners.enabled,
         store: coldPrimary
@@ -923,6 +934,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               lease,
               bridge,
               authSessionId: this.#authSessionId,
+              authenticationSignal: this.#signal,
+              retainedAuthenticationFailure: () => this.#operator?.failure(),
               nativeStore: this.owners.nativeStore,
               recovery,
               authorizeNativeThreadDispatch:
@@ -1101,21 +1114,14 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                                   started = true;
                                   assertPolicyOwner();
                                   const policy = Reflect.apply(selectedPolicy, policyOwner, []);
-                                  await withPreparedRepositoryBarrierReadScope(
+                                  await withPreparedRepositoryWorkspaceRead(
+                                    current,
                                     policy,
                                     childId,
                                     {
-                                      signal: current.signal,
                                       selectedPolicy: () =>
                                         Reflect.apply(selectedPolicy, policyOwner, []),
-                                      assertCurrentSync: () => {
-                                        current.assertCurrentSync();
-                                        assertPolicyOwner();
-                                      },
-                                      revalidate: async () => {
-                                        await current.revalidate();
-                                        assertPolicyOwner();
-                                      },
+                                      assertCurrentSync: assertPolicyOwner,
                                       assertNativeExecutionCurrent:
                                         nativeCurrent &&
                                         ((policy, commandId) =>
@@ -1124,26 +1130,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                                             commandId,
                                           ])),
                                     },
-                                    async (readScope) => {
-                                      const reader = await capturePreparedRepositoryReader(
-                                        readScope,
-                                        {
-                                          deadline: Date.now() + preparedRepositoryValidationReadMs,
-                                        },
-                                      );
-                                      try {
-                                        const result: unknown = await action(
-                                          new LocalRepositoryReadAccess(reader),
-                                        );
-                                        if (result !== undefined) throw unavailable();
-                                      } finally {
-                                        try {
-                                          await reader.dispose();
-                                        } finally {
-                                          await readScope.revalidate();
-                                        }
-                                      }
-                                    },
+                                    action,
                                   );
                                   completed = true;
                                 },
@@ -1263,9 +1250,11 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       if (lease && lease !== retainedLease) lease.close();
       if (coldThreadOwner !== this.#liveThreadOwner || this.#lease !== retainedLease)
         coldThreadOwner?.dispose();
+      const failure = findSessionRuntimeError(error);
+      if (failure) throw failure;
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
-      throw unavailable();
+      throw unavailable(retainCodexPreparationFailure('runtime_admission', error));
     }
   }
 
@@ -1275,7 +1264,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   async admitContinuation(
     raw: unknown,
     preparationSignal?: AbortSignal,
-    peer?: { messageId: string; assertCurrent(): void },
+    peer?: { messageId: string; assertCurrent(): void; assertPermissionCurrent?: () => void },
     assertCredentialSetupCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
     raw = structuredClone(raw);
@@ -1306,7 +1295,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   private async admitContinuationNow(
     raw: unknown,
     preparationSignal?: AbortSignal,
-    peer?: { messageId: string; assertCurrent(): void },
+    peer?: { messageId: string; assertCurrent(): void; assertPermissionCurrent?: () => void },
     assertCredentialSetupCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
     const assertAdmissionCurrent = () => {
@@ -1330,6 +1319,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         this.#reservation.conversationId,
         request.clientMsgId,
         rawPayload,
+        { expandSkills: false },
       );
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
@@ -1418,6 +1408,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       };
       const target = this.#runtime.target();
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+        freezePrompt: (meta, id, payload, admit) =>
+          freezeOrdinarySkillCommand(this.owners.eventStore, meta, id, payload, admit),
         enabled: this.owners.enabled,
         store: {
           qualifiesOrdinaryCommandCapability:
@@ -1476,7 +1468,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           },
           dispatch: async (expected, commandId) => {
             assertAdmissionCurrent();
-            admission.admitContinuation(commandId, expected);
+            admission.admitContinuation(commandId, expected, peer?.assertPermissionCurrent);
             await this.owners.dispatchContinuation!({
               admission,
               lease,
@@ -1550,7 +1542,12 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   /** A separately approved native agent tool may enqueue exactly its retained
    * peer message. The ordinary account/context/workspace/permission coordinator
    * still owns every effect. No public payload can select this entry point. */
-  async admitAgentMessage(messageId: string, assertSenderCurrent: () => void, signal: AbortSignal) {
+  async admitAgentMessage(
+    messageId: string,
+    assertSenderCurrent: () => void,
+    signal: AbortSignal,
+    assertPermissionCurrent?: () => void,
+  ) {
     const assertCurrent = () => {
       signal.throwIfAborted();
       assertSenderCurrent();
@@ -1594,7 +1591,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         payload: { text: agentMessagePrompt(message) },
       },
       signal,
-      { messageId, assertCurrent },
+      { messageId, assertCurrent, assertPermissionCurrent },
     );
   }
 

@@ -1,7 +1,11 @@
-import { useState, useCallback, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { UiIcon } from './UiIcon';
 import { DesktopNav } from './DesktopNav';
 import { MitzoBrand } from './MitzoBrand';
+import { ResizeDivider } from './ResizeDivider';
+import { useDesktopPanelLayout } from '../hooks/useDesktopPanelLayout';
+import { layoutStorageNotice, useLayoutPreference } from '../hooks/useLayoutPreference';
+import { panelLimits, type DesktopPanel, type PanelModes } from '../lib/desktop-panel-layout';
 
 export interface DesktopShellProps {
   left?: ReactNode;
@@ -15,14 +19,8 @@ export interface DesktopShellProps {
 const STORAGE_KEY_LEFT = 'mitzo-sidebar-left-collapsed';
 const STORAGE_KEY_RIGHT = 'mitzo-sidebar-right-collapsed';
 
-function readCollapsed(key: string, fallback = false): boolean {
-  try {
-    const saved = localStorage.getItem(key);
-    return saved === null ? fallback : saved === '1';
-  } catch {
-    return fallback;
-  }
-}
+const decodeCollapsed = (value: string) => value === '1';
+const encodeCollapsed = (value: boolean) => (value ? '1' : '0');
 
 export function DesktopShell({
   left,
@@ -32,43 +30,49 @@ export function DesktopShell({
   rightDefaultCollapsed = false,
   leftDefaultCollapsed = false,
 }: DesktopShellProps) {
-  const [railCollapsed, setRailCollapsed] = useState(() =>
-    readCollapsed('mitzo-navigation-collapsed'),
+  const [railCollapsed, setRailCollapsed, railUnavailable] = useLayoutPreference(
+    'mitzo-navigation-collapsed',
+    false,
+    decodeCollapsed,
+    encodeCollapsed,
   );
-  const [leftCollapsed, setLeftCollapsed] = useState(() =>
-    readCollapsed(STORAGE_KEY_LEFT, leftDefaultCollapsed),
+  const [leftCollapsed, setLeftCollapsed, leftUnavailable] = useLayoutPreference(
+    STORAGE_KEY_LEFT,
+    leftDefaultCollapsed,
+    decodeCollapsed,
+    encodeCollapsed,
   );
-  const [rightCollapsed, setRightCollapsed] = useState(() =>
-    readCollapsed(STORAGE_KEY_RIGHT, rightDefaultCollapsed),
+  const [rightCollapsed, setRightCollapsed, rightUnavailable] = useLayoutPreference(
+    STORAGE_KEY_RIGHT,
+    rightDefaultCollapsed,
+    decodeCollapsed,
+    encodeCollapsed,
   );
-
-  const toggleLeft = useCallback(() => {
-    setLeftCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(STORAGE_KEY_LEFT, next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }, []);
-
-  const toggleRight = useCallback(() => {
-    setRightCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(STORAGE_KEY_RIGHT, next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }, []);
+  const modes: PanelModes = {
+    navigation: railCollapsed ? 'collapsed' : 'expanded',
+    conversations: !left ? 'absent' : leftCollapsed ? 'collapsed' : 'expanded',
+    resources: !right ? 'absent' : rightCollapsed ? 'collapsed' : 'expanded',
+  };
+  const layout = useDesktopPanelLayout(modes);
+  function divider(panel: DesktopPanel, direction: 1 | -1 = 1) {
+    return (
+      modes[panel] === 'expanded' && (
+        <ResizeDivider
+          label={`Resize ${panel}`}
+          value={layout.widths[panel]}
+          min={panelLimits[panel].min}
+          max={layout.maximum(panel)}
+          direction={direction}
+          onChange={(value) => layout.resize(panel, value)}
+          onReset={() => layout.resize(panel, panelLimits[panel].default)}
+        />
+      )
+    );
+  }
 
   return (
     <div className="desktop-shell workspace-shell">
-      <div className="desktop-body">
+      <div className="desktop-body" ref={layout.container} style={layout.style}>
         <aside className={`workspace-rail${railCollapsed ? ' workspace-rail--collapsed' : ''}`}>
           <div className="workspace-rail-heading">
             <MitzoBrand compact={railCollapsed} />
@@ -79,52 +83,64 @@ export function DesktopShell({
               aria-label={railCollapsed ? 'Expand navigation' : 'Collapse navigation'}
               title={railCollapsed ? 'Expand navigation' : 'Collapse navigation'}
               aria-expanded={!railCollapsed}
-              onClick={() => {
-                const next = !railCollapsed;
-                setRailCollapsed(next);
-                try {
-                  localStorage.setItem('mitzo-navigation-collapsed', next ? '1' : '0');
-                } catch {
-                  /* optional preference */
-                }
-              }}
+              onClick={() => setRailCollapsed(!railCollapsed)}
             >
               <UiIcon name="panel" />
             </button>
           </div>
           <DesktopNav />
         </aside>
+        {divider('navigation')}
         {left && (
-          <div
-            className={`desktop-sidebar-left${leftCollapsed ? ' desktop-sidebar--collapsed' : ''}`}
-          >
-            <button
-              className="desktop-collapse-btn"
-              onClick={toggleLeft}
-              title={leftCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          <>
+            <div
+              className={`desktop-sidebar-left${leftCollapsed ? ' desktop-sidebar--collapsed' : ''}`}
             >
-              <UiIcon name={leftCollapsed ? 'panelLeft' : 'panelLeftClose'} size={16} />
-            </button>
-            {!leftCollapsed && <>{left}</>}
-          </div>
+              <button
+                className="desktop-collapse-btn"
+                onClick={() => setLeftCollapsed(!leftCollapsed)}
+                title={leftCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              >
+                <UiIcon name={leftCollapsed ? 'panelLeft' : 'panelLeftClose'} size={16} />
+              </button>
+              {!leftCollapsed && <>{left}</>}
+            </div>
+            {divider('conversations')}
+          </>
         )}
         <div className="desktop-center">{center}</div>
         {right && (
-          <div
-            className={`desktop-sidebar-right${rightCollapsed ? ' desktop-sidebar--collapsed' : ''}`}
-          >
-            <button
-              className="desktop-collapse-btn"
-              onClick={toggleRight}
-              title={rightCollapsed ? 'Show context' : 'Hide context'}
+          <>
+            {divider('resources', -1)}
+            <div
+              className={`desktop-sidebar-right${rightCollapsed ? ' desktop-sidebar--collapsed' : ''}`}
             >
-              <UiIcon name={rightCollapsed ? 'panelRight' : 'panelRightClose'} size={16} />
-            </button>
-            {!rightCollapsed && right}
-          </div>
+              <button
+                className="desktop-collapse-btn"
+                onClick={() => setRightCollapsed(!rightCollapsed)}
+                title={rightCollapsed ? 'Show context' : 'Hide context'}
+              >
+                <UiIcon name={rightCollapsed ? 'panelRight' : 'panelRightClose'} size={16} />
+              </button>
+              {!rightCollapsed && right}
+            </div>
+          </>
         )}
       </div>
-      {statusBar && <div className="desktop-status-row">{statusBar}</div>}
+      {(statusBar ||
+        layout.unavailable ||
+        railUnavailable ||
+        leftUnavailable ||
+        rightUnavailable) && (
+        <div className="desktop-status-row">
+          {(layout.unavailable || railUnavailable || leftUnavailable || rightUnavailable) && (
+            <p role="status" className="layout-storage-notice">
+              {layoutStorageNotice}
+            </p>
+          )}
+          {statusBar}
+        </div>
+      )}
     </div>
   );
 }

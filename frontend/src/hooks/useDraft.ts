@@ -12,6 +12,7 @@ import {
   COMPOSER_DRAFT_ACCEPTED,
   recordAcceptedComposerDraft,
   composerDraftMemoryRevision,
+  readComposerDraftRevision,
 } from '../lib/composer-draft-proof';
 import {
   type Dispatch,
@@ -27,6 +28,7 @@ import {
   getChatDraft,
   saveChatDraft,
   deleteChatDraft,
+  chatDraftRichSignature,
 } from '../lib/chat-drafts';
 
 const KEY_PREFIX = 'mitzo-draft-';
@@ -50,25 +52,12 @@ const revisionKey = composerDraftRevisionKey;
 function richDraftSignature(key: string): string {
   const id = chatDraftIdFromKey(key);
   const draft = id ? getChatDraft(id) : null;
-  return draft
-    ? sha256Hex(
-        JSON.stringify({
-          images: draft.images,
-          contextBlocks: draft.contextBlocks,
-          settings: draft.settings,
-        }),
-      )
-    : '';
+  return draft ? chatDraftRichSignature(draft) : '';
 }
 function readRevision(key: string, text: string): string | undefined {
   try {
-    if (composerDraftRevocationPending(key)) return undefined;
-    const saved = JSON.parse(chatStorage.getItem(revisionKey(key)) ?? 'null');
-    return saved?.textSha256 === sha256Hex(text) &&
-      readDraft(key, undefined, true) === text &&
-      saved.richDraftSignature === richDraftSignature(key) &&
-      typeof saved.revisionToken === 'string'
-      ? saved.revisionToken
+    return readDraft(key, undefined, true) === text
+      ? readComposerDraftRevision(key, text, richDraftSignature(key))
       : undefined;
   } catch {
     return undefined;
@@ -119,8 +108,18 @@ function saveDraft(key: string, text: string, preserveEmpty = false): boolean {
     if (!allowComposerDraftPersistence(key)) return false;
     const id = chatDraftIdFromKey(key);
     if (id) {
-      if (!text && !preserveEmpty) return deleteChatDraft(id);
-      else {
+      if (!text && !preserveEmpty) {
+        const draft = getChatDraft(id);
+        // A shared composer outlives one accepted prompt. Keep recipient intent
+        // and the original send observation fence while clearing its contents.
+        if (
+          draft?.settings.collaborationResponders ||
+          draft?.collaborationSend ||
+          draft?.collaborationForward
+        )
+          return saveChatDraft({ ...draft, text: '', images: [], contextBlocks: [] });
+        return deleteChatDraft(id);
+      } else {
         const draft = getChatDraft(id);
         if (draft) return saveChatDraft({ ...draft, text });
       }
@@ -334,11 +333,12 @@ export function useDraft(
       // Rotate even for a same-valued edit; content equality cannot prove that
       // a reloaded composer is still the revision submitted by an older command.
       rotateRevision(next);
-      // IndexedDB cannot begin an unload-time save reliably. Offer plain text
-      // during the edit; its adapter coalesces queued snapshots without copying
-      // attachment-rich draft bodies on every keystroke.
+      // IndexedDB cannot begin an unload-time save reliably. Offer every edited
+      // draft now, including shared drafts carrying an uncertain send receipt.
+      // The existing owner preserves rich fields and coalesces queued snapshots;
+      // a pending write is not a durable acknowledgement.
       const owner = storageRef.current;
-      if (chatStorage.asynchronous && !chatDraftIdFromKey(owner.key)) {
+      if (chatStorage.asynchronous) {
         if (saveDraft(owner.key, next, owner.scoped)) dirty.current = false;
       }
       setTextRaw(next);

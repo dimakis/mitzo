@@ -153,9 +153,9 @@ workspace="$build_root/mgmt"
 baseline="$build_root/baseline.json"
 mkdir -p "$workspace"
 
-# A descendant must match the immutable checked-in-lock contract released with
-# its selected digest-pinned image.  Re-resolving here would make present-day
-# registry state an input to a claim about an image built in the past.
+# Verify the frozen runtime base against its selected digest-pinned image.
+# The current source supplies only Markdown; its application dependencies never
+# enter this lane. Re-resolving would make current registry state an image input.
 # A release destined for the documented current/mgmt indirection is dynamic
 # even for its first, same-commit publication.  Static legacy callers retain
 # the historical equality-only baseline unless they explicitly request this
@@ -182,40 +182,40 @@ if test "$dynamic_seed" = 1 || test "$runtime_base_commit" != "$starting_commit"
     exit 3
   }
   resolution_contract_dir="$(mktemp -d "$output_parent/.${output_name}.runtime.XXXXXX")"
-  git -C "$source_repo" show "$starting_commit:pyproject.toml" > "$resolution_contract_dir/pyproject.toml"
-  git -C "$source_repo" show "$starting_commit:uv.lock" > "$resolution_contract_dir/uv.lock"
+  git -C "$source_repo" show "$runtime_base_commit:pyproject.toml" > "$resolution_contract_dir/pyproject.toml"
+  git -C "$source_repo" show "$runtime_base_commit:uv.lock" > "$resolution_contract_dir/uv.lock"
   (cd "$resolution_contract_dir" && "${MITZO_UV_BIN:-uv}" lock --locked) || {
-    echo 'runtime compatibility failed: candidate checked-in lock is stale' >&2
+    echo 'runtime compatibility failed: frozen runtime checked-in lock is stale' >&2
     exit 3
   }
-  candidate_projection_sha256="$(contract_python "$resolution_contract_tool" \
+  base_projection_sha256="$(contract_python "$resolution_contract_tool" \
     --pyproject "$resolution_contract_dir/pyproject.toml" --lock "$resolution_contract_dir/uv.lock" \
     --base-image "$runtime_base_image" --target-platform "$runtime_target_platform" \
     --target-marker-environment-b64 "$runtime_marker_environment_b64" --sha256)" || {
-    echo 'runtime compatibility failed: could not canonicalize the immutable candidate resolution contract' >&2
+    echo 'runtime compatibility failed: could not canonicalize the immutable runtime-base resolution contract' >&2
     exit 3
   }
   # Current runtime images also install the Jira subproject into a separate
   # interpreter. Until its own resolution projection is released, exact
   # reviewed lock/pyproject bytes form a conservative independent input pin.
-  if git -C "$source_repo" cat-file -e "$starting_commit:jira_process/pyproject.toml" 2>/dev/null || git -C "$source_repo" cat-file -e "$starting_commit:jira_process/uv.lock" 2>/dev/null; then
+  if git -C "$source_repo" cat-file -e "$runtime_base_commit:jira_process/pyproject.toml" 2>/dev/null || git -C "$source_repo" cat-file -e "$runtime_base_commit:jira_process/uv.lock" 2>/dev/null; then
     runtime_jira_inputs_sha256="${MGMT_JIRA_RUNTIME_INPUTS_SHA256:-}"
     [[ "$runtime_jira_inputs_sha256" =~ ^[a-f0-9]{64}$ ]] || { echo 'Jira runtime inputs SHA-256 is required for this source; release a compatible runtime contract' >&2; exit 3; }
-    candidate_jira_inputs_sha256="$(python3 - "$source_repo" "$starting_commit" <<'PYJIRA'
+    base_jira_inputs_sha256="$(python3 - "$source_repo" "$runtime_base_commit" <<'PYJIRA'
 import hashlib, json, subprocess, sys
 files = {name: hashlib.sha256(subprocess.check_output(['git', '-C', sys.argv[1], 'show', f'{sys.argv[2]}:jira_process/{name}'])).hexdigest() for name in ('pyproject.toml', 'uv.lock')}
 print(hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest())
 PYJIRA
 )" || { echo 'Jira runtime inputs are incomplete' >&2; exit 3; }
-    test "$candidate_jira_inputs_sha256" = "$runtime_jira_inputs_sha256" || { echo 'Jira runtime input compatibility failed; release a compatible runtime contract' >&2; exit 3; }
+    test "$base_jira_inputs_sha256" = "$runtime_jira_inputs_sha256" || { echo 'Jira runtime input compatibility failed; release a compatible runtime contract' >&2; exit 3; }
   elif test -n "${MGMT_JIRA_RUNTIME_INPUTS_SHA256:-}"; then
-    echo 'Jira runtime inputs are missing from the candidate source' >&2
+    echo 'Jira runtime inputs are missing from the frozen runtime base' >&2
     exit 3
   fi
   rm -rf "$resolution_contract_dir"
   resolution_contract_dir=''
-  if test "$candidate_projection_sha256" != "$runtime_projection_sha256"; then
-    echo 'runtime compatibility failed: candidate resolution contract does not match the trusted stack-lock runtime contract' >&2
+  if test "$base_projection_sha256" != "$runtime_projection_sha256"; then
+    echo 'runtime compatibility failed: runtime-base resolution contract does not match the trusted stack-lock runtime contract' >&2
     exit 3
   fi
 fi
@@ -261,16 +261,24 @@ safe_path() {
 # attributes cannot omit or transform source files. Its object store is a
 # read-only alternate to the selected source; no host administration is copied.
 tracked_paths=()
-while IFS= read -r -d '' path; do
-  safe_path "$path" && tracked_paths+=("$path")
-done < <(git -C "$source_repo" ls-tree --full-tree -r -z --name-only "$starting_commit")
+source_policy_receipt="$build_root/source-policy.json"
+case "${MGMT_PORTABLE_POLICY:-0}" in 0|1) ;; *) echo "MGMT_PORTABLE_POLICY must be 0 or 1" >&2; exit 2 ;; esac
+if [[ "${MGMT_PORTABLE_POLICY:-0}" = 1 ]]; then
+  node "$script_root/../../../scripts/select-mgmt-knowledge.mjs" "$source_repo" "$starting_commit" "$source_policy_receipt" > "$build_root/selected-paths"
+  while IFS= read -r -d '' path; do tracked_paths+=("$path"); done < "$build_root/selected-paths"
+else
+  # Historical snapshots keep their existing reviewed selection semantics.
+  while IFS= read -r -d '' path; do
+    safe_path "$path" && tracked_paths+=("$path")
+  done < <(git -C "$source_repo" ls-tree --full-tree -r -z --name-only "$starting_commit")
+fi
 if test "${#tracked_paths[@]}" -gt 0; then
   archive_repo="$build_root/source.git"
   source_object_format="$(git -C "$source_repo" rev-parse --show-object-format)"
   source_objects="$(git -C "$source_repo" rev-parse --path-format=absolute --git-path objects)"
   (
     for variable in ${!GIT_@}; do unset "$variable"; done
-    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1
+    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1 GIT_LITERAL_PATHSPECS=1
     git -c init.templateDir= init --bare -q --object-format="$source_object_format" "$archive_repo"
     printf '%s\n' "$source_objects" > "$archive_repo/objects/info/alternates"
     git -c core.attributesFile=/dev/null -c tar.umask=0022 --git-dir="$archive_repo" archive "$starting_commit" -- "${tracked_paths[@]}"
@@ -286,53 +294,10 @@ test -z "$(find "$workspace" -type l -print -quit)" || {
   exit 3
 }
 
-# memory/manifest is deliberately gitignored. These four JSON artifacts are the
-# complete output set of memory/scripts/build_index.py and are the only ignored
-# files permitted from the working tree. Keeping this allowlist explicit prevents
-# a newly ignored secret, cache, or database from entering a future sandbox.
-source_repo_resolved="$(cd "$source_repo" && pwd -P)"
-source_memory="$source_repo/memory"
-source_manifest_dir="$source_memory/manifest"
-for path in "$source_memory" "$source_manifest_dir"; do
-  test -d "$path" && test ! -L "$path" || {
-    echo "required memory manifest parent is missing or unsafe: $path" >&2
-    exit 3
-  }
-  resolved_path="$(cd "$path" && pwd -P)"
-  case "$resolved_path/" in
-    "$source_repo_resolved/"*) ;;
-    *)
-      echo "required memory manifest parent escapes the source repository: $path" >&2
-      exit 3
-      ;;
-  esac
-done
-manifest_files=(index.json wikilinks.json by_type.json by_tag.json)
-for file in "${manifest_files[@]}"; do
-  source_manifest="$source_manifest_dir/$file"
-  test -f "$source_manifest" && test ! -L "$source_manifest" || {
-    echo "required rebuilt memory manifest is missing or unsafe: $file" >&2
-    exit 3
-  }
-  # The generated set attests that MGMT rebuilt the knowledge index for this
-  # commit, but its contents are never copied into a seed. Recreate the
-  # published manifests from archived Markdown below so an ignored working-tree
-  # artifact cannot smuggle stale fields or host data into a future sandbox.
-  SOURCE_MANIFEST="$source_manifest" STARTING_COMMIT="$starting_commit" python3 - <<'PY'
-import json, os
-try:
-    value = json.load(open(os.environ['SOURCE_MANIFEST']))
-except (OSError, ValueError) as error:
-    raise SystemExit(f'invalid rebuilt memory manifest: {error}')
-if not isinstance(value, dict) or value.get('sourceCommit') != os.environ['STARTING_COMMIT']:
-    raise SystemExit('rebuilt memory manifest does not attest to startingCommit')
-PY
-done
-
-# Rebuild every published manifest from the archived tree. The ignored source
-# manifests are only provenance gates; no entry data crosses the working-tree
-# boundary. This mirrors build_index.py's metadata/link semantics while using a
-# pinned snapshot timestamp for `modified`, independent of shallow history.
+# Rebuild and verify every published index from the archived Markdown using the
+# pinned builder and parsers. Source working-tree indexes and executable indexers
+# are not publication inputs; neither host data nor newer source dependencies
+# can influence this immutable knowledge lane.
 WORKSPACE="$workspace" SOURCE_REPO="$source_repo" STARTING_COMMIT="$starting_commit" seed_python - <<'PY'
 import json, os, pathlib, re, subprocess
 from datetime import date, datetime
@@ -720,7 +685,7 @@ rm -rf "$workspace/.git/logs"
 rm -f "$workspace/.git/COMMIT_EDITMSG" "$workspace/.git/index"
 seed_git -C "$workspace" read-tree HEAD
 
-SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" RUNTIME_JIRA_INPUTS_SHA256="$runtime_jira_inputs_sha256" IS_DYNAMIC="$([[ "$dynamic_seed" = 1 || "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
+SOURCE_POLICY_RECEIPT="$source_policy_receipt" SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" RUNTIME_JIRA_INPUTS_SHA256="$runtime_jira_inputs_sha256" IS_DYNAMIC="$([[ "$dynamic_seed" = 1 || "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
 import hashlib, json, os, pathlib
 
 def canonical(value):
@@ -750,6 +715,9 @@ payload = {
     'files': entries,
     'saveBack': 'not-implemented',
 }
+policy_receipt = pathlib.Path(os.environ['SOURCE_POLICY_RECEIPT'])
+if policy_receipt.exists():
+    payload['spokePolicy'] = json.loads(policy_receipt.read_text())
 if os.environ['IS_DYNAMIC'] == '1':
     payload['knowledgeSchemaVersion'] = int(os.environ['MGMT_KNOWLEDGE_SCHEMA_VERSION'])
     payload['knowledgeCompilerSha256'] = os.environ['MGMT_KNOWLEDGE_COMPILER_SHA256']
@@ -770,6 +738,7 @@ if os.environ['IS_DYNAMIC'] == '1':
         'knowledgeCompilerSha256': payload['knowledgeCompilerSha256'],
         'knowledgeRecipeSha256': payload['knowledgeRecipeSha256'],
         **({'runtimeJiraInputsSha256': payload['runtimeJiraInputsSha256']} if 'runtimeJiraInputsSha256' in payload else {}),
+        **({'spokePolicy': payload['spokePolicy']} if 'spokePolicy' in payload else {}),
         'files': payload['files'],
     }).encode('utf-8')).hexdigest()
 pathlib.Path(os.environ['BASELINE']).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')

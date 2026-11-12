@@ -4,6 +4,7 @@ import { render, screen, cleanup, act, fireEvent } from '@testing-library/react'
 import { ChatArea } from '../ChatArea';
 import type { FinishedMessage, StreamingBlock } from '../../types/chat';
 import { progressToolLookupKey } from '@mitzo/client';
+import { useLayoutEffect } from 'react';
 
 // Mock child components to isolate ChatArea tests
 vi.mock('../MessageBubble', () => ({
@@ -56,7 +57,64 @@ vi.mock('../PermissionBanner', () => ({
 
 afterEach(() => cleanup());
 
+it('describes uncertain ordinary delivery without claiming it was a correction', () => {
+  render(
+    <ChatArea
+      messages={[
+        {
+          messageId: 'follow-up-after-expired-approval',
+          role: 'user',
+          commandState: 'uncertain',
+          blocks: [{ blockId: 'text', blockType: 'text', content: 'Please try again' }],
+        },
+      ]}
+      current={null}
+      running={false}
+      permission={null}
+      onPermissionRespond={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('Message delivery not confirmed')).toBeTruthy();
+  expect(screen.queryByText('Correction delivery not confirmed')).toBeNull();
+});
+
 describe('ChatArea', () => {
+  it('shows an incoming peer message as an attributed card while the assistant is working', () => {
+    const peer = {
+      messageId: 'agent-message:receipt',
+      role: 'assistant' as const,
+      blocks: [],
+      agentMessage: {
+        direction: 'incoming' as const,
+        senderName: 'Merge coordinator',
+        recipientName: 'Subagents',
+        timestamp: 1793925200000,
+        message: {
+          messageId: 'c5d70b9d-8b6f-4640-bdf4-a958abb272f6',
+          commandId: 'agent-message:receipt',
+          senderConversationId: 'sender',
+          recipientConversationId: 'recipient',
+          text: 'Please hold the next merge.',
+          replyTo: null,
+          status: 'queued' as const,
+          reason: null,
+          sequence: 1,
+        },
+      },
+    };
+    render(
+      <ChatArea
+        messages={[peer]}
+        current={null}
+        running={true}
+        permission={null}
+        onPermissionRespond={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('article', { name: 'Agent message received' })).toBeTruthy();
+    expect(screen.getByText('Please hold the next merge.')).toBeTruthy();
+    expect(screen.queryByTestId('user-bubble')).toBeNull();
+  });
   it('passes the host source-review marker and selected conversation to the shared approval card', () => {
     const permission = {
       permId: 'source',
@@ -182,6 +240,48 @@ describe('ChatArea', () => {
     expect(screen.getByText('Answer')).toBe(answer);
     expect(screen.queryByRole('menu')).toBeNull();
   });
+
+  it.each([false, true])(
+    'keeps response text mounted when streaming completes with sharing %s',
+    (sharing) => {
+      const onReply = vi.fn();
+      const sharingProps = sharing ? { onShareMessage: vi.fn(), shareInActions: true } : {};
+      const stream = {
+        messageId: 'stable-response',
+        blocks: new Map<string, StreamingBlock>([
+          [
+            'stable-text',
+            { blockId: 'stable-text', blockType: 'text', content: 'Response text', done: false },
+          ],
+        ]),
+        blockOrder: ['stable-text'],
+      };
+      const { rerender } = render(
+        <ChatArea {...defaultProps} {...sharingProps} current={stream} onReply={onReply} />,
+      );
+      const text = screen.getByText('Response text');
+      fireEvent.contextMenu(text);
+      expect(screen.queryByRole('menu')).toBeNull();
+      rerender(
+        <ChatArea
+          {...defaultProps}
+          {...sharingProps}
+          messages={[
+            {
+              messageId: stream.messageId,
+              role: 'assistant',
+              timestamp: 1,
+              blocks: [{ blockId: 'stable-text', blockType: 'text', content: 'Response text' }],
+            },
+          ]}
+          onReply={onReply}
+        />,
+      );
+      expect(screen.getByText('Response text')).toBe(text);
+      fireEvent.contextMenu(text);
+      expect(screen.getByRole('menu')).toBeTruthy();
+    },
+  );
 
   it('renders assistant text blocks', () => {
     const messages: FinishedMessage[] = [
@@ -568,6 +668,35 @@ describe('ChatArea', () => {
     });
 
     expect(scrollTo).toHaveBeenCalledWith({ top: expect.any(Number) });
+  });
+
+  it('settles following scroll before the updated response can paint', () => {
+    const scrollRef = { current: null as HTMLDivElement | null };
+    const paintedPositions: number[] = [];
+    const stream = (content: string) => ({
+      messageId: 'stream-before-paint',
+      blocks: new Map<string, StreamingBlock>([
+        ['text', { blockId: 'text', blockType: 'text', content, done: false }],
+      ]),
+      blockOrder: ['text'],
+    });
+    function Parent({ content }: { content: string }) {
+      useLayoutEffect(() => {
+        paintedPositions.push(scrollRef.current!.scrollTop);
+      }, [content]);
+      return <ChatArea {...defaultProps} current={stream(content)} scrollRef={scrollRef} />;
+    }
+    const { rerender } = render(<Parent content="First line" />);
+    const el = scrollRef.current!;
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 2_000 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    el.scrollTop = 1_500;
+    fireEvent.scroll(el);
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, value: 2_100 });
+    rerender(<Parent content="First line and more text" />);
+    expect(paintedPositions.at(-1)).toBe(2_100);
   });
 
   it('does not pull a reader back to the bottom as a streaming response grows', () => {

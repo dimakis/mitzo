@@ -4,7 +4,9 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { EventStore } from './event-store.js';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { assertClaudeSubscriptionAccount } from './claude-subscription-custody.js';
+import { createLogger } from './logger.js';
 import { z } from 'zod';
 import type { GeminiOptions } from './gemini-session.js';
 import { WebAccessError } from './request-web-access.js';
@@ -128,8 +130,11 @@ type SdkSearchOptions = {
   assertCurrent?(signal: AbortSignal): Promise<void>;
   assertCurrentSync?(signal: AbortSignal): void;
   writeRoots?: readonly string[];
+  executable?: string;
 };
-type SdkQuery = (options: Parameters<typeof query>[0]) => AsyncIterable<unknown>;
+type SdkQuery = (
+  options: Parameters<typeof query>[0],
+) => AsyncIterable<unknown> & Partial<Pick<Query, 'accountInfo'>>;
 /** Uses the existing SDK account environment; exposes no file, shell, MCP or browser tools. */
 export async function searchSdk(
   queryText: string,
@@ -139,9 +144,8 @@ export async function searchSdk(
 ): Promise<string> {
   if (!route.model) throw new Error('Explicit SDK model required');
   const abort = new AbortController();
-  const cancel = () => abort.abort();
+  const cancel = () => abort.abort(signal.reason);
   signal.addEventListener('abort', cancel, { once: true });
-  const sdkBoundary = credentialSdkBoundary(process.platform, route.writeRoots);
   const searchCalls = new Set<string>();
   const successfulSearches = new Set<string>();
   const sessionId = randomUUID();
@@ -149,9 +153,32 @@ export async function searchSdk(
     route.workspaceRoot ?? join(homedir(), '.mitzo', 'private', 'sdk-tools'),
     sessionId,
   );
+  let failed = false;
+  const cleanup = () => {
+    try {
+      rmSync(cwd, { recursive: true, force: true });
+    } catch (cause) {
+      createLogger('web-search').warn('Claude SDK search cleanup failed', {
+        stage: 'search_cleanup',
+        code: 'sdk_search_cleanup_failed',
+        parentSessionId: route.parentSessionId,
+        operationId: route.operationId,
+      });
+      // A cleanup failure cannot replace an already reported search failure.
+      if (!failed) throw webSearchFailure('Claude SDK', 'cleanup could not complete', { cause });
+    }
+  };
   try {
     signal.throwIfAborted();
     await route.assertCurrent?.(signal);
+    const personal = !!route.env.MITZO_CLAUDE_EXPECTED_EMAIL;
+    if (personal && !route.executable)
+      throw Error('Selected Claude executable custody unavailable');
+    const sdkBoundary = credentialSdkBoundary(
+      process.platform,
+      route.writeRoots,
+      route.env.ANTHROPIC_BASE_URL,
+    );
     mkdirSync(cwd, { recursive: true, mode: 0o700 });
     try {
       route.executionStore.registerInternalSdkExecution({
@@ -161,19 +188,39 @@ export async function searchSdk(
         purpose: 'web_search',
         cwd,
       });
-    } catch {
-      throw webSearchFailure('Claude SDK', 'Ownership unavailable');
+    } catch (cause) {
+      throw webSearchFailure('Claude SDK', 'Ownership unavailable', { cause });
     }
     const env = Object.fromEntries(
       Object.entries(route.env).filter(([key]) => !key.startsWith('MITZO_')),
     );
-    for await (const raw of sdkQuery({
-      prompt: queryText,
+    const prompt = async function* (): AsyncGenerator<SDKUserMessage> {
+      try {
+        signal.throwIfAborted();
+        await route.assertCurrent?.(signal);
+        if (!native.accountInfo) throw Error('Search account identity unavailable');
+        assertClaudeSubscriptionAccount(await native.accountInfo(), route.env);
+        await route.assertCurrent?.(signal);
+        signal.throwIfAborted();
+        yield {
+          type: 'user',
+          session_id: sessionId,
+          parent_tool_use_id: null,
+          message: { role: 'user', content: queryText },
+        };
+      } catch (cause) {
+        abort.abort(cause);
+        throw cause;
+      }
+    };
+    const native = sdkQuery({
+      prompt: personal ? prompt() : queryText,
       options: {
         env,
         cwd,
         model: route.model,
         sessionId,
+        ...(route.executable ? { pathToClaudeCodeExecutable: route.executable } : {}),
         ...(sdkBoundary
           ? {
               spawnClaudeCodeProcess: (input) => {
@@ -195,7 +242,8 @@ export async function searchSdk(
             ? { behavior: 'allow', updatedInput: input }
             : { behavior: 'deny', message: 'Search-only request' },
       },
-    })) {
+    });
+    for await (const raw of native) {
       signal.throwIfAborted();
       await route.assertCurrent?.(signal);
       const message = z
@@ -269,12 +317,32 @@ export async function searchSdk(
     }
     throw new Error('SDK search ended without a result');
   } catch (error) {
-    if (signal.aborted) throw webSearchFailure('Claude SDK', 'was interrupted');
+    failed = true;
     if (error instanceof WebAccessError) throw error;
-    throw webSearchFailure('Claude SDK', 'could not complete on the selected route');
+    const diagnostic = {
+      stage: 'provider_search',
+      code: signal.aborted ? 'sdk_search_cancelled' : 'sdk_search_failed',
+      parentSessionId: route.parentSessionId,
+      operationId: route.operationId,
+      diagnosticId: randomUUID(),
+    };
+    const log = createLogger('web-search');
+    if (signal.aborted) log.debug('Claude SDK search cancelled', diagnostic);
+    else log.warn('Claude SDK search failed', diagnostic);
+    // The SDK can replace an input-stream refusal with a generic AbortError.
+    const cause = signal.aborted
+      ? signal.reason
+      : abort.signal.aborted
+        ? abort.signal.reason
+        : error;
+    throw webSearchFailure(
+      'Claude SDK',
+      signal.aborted ? 'was interrupted' : 'could not complete on the selected route',
+      { cause },
+    );
   } finally {
     signal.removeEventListener('abort', cancel);
     abort.abort();
-    rmSync(cwd, { recursive: true, force: true });
+    cleanup();
   }
 }

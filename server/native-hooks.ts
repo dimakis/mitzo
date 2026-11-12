@@ -1,3 +1,5 @@
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
+import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -84,6 +86,7 @@ export class NativeHooks {
     options: { normalizeFilePath?: boolean } = {},
   ): Promise<CodexToolResult> {
     let executed = false;
+    let entered = false;
     try {
       const normalized =
         options.normalizeFilePath !== false && typeof input.file_path === 'string'
@@ -92,10 +95,15 @@ export class NativeHooks {
       const pre = await this.run('PreToolUse', { tool_name: name, tool_input: normalized }, signal);
       const checked = pre.input ?? normalized;
       signal.throwIfAborted();
+      entered = true;
       const rawResult = await execute(checked, pre.forcePrompt);
       executed = true;
+      const result = qualifyToolResult(name, checked, signal, normalizeCodexToolResult(rawResult));
+      // A settled refusal runs no post-tool hook. Preserve its original-owner
+      // receipt even if terminal cancellation arrived during approval; calling
+      // it an interrupted hook would manufacture uncertainty and block FIFO.
+      if (result.isError && retainedCallbackOutcome(result) === 'settled') return result;
       signal.throwIfAborted();
-      const result = normalizeCodexToolResult(rawResult);
       if (result.isError) return result;
       const post = await this.run(
         'PostToolUse',
@@ -106,16 +114,21 @@ export class NativeHooks {
       signal.throwIfAborted();
       return appendCodexToolFeedback(result, context);
     } catch (error) {
-      return {
-        content: executed
-          ? error instanceof CodexToolResultBoundError
-            ? 'Tool ran, but its result exceeded the supported bound after hook feedback. Inspect current state and request a smaller result before retrying.'
-            : 'Tool ran, but its post-tool hook failed or was interrupted. Inspect current state before retrying.'
-          : error instanceof Error
-            ? error.message
-            : 'Project hook blocked the tool.',
-        isError: true,
-      };
+      if (entered && !executed)
+        return reportToolFailure(error, { sessionId: this.sessionId, tool: name, signal });
+      return retainCallbackOutcome(
+        {
+          content: executed
+            ? error instanceof CodexToolResultBoundError
+              ? 'Tool ran, but its result exceeded the supported bound after hook feedback. Inspect current state and request a smaller result before retrying.'
+              : 'Tool ran, but its post-tool hook failed or was interrupted. Inspect current state before retrying.'
+            : error instanceof Error
+              ? error.message
+              : 'Project hook blocked the tool.',
+          isError: true,
+        },
+        'unknown',
+      );
     }
   }
   private matching(event: Event, input: Record<string, unknown>) {

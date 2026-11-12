@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -41,7 +42,7 @@ it.each(['/feed?view=all', '/records/inbox%3Aone.md'])(
       unifiedInboxRouter(center, () => root),
     );
     const token = await login(process.env.AUTH_PASSPHRASE!);
-    const scan = vi.spyOn(UnifiedInbox.prototype, 'reconcile');
+    const scan = vi.spyOn(UnifiedInbox.prototype, 'reconcileAsync');
     const discardedFeed = vi.spyOn(store, 'feed');
     const permissions = vi.spyOn(store, 'reconcilePermissions');
     for (const text of ['Original source', 'Changed source']) {

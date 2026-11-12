@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { reviewQueue, queuedText } from '../../test-utils/queued-draft-controls';
 import {
   symposiumQueueOperations,
   symposiumExcerptOperations,
@@ -565,7 +566,9 @@ describe('SymposiumConversation', () => {
       expect(onSend).not.toHaveBeenCalled();
       expect(localStorage.getItem('mitzo-queue-session')).toBe(queued);
       finish(json({ sessionId: 'session', config: null, seats: [] }));
-      await screen.findByText('queued follow-up');
+      await screen.findByRole('region', { name: 'Up next' });
+      reviewQueue();
+      expect(queuedText('queued follow-up')).toBeTruthy();
       expect(onSend).not.toHaveBeenCalled();
       const indexed = JSON.parse(localStorage.getItem('mitzo-queue-session')!);
       expect(indexed).toEqual([
