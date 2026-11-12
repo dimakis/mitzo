@@ -7,6 +7,7 @@ import {
   renderHook,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MitzoApiClient } from '@mitzo/client';
@@ -78,6 +79,10 @@ function fixture() {
       artifactLabels: [],
     });
   vi.spyOn(api, 'getDurableSessionTranscript').mockResolvedValue(source);
+  vi.spyOn(api.collaborations, 'sourceArtifacts').mockResolvedValue({
+    sourceConversationId: 'architect',
+    artifacts: [],
+  });
   vi.spyOn(api.collaborations, 'reviewPrompt').mockImplementation(async (_group, _client, input) =>
     result(input),
   );
@@ -187,6 +192,72 @@ it('shows the exact frozen artifact contents before attaching conversation-so-fa
   expect(f.api.collaborations.reviewPrompt).toHaveBeenCalledOnce();
 });
 
+it.each(['missing', 'unavailable'])(
+  'can remove a retained %s artifact after reload without discarding source or brief edits',
+  async (state) => {
+    installDialogStub();
+    const f = fixture();
+    const pin = { artifactId: 'saved-design', revision: 1, sha256: 'c'.repeat(64) };
+    const selected = {
+      mode: 'selected' as const,
+      purpose: 'Keep my purpose',
+      brief: 'Keep my brief',
+      messageIds: ['source'],
+      artifacts: [pin],
+    };
+    drafts.saveChatDraft({
+      ...drafts.getChatDraft(f.draft.id)!,
+      collaborationContext: {
+        collaborationId: f.view.collaborationId,
+        authScope: 'login',
+        form: selected,
+        attached: false,
+      },
+    });
+    vi.mocked(f.api.collaborations.sourceArtifacts).mockResolvedValue({
+      sourceConversationId: 'architect',
+      artifacts: state === 'missing' ? [] : [{ ...pin, title: 'Saved design', available: false }],
+    });
+    function Controls() {
+      const flow = useConversationPromptContext(f.options);
+      return <ConversationPromptContext flow={flow} names={{}} disabled={false} />;
+    }
+    render(<Controls />);
+    fireEvent.click(screen.getByRole('button', { name: 'Review prompt context' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Context for this prompt' });
+    const stale = await within(dialog).findByRole('checkbox', {
+      name: state === 'missing' ? /Previously selected artifact/ : /Saved design/,
+    });
+    await waitFor(() => expect((stale as HTMLInputElement).disabled).toBe(false));
+    expect((stale as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(stale);
+    expect(
+      (within(dialog).getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value,
+    ).toBe('Keep my purpose');
+    expect(
+      (within(dialog).getByRole('textbox', { name: /^Brief$/ }) as HTMLInputElement).value,
+    ).toBe('Keep my brief');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Review context$/ }));
+    await waitFor(() =>
+      expect(
+        (
+          within(dialog).getByRole('button', {
+            name: 'Attach reviewed context',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
+    const input = vi.mocked(f.api.collaborations.reviewPrompt).mock.calls[0][2];
+    expect(input.selection).toMatchObject({
+      mode: selected.mode,
+      purpose: selected.purpose,
+      messageIds: selected.messageIds,
+      artifacts: [],
+      joiningBrief: selected.brief,
+    });
+  },
+);
+
 it('recovers a lost review response by exact retained selectors after remount without inference or private persistence', async () => {
   const f = fixture();
   vi.mocked(f.api.collaborations.reviewPrompt).mockRejectedValueOnce(
@@ -250,6 +321,82 @@ it('requires explicit refreezing when recipients or policy change during a revie
   expect(fresh.selection.requestId).not.toBe(original.selection.requestId);
   expect(fresh.recipientSessionIds).toEqual(['architect', 'reader', 'reviewer']);
   expect(fresh.expectedPolicySequence).toBe(next.view.policySequence);
+});
+
+it('retains exact artifact selectors and refuses a review that substitutes another saved revision', async () => {
+  const f = fixture();
+  const hook = f.mount();
+  const pin = { artifactId: 'saved-design', revision: 2, sha256: 'c'.repeat(64) };
+  act(() =>
+    hook.result.current.edit({
+      mode: 'selected',
+      purpose: 'Review saved design',
+      brief: 'Exact version only',
+      messageIds: ['source'],
+      artifacts: [pin],
+    }),
+  );
+  vi.mocked(f.api.collaborations.reviewPrompt).mockImplementationOnce(
+    async (_group, _client, input) => ({
+      ...f.result(input),
+      snapshot: {
+        ...f.result(input).snapshot,
+        artifacts: [
+          {
+            ...pin,
+            revision: 3,
+            sourceConversationId: 'architect',
+            mediaType: 'text/plain',
+            sizeBytes: 0,
+            contentBase64: '',
+          },
+        ],
+      },
+    }),
+  );
+  act(() => hook.result.current.reviewContext());
+  await waitFor(() => expect(hook.result.current.error).toContain('changed the selected'));
+  expect(hook.result.current.canAttach).toBe(false);
+  const retained = drafts.getChatDraft(f.draft.id)!.collaborationContext!;
+  expect(retained.input!.selection.artifacts).toEqual([pin]);
+  expect(retained.snapshot).toBeUndefined();
+});
+
+it('shows catalog failures and never publishes artifact metadata returned after authority is lost', async () => {
+  const f = fixture();
+  const hook = f.mount();
+  vi.mocked(f.api.collaborations.sourceArtifacts).mockRejectedValueOnce(
+    Error('Artifact inventory unavailable'),
+  );
+  act(() => hook.result.current.show());
+  await waitFor(() => expect(hook.result.current.error).toBe('Artifact inventory unavailable'));
+  let release!: () => void;
+  vi.mocked(f.api.collaborations.sourceArtifacts).mockImplementationOnce(async () => {
+    await new Promise<void>((r) => {
+      release = r;
+    });
+    return {
+      sourceConversationId: 'architect',
+      artifacts: [
+        {
+          artifactId: 'private-design',
+          revision: 1,
+          sha256: 'c'.repeat(64),
+          title: 'Private artifact title',
+          available: true,
+        },
+      ],
+    };
+  });
+  act(() => hook.result.current.show());
+  await waitFor(() => expect(f.api.collaborations.sourceArtifacts).toHaveBeenCalledTimes(2));
+  await act(async () => {
+    window.dispatchEvent(new Event(AUTH_LOST_EVENT));
+    release();
+  });
+  expect(hook.result.current.artifacts).toBeUndefined();
+  expect(hook.result.current.unavailable).toBe(true);
+  expect(f.api.collaborations.reviewPrompt).not.toHaveBeenCalled();
 });
 
 it('fences late private review material on auth loss and a newer loss wins queued restoration', async () => {

@@ -57,6 +57,7 @@ export function LaunchReview({
   disabled,
   create = false,
   readRevision,
+  readError,
 }: {
   request: SessionLaunchRecord;
   onClose(): void;
@@ -64,6 +65,7 @@ export function LaunchReview({
   disabled: boolean;
   create?: boolean;
   readRevision?: number;
+  readError?: string | null;
 }) {
   const [title, setTitle] = useState(request.title);
   const [prompt, setPrompt] = useState(request.prompt);
@@ -259,19 +261,20 @@ export function LaunchReview({
         {configurationReason && pending && <p role="status">{configurationReason}</p>}
         {disabled && <p role="status">Confirming conversation settings before approval.</p>}
         {error && <p role="alert">{error}</p>}
+        {readError && <p role="alert">{readError}</p>}
         {pending && (
           <footer className="home-inline-actions">
             {attempted ? (
               <button
                 type="button"
                 className="home-secondary"
-                disabled={busy || disabled || authorityLost}
+                disabled={busy || authorityLost}
                 onClick={() => {
                   setCheckFrom({ request, readRevision });
                   onUpdate();
                 }}
               >
-                {checking ? 'Checking request…' : 'Check request'}
+                {checking && !readError ? 'Checking request…' : 'Check request'}
               </button>
             ) : (
               <>

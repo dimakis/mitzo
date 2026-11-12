@@ -255,6 +255,7 @@ export function SessionChatLinks({
           request={observed || draft}
           create={!observed}
           readRevision={data?.readRevision}
+          readError={data?.error}
           disabled={disabled}
           onClose={() => setDraft(null)}
           onUpdate={() => data?.refresh()}
