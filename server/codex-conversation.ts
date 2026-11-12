@@ -1,4 +1,4 @@
-import { qualifyToolResult } from './tool-failure-reporting.js';
+import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
 import {
   assertToolGuardCurrent,
@@ -62,7 +62,7 @@ import { performance } from 'node:perf_hooks';
 import { SearchSkillsInput, searchNativeSkills } from './local-agent-efficiency.js';
 import { applicationVersion } from './application-version.js';
 import { diagnosticReleaseRevision } from './codex-diagnostic-release.js';
-import { codexToolFailureResult, CodexDiagnosticIdentitySchema } from './codex-tool-failure.js';
+import { CodexDiagnosticIdentitySchema } from './codex-tool-failure.js';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -4503,31 +4503,18 @@ export class CodexConversation {
         active.callbackEffectsUnknown = true;
         active.toolGuardRetired = true;
       }
-      result = codexToolFailureResult(
-        error,
-        toolSignal.aborted,
-        diagnosticIdentity,
-        call.tool === 'PrepareLocalRepository'
-          ? 'repository_preparation'
-          : call.tool === 'RequestGithubPublish'
-            ? 'publication'
-            : 'tool_execution',
-      );
-      const diagnostic = JSON.parse(result.content) as {
-        diagnosticId: string;
-        error: string;
-        diagnostic: Record<string, unknown>;
-      };
-      retainCallbackOutcome(
-        result,
-        diagnostic.diagnostic.effectStatus === 'not_started' ? 'settled' : 'unknown',
-      );
-      log.warn('Dynamic tool failed', {
-        diagnosticId: diagnostic.diagnosticId,
-        toolFailureCode: diagnostic.error,
-        diagnostic: diagnostic.diagnostic,
-        conversationId: this.opts.conversationId,
+      result = reportToolFailure(error, {
+        sessionId: this.opts.conversationId,
+        tool: call.tool,
+        signal: toolSignal,
         callId: call.callId,
+        identity: diagnosticIdentity,
+        stage:
+          call.tool === 'PrepareLocalRepository'
+            ? 'repository_preparation'
+            : call.tool === 'RequestGithubPublish'
+              ? 'publication'
+              : 'tool_execution',
       });
     } finally {
       // No retained closure can outlive the original executor, including a

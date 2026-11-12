@@ -35,6 +35,22 @@ the current trace and session/call identity. Raw upstream errors and credentials
 are excluded. Returned domain-specific errors retain their existing content.
 Original outcome evidence survives adapter conversion into model tool results.
 
+Codex local and OpenShell conversations use the same exception reporter as the
+Claude SDK and deferred Gemini adapters. An original trusted exception's private
+settlement receipt takes precedence over diagnostic defaults, including an
+explicit unknown receipt. Adding project-hook feedback to text or rich results
+also preserves that receipt. A known failed operation stays failed without
+inventing unresolved effects; unknown work remains fenced. These in-memory
+receipts cannot be supplied by tool text, JSON fields or configured MCP metadata.
+
+The shared Telos backlog adapter also retains proof that validation or approval
+failed before a canonical mutation was dispatched. Denied approval remains a
+failed operation with no update applied; it does not create an unknown-write
+blocker. Once mutation dispatch begins, unconfirmed results remain unknown.
+Explicit original-owner uncertainty takes precedence, including during approval.
+Structured diagnostics identify the conversation and whether failure occurred
+before dispatch or during mutation/result handling.
+
 Memory exhaustion, filesystem denial, storage exhaustion, connection failure,
 and deadlines have explicit messages. Shell failures include the observed exit
 code or signal even when stdout is empty. High shell exits remain uncertain:
@@ -80,11 +96,28 @@ history, and cold Codex reconciliation. They also preserve unknown writes,
 cancellation, account changes, missing receipts and request-hash mismatches.
 These are synthetic tests, not live-model or production recovery evidence.
 
+Completion regressions cover both resumable and terminal Codex transports:
+a settled thrown failure retains its failed result in SQLite, completes its
+original downstream phase and admits a new command without replaying the tool.
+The SDK callback and native-hook tests verify settled and unknown exceptions,
+and rich/text feedback tests guard both directions of receipt loss. Existing
+Gemini continuation, cancellation, cold recovery and queue-status tests retain
+their independent failure and uncertainty checks. This does not rewrite earlier
+unknown receipts or establish the cause of a particular production warning;
+that requires the original conversation's operation evidence.
+
+Telos regressions pass a refused audit update through the real backlog adapter
+and both Codex completion transports, checking the unchanged canonical item,
+durable failed receipt and subsequent command admission without replay. A failure
+after a real canonical commit remains unknown, as does an explicitly uncertain
+approval failure.
+
 | Supported route                               | Recovery coverage                                                                                                                     |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Local Codex subscription and API accounts     | Credential-owner and bootstrap failures through the real lifecycle bridge; conversation, retained replay and client receipt rendering |
 | OpenShell Codex subscription and API accounts | Shared native conversation diagnostics and host TaskExecution receipts; sandbox built-ins remain provider-owned                       |
 | Claude SDK Vertex and personal accounts       | Registered credential callback, shared tool diagnostics and host TaskExecution receipts                                               |
+| Anthropic-compatible API accounts (EnMaaS)    | Same registered Claude SDK callback; offline account, model and permission-mode admission regressions                                 |
 | Legacy unbound Claude SDK                     | Same registered callback; no named Anthropic API account admission is implied                                                         |
 | Gemini Vertex                                 | Deferred provider loop, shared tool diagnostics, durable failed-tool history and cancellation                                         |
 | Retired custom OpenAI Responses engine        | Rejection remains enforced; supported Responses protocol accounts use the Codex harness                                               |

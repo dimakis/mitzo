@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 import {
   appendCodexToolFeedback,
   codexToolResultContentItems,
@@ -12,6 +13,30 @@ const png =
 const image = { type: 'image', mimeType: 'image/png', data: png };
 
 describe('Codex product tool image results', () => {
+  it.each([
+    ['settled', true, false],
+    ['settled', true, true],
+    ['unknown', false, false],
+    ['unknown', false, true],
+  ] as const)(
+    'keeps %s outcome when feedback decorates an error=%s rich=%s result',
+    (outcome, isError, rich) => {
+      const original = retainCallbackOutcome(
+        {
+          content: 'original result',
+          isError,
+          ...(rich
+            ? { contentItems: [{ type: 'inputText' as const, text: 'original result' }] }
+            : {}),
+        },
+        outcome,
+      );
+      const result = appendCodexToolFeedback(original, 'Project feedback');
+      expect(result.isError).toBe(isError);
+      expect(callbackOutcome(result)).toBe(outcome);
+      expect(result.content).toContain('Project feedback');
+    },
+  );
   it('preserves mixed block order as inline native content and keeps a text projection', () => {
     const result = normalizeMcpToolResult(
       [{ type: 'text', text: 'before' }, image, { type: 'text', text: 'after' }],

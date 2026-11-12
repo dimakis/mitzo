@@ -2,6 +2,28 @@ import { expect, it } from 'vitest';
 import { isIntrinsicRecoveryRead } from '../builtin-tool-behavior.js';
 import { qualifyToolResult, reportToolFailure } from '../tool-failure-reporting.js';
 import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import { CodexToolFailure } from '../codex-tool-failure.js';
+
+it.each(['settled', 'unknown'] as const)(
+  'preserves the original %s exception receipt over projected diagnostics',
+  (outcome) => {
+    const error = retainCallbackOutcome(
+      new CodexToolFailure('invalid_input', {
+        stage: 'tool_execution',
+        reason: 'invalid_input',
+        effectStatus: 'not_started',
+      }),
+      outcome,
+    );
+    const result = reportToolFailure(error, {
+      sessionId: 'session',
+      tool: 'AnyTool',
+      signal: new AbortController().signal,
+    });
+    expect(result.isError).toBe(true);
+    expect(callbackOutcome(result)).toBe(outcome);
+  },
+);
 
 it.each([
   ['ReadKnowledge', {}],

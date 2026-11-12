@@ -1,4 +1,4 @@
-import { retainCallbackOutcome } from '../turn-callbacks.js';
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 import { withToolGuardPhase } from '@mitzo/harness';
 import { toolFailure } from '@mitzo/protocol';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
@@ -52,6 +52,9 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
 import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
+import { executeTelosBacklogOperation, telosBacklogDefinitions } from '../telos-backlog-tools.js';
+import { TelosItemStore } from '../telos-item-store.js';
+import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 const cleanup: (() => void)[] = [];
 const binding = {
   accountId: 'personal',
@@ -60,6 +63,106 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it.each(
+  (['resumable', 'terminal'] as const).flatMap((transport) =>
+    (['exception', 'telos-approval'] as const).map((failure) => ({ transport, failure })),
+  ),
+)(
+  'preserves a settled $failure failure through $transport completion and the next command',
+  async ({ transport, failure }) => {
+    const beforeComplete = vi.fn(async () => {});
+    const f =
+      transport === 'terminal'
+        ? await setupTerminalTransport(undefined, beforeComplete)
+        : await setup(undefined, undefined, beforeComplete);
+    f.conversationOptions.enableToolFailureContinuation = false;
+    if (failure === 'telos-approval') f.conversationOptions.tools.push(...telosBacklogDefinitions);
+    await f.c.send({ id: 'settled-exception', prompt: 'Inspect the existing work' });
+    let arguments_: Record<string, unknown> = { file_path: 'note' };
+    if (failure === 'exception') {
+      f.execute.mockRejectedValueOnce(retainCallbackOutcome(Error('private refusal'), 'settled'));
+    } else {
+      const canonical = createTelosCanonicalData();
+      const items = new TelosItemStore(canonical.dbPath);
+      cleanup.push(() => {
+        items.close();
+        canonical.close();
+      });
+      arguments_ = {
+        operation: 'update',
+        itemId: 'studio',
+        requestId: 'audit-note',
+        expectedRevision: items.read('studio').revision,
+        note: 'Audit the retained work.',
+      };
+      f.execute.mockImplementationOnce(async (name, input, signal) => {
+        const result = await executeTelosBacklogOperation(
+          {
+            items,
+            work: canonical.work,
+            approve: async () => ({ behavior: 'deny', message: 'Approval unavailable' }),
+            context: {
+              operatorId: canonical.actor.id,
+              conversationId: 'app',
+              toolName: name,
+              requestHash: createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+              signal,
+              assertCurrentSync() {},
+              async assertCurrent() {},
+            },
+          },
+          'TelosManageItem',
+          input,
+        );
+        expect(items.read('studio').updates).toHaveLength(0);
+        return result;
+      });
+    }
+    const call = {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'settled-call',
+      tool: failure === 'exception' ? 'Read' : 'TelosManageItem',
+      arguments: arguments_,
+    };
+    const failed = await f.callbacks.onRequest(
+      'item/tool/call',
+      call,
+      new AbortController().signal,
+    );
+    expect(failed.success).toBe(false);
+    expect(callbackOutcome(failed)).toBe('settled');
+    expect(JSON.stringify(failed)).not.toContain('private refusal');
+    const receipt = f.store.replayToolResult(
+      'app',
+      f.getBinding(),
+      'settled-exception',
+      call.callId,
+      {
+        turnId: call.turnId,
+        toolName: call.tool,
+        requestHash: createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex'),
+      },
+    );
+    expect(receipt?.isError).toBe(true);
+    expect(callbackOutcome(receipt)).toBe('settled');
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(f.store.completionPhase('app', f.getBinding(), 'settled-exception', 1)?.status).toBe(
+        'completed',
+      ),
+    );
+    expect(f.store.continuationBlocker('app', f.getBinding())).toBeUndefined();
+    await f.c.send({ id: 'next-command', prompt: 'Continue with independent work' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+    expect(f.execute).toHaveBeenCalledOnce();
+    expect(beforeComplete).toHaveBeenCalledOnce();
+  },
+);
 
 it('bounds a noncooperative host tool, fences its late callback and retains unknown effects', async () => {
   const f = await setup();

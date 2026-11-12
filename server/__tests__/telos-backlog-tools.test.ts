@@ -8,6 +8,7 @@ import {
   type TelosBacklogToolName,
 } from '../telos-backlog-tools.js';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 import * as logging from '../logger.js';
 import fs from 'node:fs';
 import { telosDiagnosticFailure } from '../telos-operation-failure.js';
@@ -276,7 +277,8 @@ it('reports rejected asynchronous backlog authority and preserves the failed ope
     throw Error('private upstream payload');
   });
   expect(result.isError).toBe(true);
-  expect(result.content).toContain('mutation not confirmed');
+  expect(result.content).toContain('before mutation dispatch');
+  expect(callbackOutcome(result)).toBe('settled');
   await vi.waitFor(() =>
     expect(warn).toHaveBeenCalledWith(
       expect.any(String),
@@ -434,6 +436,7 @@ it('rolls back feature, history and receipt together when the canonical writer f
   const failed = await f.run('TelosCreateFeature', featureBrief);
   expect(failed.isError).toBe(true);
   expect(failed.content).toContain('mutation not confirmed');
+  expect(callbackOutcome(failed)).toBe('unknown');
   expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
   f.db.exec('DROP TRIGGER refuse_feature_history');
   expect((await f.run('TelosCreateFeature', featureBrief)).isError).toBe(false);
@@ -448,7 +451,9 @@ it('refuses invalid, denied, modified and retired feature creation before any ca
     expect((await f.run('TelosCreateFeature', { ...featureBrief, ...extra })).isError).toBe(true);
   expect(f.approve).not.toHaveBeenCalled();
   f.approve.mockImplementationOnce(async () => ({ behavior: 'deny' }) as never);
-  expect((await f.run('TelosCreateFeature', featureBrief)).content).toContain('approval');
+  const denied = await f.run('TelosCreateFeature', featureBrief);
+  expect(denied.content).toContain('approval');
+  expect(callbackOutcome(denied)).toBe('settled');
   f.approve.mockImplementationOnce(async (_name, input) => ({
     behavior: 'allow',
     updatedInput: { ...input, summary: 'Substituted' },
@@ -619,5 +624,39 @@ it('distinguishes denied approval from a storage outage', async () => {
   expect(result.isError).toBe(true);
   expect(result.content).toContain('approval');
   expect(result.content).not.toContain('operation unavailable');
+  expect(callbackOutcome(result)).toBe('settled');
   expect(f.items.read('studio').summary).toBe('Home studio');
 });
+
+it.each(['before', 'after', 'explicit-unknown'] as const)(
+  'preserves the effect boundary for a failure %s mutation dispatch',
+  async (stage) => {
+    const f = fixture();
+    const input = {
+      operation: 'update',
+      itemId: 'studio',
+      requestId: 'progress-boundary',
+      expectedRevision: f.items.read('studio').revision,
+      note: 'Audit the retained work.',
+    };
+    const original = f.items.updateGuarded.bind(f.items);
+    const update = vi.spyOn(f.items, 'updateGuarded');
+    if (stage === 'after') {
+      update.mockImplementationOnce((...args) => {
+        original(...args);
+        throw Error('lost result after commit');
+      });
+    } else {
+      f.approve.mockRejectedValueOnce(
+        stage === 'explicit-unknown'
+          ? retainCallbackOutcome(Error('owner uncertainty'), 'unknown')
+          : Error('approval transport unavailable'),
+      );
+    }
+    const result = await f.run('TelosManageItem', input);
+    expect(result.isError).toBe(true);
+    expect(callbackOutcome(result)).toBe(stage === 'before' ? 'settled' : 'unknown');
+    expect(update).toHaveBeenCalledTimes(stage === 'after' ? 1 : 0);
+    expect(f.items.read('studio').updates).toHaveLength(stage === 'after' ? 1 : 0);
+  },
+);

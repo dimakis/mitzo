@@ -17,6 +17,7 @@ import {
   withTelosWorkflowInstructions,
 } from './telos-workflow-instructions.js';
 import { createLogger } from './logger.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 
 export const telosBacklogSchemas = {
@@ -105,6 +106,9 @@ export async function executeTelosBacklogOperation(
   name: TelosBacklogToolName,
   raw: unknown,
 ): Promise<TelosToolResult> {
+  // Only the original adapter can prove that approval/validation failed before
+  // entering a canonical mutation. Error text and later observations cannot.
+  let mutationDispatched = false;
   try {
     const { context: ctx } = owners;
     const current = () => {
@@ -150,6 +154,7 @@ export async function executeTelosBacklogOperation(
           : undefined;
       const input = child ?? TelosCreateFeatureInputSchema.parse(structuredClone(raw));
       await approve(input);
+      mutationDispatched = true;
       const receipt = child
         ? owners.items.createChildGuarded(child, ctx.conversationId, current, () =>
             owners.items.assertLifecycleActive(child.parentId),
@@ -195,6 +200,7 @@ export async function executeTelosBacklogOperation(
         }
       } else {
         await approve(input);
+        mutationDispatched = true;
         if (input.operation === 'edit') {
           const { operation, ...edit } = input;
           void operation;
@@ -258,17 +264,30 @@ export async function executeTelosBacklogOperation(
           : 'CONTEXT_OR_STORAGE_UNAVAILABLE';
       createLogger('telos-backlog').warn(
         'Telos backlog operation failed; original request retained for recovery',
-        { tool: name, code },
+        {
+          tool: name,
+          code,
+          conversationId: owners.context.conversationId,
+          stage: mutationDispatched ? 'mutation_or_result' : 'validation_or_approval',
+        },
       );
     }
-    return {
+    const failure: TelosToolResult = {
       isError: true,
       content:
         error instanceof z.ZodError
           ? 'Invalid Telos backlog input: ' + z.prettifyError(error)
           : known
             ? (error as Error).message
-            : 'Telos backlog operation unavailable; mutation not confirmed. Preserve the exact requestId and input for recovery.',
+            : mutationDispatched
+              ? 'Telos backlog operation unavailable; mutation not confirmed. Preserve the exact requestId and input for recovery.'
+              : 'Telos backlog operation unavailable before mutation dispatch. No update was applied; check approval delivery and conversation access before continuing.',
     };
+    const originalOutcome =
+      error !== null && typeof error === 'object' ? retainedCallbackOutcome(error) : undefined;
+    return retainCallbackOutcome(
+      failure,
+      originalOutcome ?? (mutationDispatched ? 'unknown' : 'settled'),
+    );
   }
 }

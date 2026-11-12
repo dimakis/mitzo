@@ -176,7 +176,10 @@ export function appendCodexToolFeedback(result: CodexToolResult, context: string
   if (!context) return checked;
   const feedback = `\n\nProject hook feedback:\n${context}`;
   if (!checked.contentItems)
-    return { content: checked.content + feedback, isError: checked.isError };
+    return copyCallbackOutcome(checked, {
+      content: checked.content + feedback,
+      isError: checked.isError,
+    });
   // Append to the last text block to keep the legacy content string exact.
   const items = checked.contentItems.map((item) => ({ ...item }));
   let lastText = -1;
@@ -184,9 +187,12 @@ export function appendCodexToolFeedback(result: CodexToolResult, context: string
     if (items[index].type === 'inputText') lastText = index;
   if (lastText >= 0) (items[lastText] as { type: 'inputText'; text: string }).text += feedback;
   else items.push({ type: 'inputText', text: feedback });
-  return normalizeCodexToolResult({
-    ...checked,
-    content: checked.content + feedback,
-    contentItems: items,
-  });
+  return copyCallbackOutcome(
+    checked,
+    normalizeCodexToolResult({
+      ...checked,
+      content: checked.content + feedback,
+      contentItems: items,
+    }),
+  );
 }
