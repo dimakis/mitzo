@@ -139,7 +139,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "read",
-    "routes": ["local-api", "codex", "codex-owned-local"],
+    "routes": ["local-api", "codex", "claude-sdk", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
