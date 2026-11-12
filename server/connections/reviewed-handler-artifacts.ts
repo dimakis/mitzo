@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1071-telos-session-landing-integration';
+  'v1.0.1072-telos-proposal-disconnect-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4367,9 +4367,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/telos-agent-session-creation-handoff.md':
     'f144189dbd45d5092a58bf9be15cbfe0f947f0b5e3fe62bc04358af55067a28f',
   '../__tests__/telos-session-launch-adapters.test.ts':
-    '882b8c993e6bc3fcd57dd4907fad5c8ecece829e7e938351f519cbb4268564de',
+    '887f4836fd60f802ef2e8d72eddba94058d2c126234d5fb1acd627b73bdba1ae',
   '../telos-session-launch-adapters.ts':
-    '87e603543419ec31b7e2aab2cbbb4427242a2f2da78e4a8342721ae426e79dcc',
+    'ed0f0518fa9752a2a02b215278be6ba5e0d3228e343b40cf1376d9866c969b8d',
   '../telos-session-launch-tool.ts':
     'ad45ebb5e2feff91a6c13723c3ad2cc0105a9435c73c623d9a13bff41c5cd494',
 });

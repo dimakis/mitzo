@@ -1,13 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import express from 'express';
+import express, { type RequestHandler } from 'express';
 import request from 'supertest';
 import {
   createTelosSessionProposalRouter,
   executeTelosCreateSession,
+  telosSessionProposalFailure,
 } from '../telos-session-launch-adapters.js';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
 
-const mocks = vi.hoisted(() => ({ propose: vi.fn(), auth: vi.fn(), allowed: vi.fn(() => true) }));
+const mocks = vi.hoisted(() => ({
+  propose: vi.fn(),
+  auth: vi.fn(),
+  allowed: vi.fn(() => true),
+  error: vi.fn(),
+}));
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({ error: mocks.error, warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
+}));
 vi.mock('../session-launch-tools.js', async (original) => ({
   ...(await original<typeof import('../session-launch-tools.js')>()),
   proposeTelosSession: mocks.propose,
@@ -66,12 +75,58 @@ const receipt = {
   createdAt: 1,
   updatedAt: 1,
 };
+function proposalApp(before?: RequestHandler) {
+  const session = {
+    sessionId: 'claude-lead',
+    ownerConnectionId: 'signed-connection',
+    abortController: new AbortController(),
+  };
+  const registry = { get: () => session, isClosingOut: () => false, isUserClose: () => false };
+  const app = express();
+  app.use(express.json());
+  if (before) app.use(before);
+  app.use(
+    createTelosSessionProposalRouter({
+      controller: {} as never,
+      registry: registry as never,
+      verifyInternal: () => true,
+      ordinaryConversation: () => true,
+    }),
+  );
+  return app;
+}
+
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe('Telos work-bound session adapter contract', () => {
+  it('retains and sanitizes an unexpected failure after the HTTP consumer disconnects', async () => {
+    const cause = new Error('private provider or source payload');
+    const disconnectedInput = { ...input, requestId: '2ff0e574-ea1f-47fa-82d0-4267d503eb83' };
+    const app = proposalApp((_req, res, next) => {
+      mocks.propose.mockImplementationOnce(async () => {
+        res.destroy();
+        throw cause;
+      });
+      next();
+    });
+    await expect(
+      request(app)
+        .post('/api/internal/telos/session/propose')
+        .set('X-Client-Id', 'claude-client')
+        .send({ clientId: 'claude-client', sessionId: 'claude-lead', input: disconnectedInput }),
+    ).rejects.toThrow(/socket hang up|aborted|ECONNRESET/i);
+    expect(telosSessionProposalFailure(disconnectedInput.requestId)).toBe(cause);
+    expect(mocks.error).toHaveBeenCalledWith('Telos session proposal unavailable', {
+      stage: 'proposal',
+      code: 'telos_session_proposal_failed',
+      requestId: disconnectedInput.requestId,
+      sourceSessionId: 'claude-lead',
+    });
+  });
+
   it('exposes the same tool on local Claude and local/OpenShell Codex selection routes', () => {
     expect(agentToolCatalog().find((tool) => tool.name === 'TelosCreateSession')?.routes).toEqual([
       'local-api',
@@ -81,23 +136,8 @@ describe('Telos work-bound session adapter contract', () => {
   });
 
   it('retains Claude SDK caller identity while the child runtime remains independently reviewed', async () => {
-    const session = {
-      sessionId: 'claude-lead',
-      ownerConnectionId: 'signed-connection',
-      abortController: new AbortController(),
-    };
-    const registry = { get: () => session, isClosingOut: () => false, isUserClose: () => false };
     mocks.propose.mockResolvedValue(receipt);
-    const app = express();
-    app.use(express.json());
-    app.use(
-      createTelosSessionProposalRouter({
-        controller: {} as never,
-        registry: registry as never,
-        verifyInternal: () => true,
-        ordinaryConversation: () => true,
-      }),
-    );
+    const app = proposalApp();
     const res = await request(app)
       .post('/api/internal/telos/session/propose')
       .set('X-Client-Id', 'claude-client')

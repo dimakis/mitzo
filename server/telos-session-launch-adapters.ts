@@ -97,7 +97,6 @@ export function createTelosSessionProposalRouter(deps: {
       captured.assertCurrent();
       res.json(result);
     } catch (cause) {
-      if (res.destroyed) return;
       const known = cause instanceof SessionLaunchError;
       if (!known) {
         causes.delete(input.requestId);
@@ -110,6 +109,9 @@ export function createTelosSessionProposalRouter(deps: {
           sourceSessionId: sessionId,
         });
       }
+      // Losing the HTTP consumer prevents delivery, but must not discard the
+      // original failure or its sanitized operation diagnostic.
+      if (res.destroyed) return;
       res.status(known ? cause.status : 503).json({
         stage: 'proposal',
         code: known ? 'telos_session_proposal_refused' : 'telos_session_proposal_failed',
