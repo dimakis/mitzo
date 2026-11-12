@@ -40,6 +40,9 @@ it('checks peer input immediately before stdin yield and consumes peer ACKs befo
     adapt: (q) => q as never,
     settings: () => ({}),
     inputChanged: () => {},
+    onUnsent: (_message, error) => {
+      throw error;
+    },
     peerMessages: () => ({ beforeInput, observe }),
   });
   input.push({
