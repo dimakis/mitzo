@@ -196,8 +196,11 @@ function terminalProjection(messages: RestoredMessage[]): () => void {
 function replaySubagents(events: StoredEvent[]) {
   type NestedBlock = RestoredMessage['blocks'][number] & { done: boolean };
   const key = (messageId: string, blockId: string) => JSON.stringify([messageId, blockId]);
-  const parentMessageByBlock = new Map<string, string>();
-  const activeStateByParent = new Map<string, string>();
+  const ownerByParent = new Map<string, string | null>();
+  const rememberOwner = (parentId: string, messageId: string) => {
+    if (!ownerByParent.has(parentId)) ownerByParent.set(parentId, messageId);
+    else if (ownerByParent.get(parentId) !== messageId) ownerByParent.set(parentId, null);
+  };
   const states = new Map<
     string,
     {
@@ -218,16 +221,19 @@ function replaySubagents(events: StoredEvent[]) {
       typeof p.blockId === 'string' &&
       typeof p.messageId === 'string'
     ) {
-      parentMessageByBlock.set(p.blockId, p.messageId);
-      activeStateByParent.delete(p.blockId);
+      rememberOwner(p.blockId, p.messageId);
     }
+    if (!event.type.startsWith('subagent_')) continue;
     const parentId = p.parentBlockId as string;
+    if (typeof parentId !== 'string') continue;
+    if (typeof p.messageId === 'string') rememberOwner(parentId, p.messageId);
+    // Resolve in event order: earlier legacy output remains valid, but once two
+    // turns reuse an ID only explicit ownership can authorize later changes.
+    const parentMessageId =
+      typeof p.messageId === 'string' ? p.messageId : ownerByParent.get(parentId);
+    if (!parentMessageId) continue;
+    const scope = key(parentMessageId, parentId);
     if (event.type === 'subagent_start' && typeof p.subagentMessageId === 'string') {
-      const parentMessageId =
-        typeof p.messageId === 'string' ? p.messageId : parentMessageByBlock.get(parentId);
-      if (!parentMessageId) continue;
-      const scope = key(parentMessageId, parentId);
-      activeStateByParent.set(parentId, scope);
       if (states.has(scope)) continue;
       states.set(scope, {
         messageId: p.subagentMessageId,
@@ -238,11 +244,7 @@ function replaySubagents(events: StoredEvent[]) {
       });
       continue;
     }
-    const state = states.get(
-      typeof p.messageId === 'string'
-        ? key(p.messageId, parentId)
-        : (activeStateByParent.get(parentId) ?? ''),
-    );
+    const state = states.get(scope);
     if (!state) continue;
     if (state.status && ['completed', 'failed', 'cancelled'].includes(state.status)) continue;
     if (event.type === 'subagent_block_start' && typeof p.blockId === 'string') {

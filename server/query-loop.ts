@@ -568,7 +568,7 @@ async function _runQueryLoopInner(
       })
     : undefined;
 
-  function reportUncorrelatedChild(toolId: string) {
+  function reportUncorrelatedChild(toolId: string, activity = 'Subagent') {
     if (uncorrelatedChildren.has(toolId)) return;
     uncorrelatedChildren.add(toolId);
     const diagnostic = { code: 'claude_child_parent_unavailable', correlationId: randomUUID() };
@@ -583,7 +583,7 @@ async function _runQueryLoopInner(
       v2('error', {
         nonfatal: true,
         ...diagnostic,
-        error: `Subagent activity could not be linked to a verified parent. Retained activity remains available; check the parent conversation before retrying. Reference: ${diagnostic.correlationId}`,
+        error: `${activity} activity could not be linked to a verified parent. Retained activity remains available; check the parent conversation before retrying. Reference: ${diagnostic.correlationId}`,
       }),
     );
   }
@@ -1797,7 +1797,9 @@ async function _runQueryLoopInner(
               if (subagent) subagent.taskId = taskId;
               log.info('subagent task started', { clientId, taskId, toolUseId });
             } else if (taskId && !completedTasks.has(taskId)) {
-              log.debug('SDK task has no verified tool parent', { clientId, taskId, toolUseId });
+              // Duplicate starts for a verified terminal tool carry no new uncertainty.
+              if (!toolUseId || !toolIdToBlockId.has(toolUseId))
+                reportUncorrelatedChild(toolUseId ?? `task:${taskId}`, 'Background task');
             }
           } else if (subtype === 'task_notification') {
             const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
@@ -1823,7 +1825,10 @@ async function _runQueryLoopInner(
               );
               log.info('subagent task finished', { clientId, taskId, toolUseId, status });
             } else if (taskId && !toolUseId && !completedTasks.has(taskId)) {
-              log.debug('SDK task outcome has no verified tool parent', { clientId, taskId });
+              reportUncorrelatedChild(
+                typeof msg.tool_use_id === 'string' ? msg.tool_use_id : `task:${taskId}`,
+                'Background task',
+              );
             }
           }
         } else if (msg.type === 'user') {
@@ -2018,12 +2023,33 @@ async function _runQueryLoopInner(
     } finally {
       loopFinished = true;
       clearTimeout(firstEventTimer);
+      // Reporting is fallible (store writes and trusted observers can throw).
+      // Preserve the first cause while completing every independent cleanup stage.
+      const cleanup = (stage: string, action: () => void) => {
+        try {
+          action();
+        } catch (error) {
+          caughtError = true;
+          terminalError ??= error instanceof Error ? error : new Error('Query cleanup failed');
+          log.error('query cleanup failed', {
+            code: 'claude_child_cleanup_failed',
+            stage,
+            clientId,
+            sessionId: resolvedSessionId,
+            correlationId: randomUUID(),
+            err: error,
+          });
+        }
+      };
+      cleanup('child_reporter_unbind', () => unbindChildDiagnostic?.());
       if (!firstEventReceived) {
-        reportFirstEventOutcome(
-          new Error(
-            timedOut
-              ? 'Provider timed out before its first event'
-              : 'Provider ended before its first event',
+        cleanup('first_event_outcome', () =>
+          reportFirstEventOutcome(
+            new Error(
+              timedOut
+                ? 'Provider timed out before its first event'
+                : 'Provider ended before its first event',
+            ),
           ),
         );
       }
@@ -2058,11 +2084,15 @@ async function _runQueryLoopInner(
             toolId,
             ...diagnostic,
           });
-          finishTaskChild(toolId, 'unavailable', undefined, diagnostic);
+          cleanup('child_outcome', () =>
+            finishTaskChild(toolId, 'unavailable', undefined, diagnostic),
+          );
         }
         // Abort may remove registry ownership before the iterator unwinds. Use
         // the same exact-session fence as session_end for durable/watch delivery.
-        closeUnconfirmedCompaction(finalSession.sessionId ?? resolvedSessionId);
+        cleanup('compaction_close', () =>
+          closeUnconfirmedCompaction(finalSession.sessionId ?? resolvedSessionId),
+        );
         finalSession.currentSnapshot = null;
         messageState.clear();
         if (!doneSent) {
@@ -2070,76 +2100,90 @@ async function _runQueryLoopInner(
           // reconnect replay includes session_end and clears stale running state.
           const sid = finalSession.sessionId ?? resolvedSessionId;
           const endMsg = v2('session_end', { sessionId: sid });
-          sendOrBuffer(endMsg, clientId, registry, store, sid, connRegistry);
+          cleanup('session_end', () =>
+            sendOrBuffer(endMsg, clientId, registry, store, sid, connRegistry),
+          );
           if (sid && connRegistry?.hasOpenWatchers(sid)) {
             // Clear active session only on connections whose active is this session
             for (const { connectionId: cid } of connRegistry.getConnectionsWatching(sid, true)) {
               const conn = connRegistry.get(cid);
               if (conn?.activeSession === sid) {
-                connRegistry.setActive(cid, null);
+                cleanup('watcher_release', () => connRegistry.setActive(cid, null));
               }
             }
           }
         }
-        registry.remove(clientId);
+        cleanup('registry_remove', () => registry.remove(clientId));
       }
       // Persist best-effort usage for sessions that never received an SDK result
       // (disconnect, abort, timeout). The normal path records full SDK-provided
       // metrics; this fallback uses live counters so partial sessions aren't zero.
       if (!doneSent && store && resolvedSessionId) {
+        const usageSessionId = resolvedSessionId;
         const fallbackDurationMs = Date.now() - sessionStartedAt;
-        store.recordUsage(resolvedSessionId, {
-          inputTokens: latestInputTokens,
-          outputTokens: cumulativeOutputTokens,
-          cacheReadTokens: latestCacheReadTokens,
-          cacheCreationTokens: latestCacheCreationTokens,
-          totalCostUsd: finalSession?.cumulativeCostUsd ?? 0,
-          numTurns: turnIndex,
-          durationMs: fallbackDurationMs,
-          durationApiMs: 0, // only available from SDK result
-        });
+        cleanup('usage_record', () =>
+          store.recordUsage(usageSessionId, {
+            inputTokens: latestInputTokens,
+            outputTokens: cumulativeOutputTokens,
+            cacheReadTokens: latestCacheReadTokens,
+            cacheCreationTokens: latestCacheCreationTokens,
+            totalCostUsd: finalSession?.cumulativeCostUsd ?? 0,
+            numTurns: turnIndex,
+            durationMs: fallbackDurationMs,
+            durationApiMs: 0, // only available from SDK result
+          }),
+        );
       }
       // Mark session as ended in durable store (P1: setSessionState syncs is_active)
       if (store && resolvedSessionId) {
-        store.setSessionState(resolvedSessionId, 'ENDED', {
-          clientId,
-          reason: caughtError ? 'error' : 'completed',
-        });
+        const stateSessionId = resolvedSessionId;
+        cleanup('session_state', () =>
+          store.setSessionState(stateSessionId, 'ENDED', {
+            clientId,
+            reason: caughtError ? 'error' : 'completed',
+          }),
+        );
       }
       // Clean up any open subagent spans (ERROR if catch was entered)
       const subagentCleanupStatus = SpanStatusCode.ERROR;
       for (const [, sub] of activeSubagents) {
-        endSubagentSpans(
-          sub,
-          subagentCleanupStatus,
-          abortController.signal.aborted
-            ? 'cancelled'
-            : caughtError
-              ? 'session_error'
-              : 'session_ended',
+        cleanup('child_spans', () =>
+          endSubagentSpans(
+            sub,
+            subagentCleanupStatus,
+            abortController.signal.aborted
+              ? 'cancelled'
+              : caughtError
+                ? 'session_error'
+                : 'session_ended',
+          ),
         );
       }
       activeSubagents.clear();
-      unbindChildDiagnostic?.();
       // Clean up any open tool spans
       for (const [, ts] of toolSpans) {
-        ts.setAttribute(
-          'tool.completion',
-          abortController.signal.aborted
-            ? 'cancelled'
-            : caughtError
-              ? 'session_error'
-              : 'session_ended',
-        );
-        ts.setStatus({ code: SpanStatusCode.ERROR });
-        ts.end();
+        cleanup('tool_span', () => {
+          ts.setAttribute(
+            'tool.completion',
+            abortController.signal.aborted
+              ? 'cancelled'
+              : caughtError
+                ? 'session_error'
+                : 'session_ended',
+          );
+          ts.setStatus({ code: SpanStatusCode.ERROR });
+          ts.end();
+        });
       }
       toolSpans.clear();
       // Clean up open turn span
       if (currentTurnSpan) {
-        currentTurnSpan.setAttribute('turn.block_count', turnBlockCount);
-        currentTurnSpan.setStatus({ code: SpanStatusCode.OK });
-        currentTurnSpan.end();
+        const closingTurnSpan = currentTurnSpan;
+        cleanup('turn_span', () => {
+          closingTurnSpan.setAttribute('turn.block_count', turnBlockCount);
+          closingTurnSpan.setStatus({ code: SpanStatusCode.OK });
+          closingTurnSpan.end();
+        });
         currentTurnSpan = null;
       }
 

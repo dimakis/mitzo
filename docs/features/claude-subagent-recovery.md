@@ -10,6 +10,8 @@ envelope ends one model message, so it cannot establish task success. Foreground
 Agent tool results and explicit task notifications determine child outcomes.
 Query shutdown without an outcome leaves status unavailable. Duplicate and late
 terminal events retain the first confirmed outcome and prior public output.
+Shutdown reporting failures retain their original cause and cannot prevent
+reporter unbinding, registry removal, remaining cleanup or terminal notification.
 
 The existing inline `SubagentCard` shows Complete, Failed, Cancelled or Status
 unavailable, using its existing disclosure, semantic status dots and shared motion.
@@ -24,6 +26,9 @@ the original stop failure and secondary reporting failure remain correlated in l
 Child feedback remains bound to its original message and tool across later parent
 turns, including reused block IDs. An SDK event without a verified parent is
 reported once and cannot become parent text, transcript access or control authority.
+This includes lifecycle-only task events without a child message envelope. Legacy
+replay accepts unattributed child events only while parent ownership is unique;
+after block-ID reuse it requires explicit message ownership and preserves earlier output.
 The pinned SDK supports background tasks and terminal notifications; this change
 does not assert that a live resume/background correlation defect was reproduced.
 Cross-query parent recovery is unavailable rather than inferred from unverified

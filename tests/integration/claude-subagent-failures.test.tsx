@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { render, cleanup, fireEvent, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { runQueryLoop } from '../../server/query-loop.js';
+import { runQueryLoop, type QueryLoopOptions } from '../../server/query-loop.js';
 import type { SessionRegistry } from '../../server/session-registry.js';
 import { EventStore } from '../../server/event-store.js';
 import { replayEventsToMessages } from '../../server/conversation-transcript.js';
@@ -67,8 +67,10 @@ const childOutput = () => [
 
 async function run(
   events: Array<
-    Record<string, unknown> | ((runtime: object, activeTasks: Map<string, string>) => void)
+    | Record<string, unknown>
+    | ((runtime: object, activeTasks: Map<string, string>, store: EventStore) => void)
   >,
+  options?: QueryLoopOptions,
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-claude-child-'));
   const store = new EventStore(join(directory, 'events.db'));
@@ -97,6 +99,7 @@ async function run(
     bufferEvent: vi.fn(),
     remove: vi.fn(),
   } as unknown as SessionRegistry;
+  const onTerminalOutcome = vi.fn();
   try {
     const echo = {
       v: 2,
@@ -109,11 +112,14 @@ async function run(
     sent.push(echo);
     async function* source() {
       for (const event of events) {
-        if (typeof event === 'function') event(session.queryInstance, session.activeTaskIds);
+        if (typeof event === 'function') event(session.queryInstance, session.activeTaskIds, store);
         else yield event;
       }
     }
-    await runQueryLoop(source(), 'test-client', registry, new AbortController(), store);
+    await runQueryLoop(source(), 'test-client', registry, new AbortController(), store, undefined, {
+      ...options,
+      onTerminalOutcome,
+    });
     let state = INITIAL_MESSAGES_STATE;
     const callbacks = {
       onSessionAssigned: vi.fn(),
@@ -132,7 +138,7 @@ async function run(
       for (const action of parsed.messagesActions) state = messagesReducer(state, action);
     }
     const replay = replayEventsToMessages(store.getSessionEvents('test-session'));
-    return { state, replay, sent, session };
+    return { state, replay, sent, session, registry, onTerminalOutcome };
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
@@ -140,6 +146,63 @@ async function run(
 }
 
 describe('Claude task outcomes through adapter, client, replay and inline UI', () => {
+  it.each(['persistence', 'observer', 'storage-offline'])(
+    'finishes mandatory cleanup after a shutdown %s failure',
+    async (failure) => {
+      const cause = new Error('injected shutdown reporting failure');
+      const { session, registry, onTerminalOutcome, sent } = await run(
+        [
+          ...parentEvents(),
+          taskStarted,
+          ...childOutput(),
+          (_runtime, _tasks, store) => {
+            if (failure !== 'persistence' && failure !== 'storage-offline') return;
+            const append = store.append.bind(store);
+            vi.spyOn(store, 'append').mockImplementation((...args) => {
+              if (args[1] === 'subagent_end' || failure === 'storage-offline') throw cause;
+              return append(...args);
+            });
+          },
+        ],
+        {
+          onEvent: (event) => {
+            if (failure === 'observer' && event.type === 'subagent_end') throw cause;
+          },
+        },
+      );
+      expect(registry.remove).toHaveBeenCalledWith('test-client');
+      expect(onTerminalOutcome).toHaveBeenCalledExactlyOnceWith(cause);
+      if (failure !== 'storage-offline')
+        expect(sent.some((event) => event.type === 'session_end')).toBe(true);
+      expect(
+        reportClaudeChildDiagnostic(session.queryInstance, 'task-1', 'agent-call', {
+          code: 'claude_child_stop_failed',
+          correlationId: 'after-close',
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it.each([false, true])(
+    'reports uncorrelated lifecycle-only failure once (started=%s)',
+    async (started) => {
+      const { sent, session, state, replay } = await run([
+        start('parent-message'),
+        ...(started ? [taskStarted] : []),
+        notification('failed'),
+        notification('failed'),
+      ]);
+      expect(sent.filter((event) => event.code === 'claude_child_parent_unavailable')).toHaveLength(
+        1,
+      );
+      expect(sent.some((event) => event.type === 'subagent_start')).toBe(false);
+      expect(session.activeTaskIds.size).toBe(0);
+      expect(JSON.stringify(sent)).not.toContain('private provider diagnostic');
+      for (const messages of [state.messages, replay])
+        expect(JSON.stringify(messages)).toContain('could not be linked to a verified parent');
+    },
+  );
+
   it.each([
     ['failed', 'failed', 'Failed'],
     ['stopped', 'cancelled', 'Cancelled'],
