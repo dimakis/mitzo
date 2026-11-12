@@ -311,6 +311,16 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Retain complete browser partition evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-partition-${{ matrix.project }}-${{ matrix.shard }}-${{ github.run_id }}
+          path: test-results/offline/evidence/
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Retain conversation library visual evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -428,6 +438,15 @@ jobs:
         env:
           CI_BROWSER_NEEDS: ${{ toJSON(needs) }}
         run: node scripts/ci-browser-gate.mjs
+      - name: Download browser partition reports
+        if: needs.changes.outputs.browser == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: browser-partition-*-${{ github.run_id }}
+          path: browser-partitions
+      - name: Require complete exactly-once browser inventory
+        if: needs.changes.outputs.browser == 'true'
+        run: node scripts/ci-browser-partition.mjs browser-partitions
 
   native:
     needs: [changes, preflight, frontend-build]
