@@ -2769,6 +2769,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         options.ordinarySdkAuthority
           ? {
               profilesOnly: true,
+              connectionBoundary: 'sdk-callback',
               agentCommunication: sdkAgentCommunication,
               assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
               assertCurrentSync: (signal) =>
@@ -2811,6 +2812,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.ordinarySdkAuthority &&
           name.startsWith('mcp__mitzo-connections__') &&
           ![
+            'mcp__mitzo-connections__ListConnections',
             'mcp__mitzo-connections__SymposiumReadProfiles',
             'mcp__mitzo-connections__SymposiumProposeProfile',
             'mcp__mitzo-connections__AgentCommunication',
@@ -2989,6 +2991,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
           ? [
+              'mcp__mitzo-connections__ListConnections',
               'mcp__mitzo-connections__SymposiumReadProfiles',
               'mcp__mitzo-connections__SymposiumProposeProfile',
               'mcp__mitzo-connections__AgentCommunication',
@@ -3058,6 +3061,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               registry,
               {
                 profilesOnly: true,
+                connectionBoundary: 'sdk-callback',
                 agentCommunication: sdkAgentCommunication,
                 runCallback: state.runCallback,
                 assertCurrentSync: (signal) => {

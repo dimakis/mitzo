@@ -125,13 +125,21 @@ export function createCredentialSdkServer(
     version: '1.0.0',
     tools: filterAgentTools(session, [
       ...(boundary?.profilesOnly
-        ? [...profileToolDefinitions, ...sessionPromptDefinitions]
+        ? [
+            ...credentialConnectionToolDefinitions.filter(
+              (tool) => tool.name === 'ListConnections',
+            ),
+            ...profileToolDefinitions,
+            ...sessionPromptDefinitions,
+          ]
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
     ]).map((definition) =>
       tool(
         definition.name,
-        definition.description,
+        boundary?.profilesOnly && definition.name === 'ListConnections'
+          ? 'List configured Mitzo connections and their access state. Returns metadata only; this Claude route does not expose connection access requests or service requests. Credentials remain private. Open Connections to configure services.'
+          : definition.description,
         schemas[definition.name as keyof typeof schemas].shape,
         async (input, extra) => {
           const callSignal =
