@@ -12,7 +12,12 @@ import type { SessionActionPoint } from '../hooks/useSessionInteraction';
 import '../styles/session-library.css';
 import { SdkConversationImport } from '../components/SdkConversationImport';
 import { sessionNeedsYouReason } from '../lib/session-attention';
-import { mergeSessionActivities } from '../lib/session-activity';
+import {
+  mergeSessionActivities,
+  mergeSessionModel,
+  retainSessionModel,
+  type ModelObservation,
+} from '../lib/session-activity';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
@@ -438,7 +443,15 @@ export function SessionList() {
   const displayById = new Map(
     (connected === false ? lastKnownActivities : activities).map((a) => [a.sessionId, a]),
   );
-  const combined = mergeSessionActivities(sessions, activities);
+  const modelObservations = useRef(new Map<string, ModelObservation>());
+  for (const result of search.results)
+    retainSessionModel(modelObservations.current, result.sessionId, result);
+  const combined = mergeSessionActivities(
+    sessions,
+    activities,
+    lastKnownActivities,
+    modelObservations.current,
+  );
   const {
     sessions: all,
     pendingCount,
@@ -457,7 +470,11 @@ export function SessionList() {
       id: result.sessionId,
       summary: result.summary || '',
       lastModified: result.updatedAt,
-      model: existing?.model ?? result.model,
+      ...retainSessionModel(
+        modelObservations.current,
+        result.sessionId,
+        mergeSessionModel(existing, result),
+      ),
       accountLabel: result.accountLabel ?? existing?.accountLabel,
       snippet: result.snippet,
     };
@@ -466,14 +483,16 @@ export function SessionList() {
     ? (searchSessions.find((session) => session.id === preview.id) ?? combined.get(preview.id))
     : undefined;
   const selectedPreview = preview
-    ? currentPreview
-      ? {
-          ...preview,
-          ...currentPreview,
-          model: currentPreview.model ?? preview.model,
-          accountLabel: currentPreview.accountLabel ?? preview.accountLabel,
-        }
-      : preview
+    ? {
+        ...preview,
+        ...currentPreview,
+        ...retainSessionModel(
+          modelObservations.current,
+          preview.id,
+          mergeSessionModel(currentPreview, preview),
+        ),
+        accountLabel: currentPreview?.accountLabel ?? preview.accountLabel,
+      }
     : search.active
       ? (searchSessions[0] ?? null)
       : (visible[0] ?? null);
