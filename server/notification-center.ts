@@ -114,6 +114,13 @@ export class NotificationCenter {
       if (event.type === 'requested') this.permission(event.request);
       else {
         store.resolvePermission(event.permId, event.resolution);
+        log.info('Approval notification resolved', {
+          stage: 'notification_resolution',
+          code: 'approval_notification_resolved',
+          notificationId: `permission:${event.permId}`,
+          permId: event.permId,
+          resolution: event.resolution,
+        });
         // Persist authority immediately, but keep feed scans and notification
         // delivery off the approval response stack. Concurrent resolutions need
         // only one refresh of the final durable state.
@@ -189,7 +196,17 @@ export class NotificationCenter {
   private publish(input: Parameters<NotificationStore['record']>[0], notify = true): void {
     this.assertAvailable();
     if (!this.store.record(input)) return;
-    if (notify) this.store.queue(input.id, Date.now());
+    if (notify) {
+      this.store.queue(input.id, Date.now());
+      log.info('Notification queued', {
+        stage: 'notification_queue',
+        code: 'notification_queued',
+        notificationId: input.id,
+        kind: input.kind,
+        sessionId: input.sessionId,
+        permId: input.permId,
+      });
+    }
     this.changed();
   }
   private permission(request: PermissionRequest): void {
@@ -342,9 +359,8 @@ export class NotificationCenter {
           this.store.delivery(item.id, 'cancelled');
           continue;
         }
-        // Defer while the earlier alert is unread. A decision or acknowledgement
-        // must make an already-pending request eligible again.
-        if (this.store.hasUnseenApprovalAlert(item)) continue;
+        // Each decision needs its own alert. Durable notification identity and
+        // deliveredDevices deduplicate this request, never another one in its chat.
         const at = nextDeliveryAt(this.store.preferences(), Date.now());
         if (at === null || at > Date.now()) continue;
         const native = this.deps.configured() && this.deps.devices() > 0;
@@ -411,10 +427,35 @@ export class NotificationCenter {
           delete message.data.approvalInput;
           delete message.data.approvalToolName;
         }
-        const result = native
-          ? await this.deps.push(message)
-          : await this.deliverLegacy(legacy!, item, message);
+        let result: NotificationDeliveryResult;
+        let transportError: { err: unknown } | undefined;
+        try {
+          result = native
+            ? await this.deps.push(message)
+            : await this.deliverLegacy(legacy!, item, message);
+        } catch (err) {
+          transportError = { err };
+          result = { status: 'failed', acceptedDevices: [] };
+        }
         const { status } = result;
+        const diagnostic = {
+          stage: 'notification_delivery',
+          code: transportError
+            ? 'notification_transport_failed'
+            : `notification_delivery_${status}`,
+          notificationId: item.id,
+          kind: item.kind,
+          sessionId: item.sessionId,
+          permId: item.permId,
+          channel: native ? 'apns' : legacy,
+          acceptedDeviceCount: result.acceptedDevices.length,
+        };
+        if (status === 'failed')
+          log.warn(
+            transportError ? 'Notification transport failed' : 'Notification delivery failed',
+            { ...diagnostic, ...transportError },
+          );
+        else if (status === 'accepted') log.info('Notification delivery completed', diagnostic);
         if (status === 'unavailable') continue;
         this.store.delivery(
           item.id,
