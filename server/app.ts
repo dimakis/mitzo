@@ -50,7 +50,7 @@ import {
   sessionListMetadata,
   sessionModelIdentity,
 } from './session-list-metadata.js';
-import { sessionSearchTerms } from '@mitzo/protocol';
+import { sessionSearchTerms, sessionSearchDiagnostic } from '@mitzo/protocol';
 import { readCompactionHistory } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
@@ -3477,7 +3477,7 @@ app.get('/api/sessions/search', async (req, res) => {
     res.json({ results });
   } catch (err: unknown) {
     if (abort.signal.aborted) return;
-    log.error('GET /api/sessions/search failed', { error: err });
+    log.error('GET /api/sessions/search failed', { diagnostic: sessionSearchDiagnostic(err) });
     res.status(500).json({ error: 'Search failed' });
   } finally {
     res.removeListener('close', close);

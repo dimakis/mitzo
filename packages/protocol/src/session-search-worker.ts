@@ -210,8 +210,8 @@ parentPort!.on(
           id: message.id,
           result: search(message.query!, message.limit!, message.sessions!),
         });
-    } catch {
-      parentPort!.postMessage({ id: message.id, failed: true });
+    } catch (cause: unknown) {
+      parentPort!.postMessage({ id: message.id, failed: true, cause });
     }
   },
 );

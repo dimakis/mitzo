@@ -39,6 +39,22 @@ afterEach(() => {
 });
 
 describe('useSessionSearch', () => {
+  it('reports a sanitized diagnostic while retaining the editable query and retry state', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(apiFetch).mockRejectedValue(new TypeError('private-transcript-marker'));
+    const { result } = renderHook(() => useSessionSearch('query-marker'));
+    await act(async () => {});
+    expect(result.current.query).toBe('query-marker');
+    expect(result.current.error).toBe('Couldn’t search sessions. Try again.');
+    expect(warn).toHaveBeenCalledWith('Conversation search failed', {
+      code: 'session_search_failed',
+      stage: 'search',
+      requestId: 1,
+      causeName: 'TypeError',
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private-transcript-marker');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('query-marker');
+  });
   it('clears stale state when same-route navigation removes the URL query', async () => {
     const { result, rerender } = renderHook(({ q }) => useSessionSearch(q), {
       initialProps: { q: 'Claude personal' },

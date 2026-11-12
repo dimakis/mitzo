@@ -83,3 +83,10 @@ repository workflow failed while preparing a repository, before its success
 assertion. That historical failure does not establish a search defect or a cause;
 the combined candidate requires fresh CI and exact-head Centaur verification.
 No staging, production configuration or live model tests are used.
+
+Search RPCs now retain worker exceptions as internal error causes while emitting
+only a stable code, stage, request number and exception class. Server and hook
+diagnostics omit query text, transcript data and exception messages. Worker exit
+and cache-cleanup failures remain observable without replacing the primary
+failure. Real-worker append/query regressions, the API error response and the
+real hook's retry state verify failure delivery and sanitized diagnostics.

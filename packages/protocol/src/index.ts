@@ -1,5 +1,6 @@
 export * from './markdown-paths.js';
 export { sessionSearchTerms } from './session-search-query.js';
+export { sessionSearchDiagnostic } from './session-search-diagnostic.js';
 export { repositoryNameFromCwd } from './repository-name.js';
 export * from './ordinary-turn.js';
 export { ToolFailureSchema, toolFailure, toolFailureAction } from './tool-failure.js';
