@@ -161,6 +161,7 @@ import {
   executeTelosArtifactTool,
   isTelosArtifactTool,
   telosArtifactDefinitions,
+  ordinaryNativeTelosArtifactTools,
   telosArtifactSchemas,
   telosArtifactInstructions,
 } from './telos-artifact-tools.js';
@@ -995,14 +996,10 @@ async function openCodexChatBound(
           telosAdoptSourceDefinition,
           // Default profiles retain reviewed capture, just like OpenShell.
           // Progress and artifact tools keep their explicit-selection contract.
-          ...(hasAgentToolSelection(options.session)
-            ? [
-                ...(selectedTelosRole?.role === 'lead' ? telosItemDefinitions : []),
-                ...telosArtifactDefinitions.filter((tool) =>
-                  ['TelosSaveArtifact', 'TelosReadArtifact'].includes(tool.name),
-                ),
-              ]
+          ...(hasAgentToolSelection(options.session) && selectedTelosRole?.role === 'lead'
+            ? telosItemDefinitions
             : []),
+          ...ordinaryNativeTelosArtifactTools(hasAgentToolSelection(options.session)),
         ].filter((tool) => agentToolAllowed(options.session, tool.name))
       : [];
   const mainPublicationTools =

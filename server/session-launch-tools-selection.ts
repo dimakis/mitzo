@@ -15,11 +15,13 @@ export async function assertSessionLaunchTools(
     { telosWorkControlDefinitions },
     { telosItemDefinitions },
     { githubMainPublicationTool },
+    { ordinaryNativeTelosArtifactTools },
   ] = await Promise.all([
     import('./telos-work-tools.js'),
     import('./telos-work-control-tools.js'),
     import('./telos-item-tools.js'),
     import('./telos-main-publication.js'),
+    import('./telos-artifact-tools.js'),
   ]);
   // StartSession allocates an ordinary chat without a retained Telos role.
   // Use the native role-gated registrations, not names from caller input or
@@ -32,6 +34,10 @@ export async function assertSessionLaunchTools(
       githubMainPublicationTool,
     ].map((tool) => tool.name),
   );
+  const artifactNames = new Set(ordinaryNativeTelosArtifactTools(true).map((tool) => tool.name));
+  const exposedArtifacts = new Set(
+    ordinaryNativeTelosArtifactTools(definition.tools !== undefined).map((tool) => tool.name),
+  );
   for (const name of names) {
     if (roleTools.has(name))
       throw new SessionLaunchError(
@@ -41,6 +47,10 @@ export async function assertSessionLaunchTools(
     if (!tool?.routes.includes('codex-owned-local'))
       throw new SessionLaunchError(
         `Additional tool ${name} is unavailable for Local Mac Codex. Review the tool selection.`,
+      );
+    if (artifactNames.has(name) && !exposedArtifacts.has(name))
+      throw new SessionLaunchError(
+        `Additional tool ${name} requires an explicitly selected native tool profile. Choose a profile that exposes it.`,
       );
     if (
       definition.tools !== undefined &&

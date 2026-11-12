@@ -213,6 +213,7 @@ it.each([
   { ...configuration, extraTools: ['tool'] },
   { ...configuration, extraTools: ['TelosStartSlice'] },
   { ...configuration, extraTools: ['TelosWorkControl'] },
+  { ...configuration, extraTools: ['TelosSaveArtifact', 'TelosReadArtifact'] },
   { ...configuration, runtime: { ...configuration.runtime, accountReference: null } },
 ])('rejects unsupported or changed selections before workspace effects', async (config) => {
   await expect(createSessionLaunchPort().validate(config, authority)).rejects.toThrow();
