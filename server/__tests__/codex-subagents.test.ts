@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { afterEach, expect, it, vi } from 'vitest';
-import { CodexSubagents } from '../codex-subagents.js';
+import { CodexSubagents, type SubagentControlSubmission } from '../codex-subagents.js';
 import { CodexSubagentStore } from '../codex-subagent-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import { CodexRequestError } from '../codex-app-server-client.js';
@@ -49,8 +49,10 @@ function fixture(extra: Partial<ConstructorParameters<typeof CodexSubagents>[0]>
       method: string,
       params: Record<string, unknown>,
       beforeDispatch?: () => void,
+      submission?: SubagentControlSubmission,
     ): Promise<unknown> => {
       beforeDispatch?.();
+      submission?.onSubmitted();
       if (method === 'thread/read')
         return {
           thread: {
@@ -947,11 +949,56 @@ it('starts an ordinary idle-child turn and never steers the completed turn', asy
   expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(0);
   expect(f.owner.list()[0]).toMatchObject({ state: 'working', turnId: 'new-turn' });
 });
+it.each(['admission', 'submission'] as const)(
+  'preserves child control failure at %s even when sanitized diagnostic delivery throws',
+  async (phase) => {
+    const f = fixture();
+    await f.admit();
+    const failure = Error('private command text Bearer credential');
+    if (phase === 'admission')
+      f.options.withControlAdmission = () => {
+        throw failure;
+      };
+    else
+      f.request.mockImplementationOnce(async (_method, _params, beforeDispatch, submission) => {
+        beforeDispatch?.();
+        submission?.onSubmitted();
+        throw failure;
+      });
+    diagnostic.mockImplementationOnce(() => {
+      throw Error('Diagnostic sink unavailable');
+    });
+    const input = {
+      requestId: 'failed-control',
+      threadId: 'child',
+      action: 'message' as const,
+      text: 'Check',
+    };
+    const expected = phase === 'admission' ? 'rejected' : 'uncertain';
+    expect(await f.owner.control(input)).toBe(expected);
+    expect(diagnostic).toHaveBeenCalledWith(
+      'Native subagent control requires attention',
+      expect.objectContaining({
+        commandId: 'command',
+        requestId: input.requestId,
+        stage: phase,
+        code: `child_control_${phase}_failed`,
+      }),
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(failure.message);
+    expect(await f.owner.control(input)).toBe(expected);
+    expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(
+      phase === 'admission' ? 0 : 1,
+    );
+  },
+);
+
 it('retains uncertainty after a lost control reply and never resends it', async () => {
   const f = fixture();
   await f.admit();
-  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch) => {
+  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch, submission) => {
     beforeDispatch?.();
+    submission?.onSubmitted();
     throw Error('Disconnected after write');
   });
   const input = {

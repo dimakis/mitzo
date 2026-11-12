@@ -371,94 +371,28 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     revision: canonical.material.revision,
     sha256: canonical.material.sha256,
   };
-  const planningSequence = chat.eventStore.append('planning', 'user_message', {
+  const { adoptReviewedSource } = await import('./fixtures/reviewed-source-adoption.js');
+  const {
+    featureSource,
+    sourcePermissionId,
+    sourceApprovalInput,
+    sourcePreview,
+    planningSequence,
+  } = await adoptReviewedSource({
+    api,
+    events: chat.eventStore,
+    registry: chat.registry,
+    app: application.app,
+    operatorId: f.auth.id,
+    assertOperatorCurrent() {
+      if (!auth.isAuthSessionCurrent(f.auth)) throw Error('Planning operator retired');
+    },
+    itemId: featureId,
+    sourceSessionId: 'planning',
     messageId: 'original-feature-discussion',
     text: 'Keep the acoustic plan with this feature and review the worker result before completion.',
+    artifacts: [material],
   });
-  const { buildPermissionHandler, getPendingRequestsBySession } = await import('@mitzo/harness');
-  const sourceClientId = 'ct09-planning-source';
-  const sourceController = new AbortController();
-  chat.registry.register(sourceClientId, {
-    transport: { isOpen: () => true, send: vi.fn() },
-    abortController: sourceController,
-    sessionId: 'planning',
-    sessionAllowList: new Set(),
-    mode: 'agent',
-  });
-  const removeSourceSession = () => {
-    sourceController.abort();
-    chat.registry.remove(sourceClientId);
-  };
-  const { featureSource, sourcePermissionId, sourceApprovalInput, sourcePreview } =
-    await (async () => {
-      try {
-        const sourceProposal = { itemId: featureId };
-        const sourcePermission = buildPermissionHandler(sourceClientId, chat.registry)(
-          'TelosAdoptSource',
-          sourceProposal,
-          {
-            signal: sourceController.signal,
-            toolUseID: 'native:' + randomUUID(),
-            forcePrompt: true,
-            allowSessionGrant: false,
-            nativeSourceScope: {
-              operatorId: f.auth.id,
-              assertCurrentSync() {
-                sourceController.signal.throwIfAborted();
-                if (!auth.isAuthSessionCurrent(f.auth)) throw Error('Planning operator retired');
-              },
-            },
-          },
-        );
-        void sourcePermission.catch(() => {});
-        await vi.waitFor(() => expect(getPendingRequestsBySession('planning')).toHaveLength(1));
-        const sourcePermissionId = getPendingRequestsBySession('planning')[0].permId;
-        const sourceReview = await api.getSourcePermission(sourcePermissionId, 'planning');
-        const sourceInput = {
-          sessionId: 'planning',
-          requestId: randomUUID(),
-          proposalSha256: sourceReview.proposalSha256,
-          selection: {
-            mode: 'selected' as const,
-            boundary: { sequence: planningSequence, messageId: 'original-feature-discussion' },
-            messageIds: ['original-feature-discussion'],
-            artifacts: [material],
-          },
-        };
-        const sourcePreview = await api.previewSourcePermission(sourcePermissionId, sourceInput);
-        const sourceApprovalInput = { ...sourceInput, previewSha256: sourcePreview.preview.sha256 };
-        const featureSource = await api.approveSourcePermission(
-          sourcePermissionId,
-          sourceApprovalInput,
-        );
-        expect(await api.approveSourcePermission(sourcePermissionId, sourceApprovalInput)).toEqual(
-          featureSource,
-        );
-        const sourceResolution = await sourcePermission;
-        expect(sourceResolution.behavior).toBe('allow');
-        if (sourceResolution.behavior !== 'allow') throw Error('Reviewed source approval required');
-        const sourceReceiptId = sourceResolution.updatedInput?.__mitzoTelosApproval;
-        expect(typeof sourceReceiptId).toBe('string');
-        expect(sourceResolution.updatedInput).toEqual({
-          ...sourceProposal,
-          __mitzoTelosApproval: sourceReceiptId,
-        });
-        const consumedSource = await request(application.app)
-          .post('/api/internal/telos/source/execute')
-          .set('X-Internal-Token', 'synthetic-only-ordinary-native-token')
-          .set('X-Client-Id', sourceClientId)
-          .send({
-            approvalReceiptId: sourceReceiptId,
-            proposal: sourceProposal,
-            operation: 'adopt',
-          });
-        expect(consumedSource.status, JSON.stringify(consumedSource.body)).toBe(200);
-        expect(consumedSource.body.receipt).toEqual(featureSource.receipt);
-        return { featureSource, sourcePermissionId, sourceApprovalInput, sourcePreview };
-      } finally {
-        removeSourceSession();
-      }
-    })();
   const assertFeatureSource = async () => {
     const feature = await api.read(featureId);
     expect(feature.sources).toHaveLength(1);
