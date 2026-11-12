@@ -35,20 +35,16 @@ export function createSessionLearningRouter(events: EventStore) {
       return res.status(403).json({ error: 'Use explicit session learning settings' });
     next();
   });
-  router.get('/', (req, res) => res.json(state(req.params.id as string)));
-  router.patch('/', (req, res) => {
+  router.get<{ id: string }>('/', (req, res) => res.json(state(req.params.id)));
+  router.patch<{ id: string }>('/', (req, res) => {
     const input = update.safeParse(req.body);
     if (!input.success)
       return res
         .status(400)
         .json({ error: 'Select auto, deep or off with the current policy revision' });
     try {
-      events.setSessionLearningMode(
-        req.params.id as string,
-        input.data.mode,
-        input.data.expectedRevision,
-      );
-      return res.json(state(req.params.id as string));
+      events.setSessionLearningMode(req.params.id, input.data.mode, input.data.expectedRevision);
+      return res.json(state(req.params.id));
     } catch (error) {
       const conflict = error instanceof Error && error.message === 'learning_revision_conflict';
       log.warn('Session learning setting failed', {

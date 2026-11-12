@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1100-session-learning-adoption-fence';
+  'v1.0.1101-session-learning-router-types';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-learning-tools.ts':
     '126d48479375be6e689bbed9433169f28189f0d72cc53f117e3435dff94695fb',
   '../session-learning-router.ts':
-    'f1bdcfd63d9165b516330b89688b224f4766cc3f2f1f4d9f231dcc818ea5e26d',
+    '52503a7b4900412691746f2a83e954659f0d5c7e97dc5f5ef20f56d93a7aefbc',
   '../../packages/protocol/src/session-learning.ts':
     'f3f7fe52d32e84a3e104595b5b357407fda219e966a9e858265cd3ef9724a18e',
   '../../packages/protocol/src/session-learning-store.ts':
