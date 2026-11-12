@@ -127,7 +127,7 @@ export function NativeSubagents({
               <UiIcon name="forward" size={16} />
             </button>
           ))}
-          {(!feed.available || feed.error) && (
+          {!selected && (!feed.available || feed.error) && (
             <p className="native-subagent-note" role="status">
               {feed.error ?? 'The original runtime is unavailable. Saved output remains readable.'}{' '}
               <button type="button" className="home-secondary" onClick={feed.reconnect}>
@@ -140,37 +140,37 @@ export function NativeSubagents({
       {selected && (
         <HomeDialog
           title={selected.name}
-          className="native-subagent-dialog"
+          className={`native-subagent-dialog${!selected.blocks.length ? ' native-subagent-dialog--empty' : ''}`}
           onClose={() => setSelectedId(undefined)}
           onBack={() => setSelectedId(undefined)}
           backLabel="Back to conversation"
         >
           <div className="native-subagent-body">
-            <p className="native-subagent-note">
-              Subagent of this agent · Outside the shared discussion
-            </p>
-            <p className="native-subagent-task">{selected.task}</p>
+            <p className="native-subagent-note">Subagent of this agent</p>
+            {selected.task && <p className="native-subagent-task">{selected.task}</p>}
             {selected.outputTruncated && (
               <p className="native-subagent-note">
                 Showing the latest activity. Earlier output remains in the native thread history.
               </p>
             )}
-            <p className="native-subagent-state" role="status">
-              {
-                labels[
-                  !feed.available &&
-                  ['working', 'starting', 'needs_permission'].includes(selected.state)
-                    ? 'unknown'
-                    : selected.state
-                ]
-              }
-            </p>
+            {!selected.inspectionFailure && (
+              <p className="native-subagent-state" role="status">
+                {
+                  labels[
+                    !feed.available &&
+                    ['working', 'starting', 'needs_permission'].includes(selected.state)
+                      ? 'unknown'
+                      : selected.state
+                  ]
+                }
+              </p>
+            )}
             {selected.inspectionFailure && (
-              <p className="native-subagent-note" role="status">
-                Subagent inspection failed during{' '}
-                {inspectionStages[selected.inspectionFailure.stage]}. Execution status is uncertain;
-                controls are unavailable. Retry inspection to reload activity. Reference:{' '}
-                {selected.inspectionFailure.reference}.{' '}
+              <section className="native-subagent-unavailable" aria-label="Inspection unavailable">
+                <div role="status">
+                  <h3>Activity unavailable</h3>
+                  <p>Mitzo couldn’t verify this subagent. Its execution status is unknown.</p>
+                </div>
                 <button
                   type="button"
                   className="home-secondary"
@@ -187,7 +187,28 @@ export function NativeSubagents({
                 >
                   {inspecting[selected.threadId] ? 'Inspecting…' : 'Retry inspection'}
                 </button>
+                <details className="native-subagent-details">
+                  <summary>Technical details</summary>
+                  <p>
+                    Subagent inspection failed during{' '}
+                    {inspectionStages[selected.inspectionFailure.stage]}.
+                  </p>
+                  <p>
+                    Reference: <code>{selected.inspectionFailure.reference}</code>
+                  </p>
+                </details>
+              </section>
+            )}
+            {feed.error && (
+              <p className="native-subagent-note" role="alert">
+                {feed.error}{' '}
+                <button type="button" className="home-secondary" onClick={feed.reconnect}>
+                  Refresh activity
+                </button>
               </p>
+            )}
+            {!selected.blocks.length && (
+              <p className="native-subagent-empty">No output is available yet.</p>
             )}
             {selected.blocks.map((block) =>
               block.type === 'tool' ? (
@@ -232,12 +253,16 @@ export function NativeSubagents({
               id={`${listId}-message`}
               value={drafts[selected.threadId] ?? ''}
               disabled={!canMessage}
-              rows={3}
+              rows={!canMessage && !drafts[selected.threadId] ? 1 : 3}
               onChange={(event) =>
                 setDrafts((previous) => ({ ...previous, [selected.threadId]: event.target.value }))
               }
             />
-            <p className="native-subagent-note">Only {selected.name} receives this message.</p>
+            <p className="native-subagent-note">
+              {!canMessage && !busy
+                ? 'Messaging is unavailable until activity is verified.'
+                : `Only ${selected.name} receives this message.`}
+            </p>
             {delivery?.status === 'uncertain' && (
               <p role="alert">Delivery is uncertain. Check this request before sending another.</p>
             )}

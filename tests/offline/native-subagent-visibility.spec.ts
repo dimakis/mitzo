@@ -87,13 +87,23 @@ for (const theme of ['dark', 'light'])
       if (path !== '/') return route.abort();
       return route.fulfill({
         contentType: 'text/html',
-        body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
+        body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
       });
     });
     await page.setViewportSize({
       width: info.project.name.startsWith('mobile') ? 320 : 1280,
       height: 844,
     });
+    // Chromium exposes cutout/home-indicator geometry even on an offline page.
+    // WebKit still checks native modal bounds; physical iOS remains a separate check.
+    const safeTop = info.project.name === 'mobile-chromium' ? 47 : 0;
+    const safeBottom = info.project.name === 'mobile-chromium' ? 34 : 0;
+    if (safeTop) {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Emulation.setSafeAreaInsetsOverride', {
+        insets: { top: safeTop, bottom: safeBottom, left: 0, right: 0 },
+      });
+    }
     await page.goto('https://mitzo-ui.test/');
     const draft = page.getByRole('textbox', { name: 'Message Mitzo' });
     await draft.fill('Keep my parent draft');
@@ -101,7 +111,30 @@ for (const theme of ['dark', 'light'])
     const row = page.getByRole('button', { name: /Subagent.*Inspection unavailable/ });
     await row.click();
     const dialog = page.getByRole('dialog', { name: 'Subagent' });
+    await expect(dialog.getByText('Activity unavailable')).toBeVisible();
+    await expect(dialog.getByText('No output is available yet.')).toBeVisible();
+    const details = dialog.locator('details');
+    await expect(details).not.toHaveAttribute('open');
+    await details.locator('summary').click();
     await expect(dialog.getByText(/inspection failed during activity subscription/)).toBeVisible();
+    await expect(
+      dialog.getByText(child.inspectionFailure!.reference, { exact: false }),
+    ).toBeVisible();
+    await details.locator('summary').click();
+    const back = await dialog.getByRole('button', { name: 'Back to conversation' }).boundingBox();
+    expect(back!.y).toBeGreaterThanOrEqual(safeTop);
+    const send = await dialog.getByRole('button', { name: 'Send to Subagent' }).boundingBox();
+    expect(send!.y + send!.height).toBeLessThanOrEqual(844 - safeBottom);
+    if (!info.project.name.startsWith('mobile')) {
+      const bounds = await dialog.boundingBox();
+      expect(bounds!.y + bounds!.height - send!.y - send!.height).toBeLessThan(64);
+    }
+    const retry = await dialog.getByRole('button', { name: 'Retry inspection' }).boundingBox();
+    const input = dialog.getByRole('textbox', { name: 'Message Subagent' });
+    await expect(input).toHaveAttribute('rows', '1');
+    const inputBounds = await input.boundingBox();
+    // No full-screen empty transcript between the recovery action and composer.
+    expect(inputBounds!.y - retry!.y - retry!.height).toBeLessThan(220);
     await expect(dialog.getByRole('button', { name: 'Send to Subagent' })).toBeDisabled();
     await expect(dialog.getByRole('button', { name: 'Stop Subagent' })).toBeDisabled();
     await page.evaluate(() =>
