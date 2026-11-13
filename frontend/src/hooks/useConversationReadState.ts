@@ -22,6 +22,9 @@ export function useConversationReadState(
     () => undefined,
   );
   useEffect(() => retainConversationReadState(id, observed), [id, observed]);
+  useEffect(() => {
+    if (saved) setFailure(undefined);
+  }, [saved]);
   const current = !saved || (observed && observed.revision > saved.revision) ? observed : saved;
   const projected = observed !== undefined;
   useEffect(() => {

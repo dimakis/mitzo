@@ -103,3 +103,16 @@ it('revalidates cached off-page read state on mount and reconnect', async () => 
   await waitFor(() => expect(screen.queryByLabelText('Unread reply')).toBeNull());
   expect(apiFetch).toHaveBeenCalledTimes(3);
 });
+
+it('clears a failed cached refresh when a newer server observation arrives', async () => {
+  const session = { id: 'cached-refresh-failure', summary: 'Pinned', lastModified: 1 };
+  retainConversationReadState(session.id, initial);
+  vi.mocked(apiFetch).mockImplementation(async () => new Response('{}', { status: 503 }));
+  render(<ConversationUnreadDot session={session} hydrate />);
+  expect(await screen.findByText('Read status unavailable')).toBeTruthy();
+  act(() =>
+    retainConversationReadState(session.id, { ...initial, markedUnread: true, revision: 1 }),
+  );
+  await waitFor(() => expect(screen.queryByText('Read status unavailable')).toBeNull());
+  expect(screen.getByLabelText('Unread reply')).toBeTruthy();
+});

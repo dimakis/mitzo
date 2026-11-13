@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1130-chat-lifecycle-tests';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1131-chat-read-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -255,11 +255,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationUnreadDot.tsx':
     '20404796c01cd24a78e8f911f0909fa13a97eeff810106f4b1783f84a21944db',
   '../../frontend/src/hooks/__tests__/conversation-read-state.test.tsx':
-    '9bdac413a4e6882cee178c8278540a237d1b09e64e8aeceb758c1239f9812811',
+    'd037ea2b659cb76c07fd76cb10ca9c47dc7b965f28ee29ebac1272a7aa73a43c',
   '../../frontend/src/hooks/__tests__/reply-read-receipt.test.tsx':
     '6b9ca10e3b33b801b9b2ac4dc5c7b754707041f18695131b4972cd7e0a674483',
   '../../frontend/src/hooks/useConversationReadState.ts':
-    'f16d52a9a1e7abdb1fa2933389b48b489737f1d20c37a3a168c55c70de82620d',
+    '6daab3c052ad28be76c00bc0fc072b4dce26750b84988642d94ddbf164ba9bd2',
   '../../frontend/src/hooks/useReplyReadReceipt.ts':
     '08f68b5086d9e42a92460f79e9dd981d4b04853a82ff1a53aab0f265c0fe2372',
   '../../frontend/src/lib/conversation-read-state.ts':
