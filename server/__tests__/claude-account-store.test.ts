@@ -1,4 +1,5 @@
-import { expect, it, vi } from 'vitest';
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
+import { beforeEach, expect, it, vi } from 'vitest';
 import {
   mkdtempSync,
   realpathSync,
@@ -13,6 +14,8 @@ import { join } from 'node:path';
 import { ClaudeAccountStore, readManagedClaudeProfiles } from '../claude-account-store.js';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { workspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
+
+beforeEach(resetOfflineUserEnvironment);
 
 it('keeps configured Vertex profiles available before the managed journal is initialized', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-empty-')));
