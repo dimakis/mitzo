@@ -768,6 +768,10 @@
             {
               "path": "docs/design/approved/codex-subagents/floating.html",
               "sha256": "cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7"
+            },
+            {
+              "path": "docs/design/approved/codex-subagents/floating-v003.html",
+              "sha256": "b4062f0313bb12897fb3203b4179b11d51c2972133252d823e69f626e506b641"
             }
           ],
           "invariants": [

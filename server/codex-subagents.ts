@@ -1378,10 +1378,19 @@ export class CodexSubagents {
       stage = 'acknowledgement';
       authorize();
       this.current(live);
-      if (status === 'accepted' && input.action === 'message') {
+      if (status === 'accepted') {
         delete live.child.controlFailure;
-        this.block(live, { id: input.requestId, type: 'user', content: input.text });
+        if (input.action === 'message')
+          this.block(live, { id: input.requestId, type: 'user', content: input.text });
         this.publish(live);
+      } else {
+        this.controlFailed(
+          live,
+          input,
+          'uncertain',
+          stage,
+          Error('Control acknowledgement unavailable'),
+        );
       }
     } catch (error) {
       status = attempted && !(error instanceof CodexRequestError) ? 'uncertain' : 'rejected';

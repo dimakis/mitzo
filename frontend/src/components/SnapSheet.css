@@ -33,7 +33,7 @@
   .snap-sheet-grip {
     display: grid;
     place-items: center;
-    min-block-size: var(--space-5);
+    min-block-size: var(--control-height);
     flex: 0 0 auto;
     order: -1;
     touch-action: none;

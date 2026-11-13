@@ -965,6 +965,30 @@ it('retains uncertainty after a lost control reply and never resends it', async 
   expect(await f.owner.control(input)).toBe('uncertain');
   expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
 });
+it('reports an unexpected acknowledgement and clears a stale diagnostic after an accepted control', async () => {
+  const f = fixture();
+  await f.admit();
+  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch) => {
+    beforeDispatch?.();
+    return { turnId: 'unexpected' };
+  });
+  expect(
+    await f.owner.control({
+      requestId: 'wrong-ack',
+      threadId: 'child',
+      action: 'message',
+      text: 'Check',
+    }),
+  ).toBe('uncertain');
+  expect(f.owner.list()[0]).toMatchObject({
+    controlFailure: { stage: 'acknowledgement', status: 'uncertain' },
+  });
+  expect(
+    await f.owner.control({ requestId: 'explicit-stop', threadId: 'child', action: 'stop' }),
+  ).toBe('accepted');
+  expect(f.owner.list()[0].controlFailure).toBeUndefined();
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
+});
 it('delivers a message when the child finishes before the steering dispatch fence', async () => {
   const f = fixture();
   await f.admit();

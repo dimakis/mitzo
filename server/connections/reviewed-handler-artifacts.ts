@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1125-task-route-constraints';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1126-subagent-control-acknowledgement';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/design/approved/codex-subagents/floating-v003.html':
+    'b4062f0313bb12897fb3203b4179b11d51c2972133252d823e69f626e506b641',
   '../../frontend/src/components/HomeDialog.tsx':
     '786f37c5d1ed67fe696517b1043f8b9cb1b32c400de12bada53373f10b39b465',
   '../../frontend/src/components/NativeSubagentsSession.tsx':
@@ -31,7 +33,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SnapSheet.tsx':
     'e107ddf138945ac6ace9ab48b7859bc000fbdccb433f9e4b526970c5e926912c',
   '../../frontend/src/components/SnapSheet.css':
-    '70d3b3253ab6299b2c7fb9ca22cdc21917c1956eebbac47713d9909fa69929b0',
+    'c51ba87c379a9887a5432dd2e29ecc89ab810f5e472dafacf1f395cb0ed4d61e',
   '../../frontend/src/components/__tests__/NativeSubagentsSession.test.tsx':
     '95a08f2759eefdb588d793d522d46d0b51456317e67b532a8ac1c99aec039ccc',
   '../../frontend/src/components/__tests__/SnapSheet.test.tsx':
@@ -41,7 +43,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/approved/codex-subagents/floating.html':
     'cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7',
   '../../docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md':
-    '1e161b7b3f2ac0ba2ead2444535a1ece8e4d671e15e89b98760e76fd1b59d066',
+    '385dd8b433d127326b287a6ec754850db2405f13549643489c156a1511f9714e',
   '../../tests/integration/native-subagent-control.test.tsx':
     '09e189944ed0d0fa160bac32287ee2b42e1844ba59941028f0efdbf7ed54ce36',
   '../__tests__/claude-login-sandbox.native.test.ts':
@@ -1030,10 +1032,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-subagent-store.test.ts':
     '27795a90514d66d586ed15ac6b01b930cbb28eead7c214e32bcb7bb1776117fc',
   '../__tests__/codex-subagents.test.ts':
-    'b7a673bf85973c0d37d48c7d8460e1ae0fb2b2034e4eabd54dedb5f1d71546f5',
+    '0ecbfb31e1a0c0bd0be73869f635a2c395a0e3b888e8ccc70df837fec7f5eea2',
   '../codex-subagent-routes.ts': '941f0a93f074d2a255b7cccbb4610ceb557f6d8c274c5d21b958df63f2acbef2',
   '../codex-subagent-store.ts': '32e2ddc7e1ba0c7bd675a6d92c5636fdbd4500e67c0e9030c0723b96177ebb14',
-  '../codex-subagents.ts': '6128f3064e44e017a7c4b19bb9b240070307196158b357a11bd3a9a5017908c0',
+  '../codex-subagents.ts': 'ef2557db9b175f1644c8b87d06d8d44426aba37458d1128b6d238203611fc6cd',
   '../__tests__/notification-routes.test.ts':
     'b286b89488ddfccc23f953a46795fd227ebdee8f74d3c4752fe303aae27b374d',
   '../__tests__/symposium-review-app.test.ts':

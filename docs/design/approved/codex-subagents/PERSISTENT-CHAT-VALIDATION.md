@@ -7,6 +7,11 @@ The user prescribed current-chat styling and draggable full-screen, half-screen
 and hidden mobile states. The retained HTML is a proposal illustrating that
 direction; it has no separate exact-byte visual approval.
 
+The retained v003 proposal fixes a duplicate SVG/control identity found during
+DOM verification. Opening, resizing, hiding, parent/child drafts and uncertain
+delivery recovery passed that check. Earlier mock bytes remain retained. DOM
+interaction evidence is not rendered or physical-device verification.
+
 The session-level owner shares the dialog and drafts between historical turn
 links and the persistent control. Native children remain within the original
 conversation and authority boundary. SnapSheet extends HomeDialog's modal,
@@ -31,3 +36,10 @@ fixtures. It uses no backend, credentials or model calls.
 
 Review, hosted CI, source acceptance, production activation and device usability
 remain separate and unverified at this draft milestone.
+
+Final local candidate: 132 focused control, store, route, task-execution, feed,
+integration and UI regressions pass. The 109 design checks passed separately
+with one skip. Browser discovery lists the intercepted Chromium/WebKit cases;
+listing does not execute them. An unexpected native acknowledgement now retains
+an uncertainty diagnostic, and a later accepted explicit control clears stale
+failure presentation without resending the uncertain message.
