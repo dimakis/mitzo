@@ -62,10 +62,36 @@ export function captureCollaborationDurableTranscript(
 ) {
   CollaborationDurableTranscriptSchema.shape.sourceConversationId.parse(session);
   return db.transaction(() => {
-    const { through } = db
+    let { through } = db
       .prepare('SELECT MAX(seq) AS through FROM events WHERE session_id=?')
       .get(session) as { through: number | null };
     if (through === null || !Number.isSafeInteger(through) || through < 1) fail();
+    // Freeze a complete prefix while a later ordinary reply streams. Global
+    // event sequences have session gaps, so use the actual preceding session
+    // event, not start-1. The ordinary source validator still rejects an active
+    // or interleaved turn inside the selected boundary.
+    const unfinished = db
+      .prepare(
+        `SELECT MIN(s.seq) AS seq FROM events s
+      WHERE s.session_id=@session AND s.seq<=@through AND s.type='message_start'
+      AND ${ordinary('s')} AND NOT EXISTS (
+        SELECT 1 FROM events e WHERE e.session_id=s.session_id AND e.seq>s.seq
+        AND e.seq<=@through AND e.type='message_end' AND ${ordinary('e')}
+        AND json_extract(e.payload,'$.messageId')=json_extract(s.payload,'$.messageId'))`,
+      )
+      .get({ session, through }) as { seq: number | null };
+    if (unfinished.seq !== null) {
+      const preceding = db
+        .prepare('SELECT MAX(seq) AS through FROM events WHERE session_id=? AND seq<?')
+        .get(session, unfinished.seq) as { through: number | null };
+      if (
+        preceding.through === null ||
+        !Number.isSafeInteger(preceding.through) ||
+        preceding.through < 1
+      )
+        fail();
+      through = preceding.through;
+    }
     const args = { session, through };
     // Native seat rows are never ordinary context. Before excluding them,
     // validate their retained mapping like canonical replay; no payload is read.

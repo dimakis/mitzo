@@ -48,20 +48,55 @@ function ReviewedContextContents({
   );
 }
 
+export function ConversationPromptContextButton({
+  flow,
+  disabled,
+}: {
+  flow: ReturnType<typeof useConversationPromptContext>;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="chat-input-btn"
+      aria-label="Review prompt context"
+      title={flow.attached ? 'Reviewed context attached' : 'Review context for this prompt'}
+      disabled={disabled || flow.unavailable}
+      onClick={(event) => {
+        event.currentTarget.focus();
+        flow.show();
+      }}
+    >
+      <UiIcon name="layers" />
+    </button>
+  );
+}
+
 export function ConversationPromptContext({
   flow,
   names,
   disabled,
   forwarding,
+  shareTargets = [],
+  showTrigger = true,
 }: {
   flow: ReturnType<typeof useConversationPromptContext>;
   names: Readonly<Record<string, string>>;
   disabled: boolean;
   forwarding?: ReturnType<typeof useConversationForwarding>;
+  shareTargets?: { id: string; name: string; unavailable?: boolean }[];
+  showTrigger?: boolean;
 }) {
   const { ref, present } = useMotionPresence(flow.open, 'fade');
   const reviewed = flow.review;
   const snapshot = reviewed?.snapshot;
+  const sharing = flow.form.shareRecipientIds !== undefined;
+  const targets = [
+    ...shareTargets,
+    ...(flow.form.shareRecipientIds ?? [])
+      .filter((id) => !shareTargets.some((target) => target.id === id))
+      .map((id) => ({ id, name: names[id] ?? 'Previously selected agent', unavailable: true })),
+  ];
   const selectedArtifacts = flow.form.artifacts ?? [];
   const matches = (a: (typeof selectedArtifacts)[number], b: (typeof selectedArtifacts)[number]) =>
     a.artifactId === b.artifactId && a.revision === b.revision && a.sha256 === b.sha256;
@@ -73,22 +108,10 @@ export function ConversationPromptContext({
   ];
   return (
     <>
-      <button
-        type="button"
-        className="chat-input-btn"
-        aria-label="Review prompt context"
-        title={flow.attached ? 'Reviewed context attached' : 'Review context for this prompt'}
-        disabled={disabled || flow.unavailable}
-        onClick={(event) => {
-          event.currentTarget.focus();
-          flow.show();
-        }}
-      >
-        <UiIcon name="layers" />
-      </button>
+      {showTrigger && <ConversationPromptContextButton flow={flow} disabled={disabled} />}
       {present && (
         <HomeDialog
-          title="Context for this prompt"
+          title={sharing ? 'Send selected messages' : 'Context for this prompt'}
           closeLabel="Close prompt context"
           className="conversation-agents-dialog"
           inactive={!flow.open}
@@ -100,41 +123,84 @@ export function ConversationPromptContext({
             inert={!flow.open}
             aria-hidden={!flow.open || undefined}
           >
-            <p className="conversation-agents-explanation">
-              Review the exact material shared with this prompt. Boot, agent and tool instructions
-              stay separate.
-            </p>
+            {sharing ? (
+              <>
+                <p className="conversation-agents-explanation">
+                  Choose who receives these messages. Sending context does not ask for a reply.
+                </p>
+                <fieldset
+                  className="conversation-context-selection"
+                  disabled={disabled || flow.busy || !!forwarding?.retained}
+                >
+                  <legend>Send to</legend>
+                  {targets.map((target) => (
+                    <label key={target.id}>
+                      <input
+                        type="checkbox"
+                        disabled={
+                          target.unavailable && !flow.form.shareRecipientIds!.includes(target.id)
+                        }
+                        checked={flow.form.shareRecipientIds!.includes(target.id)}
+                        onChange={(event) =>
+                          flow.edit({
+                            ...flow.form,
+                            shareRecipientIds: event.target.checked
+                              ? [...flow.form.shareRecipientIds!, target.id]
+                              : flow.form.shareRecipientIds!.filter((id) => id !== target.id),
+                          })
+                        }
+                      />
+                      <span>
+                        {target.name}
+                        {target.unavailable ? ' · Unavailable' : ''}
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              </>
+            ) : (
+              <p className="conversation-agents-explanation">
+                Review the exact material shared with this prompt. Boot, agent and tool instructions
+                stay separate.
+              </p>
+            )}
             <div className="conversation-joining-context">
               <small>Recipients</small>
               <strong>
                 {flow.recipients.map((id) => names[id] ?? id).join(', ') || 'Choose who replies'}
               </strong>
               <small>
-                Includes agents that read future discussion. Only selected responders take a turn.
+                {sharing
+                  ? 'Only the agents selected above receive this context.'
+                  : 'Includes agents that read future discussion. Only selected responders take a turn.'}
               </small>
             </div>
-            <label className="conversation-agent-field">
-              Purpose
-              <input
-                value={flow.form.purpose}
-                maxLength={4000}
-                disabled={flow.busy || disabled}
-                onChange={(e) => flow.edit({ ...flow.form, purpose: e.target.value })}
-              />
-            </label>
-            <label className="conversation-agent-field">
-              Context
-              <select
-                value={flow.form.mode}
-                disabled={flow.busy || disabled}
-                onChange={(e) =>
-                  flow.edit({ ...flow.form, mode: e.target.value as typeof flow.form.mode })
-                }
-              >
-                <option value="selected">Selected context</option>
-                <option value="conversation_so_far">Conversation so far</option>
-              </select>
-            </label>
+            {!sharing && (
+              <>
+                <label className="conversation-agent-field">
+                  Purpose
+                  <input
+                    value={flow.form.purpose}
+                    maxLength={4000}
+                    disabled={flow.busy || disabled}
+                    onChange={(e) => flow.edit({ ...flow.form, purpose: e.target.value })}
+                  />
+                </label>
+                <label className="conversation-agent-field">
+                  Context
+                  <select
+                    value={flow.form.mode}
+                    disabled={flow.busy || disabled}
+                    onChange={(e) =>
+                      flow.edit({ ...flow.form, mode: e.target.value as typeof flow.form.mode })
+                    }
+                  >
+                    <option value="selected">Selected context</option>
+                    <option value="conversation_so_far">Conversation so far</option>
+                  </select>
+                </label>
+              </>
+            )}
             {flow.form.mode === 'selected' ? (
               <fieldset className="conversation-context-selection" disabled={flow.busy || disabled}>
                 <legend>Messages</legend>
@@ -217,15 +283,17 @@ export function ConversationPromptContext({
                 ))}
               </fieldset>
             )}
-            <label className="conversation-agent-field">
-              Brief
-              <textarea
-                value={flow.form.brief}
-                maxLength={20000}
-                disabled={flow.busy || disabled}
-                onChange={(e) => flow.edit({ ...flow.form, brief: e.target.value })}
-              />
-            </label>
+            {!sharing && (
+              <label className="conversation-agent-field">
+                Brief
+                <textarea
+                  value={flow.form.brief}
+                  maxLength={20000}
+                  disabled={flow.busy || disabled}
+                  onChange={(e) => flow.edit({ ...flow.form, brief: e.target.value })}
+                />
+              </label>
+            )}
             {snapshot && reviewed && (
               <>
                 <div className="conversation-joining-context">
@@ -257,12 +325,12 @@ export function ConversationPromptContext({
               </>
             )}
             {flow.error && <p role="alert">{flow.error}</p>}
-            {forwarding && (
+            {forwarding && (!sharing || reviewed || forwarding.retained) && (
               <section
                 className="conversation-joining-context"
                 aria-label="Forward reviewed context"
               >
-                <strong>Forward context only</strong>
+                <strong>{sharing ? 'Send these messages' : 'Forward context only'}</strong>
                 <p>
                   Share the exact reviewed messages and saved versions with their reviewed
                   recipients. The brief accompanies them. No reply starts; recipients receive this
@@ -307,7 +375,7 @@ export function ConversationPromptContext({
                     disabled={disabled || forwarding.busy || !forwarding.canPrepare}
                     onClick={forwarding.prepare}
                   >
-                    Prepare context forward
+                    {sharing ? 'Prepare to send' : 'Prepare context forward'}
                   </button>
                 ) : (
                   <>
@@ -328,7 +396,7 @@ export function ConversationPromptContext({
                           disabled={disabled || !forwarding.canConfirm}
                           onClick={forwarding.confirm}
                         >
-                          Confirm context forward
+                          {sharing ? 'Send messages' : 'Confirm context forward'}
                         </button>
                       </>
                     )}
@@ -357,7 +425,13 @@ export function ConversationPromptContext({
             )}
             <button
               type="button"
-              disabled={disabled || flow.busy || !flow.form.purpose.trim() || flow.unavailable}
+              disabled={
+                disabled ||
+                flow.busy ||
+                !flow.form.purpose.trim() ||
+                flow.unavailable ||
+                !flow.recipients.length
+              }
               onClick={() => flow.reviewContext(false)}
             >
               {flow.hasRetainedReview ? 'Check original review' : 'Review context'}
@@ -371,14 +445,16 @@ export function ConversationPromptContext({
                 Review again
               </button>
             )}
-            <button
-              type="button"
-              className="conversation-agents-primary"
-              disabled={disabled || !flow.canAttach}
-              onClick={flow.attach}
-            >
-              Attach reviewed context
-            </button>
+            {!sharing && (
+              <button
+                type="button"
+                className="conversation-agents-primary"
+                disabled={disabled || !flow.canAttach}
+                onClick={flow.attach}
+              >
+                Attach reviewed context
+              </button>
+            )}
           </footer>
         </HomeDialog>
       )}

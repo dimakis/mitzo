@@ -914,6 +914,8 @@ diff, image, proposal and setup renderers retain their specialized presentation.
 Native Codex `ApplyPatch` reuses the existing ToolPill disclosure and CodeBlock
 diff highlighting. Each file retains its path, copyable patch, operation and any
 move destination; additions, removals and hunk markers use the shared code theme.
+Plain and unchanged code text uses the shared foreground role so the syntax
+theme cannot make it unreadable against the light code background.
 The collapsed row lists filenames rather than serialized tool arguments. Preview
 limits are explicit (100 files and 50,000 diff characters combined); the tool's
 actual success, failure or interruption remains independent of its preview.
@@ -1727,6 +1729,38 @@ confirmation, failure preservation and replacement. Captures show
 [desktop light](assets/sandbox-obsolete-desktop-light.png).
 
 ## Symposium participant presentation
+
+### Phone setup and deliberate sharing — 13 November 2026
+
+Dimitri's phone test rejected the long Add agent form and its unexplained disabled
+review button. The ordinary application setup now reuses the compact settings rows
+and `QuickSettingsChoices` within its own navigation scope. Name and purpose appear
+first; Agent, Account, Model, Thinking, Where it runs and Starting context open their
+existing editors on request. Back, Done and Escape return to the originating row.
+Repository preparation is required before review, with the missing choice explained
+beside the action. The built-in Default Mitzo selection is pinned explicitly before
+capture; an empty library selection must never stand in for that reviewed identity.
+Legacy retained/reference surfaces preserve their existing owner and expanded fields.
+
+Unknown sharing policies use disabled indeterminate checkboxes and an explicit
+unchecked-evidence message. Future-reading/default-reply choices do not prohibit a
+later deliberate share of earlier messages. The ordinary transcript's Share excerpt
+action opens Send selected messages with explicit recipients. This uses the existing
+context-review and forwarding owners, excludes automatic readers from that deliberate
+audience, preserves the prompt draft and cannot attach the forwarding review to a prompt.
+The dialog stays mounted independently of the active composer. Previously selected
+unavailable agents remain removable, and a retained uncertain send exposes its recovery
+controls after reload even without a fresh source review. A separate Review message
+delivery status action stays outside the composer switch, including while an ordinary
+reply streams. It opens the original recovery controls without requiring a new send.
+The compact setup bounds its grid children to the dialog body and flattens the ordinary
+paired picker wrappers into full-width rows. Phone browser checks require contained
+inputs and vertically stacked Model/Thinking rows; screenshots exposed the missing
+wrapper rules even though the earlier interaction assertions passed.
+Review failures retain a readable error and collapsed Technical details with stage,
+stable code and original request reference. Private exception payloads are not rendered
+or logged. Earlier approval references and protected checks remain intact; source checks
+and synthetic application tests do not establish physical-device acceptance.
 
 The shared `ConversationAgents` surface follows the approved fresh-agent mock:
 compact participant header, one Agents dialog, inline Reads future discussion /

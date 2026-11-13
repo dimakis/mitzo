@@ -112,6 +112,85 @@ function fixture() {
     );
   return { api, view, source, result, draft, options, mount, edit };
 }
+it('shares selected earlier messages only with explicit recipients regardless of automatic readers', async () => {
+  const f = fixture();
+  f.view.policies.forEach((policy) => {
+    policy.readsFutureDiscussion = true;
+  });
+  const hook = f.mount();
+  act(() =>
+    hook.result.current.edit({
+      mode: 'selected',
+      purpose: 'Send selected messages',
+      brief: '',
+      messageIds: ['source'],
+      shareRecipientIds: ['reviewer'],
+    }),
+  );
+  expect(hook.result.current.recipients).toEqual(['reviewer']);
+  expect(drafts.getChatDraft(f.draft.id)?.text).toBe('Original editable prompt');
+  hook.unmount();
+  const restored = f.mount();
+  expect(restored.result.current.recipients).toEqual(['reviewer']);
+  expect(restored.result.current.form.shareRecipientIds).toEqual(['reviewer']);
+  act(() => restored.result.current.reviewContext());
+  await waitFor(() => expect(restored.result.current.canAttach).toBe(true));
+  expect(f.api.collaborations.reviewPrompt).toHaveBeenCalledWith(
+    f.view.collaborationId,
+    'connection',
+    expect.objectContaining({ recipientSessionIds: ['reviewer'] }),
+    expect.any(AbortSignal),
+  );
+  act(() => restored.result.current.attach());
+  expect(restored.result.current.attached).toBe(false);
+});
+
+it.each(['unavailable', 'removed'] as const)(
+  'can remove a selected %s sharing recipient',
+  async (state) => {
+    installDialogStub();
+    const f = fixture();
+    const original = drafts.getChatDraft(f.draft.id)!;
+    drafts.saveChatDraft({
+      ...original,
+      collaborationContext: {
+        collaborationId: f.view.collaborationId,
+        authScope: 'login',
+        attached: false,
+        form: {
+          mode: 'selected',
+          purpose: 'Send selected messages',
+          brief: '',
+          messageIds: ['source'],
+          shareRecipientIds: ['reviewer'],
+        },
+      },
+    });
+    function Controls() {
+      const flow = useConversationPromptContext(f.options);
+      return (
+        <ConversationPromptContext
+          flow={flow}
+          names={{ reviewer: 'Reviewer' }}
+          disabled={false}
+          shareTargets={
+            state === 'unavailable' ? [{ id: 'reviewer', name: 'Reviewer', unavailable: true }] : []
+          }
+        />
+      );
+    }
+    render(<Controls />);
+    fireEvent.click(screen.getByRole('button', { name: 'Review prompt context' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Send selected messages' });
+    const choice = await within(dialog).findByRole('checkbox', { name: /Reviewer.*Unavailable/ });
+    await waitFor(() => expect((choice as HTMLInputElement).disabled).toBe(false));
+    fireEvent.click(choice);
+    expect(drafts.getChatDraft(f.draft.id)?.collaborationContext?.form.shareRecipientIds).toEqual(
+      [],
+    );
+  },
+);
+
 it('restores focus to the context trigger after a composer pointer action and native dismissal', async () => {
   installDialogStub();
   const f = fixture();
