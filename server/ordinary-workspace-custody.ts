@@ -131,12 +131,16 @@ export class OrdinaryWorkspaceCustody {
     private db: Database.Database,
     private readiness: Readiness | undefined,
   ) {
-    db.exec(`CREATE TABLE IF NOT EXISTS ordinary_workspace_preparations (
+    // A refused legacy migration must leave the entire schema unchanged,
+    // including auxiliary preparation and allocation-release tables.
+    db.transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS ordinary_workspace_preparations (
       id TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS ordinary_workspaces (
       id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT UNIQUE);
       CREATE TABLE IF NOT EXISTS ordinary_allocation_releases (operation_id TEXT PRIMARY KEY);`);
-    this.migratePrimaryPointer();
+      this.migratePrimaryPointer();
+    }).immediate();
   }
   /** Preserve every historical byte while allowing only the current pointer to retire. */
   private migratePrimaryPointer() {

@@ -163,6 +163,16 @@ with the correction. All 57 focused owner/runtime/service checks pass; source
 pins, ESLint and formatting pass at runtime revision 1123. New-head CI and
 Centaur verification remain required.
 
+CI `43412449835` exposed three migration-refusal regressions in unit shard 2:
+the new allocation-release table survived a refused legacy custody migration.
+All three reproduce locally. Custody initialization and migration now share an
+outer SQLite transaction, so refusal rolls back every new auxiliary table.
+The existing external-view, foreign-key and trigger tests now compare the entire
+schema without excluding the preparation table. All 87 custody and ordinary
+role-setup checks pass with the fix; existing successful migration, release
+tombstone and custody protections remain covered. Runtime source revision 1124
+records the correction. Hosted CI and Centaur must verify this later candidate.
+
 CI `43397518370` failed server test compilation: the host callback fixture
 returned `Promise<void>` instead of a JSON reply, and spread adoption inputs
 widened `createOnly` from literal `true` to `boolean`. Commit `8811cc5e` fixes
