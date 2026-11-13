@@ -2,6 +2,13 @@ import ReactMarkdown from 'react-markdown';
 import { useSavedSessionMessages } from '../hooks/useSavedSessionMessages';
 export function SavedSessionHistory({ sessionId }: { sessionId: string }) {
   const history = useSavedSessionMessages(sessionId);
+  return <SavedSessionHistoryContent history={history} />;
+}
+export function SavedSessionHistoryContent({
+  history,
+}: {
+  history: ReturnType<typeof useSavedSessionMessages>;
+}) {
   return (
     <div className="session-history" aria-busy={!history.messages && !history.error}>
       {history.error ? (

@@ -39,6 +39,7 @@ function mockFetchResponses(overrides: Record<string, unknown> = {}) {
 let container: HTMLDivElement;
 
 beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   localStorage.clear();
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -72,11 +73,18 @@ function renderSessionList() {
   return root;
 }
 
-describe('SessionList status dot', () => {
-  it('renders green dot for active+attached session', async () => {
+describe('SessionList reply read marker', () => {
+  it('renders an unread reply marker in place of the active-session dot', async () => {
     mockFetchResponses({
       '/api/sessions': [
-        { id: 's1', summary: 'Test', lastModified: 1, isActive: true, isAttached: true },
+        {
+          id: 'unread-reply',
+          summary: 'Test',
+          lastModified: 1,
+          isActive: true,
+          isAttached: true,
+          replyReadState: { latestReplySeq: 10, readReplySeq: 0, markedUnread: false, revision: 0 },
+        },
       ],
     });
 
@@ -86,16 +94,28 @@ describe('SessionList status dot', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    const dot = container.querySelector('.session-status-dot');
+    const dot = container.querySelector('.conversation-unread-dot');
     expect(dot).not.toBeNull();
-    expect(dot!.classList.contains('attached')).toBe(true);
-    expect(dot!.getAttribute('aria-label')).toBe('Session active');
+    expect(dot!.getAttribute('aria-label')).toBe('Unread reply');
+    expect(container.querySelector('.session-status-dot')).toBeNull();
   });
 
-  it('renders orange dot for active+detached session', async () => {
+  it('does not show a dot for a read reply, regardless of attachment', async () => {
     mockFetchResponses({
       '/api/sessions': [
-        { id: 's1', summary: 'Test', lastModified: 1, isActive: true, isAttached: false },
+        {
+          id: 'read-reply',
+          summary: 'Test',
+          lastModified: 1,
+          isActive: true,
+          isAttached: false,
+          replyReadState: {
+            latestReplySeq: 10,
+            readReplySeq: 10,
+            markedUnread: false,
+            revision: 0,
+          },
+        },
       ],
     });
 
@@ -105,10 +125,8 @@ describe('SessionList status dot', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    const dot = container.querySelector('.session-status-dot');
-    expect(dot).not.toBeNull();
-    expect(dot!.classList.contains('detached')).toBe(true);
-    expect(dot!.getAttribute('aria-label')).toBe('Session detached');
+    expect(container.querySelector('.conversation-unread-dot')).toBeNull();
+    expect(container.querySelector('.session-status-dot')).toBeNull();
   });
 
   it('does not render dot for inactive session', async () => {

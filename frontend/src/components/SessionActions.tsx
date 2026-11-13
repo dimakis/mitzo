@@ -5,11 +5,14 @@ import { copyToClipboard } from '../lib/clipboard';
 import { HomePinButton } from './HomePinButton';
 import { UiIcon } from './UiIcon';
 import { recordTitle } from '../lib/record-title';
+import { useConversationReadState } from '../hooks/useConversationReadState';
+import { changeConversationReadState } from '../lib/conversation-read-state';
 export interface SessionActionsProps {
   session: Session;
   onOpen: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onHide?: () => void;
   onClose?: () => void;
   menu?: boolean;
   onDetails?: () => void;
@@ -19,11 +22,21 @@ export function SessionActions({
   onOpen,
   onRename,
   onDelete,
+  onHide,
   onClose,
   menu = false,
   onDetails,
 }: SessionActionsProps) {
   const pins = useConversationPins();
+  const {
+    state: readState,
+    unread,
+    loading: loadingRead,
+    error: loadReadError,
+    retry: retryRead,
+  } = useConversationReadState(session.id, session.replyReadState, true);
+  const [readError, setReadError] = useState('');
+  const [savingRead, setSavingRead] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
   const pinned = pins.pins.some((pin) => pin.id === session.id);
   const role = menu ? 'menuitem' : undefined;
@@ -33,6 +46,53 @@ export function SessionActions({
         <UiIcon name="chats" />
         Open conversation
       </button>
+      {onHide && (
+        <button type="button" role={role} onClick={onHide}>
+          <UiIcon name="chats" />
+          Hide conversation
+        </button>
+      )}
+      <button
+        type="button"
+        role={role}
+        disabled={savingRead || loadingRead || !!loadReadError}
+        onClick={async () => {
+          setSavingRead(true);
+          setReadError('');
+          try {
+            await changeConversationReadState(
+              session.id,
+              unread ? { readReplySeq: readState!.latestReplySeq } : { markedUnread: true },
+              readState,
+            );
+            onClose?.();
+          } catch (cause) {
+            setReadError(
+              cause instanceof Error ? cause.message : 'Couldn’t save read status. Try again.',
+            );
+          } finally {
+            setSavingRead(false);
+          }
+        }}
+      >
+        <UiIcon name="chats" />
+        {loadingRead
+          ? 'Loading read status…'
+          : savingRead
+            ? 'Saving read status…'
+            : unread
+              ? 'Mark as read'
+              : 'Mark as unread'}
+      </button>
+      {readError && <p role="alert">{readError}</p>}
+      {loadReadError && (
+        <>
+          <p role="status">{loadReadError}</p>
+          <button type="button" role={role} onClick={retryRead}>
+            Retry read status
+          </button>
+        </>
+      )}
       <button
         type="button"
         role={role}

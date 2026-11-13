@@ -1,6 +1,7 @@
 import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
 import { parseSessionLearningPolicy, revokeSessionLearningHistory } from './session-learning.js';
 import type Database from 'better-sqlite3';
+import { ConversationReadStore } from './conversation-read-state.js';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -120,8 +121,11 @@ export interface SessionMetadataOwner {
 /** Borrows EventStore's connection and prepared statements. The owner retains
  * schema, migrations, backup and close; public hooks are resolved at call time. */
 export class SessionMetadataStore {
+  readonly reads: ConversationReadStore;
   private searchIndex?: SessionSearchIndex;
-  constructor(private readonly owner: SessionMetadataOwner) {}
+  constructor(private readonly owner: SessionMetadataOwner) {
+    this.reads = new ConversationReadStore(owner.database);
+  }
   close(): void {
     void this.closeSearchIndex();
   }
@@ -494,6 +498,15 @@ export class SessionMetadataStore {
     return rows.map(rowToSession);
   }
 
+  listHiddenSessions(limit: number, offset = 0): SessionMeta[] {
+    const rows = this.db!.prepare(
+      `SELECT s.* FROM sessions s
+      WHERE s.is_hidden=1 AND ${REGISTERED_CONVERSATION_SQL}
+      ORDER BY s.updated_at DESC, s.session_id LIMIT ? OFFSET ?`,
+    ).all(limit, offset) as SessionRow[];
+    return rows.map(rowToSession);
+  }
+
   /** Bounded title metadata only. Query matching must happen after the caller's
    * authorization/public-text projection, never against private event payloads.
    * Offset ordering is deterministic but not a snapshot across metadata edits. */
@@ -648,6 +661,11 @@ export class SessionMetadataStore {
 
   hideSession(sessionId: string): void {
     this.stmts.hide.run(sessionId);
+  }
+
+  showSession(sessionId: string): void {
+    this.owner.assertConversationIdentity(sessionId);
+    this.db!.prepare('UPDATE sessions SET is_hidden=0 WHERE session_id=?').run(sessionId);
   }
 
   incrementPromptCount(sessionId: string): number {

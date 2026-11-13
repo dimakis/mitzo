@@ -8837,6 +8837,17 @@ export class EventStore {
     return this.sessionLearning.eligibility(id, requestId);
   }
 
+  getSessionReadState(sessionId: string) {
+    return this.sessionMetadata.reads.get(sessionId);
+  }
+
+  setSessionReadState(
+    sessionId: string,
+    update: ({ readReplySeq: number } | { markedUnread: true }) & { expectedRevision?: number },
+  ) {
+    return this.sessionMetadata.reads.set(sessionId, update);
+  }
+
   isSessionHidden(sessionId: string): boolean {
     return this.sessionMetadata.isSessionHidden(sessionId);
   }
@@ -8881,6 +8892,14 @@ export class EventStore {
 
   hideSession(sessionId: string): void {
     this.sessionMetadata.hideSession(sessionId);
+  }
+
+  showSession(sessionId: string): void {
+    this.sessionMetadata.showSession(sessionId);
+  }
+
+  listHiddenSessions(limit: number, offset = 0): SessionMeta[] {
+    return this.sessionMetadata.listHiddenSessions(limit, offset);
   }
 
   incrementPromptCount(sessionId: string): number {

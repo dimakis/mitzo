@@ -457,21 +457,27 @@ Chats keeps search and status filters inside the conversation list's scrolling
 area on phones and desktop. The page heading and desktop preview keep their
 existing owners. Recency advances on a new user message, completion, or entering
 an attention state; tool output, repeated status snapshots, history refreshes and
-done-to-idle aging only update metadata. Promotions batch for 600ms with at least
-2.5 seconds between batches. Scrolling, held pointers/touches, keyboard focus,
+done-to-idle aging only update metadata. Promotions collect for 600ms and move one
+conversation at a time, with at least five seconds between moves. Scrolling, held pointers/touches, keyboard focus,
 editing, swipe actions, search and open menus/dialogs defer moves. Browsing resumes
 after a one-second idle interval; pending meaningful events survive later status
 changes. New rows enter chronologically, including older pages; insertions during
 browsing wait below existing rows until the pending batch is released.
 
 Shared `MotionList` preserves keyed row identity, focus and the first visible
-conversation while animating position changes through the standard 200ms motion
-token. Swipe transforms remain on the inner row. Initial rendering and ordinary
+conversation while animating position changes through the shared 1800ms reorder
+token on both Chats and its sidebar. Swipe transforms remain on the inner row. Initial rendering and ordinary
 metadata updates do not replay motion; interruption, unmount and Reduce Motion
 cancel owned animations. Existing search, filter, row and preview styles and
 shared tokens remain authoritative. Focused unit and intercepted session-library
 browser regressions cover ordering, browsing, scrolling and motion. Rendered
 validation requires the permitted macOS browser host; CI retains browser captures.
+
+The existing action menu adds Hide conversation. Hidden chats is reachable from
+Chats options and beside sidebar filters. Its shared HomeDialog reuses quiet rows,
+SavedSessionHistory and secondary controls for restoration, separate cleanup review
+and editable fresh continuation. Previewing history starts no runtime; removal
+fences stay intact. See [behavior and validation](../features/chat-lifecycle-and-ordering.md).
 
 Chat load errors distinguish an initial request from a refresh of a previously loaded
 list. A failed refresh retains its rows beside the existing error and Retry control,
@@ -1458,6 +1464,37 @@ Native task selects reuse the context editor's explicit token-based height becau
 WebKit ignores their minimum height; offline geometry checks require 44px targets.
 
 ## Session library and context summaries
+
+On 11 November 2026 Dimitri requested slower, pronounced promotions, one at a
+time, across Chats and its sidebar, and separation of finished jobs from active
+work. The shared ordering queue now commits one conversation per 2.5-second
+scheduling interval, using the 1100ms shared reorder motion role. In progress
+precedes Finished; completions move through the same queue. Captured nested
+scroll events, a scrolled-away viewport, mouse hover, keyboard focus and action
+dialogs hold ordering. Both views preserve their visible row through MotionList;
+Show latest applies the next held update. Reduced motion retains the order and
+browsing policy while removing animated movement. Existing controls remain.
+
+The same request adds reply read state and manual Mark as unread through the
+existing session actions. The presence dot gives way to a blue unread dot and
+slightly stronger title weight; status remains in the existing activity label.
+The marker uses `--color-unread`, aliased to the theme's blue role, and shared
+spacing/radius tokens. A fixed marker gutter prevents text jumping when read
+state changes. Read rows have no visible dot. The accessible label identifies
+an unread reply independently of color. Context menus, long-press preview actions,
+pins and the sidebar share the same state and Mark as read/unread control.
+
+A completed visible assistant-text reply has a durable sequence watermark.
+Only its appearance in a visible open transcript, or explicit Mark as read,
+acknowledges it; merely previewing a collection row does not. The acknowledgement
+cannot clear a newer unseen reply. Manual unread persists until another visit
+or explicit action; a tool event, thinking block or metadata refresh cannot
+create a new unread reply. Read state is server-persisted across devices, is
+revision-fenced, and never changes session freshness. Legacy histories without
+durable text/reply boundaries remain unknown rather than receiving an invented
+reply cursor. With no prior read receipt, retained replies are unread until
+viewed or marked read. Failed saves retain the marker and expose a retryable
+error in their owning menu or transcript.
 
 Activity additions use shared `SessionActivityStatus` and `ActivityBars` in the
 existing collection, search, pins, preview and sidebar. Open chat enriches the

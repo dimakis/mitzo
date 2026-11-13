@@ -19,6 +19,7 @@ interface Props {
   onOpen: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onHide?: () => void;
 }
 
 /** A saved-history peek. It never attaches to or resumes a provider session. */
@@ -30,6 +31,7 @@ export function SessionPreview({
   onOpen,
   onRename,
   onDelete,
+  onHide,
 }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocus = useRef(document.activeElement);
@@ -178,6 +180,7 @@ export function SessionPreview({
             onOpen={onOpen}
             onRename={onRename}
             onDelete={onDelete}
+            onHide={onHide}
           />
         </div>
       </div>

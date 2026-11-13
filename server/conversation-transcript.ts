@@ -37,6 +37,7 @@ export interface RestoredMessage {
   startedSeq?: number;
   /** Exact retained completion anchor; absent for interrupted/synthetic history. */
   completedSeq?: number;
+  replyReadSeq?: number;
   images?: string[];
   contextBlocks?: string[];
   sourceSnapshots?: SourceSnapshot[];
@@ -544,7 +545,7 @@ function replaySingleEventsToTranscript(
         role: 'assistant',
         timestamp: turn.timestamp,
         startedSeq: turn.startedSeq,
-        ...(completedSeq === undefined ? {} : { completedSeq }),
+        ...(completedSeq === undefined ? {} : { completedSeq, replyReadSeq: completedSeq }),
         blocks,
       };
     else messages.splice(turn.index, 1);

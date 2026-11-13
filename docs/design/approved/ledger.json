@@ -812,8 +812,115 @@
     },
     {
       "id": "cohesive-chat",
-      "activeRevision": "compact-linked-chat-2026-11-10",
+      "activeRevision": "conversation-lifecycle-2026-11-13",
       "revisions": [
+        {
+          "id": "conversation-lifecycle-2026-11-13",
+          "approvedBy": "Dimitri (explicit hiding and calmer ordering request, incorporating PR #1307)",
+          "approvedOn": "2026-11-13",
+          "approval": {
+            "thread": "Mitzo conversation 526e3840-74f0-8343-a473-5f8455eb4b5e",
+            "quote": "I would like the ability to hide them. but I want to be able to view them at some point too. [...] I'd like to slow down the moves even more. and bring the same into this chat screen. [...] should we incorporate and superceede 1307 here?",
+            "scope": "Reversible hiding and retained history, separate guarded cleanup review, fresh editable continuation, and calmer ordering on both existing list surfaces. Incorporates PR #1307 read/unread markers and grouping. Preserve all other approved layouts, actions, typography, appearance and authority boundaries."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-links-access/cohesive-ux-v007.html",
+              "sha256": "7dd8b32ead8da550338b000d4975214bf977c668f878fd1d8567a4cbef1ac530"
+            },
+            {
+              "path": "docs/design/approved/chat-links-access/approval-and-timer-direction.md",
+              "sha256": "9cdd06f0af0167e60b377d9722ee51f691224a84cedd8c992fe94904890b2851"
+            }
+          ],
+          "invariants": [
+            "Use the existing theme, accent, font, UiIcon, scales and shared sheet; avoid generic card wrappers for lists and transcript events.",
+            "Keep Symposium joining/lifecycle behavior, one composer status owner and existing appearance settings. Header actions have clear backgrounds, accent icons, equal touch targets and visible focus.",
+            "Show exact-source author/time/text quotes in transcript and composer. Tap jumps/highlights and returns to the opener; unavailable sources retain their reference without guessing.",
+            "Chronological launch receipts scroll with the transcript. Links & access owns related chat navigation; linking/unlinking grants no execution access. New chat requires explicit reviewed approval and existing runtime/delivery fences.",
+            "Permissions and Connections use Back within the compact sheet. Preserve scope, expiry, revocation, stale/unavailable evidence and unsent grant edits.",
+            "Drafts is a counted collapsible section with three latest rows and All drafts; retain draft, attachment, repository and discard ownership.",
+            "Approval actions remain outside scrolling request details. Known concrete fields lead; unknown shapes retain full details. Never infer or broaden scope, conceal expiry or alter decision semantics.",
+            "Timer deletion confirms and revision-fences removal, stops future checks, and retains command/delivery evidence. Complete prompts remain available in a disclosure.",
+            "Use already observed freshness on the first Chats render; reserve metadata/status geometry and offer late initial reordering explicitly while preserving subsequent live batching/browsing behavior.",
+            "Hide retains history and resources. Cleanup requires its existing fresh review and cannot clear removal admission fences.",
+            "Unread reply markers replace presence dots as incorporated from PR #1307; completed visible replies are the read boundary."
+          ],
+          "sources": [
+            "frontend/src/components/SessionChatLinks.tsx",
+            "frontend/src/components/SessionAccess.tsx",
+            "frontend/src/components/SessionLaunchCards.tsx",
+            "frontend/src/components/AgentMessageCard.tsx",
+            "frontend/src/components/ReplyQuote.tsx",
+            "frontend/src/components/ApprovalRequestSummary.tsx",
+            "frontend/src/components/SessionTimersDialog.tsx",
+            "frontend/src/pages/SessionList.tsx",
+            "frontend/src/hooks/useSessionOrder.ts",
+            "frontend/src/styles/header-actions.css",
+            "frontend/src/styles/chat-sheets.css",
+            "server/session-launch-routes.ts",
+            "server/session-launch-store.ts",
+            "server/session-prompt-store.ts"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/HeaderActions.test.tsx",
+            "frontend/src/components/__tests__/ChatReplyContext.test.tsx",
+            "frontend/src/components/__tests__/PeerMessagePresentation.test.tsx",
+            "frontend/src/components/__tests__/SessionChatLinks.test.tsx",
+            "frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx",
+            "frontend/src/components/__tests__/SessionTimersDialog.test.tsx",
+            "frontend/src/pages/__tests__/SessionListDrafts.test.tsx",
+            "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+            "tests/offline/session-launch.spec.ts",
+            "tests/offline/session-access.spec.ts",
+            "tests/offline/session-library.spec.ts",
+            "tests/offline/session-timers.spec.ts",
+            "tests/offline/agent-messages.spec.ts",
+            "tests/offline/chat-drafts-updates.spec.ts",
+            "server/__tests__/session-chat-links.test.ts",
+            "server/__tests__/session-launch-routes.test.ts",
+            "server/__tests__/session-prompt-store.test.ts",
+            "server/__tests__/session-prompt-service.test.ts",
+            "frontend/src/components/__tests__/HiddenSessionsDialog.test.tsx",
+            "frontend/src/components/__tests__/SessionPanelVisibility.test.tsx",
+            "frontend/src/hooks/__tests__/conversation-calm-ordering.test.tsx"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/HeaderActions.test.tsx",
+              "sha256": "c08579e15fae217f40dd647ad9852325f9a6d1f8cc78c0530ba752e7ce879ae2"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatReplyContext.test.tsx",
+              "sha256": "f1e48af400bd7406686eed96f860b47794509c083ea1a2cf86972cbbee7fe60d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/PeerMessagePresentation.test.tsx",
+              "sha256": "f71575d3f3a0b9ba3636db00d614c5b67ae9814bf6e5902e4d54ebbfb02738d9"
+            },
+            {
+              "path": "frontend/src/components/__tests__/SessionChatLinks.test.tsx",
+              "sha256": "4507a3569794b1deca9c6d2b17012b97fcbe856a306206f564ff0cfb6c746758"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx",
+              "sha256": "de68b3c132924a24357c2dcffa1f3ea4c6bdb3dcab7216fc7548b952abea3e82"
+            },
+            {
+              "path": "frontend/src/components/__tests__/SessionTimersDialog.test.tsx",
+              "sha256": "45eeb66a7d25220d8862457e5367593836ed59b47cc19520d878a26a56295e0d"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/SessionListDrafts.test.tsx",
+              "sha256": "528acc84c470af59d47337d21a3a0f7de4bb60470d796f96a7dd6a6b0c137edd"
+            },
+            {
+              "path": "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+              "sha256": "89a9dfe1313888c6696de8431c09611411bcc44526c0afaef220c44e15391387"
+            }
+          ],
+          "validation": "docs/features/chat-lifecycle-and-ordering.md"
+        },
         {
           "id": "compact-linked-chat-2026-11-10",
           "approvedBy": "Dimitri (approved v007 Design A and explicit implementation amendments)",

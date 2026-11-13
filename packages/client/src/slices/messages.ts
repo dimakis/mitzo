@@ -177,7 +177,7 @@ type MessagesCoreAction =
       isError: boolean;
       images?: ToolResultImage[];
     }
-  | { type: 'MESSAGE_END'; messageId: string; sessionId?: string }
+  | { type: 'MESSAGE_END'; messageId: string; sessionId?: string; seq?: number }
   | { type: 'SESSION_END'; sessionId?: string }
   // Subagent events
   | { type: 'SUBAGENT_START'; parentBlockId: string; subagentMessageId: string }
@@ -913,6 +913,10 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         return { ...state, current: null };
       }
       const finished = finishCurrent(state.current);
+      if (action.seq !== undefined && Number.isSafeInteger(action.seq) && action.seq > 0) {
+        finished.completedSeq = action.seq;
+        finished.replyReadSeq = action.seq;
+      }
       return { ...state, messages: insertByStartedSeq(state.messages, finished), current: null };
     }
 

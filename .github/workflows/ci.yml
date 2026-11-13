@@ -365,6 +365,8 @@ jobs:
             test-results/offline/**/prompt-context-review-*.png
             test-results/offline/**/participant-*.png
             test-results/offline/**/sandbox-removal-*.png
+            test-results/offline/**/hidden-history-*.png
+            test-results/offline/**/hidden-cleanup-*.png
             test-results/offline/**/reusable-access-*.png
             test-results/offline/**/native-approval-*.png
             test-results/offline/**/approval-*.png

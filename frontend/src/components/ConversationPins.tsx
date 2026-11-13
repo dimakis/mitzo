@@ -6,6 +6,7 @@ import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import type { SessionActivity } from '@mitzo/protocol';
 import { SessionActivityStatus } from './SessionActivityStatus';
+import { ConversationUnreadDot } from './ConversationUnreadDot';
 import { recordTitle } from '../lib/record-title';
 import '../styles/session-library.css';
 type Props = {
@@ -33,8 +34,12 @@ function PinRow({ session, props }: { session: Session; props: Props }) {
         onFocus={() => props.onPreview?.(session)}
         onDoubleClick={props.onOpen ? () => props.onOpen?.(session.id) : undefined}
         title={title}
+        aria-label={title}
       >
-        <span>{title}</span>
+        <span className="conversation-pin-title">
+          <ConversationUnreadDot session={session} hydrate />
+          {title}
+        </span>
         <small>
           <SessionActivityStatus
             activity={props.activities?.get(session.id)}

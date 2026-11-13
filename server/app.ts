@@ -27,6 +27,7 @@ import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
 import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
+import { createSessionVisibilityRouter } from './session-visibility.js';
 import { createSessionRemovalRuntime } from './session-removal-runtime.js';
 import { SessionResourceRemovalService } from './session-resource-removal.js';
 import { createLocalSessionRemoval } from './local-session-removal.js';
@@ -316,6 +317,7 @@ import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
 import { mountSymposiumDirectorRoutes } from './symposium-director-route-composition.js';
 import { SymposiumHostGrants } from './symposium-host-grants.js';
 import express from 'express';
+import { createConversationReadHandlers } from './conversation-read-route.js';
 import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
 import { createAppSecurityHeaders } from './security-headers.js';
@@ -3471,6 +3473,7 @@ app.get('/api/sessions/search', async (req, res) => {
       await eventStore.searchSessionsAsync(q, limit, abort.signal, cacheDirectory)
     ).map((result) => ({
       ...result,
+      replyReadState: eventStore.getSessionReadState(result.sessionId),
       ...sessionModelIdentity(
         eventStore.getSession(result.sessionId) ?? {},
         (id, fallback) => accountAliases.label(id, fallback),
@@ -3493,6 +3496,19 @@ mountObservedRouter(
   createSdkConversationImportRouter({
     list: () => listImportableSdkConversations(),
     adopt: (id) => importSdkConversation(id),
+  }),
+);
+
+mountObservedRouter(
+  app,
+  '/api/sessions',
+  createSessionVisibilityRouter({
+    events: eventStore,
+    authorize: operatorAuthMiddleware,
+    changed: () => {
+      overviewEmitter?.scheduleBroadcast();
+      sseRegistry.broadcast('sessions_changed', {});
+    },
   }),
 );
 
@@ -3524,6 +3540,7 @@ app.get('/api/sessions', async (req, res) => {
           readSessionModelSelection(eventStore, s.id),
         ),
         numTurns: meta?.numTurns,
+        replyReadState: eventStore.getSessionReadState(s.id),
         closedBy: meta?.closedBy ?? undefined,
       };
     });
@@ -3550,6 +3567,14 @@ app.get('/api/sessions', async (req, res) => {
 });
 
 // Pinned Today sessions need their own read-only observation, beyond the recent page.
+const conversationReads = createConversationReadHandlers(
+  eventStore,
+  (sessionId, state) => sseRegistry.broadcast('session_read_state', { sessionId, state }),
+  (fields, cause) => log.warn('Conversation read status failed', { ...fields, error: cause }),
+);
+app.get('/api/sessions/:id/read-state', conversationReads.get);
+app.put('/api/sessions/:id/read-state', operatorAuthMiddleware, conversationReads.put);
+
 app.get('/api/sessions/:id/context', (req, res) => {
   const meta = eventStore.getSession(req.params.id);
   if (!meta || meta.isHidden) {

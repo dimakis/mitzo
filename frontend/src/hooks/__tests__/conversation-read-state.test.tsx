@@ -1,0 +1,118 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { SessionActions } from '../../components/SessionActions';
+import { ConversationUnreadDot } from '../../components/ConversationUnreadDot';
+import { apiFetch } from '../../lib/api-fetch';
+import { eventBus } from '../../lib/event-bus-singleton';
+import { retainConversationReadState } from '../../lib/conversation-read-state';
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: { on: vi.fn(() => () => {}), onConnectionChange: vi.fn(() => () => {}) },
+}));
+vi.mock('../../components/HomePinButton', () => ({ HomePinButton: () => null }));
+const initial = { latestReplySeq: 30, readReplySeq: 0, markedUnread: false, revision: 0 };
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  window.dispatchEvent(new Event('mitzo:auth-lost'));
+});
+
+it('replaces the presence dot with an accessible unread-reply marker, updated by the session menu', async () => {
+  const session = { id: 'chat', summary: 'Chat', lastModified: 100, replyReadState: initial };
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ ...initial, readReplySeq: 30, revision: 1 })),
+  );
+  render(
+    <>
+      <ConversationUnreadDot session={session} />
+      <SessionActions
+        session={session}
+        onOpen={vi.fn()}
+        onRename={vi.fn()}
+        onDelete={vi.fn()}
+        menu
+      />
+    </>,
+  );
+  expect(screen.getByLabelText('Unread reply')).toBeTruthy();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Mark as read' }));
+  await waitFor(() => expect(screen.queryByLabelText('Unread reply')).toBeNull());
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string)).toEqual({
+    readReplySeq: 30,
+    expectedRevision: 0,
+  });
+});
+
+it('keeps a failed unread mutation visible and keeps its menu open for retry', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 503 }));
+  const close = vi.fn();
+  render(
+    <SessionActions
+      session={{
+        id: 'read-chat',
+        summary: 'Read',
+        lastModified: 100,
+        replyReadState: { ...initial, readReplySeq: 30 },
+      }}
+      onOpen={vi.fn()}
+      onRename={vi.fn()}
+      onDelete={vi.fn()}
+      onClose={close}
+      menu
+    />,
+  );
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Mark as unread' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save read status');
+  expect(close).not.toHaveBeenCalled();
+});
+
+it('hydrates unread state for an off-page pinned conversation without a list projection', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(initial)));
+  render(
+    <ConversationUnreadDot
+      session={{ id: 'off-page-pin', summary: 'Pinned', lastModified: 1 }}
+      hydrate
+    />,
+  );
+  expect(await screen.findByLabelText('Unread reply')).toBeTruthy();
+  expect(apiFetch).toHaveBeenCalledWith('/api/sessions/off-page-pin/read-state', expect.anything());
+});
+
+it('revalidates cached off-page read state on mount and reconnect', async () => {
+  const session = { id: 'cached-off-page', summary: 'Pinned', lastModified: 1 };
+  retainConversationReadState(session.id, initial);
+  vi.mocked(apiFetch).mockImplementation(async () =>
+    Response.json({ ...initial, readReplySeq: 30, revision: 1 }),
+  );
+  const view = render(<ConversationUnreadDot session={session} hydrate />);
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
+  await waitFor(() => expect(screen.queryByLabelText('Unread reply')).toBeNull());
+  const connected = vi.mocked(eventBus.onConnectionChange).mock.calls.at(-1)![0];
+  vi.mocked(apiFetch).mockImplementation(async () =>
+    Response.json({ ...initial, markedUnread: true, revision: 2 }),
+  );
+  await act(async () => connected(true));
+  expect(await screen.findByLabelText('Unread reply')).toBeTruthy();
+  view.unmount();
+  vi.mocked(apiFetch).mockImplementation(async () =>
+    Response.json({ ...initial, readReplySeq: 30, revision: 3 }),
+  );
+  render(<ConversationUnreadDot session={session} hydrate />);
+  await waitFor(() => expect(screen.queryByLabelText('Unread reply')).toBeNull());
+  expect(apiFetch).toHaveBeenCalledTimes(3);
+});
+
+it('clears a failed cached refresh when a newer server observation arrives', async () => {
+  const session = { id: 'cached-refresh-failure', summary: 'Pinned', lastModified: 1 };
+  retainConversationReadState(session.id, initial);
+  vi.mocked(apiFetch).mockImplementation(async () => new Response('{}', { status: 503 }));
+  render(<ConversationUnreadDot session={session} hydrate />);
+  expect(await screen.findByText('Read status unavailable')).toBeTruthy();
+  act(() =>
+    retainConversationReadState(session.id, { ...initial, markedUnread: true, revision: 1 }),
+  );
+  await waitFor(() => expect(screen.queryByText('Read status unavailable')).toBeNull());
+  expect(screen.getByLabelText('Unread reply')).toBeTruthy();
+});

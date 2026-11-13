@@ -25,6 +25,7 @@ const mockUseSessionList = vi.mocked(useSessionList);
 function makeDefaultReturn(overrides = {}) {
   return {
     sessions: [],
+    hiddenSessionIds: new Set<string>(),
     quickActions: [],
     loading: false,
     error: null,
@@ -33,6 +34,7 @@ function makeDefaultReturn(overrides = {}) {
     updateAvailable: false,
     checking: false,
     dismissSession: vi.fn(),
+    hideSession: vi.fn(),
     clearAll: vi.fn(),
     handleRename: vi.fn(),
     checkForUpdates: vi.fn(),

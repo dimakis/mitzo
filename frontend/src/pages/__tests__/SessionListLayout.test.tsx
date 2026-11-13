@@ -105,7 +105,7 @@ it('batches meaningful promotions after browsing while tool updates stay in plac
       fireEvent.pointerDown(screen.getByRole('link', { name: 'Open Review UI' }), { pointerId: 1 });
       mocks.overview.activities = [...previous].reverse().map((activity) => ({
         ...activity,
-        state: activity.sessionId === 'one' ? state : 'idle',
+        state: activity.sessionId === 'one' ? state : activity.state,
         waitReason: 'permission',
         lastEventAt: activity.sessionId === 'one' ? 1000 : 50,
       }));
