@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from 'fs';
 import { join } from 'path';
 import { createLogger } from './logger.js';
+import { load, JSON_SCHEMA } from 'js-yaml';
 
 const log = createLogger('skills');
 
@@ -13,6 +14,8 @@ export interface SkillMetadata {
   description: string;
   scope: SkillScope;
   allowedTools?: string[];
+  /** Retained invalid metadata must refuse resolution, never become unrestricted. */
+  policyError?: string;
   /** Instruction dependencies, resolved with normal scope precedence. Never grant tools. */
   requiredSkills?: string[];
   /** Skill intentionally needs write access (Edit/Write in allowed-tools). */
@@ -35,6 +38,7 @@ interface SkillRegistryOptions {
 interface ParsedSkill {
   description: string;
   allowedTools?: string[];
+  policyError?: string;
   requiredSkills?: string[];
   mutating?: boolean;
   body: string;
@@ -43,7 +47,11 @@ interface ParsedSkill {
 
 // --- YAML frontmatter parsing (safe, no eval) ---
 
-function parseFrontmatter(raw: string): { meta: Record<string, unknown>; body: string } | null {
+function parseFrontmatter(raw: string): {
+  meta: Record<string, unknown>;
+  body: string;
+  policyError?: string;
+} | null {
   if (!raw.startsWith('---')) return null;
   const endIdx = raw.indexOf('\n---', 3);
   if (endIdx === -1) return null;
@@ -51,51 +59,20 @@ function parseFrontmatter(raw: string): { meta: Record<string, unknown>; body: s
   const yamlBlock = raw.slice(4, endIdx).trim();
   const body = raw.slice(endIdx + 4).trim();
 
-  // Minimal safe YAML parser — handles flat key: value and key:\n  - item lists
-  const meta: Record<string, unknown> = {};
-  const lines = yamlBlock.split('\n');
-  let currentKey: string | null = null;
-  let currentList: string[] | null = null;
-
-  for (const line of lines) {
-    const listMatch = line.match(/^\s+-\s+(.+)$/);
-    if (listMatch && currentKey && currentList) {
-      currentList.push(listMatch[1].trim());
-      continue;
-    }
-
-    // Flush previous list
-    if (currentKey && currentList) {
-      meta[currentKey] = currentList;
-      currentKey = null;
-      currentList = null;
-    }
-
-    const kvMatch = line.match(/^([a-zA-Z_-]+):\s*(.*)$/);
-    if (!kvMatch) continue;
-
-    const key = kvMatch[1];
-    let value = kvMatch[2].trim();
-
-    if (value === '') {
-      // Start of a list
-      currentKey = key;
-      currentList = [];
-    } else {
-      // Strip quotes
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      meta[key] = value;
-    }
-  }
-
-  // Flush final list
-  if (currentKey && currentList) {
-    meta[currentKey] = currentList;
+  let meta: Record<string, unknown>;
+  try {
+    const parsed = load(yamlBlock, { schema: JSON_SCHEMA });
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      throw Error('Expected a metadata mapping');
+    meta = parsed as Record<string, unknown>;
+  } catch {
+    // Do not skip the selected skill and fall through to a lower-precedence
+    // or provider-native definition. Never expose parser source excerpts.
+    return {
+      meta: { description: 'Invalid skill metadata' },
+      body,
+      policyError: 'Invalid skill frontmatter; use a YAML mapping with unique keys.',
+    };
   }
 
   const KNOWN_KEYS = new Set([
@@ -176,24 +153,33 @@ function discoverScope(dir: string): Map<string, ParsedSkill> {
       continue;
     }
 
-    const allowedTools = Array.isArray(meta['allowed-tools'])
-      ? (meta['allowed-tools'] as unknown[]).filter((t): t is string => typeof t === 'string')
-      : typeof meta['allowed-tools'] === 'string'
-        ? meta['allowed-tools']
-            .replace(/^\[|\]$/g, '')
-            .split(/[\s,]+/)
-            .filter(Boolean)
-        : undefined;
-
-    const mutating = meta['mutating'] === 'true' ? true : undefined;
-    const requiredSkills = Array.isArray(meta['requires-skills'])
-      ? (meta['requires-skills'] as unknown[]).filter((s): s is string => typeof s === 'string')
-      : undefined;
+    let policyError = parsed.policyError;
+    const tools = meta['allowed-tools'];
+    const allowedTools = typeof tools === 'string' ? tools.split(/[\s,]+/).filter(Boolean) : tools;
+    const exactNames = (value: unknown, pattern: RegExp): value is string[] =>
+      Array.isArray(value) && value.every((name) => typeof name === 'string' && pattern.test(name));
+    if (
+      Object.hasOwn(meta, 'allowed-tools') &&
+      !exactNames(allowedTools, /^[A-Za-z0-9_][A-Za-z0-9_.:-]*$/)
+    )
+      policyError = 'Unsupported allowed-tools; use exact tool names in a string or YAML sequence.';
+    const requiredSkills = meta['requires-skills'];
+    if (
+      Object.hasOwn(meta, 'requires-skills') &&
+      !exactNames(requiredSkills, /^[A-Za-z0-9][A-Za-z0-9_-]*$/)
+    )
+      policyError = 'Unsupported requires-skills; use a YAML sequence of skill names.';
+    const mutating = meta['mutating'] === true || meta['mutating'] === 'true' ? true : undefined;
 
     skills.set(entry, {
       description: meta.description,
-      allowedTools,
-      requiredSkills,
+      allowedTools: exactNames(allowedTools, /^[A-Za-z0-9_][A-Za-z0-9_.:-]*$/)
+        ? allowedTools
+        : undefined,
+      requiredSkills: exactNames(requiredSkills, /^[A-Za-z0-9][A-Za-z0-9_-]*$/)
+        ? requiredSkills
+        : undefined,
+      policyError,
       mutating,
       body,
       filePath,
@@ -252,6 +238,7 @@ export class SkillRegistry {
             description: parsed.description,
             scope,
             allowedTools: parsed.allowedTools,
+            policyError: parsed.policyError,
             requiredSkills: parsed.requiredSkills,
             mutating: parsed.mutating,
             filePath: parsed.filePath,

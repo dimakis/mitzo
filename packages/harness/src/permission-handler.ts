@@ -522,7 +522,7 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: 'Original approval scope changed' };
     if (!observationCurrent())
       return { behavior: 'deny', message: 'Original approval input or invocation changed' };
-    if (nativeApproval || githubRepository) {
+    {
       const activeClient = currentClientId();
       if (
         originalSignal.aborted ||
