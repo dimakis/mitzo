@@ -8,6 +8,7 @@ import { EventStore } from '../event-store.js';
 import { SkillRegistry } from '../skills.js';
 import { NativeCommandRegistry } from '../native-commands.js';
 import { resolveSlashCommand } from '../slash-commands.js';
+import { executableSkillResolution } from '../skill-runtime-support.js';
 import { buildSkillRegistry } from '../app.js';
 import { startChat, stopChat } from '../chat.js';
 import { dispatchV2Message } from '../ws-handler-v2.js';
@@ -160,6 +161,7 @@ it.each(
       BASE_REPO: '/offline',
       buildSkillRegistry: () => skillRegistry,
       resolveSlashCommand,
+      executableSkillResolution,
       NATIVE_COMMAND_NAMES: new Set(['skills']),
       nativeCommands: { execute },
       tryRouteToActiveSession: observe,

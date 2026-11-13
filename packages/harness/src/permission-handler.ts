@@ -524,8 +524,8 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: 'Original approval input or invocation changed' };
     {
       const activeClient = currentClientId();
+      if (originalSignal.aborted) return { behavior: 'deny', message: 'Aborted' };
       if (
-        originalSignal.aborted ||
         !nativeScopeCurrent() ||
         !activeClient ||
         (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')

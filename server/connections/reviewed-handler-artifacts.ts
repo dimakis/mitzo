@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1138-claude-parity-typecheck';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1139-claude-abort-contract';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1125,7 +1125,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-prompt-router.test.ts':
     'd41780d41d76cab07a60b56300dbb1c977a2b4285fb7d0c37bd2645a47745549',
   '../__tests__/session-prompt-tools.test.ts':
-    '23116791adbbf9f1c84b11c6ada31db8a38bfec1d49ad29bc21740ca48db821d',
+    'ee0366e347df34eee237f30479cfb6b0043e2f9c5f7775b7a5517bfca03d1bcc',
   '../session-prompt-definitions.ts':
     '6ee1ad79a9c33a04c33ee89fd7e17df60fa5ae591f21d135f441d9339c05ac90',
   '../session-prompt-dispatch.ts':
@@ -2592,7 +2592,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     'cc79b091161db6d4c150353b822f5035143606c609d769ca632aa6a79b484207',
   '../../packages/harness/src/permission-handler.ts':
-    '3a3d7fb73c3da8768a3bf094996134f2c6e2b31fe01ccaff335ed8b668f88abf',
+    '6f2f7e1a94fd9984aba4a5f039d2bed58601df02c2e8e1c556a91d92d8db919a',
   '../../packages/harness/src/permissions.ts':
     '68b64c6c5b7376fa1573c03af3ee5cdbe4ca8a9482f9418adf931d62020b3532',
   '../../packages/protocol/src/session-approval-scope.ts':

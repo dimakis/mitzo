@@ -164,3 +164,43 @@ Source revision is `v1.0.1138-claude-parity-typecheck`. The fixes are batched
 locally for one coordinated follow-up validation decision; no rerun, new push,
 main refresh, guard weakening, workflow change, merge or deployment is included
 in this diagnosis.
+
+## Follow-up published cycle and batched local fixes
+
+The coordinated non-force follow-up published `183951ef` to the same PR branch.
+Current-head CI is run `43512171045`; compile/source preflight, frontend assets,
+core checks, all three joined acceptance shards and both prepared-consumer
+groups pass. The deployed trusted review service accepted job `7346` with its
+existing authentication and model configuration; a current-head final review
+has not yet been observed. No duplicate dispatch or forced review was requested.
+
+Three completed unit shards expose confirmed owned defects:
+
+- Job `132186618137`: one existing permission-handler abort test expects the
+  established `Aborted` denial, but the strengthened shared revalidation returned
+  a misleading permissions-changed/retry response. The early guard now returns
+  `Aborted` for an aborted signal, retaining all remaining original owner,
+  native scope and skill checks. All 133 focused permission, skill, task and
+  profile-retirement tests pass; protocol/harness/client compilation passes.
+- Job `132186618253`: six legacy slash-receipt cases extract the real Send
+  callback into a VM context. That context omitted the new
+  `executableSkillResolution` dependency. The fixture now injects the actual
+  imported helper without weakening its refusal assertions. All 37 slash-receipt
+  and restricted-skill checks pass. This group overlaps the previous one.
+- Job `132186618129`: one older session-tool catalog assertion expected every
+  automation tool to exclude Claude SDK. It now explicitly expects qualified
+  TaskExecution on that route and retains the three-route assertions for
+  unqualified timers and queued messaging. All 56 focused catalog, session-prompt
+  and TaskExecution checks pass; counts overlap the other groups.
+
+Logs are `.verification/ci-43512171045-unit2.log`,
+`.verification/ci-43512171045-unit1.log`, `.verification/abort-message-fix.log`
+and `.verification/slash-receipt-fixture-fix.log`. The original run continues
+to preserve remaining evidence; no new publication or rerun is included in
+this local repair. Source revision is `v1.0.1139-claude-abort-contract`.
+
+The third shard log is `.verification/ci-43512171045-unit3.log`; its focused
+verification is `.verification/catalog-expectation-fix.log`. All eight failed
+unit assertions across these three completed shards have a confirmed cause and
+a passing focused check. Remaining hosted evidence is preserved, and final
+current-head CI and trusted review are still required before acceptance.
