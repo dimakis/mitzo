@@ -576,16 +576,12 @@ it.each(
     }
     if (personal) {
       const sdkOptions = services.requests[0].options as Options;
-      expect(sdkOptions.sandbox).toMatchObject({
-        enabled: true,
-        failIfUnavailable: true,
-        allowUnsandboxedCommands: false,
-      });
+      expect(sdkOptions.sandbox).toBeUndefined();
       for (const tool of ['Grep', 'Glob']) {
         await expect(
           sdkOptions.canUseTool!(
             tool,
-            { path: '/', pattern: '**/.credentials.json' },
+            { path: sdkOptions.env!.CLAUDE_CONFIG_DIR, pattern: '*' },
             {
               signal: new AbortController().signal,
               toolUseID: `private-search-${tool}`,
@@ -593,8 +589,18 @@ it.each(
           ),
         ).resolves.toMatchObject({
           behavior: 'deny',
-          message: expect.stringContaining('sandboxed Bash'),
+          message: expect.stringContaining('private account files'),
         });
+        await expect(
+          sdkOptions.canUseTool!(
+            tool,
+            { path: sdkOptions.cwd, pattern: 'fixture' },
+            {
+              signal: new AbortController().signal,
+              toolUseID: `workspace-search-${tool}`,
+            },
+          ),
+        ).resolves.toMatchObject({ behavior: 'allow' });
       }
     }
     const publicUser = chat.eventStore

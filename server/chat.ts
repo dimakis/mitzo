@@ -19,7 +19,7 @@ import {
 import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
 import { createSdkTurnQuery } from './sdk-turn-query.js';
 import { reportClaudeChildDiagnostic } from './claude-child-diagnostics.js';
-import { claudePersonalSandbox, claudePersonalToolPermission } from './claude-personal-policy.js';
+import { claudePersonalToolPermission } from './claude-personal-policy.js';
 import { readClaudeAccountHistory } from './claude-account-history.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
@@ -3025,9 +3025,6 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         env: sessionEnv,
         ...(options.ordinarySdkAuthority?.executable()
           ? { pathToClaudeCodeExecutable: options.ordinarySdkAuthority.executable() }
-          : {}),
-        ...(options.ordinarySdkAuthority?.configDirectory()
-          ? { sandbox: claudePersonalSandbox(options.ordinarySdkAuthority.configDirectory()!) }
           : {}),
         abortController,
         includePartialMessages: true,
