@@ -154,6 +154,7 @@ function attemptReplayContext(value: string) {
 }
 interface Rpc {
   readonly modelProvider?: string;
+  validateConfiguration?(configuration: unknown): void;
   initialize(): Promise<void>;
   request(method: string, params: ObjectValue): Promise<unknown>;
   close(): void;
@@ -2185,6 +2186,7 @@ export class CodexConversation {
 
   private runtimeConfiguration(configuration: unknown): Record<string, unknown> {
     this.assertNativeExecutionOwner();
+    this.client.validateConfiguration?.(configuration);
     if (!this.opts.runtimeConfig) {
       const config = {
         ...codexRuntimeOverrides(

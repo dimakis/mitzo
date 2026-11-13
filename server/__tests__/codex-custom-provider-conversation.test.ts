@@ -32,6 +32,7 @@ it.each(['mitzo_api', 'openai', undefined])(
     let turn = 0;
     const rpc = {
       modelProvider: selectedProvider,
+      validateConfiguration: vi.fn((_configuration: unknown) => {}),
       initialize: async () => {},
       close: () => {},
       request: vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -77,6 +78,7 @@ it.each(['mitzo_api', 'openai', undefined])(
     };
     const first = create();
     await first.initialize();
+    expect(rpc.validateConfiguration).toHaveBeenCalledWith({});
     expect(rpc.request).toHaveBeenCalledWith(
       'thread/start',
       expect.objectContaining({
@@ -106,6 +108,15 @@ it.each(['mitzo_api', 'openai', undefined])(
     expect(store.commands('custom-api', binding).map((command) => command.model)).toEqual([
       binding.model,
       binding.model,
+    ]);
+    resumed.close();
+    rpc.validateConfiguration.mockImplementationOnce(() => {
+      throw Error('Provider configuration rejected');
+    });
+    const requestCount = rpc.request.mock.calls.length;
+    await expect(create().initialize()).rejects.toThrow('Provider configuration rejected');
+    expect(rpc.request.mock.calls.slice(requestCount).map(([method]) => method)).toEqual([
+      'config/read',
     ]);
   },
 );

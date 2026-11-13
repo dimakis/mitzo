@@ -52,7 +52,10 @@ Anthropic Messages to Responses.
 Custom Responses endpoints use a dedicated native Codex provider with HTTP
 streaming and WebSockets disabled. The selected provider follows the existing
 account through thread startup, continuation and recovery; its API key stays
-under the existing private login and credential controller. Official OpenAI API
+under the existing private login and credential controller. Before starting a
+thread, effective native configuration must match that provider and cannot add
+alternate credential sources, headers, catalog URLs or transport extensions.
+Official OpenAI API
 accounts retain the built-in OpenAI provider, as do ChatGPT subscription accounts.
 This transport configuration does not qualify a gateway's model capabilities.
 

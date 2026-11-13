@@ -106,11 +106,15 @@ it.each([
     expect(client.modelProvider).toBe(provider);
     expect(options.env.OPENAI_API_KEY).toBeUndefined();
     if (connection) {
+      expect(() => client.validateConfiguration({})).toThrow(
+        'Custom Codex provider configuration does not match the selected API connection',
+      );
       expect(argv).toContain('model_providers.mitzo_api.supports_websockets=false');
       expect(argv).toContain('model_providers.mitzo_api.requires_openai_auth=true');
       expect(argv).toContain(`model_providers.mitzo_api.base_url="${connection.endpoint}"`);
       expect(argv.some((arg: string) => arg.startsWith('openai_base_url='))).toBe(false);
     } else {
+      expect(() => client.validateConfiguration({})).not.toThrow();
       expect(argv).toContain('openai_base_url="https://api.openai.com/v1"');
       expect(argv.some((arg: string) => arg.includes('supports_websockets'))).toBe(false);
     }

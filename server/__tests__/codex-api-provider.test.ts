@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { codexApiProvider } from '../codex-api-provider.js';
+import { assertCodexApiProviderConfiguration, codexApiProvider } from '../codex-api-provider.js';
 import type { ApiHarnessConnection } from '../account-harness-connection.js';
 
 const qualification = {
@@ -14,6 +14,48 @@ const connection: ApiHarnessConnection = {
   protocol: 'responses',
   qualification,
 };
+const nativeProvider = {
+  name: 'Configured API',
+  base_url: connection.endpoint,
+  wire_api: 'responses',
+  requires_openai_auth: true,
+  supports_websockets: false,
+  supports_standalone_web_search: false,
+  env_key: null,
+  http_headers: null,
+};
+const nativeConfiguration = (provider = nativeProvider) => ({
+  model_provider: 'mitzo_api',
+  model_providers: { mitzo_api: provider },
+});
+
+it('accepts the native HTTP provider defaults without accepting alternate credential sources', () => {
+  expect(() =>
+    assertCodexApiProviderConfiguration(nativeConfiguration(), codexApiProvider(connection)),
+  ).not.toThrow();
+  expect(() => assertCodexApiProviderConfiguration({}, codexApiProvider())).not.toThrow();
+});
+
+const providerOverrides: Array<[string, unknown]> = [
+  ['base_url', 'https://another.example/v1'],
+  ['requires_openai_auth', false],
+  ['supports_websockets', true],
+  ['env_key', 'ANOTHER_ACCOUNT_KEY'],
+  ['experimental_bearer_token', 'synthetic-alternate-key'],
+  ['http_headers', { 'x-api-key': 'synthetic-alternate-key' }],
+  ['model_catalog_url', 'https://another.example/models'],
+];
+it.each(providerOverrides)(
+  'rejects a workspace provider override of %s before any thread effect',
+  (key, value) => {
+    expect(() =>
+      assertCodexApiProviderConfiguration(
+        nativeConfiguration({ ...nativeProvider, [key]: value }),
+        codexApiProvider(connection),
+      ),
+    ).toThrow('Custom Codex provider configuration does not match the selected API connection');
+  },
+);
 
 it.each([
   undefined,

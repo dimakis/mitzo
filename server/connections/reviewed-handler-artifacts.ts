@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1123-custom-codex-api-provider';
+  'v1.0.1124-custom-codex-api-provider';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,13 +23,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../codex-api-provider.ts': '5750939140112209b8a534fc3b5e81ee71382ecc0fa5152a5e656de1512fac4d',
+  '../codex-api-provider.ts': '8fd2a082930819da39fcaf2ac971f3bc315a43bd97fe84d58f88fef6015d2e91',
   '../__tests__/codex-api-provider.test.ts':
-    '6185a705b39ac246aec4ca20f2456c1529a2cf684946edafc27b00e168f0df3c',
+    '16b4e9bc67c63ffedd1c6587fe680965c930dbd0e6d8a88f3d4d27607dd78e82',
   '../__tests__/codex-custom-provider-conversation.test.ts':
-    '4816ec02cfb7261eeac91a312ac2947f4ca471517a85daadf6310cb36fa6fdf3',
+    '6cf6c3890cb7b19284854bbdb71b07b9d45ca83f2698903374898b44d829c3d8',
   '../__tests__/codex-isolated-host-launch.test.ts':
-    '1eccf2ce767964025468ee6ba379cddcb6682ca30e63643a5c113501e333e0c1',
+    '96c89c2e5ff418c70c71ca611cdfd265e7cd539e9ad57f8941a5c527ce55843a',
   '../__tests__/claude-login-sandbox.native.test.ts':
     '04b12c176cb8415012b61b10ad982b5849121688fdce93bc52ae60805e701a34',
   '../__tests__/credential-sdk-boundary-spawn.test.ts':
@@ -2515,7 +2515,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-api-login.ts':
     '5352ef806b8ee28d9978ee5b7cbc13ccdf90895a68eaa661b34e1bb05c941a1e',
   '../frozen-host-codex-login.ts':
-    'd245ab0dc1ad92e7fa2c7ed391be255ebc56fe36cb104d340382d0459fb7fb81',
+    '6562107dbbf053f9b286dc2abf06603da9fae5973acc40d0012d7955a4a5d4f1',
   '../frozen-host-codex-executable.ts':
     'ef3c54f4d877eb7fb9af2beee771f5379364c6ccb5d5656ac61d354d3fa0cfc9',
   '../frozen-host-codex-bootstrap.ts':
@@ -2546,7 +2546,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
-    'e0210a24eeb348a70da85a028ae223f873c34850ebaa768d2278876bbc40042d',
+    '76d3175cc456b1fdc31fc5e9177cde29567ad1e965d3a4ca9ebe9e1e71f6fa1f',
   '../codex-mcp-tools.ts': '1a0bd6596a3f0d4821c2e7e931ad84355c072b45cc2414533bd345b9e40ef48f',
   '../codex-runtime-diagnostics.ts':
     '510ca55e6e89a4072a23f970abb90d5127b8ab8218046917d6e8a2961de3cf54',
@@ -2640,7 +2640,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '7ab1f48d5a805a442b7143802c7a7cbb8394deefe69d9e42a52cac8764adaf90',
+  '../codex-conversation.ts': '1f16306646a6dbc76f4f101f679191c37f6112e832f4ed74dd3acecec6ab132b',
   '../codex-conversation-store.ts':
     '2ebbf717b237fb6a136ddc170ef302557febca075cba7ff23069a61b0d9522fc',
   '../symposium-custodian-ipc.ts':

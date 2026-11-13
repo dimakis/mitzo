@@ -28,7 +28,11 @@ import {
   type AccountBinding,
 } from '@mitzo/protocol';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
-import { codexApiProvider } from './codex-api-provider.js';
+import {
+  assertCodexApiProviderConfiguration,
+  codexApiProvider,
+  type CodexApiProvider,
+} from './codex-api-provider.js';
 import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
 import { tracer } from './tracing.js';
@@ -491,6 +495,7 @@ export class CodexAppServerClient {
   private readonly loginOnly: boolean;
   private readonly observeTurnStartWrite?: TurnInputWriteObserver;
   readonly modelProvider?: string;
+  private readonly apiProvider?: CodexApiProvider;
 
   constructor(
     private child: RpcProcess,
@@ -505,10 +510,12 @@ export class CodexAppServerClient {
       observeTurnStartWrite?: TurnInputWriteObserver;
       /** Trusted launcher selection; never read from provider notifications. */
       modelProvider?: string;
+      apiProvider?: CodexApiProvider;
     } = {},
   ) {
     this.lifecycle = options.lifecycle;
     this.modelProvider = options.modelProvider;
+    this.apiProvider = options.apiProvider;
     this.observeTurnStartWrite = options.observeTurnStartWrite;
     this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
@@ -789,7 +796,7 @@ export class CodexAppServerClient {
         ],
         { env, stdio: ['pipe', 'pipe', 'pipe'] },
       ),
-      { lifecycle, modelProvider: provider?.modelProvider ?? 'openai' },
+      { lifecycle, modelProvider: provider?.modelProvider ?? 'openai', apiProvider: provider },
     );
   }
 
@@ -815,6 +822,10 @@ export class CodexAppServerClient {
       lifecycle,
       ...(options.requiredProviderEnvironment?.length ? { environmentLaunch: { create } } : {}),
     });
+  }
+
+  validateConfiguration(configuration: unknown): void {
+    if (this.apiProvider) assertCodexApiProviderConfiguration(configuration, this.apiProvider);
   }
 
   initialize(): Promise<void> {
