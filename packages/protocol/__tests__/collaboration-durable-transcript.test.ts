@@ -10,7 +10,10 @@ import {
   CollaborationDurableTranscriptSchema,
 } from '../src/collaboration-conversation.js';
 import { SessionCollaborationError } from '../src/session-collaboration.js';
-import { captureCollaborationDurableTranscript } from '../src/collaboration-visible-source.js';
+import {
+  captureCollaborationDurableTranscript,
+  openCollaborationVisibleSource,
+} from '../src/collaboration-visible-source.js';
 
 let store: EventStore, db: Database.Database, directory: string;
 beforeEach(() => {
@@ -110,7 +113,7 @@ it.each([
   'empty',
   'hidden',
   'symposium',
-  'partial',
+  'partialOnly',
   'legacy',
   'interleaved',
   'duplicate',
@@ -126,11 +129,11 @@ it.each([
     );
     return;
   }
-  if (kind !== 'empty') user();
+  if (kind !== 'empty' && kind !== 'partialOnly') user();
   if (kind === 'hidden') store.hideSession('one');
   if (kind === 'symposium')
     db.prepare("UPDATE sessions SET session_type='symposium' WHERE session_id='one'").run();
-  if (kind === 'partial') store.append('one', 'message_start', { messageId: 'open' });
+  if (kind === 'partialOnly') store.append('one', 'message_start', { messageId: 'open' });
   if (kind === 'legacy')
     store.upsertSession({ sessionId: 'one', initialPrompt: 'Missing original prompt' });
   if (kind === 'interleaved') {
@@ -153,6 +156,47 @@ it.each([
     expect(() => store.getDurableSessionTranscript('one')).toThrowError(SessionCollaborationError);
     expect(() => store.getDurableSessionTranscript('one')).toThrowError('Conversation not found');
   } else refuses('snapshot_changed');
+});
+
+it('freezes the completed session prefix before a streaming reply and retains exact source fences', () => {
+  user();
+  assistant();
+  const through = user('current-question', 'Continue');
+  store.append('other', 'user_message', { messageId: 'gap', text: 'PRIVATE' });
+  const start = store.append('one', 'message_start', { messageId: 'active' });
+  store.append('one', 'block_start', { messageId: 'active', blockId: 'stream', blockType: 'text' });
+  store.append('one', 'block_delta', {
+    messageId: 'active',
+    blockId: 'stream',
+    delta: 'Unfinished',
+  });
+  user('queued', 'Queued after the unfinished turn');
+  const frozen = store.getDurableSessionTranscript('one');
+  expect(start).toBeGreaterThan(through + 1);
+  expect(frozen.boundary).toEqual({ sequence: through, messageId: 'current-question' });
+  expect(frozen.messages.map((message) => message.messageId)).toEqual([
+    'question',
+    'answer',
+    'current-question',
+  ]);
+  expect(frozen.messages[1].blocks[0].sha256).toBe(
+    createHash('sha256').update('Visible answer').digest('hex'),
+  );
+  expect(JSON.stringify(frozen)).not.toMatch(/PRIVATE|Unfinished|Queued after/);
+  const source = openCollaborationVisibleSource(db, 'one', frozen.boundary);
+  expect(source.readSelected(['answer'])).toEqual([frozen.messages[1]]);
+  store.append('one', 'block_delta', { messageId: 'active', blockId: 'stream', delta: ' later' });
+  expect(store.getDurableSessionTranscript('one')).toEqual(frozen);
+  store.append('one', 'block_end', { messageId: 'active', blockId: 'stream' });
+  store.append('one', 'message_end', { messageId: 'active' });
+  expect(() => source.assertCurrent()).not.toThrow();
+  expect(() =>
+    openCollaborationVisibleSource(db, 'one', { sequence: start, messageId: 'current-question' }),
+  ).toThrow('snapshot_changed');
+  db.prepare(
+    "UPDATE events SET payload=json_set(payload,'$.delta','Changed') WHERE session_id='one' AND type='block_delta' AND json_extract(payload,'$.messageId')='answer'",
+  ).run();
+  expect(() => source.assertCurrent()).toThrow('snapshot_changed');
 });
 
 it.each([

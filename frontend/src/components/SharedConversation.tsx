@@ -1,5 +1,7 @@
 import {
   createContext,
+  cloneElement,
+  isValidElement,
   useContext,
   useEffect,
   useMemo,
@@ -24,12 +26,15 @@ import { useConversationSending } from '../hooks/useConversationSending';
 import { useConversationProgress } from '../hooks/useConversationProgress';
 import { useConversationPromptContext } from '../hooks/useConversationPromptContext';
 import { useConversationForwarding } from '../hooks/useConversationForwarding';
-import { ConversationPromptContext } from './ConversationPromptContext';
+import {
+  ConversationPromptContext,
+  ConversationPromptContextButton,
+} from './ConversationPromptContext';
 import { ConversationAgents } from './ConversationAgents';
 import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
-import type { ChatAreaProps } from './ChatArea';
+import { ChatArea, type ChatAreaProps } from './ChatArea';
 
 const applicationApi = new MitzoApiClient(apiFetch);
 const EMPTY_CONTEXT: string[] = [];
@@ -272,6 +277,18 @@ function useSharedConversation({
     progress,
     promptContext,
     forwarding,
+    shareMessage: (messageId: string) => {
+      if (promptContext.busy || promptContext.attached || forwarding.retained || sending.pending)
+        return;
+      promptContext.edit({
+        ...promptContext.form,
+        mode: 'selected',
+        purpose: promptContext.form.purpose || 'Send selected messages',
+        messageIds: [...new Set([...promptContext.form.messageIds, messageId])],
+        shareRecipientIds: promptContext.form.shareRecipientIds ?? [],
+      });
+      promptContext.show();
+    },
     joiningOwner,
     names,
     active,
@@ -361,9 +378,19 @@ export function SharedConversationBody({
     );
   const { presentation, sending, progress, promptContext, forwarding, names } = host;
   const { draft, projection, composerResponders } = presentation;
+  const canShare =
+    !sending.pending && !promptContext.busy && !promptContext.attached && !forwarding.retained;
+  const history =
+    isValidElement<ChatAreaProps>(ordinaryHistory) && ordinaryHistory.type === ChatArea
+      ? cloneElement(ordinaryHistory, {
+          onShareMessage: host.shareMessage,
+          canShareMessage: () => canShare,
+          shareInActions: true,
+        })
+      : ordinaryHistory;
   return (
     <>
-      {ordinaryHistory ?? children}
+      {history ?? children}
       {projection && (
         <CollaborationTranscript
           {...chat}
@@ -381,6 +408,30 @@ export function SharedConversationBody({
           onRefresh={() => void presentation.refresh()}
         />
       )}
+      {forwarding.retained && (
+        <ChatStatusMessage
+          status={
+            forwarding.observation?.state === 'confirmed'
+              ? 'Message sharing is recorded.'
+              : forwarding.uncertain
+                ? 'Message delivery is uncertain. Check the original send.'
+                : 'A message send is saved for review.'
+          }
+          action={{ label: 'Review message delivery', onClick: promptContext.show }}
+        />
+      )}
+      <ConversationPromptContext
+        flow={promptContext}
+        forwarding={forwarding}
+        names={names}
+        disabled={!!sending.pending}
+        showTrigger={false}
+        shareTargets={projection?.view.participantSessionIds.map((id) => ({
+          id,
+          name: names[id] ?? id,
+          unavailable: projection.view.unavailableParticipantSessionIds.includes(id),
+        }))}
+      />
       {chat.running && ordinaryComposer
         ? ordinaryComposer
         : draft && (
@@ -406,10 +457,8 @@ export function SharedConversationBody({
                 running={!!sending.pending}
                 onStop={() => void sending.stop()}
                 collaboration={
-                  <ConversationPromptContext
+                  <ConversationPromptContextButton
                     flow={promptContext}
-                    forwarding={forwarding}
-                    names={names}
                     disabled={!!sending.pending}
                   />
                 }
