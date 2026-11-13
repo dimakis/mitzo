@@ -483,9 +483,9 @@ it('pins a qualified endpoint through bootstrap and cold resume without inheriti
   const launched = await CodexAppServerClient.launchIsolatedApi(o);
   closes.push(() => launched.client.close());
   expect(processes.spawn.mock.calls[0][1]).toContain(
-    'openai_base_url="https://gateway.example.test/v1"',
+    'model_providers.mitzo_api.base_url="https://gateway.example.test/v1"',
   );
-  expect(processes.spawn.mock.calls[0][1]).toContain('model_provider="openai"');
+  expect(processes.spawn.mock.calls[0][1]).toContain('model_provider="mitzo_api"');
   expect(processes.spawn.mock.calls[0][1]).not.toContain(
     'openai_base_url="https://api.openai.com/v1"',
   );
@@ -498,7 +498,7 @@ it('pins a qualified endpoint through bootstrap and cold resume without inheriti
   );
   closes.push(() => resumed.close());
   expect(processes.spawn.mock.calls[1][1]).toContain(
-    'openai_base_url="https://gateway.example.test/v1"',
+    'model_providers.mitzo_api.base_url="https://gateway.example.test/v1"',
   );
   expect(children[1].sent).toEqual([]);
 });
@@ -546,7 +546,7 @@ it('isolates concurrent API accounts with distinct endpoints and credential refe
   const calls = processes.spawn.mock.calls;
   for (const [index, selected] of [a, b].entries()) {
     expect(calls[index][1]).toContain(
-      `openai_base_url=${JSON.stringify(selected.connection.endpoint)}`,
+      `model_providers.mitzo_api.base_url=${JSON.stringify(selected.connection.endpoint)}`,
     );
     expect(calls[index][2].env.CODEX_HOME).toBe(selected.privateHome);
     expect(
@@ -588,11 +588,11 @@ it.each(['///', '/////'])(
     );
     closes.push(() => resumed.close());
     const endpointArguments = processes.spawn.mock.calls.map((call) =>
-      call[1].find((argument: string) => argument.startsWith('openai_base_url=')),
+      call[1].find((argument: string) => argument.startsWith('model_providers.mitzo_api.base_url=')),
     );
     expect(endpointArguments).toEqual([
-      `openai_base_url=${JSON.stringify(projection.endpoint)}`,
-      `openai_base_url=${JSON.stringify(projection.endpoint)}`,
+      `model_providers.mitzo_api.base_url=${JSON.stringify(projection.endpoint)}`,
+      `model_providers.mitzo_api.base_url=${JSON.stringify(projection.endpoint)}`,
     ]);
     expect(projection.endpoint).toBe('https://gateway.example.test/api');
   },
