@@ -11,6 +11,7 @@ function fixture() {
     const value = {
       url: () => 'http://127.0.0.1' + path,
       method: () => method,
+      failure: () => ({ errorText: 'net::ERR_ABORTED' }),
     } as unknown as Request;
     events.emit('request', value);
     return value;
@@ -162,6 +163,42 @@ it('rejects failed, malformed, wrong-identity and non-GET destination metadata',
   await expect(
     f.observer.waitForSessionMeta('peer', boundary, { timeout: 20, interval: 1 }),
   ).rejects.toThrow();
+  f.observer.close();
+});
+
+it('retains bounded ordinal and phase diagnostics for unreadable, pending and cancelled metadata', async () => {
+  const f = fixture();
+  const boundary = f.observer.boundary();
+  f.response(f.request('/api/sessions/peer/meta'), new Promise(() => {}));
+  f.response(f.request('/api/sessions/peer/meta'), Promise.reject(Error('private body content')));
+  const cancelled = f.request('/api/sessions/peer/meta');
+  f.events.emit('requestfailed', cancelled);
+  f.response(
+    f.request('/api/sessions/peer/meta'),
+    Promise.reject(new SyntaxError('Invalid JSON: private malformed response')),
+  );
+  await vi.waitFor(() => expect(f.observer.reads).toHaveLength(2));
+  const failure = await f.observer
+    .waitForSessionMeta('peer', boundary, { timeout: 20, interval: 1 })
+    .then(
+      () => null,
+      (error: unknown) => error,
+    );
+  expect(failure).toBeInstanceOf(Error);
+  const message = (failure as Error).message;
+  expect(message).toContain('chat_metadata_read_not_observed');
+  expect(message).toContain('"boundary":0');
+  expect(message).toContain('"requestOrdinal":1');
+  expect(message).toContain('"requestOrdinal":3');
+  expect(message).toContain('"stage":"response"');
+  expect(message).toContain('"stage":"body_failed"');
+  expect(message).toContain('response_body_unavailable');
+  expect(message).toContain('invalid_json');
+  expect(message).not.toContain('private body content');
+  expect(message).not.toContain('private malformed response');
+  expect(message).toContain('"stage":"request_failed"');
+  expect(message).toContain('net::ERR_ABORTED');
+  expect(message).toContain('"elapsedMs":');
   f.observer.close();
 });
 

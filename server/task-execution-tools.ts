@@ -42,6 +42,11 @@ function executionRoute(
     operations: ['run', 'github_read', 'commit'],
     executionLocation: 'host',
     nativeToolsCovered: false,
+    constraints: {
+      sandbox: 'os',
+      browserLaunch: process.platform === 'darwin' ? 'unsupported' : 'unqualified',
+      commitDirectory: 'session_workspace',
+    },
   };
 }
 /** One host adapter for SDK/Vertex, Responses and native Local/OpenShell calls.

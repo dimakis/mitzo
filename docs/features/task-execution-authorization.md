@@ -51,6 +51,31 @@ objects remain unavailable to arbitrary Bash. Use the selected-file commit
 operation rather than broadening the shell's Git metadata access. A root that
 contains the controller's authorization database cannot be authorized.
 
+### Execution-route limits (13 November 2026)
+
+`status` and `authorize` now include `executionRoute.constraints`: the execution
+location is the host, while the command still runs in an OS sandbox. Browser
+launch is explicitly unsupported on macOS and unqualified on other platforms.
+Use hosted CI for rendered verification rather than asking repeatedly for host
+approvals or unsetting a browser guard. Network access does not change macOS
+process-registration permissions. This reports the present adapter capability;
+it creates no new permission or browser execution route.
+
+The selected-file commit adapter targets the registered session workspace.
+Its `cwd` does not retarget a nested Git repository. Report that limitation before
+attempting such a commit; separately authorized native Git can operate inside an
+admitted nested checkout. Preserve uncertain receipts and inspect the actual
+index and head before selecting another route.
+
+Evidence: conversation `03fad929-1c23-86cc-a3b2-354651787b90`, 13 November.
+Chromium failed Mach process registration in TaskExecution; a separately approved
+native invocation was stopped by the repository's Seatbelt guard before launch.
+The nested commit returned no changes and inspection confirmed no new commit.
+`native-tool-executor.ts` resolves GitCommit's root from `session.cwd` rather
+than task authorization's command directory. The capability regression preserves
+existing grant revocation, Ask-mode and routing checks. Hosted CI, source landing
+and production adoption remain unverified at this implementation-draft milestone.
+
 ## Continuation and recovery
 
 Authorizations and command receipts live in the existing event database and its

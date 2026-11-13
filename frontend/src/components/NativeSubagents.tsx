@@ -1,11 +1,13 @@
-import { useId, useState } from 'react';
+import { useContext, useEffect, useId, useRef, useState } from 'react';
 import type { NativeSubagentControl, NativeSubagentSnapshot } from '@mitzo/protocol';
 import { useNativeSubagents } from '../hooks/useNativeSubagents';
 import { createBrowserId } from '../lib/browser-crypto';
 import { HomeDialog } from './HomeDialog';
+import { SnapSheet } from './SnapSheet';
+import { NativeSubagentDialogContext } from '../lib/native-subagent-dialog-context';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
-import { TextBubble } from './MessageBubble';
+import { TextBubble, UserBubble } from './MessageBubble';
 import { ToolPill } from './ToolPill';
 import './NativeSubagents.css';
 
@@ -38,17 +40,30 @@ interface Delivery {
 export function NativeSubagents({
   sessionId,
   commandId,
+  floating = false,
 }: {
   sessionId: string;
-  commandId: string;
+  commandId?: string;
+  floating?: boolean;
 }) {
   const feed = useNativeSubagents(sessionId);
-  const agents = feed.agents.filter((agent) => agent.commandId === commandId);
+  const agents = feed.agents.filter((agent) => !commandId || agent.commandId === commandId);
+  const navigation = useContext(NativeSubagentDialogContext);
   const [expanded, setExpanded] = useState(false);
-  const [selectedId, setSelectedId] = useState<string>();
+  const launcher = useRef<HTMLButtonElement>(null);
+  const [localSelectedId, setLocalSelectedId] = useState<string>();
+  const selectedId = navigation ? (floating ? navigation.selectedId : undefined) : localSelectedId;
+  const setSelectedId = (threadId?: string) => {
+    if (navigation)
+      navigation.open(threadId, threadId ? (floating ? 'launcher' : 'transcript') : undefined);
+    else setLocalSelectedId(threadId);
+  };
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [deliveries, setDeliveries] = useState<Record<string, Delivery>>({});
   const [inspecting, setInspecting] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!floating && navigation?.origin === 'launcher') setExpanded(false);
+  }, [floating, navigation?.origin]);
   const listId = useId();
   const selected = agents.find((agent) => agent.threadId === selectedId);
   const delivery = selected ? deliveries[selected.threadId] : undefined;
@@ -88,20 +103,41 @@ export function NativeSubagents({
       text: drafts[selected.threadId],
     });
   };
+  const Dialog = floating ? SnapSheet : HomeDialog;
   return (
-    <section className="native-subagents" aria-label="Subagents">
+    <section
+      className={`native-subagents${floating ? ' native-subagents--floating' : ''}`}
+      aria-label={floating ? 'Session agents' : 'Subagents'}
+    >
       <button
+        ref={launcher}
         type="button"
         className="native-subagent-summary"
         aria-expanded={expanded}
         aria-controls={listId}
-        onClick={() => setExpanded((value) => !value)}
+        aria-label={floating ? 'Agents in this session' : undefined}
+        aria-describedby={floating ? `${listId}-status` : undefined}
+        title={floating ? summary : undefined}
+        onClick={() => {
+          if (floating) navigation?.open(undefined, 'launcher');
+          setExpanded((value) => !value);
+        }}
       >
-        <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
-        <UiIcon name="agents" size={16} />
-        <span>{summary}</span>
+        {!floating && <UiIcon name={expanded ? 'down' : 'forward'} size={16} />}
+        <UiIcon name="subagents" size={floating ? 24 : 20} />
+        {floating ? (
+          <>
+            <span aria-hidden="true">{agents.length}</span>
+            {attention > 0 && <UiIcon name="warning" size={16} />}
+            <span id={`${listId}-status`} className="sr-only">
+              {summary}
+            </span>
+          </>
+        ) : (
+          <span>{summary}</span>
+        )}
       </button>
-      <MotionPresence open={expanded} kind="disclosure" appear={false}>
+      <MotionPresence open={expanded} kind={floating ? 'popover' : 'disclosure'} appear={false}>
         <div id={listId} className="native-subagent-list">
           {agents.map((agent) => (
             <button
@@ -109,8 +145,11 @@ export function NativeSubagents({
               key={agent.threadId}
               className="native-subagent-row"
               onClick={(event) => {
-                event.currentTarget.focus({ preventScroll: true });
+                // The floating list disappears while inspecting a child. Give
+                // the shared modal a connected target for focus restoration.
+                (floating ? launcher.current : event.currentTarget)?.focus({ preventScroll: true });
                 setSelectedId(agent.threadId);
+                if (floating) setExpanded(false);
               }}
             >
               <span>{agent.name}</span>
@@ -138,12 +177,22 @@ export function NativeSubagents({
         </div>
       </MotionPresence>
       {selected && (
-        <HomeDialog
+        <Dialog
           title={selected.name}
+          {...(floating && navigation?.origin === 'transcript' && selected.blocks.length > 0
+            ? { initialSnap: 'full' as const }
+            : {})}
           className={`native-subagent-dialog${!selected.blocks.length ? ' native-subagent-dialog--empty' : ''}`}
           onClose={() => setSelectedId(undefined)}
-          onBack={() => setSelectedId(undefined)}
-          backLabel="Back to conversation"
+          onBack={() => {
+            setSelectedId(undefined);
+            if (floating && navigation?.origin !== 'transcript') setExpanded(true);
+          }}
+          backLabel={
+            floating && navigation?.origin !== 'transcript'
+              ? 'Back to agents'
+              : 'Back to conversation'
+          }
         >
           <div className="native-subagent-body">
             <p className="native-subagent-note">Subagent of this agent</p>
@@ -207,6 +256,29 @@ export function NativeSubagents({
                 </button>
               </p>
             )}
+            {selected.controlFailure &&
+              (!delivery || delivery.input.requestId === selected.controlFailure.requestId) && (
+                <section className="native-subagent-unavailable" aria-label="Control unavailable">
+                  <p role="alert">
+                    {selected.controlFailure.status === 'uncertain'
+                      ? 'Delivery is unconfirmed. Check the existing request before sending again.'
+                      : 'The request was rejected. Refresh activity before trying again.'}
+                  </p>
+                  <button type="button" className="home-secondary" onClick={feed.reconnect}>
+                    Refresh activity
+                  </button>
+                  <details className="native-subagent-details">
+                    <summary>Control details</summary>
+                    <p>Stage: {selected.controlFailure.stage}</p>
+                    <p>
+                      Request: <code>{selected.controlFailure.requestId}</code>
+                    </p>
+                    <p>
+                      Reference: <code>{selected.controlFailure.reference}</code>
+                    </p>
+                  </details>
+                </section>
+              )}
             {!selected.blocks.length && (
               <p className="native-subagent-empty">No output is available yet.</p>
             )}
@@ -227,9 +299,7 @@ export function NativeSubagents({
                   }}
                 />
               ) : block.type === 'user' ? (
-                <p key={block.id} className="native-subagent-instruction">
-                  <strong>You</strong> {block.content}
-                </p>
+                <UserBubble key={block.id} text={block.content} />
               ) : (
                 <TextBubble key={block.id} content={block.content} artifactSessionId={sessionId} />
               ),
@@ -253,7 +323,8 @@ export function NativeSubagents({
               id={`${listId}-message`}
               value={drafts[selected.threadId] ?? ''}
               disabled={!canMessage}
-              rows={!canMessage && !drafts[selected.threadId] ? 1 : 3}
+              rows={floating || (!canMessage && !drafts[selected.threadId]) ? 1 : 3}
+              placeholder={`Message ${selected.name}…`}
               onChange={(event) =>
                 setDrafts((previous) => ({ ...previous, [selected.threadId]: event.target.value }))
               }
@@ -312,7 +383,7 @@ export function NativeSubagents({
               )}
             </footer>
           </form>
-        </HomeDialog>
+        </Dialog>
       )}
     </section>
   );

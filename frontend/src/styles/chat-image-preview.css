@@ -1,0 +1,34 @@
+.chat-image-preview .image-editor-stage {
+  position: relative;
+}
+
+.chat-image-preview-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.msg-bubble-image-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  cursor: zoom-in;
+}
+
+.msg-bubble-image-preview:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-1);
+}
+
+.msg-bubble-image-preview .msg-bubble-img {
+  display: block;
+}

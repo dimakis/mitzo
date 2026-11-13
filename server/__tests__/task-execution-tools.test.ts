@@ -226,6 +226,11 @@ it.each(['', 'mcp__mitzo-connections__'])(
       operations: ['run', 'github_read', 'commit'],
       executionLocation: 'host',
       nativeToolsCovered: false,
+      constraints: {
+        sandbox: 'os',
+        browserLaunch: process.platform === 'darwin' ? 'unsupported' : 'unqualified',
+        commitDirectory: 'session_workspace',
+      },
     });
     f.registry.findBySessionId('worker')!.session.mode = 'ask';
     expect((await read()).executionRoute).toBeNull();

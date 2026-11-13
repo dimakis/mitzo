@@ -805,8 +805,155 @@
     },
     {
       "id": "codex-subagents",
-      "activeRevision": "nested-child-activity-2026-11-05",
+      "activeRevision": "parent-child-robot-icon-2026-11-13",
       "revisions": [
+        {
+          "id": "parent-child-robot-icon-2026-11-13",
+          "approvedBy": "Dimitri",
+          "approvedOn": "2026-11-13",
+          "approval": {
+            "thread": "03fad929-1c23-86cc-a3b2-354651787b90",
+            "quote": "Perfect. ... Let’s add these into the pr and let’s get it merged",
+            "scope": "Explicit approval of the combined icon in parent-child-robot-icon.html: one slightly larger robot above downward arrows to two smaller robots. Preserve every existing header and composer control, including the top robot and Symposium shortcut. Retain the persistent-agent-chat layout and its protected checks; this approval changes only the native subagent symbol. Public user approval event5748923 follows icon direction event5748590."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/codex-subagents/parent-child-robot-icon.html",
+              "sha256": "66f6edb7515834fee815284258ef49b173100a6bbbf195b996d97380f9f7c96b"
+            }
+          ],
+          "invariants": [
+            "The native subagent icon has one slightly larger parent robot above two smaller robots and arrows pointing downward.",
+            "Existing header controls, the top robot, Symposium composer shortcut and all composer controls retain their appearance and behavior.",
+            "Persistent agent access stays above the composer; historical rows share one dialog and per-child drafts.",
+            "Mobile inspection keeps full/half/hidden dragging, keyboard equivalents, safe areas and 44px controls.",
+            "Retain parent/sibling drafts, original uncertain delivery identity, focus restoration and authority boundaries."
+          ],
+          "sources": [
+            "frontend/src/components/UiIcon.tsx",
+            "frontend/src/components/NativeSubagents.tsx",
+            "frontend/src/components/NativeSubagents.css",
+            "frontend/src/components/NativeSubagentsSession.tsx",
+            "frontend/src/components/SnapSheet.tsx",
+            "frontend/src/components/SnapSheet.css",
+            "frontend/src/components/HomeDialog.tsx",
+            "frontend/src/components/ChatArea.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+            "tests/offline/native-subagents.spec.ts",
+            "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+            "frontend/src/components/__tests__/NativeSubagentsSession.test.tsx",
+            "frontend/src/components/__tests__/SnapSheet.test.tsx",
+            "tests/offline/native-subagents-presence.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+              "sha256": "90556b4248ca66e47e978c5a3e7b8672a9f66098230dc774f5d91e65ca199d4b"
+            },
+            {
+              "path": "tests/offline/native-subagents.spec.ts",
+              "sha256": "32359e1c7a446c2792ca45331d3bc488cf270378ad95ca269e12901e89ad256f"
+            },
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+              "sha256": "251b6f7c834cfc5088e347b83e55343c99ba33c4f077017ae4f8aaa54a29b84d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagentsSession.test.tsx",
+              "sha256": "40e74a15a35055e5c00d031221f03e8ad16277b33e473f6f160f3937828fd418"
+            },
+            {
+              "path": "frontend/src/components/__tests__/SnapSheet.test.tsx",
+              "sha256": "04e11efe411e1f1eaff472cdcc8237e228ccdcc00dafd25609365333f5f6490d"
+            },
+            {
+              "path": "tests/offline/native-subagents-presence.spec.ts",
+              "sha256": "436e3afa573ff6140bd9cdd296c74f895f03c950891ec5f33bf44f4545bf6aed"
+            }
+          ],
+          "implementationEvidence": [],
+          "validation": "docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md"
+        },
+        {
+          "id": "persistent-agent-chat-2026-11-13",
+          "approvedBy": "Dimitri (explicit layout direction; exact mock not separately approved)",
+          "approvedOn": "2026-11-13",
+          "approval": {
+            "thread": "03fad929-1c23-86cc-a3b2-354651787b90",
+            "quote": "I want the chat to be more like the current chat we have, and on mobile it should be draggable to full screen, half screen or hidden like the codex ios app",
+            "scope": "Explicitly requested persistent floating agent access and current-chat-style child inspection with mobile full/half/hidden dragging. This records the prescribed behavior and layout, not separate approval of the exact proposal bytes. Retain earlier references and protected checks."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/codex-subagents/floating.html",
+              "sha256": "cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7"
+            },
+            {
+              "path": "docs/design/approved/codex-subagents/floating-v003.html",
+              "sha256": "b4062f0313bb12897fb3203b4179b11d51c2972133252d823e69f626e506b641"
+            },
+            {
+              "path": "docs/design/approved/codex-subagents/floating-v004.html",
+              "sha256": "22219f3795f5fdcfa941c8e0529e98f85d7f1aa52904301127ae2bd98ccad0f3"
+            }
+          ],
+          "invariants": [
+            "Persistent agent access stays above the composer; historical transcript rows remain usable.",
+            "Both entry points share one dialog and retain parent/sibling drafts and original uncertain request identity.",
+            "Mobile inspection supports dragging to half height, full screen and hidden, with labelled keyboard-equivalent controls.",
+            "Reuse HomeDialog modal ownership, semantic tokens, shared motion, current chat bubbles, safe areas, independent scrolling and 44px controls.",
+            "Preserve Terminal, Resources, context wheel and the main composer recipient; native children do not become Symposium participants.",
+            "Lost authority preserves known activity and disables controls; rejected/uncertain controls retain visible diagnostics."
+          ],
+          "sources": [
+            "frontend/src/components/NativeSubagents.tsx",
+            "frontend/src/components/NativeSubagents.css",
+            "frontend/src/components/NativeSubagentsSession.tsx",
+            "frontend/src/lib/native-subagent-dialog-context.ts",
+            "frontend/src/components/SnapSheet.tsx",
+            "frontend/src/components/SnapSheet.css",
+            "frontend/src/components/HomeDialog.tsx",
+            "frontend/src/components/ChatArea.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+            "tests/offline/native-subagents.spec.ts",
+            "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+            "frontend/src/components/__tests__/NativeSubagentsSession.test.tsx",
+            "frontend/src/components/__tests__/SnapSheet.test.tsx",
+            "tests/offline/native-subagents-presence.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+              "sha256": "90556b4248ca66e47e978c5a3e7b8672a9f66098230dc774f5d91e65ca199d4b"
+            },
+            {
+              "path": "tests/offline/native-subagents.spec.ts",
+              "sha256": "32359e1c7a446c2792ca45331d3bc488cf270378ad95ca269e12901e89ad256f"
+            },
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+              "sha256": "251b6f7c834cfc5088e347b83e55343c99ba33c4f077017ae4f8aaa54a29b84d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagentsSession.test.tsx",
+              "sha256": "40e74a15a35055e5c00d031221f03e8ad16277b33e473f6f160f3937828fd418"
+            },
+            {
+              "path": "frontend/src/components/__tests__/SnapSheet.test.tsx",
+              "sha256": "04e11efe411e1f1eaff472cdcc8237e228ccdcc00dafd25609365333f5f6490d"
+            },
+            {
+              "path": "tests/offline/native-subagents-presence.spec.ts",
+              "sha256": "436e3afa573ff6140bd9cdd296c74f895f03c950891ec5f33bf44f4545bf6aed"
+            }
+          ],
+          "implementationEvidence": [],
+          "validation": "docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md"
+        },
         {
           "id": "nested-child-activity-2026-11-05",
           "approvedBy": "Dimitri (originating approval and current implementation direction)",

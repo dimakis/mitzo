@@ -33,6 +33,7 @@ import {
 } from './codex-subagent-store.js';
 
 type ObjectValue = Record<string, unknown>;
+class ChildControlTransitionError extends Error {}
 const object = (value: unknown): ObjectValue =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : {};
 const id = z.string().min(1).max(200).regex(/^\S+$/);
@@ -1205,6 +1206,46 @@ export class CodexSubagents {
     this.publish(live);
     return { success: !result.isError, contentItems: codexToolResultContentItems(result) };
   }
+  private controlFailed(
+    live: LiveChild,
+    input: NativeSubagentControl,
+    status: 'rejected' | 'uncertain',
+    stage: NonNullable<NativeSubagentSnapshot['controlFailure']>['stage'],
+    error: unknown,
+  ): void {
+    const failure = {
+      code: 'native_subagent_control_failed' as const,
+      requestId: input.requestId,
+      reference: randomUUID(),
+      stage,
+      status,
+    };
+    live.child.controlFailure = failure;
+    const log = createLogger('codex-subagents');
+    // The RPC error already discarded private provider text. Retain its bounded
+    // category and code, never message input, native frames or arbitrary errors.
+    log.warn('Native subagent control failed', {
+      ...failure,
+      conversationId: this.opts.scope.conversationId,
+      commandId: live.child.commandId,
+      threadId: live.child.threadId,
+      action: input.action,
+      cause: error instanceof CodexRequestError ? error.category : 'internal',
+      ...(error instanceof CodexRequestError ? { rpcCode: error.code, method: error.method } : {}),
+    });
+    try {
+      this.publish(live);
+    } catch {
+      log.warn('Subagent control diagnostic could not be retained', {
+        code: 'native_subagent_control_diagnostic_retention_failed',
+        reference: failure.reference,
+        conversationId: this.opts.scope.conversationId,
+        threadId: live.child.threadId,
+        requestId: input.requestId,
+      });
+      this.deliver(live.child);
+    }
+  }
   async control(
     raw: NativeSubagentControl,
     authorize: () => void = () => {},
@@ -1225,7 +1266,8 @@ export class CodexSubagents {
     if (!live || this.closed) return 'rejected';
     try {
       this.current(live);
-    } catch {
+    } catch (error) {
+      this.controlFailed(live, input, 'rejected', 'admission', error);
       return 'rejected';
     }
     const sourceCommandId = live.child.commandId;
@@ -1238,11 +1280,13 @@ export class CodexSubagents {
           : claim();
     } catch (error) {
       this.reportControlFailure(sourceCommandId, input, 'admission', error);
+      this.controlFailed(live, input, 'rejected', 'admission', error);
       return 'rejected';
     }
     if (previous) return previous;
     let attempted = false;
-    const previousState = live.child.state;
+    let previousState = live.child.state;
+    let stage: NonNullable<NativeSubagentSnapshot['controlFailure']>['stage'] = 'dispatch';
     let optimistic:
       | { lifecycle: number; control: number; turnId?: string; state: RetainedSubagent['state'] }
       | undefined;
@@ -1271,12 +1315,10 @@ export class CodexSubagents {
           )
             throw Error('Parent cancellation preceded control dispatch');
           this.current(live);
-          if (
-            live.child.state !== state ||
-            live.child.turnId !== turnId ||
-            live.child.commandId !== sourceCommandId
-          )
-            throw Error('Child changed before control dispatch');
+          if (live.child.commandId !== sourceCommandId)
+            throw Error('Child command changed before control dispatch');
+          if (live.child.state !== state || live.child.turnId !== turnId)
+            throw new ChildControlTransitionError('Child changed before control dispatch');
         },
         {
           sourceCommandId,
@@ -1290,68 +1332,100 @@ export class CodexSubagents {
     try {
       authorize();
       this.current(live);
-      const active =
-        (['working', 'needs_permission'].includes(live.child.state) ||
-          (parentStop && live.child.state === 'stopping')) &&
-        !!live.child.turnId;
-      if (input.action === 'stop') {
-        if (!active) throw Error('Child is not working');
-        live.child.state = 'stopping';
-        this.publish(live);
-        rememberTransition();
-        await dispatch(
-          'turn/interrupt',
-          {
-            threadId: input.threadId,
-            turnId: live.child.turnId,
-          },
-          'stopping',
-        );
-        status = 'accepted';
-      } else if (active) {
-        const target = live.child.turnId;
-        const response = object(
+      const perform = async (): Promise<NativeSubagentControlStatus> => {
+        const active =
+          (['working', 'needs_permission'].includes(live.child.state) ||
+            (parentStop && live.child.state === 'stopping')) &&
+          !!live.child.turnId;
+        if (input.action === 'stop') {
+          if (!active) throw Error('Child is not working');
+          live.child.state = 'stopping';
+          this.publish(live);
+          rememberTransition();
           await dispatch(
-            'turn/steer',
+            'turn/interrupt',
             {
               threadId: input.threadId,
-              expectedTurnId: target,
-              input: [{ type: 'text', text: input.text }],
+              turnId: live.child.turnId,
             },
-            live.child.state,
-          ),
-        );
-        if (response.turnId === target) status = 'accepted';
-        else status = 'uncertain';
-      } else {
-        if (!['completed', 'stopped'].includes(live.child.state)) throw Error('Child unavailable');
-        live.child.state = 'starting';
-        this.publish(live);
-        rememberTransition();
-        const response = object(
-          await dispatch(
-            'turn/start',
-            {
-              threadId: input.threadId,
-              clientUserMessageId: input.requestId,
-              model: live.child.model,
-              input: [{ type: 'text', text: input.text }],
-              ...codexNativeExecutionParams(live.policy),
-            },
-            'starting',
-          ),
-        );
-        const turn = object(response.turn);
-        if (typeof turn.id === 'string') {
-          this.apply(live, 'turn/started', { turn });
-          status = 'accepted';
-        } else status = 'uncertain';
+            'stopping',
+          );
+          return 'accepted';
+        } else if (active) {
+          const target = live.child.turnId;
+          const response = object(
+            await dispatch(
+              'turn/steer',
+              {
+                threadId: input.threadId,
+                expectedTurnId: target,
+                input: [{ type: 'text', text: input.text }],
+              },
+              live.child.state,
+            ),
+          );
+          return response.turnId === target ? 'accepted' : 'uncertain';
+        } else {
+          if (!['completed', 'stopped'].includes(live.child.state))
+            throw Error('Child unavailable');
+          live.child.state = 'starting';
+          this.publish(live);
+          rememberTransition();
+          const response = object(
+            await dispatch(
+              'turn/start',
+              {
+                threadId: input.threadId,
+                clientUserMessageId: input.requestId,
+                model: live.child.model,
+                input: [{ type: 'text', text: input.text }],
+                ...codexNativeExecutionParams(live.policy),
+              },
+              'starting',
+            ),
+          );
+          const turn = object(response.turn);
+          if (typeof turn.id === 'string') {
+            this.apply(live, 'turn/started', { turn });
+            return 'accepted';
+          }
+          return 'uncertain';
+        }
+      };
+      try {
+        status = await perform();
+      } catch (error) {
+        // Nothing was written when the exact dispatch fence detects completion.
+        // Resolve this one transition under the same explicit request, checking
+        // authority again. A dispatched or uncertain send is never repeated.
+        if (
+          !(error instanceof ChildControlTransitionError) ||
+          attempted ||
+          input.action !== 'message' ||
+          !['completed', 'stopped'].includes(live.child.state)
+        )
+          throw error;
+        authorize();
+        this.current(live);
+        previousState = live.child.state;
+        status = await perform();
       }
+      stage = 'acknowledgement';
       authorize();
       this.current(live);
-      if (status === 'accepted' && input.action === 'message') {
-        this.block(live, { id: input.requestId, type: 'user', content: input.text });
+      if (status === 'accepted') {
+        delete live.child.controlFailure;
+        if (input.action === 'message')
+          this.block(live, { id: input.requestId, type: 'user', content: input.text });
         this.publish(live);
+      } else {
+        this.controlFailed(
+          live,
+          input,
+          'uncertain',
+          stage,
+          Error('Control acknowledgement unavailable'),
+        );
       }
     } catch (error) {
       status = attempted && !(error instanceof CodexRequestError) ? 'uncertain' : 'rejected';
@@ -1367,6 +1441,7 @@ export class CodexSubagents {
         live.child.state = previousState;
         this.publish(live);
       }
+      this.controlFailed(live, input, status, stage, error);
     }
     this.opts.store.finishControl(this.opts.scope, input, status);
     return status;

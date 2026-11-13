@@ -45,6 +45,15 @@ export const NativeSubagentSnapshotSchema = z.strictObject({
       reference: identity,
     })
     .optional(),
+  controlFailure: z
+    .strictObject({
+      code: z.literal('native_subagent_control_failed'),
+      requestId: identity,
+      reference: identity,
+      stage: z.enum(['admission', 'dispatch', 'acknowledgement']),
+      status: z.enum(['rejected', 'uncertain']),
+    })
+    .optional(),
   blocks: z.array(NativeSubagentBlockSchema).max(2000),
   usage: z
     .strictObject({

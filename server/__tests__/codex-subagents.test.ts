@@ -1012,6 +1012,186 @@ it('retains uncertainty after a lost control reply and never resends it', async 
   expect(await f.owner.control(input)).toBe('uncertain');
   expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
 });
+it('reports an unexpected acknowledgement and clears a stale diagnostic after an accepted control', async () => {
+  const f = fixture();
+  await f.admit();
+  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch) => {
+    beforeDispatch?.();
+    return { turnId: 'unexpected' };
+  });
+  expect(
+    await f.owner.control({
+      requestId: 'wrong-ack',
+      threadId: 'child',
+      action: 'message',
+      text: 'Check',
+    }),
+  ).toBe('uncertain');
+  expect(f.owner.list()[0]).toMatchObject({
+    controlFailure: { stage: 'acknowledgement', status: 'uncertain' },
+  });
+  expect(
+    await f.owner.control({ requestId: 'explicit-stop', threadId: 'child', action: 'stop' }),
+  ).toBe('accepted');
+  expect(f.owner.list()[0].controlFailure).toBeUndefined();
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
+});
+it('delivers a message when the child finishes before the steering dispatch fence', async () => {
+  const f = fixture();
+  await f.admit();
+  const original = f.request.getMockImplementation()!;
+  let steeringDispatched = false;
+  const submitted = vi.fn();
+  f.request.mockImplementation(async (method, params, beforeDispatch, submission) => {
+    if (method === 'turn/steer') {
+      f.notify('turn/completed', {
+        threadId: 'child',
+        turn: { id: 'child-turn', status: 'completed' },
+      });
+      beforeDispatch?.();
+      steeringDispatched = true;
+    }
+    return original(
+      method,
+      params,
+      beforeDispatch,
+      submission && {
+        ...submission,
+        onSubmitted: () => {
+          submitted(method, submission.sourceCommandId);
+          submission.onSubmitted();
+        },
+      },
+    );
+  });
+  const input = {
+    requestId: 'finish-race',
+    threadId: 'child',
+    action: 'message' as const,
+    text: 'One more check',
+  };
+  expect(await f.owner.control(input)).toBe('accepted');
+  expect(steeringDispatched).toBe(false);
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+  expect(await f.owner.control(input)).toBe('accepted');
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+  expect(submitted.mock.calls).toEqual([['turn/start', 'command']]);
+});
+it.each([false, true])(
+  'never retries a changed source command at dispatch, including completion=%s',
+  async (completed) => {
+    const f = fixture();
+    await f.admit();
+    let replaced = false;
+    let restoreSource: (() => void) | undefined;
+    f.assertCurrent.mockImplementation((child) => {
+      if (replaced) {
+        restoreSource ??= () => {
+          child.commandId = 'command';
+        };
+        child.commandId = 'replacement-command';
+      }
+    });
+    const submitted = vi.fn();
+    f.request.mockImplementationOnce(async (_method, _params, beforeDispatch, submission) => {
+      if (completed)
+        f.notify('turn/completed', {
+          threadId: 'child',
+          turn: { id: 'child-turn', status: 'completed' },
+        });
+      replaced = true;
+      beforeDispatch?.();
+      submitted();
+      submission?.onSubmitted();
+      throw Error('Must not submit');
+    });
+    try {
+      expect(
+        await f.owner.control({
+          requestId: 'replaced-source',
+          threadId: 'child',
+          action: 'message',
+          text: 'Check',
+        }),
+      ).toBe('rejected');
+      expect(submitted).not.toHaveBeenCalled();
+      expect(f.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(0);
+    } finally {
+      // The deliberate identity fault must not leak into fixture teardown.
+      replaced = false;
+      restoreSource?.();
+    }
+  },
+);
+it('keeps a final transport refusal before actual submission rejected', async () => {
+  const f = fixture();
+  await f.admit();
+  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch) => {
+    beforeDispatch?.();
+    throw Error('Transport retired before invocation');
+  });
+  const input = {
+    requestId: 'transport-before-submit',
+    threadId: 'child',
+    action: 'message' as const,
+    text: 'Check',
+  };
+  expect(await f.owner.control(input)).toBe('rejected');
+  expect(await f.owner.control(input)).toBe('rejected');
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
+  expect(f.owner.list()[0].controlFailure).toMatchObject({ status: 'rejected', stage: 'dispatch' });
+});
+it.each(['rejected', 'uncertain'] as const)(
+  'retains a correlated, sanitized %s control diagnostic',
+  async (status) => {
+    const f = fixture();
+    await f.admit();
+    f.request.mockImplementationOnce(async (method, _params, beforeDispatch, submission) => {
+      beforeDispatch?.();
+      submission?.onSubmitted();
+      throw status === 'rejected'
+        ? new CodexRequestError(method, 'invalid_request', -32602)
+        : Error('private provider payload');
+    });
+    const input = {
+      requestId: 'diagnostic',
+      threadId: 'child',
+      action: 'message' as const,
+      text: 'private draft',
+    };
+    expect(await f.owner.control(input)).toBe(status);
+    const child = f.owner.list()[0];
+    expect(child).toMatchObject({
+      controlFailure: {
+        code: 'native_subagent_control_failed',
+        requestId: input.requestId,
+        status,
+        stage: 'dispatch',
+        reference: expect.any(String),
+      },
+    });
+    expect(f.options.store.list(f.options.scope)[0]).toMatchObject({
+      controlFailure: child.controlFailure,
+    });
+    expect(diagnostic).toHaveBeenCalledWith(
+      'Native subagent control failed',
+      expect.objectContaining({
+        code: 'native_subagent_control_failed',
+        conversationId: 'conversation',
+        threadId: 'child',
+        requestId: input.requestId,
+        reference: child.controlFailure!.reference,
+        cause: status === 'rejected' ? 'invalid_request' : 'internal',
+      }),
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(
+      /private provider payload|private draft/,
+    );
+    const count = diagnostic.mock.calls.length;
+    expect(await f.owner.control(input)).toBe(status);
+    expect(diagnostic.mock.calls).toHaveLength(count);
+  },
+);
 it('fences child tools at completion and replays only a durably known result', async () => {
   const f = fixture();
   await f.admit();

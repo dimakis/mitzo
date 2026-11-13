@@ -237,16 +237,28 @@ See [scope and validation evidence](../features/approval-modes-reusable-access.m
 
 ## Native Codex subagents
 
-Keep one collapsed subagent count/status row within the spawning agent's activity.
-Expand it to a quiet list of child names and states; inspect a child in the shared
-HomeDialog with Back and Close. Use TextBubble and ToolPill for public output and
-tool activity. Keep the task and recipient explicit, with Message and Stop in a
-reachable footer and independent body scrolling. Preserve parent and sibling
-drafts, restore focus to the originating child, and disable controls when live
-authority is unavailable. Retain the existing composer, Terminal, context wheel
-and Resources. Use semantic tokens, shared motion and 44px controls; the dialog
-fills narrow phone widths. The approved mock and protected checks are recorded
-in the codex-subagents entry of the approved design ledger.
+The native subagent launcher uses the approved parent-and-children robot icon:
+one slightly larger head above two smaller heads, with arrows pointing down.
+Keep the existing top robot, Symposium composer shortcut and all other header
+and composer controls unchanged. This 13 November follow-up approval replaces
+only the native subagent symbol; retain its count, status and existing behavior.
+
+Keep historical turn rows and add a persistent agent control just above the
+composer. Both entry points share one session-wide dialog and per-child drafts;
+the persistent list includes children from earlier turns. Use quiet rows for the
+list, TextBubble/UserBubble and ToolPill for conversation activity, and the shared
+HomeDialog through SnapSheet for inspection. SnapSheet adds a mobile grip and
+explicit Half screen, Full screen and Hide controls; native modal focus, Escape,
+scroll locking and safe areas remain with HomeDialog. Geometry follows the
+viewport while colors, type, spacing, radius and motion use shared tokens.
+
+Keep task and recipient explicit, with Message and Stop in a reachable footer
+and independent body scrolling. Preserve parent and sibling drafts, uncertain
+delivery identities and originating focus. Disable controls when live authority
+is unavailable. Retain the existing composer, Terminal, context wheel and
+Resources. This change follows Dimitri's explicit 13 November layout direction;
+the exact mock remains a proposal rather than a separate visual approval. The
+direction, reference and checks are recorded in the codex-subagents design ledger.
 
 The full-width phone inspection respects all four safe-area insets. Empty
 inspections keep the recovery action, explicit empty-output state and compact
@@ -1037,6 +1049,21 @@ and [the full-screen desktop preview](assets/image-preview-desktop-dark.png).
 The intercepted browser fixture checks saved PNG pixels and the exact attachment
 bytes submitted across four runtime bindings on mobile WebKit, mobile Chromium
 and desktop Chromium, without backend or provider calls.
+
+## Retained chat image preview
+
+Sent and restored image thumbnails are labelled preview buttons. They open the
+original retained image in a read-only full-screen `HomeDialog`, reusing the
+draft attachment preview's surface, safe-area layout and contain sizing. Preserve
+aspect ratio and show the entire picture. Image preview, message-text editing
+and message actions remain separate targets; do not nest image buttons inside
+an editable button. Closing or Escape restores thumbnail focus and transcript
+scrolling without changing the draft or resending/editing the historical image.
+Loading and failed images retain explicit status and a Retry action. Diagnostics
+include a stable load stage and attachment position, never the image URL/data.
+This is Dimitri's explicit 13 November addition to PR1338. Component and intercepted
+browser coverage includes restored landscape/portrait images, keyboard dismissal,
+draft retention, failure/retry, phone/desktop and alternate appearance.
 
 ## Approval cards
 

@@ -1,5 +1,32 @@
 # Native Codex subagents
 
+## Message delivery repair (13 November 2026, implementation draft)
+
+Dimitri reported a rejected message to Peirce in conversation
+`579125a3-8afc-807e-8369-2300f662515c`. The screenshot shows a retained draft and
+unavailable messaging, but the original control path discarded its exception.
+Retained public history and inspected logs do not establish that attempt's native
+failure cause. Do not treat the regression below as a historical diagnosis.
+
+An offline regression reproduces a separate control race: the child completes
+while the original owner prepares a steer, before the exact dispatch fence.
+The message now starts an idle-child turn under the same request after checking
+authority again. Only this undelivered transition is retried, once; a dispatched
+message or uncertain response is never sent again automatically. Parent Stop,
+owner changes and policy revocation retain their existing fences.
+
+Rejected and uncertain controls now retain a sanitized diagnostic with stage,
+request identity and correlation reference in the existing child snapshot and
+logger. The child dialog exposes details and Refresh activity while preserving
+the draft. Logs retain the RPC category/code rather than provider payloads or
+message text. The authenticated-route integration regression verifies delivery
+of the actual adapter failure through the feed and user interface.
+
+The focused control/store/route/feed/integration batch passed 91 tests; design
+checks passed 109 with one skip. Verification is offline. Exact historical
+reproduction, final hosted CI, source acceptance and production activation remain
+separate and unverified at this draft milestone.
+
 ## Inspection repair (11 November 2026)
 
 Owned admissions validate a model and thinking-level pair. Native subagents
@@ -30,9 +57,12 @@ source implementation evidence, not acceptance, deployment or live model qualifi
 
 ## Product scope
 
-Show one compact subagent row beneath the spawning agent's activity. Expanding
-it exposes each child's task and state. Opening a child shows its streamed output
-and tool activity, with **Message** and **Stop** targeting that child's thread.
+Retain the compact historical subagent rows and keep a floating agent control
+above the composer, so earlier children remain reachable without scrolling.
+Both entry points share one dialog and draft owner. Opening a child shows its
+streamed output and tool activity, with **Message** and **Stop** targeting that
+child's thread. The mobile view uses the shared SnapSheet for dragging between
+half height, full screen and hidden; labelled buttons provide equivalent actions.
 Main-composer messages retain the existing Symposium responder behavior.
 
 A native child belongs to its spawning agent. Spawning does not add a Symposium
@@ -154,10 +184,11 @@ slow or revoked connections. The frontend shares one stream per conversation.
 
 ## Approved interface and validation
 
-The original approval is retained in the
+The original approval and 13 November explicit layout direction are retained in the
 [design ledger](../design/approved/ledger.json), with the verbatim final mock.
-The implementation uses a collapsed row beneath the spawning agent's activity,
-then a shared dialog for child output, tool activity, Message and Stop. Parent
+The implementation retains the row beneath the spawning agent's activity and
+adds persistent session access with a shared snap sheet for output, activity,
+Message and Stop. Parent
 composer and per-child drafts survive inspection and sibling navigation. The
 existing toolbar, Terminal, context wheel and Resources remain in their owners.
 

@@ -1,0 +1,67 @@
+.snap-sheet-controls {
+  display: flex;
+  gap: var(--space-1);
+}
+.snap-sheet-grip {
+  display: none;
+}
+@media (min-width: 641px) {
+  .home-dialog.snap-sheet[data-snap='full'] {
+    inline-size: calc(100vw - 2 * var(--page-gutter));
+    block-size: calc(100dvh - 2 * var(--page-gutter));
+  }
+  .home-dialog.snap-sheet[data-snap='full'] .home-dialog-content {
+    block-size: 100%;
+  }
+}
+@media (max-width: 640px) {
+  /* Sheet height follows the viewport; these bounds are interaction geometry. */
+  .home-dialog.snap-sheet {
+    inset-block-start: auto;
+    inset-block-end: 0;
+    block-size: var(--snap-sheet-drag-height, 56dvh);
+    max-block-size: 100dvh;
+    margin: 0;
+    border-radius: var(--radius-feature) var(--radius-feature) 0 0;
+    transition: block-size var(--motion-duration-standard) var(--motion-ease);
+  }
+  .home-dialog.snap-sheet[data-snap='full'] {
+    block-size: var(--snap-sheet-drag-height, 100dvh);
+    border-radius: 0;
+  }
+  .home-dialog.snap-sheet[data-dragging='true'] {
+    transition: none;
+  }
+  .home-dialog.snap-sheet .home-dialog-content {
+    display: flex;
+    flex-direction: column;
+    block-size: 100%;
+    padding-block-start: max(var(--space-2), env(safe-area-inset-top));
+    gap: var(--space-2);
+  }
+  .snap-sheet-grip {
+    display: grid;
+    place-items: center;
+    min-block-size: var(--control-height);
+    flex: 0 0 auto;
+    order: -1;
+    touch-action: none;
+    user-select: none;
+    cursor: ns-resize;
+  }
+  .snap-sheet-grip::before {
+    content: '';
+    inline-size: var(--control-height);
+    block-size: var(--space-1);
+    border-radius: var(--radius-control);
+    background: var(--color-muted);
+  }
+  .snap-sheet header {
+    min-block-size: var(--control-height);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-dialog.snap-sheet {
+    transition: none;
+  }
+}

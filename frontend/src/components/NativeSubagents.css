@@ -2,6 +2,45 @@
   min-inline-size: 0;
   color: var(--color-text);
 }
+.native-subagents--floating {
+  position: relative;
+  flex: 0 0 auto;
+  block-size: 0;
+  z-index: 3;
+}
+.native-subagent-scroll-clearance {
+  flex: 0 0 calc(var(--control-height) + var(--space-6));
+  block-size: calc(var(--control-height) + var(--space-6));
+}
+.native-subagents--floating > .native-subagent-summary {
+  position: absolute;
+  inset-inline-end: var(--page-gutter);
+  inset-block-end: var(--space-4);
+  inline-size: auto;
+  max-inline-size: calc(100% - 2 * var(--page-gutter));
+  padding-inline: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-feature);
+  color: var(--color-text);
+}
+.native-subagents--floating .native-subagent-list {
+  position: absolute;
+  inset-inline-end: var(--page-gutter);
+  inset-block-end: calc(var(--control-height) + var(--space-6));
+  inline-size: min(24rem, calc(100% - 2 * var(--page-gutter)));
+  max-block-size: 50dvh;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+}
+.native-subagents--floating > .native-subagent-summary > [data-icon='subagents'] {
+  inline-size: var(--space-6);
+  block-size: var(--space-6);
+}
 .native-subagent-summary,
 .native-subagent-row {
   display: flex;
@@ -127,6 +166,17 @@
   white-space: pre-wrap;
   padding: var(--space-3);
   border-inline-start: 1px solid var(--color-accent);
+}
+.snap-sheet .native-subagent-composer {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-feature);
+  background: var(--color-surface);
+  padding: var(--space-3);
+}
+.snap-sheet .native-subagent-composer textarea {
+  border: 0;
+  background: transparent;
+  padding: var(--space-2);
 }
 .native-subagent-composer {
   flex: 0 0 auto;
