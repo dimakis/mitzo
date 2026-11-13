@@ -143,6 +143,22 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       text: 'Reviewed the selected design.',
     });
     expect(JSON.stringify(planned)).not.toContain('DO_NOT_LEAK');
+    const discussion = h.events.collaborationConversation.view(policy.collaborationId);
+    for (let index = 0; index < 51; index++)
+      h.events.collaborationConversation.acceptMessage(policy.collaborationId, {
+        requestId: crypto.randomUUID(),
+        expectedMembershipRevision: discussion.membershipRevision,
+        expectedPolicySequence: discussion.policySequence,
+        text: `Later discussion ${index}`,
+        responders: { kind: 'selected', sessionIds: [first.receipt.sessionId!] },
+        snapshot: null,
+      });
+    expect(
+      h.events.collaborationConversation
+        .view(policy.collaborationId)
+        .messages.some((message) => message.messageId === planned.contributions[0].messageId),
+    ).toBe(false);
+    expect(service.read(authority, input.requestId).contributions).toEqual(planned.contributions);
     const repeated = await service.consult(authority, policy.policyId, input);
     expect(repeated.receipt.sessionId).toBe(first.receipt.sessionId);
     expect(native.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
@@ -171,8 +187,17 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
     native.holdTurn(3);
     const held = { ...input, requestId: crypto.randomUUID(), messageIds: [] };
     await service.consult(authority, policy.policyId, held);
-    await vi.waitFor(() =>
-      expect(native.requests.filter((r) => r.method === 'turn/start')).toHaveLength(3),
+    await vi.waitFor(
+      () =>
+        expect(
+          native.requests.filter((r) => r.method === 'turn/start'),
+          JSON.stringify(service.read(authority, held.requestId)) +
+            readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
+              .split('\n')
+              .slice(-10)
+              .join('\n'),
+        ).toHaveLength(3),
+      { timeout: 5000 },
     );
     await vi.waitFor(() => native.streamTurn(3, 'Partial specialist reply'));
     await service.stop(authority, held.requestId);
@@ -239,7 +264,10 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
     native = await (
       await import('./fixtures/symposium-recording-runtime.js')
     ).recordApplicationMessagingRuntime(reopened.events);
-    expect(service.read(authority, input.requestId).status).toBe('completed');
+    expect(service.read(authority, input.requestId)).toMatchObject({
+      status: 'completed',
+      contributions: planned.contributions,
+    });
     expect((await service.consult(authority, policy.policyId, input)).status).toBe('completed');
     expect(native.requests).toEqual([]);
     service.revoke(authority, policy.policyId);
@@ -276,7 +304,8 @@ it('recovers a lost join response using the original shared owner without alloca
       requestId: crypto.randomUUID(),
       repository: 'example/acceptance',
       connectionId: catalog.repositories[0].connectionId,
-      maxConsultations: 1,
+      maxConsultations: 3,
+      durationMinutes: 1,
       routes: [
         {
           role: 'plan-reviewer',
@@ -336,6 +365,114 @@ it('recovers a lost join response using the original shared owner without alloca
     );
     await service.recover(authority, input.requestId);
     expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    const elapsedTime: { clock?: { mockRestore(): void } } = {};
+    expect(authority.auth.expiresAt).toBeGreaterThan(policy.expiresAt + 1);
+    const { ApplicationCollaborationMessaging } =
+      await import('../collaboration-application-messaging.js');
+    const send = ApplicationCollaborationMessaging.prototype.send;
+    const expireBeforeAdmission = vi
+      .spyOn(ApplicationCollaborationMessaging.prototype, 'send')
+      .mockImplementationOnce(async function (
+        this: InstanceType<typeof ApplicationCollaborationMessaging>,
+        ...args
+      ) {
+        await Promise.resolve();
+        const now = Date.now;
+        const elapsed = policy.expiresAt - now() + 1;
+        elapsedTime.clock = vi.spyOn(Date, 'now').mockImplementation(() => now() + elapsed);
+        return send.apply(this, args);
+      });
+    try {
+      const expiring = {
+        ...input,
+        requestId: crypto.randomUUID(),
+      };
+      const refused = await service.consult(authority, policy.policyId, expiring);
+      expect(elapsedTime.clock).toBeDefined();
+      expect(refused.status).toBe('uncertain');
+      expect(
+        h.events.collaborationConversation.getMessageForRequest(
+          policy.collaborationId,
+          refused.receipt.messageInput,
+        ),
+      ).toBeNull();
+      expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    } finally {
+      elapsedTime.clock?.mockRestore();
+      expireBeforeAdmission.mockRestore();
+    }
+    delete elapsedTime.clock;
+    let providerFenceReached = false;
+    const wrapFinalFence = vi
+      .spyOn(ApplicationCollaborationMessaging.prototype, 'send')
+      .mockImplementationOnce(async function (
+        this: InstanceType<typeof ApplicationCollaborationMessaging>,
+        ...args
+      ) {
+        // Inject elapsed time at the actual ordinary provider fence, retaining
+        // the original app port, admission, context and native execution owners.
+        const port = Reflect.get(
+          this,
+          'port',
+        ) as import('../session-prompt-dispatch.js').OrdinarySessionPromptPort;
+        const deliver = port.deliverOrdinary;
+        const wrapped = vi
+          .spyOn(port, 'deliverOrdinary')
+          .mockImplementationOnce((prompt, signal, current) => {
+            const lifecycle = prompt.turnLifecycle!;
+            return deliver(
+              {
+                ...prompt,
+                turnLifecycle: {
+                  ...lifecycle,
+                  beforeDispatch: (commandId) => {
+                    providerFenceReached = true;
+                    const now = Date.now;
+                    const elapsed = policy.expiresAt - now() + 1;
+                    elapsedTime.clock = vi
+                      .spyOn(Date, 'now')
+                      .mockImplementation(() => now() + elapsed);
+                    lifecycle.beforeDispatch(commandId);
+                  },
+                },
+              },
+              signal,
+              current,
+            );
+          });
+        try {
+          return await send.apply(this, args);
+        } finally {
+          wrapped.mockRestore();
+        }
+      });
+    try {
+      const finalFence = await service.consult(authority, policy.policyId, {
+        ...input,
+        requestId: crypto.randomUUID(),
+      });
+      const { getCodexConversationStore } = await import('../codex-chat-session.js');
+      await vi.waitFor(() => expect(providerFenceReached).toBe(true), { timeout: 5000 });
+      await vi.waitFor(
+        () => {
+          const sessionId = finalFence.receipt.sessionId!;
+          const commandId = service.read(authority, finalFence.receipt.requestId).deliveries[0]
+            .commandId!;
+          expect(
+            getCodexConversationStore().assertUndispatchedCommand(
+              sessionId,
+              h.events.getSession(sessionId)!.accountBinding!,
+              commandId,
+            ),
+          ).toMatchObject({ status: 'failed' });
+        },
+        { timeout: 5000 },
+      );
+      expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    } finally {
+      elapsedTime.clock?.mockRestore();
+      wrapFinalFence.mockRestore();
+    }
   } finally {
     lost.mockRestore();
     const { registry } = await import('../chat.js');
@@ -344,4 +481,4 @@ it('recovers a lost join response using the original shared owner without alloca
     await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle(), { timeout: 5000 });
     native.restore();
   }
-}, 30000);
+}, 60000);

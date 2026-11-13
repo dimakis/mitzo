@@ -330,12 +330,15 @@ export class SpecialistConsultations {
     const observed = input
       ? this.owners.messaging.observe(a.auth, policy.collaborationId, input)
       : null;
-    const view = this.owners.events.collaborationConversation.view(policy.collaborationId);
-    const deliveryIds = new Set(
-      observed?.message?.deliveries.filter((d) => d.purpose === 'reply').map((d) => d.deliveryId),
-    );
-    const contributions = view.messages
-      .filter((m) => m.replyToDeliveryId && deliveryIds.has(m.replyToDeliveryId))
+    const deliveries = observed?.message?.deliveries.filter((d) => d.purpose === 'reply') ?? [];
+    const contributions = deliveries
+      .flatMap((delivery) =>
+        this.owners.events.collaborationConversation.repliesForDelivery(
+          policy.collaborationId,
+          observed!.message!.messageId,
+          delivery.deliveryId,
+        ),
+      )
       .map((m) => ({
         sessionId: receipt.sessionId,
         profileId: receipt.route.agent.profileId,
@@ -347,7 +350,6 @@ export class SpecialistConsultations {
         text: m.text,
         source: m.source,
       }));
-    const deliveries = observed?.message?.deliveries.filter((d) => d.purpose === 'reply') ?? [];
     const status =
       receipt.state === 'stopped'
         ? 'stopped'
@@ -587,7 +589,13 @@ export class SpecialistConsultations {
       }
       stage = 'delivery';
       assertCurrent();
-      await this.owners.messaging.send(a.auth, policy.collaborationId, messageInput, signal);
+      await this.owners.messaging.send(
+        a.auth,
+        policy.collaborationId,
+        messageInput,
+        signal,
+        assertCurrent,
+      );
       assertCurrent();
       update({ state: 'dispatched' });
       return this.read(a, record.requestId);

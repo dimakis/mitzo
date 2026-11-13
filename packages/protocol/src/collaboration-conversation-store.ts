@@ -1619,6 +1619,39 @@ export class CollaborationConversationStore {
     z.uuid().parse(messageId);
     return this.current(group, 'message', messageId, CollaborationMessageSchema);
   }
+  /** Exact retained reply projections; the recent display window never defines results. */
+  repliesForDelivery(group: string, messageId: string, deliveryId: string) {
+    return this.db.transaction(() => {
+      const message = this.getMessage(group, messageId);
+      z.uuid().parse(deliveryId);
+      const delivery = message?.deliveries.find((row) => row.deliveryId === deliveryId);
+      if (!delivery || delivery.purpose !== 'reply') throw new ContractError('reply_conflict');
+      if (!delivery.commandId) return [];
+      const rows = this.db
+        .prepare(
+          `SELECT r.body FROM collaboration_records r
+        WHERE collaboration_id=? AND kind='message'
+        AND json_extract(body,'$.replyToDeliveryId')=?
+        AND NOT EXISTS (SELECT 1 FROM collaboration_records n WHERE n.collaboration_id=r.collaboration_id
+          AND n.kind=r.kind AND n.record_id=r.record_id AND n.revision>r.revision)
+        ORDER BY CAST(json_extract(body,'$.sequence') AS INTEGER) LIMIT 51`,
+        )
+        .all(group, deliveryId) as Row[];
+      if (rows.length > 50) throw new ContractError('capacity_refused');
+      return rows.map((row) => {
+        const reply = CollaborationMessageSchema.parse(JSON.parse(row.body));
+        if (
+          reply.replyToDeliveryId !== deliveryId ||
+          reply.author === 'operator' ||
+          reply.author.sessionId !== delivery.sessionId ||
+          reply.source?.conversationId !== delivery.sessionId ||
+          reply.source.commandId !== delivery.commandId
+        )
+          throw new ContractError('reply_conflict');
+        return reply;
+      });
+    })();
+  }
   /** Host reconciliation keyset, independent of the recent display window. */
   messagesForReplyReconciliation(group: string, after: number, through: number) {
     this.group(group);

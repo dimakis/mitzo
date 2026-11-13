@@ -71,6 +71,10 @@ from terminal provider evidence. `revoke` prevents future policy use and cancels
 pending preparation; already admitted turns have their separate Stop control.
 Revocation preserves known activity and results.
 
+Policy authority is renewed at ordinary admission and at the final provider-input
+fence, including queued work. Completed contributions are read by exact retained
+delivery identity, independently of the shared conversation's recent display page.
+
 Unexpected failures retain their original internal cause and expose fixed
 diagnostics with stage, request and session identifiers. Unsupported independence,
 sharing, context and runtime choices have actionable refusal messages.

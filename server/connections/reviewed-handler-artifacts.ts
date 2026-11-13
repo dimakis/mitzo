@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1126-specialist-consultation';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1127-specialist-consultation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,7 +27,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/specialist-review-routing.test.ts':
     'e45c277d88915ef60c905a92aaa98b415b17f77c514a3907a9a090b3ac45c700',
   '../specialist-consultations.ts':
-    '81d8d8e4ca715d994e0ae20a5031e8708c071db6357a40986e93c6ab083ca6a0',
+    '75cf4b9108d45e83269904895ca9c24d7714f6252edc51f830b6a6af3617a8fd',
   '../specialist-role-execution.ts':
     'b0b2203fabed5dcde6b8dae704ebb254ba3b21cf1bbbf598520151b32bdca0ae',
   '../specialist-consultation-contract.ts':
@@ -45,7 +45,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/specialist-consultation-store.test.ts':
     '1ff060424f64bc16d012db977d51dce62739707d4b816a15b4066da7acea3a5c',
   '../__tests__/specialist-consultation-application.test.ts':
-    '6eecd125a4e7f9fa0edc8e7c456a8df6bb9bfaee0b2c84bafc22d8c890f7bb56',
+    'bcc77eccb80d573c835d2792ca8cb71507ba7ff5eef6f4ed3a7a882d05c935a4',
   '../../packages/protocol/__tests__/consultation-context-boundary.test.ts':
     'dab750b79285533040e56862f2e78dbda53cff0745c156e450b54b077f8d6347',
   '../__tests__/claude-login-sandbox.native.test.ts':
@@ -660,7 +660,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
     '9b808afcc4a84663e391900305adf21cd7c1b281176ed549f75e5802fb7f8dce',
   '../collaboration-application-messaging.ts':
-    'cad0d765662f9bdea95ada8c1cb60c0379e36873fdccce4b2835d9f49590dd89',
+    'f04b9e8ef2c3269c14c48291001ecb0eacaf53591452f40459c8eb0f944aa9fc',
   '../__tests__/collaboration-application-messaging.test.ts':
     'f7c227e4ce89e6d672b4e6e4f008eb6a5ef013b8e9a3c095f60985855168484b',
   '../__tests__/fixtures/symposium-application-target.ts':
@@ -2286,7 +2286,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-conversation.ts':
     'fe882248e752b022b6930c4b3be6fb44c85783f149791937e74af9675c8818d3',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    'f6fb3a134c47ef59c1bf5de80d0ce1bf5126932c263640e802c66777ccf17273',
+    'f686e2e34c56c0f13321592f95a3aca3227cc65768d352ec679ff83551087d41',
   '../../packages/client/src/collaboration-api.ts':
     '94c6bee8cd68c9d1dd942bf119a9e9801eb3bdec99c1d01effa82aafb5c8cff0',
   '../../packages/client/src/collaboration-projection.ts':
