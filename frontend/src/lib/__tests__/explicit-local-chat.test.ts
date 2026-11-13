@@ -18,6 +18,21 @@ import { createChatRuntimeSelection } from '../chat-runtime-selection';
 import { evaluateChatRuntimeSelection } from '../chat-runtime-selection';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 import { multiRuntimeInventoryFixture } from '../../test-utils/multi-runtime-inventory-fixture';
+it('preserves safe model-discovery failures through account and route validation', () => {
+  const data = multiRuntimeInventoryFixture();
+  const failure = {
+    code: 'claude_sign_in_unavailable',
+    diagnosticId: '566e4644-cd56-4b29-938b-586d69c850ef',
+  };
+  const discovery = { source: 'cached', stale: true, failure };
+  const parsed = ExplicitLocalInventorySchema.parse({
+    ...data,
+    accounts: data.accounts.map((account) => ({ ...account, modelDiscovery: discovery })),
+    routes: data.routes.map((route) => ({ ...route, modelDiscovery: discovery })),
+  });
+  expect(parsed.accounts[0].modelDiscovery.failure).toEqual(failure);
+  expect(parsed.routes[0].modelDiscovery?.failure).toEqual(failure);
+});
 
 it('accepts more than 64 distinct accounts and 128 routes while retaining the inventory byte budget', () => {
   const base = localInventoryFixture();

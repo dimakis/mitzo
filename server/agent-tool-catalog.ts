@@ -78,7 +78,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
         source === 'Session learning'
           ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
           : tool.name === 'TelosCreateSession'
-            ? ['local-api', 'codex', 'codex-owned-local']
+            ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
             : source === 'Agent communication'
               ? ['codex-owned-local', 'claude-sdk']
               : source === 'Session automation'

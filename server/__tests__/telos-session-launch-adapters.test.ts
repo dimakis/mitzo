@@ -153,6 +153,7 @@ describe('Telos work-bound session adapter contract', () => {
       'local-api',
       'codex',
       'codex-owned-local',
+      'claude-sdk',
     ]);
   });
 

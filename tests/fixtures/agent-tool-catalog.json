@@ -447,7 +447,7 @@
     "source": "Session creation",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api", "codex", "codex-owned-local"],
+    "routes": ["local-api", "codex", "codex-owned-local", "claude-sdk"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {

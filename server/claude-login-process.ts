@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { claudeSdkExecutable, ClaudeSubscriptionCustody } from './claude-subscription-custody.js';
 import type { ClaudeIdentity } from './claude-account-store.js';
+import { credentialSdkBoundary } from './credential-sdk-boundary.js';
+import { discoverClaudeModels } from './claude-model-discovery.js';
 
 export class ClaudeLoginProcessError extends Error {
   readonly code = 'CLAUDE_LOGIN_PROCESS_FAILED';
@@ -86,15 +88,26 @@ export async function createClaudeLoginProcess(
     )
       throw new ClaudeLoginProcessError(Error('Native login custody changed'));
   };
-  const child = spawn(
-    process.execPath,
-    [fileURLToPath(new URL('./claude-login-supervisor.cjs', import.meta.url)), executable],
-    {
-      cwd: config,
-      env: cleanEnvironment(config),
-      stdio: ['pipe', 'pipe', 'pipe'],
-    },
-  );
+  // Native login must see the same storage restrictions as discovery/chat.
+  // Otherwise it can save a keychain-only login that the SDK cannot subsequently
+  // read. Claude owns its storage selection and fallback; Mitzo never copies tokens.
+  const boundary = credentialSdkBoundary();
+  const args = [
+    fileURLToPath(new URL('./claude-login-supervisor.cjs', import.meta.url)),
+    executable,
+  ];
+  const env = cleanEnvironment(config);
+  const child = boundary
+    ? boundary.spawnClaudeCodeProcess({
+        command: process.execPath,
+        args,
+        cwd: config,
+        env,
+        signal,
+        // Native authentication output can contain private authorization URLs.
+        captureStderr: true,
+      })
+    : spawn(process.execPath, args, { cwd: config, env, stdio: ['pipe', 'pipe', 'pipe'] });
   let finish!: (result: Awaited<ClaudeNativeLogin['completion']>) => void;
   const completion = new Promise<Awaited<ClaudeNativeLogin['completion']>>((resolve) => {
     finish = resolve;
@@ -111,10 +124,10 @@ export async function createClaudeLoginProcess(
     failure: Error | undefined;
   let escalation: ReturnType<typeof setTimeout> | undefined;
   const stop = () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (child.exitCode != null || child.signalCode != null) return;
     child.kill('SIGTERM');
     escalation ??= setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL');
     }, 5000);
     escalation.unref();
   };
@@ -164,7 +177,7 @@ export async function createClaudeLoginProcess(
     bytes += chunk.length;
     if (bytes > 32_768) fail(Error('Native login output exceeded its bound'));
   });
-  child.on('close', (code, termination) => {
+  child.once('close', (code, termination) => {
     clearTimeout(killTimer);
     clearTimeout(startupTimer);
     clearTimeout(escalation);
@@ -243,5 +256,9 @@ export async function verifyClaudeLoginIdentity(
     MITZO_CLAUDE_EXPECTED_PLAN: status.subscriptionType,
   };
   await ClaudeSubscriptionCustody.capture(selected, executable).verify(selected, signal);
+  // A CLI-only success cannot qualify the SDK route used by chat. This is a
+  // tool-free metadata query; no model turn or paid inference is submitted.
+  await discoverClaudeModels(selected, AbortSignal.any([signal, AbortSignal.timeout(10_000)]));
+  signal.throwIfAborted();
   return { email: status.email, planType: status.subscriptionType };
 }
