@@ -1,6 +1,11 @@
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import type { AgentToolReference, SymposiumProfileDefinition } from '@mitzo/protocol';
 import { agentToolCatalog } from './agent-tool-catalog.js';
+import { TASK_MCP_SERVER_NAME } from './host-mcp-servers.js';
+import {
+  SDK_CONNECTION_PREFIX,
+  ordinarySdkHelperPolicyName,
+} from './ordinary-sdk-helper-registration.js';
 
 const selections = new WeakMap<object, string | undefined>();
 const selectionRoutes = new WeakMap<object, string>();
@@ -22,7 +27,17 @@ export function bindConfiguredAgentTools(
     throw Error('Session configured selection is immutable');
   configuredSelections.set(session, names);
 }
-const sdkPrefix = 'mcp__mitzo-connections__';
+const sdkPrefix = SDK_CONNECTION_PREFIX;
+function profileSelects(
+  entry: { id: string; version: number; required: boolean },
+  refs?: AgentToolReference[],
+): boolean {
+  return (
+    refs === undefined ||
+    entry.required ||
+    refs.some((ref) => ref.id === entry.id && ref.version === entry.version)
+  );
+}
 export function assertAgentToolRoute(
   definition: SymposiumProfileDefinition | undefined,
   route: string,
@@ -97,17 +112,49 @@ export function agentToolAllowed(session: object, name: string): boolean {
   const entry = agentToolCatalog().find(
     (tool) => tool.name === canonical && tool.routes.includes(route),
   );
-  return (
-    !!entry &&
-    (entry.required ||
-      (JSON.parse(selection) as NonNullable<SymposiumProfileDefinition['tools']>).some(
-        (ref) => ref.id === entry.id && ref.version === entry.version,
-      ))
-  );
+  return !!entry && profileSelects(entry, JSON.parse(selection) as AgentToolReference[]);
 }
 export function filterAgentTools<T extends { name: string }>(session: object, tools: T[]): T[] {
   return tools.filter((tool) => agentToolAllowed(session, tool.name));
 }
+/** Read-only catalog support, not the callable inventory or execution authority.
+ * Reuse the captured profile; never treat an uncaptured selection as a default.
+ * One catalog/selection read serves the entire projection.
+ */
+export function projectAgentHelperSupport(
+  session: object,
+  route: 'claude-sdk' | 'codex-owned-local',
+  skillCeiling?: ReadonlySet<string> | null,
+) {
+  if (!selections.has(session) || selectionRoutes.get(session) !== route) return undefined;
+  const selection = selections.get(session);
+  const refs =
+    selection === undefined ? undefined : (JSON.parse(selection) as AgentToolReference[]);
+  return agentToolCatalog()
+    .map(({ id, version, name, source, routes, required, requirement }) => {
+      const selected = profileSelects({ id, version, required }, refs);
+      const policyName =
+        route === 'claude-sdk'
+          ? ordinarySdkHelperPolicyName(name)
+          : source === 'Task Board'
+            ? `mcp__${TASK_MCP_SERVER_NAME}__${name}`
+            : name;
+      const supported = route === 'claude-sdk' ? policyName !== undefined : routes.includes(route);
+      // Existing default SDK helpers do not all support explicit profiles.
+      // Display actual default exposure without widening catalog admission.
+      const profileEligible = refs === undefined || routes.includes(route);
+      const state = !supported
+        ? ('unsupported' as const)
+        : !selected || !profileEligible
+          ? ('excluded' as const)
+          : skillCeiling && (!policyName || !skillCeiling.has(policyName))
+            ? ('restricted' as const)
+            : ('supported' as const);
+      return { name, source, requirement, state };
+    })
+    .sort((a, b) => a.source.localeCompare(b.source) || a.name.localeCompare(b.name));
+}
+
 /** Registration requires the complete native tool selection. Ownership,
  * platform and current filesystem authority remain the adapter's checks. */
 export function nativeExecutionToolsAllowed(session: object): boolean {

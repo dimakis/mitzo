@@ -37,17 +37,7 @@ import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 const prefix = 'mcp__mitzo-connections__';
 /** Keep SDK auto-admission and the mandatory PreToolUse route fence aligned.
  * Every handler still enforces its profile, live authority and operation policy. */
-export const ordinarySdkHelperTools: readonly string[] = Object.freeze(
-  [
-    'ListConnections',
-    'SymposiumReadProfiles',
-    'SymposiumConsult',
-    'SymposiumProposeProfile',
-    'AgentCommunication',
-    'TelosCreateSession',
-    'CaptureMemoryCandidate',
-  ].map((name) => prefix + name),
-);
+export { ordinarySdkConnectionHelperTools as ordinarySdkHelperTools } from './ordinary-sdk-helper-registration.js';
 /** A failed authority check cannot become a recoverable application failure. */
 class SdkAuthorityFailure extends SessionRuntimeError {
   constructor(cause: unknown) {
