@@ -153,6 +153,8 @@ function attemptReplayContext(value: string) {
   return attemptContinuityContext({ transcript: value });
 }
 interface Rpc {
+  readonly modelProvider?: string;
+  validateConfiguration?(configuration: unknown): void;
   initialize(): Promise<void>;
   request(method: string, params: ObjectValue): Promise<unknown>;
   close(): void;
@@ -571,6 +573,9 @@ export class CodexConversation {
     this.disableProjectDocuments = opts.disableProjectDocuments === true;
     this.client = this.createClient();
   }
+  private get modelProvider() {
+    return this.opts.modelProvider ?? this.client.modelProvider ?? 'openai';
+  }
   private diagnosticRuntimeIdentity() {
     const traceId = trace.getSpan(context.active())?.spanContext().traceId;
     let nativeArtifactSha256: string | undefined;
@@ -676,7 +681,7 @@ export class CodexConversation {
               threadId: this.threadId,
               commandId,
               model: this.binding!.model,
-              modelProvider: this.opts.modelProvider ?? 'openai',
+              modelProvider: this.modelProvider,
               policy,
             }
           : undefined;
@@ -1089,7 +1094,7 @@ export class CodexConversation {
       this.opts.adviserScope.codexConfig(this.adviserSkills);
     }
     const runtimeConfig = this.runtimeConfiguration(configResponse.config);
-    const modelProvider = this.opts.modelProvider ?? 'openai';
+    const modelProvider = this.modelProvider;
     const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
     await this.repairThreadOwnership(this.client, threadOptions);
 
@@ -1191,7 +1196,7 @@ export class CodexConversation {
     if (
       result.thread.id !== pending.threadId ||
       result.model !== this.binding!.model ||
-      result.modelProvider !== (this.opts.modelProvider ?? 'openai')
+      result.modelProvider !== this.modelProvider
     )
       throw new Error('Codex accepted provider thread ownership identity changed');
     const current = this.opts.store.pendingThreadOwnership(this.opts.conversationId, this.binding!);
@@ -1319,7 +1324,7 @@ export class CodexConversation {
             throw new Error('Search account binding changed');
         },
         model: this.active?.command.model ?? binding.model,
-        modelProvider: this.opts.modelProvider ?? 'openai',
+        modelProvider: this.modelProvider,
         cwd: this.opts.runtimeCwd ?? this.opts.cwd,
         runtimeConfig: this.opts.runtimeConfig,
         disableProjectDocuments: borrowed ? true : this.disableProjectDocuments,
@@ -2117,7 +2122,7 @@ export class CodexConversation {
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
       const runtimeConfig = this.runtimeConfiguration(configResponse.config);
-      const modelProvider = this.opts.modelProvider ?? 'openai';
+      const modelProvider = this.modelProvider;
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
       const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
@@ -2183,6 +2188,7 @@ export class CodexConversation {
 
   private runtimeConfiguration(configuration: unknown): Record<string, unknown> {
     this.assertNativeExecutionOwner();
+    this.client.validateConfiguration?.(configuration);
     if (!this.opts.runtimeConfig) {
       const config = {
         ...codexRuntimeOverrides(
@@ -2307,7 +2313,7 @@ export class CodexConversation {
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
       const runtimeConfig = this.runtimeConfiguration(configResponse.config);
-      const modelProvider = this.opts.modelProvider ?? 'openai';
+      const modelProvider = this.modelProvider;
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       this.mapper?.beginReconnectReplay();
       const result = z
@@ -2470,10 +2476,7 @@ export class CodexConversation {
         }),
       );
     if (this.closed) throw new Error('Attempt continuity initialization closed');
-    if (
-      result.model !== this.binding!.model ||
-      result.modelProvider !== (this.opts.modelProvider ?? 'openai')
-    )
+    if (result.model !== this.binding!.model || result.modelProvider !== this.modelProvider)
       throw new Error('Codex execution binding changed');
     this.opts.store.replaceThread(
       this.opts.conversationId,
@@ -2515,10 +2518,7 @@ export class CodexConversation {
           ...this.dynamicToolsOption(),
         }),
       );
-    if (
-      result.model !== this.binding!.model ||
-      result.modelProvider !== (this.opts.modelProvider ?? 'openai')
-    )
+    if (result.model !== this.binding!.model || result.modelProvider !== this.modelProvider)
       throw new Error('Codex execution binding changed');
     if (this.opts.deferToolSurfaceReplacement) {
       this.pendingToolSurface = {
@@ -2626,10 +2626,7 @@ export class CodexConversation {
               ...this.dynamicToolsOption(),
             }),
       );
-    if (
-      result.model !== this.binding!.model ||
-      result.modelProvider !== (this.opts.modelProvider ?? 'openai')
-    )
+    if (result.model !== this.binding!.model || result.modelProvider !== this.modelProvider)
       throw new Error('Codex execution binding changed');
     if (this.opts.deferToolSurfaceReplacement && !lastCompletedTurnId) {
       this.pendingToolSurface = {
