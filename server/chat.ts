@@ -23,6 +23,10 @@ import { createSessionTranscriptReader } from './session-transcript-reader.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
 import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
+import {
+  captureOrdinaryFirstCommandAuthority,
+  type OrdinaryFirstCommandAuthority,
+} from './ordinary-first-command-authority.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import {
   RetainedLocalCodexRecovery,
@@ -3758,6 +3762,7 @@ export async function startOwnedLocalCodexCommand(
     resume?: boolean;
     recovery?: boolean;
     savedRecovery?: boolean;
+    firstCommandAuthority?: OrdinaryFirstCommandAuthority;
     /** Trusted silent allocation receipt; explicit first command only. */
     preparationOperationId?: string;
     ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
@@ -3792,6 +3797,11 @@ export async function startOwnedLocalCodexCommand(
   };
   try {
     const commandId = input.commandId;
+    const firstCommandAuthority = captureOrdinaryFirstCommandAuthority(
+      input.firstCommandAuthority,
+      commandId,
+    );
+    firstCommandAuthority?.assertCurrent();
     const preparationOperationId = input.preparationOperationId;
     const requestedResume = input.resume;
     const resume = requestedResume === true;
@@ -3993,6 +4003,7 @@ export async function startOwnedLocalCodexCommand(
           onEnded: release,
           adviserScope: input.adviserScope,
           onSessionPrepared: input.onSessionPrepared,
+          firstCommandAuthority,
           ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
           onQueryEvent: input.onQueryEvent,
           onTerminalOutcome: input.onTerminalOutcome,
@@ -4145,6 +4156,7 @@ export async function prepareOwnedCodexChat(
     ownerConnectionId?: string;
     ownerAuthSessionId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    firstCommandAuthority?: OrdinaryFirstCommandAuthority;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
     onEnded: () => void;
@@ -4232,6 +4244,10 @@ export async function prepareOwnedCodexChat(
   const { expected, workspace, payload, profile } = selected;
   const sessionId = input.sessionId;
   const commandId = input.commandId;
+  const firstCommandAuthority = captureOrdinaryFirstCommandAuthority(
+    options.firstCommandAuthority,
+    commandId,
+  );
   const admission = input.admission;
   const abortController = new AbortController();
   let queryInstance: QueryInstance | undefined;
@@ -4328,6 +4344,7 @@ export async function prepareOwnedCodexChat(
       );
     resolveOwnedTelosWorkCommandScope(sessionId);
     options.onSessionPrepared?.(session);
+    firstCommandAuthority?.assertCurrent();
     if (options.adviserScope) {
       options.adviserScope.assertSelection(boundAccount, expected.selection.thinking);
       eventStore.append(sessionId, 'adviser_task_scope', {
@@ -4412,6 +4429,7 @@ export async function prepareOwnedCodexChat(
         resolveOwnedTelosWorkCommandScope(sessionId, true);
       },
       ordinaryTurnLifecycle: options.ordinaryTurnLifecycle,
+      firstCommandAuthority,
       assertAgentContextAuthorization: () => {
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId);

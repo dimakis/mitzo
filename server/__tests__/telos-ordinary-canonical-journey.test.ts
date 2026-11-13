@@ -208,6 +208,17 @@ it.each(['manual', 'lead'] as const)(
     connections.register(f.operatorConnectionId, new SseTransport(f.operatorConnectionId, streams));
     transportAuth.claimTransportConnection(f.operatorConnectionId, f.auth.id);
     chat.setConnectionRegistry(connections);
+    const { createChatRestRouter } = await import('../chat-rest-handler.js');
+    const { NativeCommandRegistry } = await import('../native-commands.js');
+    application.app.use(
+      '/api/chat',
+      createChatRestRouter(streams, {
+        connRegistry: connections,
+        sessionRegistry: chat.registry,
+        eventStore: chat.eventStore,
+        nativeCommands: new NativeCommandRegistry(),
+      }),
+    );
     const server = application.app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -683,6 +694,15 @@ it.each(['manual', 'lead'] as const)(
     expect(workerTurnStarts()).toBe(1);
     expect(worker.session.taskContext?.currentTaskId).toBe(taskId);
     expect(nativeSessions).toHaveLength(2);
+    // Lead startup uses a background transport. Opening the worker subscribes
+    // the authenticated operator through the same watch route as the product.
+    const watched = await request(application.app)
+      .post('/api/chat/watch')
+      .set('Authorization', 'Bearer ' + f.token)
+      .set('X-Connection-ID', f.operatorConnectionId)
+      .send({ type: 'watch', sessionId: workerId });
+    expect(watched.status).toBe(200);
+    expect(connections.get(f.operatorConnectionId)?.watchedSessions.has(workerId)).toBe(true);
     const directory = chat.eventStore.getSession(workerId)!.cwd!;
     const inode = (await stat(directory)).ino;
     const report = 'Recorded the first session and retained its notes.';
@@ -727,28 +747,42 @@ it.each(['manual', 'lead'] as const)(
       expect(prepared.contract?.name).toBe(name);
       expect(prepared.request.tool).toBe('InvokeIntegrationTool');
       const before = streamMessages.length;
+      const controller = new AbortController();
       const pending = workerNative.lifecycle.onRequest(
         'item/tool/call',
         prepared.request,
-        new AbortController().signal,
+        controller.signal,
       ) as Promise<{ success: boolean; contentItems: Array<{ text: string }> }>;
-      await vi.waitFor(() =>
-        expect(
-          streamMessages
-            .slice(before)
-            .some(
-              (message) => message.type === 'permission_request' && message.sessionId === workerId,
-            ),
-        ).toBe(true),
+      // Observe rejection immediately, including when an approval assertion fails.
+      const settled = pending.then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error }),
       );
-      const permission = streamMessages
-        .slice(before)
-        .find(
-          (message) => message.type === 'permission_request' && message.sessionId === workerId,
-        )!;
-      const { resolvePending } = await import('@mitzo/harness');
-      expect(resolvePending(permission.permId as string, 'once', undefined, workerId)).toBe(true);
-      return pending;
+      try {
+        await vi.waitFor(() =>
+          expect(
+            streamMessages
+              .slice(before)
+              .some(
+                (message) =>
+                  message.type === 'permission_request' && message.sessionId === workerId,
+              ),
+          ).toBe(true),
+        );
+        const permission = streamMessages
+          .slice(before)
+          .find(
+            (message) => message.type === 'permission_request' && message.sessionId === workerId,
+          )!;
+        const { resolvePending } = await import('@mitzo/harness');
+        expect(resolvePending(permission.permId as string, 'once', undefined, workerId)).toBe(true);
+        const outcome = await settled;
+        if ('error' in outcome) throw outcome.error;
+        return outcome.result;
+      } finally {
+        controller.abort();
+        await settled;
+      }
     };
     markCt09Phase('task-artifact-start');
     const artifactResult = await nativeTool('mcp__task-board__TaskArtifact', {

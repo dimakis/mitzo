@@ -139,6 +139,16 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
   f = await ownedOrdinaryRuntimeFixture(cleanup, {
     chatRoute: true,
     separateConfiguredWorkspace: true,
+    // Canonical progress tools require an explicit published selection. Keep
+    // the same reviewed selection through lead handover and worker allocation.
+    tools: [
+      'TelosWorkControl',
+      'TelosStartSlice',
+      'TelosGetItem',
+      'TelosUpdateItem',
+      'TaskArtifact',
+      'TaskComplete',
+    ].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
   });
   services.workspace = f.workspaces;
   const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');

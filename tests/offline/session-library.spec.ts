@@ -242,9 +242,13 @@ for (const theme of ['dark', 'light'])
       .getByText('Conversation 1', { exact: true })
       .locator('xpath=ancestor::details[1]');
     await expect(parent.getByRole('button', { name: /^Conversation 3/ })).toBeVisible();
-    await parent.locator(':scope > summary').click({ position: { x: 8, y: 20 } });
+    const toggle = parent.locator(':scope > summary > .conversation-tree-toggle');
+    const toggleBounds = await toggle.boundingBox();
+    expect(toggleBounds!.width).toBeGreaterThanOrEqual(44);
+    expect(toggleBounds!.height).toBeGreaterThanOrEqual(44);
+    await toggle.click();
     await expect(tree.getByRole('button', { name: /^Conversation 3/ })).not.toBeVisible();
-    await parent.locator(':scope > summary').click({ position: { x: 8, y: 20 } });
+    await toggle.click();
     await page.screenshot({ path: testInfo.outputPath(`conversation-tree-${theme}.png`) });
     await tree.getByRole('button', { name: /^Conversation 3/ }).click();
     await expect(page.getByRole('button', { name: 'Opened conversation' })).toBeVisible();

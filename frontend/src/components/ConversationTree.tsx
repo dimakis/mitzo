@@ -114,7 +114,9 @@ export function ConversationTree({
           summaryClassName="conversation-tree-branch"
           summary={
             <>
-              <UiIcon name="down" size={16} />
+              <span className="conversation-tree-toggle" aria-hidden="true">
+                <UiIcon name="down" size={16} />
+              </span>
               {row(node)}
             </>
           }

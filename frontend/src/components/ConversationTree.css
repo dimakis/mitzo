@@ -49,10 +49,15 @@
 .conversation-tree-branch::-webkit-details-marker {
   display: none;
 }
-.conversation-tree-branch > svg {
+.conversation-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
   flex-shrink: 0;
 }
-.conversation-tree-branch[aria-expanded='false'] > svg {
+.conversation-tree-branch[aria-expanded='false'] .conversation-tree-toggle > svg {
   transform: rotate(-90deg);
 }
 .conversation-tree-open {

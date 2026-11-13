@@ -21,6 +21,14 @@ A worker with an existing command or native activity uses its original ordinary
 recovery flow. This adapter does not override a changed reviewed brief, superseded
 assignment, stop, cancellation, revocation, unavailable account or work hold.
 
+The pending first command retains an exact source-runtime/operator/tool fence through
+native bootstrap and immediately before provider dispatch. Each canonical assignment
+check opens a fresh read-only work owner, so it outlives the completed setup request
+without retaining that request's database connection. Source reassignment or startup-tool
+revocation refuses dispatch before provider markers. The source fence is released only
+after that first provider acceptance; later worker commands and tool continuations keep
+their existing independent worker/operator authority and normal recovery behavior.
+
 `TelosCreateSession` accepts the canonical item revision returned by
 `TelosManageItem`, while retaining the separate relationship revision internally.
 Both the canonical brief and current parent lead are rechecked during proposal review.

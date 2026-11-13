@@ -43,11 +43,11 @@
           "protectedChecks": [
             {
               "path": "frontend/src/components/__tests__/ConversationTree.test.tsx",
-              "sha256": "37e927b27268be2c4b3aa307772d545fbe854bad6db6d6afce4899c3037e9108"
+              "sha256": "60867983bdc42f1cc8935d05063b985a06b9f44ca429a8e15f92915eda8ff195"
             },
             {
               "path": "tests/offline/session-library.spec.ts",
-              "sha256": "aa4076d6c3b61407007d8e722b7cf4a98cf65a580c399af46a91a05243c8c249"
+              "sha256": "584801618ad4886a86044a7514e1a2a72bac2eab8b2cf869077f7fe532f92128"
             }
           ]
         }
