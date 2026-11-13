@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1136-claude-parity-specialist-composition';
+  'v1.0.1137-claude-original-profile-fence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -62,6 +62,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c1b06fcb6285019c04c455bf99c864aad767f129ef97c7bc2178c76348d3a380',
   '../__tests__/ordinary-sdk-command-skill-boundary.test.ts':
     '4c960002a56b01a186efb13d68bfafb582dd5d33714f0e7a4649894a0bca0443',
+  '../__tests__/ordinary-sdk-profile-retirement.test.ts':
+    '4ec14505cdfd8df03aff80ef8a847bb21782f64bf75ee9f7344e8b81494161c9',
   '../../packages/protocol/src/ordinary-skill-context.ts':
     '08bc53929fe62921486620ff72685d2b068dd2004ff866eb396a959efe2f8878',
   '../skill-runtime-support.ts': '412e9a82cf3c7d6e8606bab79d74b48d71ba157111e67715708ecc21f4f736a9',
@@ -2537,7 +2539,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':
     '34b441c08703c9239c0f247aea72fc8a759181780006899056cda7e8f51cf608',
-  '../session-profile-tools.ts': 'd0571bbd84cbdfa168729e53dfa3ac6e5b83fee243bd8af6b35ba39060a6429f',
+  '../session-profile-tools.ts': '9c7b87a42b6bc2f7d5f99e1a6ffdb89a110873aa5b9588674ab12eff55df2b00',
   '../symposium-profile-proposals.ts':
     '9d9501adf2d17db1c5b6ee2fe85d308e283e46f920a12b34e95e08eb61e05968',
   '../symposium-profile-tool.ts':

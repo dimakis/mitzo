@@ -90,9 +90,23 @@ are not code-failure or green claims. Logs are
 `.verification/final-specialist-consumers.log`.
 
 Protocol/harness/client compilation and conflict-resolution lint, format,
-whitespace and source preflight pass. Final integrated runtime revision is
-`v1.0.1136-claude-parity-specialist-composition`. The prior revision above records
-the original preparation checkpoint.
+whitespace and source preflight pass. This accepted-source integration used
+`v1.0.1136-claude-parity-specialist-composition` before the review fix below.
+
+Independent targeted review reproduced an original-query retirement race in the
+profile consumer at `e072791c`: after its final runtime await, the continuation
+could dispatch a custodian profile read or proposal before detecting retirement.
+Publication was paused. Both cases were reproduced locally through real SDK MCP
+and the original callback state with a synthetic custodian. The consumer now
+calls its existing synchronous `verifyAuthorization()` immediately before the
+request, rechecking original command, operator and captured authorization after
+the last await. No consent fence was removed. Four permanent cases preserve
+allowed reads/proposals and refuse both retired paths before any request.
+All 43 focused profile, managed-handler and TaskExecution checks pass; retained
+logs are `.verification/profile-retirement-red-2.log` and
+`.verification/profile-retirement-green.log`. Targeted re-review is required
+before publication. Final source revision is
+`v1.0.1137-claude-original-profile-fence`.
 
 PR #1342 custody was released by its original owner in receipt
 `6a45b05f-cf1c-416f-8df0-6cef65230d9b`, with its branch still at `6dc2ba33` and
