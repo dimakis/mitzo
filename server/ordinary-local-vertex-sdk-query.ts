@@ -38,22 +38,59 @@ export interface SdkCallbackState {
   completing: boolean;
   callbacks: TurnCallbacks;
   runCallback: TurnCallbackRunner;
+  bindCommandToolAuthority(authority: OrdinarySdkCommandToolAuthority): void;
+  commandId(): string | undefined;
+  /** Named managed handlers must use this same original-query ceiling. */
+  checkTool(name: string): 'allow' | 'deny';
 }
-/** Host-only opaque capture; a forged object cannot name a native query. */
+/** Borrowed command authority; only the existing FIFO owner constructs this. */
+export interface OrdinarySdkCommandToolAuthority {
+  readonly commandId: string;
+  /** Revalidates the original runtime, execution generation and frozen context.
+   * This is an additional ceiling, never mode/profile/effect authorization. */
+  checkTool(name: string): 'allow' | 'deny';
+}
+/** Host-only controls on the existing native query. */
 export interface OrdinarySdkQueryControl {
   captureInterruptTarget(): object | undefined;
   interruptIfCurrent(target: object): Promise<boolean>;
+  bindCommandToolAuthority?(authority: OrdinarySdkCommandToolAuthority): void;
 }
 export function createSdkCallbackState(): SdkCallbackState {
   // SDK terminal evidence must retain uncertainty even when the callback
   // finished before the native result arrived. Later text cannot settle effects.
   const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
-  return {
+  let authority: OrdinarySdkCommandToolAuthority | undefined;
+  const state: SdkCallbackState = {
     retired: false,
     completing: false,
     callbacks,
     runCallback: (work) => callbacks.track(work),
+    bindCommandToolAuthority(next) {
+      if (state.retired || state.completing || authority)
+        throw Error('SDK command tool authority already bound or retired');
+      const { commandId, checkTool } = next;
+      if (!/^\S{1,200}$/.test(commandId) || typeof checkTool !== 'function')
+        throw Error('Original SDK command tool authority unavailable');
+      authority = Object.freeze({ commandId, checkTool: (name) => checkTool.call(next, name) });
+    },
+    commandId: () => authority?.commandId,
+    checkTool(name) {
+      if (state.retired || state.completing) throw Error('Completed SDK query retired');
+      const decision = authority?.checkTool(name) ?? 'allow';
+      if (decision !== 'allow' && decision !== 'deny') {
+        void Promise.resolve(decision).catch(() =>
+          log.warn('SDK tool authority returned an asynchronous refusal', {
+            code: 'sdk_tool_authority_async',
+            commandId: authority?.commandId,
+          }),
+        );
+        throw Error('Synchronous SDK tool authority required');
+      }
+      return decision;
+    },
   };
+  return state;
 }
 /** The same effect/settlement boundary for owned and continuous SDK histories. */
 export function sdkCallbackOptions(
@@ -76,11 +113,27 @@ export function sdkCallbackOptions(
                 continue: false,
                 stopReason: 'This completed SDK query has been retired.',
               });
-              if (state.retired) return refusal();
+              if (state.retired || state.completing) return refusal();
               return state.runCallback(async () => {
                 try {
+                  const allowed = () =>
+                    data.hook_event_name !== 'PreToolUse' ||
+                    state.checkTool(data.tool_name) === 'allow';
+                  const denied = () => ({
+                    hookSpecificOutput: {
+                      hookEventName: 'PreToolUse' as const,
+                      permissionDecision: 'deny' as const,
+                      permissionDecisionReason:
+                        'Tool not allowed by the frozen command skill ceiling',
+                    },
+                  });
+                  if (!allowed()) return denied();
                   const result = await hook(data, id, { ...opts, signal });
-                  return state.retired || state.completing ? refusal() : result;
+                  return state.retired || state.completing
+                    ? refusal()
+                    : allowed()
+                      ? result
+                      : denied();
                 } catch (error) {
                   if (state.retired) return refusal();
                   throw error;
@@ -99,13 +152,22 @@ export function sdkCallbackOptions(
       behavior: 'deny' as const,
       message: 'This completed SDK query has been retired.',
     });
-    if (state.retired) return refusal();
+    if (state.retired || state.completing) return refusal();
     const decide = options.canUseTool;
     if (!decide) return { behavior: 'deny', message: 'Original SDK permission owner unavailable' };
     return state.runCallback(async () => {
       try {
+        const denied = () => ({
+          behavior: 'deny' as const,
+          message: 'Tool not allowed by the frozen command skill ceiling',
+        });
+        if (state.checkTool(name) === 'deny') return denied();
         const result = await decide(name, data, { ...opts, signal });
-        return state.retired || state.completing ? refusal() : result;
+        return state.retired || state.completing
+          ? refusal()
+          : state.checkTool(name) === 'deny'
+            ? denied()
+            : result;
       } catch (error) {
         if (state.retired) return refusal();
         throw error;
@@ -139,11 +201,7 @@ export function createOrdinaryLocalVertexSdkQuery<
   /** Retain and deliver a refused input before abort retires its live viewer. */
   onUnsent(message: SDKUserMessage, error: SessionRuntimeError): void;
   peerMessages?(): Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> | undefined;
-  mcpServers?(state: {
-    retired: boolean;
-    completing: boolean;
-    runCallback: TurnCallbackRunner;
-  }): Options['mcpServers'];
+  mcpServers?(state: SdkCallbackState): Options['mcpServers'];
 }) {
   let input = owners.input;
   const runs = new AsyncQueue<Query>();
@@ -229,6 +287,12 @@ export function createOrdinaryLocalVertexSdkQuery<
         if (owners.beforeInput) {
           const commandId = (message as SDKUserMessage & { mitzoMessageId?: unknown })
             .mitzoMessageId;
+          if (
+            peerInput !== true &&
+            state?.commandId() !== undefined &&
+            commandId !== state.commandId()
+          )
+            throw Error('Original SDK command tool authority does not match input');
           if (typeof commandId === 'string' && /^\S{1,200}$/.test(commandId))
             assertOrdinarySynchronousFence(commandId, () => owners.beforeInput!(commandId));
           else if (peerInput !== true)
@@ -406,6 +470,13 @@ export function createOrdinaryLocalVertexSdkQuery<
     },
     push(message: SDKUserMessage) {
       input.push(message);
+    },
+    bindCommandToolAuthority(authority: OrdinarySdkCommandToolAuthority) {
+      owners.controller.signal.throwIfAborted();
+      assertOrdinarySynchronousFence(authority.commandId, () =>
+        owners.authorizeSync(owners.controller.signal),
+      );
+      states.get(native)!.bindCommandToolAuthority(authority);
     },
     async apply(selection: OrdinaryLocalCommandAdmission['selection']) {
       await owners.authorize(owners.controller.signal);

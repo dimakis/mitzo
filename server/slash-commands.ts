@@ -71,10 +71,11 @@ export function resolveSlashCommand(
   const skill = skillRegistry.get(parsed.name);
   if (skill) {
     // Include instruction dependencies from the same registry, so aliases work
-    // from any session cwd and honor repository/user overrides. The invoked
-    // skill's tool ceiling below remains authoritative.
+    // from any session cwd and honor repository/user overrides. Every included
+    // instruction source contributes its ceiling; none can widen another.
     const prompts: string[] = [];
     const rendered = new Set<string>();
+    let allowedTools: string[] | undefined;
     function appendInstructions(name: string, chain: string[]): string | undefined {
       if (chain.includes(name)) {
         return `Circular skill dependency: ${[...chain, name].join(' -> ')}.`;
@@ -83,6 +84,12 @@ export function resolveSlashCommand(
       const dependency = skillRegistry.get(name);
       const body = skillRegistry.getBody(name);
       if (!dependency || !body) return `Skill "${name}" is missing or has no body content.`;
+      if (dependency.policyError) return `Skill "${name}": ${dependency.policyError}`;
+      if (dependency.allowedTools !== undefined)
+        allowedTools =
+          allowedTools === undefined
+            ? [...dependency.allowedTools]
+            : allowedTools.filter((tool) => dependency.allowedTools!.includes(tool));
       prompts.push(renderSkillPrompt(body, parsed!.arguments, dependency));
       for (const required of dependency.requiredSkills ?? []) {
         const error = appendInstructions(required, [...chain, name]);
@@ -99,7 +106,7 @@ export function resolveSlashCommand(
       name: skill.name,
       arguments: parsed.arguments,
       renderedPrompt,
-      allowedTools: skill.allowedTools,
+      allowedTools,
       collisions: skill.collisions,
     };
   }

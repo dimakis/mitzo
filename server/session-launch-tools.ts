@@ -131,15 +131,18 @@ export function sessionLaunchTools(options: {
           !owner ||
           owner.session !== options.session ||
           !agentToolAllowed(options.session, name) ||
-          checkSkillPolicy(
-            options.registry,
-            owner.clientId,
-            (options.permissionPrefix ?? '') + name,
-          ) === 'deny' ||
           options.registry.isClosingOut(owner.clientId) ||
           options.registry.isUserClose(owner.clientId)
         )
           throw Error('Current ordinary session owner required.');
+        if (
+          checkSkillPolicy(
+            options.registry,
+            owner.clientId,
+            (options.permissionPrefix ?? '') + name,
+          ) === 'deny'
+        )
+          throw Error('Session creation is unavailable under active skill tool restrictions.');
         return owner;
       };
       const owner = current();

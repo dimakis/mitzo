@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { SessionRegistry, resolvePending } from '@mitzo/harness';
+import { SessionRegistry, resolvePending, checkSkillTool } from '@mitzo/harness';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from '../agent-tool-selection.js';
 import { createCredentialSdkServer, credentialSdkPermission } from '../credential-sdk-tools.js';
@@ -15,6 +15,7 @@ import { NotificationStore } from '../notification-store.js';
 import { TaskExecutionStore } from '../task-execution-store.js';
 import * as tasks from '../task-execution-runtime.js';
 import type { SandboxedCommandOptions } from '../sandboxed-command.js';
+import { createSdkCallbackState } from '../ordinary-local-vertex-sdk-query.js';
 
 const execution = vi.hoisted(() => ({ calls: [] as SandboxedCommandOptions[], wait: false }));
 // Keep SDK MCP, task admission, native permission handling and final spawn fences
@@ -44,14 +45,19 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function fixture(provider: 'anthropic-claude' | 'anthropic-vertex', selected = true) {
+async function fixture(
+  provider: 'anthropic-claude' | 'anthropic-vertex',
+  selected = true,
+  frozenTools?: string[],
+  managedName = 'TaskExecution',
+) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-task-parity-')));
   cleanups.push(() => rmSync(root, { recursive: true }));
   const workspace = join(root, 'workspace');
   mkdirSync(workspace);
   const store = new TaskExecutionStore(join(root, 'tasks.db'));
   cleanups.push(() => store.close());
-  vi.spyOn(tasks, 'getTaskExecutionStore').mockReturnValue(store);
+  const storeRead = vi.spyOn(tasks, 'getTaskExecutionStore').mockReturnValue(store);
   const registry = new SessionRegistry();
   cleanups.push(() => registry.dispose());
   const sent: Array<{ type: string; permId?: string }> = [];
@@ -78,16 +84,46 @@ async function fixture(provider: 'anthropic-claude' | 'anthropic-vertex', select
     bindAgentLibraryTransport('owner', { id: 'operator', expiresAt: Date.now() + 600000 }),
   );
   const session = registry.get('owner')!;
-  const profile = { tools: selected ? [{ id: 'mitzo:TaskExecution', version: 1 }] : [] } as never;
+  const profile = { tools: selected ? [{ id: `mitzo:${managedName}`, version: 1 }] : [] } as never;
   assertAgentToolRoute(profile, 'claude-sdk');
   bindAgentToolSelection(session, profile, 'claude-sdk');
-  const authority = { current: true };
+  const authority = {
+    current: true,
+    gate: undefined as (() => Promise<void>) | undefined,
+    effectGate: undefined as (() => Promise<void>) | undefined,
+  };
+  const agentEffects = vi.fn();
   const assertCurrent = () => {
     if (!authority.current) throw Error('Original Claude authority revoked');
   };
+  const state = createSdkCallbackState();
+  if (frozenTools !== undefined) {
+    const ceiling = new Set(frozenTools);
+    state.bindCommandToolAuthority({
+      commandId: 'original-command',
+      checkTool: (name) => checkSkillTool(ceiling, name),
+    });
+  }
   const server = createCredentialSdkServer(() => sessionId, session, registry, {
     profilesOnly: true,
-    assertCurrent: async () => assertCurrent(),
+    checkTool: (name) => state.checkTool(name),
+    runCallback: state.runCallback,
+    ...(managedName === 'AgentCommunication'
+      ? {
+          agentCommunication: (assertToolCurrent?: () => void) => ({
+            execute: async () => {
+              await authority.effectGate?.();
+              assertToolCurrent?.();
+              agentEffects();
+              return { content: JSON.stringify({ chats: [] }), isError: false };
+            },
+          }),
+        }
+      : {}),
+    assertCurrent: async () => {
+      await authority.gate?.();
+      assertCurrent();
+    },
     assertCurrentSync: assertCurrent,
   });
   const client = new Client({ name: 'offline-claude-task', version: '1' });
@@ -113,7 +149,7 @@ async function fixture(provider: 'anthropic-claude' | 'anthropic-vertex', select
   });
   cleanups.push(() => center.close());
   const call = (args: Record<string, unknown>) =>
-    client.callTool({ name: 'TaskExecution', arguments: args });
+    client.callTool({ name: managedName, arguments: args });
   const decode = (result: Awaited<ReturnType<typeof call>>) => {
     const content = result.content as Array<{ type: string; text?: string }>;
     return JSON.parse(content.map((block) => block.text ?? '').join(''));
@@ -131,10 +167,56 @@ async function fixture(provider: 'anthropic-claude' | 'anthropic-vertex', select
     push,
     store,
     controller,
+    state,
+    storeRead,
+    agentEffects,
   };
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+it('passes the original command fence into a special managed peer handler before its effect', async () => {
+  const f = await fixture(
+    'anthropic-claude',
+    true,
+    ['mcp__mitzo-connections__AgentCommunication'],
+    'AgentCommunication',
+  );
+  expect((await f.call({ operation: 'list', offset: 0 })).isError).not.toBe(true);
+  expect(f.agentEffects).toHaveBeenCalledOnce();
+  f.authority.effectGate = async () => {
+    f.state.retired = true;
+  };
+  expect((await f.call({ operation: 'list', offset: 0 })).isError).toBe(true);
+  expect(f.agentEffects).toHaveBeenCalledOnce();
+});
+
+it.each([
+  { ceiling: [] },
+  { ceiling: ['TaskExecution'] },
+  { ceiling: ['mcp__mitzo-connections__ListConnections'] },
+])(
+  'refuses a named TaskExecution handler outside the original wire-name ceiling ($ceiling)',
+  async ({ ceiling }) => {
+    const f = await fixture('anthropic-claude', true, ceiling);
+    expect((await f.call({ operation: 'status' })).isError).toBe(true);
+    expect(f.storeRead).not.toHaveBeenCalled();
+    expect(f.sent).toHaveLength(0);
+  },
+);
+
+it('admits the exact named handler and rechecks original command retirement after awaited authority', async () => {
+  const f = await fixture('anthropic-vertex', true, ['mcp__mitzo-connections__TaskExecution']);
+  expect((await f.call({ operation: 'status' })).isError).not.toBe(true);
+  const reads = f.storeRead.mock.calls.length;
+  f.authority.gate = async () => {
+    f.state.retired = true;
+  };
+  expect((await f.call({ operation: 'status' })).isError).toBe(true);
+  expect(f.storeRead).toHaveBeenCalledTimes(reads);
+  expect(f.sent).toHaveLength(0);
+});
+
 async function authorize(f: Fixture, decision: 'once' | 'deny' = 'once') {
   const count = f.sent.filter((event) => event.type === 'permission_request').length;
   const pending = f.call({

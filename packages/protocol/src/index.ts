@@ -1,5 +1,6 @@
 export * from './markdown-paths.js';
 export * from './ordinary-turn.js';
+export type { OrdinarySkillContext } from './ordinary-skill-context.js';
 export { ToolFailureSchema, toolFailure, toolFailureAction } from './tool-failure.js';
 export type { ToolFailure } from './tool-failure.js';
 export { stripMarkdownCodeBlocks } from './markdown-code-blocks.js';
