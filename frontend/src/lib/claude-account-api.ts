@@ -54,15 +54,59 @@ export async function readClaudeAccounts(signal?: AbortSignal) {
     throw Error('Claude account status is unavailable. Check status before continuing.');
   return ClaudeAccountSnapshot.parse(await response.json());
 }
-export async function changeClaudeLogin(path: string, body: unknown) {
-  const response = await apiFetch(endpoint + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+export class ClaudeAccountChangeError extends Error {
+  constructor(readonly diagnosticId?: string) {
+    super('Claude account change could not be confirmed. Check status before continuing.');
+  }
+}
+async function mutate(path: string, body: unknown, signal?: AbortSignal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  const timer = setTimeout(abort, 20_000);
+  let rejectAbort!: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    rejectAbort = () =>
+      reject(
+        Error('Claude account change could not be confirmed. Check status before continuing.'),
+      );
+    controller.signal.addEventListener('abort', rejectAbort, { once: true });
+    if (controller.signal.aborted) rejectAbort();
   });
-  if (!response.ok)
-    throw Error('Claude sign-in could not be confirmed. Check status before continuing.');
-  return ClaudeLoginAttempt.parse(await response.json());
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await apiFetch(endpoint + path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        const value: unknown = await response.json();
+        if (!response.ok) {
+          const failure = z.object({ diagnosticId: z.uuid() }).safeParse(value);
+          throw new ClaudeAccountChangeError(
+            failure.success ? failure.data.diagnosticId : undefined,
+          );
+        }
+        return value;
+      })(),
+      cancelled,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+    controller.signal.removeEventListener('abort', rejectAbort);
+  }
+}
+export async function changeClaudeLogin(path: string, body: unknown, signal?: AbortSignal) {
+  return ClaudeLoginAttempt.parse(await mutate(path, body, signal));
+}
+export async function removeClaudeAccount(accountId: string, signal?: AbortSignal) {
+  return ClaudeAccountSnapshot.parse(
+    await mutate(`/accounts/${encodeURIComponent(accountId)}/remove`, {}, signal),
+  );
 }
 
 /** Fresh public route identity for an unsent draft; this does not admit or execute a command. */
