@@ -1,5 +1,9 @@
 import { useImperativeHandle } from 'react';
-import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
+import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
+import { setDefaultAccountModel } from '../../lib/account-preference';
+import { setHiddenPickerModels } from '../../lib/model-visibility';
+import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
+import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
@@ -190,8 +194,132 @@ vi.mock('../../components/ChatInput', () => ({
 beforeEach(() => {
   HTMLElement.prototype.scrollTo = vi.fn();
 });
+
+let restoreVisibilityRuntime: (() => void) | undefined;
+async function visibilityInventory() {
+  const hooks = await import('../../hooks/useExplicitLocalChat');
+  const actual = await vi.importActual<typeof hooks>('../../hooks/useExplicitLocalChat');
+  const spy = vi
+    .spyOn(hooks, 'useExplicitLocalChat')
+    .mockImplementation(actual.useExplicitLocalChat);
+  restoreVisibilityRuntime = () => spy.mockRestore();
+  const inventory = localInventoryFixture();
+  const account = { ...inventory.accounts[0].account, accountId: 'business' };
+  inventory.accounts.push({
+    ...inventory.accounts[0],
+    account,
+    label: 'Business',
+    models: [{ id: 'other-fixture', label: 'Other fixture', reasoningEfforts: ['low', 'high'] }],
+  });
+  inventory.routes.push({ ...inventory.routes[0], account });
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    Response.json(String(url).includes('/runtime/capabilities') ? inventory : []),
+  );
+  return inventory;
+}
+
+it.each([
+  ['phone', ChatView],
+  ['desktop', DesktopChatView],
+] as const)(
+  '%s does not retain a hidden browser default as fresh controlled chat intent',
+  async (_layout, Screen) => {
+    await visibilityInventory();
+    setDefaultAccountModel({ accountId: 'personal', model: 'luna-fixture' });
+    setHiddenPickerModels('personal', ['luna-fixture']);
+    const store = createTestStore();
+    render(
+      <MitzoStoreProvider value={store}>
+        <MemoryRouter initialEntries={['/chat']}>
+          <Screen />
+        </MemoryRouter>
+      </MitzoStoreProvider>,
+    );
+    openAgentSettings();
+    await waitFor(() =>
+      expect((screen.getByLabelText('Account') as HTMLSelectElement).value).toBe('personal'),
+    );
+    expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('');
+    expect(
+      Array.from((screen.getByLabelText('Model') as HTMLSelectElement).options).map(
+        (option) => option.value,
+      ),
+    ).not.toContain('luna-fixture');
+    expect((screen.getByRole('button', { name: 'Test send' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  },
+);
+
+it.each([
+  ['phone', ChatView],
+  ['desktop', DesktopChatView],
+] as const)(
+  '%s persists a model-less controlled account switch in an existing composer and restores it',
+  async (_layout, Screen) => {
+    const inventory = await visibilityInventory();
+    const draft = { ...createChatDraft(), text: 'Keep this unsent message' };
+    draft.settings.selection = {
+      accountId: 'personal',
+      model: 'luna-fixture',
+      reasoningEffort: 'low',
+    };
+    draft.settings.runtimeSelection = {
+      ...createChatRuntimeSelection(),
+      account: draft.settings.selection,
+      accountReference: inventory.accounts[0].account,
+      agentProfile: { profileId: 'agent', revision: 1 },
+      execution: { location: 'local', targetId: 'mac' },
+      capabilityRevision: inventory.capabilityRevision,
+    };
+    expect(saveChatDraft(draft)).toBe(true);
+    setHiddenPickerModels('personal', ['luna-fixture']);
+    setHiddenPickerModels('business', ['other-fixture']);
+    const store = createTestStore();
+    const view = () => (
+      <MitzoStoreProvider value={store}>
+        <MemoryRouter initialEntries={['/chat?draft=' + draft.id]}>
+          <Screen />
+        </MemoryRouter>
+      </MitzoStoreProvider>
+    );
+    const mounted = render(view());
+    openAgentSettings();
+    await waitFor(() =>
+      expect((screen.getByLabelText('Account') as HTMLSelectElement).value).toBe('personal'),
+    );
+    expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('luna-fixture');
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'business' } });
+    await waitFor(() =>
+      expect(getChatDraft(draft.id)?.settings.runtimeSelection?.account).toEqual({
+        accountId: 'business',
+        model: '',
+      }),
+    );
+    expect(getChatDraft(draft.id)?.text).toBe(draft.text);
+    expect((screen.getByRole('button', { name: 'Test send' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    mounted.unmount();
+    render(view());
+    openAgentSettings();
+    await waitFor(() =>
+      expect((screen.getByLabelText('Account') as HTMLSelectElement).value).toBe('business'),
+    );
+    expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('');
+    act(() => setHiddenPickerModels('business', []));
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'other-fixture' } });
+    await waitFor(() =>
+      expect(getChatDraft(draft.id)?.settings.runtimeSelection?.account?.model).toBe(
+        'other-fixture',
+      ),
+    );
+  },
+);
 afterEach(() => {
   cleanup();
+  restoreVisibilityRuntime?.();
+  restoreVisibilityRuntime = undefined;
   delete (HTMLElement.prototype as Partial<HTMLElement>).scrollTo;
   sessionStorage.clear();
   localStorage.clear();

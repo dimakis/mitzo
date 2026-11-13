@@ -8,10 +8,16 @@ import {
   savedRepositorySelectionReason,
   unsupportedSessionExtraToolsReason,
   unsupportedSessionContextReason,
+  sessionLaunchRuntime,
 } from '../session-launch-defaults';
+import { setHiddenPickerModels } from '../model-visibility';
+import { SessionLaunchConfigSchema } from '@mitzo/protocol';
 
 vi.mock('../api-fetch', () => ({ apiFetch: vi.fn() }));
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  localStorage.clear();
+});
 const configuration = {
   version: 1 as const,
   runtime: {
@@ -63,6 +69,17 @@ it('restores Local Mac and its exact host while invalidating prior execution rev
   expect(draft.contextBlocks).toEqual(configuration.contextBlocks);
   expect(new URLSearchParams(draft.settings.search).get('extraTools')).toBe('Read');
   expect(draft.settings.sourceSnapshots).toBeUndefined();
+});
+
+it('filters hidden models when cloning saved defaults and keeps incomplete intent off the defaults wire', () => {
+  setHiddenPickerModels('personal', ['luna-fixture']);
+  const draft = sessionLaunchConfigurationDraft(configuration);
+  expect(draft.settings.selection).toEqual({ accountId: 'personal', model: '' });
+  expect(draft.settings.runtimeSelection?.account).toEqual(draft.settings.selection);
+  const runtime = sessionLaunchRuntime(draft.settings.runtimeSelection!);
+  expect(runtime.account).toBeNull();
+  expect(SessionLaunchConfigSchema.safeParse({ ...configuration, runtime }).success).toBe(true);
+  expect(configuration.runtime.account.model).toBe('luna-fixture');
 });
 
 it('retains a saved repository as unresolved source intent and never reuses its prepared checkout', () => {

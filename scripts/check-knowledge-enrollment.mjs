@@ -10,6 +10,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { parse } from 'dotenv';
 
 const key = 'MITZO_KNOWLEDGE_STORE_CONFIG';
+const localKey = 'MITZO_LOCAL_KNOWLEDGE_ENABLED';
 const fail = (code) => {
   throw new Error(code);
 };
@@ -39,7 +40,7 @@ e=p.get('EnvironmentVariables',{})
 if not isinstance(e,dict) or any(not isinstance(k,str) or not isinstance(v,str) for k,v in e.items()): raise ValueError()
 a=p.get('ProgramArguments')
 launcher=a[0] if isinstance(a,list) and len(a)==1 and isinstance(a[0],str) else None
-print(json.dumps({'launcher':launcher,'program':p.get('Program'),'directory':p.get('WorkingDirectory'),'enrollment':e.get('${key}'),'presence':{k:bool(v) for k,v in e.items()}}))
+print(json.dumps({'launcher':launcher,'program':p.get('Program'),'directory':p.get('WorkingDirectory'),'enrollment':e.get('${key}'),'localEnabled':e.get('${localKey}')=='1','presence':{k:bool(v) for k,v in e.items()}}))
 `,
         path,
       ],
@@ -96,6 +97,7 @@ function environment(path, overrides, missingIsEmpty = false) {
   )
     fail('knowledge_enrollment_dotenv_override_unsupported');
   if (key in (overrides?.presence ?? {})) env[key] = overrides.enrollment;
+  if (localKey in (overrides?.presence ?? {})) env[localKey] = overrides.localEnabled ? '1' : '0';
   const present = (name) =>
     name in (overrides?.presence ?? {}) ? overrides.presence[name] : !!env[name];
   return { env, present };
@@ -119,6 +121,7 @@ function enrollment({ env, present }) {
     path: realpathSync(env[key]),
     config,
     credentialPresent: present(publisher.readTokenEnv),
+    localEnabled: env[localKey] === '1',
   };
 }
 try {
@@ -150,6 +153,7 @@ try {
     previous &&
     (!candidate ||
       previous.path !== candidate.path ||
+      previous.localEnabled !== candidate.localEnabled ||
       !isDeepStrictEqual(previous.config, candidate.config));
   if (changed && !values['allow-knowledge-enrollment-change'])
     fail('knowledge_enrollment_change_requires_opt_out');

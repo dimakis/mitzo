@@ -2,6 +2,61 @@
   "version": 1,
   "surfaces": [
     {
+      "id": "enmaas-account",
+      "activeRevision": "automatic-models-2026-11-12",
+      "revisions": [
+        {
+          "id": "automatic-models-2026-11-12",
+          "approvedBy": "Dimitri (explicit approval of v003 and implementation/merge)",
+          "approvedOn": "2026-11-12",
+          "approval": {
+            "thread": "f12e56c7-5123-8fd8-8ee4-3fabf11dd202",
+            "quote": "Yep this is it. Build this and merge the pr",
+            "scope": "Connect EnMaaS with automatic models, optional manual IDs, explicit failure states and settings to show or hide picker models. Preceding direction: I should have the ability to select or hide models from the picker in the settings if I want to."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/enmaas-account/setup.html",
+              "sha256": "2a79728d0bf26ba3d953811af657a20d3417c2f82a105b24d21d63e88da4f9c2"
+            }
+          ],
+          "invariants": [
+            "Connections uses labelled account name, runtime and key controls with a single Connect action; technical setup stays in Advanced settings.",
+            "Load discovered models automatically and retain hosted GLM/DeepSeek IDs; key rejection and catalog outage have distinct outcomes.",
+            "All models are shown initially; account-scoped visibility settings offer per-model, Show all and Hide all controls, and preserve choices across refresh/reload.",
+            "Visibility only affects picker presentation; existing chats retain their exact account/model binding and new models are shown automatically.",
+            "Reuse shared tokens, MotionDetails, HomeDialog and 44px controls; preserve the approved Chat settings hierarchy and keyboard focus.",
+            "Uncertain saves retain their request identity; Check account status never resubmits credentials."
+          ],
+          "sources": [
+            "frontend/src/components/EnmaasAccountSetup.tsx",
+            "frontend/src/components/ModelVisibilitySettings.tsx",
+            "frontend/src/lib/model-visibility.ts",
+            "frontend/src/components/AccountModelPicker.tsx",
+            "frontend/src/styles/connections-setup.css"
+          ],
+          "checks": [
+            "frontend/src/lib/__tests__/model-visibility.test.ts",
+            "frontend/src/components/__tests__/EnmaasAccountSetup.test.tsx",
+            "server/__tests__/enmaas-account-form.integration.test.tsx",
+            "tests/offline/api-account-enrollment.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/lib/__tests__/model-visibility.test.ts",
+              "sha256": "8b188e665125f89f2036cfab8cbe3941ad9ff3f8893d7834e1eca2f914167b30"
+            },
+            {
+              "path": "tests/offline/api-account-enrollment.spec.ts",
+              "sha256": "9a7ba17821fd533d6bcaddda712a9a85725da651c966f66f61d947910b19594f"
+            }
+          ],
+          "implementationEvidence": [],
+          "validation": "docs/design/approved/enmaas-account/VALIDATION.md"
+        }
+      ]
+    },
+    {
       "id": "chat-activity",
       "activeRevision": "additive-freshness-2026-11-06",
       "revisions": [

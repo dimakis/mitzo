@@ -2,6 +2,77 @@
 .connections-focused-page > .openai-account-enrollment {
   max-width: 760px;
 }
+.openai-account-enrollment {
+  font-size: var(--text-sm);
+}
+.openai-account-enrollment :is(input, select, textarea) {
+  min-width: 0;
+  width: 100%;
+  min-height: var(--control-height);
+  font: inherit;
+  font-size: var(--text-base);
+}
+.openai-account-enrollment :is(button, summary) {
+  min-height: var(--control-height);
+}
+.openai-account-enrollment h3 {
+  font-size: var(--text-section-title);
+}
+.openai-account-enrollment p {
+  overflow-wrap: anywhere;
+  margin: var(--space-3) 0;
+}
+.enmaas-models-section {
+  margin: var(--space-5) 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--workspace-line);
+}
+.enmaas-actions,
+.model-visibility-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.enmaas-account-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.enmaas-account-facts dt {
+  color: var(--workspace-muted);
+}
+.enmaas-account-facts dd {
+  margin: 0;
+}
+.model-visibility-settings {
+  padding: var(--space-5);
+  font-size: var(--text-sm);
+}
+.model-visibility-settings p {
+  margin: 0 0 var(--space-4);
+}
+.model-visibility-list {
+  max-height: 50dvh;
+  overflow-y: auto;
+  margin: var(--space-4) 0;
+}
+.model-visibility-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-height);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--workspace-line);
+  overflow-wrap: anywhere;
+}
+.model-visibility-option input {
+  flex: 0 0 auto;
+  width: var(--icon-action-size);
+  height: var(--icon-action-size);
+  accent-color: var(--workspace-accent);
+}
 .openai-account-enrollment .connections-key-confirmation input[type='checkbox'] {
   width: 20px;
   height: 20px;

@@ -13,16 +13,34 @@ Both use Local Mac execution. Custom accounts are excluded from the legacy Respo
 OpenShell routes and official-OpenAI key rotation. Existing chats retain their
 frozen account and endpoint. Select the new account and model for a new chat.
 
-After browser reauthorization, enter a public HTTPS API base URL and a key.
+For EnMaaS, choose the runtime, enter an account name and key, then Connect.
+The form discovers models automatically and includes the two hosted model IDs
+even when the catalog omits them. Manual IDs belong under Advanced settings.
+Connecting authorizes a metadata read and configuration save, with no model call.
+Catalog outages offer an explicit Save with hosted models action; rejected keys
+do not take that fallback. Uncertain saves remain status-only until reconciled.
+Saved accounts expose Refresh models using their current managed Keychain key.
+Refresh retains pinned/previous IDs because catalogs are advisory and existing
+chats keep their exact model bindings. A failed refresh retains the last list.
+
+Model picker settings are available from the account and the existing chat model
+editor. All models are shown by default; visibility choices apply per account on
+this browser, survive refresh/reload and never change server authorization.
+New models are shown automatically. Existing selections remain bound even when
+hidden; hiding all models prevents this account's Start a chat action until a
+model is shown. Start a chat prepares an unsent Local Mac draft without changing
+the global account default or making an inference call.
+
+For a custom API, after browser reauthorization, enter a public HTTPS base URL and key.
 **Get models** reads that exact endpoint's `/models` for Responses, or
 `/v1/models` for Messages. Responses uses bearer authentication. Messages supports
-Anthropic API-key authentication (`x-api-key`) and bearer tokens (the EnMaaS preset);
+Anthropic API-key authentication (`x-api-key`, required by the EnMaaS preset) and bearer tokens;
 it makes no inference call. The request uses checked public DNS, verified TLS,
 a 15-second deadline and a bounded response, and never follows redirects with
 the key. Discovery errors remain visible. Changing the endpoint or key discards
 its catalog; late responses cannot overwrite the new selection.
 
-Select models from the catalog or enter explicit model IDs, one per line.
+For custom APIs, select models from the catalog or enter explicit IDs, one per line.
 Catalogs are advisory and may be incomplete. Explicit IDs can be saved even
 when `/models` is unsupported; that saves configuration without validating the
 key or making a model call. Saving requires the operator's explicit confirmation
@@ -31,7 +49,7 @@ for the selected models. Neither discovery nor saving establishes that evidence.
 There is no protocol fallback or automatic translation of Chat Completions or
 Anthropic Messages to Responses.
 
-The EnMaaS preset uses `https://api.enmaas.devshift.net/v1` and prepopulates:
+The EnMaaS Responses preset uses `https://api.enmaas.devshift.net/v1` and includes:
 
 - `rits/zai-org/glm-5-3`
 - `rits/deepseek-ai/DeepSeek-V4.1-Flash-1017`
@@ -59,10 +77,10 @@ Localhost aliases with a trailing DNS root dot are rejected as well.
 **Ready** here means configuration and credential custody were saved; account
 authentication and successful use remain separate evidence below.
 
-For EnMaaS Anthropic models, select **Anthropic Messages · Claude**. The preset
+For EnMaaS Anthropic models, select **Claude · Messages**. The preset
 base URL is `https://api.enmaas.devshift.net` and the existing SDK appends
 `/v1/messages`. For another gateway, enter its documented Messages base URL
-before that suffix. Choose permitted models from discovery or enter exact IDs;
+before that suffix. All discovered models are included, plus the hosted IDs;
 no Claude model IDs or pricing are inferred from the Responses preset.
 Selected Messages model IDs, including colon-containing gateway tags, are passed
 unchanged to chat, continuation and search; thinking remains a separate setting.

@@ -104,6 +104,45 @@ it.each([{ candidate: false }, { changed: true }])(
   },
 );
 it('allows the same parsed enrollment', () => expect(fixture().run().status).toBe(0));
+it.each(['dotenv', 'plist'])(
+  'preserves effective Local Mac knowledge enrollment from %s settings',
+  (source) => {
+    const f = fixture();
+    if (source === 'dotenv')
+      writeFileSync(
+        join(f.current, '.env'),
+        readFileSync(join(f.current, '.env'), 'utf8') + 'MITZO_LOCAL_KNOWLEDGE_ENABLED=1\n',
+      );
+    else
+      execFileSync('python3', [
+        '-c',
+        'import plistlib,sys;p=plistlib.load(open(sys.argv[1],"rb"));p["EnvironmentVariables"]={"MITZO_LOCAL_KNOWLEDGE_ENABLED":"1"};plistlib.dump(p,open(sys.argv[1],"wb"))',
+        f.plist,
+      ]);
+    const missing = f.run();
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('knowledge_enrollment_change_requires_opt_out');
+    expect(missing.stderr).not.toContain(f.root);
+    expect(f.run(['--allow-knowledge-enrollment-change']).status).toBe(0);
+    writeFileSync(
+      join(f.next, '.env'),
+      readFileSync(join(f.next, '.env'), 'utf8') + 'MITZO_LOCAL_KNOWLEDGE_ENABLED=1\n',
+    );
+    expect(f.run().status).toBe(0);
+    mkdirSync(join(f.next, 'scripts'));
+    writeFileSync(join(f.next, 'scripts/start.sh'), '#!/bin/bash\n');
+    const candidatePlist = join(f.next, 'candidate.plist');
+    execFileSync('python3', [
+      '-c',
+      'import plistlib,sys;plistlib.dump({"WorkingDirectory":sys.argv[2],"ProgramArguments":[sys.argv[2]+"/scripts/start.sh"],"EnvironmentVariables":{"MITZO_LOCAL_KNOWLEDGE_ENABLED":"0"}},open(sys.argv[1],"wb"))',
+      candidatePlist,
+      f.next,
+    ]);
+    expect(f.run(['--candidate-plist', candidatePlist]).stderr).toContain(
+      'knowledge_enrollment_change_requires_opt_out',
+    );
+  },
+);
 it.each([
   { previous: false, candidate: false },
   { active: false, candidate: false },

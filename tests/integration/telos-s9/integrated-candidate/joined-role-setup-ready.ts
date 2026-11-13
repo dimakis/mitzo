@@ -1,5 +1,9 @@
 import { expect as browserExpect, type Page, type Request, type Response } from '@playwright/test';
-import { TelosWorkRoleContextReviewSchema, TelosWorkViewSchema } from '@mitzo/protocol';
+import {
+  TelosSourcePermissionReviewSchema,
+  TelosWorkRoleContextReviewSchema,
+  TelosWorkViewSchema,
+} from '@mitzo/protocol';
 import { ExplicitLocalInventorySchema } from '../../../../frontend/src/lib/explicit-local-chat';
 import { expect } from 'vitest';
 
@@ -114,6 +118,40 @@ async function performObservedAction(
   } finally {
     observer.close();
   }
+}
+
+/** Responsive shells remount source approval and reload its retained materials.
+ * Require the fresh exact read within ten seconds before the original DOM checks.
+ */
+export async function actToSourcePermissionReview(
+  page: Page,
+  target: {
+    origin: string;
+    permId: string;
+    sessionId: string;
+    artifact: { artifactId: string; revision: number; sha256: string };
+  },
+  action: () => Promise<unknown>,
+) {
+  const origin = new URL(target.origin).origin;
+  const observer = observeFreshResponse(page, async (response) => {
+    const url = new URL(response.url());
+    if (
+      url.origin !== origin ||
+      url.pathname !== '/api/telos/work/source/permissions/' + encodeURIComponent(target.permId) ||
+      url.searchParams.get('sessionId') !== target.sessionId ||
+      response.request().method() !== 'GET'
+    )
+      return false;
+    expect(response.status()).toBe(200);
+    expect(await response.finished()).toBeNull();
+    const review = TelosSourcePermissionReviewSchema.parse(await response.json());
+    expect(review).toMatchObject({ permId: target.permId, sessionId: target.sessionId });
+    expect(review.source.conversationId).toBe(target.sessionId);
+    expect(review.artifacts).toContainEqual(expect.objectContaining(target.artifact));
+    return true;
+  });
+  await performObservedAction(observer, action, true);
 }
 
 /** A fresh role draft may have no valid runtime settings yet. Its actual
