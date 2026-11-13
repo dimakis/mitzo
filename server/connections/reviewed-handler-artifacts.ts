@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1135-telos-live-coordination';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1136-telos-committed-coordination';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../telos-work-updates.ts': 'f9895bff5c5a6e4ea228edae36ec60c034b52c4d9aa7e526c81b3047b2b33e01',
+  '../__tests__/telos-work-role-host.test.ts':
+    'b98939239e3a98b58983843aa1aa2e35765022d9d47d6d5ca60fc215546adfe6',
+  '../../frontend/src/components/__tests__/TelosSourceWorkLink.test.tsx':
+    '4efac6612375d58813922fa96f65d0b4479c9ff071529020e9c24033af5af771',
   '../__tests__/telos-session-coordination.test.ts':
     '7ed5aebeb6ad541a49b35f1f62d6b8a4db881012e894e562fef47b4f5be6a314',
   '../telos-session-coordination.ts':
@@ -2243,7 +2249,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/telos-work-api.ts':
     '59f80b2ef68f2c1cac294f6d9f5d29e89ffc062025a3aa40e98c0da8136d048a',
   '../telos-work-schema.ts': 'c52a8052ce3b6b8c9e47ef62a265e2768c2d914fc61178d5b3589946097ee9cf',
-  '../telos-work-store.ts': 'e5cfbf84bf59392ad2ff906a3004dfbd3402266223f0d402586c1c463e89f32c',
+  '../telos-work-store.ts': 'e01432303e1d34e358309ca21acaede24e3658274f6a1b63ca827473dbade065',
   '../../packages/protocol/src/telos-work-api.ts':
     '9eb4b68f714866d7a8c321f6ec193f1b4d6563b896520b1a83d60362a10e9be7',
   '../tool-input-error.ts': '84137699ec55ee4ff47c1516e567f3ea605b1f76a51e9d1600b6a56ddb41eb5b',
@@ -2595,7 +2601,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../url-access-tool.ts': '1017545f5b6d9159196281cd31c8cfdc60dacc02879c3d920d09ac243eb3259e',
   '../web-access-tool.ts': '52a50a4633cb27d21a7cae1ec295a6df264812ad507d92ad69a1a12793c7fb63',
-  '../index.ts': '319141d1ef92194ba378cbcc9c8ac42bd2382e4bc8d8004085f3edbc3ec84e67',
+  '../index.ts': '21337b15dbd4760cacbda48d1be9571e9362f5e84d79c660efd18014876fe733',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '90ebbfbf3788386e7f3325b6d0b796823c13da73e8a3f14393e598b3173239b3',
@@ -4198,7 +4204,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-browser-run.test.ts':
     'ac128f141312e358819dfa962e36f433c7d6447959535e23c126935bc3f9d29b',
   '../../scripts/__tests__/ci-joined-shards.test.ts':
-    '2a8bb13ab7dfc9a5fab4cd05d49ea957aca38ef545044ec13d9b239da683a950',
+    'f2cdb8ab0baccd739425180e0685c783e8074e59e15fd9b2b4c65e846860b30e',
   '../../scripts/__tests__/ci-recovery.test.ts':
     '92559bb14c80de9c28e7879c1bf218bf895cab2d2209958dd0499ddc5feda256',
   '../../scripts/__tests__/ci-source-preflight.test.ts':
@@ -4242,7 +4248,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-native-recovery.test.ts':
     'b603ee7ad71f1f5f9eb18cb50eabe762e81b18f81c216e42f172aa8a04ffab41',
   '../../tests/integration/telos-s9/integrated-candidate/joined-shards.mjs':
-    '8a8c61219cc505dc95c91a1de7ff0db1362d9a6add47629fea43cda3b18ef07c',
+    'b0224a903400db3f56a9f41d13fd9581be4e76520350b06edf54629feaa92a7a',
   '../../vitest.config.ts': '699431252067bfb2918bb97baf3ef2accd06c59de426e7508e8f5b8d3c2cf034',
   '../__tests__/codex-diagnostic-release.test.ts':
     '55ff5b03c35602da030efa21c7f8b75c2074d36eba35d26466909bd717c520ea',

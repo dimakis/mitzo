@@ -70,6 +70,11 @@ incident has been repaired.
   reconnect and visibility resume. A pending fresh read hides the former link;
   aborted reads cannot restore it. Three event regressions fail before this fix
   and pass with it, alongside the existing source-navigation consumers.
+  Canonical work commands and reviewed role setup publish an identity-free
+  refresh through the authenticated SSE owner after the outer transaction
+  commits. Exact replays and rejected commands do not publish another update.
+  A real canonical assignment-to-mounted-link regression verifies this path;
+  a separate reader verifies reviewed setup is committed before notification.
 
 ## Evidence states
 
@@ -142,3 +147,13 @@ The missing-custody fixture uses the owner's actual nullable return contract.
 
 Required hosted CI, browser evidence and trusted exact-head review remain landing
 gates. No deployment, live model test or live assignment repair is included.
+
+The first combined hosted run exposed stale fixture expectations and ambiguous
+status/title selectors; these were corrected without dropping their permission,
+draft, assignment or dispatch assertions. Its macOS owner group passed all four
+actual tests, including both manual and lead CT09 startup. The report validator
+had assumed one assertion per file. It now requires both exact named CT09 cases
+once each, with the existing zero-skip/full-file checks retained. Fifteen focused
+gate tests reject missing, skipped and duplicated evidence; the retained four-pass
+hosted report satisfies the corrected contract. Final-head validation remains
+separate from this retained diagnostic evidence.

@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment node-compatible-dom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -31,6 +31,74 @@ afterEach(() => {
   cleanup();
   vi.mocked(apiFetch).mockReset();
   vi.clearAllMocks();
+});
+it('refreshes the mounted link from the canonical assignment commit through the supported broadcaster', async () => {
+  const { createTelosCanonicalData } =
+    await import('../../../../server/__tests__/fixtures/telos-canonical-advisor');
+  const { TelosWorkStore } = await import('../../../../server/telos-work-store');
+  const { bindTelosWorkUpdateBroadcast } = await import('../../../../server/telos-work-updates');
+  const f = createTelosCanonicalData();
+  const work = new TelosWorkStore(f.dbPath, { ordinaryConversation: () => true });
+  const assign = (id: string, revision: number) =>
+    work.execute(
+      {
+        operation: 'setup_role',
+        requestId: id,
+        itemId: 'studio',
+        role: 'lead',
+        conversationId: id,
+        expectedRevision: work.read('studio', f.actor).revision,
+        expectedAssignmentRevision: revision,
+      },
+      f.actor,
+    );
+  let unbind = () => {};
+  try {
+    assign('first-lead', 0);
+    show({
+      itemId: 'slice',
+      role: 'worker',
+      assignment: 'current',
+      reportingTo: {
+        conversationId: 'first-lead',
+        availability: 'available',
+      },
+    });
+    await screen.findByRole('link', { name: 'Return to lead chat' });
+    vi.mocked(apiFetch).mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify({
+            sessionId: 'worker',
+            telosWorkRoleContext: context,
+            telosSessionCoordination: {
+              itemId: 'slice',
+              role: 'worker',
+              assignment: 'current',
+              reportingTo: {
+                conversationId: work
+                  .read('studio', f.actor)
+                  .assignments.find((a) => a.role === 'lead')!.conversation.conversationId,
+                availability: 'available',
+              },
+            },
+          }),
+        ),
+    );
+    unbind = bindTelosWorkUpdateBroadcast({
+      broadcast: (event) => broadcasts.events.get(event)?.(),
+    });
+    await act(async () => {
+      assign('replacement-lead', 1);
+    });
+    expect(
+      (await screen.findByRole('link', { name: 'Return to lead chat' })).getAttribute('href'),
+    ).toBe('/chat/replacement-lead');
+  } finally {
+    unbind();
+    work.close();
+    f.close();
+  }
 });
 it.each(['todo_update', 'sessions_changed', 'reconnect'])(
   'refreshes canonical reporting on %s and hides the stale lead until the read settles',

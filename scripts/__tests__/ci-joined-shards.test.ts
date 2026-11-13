@@ -64,14 +64,19 @@ function fixture() {
         join(root, c.name, 'run.json'),
         JSON.stringify({
           success: true,
-          numTotalTests: c.files.length,
-          numPassedTests: c.files.length,
+          numTotalTests: c.files.length + (c.name === 's6-app-owners' ? 1 : 0),
+          numPassedTests: c.files.length + (c.name === 's6-app-owners' ? 1 : 0),
           numFailedTests: 0,
           numPendingTests: 0,
           testResults: c.files.map((file) => ({
             name: '/checkout/' + file,
             status: 'passed',
-            assertionResults: [{ status: 'passed' }],
+            assertionResults: file.endsWith('/telos-ordinary-canonical-journey.test.ts')
+              ? ['manual', 'lead'].map((start) => ({
+                  fullName: `CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion (${start} start)`,
+                  status: 'passed',
+                }))
+              : [{ status: 'passed' }],
           })),
         }),
       );
@@ -108,21 +113,30 @@ it('rejects missing or duplicated shard coverage and absent evidence', () => {
   rmSync(join(f.root, joinedCases[0].name, 'run.json'));
   expect(f.run().status).toBe(1);
 });
-it.each(['skipped', 'failed', 'omitted', 'duplicate', 'unsuccessful', 'malformed'])(
-  'rejects %s acceptance evidence even if the runner summary claims success',
-  (change) => {
-    const f = fixture();
-    const path = join(f.root, 's6-app-owners', 'run.json');
-    const report = JSON.parse(readFileSync(path, 'utf8'));
-    if (change === 'skipped') report.testResults[0].assertionResults[0].status = 'pending';
-    if (change === 'failed') report.testResults[0].assertionResults[0].status = 'failed';
-    if (change === 'omitted') report.testResults.pop();
-    if (change === 'duplicate') report.testResults[1] = report.testResults[0];
-    if (change === 'unsuccessful') report.success = false;
-    writeFileSync(path, change === 'malformed' ? '{}' : JSON.stringify(report));
-    expect(f.run().status).toBe(1);
-  },
-);
+it.each([
+  'skipped',
+  'failed',
+  'omitted',
+  'duplicate',
+  'unsuccessful',
+  'malformed',
+  'missing-canonical-start',
+  'duplicate-canonical-start',
+])('rejects %s acceptance evidence even if the runner summary claims success', (change) => {
+  const f = fixture();
+  const path = join(f.root, 's6-app-owners', 'run.json');
+  const report = JSON.parse(readFileSync(path, 'utf8'));
+  if (change === 'skipped') report.testResults[0].assertionResults[0].status = 'pending';
+  if (change === 'failed') report.testResults[0].assertionResults[0].status = 'failed';
+  if (change === 'omitted') report.testResults.pop();
+  if (change === 'duplicate') report.testResults[1] = report.testResults[0];
+  if (change === 'missing-canonical-start') report.testResults[0].assertionResults.pop();
+  if (change === 'duplicate-canonical-start')
+    report.testResults[0].assertionResults[1] = report.testResults[0].assertionResults[0];
+  if (change === 'unsuccessful') report.success = false;
+  writeFileSync(path, change === 'malformed' ? '{}' : JSON.stringify(report));
+  expect(f.run().status).toBe(1);
+});
 it('requires every macOS shard and runs the canonical journey only in its joined owner', () => {
   const { jobs } = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
     jobs: Record<

@@ -1,4 +1,5 @@
 import { renewDueTelosSnoozes } from './telos-snooze.js';
+import { publishTelosWorkUpdate } from './telos-work-updates.js';
 import type { EventStore } from './event-store.js';
 import type { TaskStore } from './task-store.js';
 import {
@@ -1014,7 +1015,9 @@ export class TelosWorkStore {
     assertBeforeApply: () => void,
   ): TelosWorkCommandReceipt {
     this.operator(actor);
-    return this.db
+    const nested = this.db.inTransaction;
+    let changed = false;
+    const result = this.db
       .transaction(() => {
         const retained = this.prepareRoleSetupRequest(setup.input, actor);
         if (JSON.stringify(retained.setup) !== JSON.stringify(setup))
@@ -1037,9 +1040,12 @@ export class TelosWorkStore {
         this.db
           .prepare('UPDATE telos_work_role_setups SET receipt=? WHERE actor_id=? AND request_id=?')
           .run(JSON.stringify(receipt), setup.actorId, setup.input.requestId);
+        changed = true;
         return receipt;
       })
       .immediate();
+    if (changed && !nested) publishTelosWorkUpdate();
+    return result;
   }
   private item(id: string): Item {
     const item = this.db.prepare('SELECT * FROM items WHERE id=?').get(id) as Item | undefined;
@@ -1689,7 +1695,9 @@ export class TelosWorkStore {
   ): TelosWorkCommandReceipt {
     this.operator(actor);
     const input = TelosWorkCommandSchema.parse(raw);
-    return this.db
+    const nested = this.db.inTransaction;
+    let changed = false;
+    const receipt = this.db
       .transaction(() => {
         const actorId = `${actor.kind}:${actor.id}`,
           fingerprint = hash(input);
@@ -1741,9 +1749,12 @@ export class TelosWorkStore {
             'INSERT INTO telos_work_commands(actor_id,request_id,fingerprint,receipt) VALUES(?,?,?,?)',
           )
           .run(actorId, input.requestId, fingerprint, JSON.stringify(result));
+        changed = true;
         return result;
       })
       .immediate();
+    if (changed && !nested) publishTelosWorkUpdate();
+    return receipt;
   }
   /** Narrow host port for the existing approved creation tool. A conversation
    * cannot attach arbitrary work: canonical creation identity and stored source
