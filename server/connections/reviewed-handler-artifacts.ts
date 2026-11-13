@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1106-learning-telos-base-integration';
+  'v1.0.1107-learning-ask-source-pagination';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,17 +24,17 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-learning-tools.ts':
-    '126d48479375be6e689bbed9433169f28189f0d72cc53f117e3435dff94695fb',
+    '482f960c42033828946e9de27071b3a8c2e97606500567aa8d3516b410fea39b',
   '../session-learning-router.ts':
     '52503a7b4900412691746f2a83e954659f0d5c7e97dc5f5ef20f56d93a7aefbc',
   '../../packages/protocol/src/session-learning.ts':
     'f3f7fe52d32e84a3e104595b5b357407fda219e966a9e858265cd3ef9724a18e',
   '../../packages/protocol/src/session-learning-store.ts':
-    'f482a074f65875afa892f574e386485acef12dd9ee0714f59c06f7e6277ef06d',
+    'a52a99eb875a9e4ac66bbc0fb9697e0a7ec835862234b42b515580489c5e4adf',
   '../__tests__/session-learning-policy.test.ts':
-    '5806b3c177beecc38bf97ac6f370e8f490713a5c74bddede03d8e339889f6f7d',
+    '218605e3efb261b2f814be91ab436d1d4f2715fd13da10f3042b35b5f867f882',
   '../__tests__/session-learning-tools.test.ts':
-    '094216baf7044aed4f57db0bda78e922bc77af0db66a126cdc404dcf2603fc07',
+    '7a03b6b18ab84af712372e8f20e0f7df67367ed8c80718eddedbb8c713665abd',
   '../__tests__/session-learning-router.test.ts':
     '09f1fbdf92c53fa3a8c741572a1a74c833004eb82a744bc965a16a59b8c45f59',
   '../__tests__/fixtures/telos-ordinary-work.ts':
@@ -2693,7 +2693,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e33bda80c8667a2e22f02f1297e054b3769621fbb7cd6921a85f591d876f8c05',
   '../credential-http.ts': '4f9934df5c9f4918618868d663ed21ae2e633411bd7e027559f6008a21b8c7e4',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
-  '../credential-sdk-tools.ts': 'fb9c73d79e620ea564461b68f687d9a59b9c8c691d3a4143dbefda0a14c7a3a3',
+  '../credential-sdk-tools.ts': '45c02e96fd18eb575070a904c2c92826e86f05c6cf2fc4a5f4640f14f2853b3f',
   '../session-credential-tools.ts':
     '8b51d12a0a30970260903e3531bb0d7b26ef7ef6eb4641cdfa78fbf4e5918a0c',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',

@@ -32,6 +32,29 @@ function candidate(source: ReturnType<typeof message>) {
   };
 }
 
+it('pages eligible sources past tool-only replies without losing earlier history', () => {
+  const store = new EventStore(':memory:');
+  store.upsertSession({ sessionId: 'chat', cwd: '/offline' });
+  try {
+    const earlier = message(store, 'earlier');
+    const eligible = Array.from({ length: 100 }, (_, i) => message(store, `user-${i}`));
+    for (let i = 0; i < 101; i++) {
+      store.append('chat', 'message_end', { messageId: `tool-only-${i}` });
+    }
+    const page = store.listSessionLearningSources('chat');
+    expect(page).toHaveLength(100);
+    expect(page.map((source) => source.messageId)).toEqual(
+      eligible.map((source) => source.messageId).reverse(),
+    );
+    expect(store.listSessionLearningSources('chat', page.at(-1)!.eventSeq)).toEqual([
+      expect.objectContaining(earlier),
+    ]);
+    expect(store.listSessionLearningSources('chat', earlier.eventSeq)).toEqual([]);
+  } finally {
+    store.close();
+  }
+});
+
 it('round-trips read-only learning metadata without permitting stale or forged policy writes', () => {
   const { store } = fixture();
   try {
