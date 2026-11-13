@@ -11,6 +11,7 @@ import {
   restoreCookieAuthentication,
 } from '../../frontend/src/lib/api-fetch';
 import { sharedConversationView } from './symposium-shared-conversation-data';
+import { WorkspaceControls } from '../../frontend/src/components/WorkspaceControls';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/workspace.css';
@@ -30,12 +31,21 @@ void restoreCookieAuthentication().then((ok) => {
           authScope={currentVerifiedAuthSessionId()}
           getVerifiedAuthScope={currentVerifiedAuthSessionId}
         >
-          <SharedConversationAgents
-            scope="architect"
-            repository="example/project"
-            agents={[{ id: 'architect', name: 'Architect', state: 'Current conversation' }]}
-            messages={[]}
-          />
+          <WorkspaceControls
+            status="Ready"
+            settings={<input aria-label="Source setting" defaultValue="Original chat" />}
+            actions={
+              <SharedConversationAgents
+                compact
+                scope="architect"
+                repository="example/project"
+                agents={[{ id: 'architect', name: 'Architect', state: 'Current conversation' }]}
+                messages={[]}
+              />
+            }
+          >
+            <p>Original chat controls</p>
+          </WorkspaceControls>
           <SharedConversationBody
             sourceConversationId="architect"
             chat={{

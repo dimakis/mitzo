@@ -79,6 +79,12 @@ by retaining both main's learning behavior and the prerequisite context fences.
 available through the session peer list; its branch was not changed. This is an
 independent dependency-aware candidate, not authorization to merge #1324.
 
+Before publication verification, main advanced to `9147f18ff` (#1328). The
+accepted Symposium settings-context boundary and its tests/design rule were
+preserved through a merge; only the shared source registry needed conflict
+resolution, retaining both source sets at runtime revision 1112. This does not
+change the adoption settings or runtime support matrix.
+
 Focused tests cover real canonical stores/workspaces/role hosts, HTTP review and
 failure consumers, transport/query/finalizer owners, cancellation, stale custody,
 partial context, lost release responses and allocator tombstones. Tests use one
