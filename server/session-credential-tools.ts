@@ -1,4 +1,5 @@
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
+import { sessionLearningTools, learningToolDefinitions } from './session-learning-tools.js';
 import { sessionPromptTools } from './session-prompt-tools.js';
 import {
   sessionPromptDefinitions,
@@ -67,6 +68,14 @@ export function sessionCredentialTools(
     assertRuntimeCurrent,
     assertRuntimeCurrentSync,
   );
+  const learningTools = sessionLearningTools(
+    sessionId,
+    session,
+    registry,
+    toolPrefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  );
   const profileTools = sessionProfileTools(
     sessionId,
     session,
@@ -101,6 +110,7 @@ export function sessionCredentialTools(
       ...(assertRuntimeCurrent && assertRuntimeCurrentSync ? sessionPromptDefinitions : []),
       ...(taskToolsEnabled ? agentTaskToolDefinitions : []),
       ...knowledgeToolDefinitions,
+      ...learningToolDefinitions,
     ]),
     async execute(
       name: string,
@@ -109,6 +119,7 @@ export function sessionCredentialTools(
       call?: ProfileToolCall,
     ) {
       if (connections.handles(name)) return connections.execute(name, input, signal);
+      if (name === 'CaptureMemoryCandidate') return learningTools.execute(name, input, signal);
       if (name === 'ReadKnowledge' || name === 'SaveKnowledgeDraft')
         return knowledgeTools.execute(name, input, signal);
       await assertRuntimeCurrent?.();

@@ -1,5 +1,7 @@
 // Fail before application imports can create stores, routes or recovery owners.
 import './deployment-maintenance-entry.js';
+import { installHostKnowledgeStore } from './published-host-knowledge.js';
+import { knowledgeStoreFromEnvironment } from './knowledge-store-config.js';
 import { createDeploymentRuntime } from './deployment-runtime.js';
 import { createDeploymentRouter } from './deployment-routes.js';
 import { getLocalCommit } from './git-version.js';
@@ -298,6 +300,12 @@ setConnectionRegistry(connRegistry);
 // Lifecycle construction happens only after the authoritative session, event,
 // task and queue readers exist. It is still inert unless OpenShell is enabled.
 const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
+if (process.env.MITZO_LOCAL_KNOWLEDGE_ENABLED === '1') {
+  const store =
+    configuredOpenShellRuntime?.knowledgeStore ?? knowledgeStoreFromEnvironment(process.env);
+  if (!store) throw Error('Local knowledge refresh requires an enrolled knowledge store');
+  installHostKnowledgeStore(store);
+}
 const knowledgePrewarming = startKnowledgePrewarming(configuredOpenShellRuntime?.knowledgeStore, {
   onError: () =>
     log.warn('Knowledge conversion prewarming unavailable; commands retain fresh admission'),

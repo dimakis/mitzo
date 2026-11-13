@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { TelosCreateSessionInputSchema } from '@mitzo/protocol';
 import { sessionLaunchTools } from './session-launch-tools.js';
 import { telosSessionLaunchDefinition } from './telos-session-launch-tool.js';
+import { learningToolSchemas, learningToolDefinitions } from './session-learning-tools.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
@@ -48,12 +49,14 @@ const schemas = {
   ...repositoryChatSchemas,
   ...profileToolSchemas,
   ...knowledgeToolSchemas,
+  ...learningToolSchemas,
 };
 const definitions = [
   ...credentialConnectionToolDefinitions,
   ...repositoryChatToolDefinitions,
   ...profileToolDefinitions,
   ...knowledgeToolDefinitions,
+  ...learningToolDefinitions,
   ...sessionPromptDefinitions,
 ];
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
@@ -87,6 +90,7 @@ export function credentialSdkPermission(
       short === 'ConnectionWebSocket' ||
       short === 'ApplySecretRelay' ||
       short === 'PrepareRepositoryChat' ||
+      (short === 'CaptureMemoryCandidate' && input.action === 'capture') ||
       short === 'SaveKnowledgeDraft')
   )
     return { behavior: 'deny' as const, message: 'Ask mode only permits connection reads' };
@@ -135,6 +139,7 @@ export function createCredentialSdkServer(
             ),
             ...profileToolDefinitions,
             ...sessionPromptDefinitions,
+            ...learningToolDefinitions,
           ]
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
