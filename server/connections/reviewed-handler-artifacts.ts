@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/offline/prepared-continuation-steering.spec.ts':
+    '15b0f487e1ea6795e67331e39beb3b38c8682f2b370103f05751bb3afc9337fa',
   '../native-host-effects-recovery-error.ts':
     'a94314a395bdcb7a204aba26414ea19dda89b94ebf79d249a1f5c5407d79c478',
   '../../packages/client/src/command-attribution.ts':
@@ -4398,7 +4400,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/chat-queue-steering.tsx':
     'd3587b0e18c301c065242f3de01a556493c2a8ab20be1b779d85e3ada1884678',
   '../../tests/offline/chat-queue-steering.spec.ts':
-    '93ce2a4db8911e7a8470fe1219b017c3b6992dea23352970c1b55caa5790c3f5',
+    '66288dbc3bf6d48ef18257e6367516f5729d0c4ae38f3bc16255ca2475904a82',
   '../../frontend/src/components/SymposiumProfileRecipeEditor.tsx':
     '0d0ba98f29363183146c7e4c85421b782101cd8c992967547bec40c7436bc20e',
   '../../frontend/src/components/__tests__/SymposiumProfileRecipeEditor.test.tsx':
