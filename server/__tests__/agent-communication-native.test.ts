@@ -22,6 +22,7 @@ import {
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { EventStore } from '../event-store.js';
+import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { CodexConversation, type CodexConversationOptions } from '../codex-conversation.js';
 import { composeOwnedLocalNativeExecutionPolicy } from '../owned-local-codex-native-policy.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
@@ -94,6 +95,31 @@ it('keeps native peer discovery available after viewer replacement, until operat
   );
   revokeAuthSession(f.auth);
   expect((await f.a.call({ operation: 'list' })).response.success).toBe(false);
+});
+it('names a saved Telos peer from retained setup without inspecting messages or starting it', async () => {
+  const f = await fixture();
+  const text = JSON.stringify({ summary: 'PR monitor architecture' });
+  retainTelosWorkRoleContext(f.f.events, f.b.sessionId, f.b.initial.lease.binding, {
+    version: 1,
+    itemId: 'architecture-slice',
+    role: 'worker',
+    leadConversationId: f.a.sessionId,
+    brief: { revision: 'r1', text, sha256: createHash('sha256').update(text).digest('hex') },
+    parentCriteria: [],
+    overallGoal: { itemId: 'monitor', revision: 'r1', text: 'PR monitoring' },
+    sources: [],
+    artifacts: [],
+  });
+  const result = await f.a.call({ operation: 'list' });
+  expect(result.response.success).toBe(true);
+  expect(result.value.chats).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        conversationId: f.b.sessionId,
+        summary: 'PR monitor architecture',
+      }),
+    ]),
+  );
 });
 
 it('retains the original combined read owner and refuses borrowed context or scope', async () => {

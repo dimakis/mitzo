@@ -28,6 +28,32 @@ const sessions = Array.from({ length: 12 }, (_, index) => ({
   accountLabel: index % 2 ? 'Work' : 'Personal',
   totalTokens: 1200000,
   isActive: false,
+  parentConversationId: index === 2 ? 'session-1' : index === 3 ? 'session-2' : undefined,
+  agentName:
+    index === 1 ? 'Coordinator' : index === 2 ? 'Developer' : index === 3 ? 'Architect' : undefined,
+  engine:
+    index === 1
+      ? ('claude-sdk' as const)
+      : index === 2
+        ? ('codex' as const)
+        : index === 3
+          ? ('gemini' as const)
+          : undefined,
+  executionLocation: index === 2 ? ('openshell' as const) : ('local' as const),
+  workRole:
+    index >= 1 && index <= 3
+      ? {
+          itemId: `work-${index}`,
+          level:
+            index === 1
+              ? ('outcome' as const)
+              : index === 2
+                ? ('feature' as const)
+                : ('slice' as const),
+          role: index === 3 ? ('worker' as const) : ('lead' as const),
+          assignment: 'current' as const,
+        }
+      : undefined,
   telosTaskId: index === 1 ? 'work-one' : undefined,
   contextUsage: {
     used: 48000,
@@ -205,6 +231,23 @@ for (const theme of ['dark', 'light'])
     });
     await page.setViewportSize({ width: isMobile ? 390 : 1280, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/sessions');
+    await page.getByRole('button', { name: 'Tree', exact: true }).click();
+    const tree = page.getByRole('navigation', { name: 'Conversation tree' });
+    await expect(tree.getByRole('button', { name: /^Conversation 3/ })).toBeVisible();
+    await expect(tree.getByText('Outcome orchestrator', { exact: true })).toBeVisible();
+    await expect(tree.getByText(/Developer · Codex · OpenShell/)).toBeVisible();
+    await expect(tree.getByText(/Architect · Gemini · Local Mac/)).toBeVisible();
+    const parent = tree
+      .getByText('Conversation 1', { exact: true })
+      .locator('xpath=ancestor::details[1]');
+    await expect(parent.getByRole('button', { name: /^Conversation 3/ })).toBeVisible();
+    await parent.locator(':scope > summary').click({ position: { x: 8, y: 20 } });
+    await expect(tree.getByRole('button', { name: /^Conversation 3/ })).not.toBeVisible();
+    await parent.locator(':scope > summary').click({ position: { x: 8, y: 20 } });
+    await page.screenshot({ path: testInfo.outputPath(`conversation-tree-${theme}.png`) });
+    await tree.getByRole('button', { name: /^Conversation 3/ }).click();
+    await expect(page.getByRole('button', { name: 'Opened conversation' })).toBeVisible();
     await page.goto('/sessions');
     await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
     const newChat = page.getByRole('button', { name: 'New chat', exact: true });
@@ -457,6 +500,12 @@ for (const theme of ['dark', 'light'])
       await page.getByRole('menuitem', { name: 'Pin conversation', exact: true }).click();
       await expect(pinned.locator('.conversation-pin-row')).toHaveCount(7);
       await page.goto('/panel');
+      await page.getByRole('button', { name: 'Tree', exact: true }).click();
+      await expect(page.getByRole('navigation', { name: 'Conversation tree' })).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath(`conversation-tree-sidebar-${theme}.png`),
+      });
+      await page.getByRole('button', { name: 'All', exact: true }).click();
       await page.locator('.session-panel-select').first().click({ button: 'right' });
       await expect(page.getByRole('menuitem', { name: 'Unpin conversation' })).toBeVisible();
       await page.keyboard.press('Escape');

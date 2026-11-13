@@ -42,6 +42,7 @@ function fixture(variant: 'fresh' | 'upgraded' = 'fresh') {
       {
         items,
         work: f.work,
+        events: f.events,
         approve,
         context: {
           operatorId: f.actor.id,
@@ -68,6 +69,47 @@ function fixture(variant: 'fresh' | 'upgraded' = 'fresh') {
     },
   };
 }
+it('returns the current named assignment separately from historical links, without starting work', async () => {
+  const f = fixture();
+  const command = (raw: Record<string, unknown>) =>
+    f.work.execute(
+      {
+        itemId: 'studio',
+        requestId: `context-${Math.random()}`,
+        expectedRevision: f.work.read('studio', f.actor).revision,
+        ...raw,
+      },
+      f.actor,
+    );
+  command({
+    operation: 'link',
+    role: 'lead',
+    conversation: { namespace: 'mitzo', conversationId: 'planning' },
+  });
+  command({
+    operation: 'assign',
+    role: 'lead',
+    conversationId: 'planning',
+    expectedAssignmentRevision: 0,
+  });
+  const result = await f.run('TelosManageItem', { operation: 'read', itemId: 'studio' });
+  expect(result.isError).toBe(false);
+  const value = JSON.parse(result.content);
+  expect(value.workContext).toMatchObject({
+    revision: f.work.read('studio', f.actor).revision,
+    currentLead: {
+      conversationId: 'planning',
+      name: 'Studio planning',
+      assignmentRevision: 1,
+      runtimeState: 'not_live',
+    },
+    currentWorker: null,
+    latestAllocation: null,
+  });
+  expect(value.item.revision).toBe(f.items.read('studio').revision);
+  expect(f.events.getOrdinaryInitialCommandId('planning')).toBeUndefined();
+  expect(f.approve).not.toHaveBeenCalled();
+});
 it('discovers list, search and maintenance contracts by their exact callable identity', async () => {
   const f = fixture();
   const discovery = createIntegrationToolDiscovery({

@@ -17,6 +17,7 @@ import type { CodexConversationStore } from './codex-conversation-store.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
+import { sessionConversationNavigation } from './session-list-metadata.js';
 import {
   agentMessageRuntime,
   hasAgentMessageRuntime,
@@ -474,7 +475,10 @@ export function sessionAgentCommunicationTools(owners: Owners) {
             return [
               {
                 conversationId: meta.sessionId,
-                summary: meta.summary,
+                summary:
+                  sessionConversationNavigation(owners.events, meta.sessionId).summary ??
+                  meta.summary ??
+                  'Untitled conversation',
                 availability:
                   liveRecipient(meta.sessionId) && info.state !== 'unavailable'
                     ? 'live'

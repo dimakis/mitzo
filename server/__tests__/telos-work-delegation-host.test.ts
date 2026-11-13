@@ -272,6 +272,7 @@ it('starts the exact cold worker through ordinary admission and recovers its ori
   expect(f.ordinary.store.getOrdinaryInitialCommandId(call.sessionId)).toBe(
     result.execution.commandId,
   );
+  f.ordinary.reopen();
   expect(await f.starter()(f.allocation, f.authority)).toEqual(result);
   expect(f.dispatch).toHaveBeenCalledTimes(1);
   expect(f.ordinary.store.listSessions()).toHaveLength(before);

@@ -48,6 +48,7 @@ import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import {
   readSessionModelSelection,
   sessionListMetadata,
+  sessionConversationNavigation,
   sessionModelIdentity,
 } from './session-list-metadata.js';
 import { readCompactionHistory } from './compaction-history.js';
@@ -166,6 +167,8 @@ import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { resolveTelosWorkRolePresentation } from './telos-work-role-presentation.js';
 import { captureTaskToolExecution, type TaskToolExecution } from './task-worker-authority.js';
 import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
+import { TelosItemStore } from './telos-item-store.js';
+import { sessionRuntimeIdentity } from './telos-work-observation.js';
 import { TelosWorkAdvisorDraft } from './telos-work-advisor-draft.js';
 import { TelosArtifactStore } from './telos-artifact-store.js';
 import { resolveOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
@@ -3541,30 +3544,81 @@ app.get('/api/sessions', async (req, res) => {
 
   /** Annotate raw session list with live-status and token metadata. */
   function annotate(sessions: Array<{ id: string; [k: string]: unknown }>) {
-    const activeMap = new Map<string, { attached: boolean }>();
-    for (const s of registry.getActiveSessions()) {
-      if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
-    }
-    return sessions.map((s) => {
-      const live = activeMap.get(s.id);
-      const meta = eventStore.getSession(s.id);
-      return {
-        ...s,
-        isActive: !!live,
-        isAttached: live?.attached ?? false,
-        totalTokens: meta
-          ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
-          : undefined,
-        ...sessionListMetadata(
-          meta ?? {},
-          eventStore.getLatestEvent(s.id, 'token_update'),
-          (id, fallback) => accountAliases.label(id, fallback),
-          readSessionModelSelection(eventStore, s.id),
-        ),
-        numTurns: meta?.numTurns,
-        closedBy: meta?.closedBy ?? undefined,
+    let work: TelosWorkStore | undefined;
+    let items: TelosItemStore | undefined;
+    // Request-local presentation cache only; never reused for command authority.
+    const snapshots = new Map<
+      string,
+      { work: ReturnType<TelosWorkStore['read']>; item: ReturnType<TelosItemStore['read']> }
+    >();
+    const readWork = (id: string) => {
+      const operatorId = (res.locals.authSession as AuthSession | undefined)?.id;
+      if (!operatorId) throw Error('Authenticated conversation navigation required');
+      const cached = snapshots.get(id);
+      if (cached) return cached;
+      work ??= new TelosWorkStore(
+        telosDatabasePath(),
+        {
+          ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+        },
+        true,
+      );
+      items ??= new TelosItemStore(telosDatabasePath(), { readOnly: true });
+      const snapshot = {
+        work: work.read(id, { kind: 'operator', id: operatorId }),
+        item: items.read(id),
       };
-    });
+      snapshots.set(id, snapshot);
+      return snapshot;
+    };
+    try {
+      const activeMap = new Map<string, { attached: boolean }>();
+      for (const s of registry.getActiveSessions()) {
+        if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
+      }
+      return sessions.map((s) => {
+        const live = activeMap.get(s.id);
+        const meta = eventStore.getSession(s.id);
+        return {
+          ...s,
+          isActive: !!live,
+          isAttached: live?.attached ?? false,
+          totalTokens: meta
+            ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
+            : undefined,
+          ...sessionListMetadata(
+            meta ?? {},
+            eventStore.getLatestEvent(s.id, 'token_update'),
+            (id, fallback) => accountAliases.label(id, fallback),
+            readSessionModelSelection(eventStore, s.id),
+          ),
+          numTurns: meta?.numTurns,
+          ...sessionRuntimeIdentity(eventStore, s.id),
+          closedBy: meta?.closedBy ?? undefined,
+          ...sessionConversationNavigation(
+            eventStore,
+            s.id,
+            () =>
+              sessionLaunchController.launches.store
+                .forSession(s.id, 'user')
+                .find((record) => record.childSessionId === s.id)?.sourceSessionId,
+            readWork,
+          ),
+        };
+      });
+    } finally {
+      for (const owner of [items, work]) {
+        try {
+          owner?.close();
+        } catch (cause) {
+          log.warn('Conversation navigation connection cleanup failed', {
+            stage: 'conversation_tree_cleanup',
+            code: 'conversation_tree_cleanup_failed',
+            ...sessionMetadataDiagnostic(cause),
+          });
+        }
+      }
+    }
   }
 
   try {

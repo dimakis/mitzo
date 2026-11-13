@@ -30,6 +30,7 @@ import { TelosWorkControls } from './telos-work-controls.js';
 import { TelosWorkLifecycle } from './telos-work-lifecycle.js';
 import type { TelosWorkControlScope } from '@mitzo/protocol';
 import { createHash, randomUUID } from 'node:crypto';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   TelosWorkCommandSchema,
@@ -1228,7 +1229,7 @@ export class TelosWorkStore {
     const check = () => {
       const result: unknown = assertion();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'backlog-authority');
         throw Error('Synchronous Telos authority required');
       }
     };

@@ -4214,6 +4214,9 @@ async function openCodexChatBound(
                   get work() {
                     return owners.work;
                   },
+                  events: options.eventStore,
+                  isConversationLive: (id) =>
+                    !!options.registry.findBySessionId(id)?.session.ordinaryRuntimeOwner,
                   approve: (toolName, exact, permissionSignal) =>
                     buildPermissionHandler(owner.clientId, options.registry, {
                       onDemandCreate: options.onDemandCreate,

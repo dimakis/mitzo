@@ -25,6 +25,28 @@ assignment, stop, cancellation, revocation, unavailable account or work hold.
 `TelosManageItem`, while retaining the separate relationship revision internally.
 Both the canonical brief and current parent lead are rechecked during proposal review.
 
+`TelosManageItem` reads include `workContext.currentLead` and `currentWorker` with
+the canonical assignment revision, readable conversation name, navigation path,
+saved runtime selection and an observed live/not-live/unknown state. The separate
+`latestAllocation` preserves the original receipt. A different current worker is
+never silently substituted into that receipt. `startExistingWorker` describes
+route eligibility and the missing condition, not permission or provider readiness.
+Mixed engines remain visible; the explicit startup adapter remains Local Mac Codex.
+
+The sidebar and Conversations page offer Tree navigation with outcome orchestrators,
+feature leads and slice workers. Current canonical assignments determine parents;
+standalone features remain roots. Previous assignments, unreadable relationships
+and unknown runtime details remain visible. Each row retains its own agent, engine,
+execution location, model, status and actions. Loaded ancestors are navigable through
+breadcrumbs, and unloaded parents/pagination are labelled. Peer discovery also uses
+reviewed setup names for older unnamed Telos chats without reading their messages.
+
+UI reuses navigation rows, shared semantic tokens, MotionDetails, SessionActivityStatus,
+UiIcon and the existing action menu. Offline fixtures cover three levels and mixed
+runtime metadata across phone/desktop themes. Browser execution in this host executor
+is blocked by macOS Mach-port registration permissions; DOM and design tests are
+separate from rendered visual evidence. No browser success or screenshots are claimed.
+
 Validation uses real Telos/EventStore/task/workspace owners and the mounted HTTP
 route/tool consumer, with simulated ordinary dispatch. The canonical native journey
 covers both manual and lead starts with synthetic RPC responses and the pinned

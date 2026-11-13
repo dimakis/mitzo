@@ -39,6 +39,7 @@ import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOve
 import { SessionPreview } from '../components/SessionPreview';
 import { UiIcon } from '../components/UiIcon';
 import { MotionDetails } from '../components/MotionDetails';
+import { ConversationTree } from '../components/ConversationTree';
 
 function SwipeableSession({
   session,
@@ -366,6 +367,7 @@ function SwipeableSession({
 }
 
 export function SessionList() {
+  const [treeView, setTreeView] = useState(false);
   const [timersOpen, setTimersOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -624,14 +626,41 @@ export function SessionList() {
           </div>
           {!search.active && (
             <div className="conversation-filters" aria-label="Conversation filters">
-              <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
+              <button
+                aria-pressed={filter === 'all' && !treeView}
+                onClick={() => {
+                  setTreeView(false);
+                  setFilter('all');
+                }}
+              >
                 All
               </button>
-              <button aria-pressed={filter === 'active'} onClick={() => setFilter('active')}>
+              <button
+                aria-pressed={filter === 'active' && !treeView}
+                onClick={() => {
+                  setTreeView(false);
+                  setFilter('active');
+                }}
+              >
                 Active <span>{active.length}</span>
               </button>
-              <button aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}>
+              <button
+                aria-pressed={filter === 'attention' && !treeView}
+                onClick={() => {
+                  setTreeView(false);
+                  setFilter('attention');
+                }}
+              >
                 Needs you <span>{attention.length}</span>
+              </button>
+              <button
+                aria-pressed={treeView}
+                onClick={() => {
+                  setTreeView((value) => !value);
+                  setFilter('all');
+                }}
+              >
+                Tree
               </button>
             </div>
           )}
@@ -768,24 +797,35 @@ export function SessionList() {
                       : 'Start your first conversation'}
                 </p>
               )}
-              <MotionList className="session-list">
-                {visible.map((s) => (
-                  <SwipeableSession
-                    key={s.id}
-                    session={s}
-                    activity={displayById.get(s.id)}
-                    connected={connected}
-                    onDismiss={dismiss}
-                    desktop={desktop}
-                    selected={desktop && selectedPreview?.id === s.id}
-                    onPreview={previewSession}
-                    onActions={showActions}
-                    onClick={openSession}
-                    onRename={handleRename}
-                    onInteractionChange={onInteractionChange}
-                  />
-                ))}
-              </MotionList>
+              {treeView ? (
+                <ConversationTree
+                  sessions={all}
+                  selectedId={desktop ? selectedPreview?.id : undefined}
+                  activities={displayById}
+                  connected={connected}
+                  onSelect={openSession}
+                  onActions={showActions}
+                />
+              ) : (
+                <MotionList className="session-list">
+                  {visible.map((s) => (
+                    <SwipeableSession
+                      key={s.id}
+                      session={s}
+                      activity={displayById.get(s.id)}
+                      connected={connected}
+                      onDismiss={dismiss}
+                      desktop={desktop}
+                      selected={desktop && selectedPreview?.id === s.id}
+                      onPreview={previewSession}
+                      onActions={showActions}
+                      onClick={openSession}
+                      onRename={handleRename}
+                      onInteractionChange={onInteractionChange}
+                    />
+                  ))}
+                </MotionList>
+              )}
               {hasMore && filter === 'all' && (
                 <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
                   {loadingMore ? 'Loading…' : 'Load more conversations'}

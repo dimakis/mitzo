@@ -376,6 +376,21 @@ export interface SessionContextUsage {
 export interface Session {
   id: string;
   summary: string;
+  /** Navigation metadata only; never task, runtime or transcript authority. */
+  parentConversationId?: string;
+  parentConversationTitle?: string;
+  treeUnavailable?: boolean;
+  parentRelationship?: 'assignment' | 'creation' | 'retained_setup';
+  workRole?: {
+    itemId: string;
+    level: 'outcome' | 'feature' | 'slice' | null;
+    role: 'lead' | 'worker' | 'advisor' | 'reviewer';
+    assignment: 'current' | 'previous' | 'pending';
+  };
+  agentName?: string;
+  engine?: 'codex' | 'claude-sdk' | 'responses' | 'gemini';
+  executionLocation?: 'local' | 'openshell';
+  runtimeUnavailable?: boolean;
   /** Recorded model choice, never inferred from the engine or a global default. */
   model?: string;
   /** A failed receipt read must not revive an older cached model. */
