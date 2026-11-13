@@ -330,7 +330,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: conversation-library-visuals-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: test-results/offline/**/session-library-*.png
+          path: |
+            test-results/offline/**/session-library-*.png
+            test-results/offline/**/conversation-tree-*.png
           retention-days: 7
           if-no-files-found: ignore
 
