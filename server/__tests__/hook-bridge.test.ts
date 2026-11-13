@@ -12,8 +12,11 @@ import {
 } from '../hook-bridge.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-hooks-test-${Date.now()}`);
+const log = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('../logger.js', () => ({ createLogger: () => log }));
 
 beforeEach(() => {
+  vi.clearAllMocks();
   mkdirSync(join(TEST_DIR, '.claude'), { recursive: true });
 });
 
@@ -244,6 +247,7 @@ describe('loadProjectHooks', () => {
     expect(hooks!.SessionStart![0].matcher).toBe('startup');
     expect(hooks!.SessionStart![0].hooks).toHaveLength(1);
     expect(typeof hooks!.SessionStart![0].hooks[0]).toBe('function');
+    expect(hooks!.SessionStart![0].onFailure).toBe('block');
   });
 
   it('returns undefined when no settings.json exists', () => {
@@ -419,6 +423,7 @@ it.each(
     [],
     'text',
     { async: true },
+    { terminalSequence: '\u0007' },
     { continue: 'false' },
     { hookSpecificOutput: { permissionDecision: 'unknown' } },
     { hookSpecificOutput: { updatedInput: [] } },
@@ -453,3 +458,58 @@ it.each(
     expect(decide).not.toHaveBeenCalled();
   },
 );
+
+it.each(['Stop', 'SubagentStop', 'TaskCompleted', 'TeammateIdle'] as const)(
+  'stops on invalid event output where SDK onFailure is ignored: %s',
+  async (event) => {
+    const runner = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({
+        hookSpecificOutput: { hookEventName: event, decision: { behavior: 'bogus' } },
+      }),
+      stderr: '',
+    });
+    const callback = createCommandCallback('synthetic', TEST_DIR, 1000, {}, runner);
+    expect(
+      await callback({ hook_event_name: event } as never, 'tool-ignored', {
+        signal: new AbortController().signal,
+      }),
+    ).toMatchObject({ continue: false });
+  },
+);
+
+it.each(['Stop', 'SubagentStop'] as const)('preserves supported %s context', (event) => {
+  expect(mapHookOutput({ additionalContext: 'continue with feedback' }, event)).toEqual({
+    hookSpecificOutput: { hookEventName: event, additionalContext: 'continue with feedback' },
+  });
+});
+
+it.each([
+  { code: 127, signal: null, killed: false },
+  { code: null, signal: 'SIGTERM', killed: true },
+  { code: 'ETIMEDOUT', killed: true },
+])('retains safe command failure diagnostics: %j', async (details) => {
+  const runner = vi
+    .fn()
+    .mockRejectedValue(Object.assign(new Error('private-command-output'), details));
+  const callback = createCommandCallback('private-command', TEST_DIR, 10, {}, runner);
+  const result = await callback(
+    { hook_event_name: 'PreToolUse', session_id: 'session' } as never,
+    'invocation',
+    { signal: new AbortController().signal },
+  );
+  expect(result).toMatchObject({ continue: false });
+  expect(log.warn).toHaveBeenLastCalledWith(
+    'Project hook failed',
+    expect.objectContaining({
+      code: 'project_hook_failed',
+      stage: 'command',
+      sessionId: 'session',
+      toolUseId: 'invocation',
+      ...(typeof details.code === 'number' ? { exitCode: details.code } : {}),
+      ...(details.signal ? { signal: details.signal } : {}),
+      killed: details.killed,
+      ...(details.code === 'ETIMEDOUT' ? { cause: 'ETIMEDOUT' } : {}),
+    }),
+  );
+  expect(JSON.stringify(log.warn.mock.calls)).not.toContain('private-command');
+});

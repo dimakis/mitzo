@@ -127,6 +127,10 @@ export function expandEnvVars(command: string, env: Record<string, string>): str
 export function mapHookOutput(raw: unknown, hookEventName: string): SyncHookJSONOutput {
   const parsed = commonOutput.parse(raw);
   if ('async' in parsed) throw new Error('Asynchronous project hooks are unsupported');
+  if ('terminalSequence' in parsed)
+    throw new Error(
+      'Project terminal notifications are unsupported; use the shared notification owner',
+    );
   const result: Record<string, unknown> = {};
   const specific =
     parsed.hookSpecificOutput === undefined ? {} : specificOutput.parse(parsed.hookSpecificOutput);
@@ -144,6 +148,16 @@ export function mapHookOutput(raw: unknown, hookEventName: string): SyncHookJSON
   }
 
   if (Object.keys(specific).length > 0) {
+    // The pinned SDK ignores onFailure on these four events. Validate their
+    // complete specific shapes here rather than relying on its warning path.
+    if (hookEventName === 'Stop' || hookEventName === 'SubagentStop') {
+      z.strictObject({
+        hookEventName: z.literal(hookEventName).optional(),
+        additionalContext: z.string().optional(),
+      }).parse(specific);
+    } else if (hookEventName === 'TaskCompleted' || hookEventName === 'TeammateIdle') {
+      throw new Error('This event has no supported hook-specific output');
+    }
     result.hookSpecificOutput = { ...specificOutput.parse(specific), hookEventName };
   }
 
@@ -167,13 +181,14 @@ export function createCommandCallback(
   options: { signal: AbortSignal },
 ) => Promise<HookJSONOutput> {
   const env = hookEnvironment(environment);
-  return async (input, _toolUseID, options) => {
+  return async (input, toolUseId, options) => {
     const hookEventName =
       input && typeof input === 'object' && 'hook_event_name' in input
         ? String((input as Record<string, unknown>).hook_event_name)
         : 'unknown';
 
     let stage = 'command';
+    const startedAt = Date.now();
     try {
       options.signal.throwIfAborted();
       const commandOptions = {
@@ -202,10 +217,11 @@ export function createCommandCallback(
       stage = 'output';
       return stdout.trim() ? mapHookOutput(JSON.parse(stdout.trim()), hookEventName) : {};
     } catch (error) {
+      const details = error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
       const cause = options.signal.aborted
         ? 'cancelled'
-        : error instanceof Error && 'code' in error && typeof error.code === 'string'
-          ? error.code
+        : typeof details.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(details.code)
+          ? details.code
           : stage === 'output'
             ? 'invalid_output'
             : 'command_failed';
@@ -215,6 +231,14 @@ export function createCommandCallback(
         cause,
         event: hookEventName,
         sessionId: 'session_id' in input ? input.session_id : undefined,
+        toolUseId,
+        ...(typeof details.code === 'number' ? { exitCode: details.code } : {}),
+        ...(typeof details.signal === 'string' && /^SIG[A-Z0-9]{1,16}$/.test(details.signal)
+          ? { signal: details.signal }
+          : {}),
+        ...(typeof details.killed === 'boolean' ? { killed: details.killed } : {}),
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
       });
       return {
         continue: false,
@@ -258,6 +282,7 @@ export function loadProjectHooks(
       if (callbacks.length === 0) continue;
 
       sdkMatchers.push({
+        onFailure: 'block',
         ...(matcher.matcher ? { matcher: matcher.matcher } : {}),
         hooks: callbacks,
         ...(matcher.timeout ? { timeout: matcher.timeout } : {}),

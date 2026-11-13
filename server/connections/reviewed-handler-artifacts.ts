@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1134-specialist-custom-api-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1135-hook-failure-policy';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -236,7 +235,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/pushover.test.ts':
     '5624db8d0ded8694c3888ad56703c8df8260d48a43be92f543ffcf8a3ed1a88d',
   '../__tests__/session-permission-policy.test.ts':
-    '293faeb827e822b45162c310a132cddd1efb81ea7bf4255a7352010e073fd675',
+    '6f2ede9be136703b1c8b07aaa60c888f810e71c598c5d8909eb125a0fed538dd',
   '../../frontend/src/components/__tests__/ReviewedArtifactContents.test.tsx':
     'ad7af51c51e3808794190c21a79835bacf73d81d289aab536c7e5f7d3d685392',
   '../../frontend/src/components/ReviewedArtifactContents.tsx':
@@ -2190,7 +2189,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-source-approval-store.ts':
     '04f1fe3d4bb547e83aa08f29331936e111d53cee652cbd7819a2d55c07c39b3b',
   '../session-permission-policy.ts':
-    'ecea6009bd1307829048598f563b976328cc98ad1871b2d37d999a17743f7b27',
+    '2e02853fc812fc44172dec8c4399190c253ad5cd9d16cbd7e107162f92ddc8b8',
   '../../frontend/src/types/ws-messages.ts':
     'a1f28db383142b0ddf41247b5967836765f532813710bd393409859184893c32',
   '../../frontend/src/styles/global.css':
@@ -2815,7 +2814,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '0d59438a3dd722e6a8e7f9955ab0af6d1959f9ac77a79f97ec190aa8fe5d1cae',
   '../__tests__/native-hooks.test.ts':
     'f1c2042d575d03d18f1decc8e6256987b5ffb551aff94cbde55363866ca59aa9',
-  '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
+  '../hook-bridge.ts': '1a6b3c2caf5b83999083ee97b1d5a9b54b750160d534abde3a495cc4f8e479ba',
   '../native-tool-executor.ts': '53139629352e57d435f554b251e3fc24640305588c01647daf60420cd5b148ae',
   '../repository-preparation-capacity.ts':
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',
