@@ -102,6 +102,27 @@ it('posts the exact current client/session and returns only a verified canonical
   );
 });
 
+it('requires an execution receipt when explicit worker startup was selected', async () => {
+  const started = {
+    allocation: receipt,
+    execution: { commandId: 'original-command', state: 'admitted' },
+  };
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify(started)))
+    .mockResolvedValueOnce(new Response(JSON.stringify(receipt)));
+  vi.stubGlobal('fetch', fetch);
+  const send = () =>
+    executeTelosWorkTool('http://host', 'client', 'lead-chat', 'secret', 'TelosStartSlice', {
+      ...input,
+      execute: true,
+    });
+  const result = await send();
+  expect(result.isError).toBe(false);
+  expect(JSON.parse(result.content)).toEqual(started);
+  expect((await send()).isError).toBe(true);
+});
+
 it('rejects absent identity, cancellation and invalid requests before contacting the host', async () => {
   const fetch = vi.fn();
   vi.stubGlobal('fetch', fetch);

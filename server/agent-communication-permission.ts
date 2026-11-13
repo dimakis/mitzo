@@ -5,6 +5,10 @@ import {
   type SessionRegistry,
 } from '@mitzo/harness';
 import type { EventStore } from './event-store.js';
+import {
+  ordinaryOperatorOwnsConversation,
+  ordinaryOperatorsShareIdentity,
+} from './ordinary-operator-identity.js';
 
 const grantKey = (operator: string, conversation: string) =>
   `agent-communication:${operator}:${conversation}`;
@@ -52,19 +56,21 @@ export function createAgentMessageApprover(options: {
       const peer = options.registry.findBySessionId(original.message.senderConversationId);
       const peerIdentity = peer?.session.ordinaryRuntimeOwner;
       const replyKey = [
-        adapterGrantKey(operator, original.message.senderConversationId),
-        ...(nativePair ? [grantKey(operator, original.message.senderConversationId)] : []),
+        adapterGrantKey(peerIdentity?.authSessionId ?? '', original.message.senderConversationId),
+        ...(nativePair
+          ? [grantKey(peerIdentity?.authSessionId ?? '', original.message.senderConversationId)]
+          : []),
       ].find((key) => peer?.session.sessionAllowList.has(key));
       replyGrantCurrent = () =>
         Boolean(
-          original.operatorAuthSessionId === operator &&
+          ordinaryOperatorOwnsConversation(original.operatorAuthSessionId, operator) &&
           original.message.recipientConversationId === options.conversationId &&
           original.message.senderConversationId === input.recipientConversationId &&
           peer &&
           options.registry.findBySessionId(original.message.senderConversationId)?.session ===
             peer.session &&
           peer.session.ordinaryRuntimeOwner === peerIdentity &&
-          peerIdentity?.authSessionId === operator &&
+          ordinaryOperatorsShareIdentity(peerIdentity?.authSessionId, operator) &&
           !peer.session.abortController.signal.aborted &&
           !options.registry.isClosingOut(peer.clientId) &&
           !options.registry.isUserClose(peer.clientId) &&

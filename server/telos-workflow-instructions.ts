@@ -39,8 +39,17 @@ TelosCreateSession is create-only: its assigned receipt confirms creation, not c
 execution admission, runtime readiness or completion. A separate start needs its proper authority and
 receipt. Preserve the exact requestId and arguments after uncertainty. Never silently substitute plain
 StartSession for work-bound creation. Existing-chat adoption requires its own supported reviewed flow.
+Read TelosManageItem.workContext to resolve the current named lead and worker with their assignment
+revisions, chat paths, runtime observations and supported startup route. latestAllocation is historical
+allocation evidence, not a substitute for currentWorker. If those conversations differ, inspect the
+current assignment; never guess an alias or recreate the worker. Runtime observations grant no authority.
 Prepare or recover sessions through supported reviewed Telos role setup. TelosStartSlice is limited to
 an exact assigned lead and its selected eligible child; never infer new delegation authority from a title.
+Without execute it allocates or recovers the original worker only. After the user authorizes that work,
+use execute: true to admit that worker's first ordinary command without manually opening its chat.
+Inspect its execution receipt: admitted is not provider acknowledgement, and started is not completion.
+An uncertain command is recovered by its original request and receipt; never allocate a replacement
+or change request IDs to replay it. Ordinary account, workspace, task, cancellation and hold checks apply.
 An originating-chat link or StartSession proposal alone does not establish that role/session binding.
 If setup is unavailable, report item saved and session setup pending; do not claim the slice is ready.
 Chat ready does not mean a command started or work completed. Recover the original attempt after uncertainty.

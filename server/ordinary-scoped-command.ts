@@ -18,6 +18,7 @@ import {
 } from './ordinary-openshell-codex-entry.js';
 import { sessionHarnessForProvider } from './session-harness-routing.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
+import type { OrdinaryFirstCommandAuthority } from './ordinary-first-command-authority.js';
 
 type LocalOptions = Parameters<typeof startOwnedLocalCodexCommand>[2];
 export interface OwnedOrdinaryDispatchInput {
@@ -33,6 +34,7 @@ export interface OwnedOrdinaryDispatchInput {
   signal: AbortSignal;
   /** Live scoped caller fence, retained by SDK continuation admission across I/O. */
   assertCurrent?(): void;
+  firstCommandAuthority?: OrdinaryFirstCommandAuthority;
   continuation: boolean;
   recovery?: boolean;
   existingOwner: boolean;
@@ -83,6 +85,14 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
     binding.harness.implementation === 'codex' && binding.execution.location === 'local';
   const localSdk =
     binding.harness.implementation === 'claude-sdk' && binding.execution.location === 'local';
+  if (
+    input.firstCommandAuthority &&
+    (!localCodex ||
+      input.continuation ||
+      input.recovery ||
+      input.firstCommandAuthority.commandId !== commandId)
+  )
+    throw Error('First-command authority requires its exact fresh Local Codex command');
   if (
     ((input.adviserScope || input.onQueryEvent || input.onTerminalOutcome || input.onEnded) &&
       !localCodex) ||
@@ -183,6 +193,7 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
             command,
             reservation,
             commandId,
+            firstCommandAuthority: input.firstCommandAuthority,
             operatorConnectionId,
             ownerConnectionId: input.ownerConnectionId,
             signal,

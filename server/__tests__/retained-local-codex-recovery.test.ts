@@ -333,6 +333,7 @@ it.each([
   'completed',
   'prior-attempt',
   'missing-primary',
+  'context-transition-before-requeue',
 ] as const)(
   'refuses %s drift or possible effects without rewriting retained evidence',
   async (change) => {
@@ -370,6 +371,48 @@ it.each([
     cleanups.push(() => failed.close());
     await expect(failed.admitResume(request)).rejects.toThrow();
     failed.close();
+    if (change === 'context-transition-before-requeue') {
+      const command = native.claimNext(original.sessionId, original.lease.binding)!;
+      expect(command.id).toBe(request.clientMsgId);
+      expect(
+        native.recordPreDispatchFailure(original.sessionId, original.lease.binding, command),
+      ).toBe(true);
+      native.finish(original.sessionId, original.lease.binding, command.id, 'failed');
+      const proof = RetainedLocalCodexRecovery.capture(
+        f.events,
+        native,
+        original.sessionId,
+        f.auth.id,
+        request,
+      );
+      const queue = native.commands(original.sessionId, original.lease.binding);
+      expect(queue).toMatchObject([{ id: command.id, status: 'failed', attempt: 1 }]);
+      const receipt = f.events.getSendCommand(command.id);
+      const admission = f.events.getOrdinaryLocalCommandExecutionAdmission(command.id);
+      const recoveredEvents = () =>
+        f.events
+          .getSessionEvents(original.sessionId)
+          .filter((event) => event.type === 'command_preparation_recovered');
+      expect(recoveredEvents()).toEqual([]);
+      const transition = {
+        sessionId: original.sessionId,
+        operationId: randomUUID(),
+        fingerprint: 'd'.repeat(64),
+        expectedEpoch: f.events.contextTransitions.capture(original.sessionId),
+      };
+      const held = f.events.contextTransitions.begin(transition);
+      for (const released of [false, true]) {
+        if (released) f.events.contextTransitions.release(transition, 'aborted', () => undefined);
+        expect(() => proof.prepareQueue()).toThrow(/context/i);
+        expect(native.commands(original.sessionId, original.lease.binding)).toEqual(queue);
+        expect(f.events.getSendCommand(command.id)).toEqual(receipt);
+        expect(f.events.getOrdinaryLocalCommandExecutionAdmission(command.id)).toEqual(admission);
+        expect(recoveredEvents()).toEqual([]);
+        if (!released)
+          expect(f.events.contextTransitions.read(transition.operationId)).toEqual(held);
+      }
+      return;
+    }
     if (change === 'missing-primary') {
       const corrupt = new Database(join(f.root, 'events.db'));
       corrupt
@@ -428,6 +471,7 @@ async function reconcileRetainedColdTurn(
   policyDrift = false,
   completionPhase = true,
   uncertainGithubRead = false,
+  heldContext = false,
 ) {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
@@ -770,6 +814,13 @@ async function reconcileRetainedColdTurn(
     }
     return baseRequest(method, params);
   });
+  const contextTransition = {
+    sessionId: id,
+    operationId: randomUUID(),
+    fingerprint: 'c'.repeat(64),
+    expectedEpoch: f.events.contextTransitions.capture(id),
+  };
+  const heldReceipt = heldContext && f.events.contextTransitions.begin(contextTransition);
   const driver = new OrdinaryLocalCodexOwnedRuntime({
     ...probe.dependencies,
     operatorConnectionId: connectionId,
@@ -909,6 +960,38 @@ async function reconcileRetainedColdTurn(
   metadata.mockRestore();
   expect(native.read(id, binding).recovery).toBe(0);
   expect(native.continuationBlocker(id, binding)).toBeUndefined();
+  if (heldReceipt) {
+    // Inspection settles the original effects without releasing the context fence
+    // or turning this cold owner into an admission owner after a later release.
+    expect(f.events.contextTransitions.read(contextTransition.operationId)).toEqual(heldReceipt);
+    const settledNative = native.read(id, binding);
+    const settledCommands = native.commands(id, binding);
+    const requestsBeforeAdmission = probe.rpc.request.mock.calls.length;
+    const admissionScopes = vi.spyOn(f.events, 'withOrdinaryContextAdmission');
+    const captureRecovery = vi.spyOn(RetainedLocalCodexRecovery, 'capture');
+    const captureSavedRecovery = vi.spyOn(RetainedLocalCodexRecovery, 'captureSaved');
+    for (const released of [false, true]) {
+      if (released) {
+        f.events.contextTransitions.release(contextTransition, 'aborted', () => undefined);
+        expect(f.events.contextTransitions.capture(id)).toBe(heldReceipt.epoch);
+      }
+      await expect(driver.admit(f.request)).rejects.toThrow();
+      await expect(driver.admitResume(f.request)).rejects.toThrow();
+      await expect(driver.admitContinuation(f.request)).rejects.toThrow();
+      await expect(driver.recoverResume(f.request)).rejects.toThrow();
+      await expect(driver.recoverSavedResume()).rejects.toThrow();
+      expect(admissionScopes).not.toHaveBeenCalled();
+      expect(captureRecovery).not.toHaveBeenCalled();
+      expect(captureSavedRecovery).not.toHaveBeenCalled();
+      expect(native.read(id, binding)).toEqual(settledNative);
+      expect(native.commands(id, binding)).toEqual(settledCommands);
+      expect(probe.rpc.request).toHaveBeenCalledTimes(requestsBeforeAdmission);
+      if (!released)
+        expect(f.events.contextTransitions.read(contextTransition.operationId)).toEqual(
+          heldReceipt,
+        );
+    }
+  }
   if (!completionPhase)
     expect(native.completionPhase(id, binding, command.id, command.attempt)).toBeUndefined();
   expect(native.readHostCustody(id, binding)).toEqual(custody);
@@ -951,6 +1034,12 @@ const coldRecoveryTimeoutMs = 15_000;
 it.each(['interrupted', 'completed'] as const)(
   'reconciles an already dispatched cold turn observed %s without replay',
   (status) => reconcileRetainedColdTurn(status),
+  coldRecoveryTimeoutMs,
+);
+
+it(
+  'reconciles cold effects while context is held without acquiring admission after release',
+  () => reconcileRetainedColdTurn('interrupted', false, true, false, true),
   coldRecoveryTimeoutMs,
 );
 

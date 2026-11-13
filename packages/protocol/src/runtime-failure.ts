@@ -6,6 +6,8 @@ export const KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE =
 /** Reviewed public copy only. Both producers and consumers use this allowlist;
  * upstream exceptions and saved device text never supply a diagnostic message. */
 export const SESSION_RUNTIME_MESSAGES = {
+  telos_work_context_changed:
+    'The reviewed Telos work changed after this worker was created. Review the current Telos brief and recover its assignment before starting. Saved chats, messages and work are retained.',
   tool_validation_failed:
     'Mitzo could not validate the current tool operation. Saved work is preserved; inspect conversation recovery before continuing.',
   login_verification_unavailable:

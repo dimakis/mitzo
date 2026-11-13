@@ -1280,6 +1280,67 @@ it.each(['completed', 'queued', 'running'] as const)(
   },
 );
 
+it('captures a fresh epoch before preparation and never renews waiting admissions across a context transition', async () => {
+  const f = await fixture({ silentPreparation: true });
+  const handover = {
+    sessionId: f.reservation.conversationId,
+    operationId: 'initial-hold',
+    fingerprint: 'a'.repeat(64),
+    expectedEpoch: 0,
+  };
+  f.events.contextTransitions.begin(handover);
+  f.events.contextTransitions.release(handover, 'aborted', () => undefined);
+  const dispatch = vi.fn(async () => {});
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    dispatchContinuation: dispatch,
+  });
+  cleanups.push(() => driver.close());
+  await expect(
+    driver.admitPreparedFirst(f.preparation!.receipt.allocationOperationId, f.request),
+  ).resolves.toEqual({ dispatched: true });
+  expect(f.events.contextTransitions.readCommand(f.request.clientMsgId)?.epoch).toBe(1);
+  const originalRequest = f.rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  let waiting = false;
+  const deferred = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.rpc.request.mockImplementation(async (method) => {
+    if (method === 'model/list') {
+      waiting = true;
+      await deferred;
+    }
+    return originalRequest(method);
+  });
+  const next = {
+    ...f.request,
+    clientMsgId: randomUUID(),
+    payload: { text: 'Prepared before hold' },
+  };
+  const queued = { ...next, clientMsgId: randomUUID() };
+  const first = driver.admitContinuation(next).then(
+    () => 'accepted',
+    () => 'refused',
+  );
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  const second = driver.admitContinuation(queued).then(
+    () => 'accepted',
+    () => 'refused',
+  );
+  const transition = { ...handover, operationId: 'next-hold', expectedEpoch: 1 };
+  f.events.contextTransitions.begin(transition);
+  f.events.contextTransitions.release(transition, 'aborted', () => undefined);
+  release();
+  expect(await first).toBe('refused');
+  expect(await second).toBe('refused');
+  expect(f.events.getSendCommand(next.clientMsgId)).toBeUndefined();
+  expect(f.events.getSendCommand(queued.clientMsgId)).toBeUndefined();
+  expect(dispatch).not.toHaveBeenCalled();
+  // The old live owner cannot recapture the new epoch for a later prompt.
+  await expect(driver.admitContinuation({ ...next, clientMsgId: randomUUID() })).rejects.toThrow();
+});
+
 it('refuses a timed-out warm model admission while preserving the original retained native owner', async () => {
   const f = await fixture();
   const dispatch = vi.fn(async () => {});

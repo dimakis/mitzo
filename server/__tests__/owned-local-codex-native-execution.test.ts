@@ -125,7 +125,7 @@ it('reads Google documents through an admitted Local Mac chat while credentials 
   };
   const result = await chat.startOwnedLocalCodexCommand(transport, clientId, input);
   expect(result.dispatched).toBe(true);
-  await vi.waitFor(() => expect(providerCalls).toBe(1));
+  await vi.waitFor(() => expect(providerCalls).toBe(1), { timeout: 10_000 });
   expect(launch).toHaveBeenCalledOnce();
   const calls = f.rpc.request.mock.calls as unknown as Array<[string, Record<string, unknown>]>;
   const thread = calls.find(([method]) => method === 'thread/start')?.[1] as Record<

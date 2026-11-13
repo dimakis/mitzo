@@ -461,6 +461,13 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
         // A retained plain-text brief is valid; its first line supplies the title.
       }
       assertCurrent(workerSettings);
+      if (!this.deps.events.getSession(workerConversationId)?.summary?.trim()) {
+        this.deps.events.upsertSession({
+          sessionId: workerConversationId,
+          summary: title || 'Work item',
+        });
+        this.deps.events.markManuallyRenamed(workerConversationId);
+      }
       const readExactTask = (id: string) => {
         const task = this.deps.tasks.get(id);
         if (

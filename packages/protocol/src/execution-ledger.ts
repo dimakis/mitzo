@@ -26,7 +26,7 @@ export interface ExecutionLedgerOwner<Row extends ExecutionSessionRow> {
   statements: { getSession: Database.Statement; append: Database.Statement };
   assertConversationIdentity(sessionId: string): void;
   /** Optional owner admission fence, checked inside the original write lock. */
-  assertExecutionAdmission?(sessionId: string): void;
+  assertExecutionAdmission?(sessionId: string, clientMsgId?: string): void;
   isRegisteredConversation(row: Row): boolean;
   getExecutionAdmission(sessionId: string, clientMsgId: string): ExecutionAdmission | undefined;
   getProviderAttempts(token: ExecutionToken): ProviderAttemptRecord[];
@@ -207,7 +207,7 @@ export class ExecutionLedger<Row extends ExecutionSessionRow> {
     }
     const fingerprint = validateExecutionAdmission(clientMsgId, requestFingerprint);
     return this.db!.transaction((): BeginExecutionResult => {
-      this.owner.assertExecutionAdmission?.(sessionId);
+      this.owner.assertExecutionAdmission?.(sessionId, clientMsgId);
       const current = this.stmts.getSession.get(sessionId) as Row | undefined;
       if (!current || !this.owner.isRegisteredConversation(current))
         throw new Error(`Cannot begin execution for unknown or unregistered session: ${sessionId}`);

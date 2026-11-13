@@ -9,6 +9,7 @@ import { createJoiningFixture, cleanupJoiningFixtures } from './fixtures/collabo
 import { isAvailableTelosWorkConversation } from '../telos-work-conversation.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { resolveTelosWorkRoleContext } from '../telos-work-role-context.js';
+import { bindTelosWorkUpdateBroadcast } from '../telos-work-updates.js';
 
 const cleanups: (() => void)[] = [];
 afterEach(async () => {
@@ -189,6 +190,42 @@ it('uses real silent ordinary setup and retains canonical role context before re
   expect(receipt.work.attempts).toEqual([]);
   expect(f.authorizeSettings).toHaveBeenCalled();
   expect(f.ordinary.store.listSessions()).toHaveLength(2);
+});
+it('broadcasts reviewed role assignment only after its commit, preserving replay and failed-command semantics', async () => {
+  const f = await fixture();
+  const input = await setupInput(f);
+  const observed: string[] = [];
+  const release = bindTelosWorkUpdateBroadcast({
+    broadcast: () => {
+      const reader = new TelosWorkStore(
+        f.path,
+        {
+          ordinaryConversation: (id) =>
+            isAvailableTelosWorkConversation(f.ordinary.store.getSession(id)),
+        },
+        true,
+      );
+      try {
+        observed.push(
+          reader.read('item', { kind: 'operator', id: 'operator' }).assignments[0].conversation
+            .conversationId,
+        );
+      } finally {
+        reader.close();
+      }
+    },
+  });
+  try {
+    const receipt = await f.host().setup(f.request(input));
+    expect(observed).toEqual([receipt.work.assignments[0].conversation.conversationId]);
+    expect(await f.host().setup(f.request(input))).toEqual(receipt);
+    await expect(
+      f.host().setup(f.request({ ...input, requestId: 'stale-replacement' })),
+    ).rejects.toThrow();
+    expect(observed).toHaveLength(1);
+  } finally {
+    release();
+  }
 });
 
 it('reviews canonical coordinator kind and retains its distinct mandate without trusting caller-selected kind', async () => {

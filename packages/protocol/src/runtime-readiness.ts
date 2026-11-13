@@ -1,6 +1,24 @@
 import { z } from 'zod';
 import { AccountBindingSchema } from './account-binding.js';
-import { SessionRuntimeBindingSchema } from './session-runtime-binding.js';
+import {
+  SessionRuntimeBindingSchema,
+  type SessionRuntimeBinding,
+} from './session-runtime-binding.js';
+
+function sameBinding(a: SessionRuntimeBinding, b: SessionRuntimeBinding): boolean {
+  return (
+    a.version === b.version &&
+    a.account.accountId === b.account.accountId &&
+    a.account.provider === b.account.provider &&
+    a.account.profileRevision === b.account.profileRevision &&
+    a.harness.implementation === b.harness.implementation &&
+    a.execution.location === b.execution.location &&
+    (a.version !== 2 ||
+      (b.version === 2 &&
+        a.execution.targetId === b.execution.targetId &&
+        a.execution.targetRevision === b.execution.targetRevision))
+  );
+}
 
 const reference = z.string().trim().min(1).max(200);
 const timestamp = z.number().int().nonnegative();
@@ -88,36 +106,74 @@ export const RuntimeCapabilityObservationSchema = z
  * prove a process is ready or a service operation works. Consumers must inspect
  * each state and retain original observation times. Unknown is not an empty grant.
  */
-export const RuntimeReadinessSchema = z.strictObject({
-  version: z.literal(1),
-  sessionId: reference,
-  observedAt: timestamp,
-  revision: z.string().regex(/^[a-f0-9]{64}$/),
-  session: z.discriminatedUnion('state', [
-    unknown,
-    z.strictObject({
-      state: z.literal('observed'),
-      account: AccountBindingSchema.omit({ model: true }),
-      model: reference,
-      mode: z.enum(['ask', 'agent', 'auto']),
-      // Existing harness permission sets have no count or name-length limit.
-      // Project their exact strings; observation limits must not hide Access.
-      grants: z.array(z.string()),
-      skillCeiling: z.array(z.string()).nullable(),
-    }),
-  ]),
-  execution: z.discriminatedUnion('state', [
-    unknown,
-    z.strictObject({ state: z.literal('configured'), binding: SessionRuntimeBindingSchema }),
-  ]),
-  capabilities: z.discriminatedUnion('state', [
-    unknown,
-    z.strictObject({
-      state: z.enum(['observed', 'stale']),
-      evidence: RuntimeCapabilityObservationSchema,
-    }),
-  ]),
-});
+export const RuntimeReadinessSchema = z
+  .strictObject({
+    version: z.literal(1),
+    sessionId: reference,
+    observedAt: timestamp,
+    revision: z.string().regex(/^[a-f0-9]{64}$/),
+    session: z.discriminatedUnion('state', [
+      unknown,
+      z.strictObject({
+        state: z.literal('observed'),
+        account: AccountBindingSchema.omit({ model: true }),
+        model: reference,
+        mode: z.enum(['ask', 'agent', 'auto']),
+        // Existing harness permission sets have no count or name-length limit.
+        // Project their exact strings; observation limits must not hide Access.
+        grants: z.array(z.string()),
+        skillCeiling: z.array(z.string()).nullable(),
+      }),
+    ]),
+    execution: z.discriminatedUnion('state', [
+      unknown,
+      z.strictObject({ state: z.literal('configured'), binding: SessionRuntimeBindingSchema }),
+    ]),
+    capabilities: z.discriminatedUnion('state', [
+      unknown,
+      z.strictObject({
+        state: z.enum(['observed', 'stale']),
+        evidence: RuntimeCapabilityObservationSchema,
+      }),
+    ]),
+  })
+  .superRefine((value, context) => {
+    const { session, execution, capabilities } = value;
+    const mismatch = (path: string[]) =>
+      context.addIssue({ code: 'custom', path, message: 'Readiness evidence scope mismatch' });
+    if (
+      session.state === 'observed' &&
+      execution.state === 'configured' &&
+      (execution.binding.account.accountId !== session.account.accountId ||
+        execution.binding.account.provider !== session.account.provider ||
+        execution.binding.account.profileRevision !== session.account.profileRevision)
+    )
+      mismatch(['execution', 'binding']);
+    if (capabilities.state === 'unknown') return;
+    const { scope } = capabilities.evidence;
+    if (
+      session.state !== 'observed' ||
+      execution.state !== 'configured' ||
+      scope.sessionId !== value.sessionId ||
+      scope.accountId !== session.account.accountId ||
+      scope.profileRevision !== session.account.profileRevision ||
+      scope.model !== session.model ||
+      !sameBinding(scope.binding, execution.binding)
+    )
+      mismatch(['capabilities', 'evidence', 'scope']);
+    // Compare to the snapshot's read time; client wall-clock skew grants nothing.
+    if (
+      capabilities.evidence.observedAt > value.observedAt ||
+      capabilities.evidence.services.some((service) =>
+        service.operations.some(
+          (operation) =>
+            operation.verification.state !== 'unknown' &&
+            operation.verification.observedAt > value.observedAt,
+        ),
+      )
+    )
+      mismatch(['capabilities', 'evidence', 'observedAt']);
+  });
 
 export type RuntimeReadiness = z.infer<typeof RuntimeReadinessSchema>;
 export type RuntimeCapabilityObservation = z.infer<typeof RuntimeCapabilityObservationSchema>;

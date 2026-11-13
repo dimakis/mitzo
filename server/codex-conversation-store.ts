@@ -2119,6 +2119,7 @@ export class CodexConversationStore {
     b: AccountBinding,
     input: CodexCommandInput,
     supersedeCapacity = false,
+    assertCurrent?: (commandId: string) => void,
   ): boolean {
     return this.db.transaction(() => {
       this.read(id, b);
@@ -2141,6 +2142,7 @@ export class CodexConversationStore {
           throw new Error('Codex message ID reused with different input');
         return false;
       }
+      assertCurrent?.(data.id);
       this.db
         .prepare(
           "INSERT INTO codex_commands(conversation_id,id,input,status) VALUES (?,?,?,'queued')",
@@ -2316,6 +2318,7 @@ export class CodexConversationStore {
     commandId: string,
     turnId: string,
     raw: ToolFailure,
+    assertSourceCurrent?: (commandId: string) => void,
   ): CodexCommandInput | undefined {
     return this.db.transaction(() => {
       const state = this.read(id, binding);
@@ -2373,6 +2376,7 @@ export class CodexConversationStore {
           failure,
         },
       };
+      assertSourceCurrent?.(commandId);
       this.enqueue(id, binding, child);
       return child;
     })();
@@ -3589,7 +3593,11 @@ export class CodexConversationStore {
   }
   /** Deployment readiness only: this neither clears recovery nor changes a
    * receipt. The caller's read transaction keeps the original evidence coherent. */
-  private qualifiedDeploymentHostEffects(id: string, commandId: string): boolean {
+  private qualifiedDeploymentHostEffects(
+    id: string,
+    commandId: string,
+    requireRecordedOutcomes = false,
+  ): boolean {
     const row = this.db
       .prepare(
         `SELECT c.attempt,c.native_turns,c.status,c.ambiguous,c.native_execution_history,
@@ -3624,6 +3632,13 @@ export class CodexConversationStore {
     const receipts = this.interruptedHostReceipts(id, commandId);
     if (this.effectSettlements.matches(id, target, this.hostReceiptDigest(id, commandId, receipts)))
       return true;
+    // Context changes cannot infer settlement from a legacy missing outcome,
+    // including a mixed command with both intrinsic reads and other effects.
+    if (
+      requireRecordedOutcomes &&
+      receipts.some((receipt) => receipt.result_effect_outcome === null)
+    )
+      return false;
     // Only the shared reviewed intrinsic-read identities can qualify without
     // new native inspection. Configured MCP tools have distinct wire identities.
     // Missing results/ownership, ambiguous phases and children retain their
@@ -5393,7 +5408,11 @@ export class CodexConversationStore {
       .enum(['queued', 'running', 'completed', 'interrupted', 'failed', 'cancelled'])
       .parse(row.status);
   }
-  claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
+  claimNext(
+    id: string,
+    b: AccountBinding,
+    canClaim?: (commandId: string) => boolean,
+  ): CodexCommand | undefined {
     return this.db.transaction(() => {
       const state = this.read(id, b);
       if (this.unsettledCommandEffects(id)) throw new SessionRuntimeError('unsettled_effects');
@@ -5423,6 +5442,7 @@ export class CodexConversationStore {
           ? commands.find((c) => c.id === recovery.childCommandId && c.status === 'queued')
           : commands.find((c) => c.status === 'queued');
       if (!next) return;
+      if (canClaim?.(next.id) === false) return;
       if (next.toolFailureContinuation)
         this.assertToolFailureContinuation(id, b, CommandInput.strip().parse(next));
       if (next.environmentContinuation) {
@@ -5444,11 +5464,12 @@ export class CodexConversationStore {
           return;
         }
       }
-      this.db
+      const changed = this.db
         .prepare(
-          "UPDATE codex_commands SET status='running',pre_dispatch_failure=0 WHERE conversation_id=? AND id=?",
+          "UPDATE codex_commands SET status='running',pre_dispatch_failure=0 WHERE conversation_id=? AND id=? AND status='queued'",
         )
-        .run(id, next.id);
+        .run(id, next.id).changes;
+      if (changed !== 1) throw Error('Native command changed before claim');
       if (recovery?.status === 'queued') {
         recovery.status = 'running';
         this.writeCapacityRecovery(id, recovery);
@@ -5616,6 +5637,64 @@ export class CodexConversationStore {
     const row = this.hotReadStatement('nativeTurnTarget').get(id, commandId) as
       { attempt: number } | undefined;
     return row?.attempt;
+  }
+  /** Negative native observation only. The host must separately fence admission,
+   * prove exact custody and drain the original live owner before releasing a
+   * context transition. Never cancels work or acknowledges uncertain effects. */
+  assertContextTransitionQuiescent(id: string, binding: AccountBinding, cwd: string): void {
+    this.db.transaction(() => {
+      const state = this.read(id, binding);
+      this.assertStartupResumeSafe(id, binding);
+      if (
+        state.cwd !== cwd ||
+        state.recovery ||
+        this.db
+          .prepare(
+            "SELECT 1 FROM codex_commands WHERE conversation_id=? AND status IN ('queued','running') LIMIT 1",
+          )
+          .get(id) ||
+        this.db
+          .prepare('SELECT 1 FROM codex_conversations WHERE id=? AND automatic_recovery<>0')
+          .get(id) ||
+        this.db
+          .prepare(
+            "SELECT 1 FROM codex_steering WHERE conversation_id=? AND status NOT IN ('accepted','rejected') LIMIT 1",
+          )
+          .get(id) ||
+        this.hasPreparedRepositoryTransitionHold(id, binding) ||
+        this.unsettledCommandEffects(id) ||
+        this.subagents.unsettledConversationIds(id).length
+      )
+        throw Error('Conversation context native work remains active or uncertain');
+      this.assertNoPendingThreadDispatch(id, binding);
+      this.assertNoPendingThreadOwnership(id, binding);
+      for (const row of this.db
+        .prepare('SELECT data FROM codex_capacity_recoveries WHERE conversation_id=?')
+        .iterate(id) as Iterable<{ data: string }>) {
+        const recovery = CapacityRecoverySchema.parse(JSON.parse(row.data));
+        if (
+          ['waiting', 'queued', 'running'].includes(recovery.status) ||
+          recovery.supersedingCommandId !== undefined
+        )
+          throw Error('Conversation context capacity recovery remains unsettled');
+      }
+      if (
+        this.db
+          .prepare(
+            "SELECT 1 FROM codex_tools WHERE conversation_id=? AND result_effect_outcome NOT IN ('settled','unknown') LIMIT 1",
+          )
+          .get(id)
+      )
+        throw Error('Conversation context native tool settlement evidence is invalid');
+      for (const row of this.db
+        .prepare(
+          "SELECT DISTINCT command_id FROM codex_tools WHERE conversation_id=? AND result_content IS NOT NULL AND (result_effect_outcome='unknown' OR result_effect_outcome IS NULL)",
+        )
+        .iterate(id) as Iterable<{ command_id: string }>) {
+        if (!this.qualifiedDeploymentHostEffects(id, row.command_id, true))
+          throw Error('Conversation context native tool effects remain uncertain');
+      }
+    })();
   }
   /** Read-only native retirement fence. The repository lifecycle owner supplies
    * its current task identity and separately proves operator/session disposal. */

@@ -1,4 +1,5 @@
 import { renewDueTelosSnoozes } from './telos-snooze.js';
+import { publishTelosWorkUpdate } from './telos-work-updates.js';
 import type { EventStore } from './event-store.js';
 import type { TaskStore } from './task-store.js';
 import {
@@ -30,6 +31,7 @@ import { TelosWorkControls } from './telos-work-controls.js';
 import { TelosWorkLifecycle } from './telos-work-lifecycle.js';
 import type { TelosWorkControlScope } from '@mitzo/protocol';
 import { createHash, randomUUID } from 'node:crypto';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   TelosWorkCommandSchema,
@@ -107,6 +109,15 @@ export class TelosWorkError extends Error {
     readonly recovery?: TelosWorkRoleSetupRecovery,
   ) {
     super(message);
+  }
+}
+/** Typed refusal so ordinary startup retains an actionable safe diagnostic. */
+export class TelosExecutionContextChangedError extends TelosWorkError {
+  constructor() {
+    super(
+      'conflict',
+      'Reviewed execution context changed; explicitly review and adopt a new worker attempt',
+    );
   }
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -723,6 +734,19 @@ export class TelosWorkStore {
       )
       .get(requestId, requestId);
   }
+  /** Initial adoption cannot silently replace another retained work role. Origin
+   * links are provenance and remain untouched. Replacement is a separate contract. */
+  assertConversationAvailableForAdoption(conversationId: string): void {
+    if (
+      !this.policy.ordinaryConversation(conversationId) ||
+      this.db
+        .prepare(
+          "SELECT 1 FROM telos_work_links WHERE namespace='mitzo' AND conversation_id=? AND role<>'origin' LIMIT 1",
+        )
+        .get(conversationId)
+    )
+      conflict('Existing conversation already retains a work role or is unavailable');
+  }
   /** Read-only recovery of the existing canonical role operation. */
   ordinaryRoleSetupForHost(requestId: string, actor: TelosWorkActor) {
     this.operator(actor);
@@ -735,11 +759,42 @@ export class TelosWorkStore {
     return row
       ? {
           setup: TelosOrdinaryWorkRoleSetupIntentSchema.parse(JSON.parse(row.intent)),
+          released: !!this.db
+            .prepare(
+              'SELECT 1 FROM telos_work_role_setup_releases WHERE request_id=? AND actor_id=?',
+            )
+            .get(requestId, `operator:${actor.id}`),
           receipt: row.receipt
             ? TelosWorkCommandReceiptSchema.parse(JSON.parse(row.receipt))
             : null,
         }
       : undefined;
+  }
+  releaseAbsentOrdinaryRoleSetup(
+    setup: TelosOrdinaryWorkRoleSetupIntent,
+    actor: TelosWorkActor,
+    assertAbsent: () => void,
+  ): void {
+    this.operator(actor);
+    this.db
+      .transaction(() => {
+        const retained = this.ordinaryRoleSetupForHost(setup.input.requestId, actor);
+        if (
+          !retained ||
+          JSON.stringify(retained.setup) !== JSON.stringify(setup) ||
+          retained.receipt ||
+          setup.input.createOnly !== true
+        )
+          conflict('Original unfinished role reservation required');
+        const proof: unknown = assertAbsent();
+        if (proof !== undefined) conflict('Synchronous allocation-owner reconciliation required');
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO telos_work_role_setup_releases(request_id,actor_id,fingerprint) VALUES(?,?,?)',
+          )
+          .run(setup.input.requestId, setup.actorId, hash(setup.input));
+      })
+      .immediate();
   }
   rolePresentationForSetup(
     raw: unknown,
@@ -836,6 +891,12 @@ export class TelosWorkStore {
         if (saved) {
           if (saved.fingerprint !== fingerprint)
             conflict('Role setup identity reused with different input');
+          if (
+            this.db
+              .prepare('SELECT 1 FROM telos_work_role_setup_releases WHERE request_id=?')
+              .get(input.requestId)
+          )
+            conflict('Original role reservation was safely released; retain its journal');
           return {
             setup: TelosWorkRoleSetupRequestIntentSchema.parse(JSON.parse(saved.intent)),
             receipt: saved.receipt
@@ -877,6 +938,7 @@ export class TelosWorkStore {
           const pending = this.db
             .prepare(
               `SELECT request_id FROM telos_work_role_setups WHERE receipt IS NULL
+            AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
             AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
             AND (?=1 OR json_extract(intent,'$.input.createOnly')=1) LIMIT 1`,
             )
@@ -953,7 +1015,9 @@ export class TelosWorkStore {
     assertBeforeApply: () => void,
   ): TelosWorkCommandReceipt {
     this.operator(actor);
-    return this.db
+    const nested = this.db.inTransaction;
+    let changed = false;
+    const result = this.db
       .transaction(() => {
         const retained = this.prepareRoleSetupRequest(setup.input, actor);
         if (JSON.stringify(retained.setup) !== JSON.stringify(setup))
@@ -976,9 +1040,12 @@ export class TelosWorkStore {
         this.db
           .prepare('UPDATE telos_work_role_setups SET receipt=? WHERE actor_id=? AND request_id=?')
           .run(JSON.stringify(receipt), setup.actorId, setup.input.requestId);
+        changed = true;
         return receipt;
       })
       .immediate();
+    if (changed && !nested) publishTelosWorkUpdate();
+    return result;
   }
   private item(id: string): Item {
     const item = this.db.prepare('SELECT * FROM items WHERE id=?').get(id) as Item | undefined;
@@ -1134,6 +1201,59 @@ export class TelosWorkStore {
       return this.snapshot(itemId);
     })();
   }
+  /** Host observation for an already-linked ordinary conversation. Only relationship
+   * facts in its ancestry and, for the current lead, direct children are disclosed.
+   * Origins, old assignments and takeover notes never confer child visibility. */
+  readConversationCoordination(itemId: string, conversationId: string) {
+    return this.readCoordination(itemId, { kind: 'conversation', id: conversationId });
+  }
+  readCoordination(itemId: string, actor: TelosWorkActor) {
+    return this.db.transaction(() => {
+      this.authorizeRead(itemId, actor);
+      const entry = (id: string) => {
+        const snapshot = this.snapshot(id);
+        const record = this.projectRecord(id);
+        if (/^life[-_ ]?ops$/i.test(record.profile))
+          throw new TelosWorkError('unauthorized', 'Coordination context unavailable');
+        return {
+          itemId: id,
+          summary: record.summary,
+          kind: snapshot.kind,
+          parentId: snapshot.parentId,
+          revision: snapshot.revision,
+          assignments: snapshot.assignments,
+          links: snapshot.links.map(({ role, conversation, availability }) => ({
+            role,
+            conversation,
+            availability,
+          })),
+        };
+      };
+      const item = entry(itemId);
+      const ancestors: ReturnType<typeof entry>[] = [];
+      const seen = new Set([itemId]);
+      let parent = item.parentId;
+      while (parent) {
+        if (seen.has(parent) || seen.size >= 100) conflict('Coordination ancestry unavailable');
+        seen.add(parent);
+        const current = entry(parent);
+        ancestors.push(current);
+        parent = current.parentId;
+      }
+      const isLead =
+        actor.kind === 'operator' ||
+        item.assignments.some(
+          (a) => a.role === 'lead' && a.conversation.conversationId === actor.id,
+        );
+      const rows = isLead
+        ? (this.db
+            .prepare('SELECT id FROM items WHERE parent_id=? ORDER BY id LIMIT 101')
+            .all(itemId) as Array<{ id: string }>)
+        : [];
+      if (rows.length > 100) conflict('Coordination children exceed bounded observation');
+      return { item, ancestors, children: rows.map(({ id }) => entry(id)) };
+    })();
+  }
   /** The original brief and evidence stay in the canonical tables. This read
    * shares the relationship store's exact-item authority and transaction.
    */
@@ -1168,7 +1288,7 @@ export class TelosWorkStore {
     const check = () => {
       const result: unknown = assertion();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'backlog-authority');
         throw Error('Synchronous Telos authority required');
       }
     };
@@ -1575,7 +1695,9 @@ export class TelosWorkStore {
   ): TelosWorkCommandReceipt {
     this.operator(actor);
     const input = TelosWorkCommandSchema.parse(raw);
-    return this.db
+    const nested = this.db.inTransaction;
+    let changed = false;
+    const receipt = this.db
       .transaction(() => {
         const actorId = `${actor.kind}:${actor.id}`,
           fingerprint = hash(input);
@@ -1596,6 +1718,7 @@ export class TelosWorkStore {
           const reserved = this.db
             .prepare(
               `SELECT intent FROM telos_work_role_setups WHERE receipt IS NULL
+            AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
             AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
             AND json_extract(intent,'$.input.createOnly')=1`,
             )
@@ -1626,9 +1749,12 @@ export class TelosWorkStore {
             'INSERT INTO telos_work_commands(actor_id,request_id,fingerprint,receipt) VALUES(?,?,?,?)',
           )
           .run(actorId, input.requestId, fingerprint, JSON.stringify(result));
+        changed = true;
         return result;
       })
       .immediate();
+    if (changed && !nested) publishTelosWorkUpdate();
+    return receipt;
   }
   /** Narrow host port for the existing approved creation tool. A conversation
    * cannot attach arbitrary work: canonical creation identity and stored source
@@ -1919,6 +2045,7 @@ export class TelosWorkStore {
         .prepare(
           `SELECT 1 FROM telos_work_role_setups
         WHERE (receipt IS NULL OR json_extract(intent,'$.input.createOnly')=1)
+        AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
         AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')='worker'
         LIMIT 1`,
         )
@@ -2363,9 +2490,7 @@ export class TelosWorkStore {
       const intent = JSON.parse(row.intent) as TelosWorkDelegationIntent;
       for (const pin of intent.recordRevisions)
         if (hash(this.item(pin.itemId)) !== pin.sha256)
-          conflict(
-            'Reviewed execution context changed; explicitly review and adopt a new worker attempt',
-          );
+          throw new TelosExecutionContextChangedError();
     })();
   }
   /** Host-only task-owner reconciliation. This binds retained allocation authority;

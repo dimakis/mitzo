@@ -46,6 +46,7 @@ export interface TelosWorkRoleHostDependencies {
   resolvePreparation: SetupDependencies['resolvePreparation'];
   authorizeSettings: SetupDependencies['authorize'];
   ordinary?: {
+    adoption?: OrdinarySetupDependencies['adoption'];
     resolveSelection: OrdinarySetupDependencies['resolveSelection'];
     authorizeSettings: OrdinarySetupDependencies['authorize'];
   };
@@ -328,6 +329,7 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
       const owner = ordinary
         ? new (await import('./telos-ordinary-work-role-setup.js')).TelosOrdinaryWorkRoleSetup({
             ...common,
+            adoption: deps.ordinary!.adoption,
             resolveSelection: deps.ordinary!.resolveSelection,
           })
         : new TelosWorkRoleSetup({ ...common, resolvePreparation: deps.resolvePreparation });
