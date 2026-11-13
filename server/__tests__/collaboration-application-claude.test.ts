@@ -646,8 +646,13 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
     };
     const requested = await service.consult(authority, policy.policyId, review);
     expect(requested.independence).toMatchObject({ independent: true, differentFamily: true });
-    await vi.waitFor(() =>
-      expect(service.read(authority, review.requestId).status).toBe('completed'),
+    await vi.waitFor(
+      () =>
+        expect(
+          service.read(authority, review.requestId).status,
+          JSON.stringify(service.read(authority, review.requestId).deliveries),
+        ).toBe('completed'),
+      { timeout: 5000 },
     );
     expect(service.read(authority, review.requestId).contributions[0]).toMatchObject({
       role: 'consult-reviewer',

@@ -359,6 +359,23 @@ landing turn rather than refreshing every waiting branch.
 
 This workflow requires no staging, deployment or live model calls.
 
+## Hosted fixture observations, 13 November
+
+On 13 November, specialist consultation run `43462544563` exhausted the finite
+60-second outer allowances for CT09 and CT12 in macOS joined shard three. CT09's
+retained phase trace reached artifact save at 56.251 seconds and task-artifact
+completion at 58.413 seconds before the 60.088-second timeout. Both reports were
+timeouts, without failed behavior assertions. These two complete hosted journeys
+now have a 120-second outer allowance; local runs retain 60 seconds and every
+inner operation, authority check and assertion remains unchanged. This is fixture
+resource headroom, not a product latency guarantee or proof of the root cause of
+hosted slowness. The next combined CI must verify both full journeys.
+
+The cross-provider specialist review separately retains its completion assertion
+and uses the same five-second bounded observation window as its planner, with
+delivery diagnostics on failure. Its former default one-second wait expired
+while the reply was still running on the hosted unit shard.
+
 ## Review events and durable landing
 
 Review submissions, edits and dismissals run the credential-free
