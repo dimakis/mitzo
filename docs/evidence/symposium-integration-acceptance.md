@@ -2,6 +2,78 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 12 November 2026 Add-agent settings regression
+
+A user report showed an absent Agent picker and empty Account & model and
+repository controls. Inspection used accepted source `9c087d0da76c`; this is a
+source reproduction, not a production account or device qualification. The real
+`WorkspaceControls` provides quick-settings navigation around its actions.
+`ConversationAgents` portals its dialog while retaining that React context, so
+the participant pickers project into the source chat's hidden settings slots.
+The standalone dialog fixtures did not exercise that composition.
+
+The candidate isolates participant controls from the source chat's navigation,
+preserving the approved fields, existing editors and joining owners. The new
+`ConversationAgents.settings-scope.test.tsx` failed on the missing Agent combobox
+before the fix. It now exercises the real profile, account/model/thinking and
+repository controls inside `WorkspaceControls`, retained setup, unchanged source
+settings, and no joining or write effects. The existing composer browser fixture
+now includes the same settings/action composition; the additional
+`symposium-dialog-controls.spec.ts` covers both themes and the three browser
+projects, including repository controls and focus restoration.
+
+Local validation: 26 focused component checks, three actual application recovery
+checks, and 109 design checks pass (one pre-existing design skip); targeted ESLint,
+formatting and the browser fixture bundle also pass. Browser discovery succeeds.
+Rendering remains **unverified locally**: the bounded executor initially lacked
+its browser-cache path; after selecting the installed cache, WebKit startup timed
+out and Chromium reported macOS Mach-port registration permission denial. The
+separately requested native host route still reported Seatbelt and stopped at
+the repository guard. No guard, browser binary or permission boundary was changed.
+Hosted browser execution and visual inspection remain required; this candidate
+does not establish source acceptance, production activation or feature completion.
+
+Landing follow-up: the initial `47ddc51a` hosted source-preflight job
+`131538983986` reproduced four stale registered source fingerprints. Refresh the
+runtime revision and changed pins, retaining every existing registration and
+adding the two new regression files. Independent local review also found an
+invalid `kind: 'saved'` in the browser catalog fixture: saved profiles omit this
+field in the actual schema. The corrected fixture and the strengthened component
+check retain a real saved profile through Cancel/reopen. These corrections do
+not change the product fix or establish browser-rendered acceptance.
+
+Current-head hosted rendering exposed a second concrete defect during landing.
+Run `43323161813`, head `fc3a4987`, passed the desktop Chromium shard containing
+the new light-theme dialog case. Its retained `fresh-setup-fields-light.png`
+shows restored Agent/account/model/thinking fields; `fresh-setup-repository-light.png`
+shows the expanded repository form compressed into a narrow inner scroller, with
+its action buttons clipped. The repository component's zero minimum height and
+inner overflow allow its grid row to collapse inside the dialog. The candidate
+now retains the form's intrinsic minimum height and delegates scrolling to the
+existing dialog body. The browser regression requires the repository selector
+and enabled action to be fully in the viewport, with no clipped inner scroll area.
+This rendered failure is retained separately from the previously passing but
+insufficient enabled-button assertion. The strengthened browser assertions and
+corrected mobile/desktop captures still require a new hosted run; no local browser
+execution or completed visual acceptance is claimed for this follow-up.
+
+The same run's WebKit light/dark cases reached the final runtime-error assertion
+and reported an EventSource MIME mismatch: the fixture's generic API fallback
+returned JSON for `/api/events`. The fixture now serves that exact endpoint with
+the event-stream content type and a bounded retry directive, matching the
+application's existing offline SSE fixtures. The no-runtime-errors and no-write
+assertions remain intact. This is a reproduced fixture-response defect; it does
+not establish a production layout/observer failure or passing corrected renders.
+
+Run `43329548289`, head `15cd37a8`, then reproduced a remaining WebKit layout
+failure: the light-theme Add repository click timed out because Starting context
+intercepted it. The retained failed screenshot shows the collapsed repository
+border and its button overflowing into that heading. The dialog now gives each
+implicit grid row its full content height, retaining the body as scroll owner;
+the repository uses its automatic intrinsic minimum. The browser test requires
+both closed and expanded forms to contain their contents and precede Starting
+context, retaining the real button click. Corrected hosted rendering remains due.
+
 ## 12 November 2026 source-acceptance checkpoint
 
 This checkpoint contributes landing evidence to the existing map without changing
