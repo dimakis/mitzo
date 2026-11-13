@@ -37,6 +37,7 @@ export function subagentSnapshot(child: RetainedSubagent, available = false) {
     usage: child.usage,
     outputTruncated: child.outputTruncated,
     inspectionFailure: child.inspectionFailure,
+    controlFailure: child.controlFailure,
     available,
     state:
       !available && ['starting', 'working', 'needs_permission', 'stopping'].includes(child.state)

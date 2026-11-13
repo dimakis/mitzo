@@ -965,6 +965,84 @@ it('retains uncertainty after a lost control reply and never resends it', async 
   expect(await f.owner.control(input)).toBe('uncertain');
   expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
 });
+it('delivers a message when the child finishes before the steering dispatch fence', async () => {
+  const f = fixture();
+  await f.admit();
+  const original = f.request.getMockImplementation()!;
+  let steeringDispatched = false;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method === 'turn/steer') {
+      f.notify('turn/completed', {
+        threadId: 'child',
+        turn: { id: 'child-turn', status: 'completed' },
+      });
+      beforeDispatch?.();
+      steeringDispatched = true;
+    }
+    return original(method, params, beforeDispatch);
+  });
+  const input = {
+    requestId: 'finish-race',
+    threadId: 'child',
+    action: 'message' as const,
+    text: 'One more check',
+  };
+  expect(await f.owner.control(input)).toBe('accepted');
+  expect(steeringDispatched).toBe(false);
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+  expect(await f.owner.control(input)).toBe('accepted');
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+});
+it.each(['rejected', 'uncertain'] as const)(
+  'retains a correlated, sanitized %s control diagnostic',
+  async (status) => {
+    const f = fixture();
+    await f.admit();
+    f.request.mockImplementationOnce(async (method, _params, beforeDispatch) => {
+      beforeDispatch?.();
+      throw status === 'rejected'
+        ? new CodexRequestError(method, 'invalid_request', -32602)
+        : Error('private provider payload');
+    });
+    const input = {
+      requestId: 'diagnostic',
+      threadId: 'child',
+      action: 'message' as const,
+      text: 'private draft',
+    };
+    expect(await f.owner.control(input)).toBe(status);
+    const child = f.owner.list()[0];
+    expect(child).toMatchObject({
+      controlFailure: {
+        code: 'native_subagent_control_failed',
+        requestId: input.requestId,
+        status,
+        stage: 'dispatch',
+        reference: expect.any(String),
+      },
+    });
+    expect(f.options.store.list(f.options.scope)[0]).toMatchObject({
+      controlFailure: child.controlFailure,
+    });
+    expect(diagnostic).toHaveBeenCalledWith(
+      'Native subagent control failed',
+      expect.objectContaining({
+        code: 'native_subagent_control_failed',
+        conversationId: 'conversation',
+        threadId: 'child',
+        requestId: input.requestId,
+        reference: child.controlFailure!.reference,
+        cause: status === 'rejected' ? 'invalid_request' : 'internal',
+      }),
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(
+      /private provider payload|private draft/,
+    );
+    const count = diagnostic.mock.calls.length;
+    expect(await f.owner.control(input)).toBe(status);
+    expect(diagnostic.mock.calls).toHaveLength(count);
+  },
+);
 it('fences child tools at completion and replays only a durably known result', async () => {
   const f = fixture();
   await f.admit();

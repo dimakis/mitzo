@@ -207,6 +207,29 @@ export function NativeSubagents({
                 </button>
               </p>
             )}
+            {selected.controlFailure &&
+              (!delivery || delivery.input.requestId === selected.controlFailure.requestId) && (
+                <section className="native-subagent-unavailable" aria-label="Control unavailable">
+                  <p role="alert">
+                    {selected.controlFailure.status === 'uncertain'
+                      ? 'Delivery is unconfirmed. Check the existing request before sending again.'
+                      : 'The request was rejected. Refresh activity before trying again.'}
+                  </p>
+                  <button type="button" className="home-secondary" onClick={feed.reconnect}>
+                    Refresh activity
+                  </button>
+                  <details className="native-subagent-details">
+                    <summary>Control details</summary>
+                    <p>Stage: {selected.controlFailure.stage}</p>
+                    <p>
+                      Request: <code>{selected.controlFailure.requestId}</code>
+                    </p>
+                    <p>
+                      Reference: <code>{selected.controlFailure.reference}</code>
+                    </p>
+                  </details>
+                </section>
+              )}
             {!selected.blocks.length && (
               <p className="native-subagent-empty">No output is available yet.</p>
             )}

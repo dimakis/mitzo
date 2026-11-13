@@ -1,5 +1,32 @@
 # Native Codex subagents
 
+## Message delivery repair (13 November 2026, implementation draft)
+
+Dimitri reported a rejected message to Peirce in conversation
+`579125a3-8afc-807e-8369-2300f662515c`. The screenshot shows a retained draft and
+unavailable messaging, but the original control path discarded its exception.
+Retained public history and inspected logs do not establish that attempt's native
+failure cause. Do not treat the regression below as a historical diagnosis.
+
+An offline regression reproduces a separate control race: the child completes
+while the original owner prepares a steer, before the exact dispatch fence.
+The message now starts an idle-child turn under the same request after checking
+authority again. Only this undelivered transition is retried, once; a dispatched
+message or uncertain response is never sent again automatically. Parent Stop,
+owner changes and policy revocation retain their existing fences.
+
+Rejected and uncertain controls now retain a sanitized diagnostic with stage,
+request identity and correlation reference in the existing child snapshot and
+logger. The child dialog exposes details and Refresh activity while preserving
+the draft. Logs retain the RPC category/code rather than provider payloads or
+message text. The authenticated-route integration regression verifies delivery
+of the actual adapter failure through the feed and user interface.
+
+The focused control/store/route/feed/integration batch passed 91 tests; design
+checks passed 109 with one skip. Verification is offline. Exact historical
+reproduction, final hosted CI, source acceptance and production activation remain
+separate and unverified at this draft milestone.
+
 ## Inspection repair (11 November 2026)
 
 Owned admissions validate a model and thinking-level pair. Native subagents
