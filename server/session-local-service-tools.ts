@@ -1,4 +1,5 @@
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
+import { sessionLearningTools, learningToolDefinitions } from './session-learning-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 import {
   credentialConnectionToolDefinitions,
@@ -20,6 +21,7 @@ import {
 const definitions = [
   ...credentialConnectionToolDefinitions.filter((tool) => nativeConnectionToolNames.has(tool.name)),
   ...knowledgeToolDefinitions,
+  ...learningToolDefinitions,
 ];
 const knowledgeNames = new Set(knowledgeToolDefinitions.map((tool) => tool.name));
 
@@ -61,7 +63,16 @@ export function sessionLocalServiceTools(options: {
       };
       assertCurrentSync();
       let result;
-      if (knowledgeNames.has(name)) {
+      if (name === 'CaptureMemoryCandidate') {
+        result = await sessionLearningTools(
+          options.sessionId,
+          options.session,
+          options.registry,
+          '',
+          assertCurrent,
+          assertCurrentSync,
+        ).execute(name, input, signal);
+      } else if (knowledgeNames.has(name)) {
         result = await sessionKnowledgeTools(
           options.sessionId,
           options.session,

@@ -44,6 +44,8 @@ import {
   type SessionSummaryPage,
 } from './session-metadata-store.js';
 import { SessionLifecycleStore } from './session-lifecycle-store.js';
+import { SessionLearningStore } from './session-learning-store.js';
+import type { SessionLearningMode } from './session-learning.js';
 import { SessionRemovalStore } from './session-removal-store.js';
 import {
   ConversationReplayStore,
@@ -493,6 +495,7 @@ export class EventStore {
   readonly userSteering: UserTurnSteeringStore;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
+  private readonly sessionLearning: SessionLearningStore;
   private readonly ordinaryWorkspaceSessions: OrdinaryWorkspaceSessionStore;
   private readonly sessionLifecycle: SessionLifecycleStore;
   private readonly executionLedger: ExecutionLedger<SessionRow>;
@@ -2038,6 +2041,7 @@ export class EventStore {
         old.kind === 'ordinary' ? old.id : '',
       );
       if (changed.changes !== 1) throw Error('Prepared repository primary owner changed');
+      this.sessionLearning.revokeHistoryForWorkspaceAdoption(sessionId);
       // Keep UNCERTAIN across process death until the native owner proves the
       // exact queued child. Metadata adoption alone never grants dispatch.
     }).immediate();
@@ -2186,6 +2190,7 @@ export class EventStore {
         'UPDATE sessions SET cwd=?,repository_workspace_id=?,ordinary_workspace_id=NULL WHERE session_id=? AND cwd=?',
       ).run(next.directory, next.id, sessionId, old.directory);
       if (changed.changes !== 1) throw Error('Prepared repository projection changed');
+      this.sessionLearning.revokeHistoryForWorkspaceAdoption(sessionId);
     }).immediate();
   }
   /** Select immutable execution history by both workspace and primary. A later
@@ -3029,6 +3034,10 @@ export class EventStore {
         getInternalSdkExecution: (id) => this.getInternalSdkExecution(id),
         upsertSession: (meta) => this.upsertSession(meta),
       });
+      this.sessionLearning = new SessionLearningStore({
+        database: () => this.db!,
+        getSession: (id) => this.getSession(id),
+      });
       this.ordinaryWorkspaceSessions = new OrdinaryWorkspaceSessionStore({
         database: () => this.db,
         getSession: (id) => this.getSession(id),
@@ -3097,6 +3106,12 @@ export class EventStore {
   private migratePromptTracking(db: Database.Database): void {
     const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
     const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('learning_policy'))
+      db.exec('ALTER TABLE sessions ADD COLUMN learning_policy TEXT');
+    db.exec(`CREATE TABLE IF NOT EXISTS session_learning_captures (
+      session_id TEXT NOT NULL, request_id TEXT NOT NULL, payload_hash TEXT NOT NULL,
+      event_seq INTEGER NOT NULL UNIQUE, receipt TEXT NOT NULL,
+      PRIMARY KEY(session_id,request_id))`);
     if (!columnNames.has('prompt_count')) {
       db.exec('ALTER TABLE sessions ADD COLUMN prompt_count INTEGER NOT NULL DEFAULT 0');
       this.log.info('migrated sessions table: added prompt_count');
@@ -3748,6 +3763,8 @@ export class EventStore {
   }
 
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
+    if (type === 'memory_candidate')
+      throw Error('Use captureMemoryCandidate for policy-enforced capture');
     this.assertConversationIdentity(sessionId);
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
@@ -8802,6 +8819,22 @@ export class EventStore {
 
   getSession(sessionId: string): SessionMeta | null {
     return this.sessionMetadata.getSession(sessionId);
+  }
+
+  getSessionLearningPolicy(id: string) {
+    return this.sessionLearning.policy(id);
+  }
+  setSessionLearningMode(id: string, mode: SessionLearningMode, expectedRevision: number) {
+    return this.sessionLearning.setMode(id, mode, expectedRevision);
+  }
+  captureMemoryCandidate(id: string, input: unknown) {
+    return this.sessionLearning.capture(id, input);
+  }
+  listSessionLearningSources(id: string, beforeSeq?: number) {
+    return this.sessionLearning.sources(id, beforeSeq);
+  }
+  memoryCandidateEligibility(id: string, requestId: string) {
+    return this.sessionLearning.eligibility(id, requestId);
   }
 
   isSessionHidden(sessionId: string): boolean {
