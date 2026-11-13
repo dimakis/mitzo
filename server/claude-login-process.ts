@@ -79,6 +79,14 @@ function custody(path: string, directory: boolean) {
     ...(directory ? [] : [String(stat.size), String(stat.mtimeNs)]),
   ]);
 }
+// OSC sequences (ESC ] … BEL | ESC \), e.g. the OSC 8 hyperlink Claude prints on a TTY.
+// Node's stripVTControlCharacters only recognises OSC payloads from a narrow character set;
+// a `+` in the OAuth scope makes it fall through to its CSI branch, which eats the `h` of
+// `https://` and leaves the hyperlink target glued to the visible URL. Remove OSC first.
+const OSC_SEQUENCE = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+export function nativeLoginText(raw: string) {
+  return stripVTControlCharacters(raw.replace(OSC_SEQUENCE, ''));
+}
 function loginUrl(value: string) {
   const url = new URL(value);
   const allowed =
@@ -190,7 +198,7 @@ export async function createClaudeLoginProcess(
     buffer += chunk.toString('utf8');
     const match =
       /(?:If the browser didn't open, visit: |Sign in at: )(https:\/\/[^\s]+)\r?\n/.exec(
-        stripVTControlCharacters(buffer),
+        nativeLoginText(buffer),
       );
     if (match) {
       try {
