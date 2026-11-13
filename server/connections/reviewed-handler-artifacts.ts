@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/ordinary-sdk-command-skill-boundary.test.ts':
+    'a6f76d21a536b52b2e1f23ce069def69f832f2a3ebd5278a47be09d04bc6ef60',
   '../../packages/protocol/src/ordinary-skill-context.ts':
     '08bc53929fe62921486620ff72685d2b068dd2004ff866eb396a959efe2f8878',
   '../skill-runtime-support.ts': '412e9a82cf3c7d6e8606bab79d74b48d71ba157111e67715708ecc21f4f736a9',
@@ -2940,11 +2942,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-custody.ts':
     '7f1ce782be5190881004a63aacf58d8df69acb0fe46d9bfe952c436cf6c2aed9',
   '../ordinary-local-vertex-entry.ts':
-    'f73fca71d97809091435bc13de2c26a9795fd31611ad74a856f775392a912880',
+    '5163f89b3f44da0c6b6538e38c1552ee2fa42add826ff79ecfcd157dca1863ee',
   '../ordinary-local-vertex-replay.ts':
     'd7ecdd21c89be167a1b627b024687df00ead20df98c349f51b114d98a8800a75',
   '../ordinary-local-vertex-sdk-query.ts':
-    '9d647039ea800452669b73dffaff669f0522e30afbdbdd52e630d4a5679847fd',
+    '6302a0565ea16bbc957b3715a3b100f8b613204c9311aaaf67922084b97fe9a8',
   '../ordinary-local-vertex-command-owner.ts':
     '7cd6d7bc36ac59b89d535734ed56fe0ecd82acdcfb8d9103b9dd31e4570a5e17',
   '../ordinary-local-vertex-capabilities.ts':
