@@ -772,6 +772,10 @@
             {
               "path": "docs/design/approved/codex-subagents/floating-v003.html",
               "sha256": "b4062f0313bb12897fb3203b4179b11d51c2972133252d823e69f626e506b641"
+            },
+            {
+              "path": "docs/design/approved/codex-subagents/floating-v004.html",
+              "sha256": "22219f3795f5fdcfa941c8e0529e98f85d7f1aa52904301127ae2bd98ccad0f3"
             }
           ],
           "invariants": [
@@ -815,15 +819,15 @@
             },
             {
               "path": "frontend/src/components/__tests__/NativeSubagentsSession.test.tsx",
-              "sha256": "95a08f2759eefdb588d793d522d46d0b51456317e67b532a8ac1c99aec039ccc"
+              "sha256": "40e74a15a35055e5c00d031221f03e8ad16277b33e473f6f160f3937828fd418"
             },
             {
               "path": "frontend/src/components/__tests__/SnapSheet.test.tsx",
-              "sha256": "713e314257295f44d759ed08c87e6268607f8353b5fed008d4d245c68fb2390a"
+              "sha256": "04e11efe411e1f1eaff472cdcc8237e228ccdcc00dafd25609365333f5f6490d"
             },
             {
               "path": "tests/offline/native-subagents-presence.spec.ts",
-              "sha256": "857e18896c3e301405f07de2abc264316cb0ff64f001a156d6c89787ee9771ad"
+              "sha256": "63fbb37c817d4fa6c9178b9250c4198e3aaed090c912fc6400a319138a46ca95"
             }
           ],
           "implementationEvidence": [],

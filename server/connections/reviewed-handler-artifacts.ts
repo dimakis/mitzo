@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1127-subagent-streaming-controls';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1128-subagent-layout-clearance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,28 +23,31 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/design/approved/codex-subagents/floating-v004.html':
+    '22219f3795f5fdcfa941c8e0529e98f85d7f1aa52904301127ae2bd98ccad0f3',
+  '../../.prettierignore': '8cbb87e3cef27c9d25480d0d0604de7e04d83d3bdc98ca6a25f8189a25eaad70',
   '../../frontend/src/components/__tests__/NativeSubagentsStreaming.test.tsx':
     '258110fcbdcf0ede635c61e7064d8051ab2b34423e1d8bc08b74f43df753621a',
   '../../docs/design/approved/codex-subagents/floating-v003.html':
     'b4062f0313bb12897fb3203b4179b11d51c2972133252d823e69f626e506b641',
   '../../frontend/src/components/NativeSubagentsSession.tsx':
-    'ace45a74ee2a001d13a050ac6007c2ead232107f1288f43e4a7f205420136faf',
+    'b64e13e415c254ddceacf11e31b656ca88581f86766b846e61e686760a4f3534',
   '../../frontend/src/lib/native-subagent-dialog-context.ts':
     'f69bbc39e8074b9880c97ec2f6a58f4e9b981437e984660925ab65b4886fd59a',
   '../../frontend/src/components/SnapSheet.tsx':
-    'e107ddf138945ac6ace9ab48b7859bc000fbdccb433f9e4b526970c5e926912c',
+    '4b53be0ddc6057a2f138b18d5d29599c856fdd4770126a57bfe609c8cca66e6b',
   '../../frontend/src/components/SnapSheet.css':
-    'c51ba87c379a9887a5432dd2e29ecc89ab810f5e472dafacf1f395cb0ed4d61e',
+    '106a3a5a527afeea1b24f72c7d48ac7caf7c3d5a0928f7158c8a9f55cc61802c',
   '../../frontend/src/components/__tests__/NativeSubagentsSession.test.tsx':
-    '95a08f2759eefdb588d793d522d46d0b51456317e67b532a8ac1c99aec039ccc',
+    '40e74a15a35055e5c00d031221f03e8ad16277b33e473f6f160f3937828fd418',
   '../../frontend/src/components/__tests__/SnapSheet.test.tsx':
-    '713e314257295f44d759ed08c87e6268607f8353b5fed008d4d245c68fb2390a',
+    '04e11efe411e1f1eaff472cdcc8237e228ccdcc00dafd25609365333f5f6490d',
   '../../tests/offline/native-subagents-presence.spec.ts':
-    '857e18896c3e301405f07de2abc264316cb0ff64f001a156d6c89787ee9771ad',
+    '63fbb37c817d4fa6c9178b9250c4198e3aaed090c912fc6400a319138a46ca95',
   '../../docs/design/approved/codex-subagents/floating.html':
     'cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7',
   '../../docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md':
-    '8b3573bd44ff006f0c251f5a66211ef41df995f60d02c9e0b5bb8bb98aa3ebe7',
+    '87219a04fa6a84c93060eebe0ebfb2360980d549d8bc3430a73d97b6591ba4bc',
   '../../tests/integration/native-subagent-control.test.tsx':
     '09e189944ed0d0fa160bac32287ee2b42e1844ba59941028f0efdbf7ed54ce36',
   '../__tests__/claude-login-sandbox.native.test.ts':
@@ -1012,7 +1016,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/native-subagent-visibility.spec.ts':
     '0a8234f07428ccd6e4787d3426b1c1ed78507f28706f121d9ed10dcfe4976ef7',
   '../../tests/fixtures/native-subagents.tsx':
-    '2a5f7279ceff28f6bec882c065b4f45c3525c700178a5b3826688c15c4f12357',
+    '36a287f01fd6aabfb6cf802c48d2867338f30b0ff9205ed1abcb6aa65733ee14',
   '../../tests/offline/native-subagents.spec.ts':
     '32359e1c7a446c2792ca45331d3bc488cf270378ad95ca269e12901e89ad256f',
   '../../frontend/src/components/__tests__/NativeSubagents.test.tsx':
@@ -1022,9 +1026,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useNativeSubagents.ts':
     '148cde4c33c3767611270dabe583e9a672a60f12b5b8f912300c09820b4bdc63',
   '../../frontend/src/components/NativeSubagents.css':
-    '99092e82eaab19e2f9545ef6c3465b6d27a523dc8618d60bc51d4b46e80b9933',
+    'e5264b67f1cf9c8ec323ada37d074204142b3e90fdfec17afdd41f72ebbb4ae4',
   '../../frontend/src/components/NativeSubagents.tsx':
-    'e50518b5b4b17dd24223a53bb585bc5719620d5e6923b475b51f9f88912d93b5',
+    'a1885a62939117fa855d90fcfa0e0571d88619b1d1b0535fa6329399178564ce',
   '../../packages/protocol/src/native-subagents.ts':
     'e72926ec6f9aa5843e41a8f91e6ee0b828e6a40b104a9642e56c2e2832417e33',
   '../__tests__/codex-subagent-routes.test.ts':
@@ -2385,7 +2389,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TokenBar.tsx':
     '25c80275d287086e2e893a12634435470b38358cc17969d4905e1b4bddcdf354',
   '../../frontend/src/components/ChatArea.tsx':
-    '6f00cea1cc47aecf3c327b131a831919d9df3035c1070741fe79f56469dc54f7',
+    '265f9fe91b30a5fdb17826c12e6060cd4b5e873e94a65fe057645b7333088cc9',
   '../../frontend/src/components/SlashPicker.tsx':
     '419685fc94e6236f49bf54029bac52a52a479d26cd2e3a6a22f4ec9b28df169b',
   '../../frontend/src/hooks/useCompactionHistory.ts':
@@ -3521,7 +3525,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    'fa08a3f2977f8b8ced5f1589b10b58e5b04788170587102e9d6aa96f09ce7bea',
+    '3b119f587c52e725d027253cee5a202b3fef25b6551d771d6d1e2ec0f7421511',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '1cd3152f6a0b39ba08818d988b1b997425171ea3ebf1896e77d80804d12e2529',
   '../../packages/sqlite-file-owner/package.json':

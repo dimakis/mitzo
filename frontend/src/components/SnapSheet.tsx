@@ -22,7 +22,9 @@ export function SnapSheet({
   initialSnap?: 'half' | 'full';
 }) {
   const surface = useRef<HTMLDialogElement>(null);
-  const [snap, setSnap] = useState<'half' | 'full'>(initialSnap);
+  const [snap, setSnap] = useState<'half' | 'full'>(() =>
+    window.matchMedia?.('(max-width: 640px)').matches === false ? 'half' : initialSnap,
+  );
   const drag = useRef<{ y: number; height: number; current: number } | null>(null);
   useLayoutEffect(() => {
     if (surface.current) surface.current.dataset.snap = snap;

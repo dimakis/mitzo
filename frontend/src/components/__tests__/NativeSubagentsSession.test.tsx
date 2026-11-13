@@ -63,6 +63,23 @@ function view() {
     </MemoryRouter>
   );
 }
+it('keeps the persistent control before pending approval actions', () => {
+  render(
+    <MemoryRouter>
+      <NativeSubagentsSession
+        sessionId="approval-chat"
+        footer={<button type="button">Approve request</button>}
+      >
+        Conversation
+      </NativeSubagentsSession>
+    </MemoryRouter>,
+  );
+  const launcher = screen
+    .getByRole('button', { name: 'Agents in this session' })
+    .closest('section')!;
+  const approve = screen.getByRole('button', { name: 'Approve request' });
+  expect(launcher.compareDocumentPosition(approve) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
 it('keeps one session-wide dialog and drafts across transcript entry, siblings, hiding and resizing', async () => {
   render(view());
   fireEvent.click(screen.getByRole('button', { name: /1 subagent/ }));

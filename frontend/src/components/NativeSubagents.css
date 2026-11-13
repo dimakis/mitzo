@@ -8,13 +8,17 @@
   block-size: 0;
   z-index: 3;
 }
+.native-subagent-scroll-clearance {
+  flex: 0 0 calc(var(--control-height) + var(--space-6));
+  block-size: calc(var(--control-height) + var(--space-6));
+}
 .native-subagents--floating > .native-subagent-summary {
   position: absolute;
   inset-inline-end: var(--page-gutter);
   inset-block-end: var(--space-4);
   inline-size: auto;
   max-inline-size: calc(100% - 2 * var(--page-gutter));
-  padding-inline: var(--space-4);
+  padding-inline: var(--space-3);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-feature);

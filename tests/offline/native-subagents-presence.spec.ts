@@ -100,6 +100,9 @@ for (const theme of ['dark', 'light'])
     await child.fill('Keep child draft');
     await dialog.getByRole('button', { name: 'Full screen', exact: true }).click();
     await expect(dialog).toHaveAttribute('data-snap', 'full');
+    await expect
+      .poll(async () => (await dialog.boundingBox())?.width ?? 0)
+      .toBeGreaterThan(page.viewportSize()!.width * 0.8);
     await dialog.getByRole('button', { name: 'Half screen', exact: true }).click();
     await expect(dialog).toHaveAttribute('data-snap', 'half');
     if (info.project.name.startsWith('mobile')) {
@@ -122,6 +125,16 @@ for (const theme of ['dark', 'light'])
     await page.screenshot({ path: info.outputPath(`native-agents-presence-${theme}.png`) });
     await dialog.getByRole('button', { name: 'Hide agent chat' }).click();
     await expect(parent).toHaveValue('Keep parent draft');
+    await page.evaluate(() =>
+      (window as unknown as { showFixturePermission(): void }).showFixturePermission(),
+    );
+    const approve = page.getByRole('button', { name: 'Allow Once', exact: true });
+    await expect(approve).toBeVisible();
+    const launchBox = await launcher.boundingBox();
+    const approveBox = await approve.boundingBox();
+    expect(launchBox!.y + launchBox!.height).toBeLessThanOrEqual(approveBox!.y);
+    await approve.click();
+    await expect(approve).not.toBeVisible();
     await launcher.click();
     await page.getByRole('button', { name: /Peirce.*Working/ }).click();
     await expect(child).toHaveValue('Keep child draft');

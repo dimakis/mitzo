@@ -18,6 +18,10 @@ docs/design/approved/chat-status/compact-inline-queue-2026-11-12.html
 # Immutable user-approved activity reference; the ledger verifies the original bytes.
 docs/design/approved/chat-activity/activity-freshness.html
 docs/design/approved/codex-subagents/nested.html
+# Retained proposal bytes pinned by the ledger; no separate exact-mock approval.
+docs/design/approved/codex-subagents/floating.html
+docs/design/approved/codex-subagents/floating-v003.html
+docs/design/approved/codex-subagents/floating-v004.html
 docs/design/approved/enmaas-account/setup.html
 
 # Frozen Telos acceptance provenance; preserve recorded evidence byte hashes.

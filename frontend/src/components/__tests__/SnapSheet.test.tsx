@@ -14,6 +14,22 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+it('keeps desktop inspection compact until Full screen is explicitly selected', () => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  );
+  render(
+    <SnapSheet title="Peirce" initialSnap="full" onClose={() => {}}>
+      Public output
+    </SnapSheet>,
+  );
+  const dialog = screen.getByRole('dialog', { name: 'Peirce' });
+  expect(dialog.getAttribute('data-snap')).toBe('half');
+  fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+  expect(dialog.getAttribute('data-snap')).toBe('full');
 });
 it('snaps a dragged surface to full height or hidden and cancels without losing its draft', () => {
   const close = vi.fn();

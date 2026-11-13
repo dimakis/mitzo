@@ -5,6 +5,15 @@
 .snap-sheet-grip {
   display: none;
 }
+@media (min-width: 641px) {
+  .home-dialog.snap-sheet[data-snap='full'] {
+    inline-size: calc(100vw - 2 * var(--page-gutter));
+    block-size: calc(100dvh - 2 * var(--page-gutter));
+  }
+  .home-dialog.snap-sheet[data-snap='full'] .home-dialog-content {
+    block-size: 100%;
+  }
+}
 @media (max-width: 640px) {
   /* Sheet height follows the viewport; these bounds are interaction geometry. */
   .home-dialog.snap-sheet {

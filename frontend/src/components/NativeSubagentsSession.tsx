@@ -6,10 +6,12 @@ import { NativeSubagents } from './NativeSubagents';
 export function NativeSubagentsSession({
   sessionId,
   children,
+  footer,
   enabled = true,
 }: {
   sessionId: string;
   children: ReactNode;
+  footer?: ReactNode;
   enabled?: boolean;
 }) {
   const [selection, setSelection] = useState<{
@@ -26,6 +28,7 @@ export function NativeSubagentsSession({
     >
       {children}
       {enabled && <NativeSubagents sessionId={sessionId} floating />}
+      {footer}
     </NativeSubagentDialogContext.Provider>
   );
 }

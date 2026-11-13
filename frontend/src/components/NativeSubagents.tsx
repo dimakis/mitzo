@@ -114,6 +114,8 @@ export function NativeSubagents({
         aria-expanded={expanded}
         aria-controls={listId}
         aria-label={floating ? 'Agents in this session' : undefined}
+        aria-describedby={floating ? `${listId}-status` : undefined}
+        title={floating ? summary : undefined}
         onClick={() => {
           if (floating) navigation?.open(undefined, 'launcher');
           setExpanded((value) => !value);
@@ -121,11 +123,17 @@ export function NativeSubagents({
       >
         {!floating && <UiIcon name={expanded ? 'down' : 'forward'} size={16} />}
         <UiIcon name="agents" size={16} />
-        <span>
-          {floating
-            ? `Agents · ${agents.length}${attention ? ` · ${attention} need permission` : working ? ` · ${working} working` : ''}`
-            : summary}
-        </span>
+        {floating ? (
+          <>
+            <span aria-hidden="true">{agents.length}</span>
+            {attention > 0 && <UiIcon name="warning" size={16} />}
+            <span id={`${listId}-status`} className="sr-only">
+              {summary}
+            </span>
+          </>
+        ) : (
+          <span>{summary}</span>
+        )}
       </button>
       <MotionPresence open={expanded} kind={floating ? 'popover' : 'disclosure'} appear={false}>
         <div id={listId} className="native-subagent-list">

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { createMitzoStore } from '@mitzo/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
+import type { PermissionRequest } from '@mitzo/protocol';
 import { ChatArea } from '../../frontend/src/components/ChatArea';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
 import '../../frontend/src/styles/tokens.css';
@@ -27,8 +28,19 @@ const store = createMitzoStore({
 });
 function Fixture() {
   const [replied, setReplied] = useState(false);
+  const [permission, setPermission] = useState<PermissionRequest | null>(null);
   useEffect(() => {
-    Object.assign(window, { completeFixtureParent: () => setReplied(true) });
+    Object.assign(window, {
+      completeFixtureParent: () => setReplied(true),
+      showFixturePermission: () =>
+        setPermission({
+          permId: 'fixture-permission',
+          toolName: 'Bash',
+          toolInput: 'npm test',
+          title: 'Run fixture tests',
+          allowSessionGrant: false,
+        }),
+    });
   }, []);
   return (
     <MemoryRouter>
@@ -43,8 +55,8 @@ function Fixture() {
               sessionId="native-fixture"
               current={null}
               running={!replied}
-              permission={null}
-              onPermissionRespond={() => {}}
+              permission={permission}
+              onPermissionRespond={() => setPermission(null)}
               messages={[
                 {
                   messageId: 'parent',

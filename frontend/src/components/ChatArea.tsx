@@ -879,6 +879,31 @@ export function ChatArea({
       key={sessionId ?? 'new'}
       sessionId={sessionId ?? ''}
       enabled={!!sessionId && hasNativeSubagents}
+      footer={
+        permission && (
+          <PermissionBanner
+            key={permission.permId}
+            permId={permission.permId}
+            sessionId={sessionId ?? permission.sessionId}
+            reviewKind={permission.reviewKind}
+            recoveryOnly={permission.recoveryOnly}
+            questions={permission.questions}
+            expiresAt={permission.expiresAt}
+            toolName={permission.toolName}
+            toolInput={permission.toolInput}
+            title={permission.title}
+            description={permission.description}
+            displayName={permission.displayName}
+            tier={permission.tier}
+            approvalScope={permission.approvalScope}
+            allowSessionGrant={permission.allowSessionGrant}
+            sessionGrantDescription={permission.sessionGrantDescription}
+            responseError={permission.responseError}
+            onRespond={onPermissionRespond}
+            onExpire={onPermissionExpire}
+          />
+        )
+      }
     >
       <div
         className="chat-messages"
@@ -923,31 +948,10 @@ export function ChatArea({
             Back to reply
           </button>
         )}
+        {hasNativeSubagents && (
+          <div className="native-subagent-scroll-clearance" aria-hidden="true" />
+        )}
       </div>
-
-      {permission && (
-        <PermissionBanner
-          key={permission.permId}
-          permId={permission.permId}
-          sessionId={sessionId ?? permission.sessionId}
-          reviewKind={permission.reviewKind}
-          recoveryOnly={permission.recoveryOnly}
-          questions={permission.questions}
-          expiresAt={permission.expiresAt}
-          toolName={permission.toolName}
-          toolInput={permission.toolInput}
-          title={permission.title}
-          description={permission.description}
-          displayName={permission.displayName}
-          tier={permission.tier}
-          approvalScope={permission.approvalScope}
-          allowSessionGrant={permission.allowSessionGrant}
-          sessionGrantDescription={permission.sessionGrantDescription}
-          responseError={permission.responseError}
-          onRespond={onPermissionRespond}
-          onExpire={onPermissionExpire}
-        />
-      )}
     </NativeSubagentsSession>
   );
 }
