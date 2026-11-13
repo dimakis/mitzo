@@ -1712,6 +1712,29 @@ confirmation, failure preservation and replacement. Captures show
 
 ## Symposium participant presentation
 
+### Phone setup and deliberate sharing — 13 November 2026
+
+Dimitri's phone test rejected the long Add agent form and its unexplained disabled
+review button. The ordinary application setup now reuses the compact settings rows
+and `QuickSettingsChoices` within its own navigation scope. Name and purpose appear
+first; Agent, Account, Model, Thinking, Where it runs and Starting context open their
+existing editors on request. Back, Done and Escape return to the originating row.
+Repository preparation is required before review, with the missing choice explained
+beside the action. The built-in Default Mitzo selection is pinned explicitly before
+capture; an empty library selection must never stand in for that reviewed identity.
+Legacy retained/reference surfaces preserve their existing owner and expanded fields.
+
+Unknown sharing policies use disabled indeterminate checkboxes and an explicit
+unchecked-evidence message. Future-reading/default-reply choices do not prohibit a
+later deliberate share of earlier messages. The ordinary transcript's Share excerpt
+action opens Send selected messages with explicit recipients. This uses the existing
+context-review and forwarding owners, excludes automatic readers from that deliberate
+audience, preserves the prompt draft and cannot attach the forwarding review to a prompt.
+Review failures retain a readable error and collapsed Technical details with stage,
+stable code and original request reference. Private exception payloads are not rendered
+or logged. Earlier approval references and protected checks remain intact; source checks
+and synthetic application tests do not establish physical-device acceptance.
+
 The shared `ConversationAgents` surface follows the approved fresh-agent mock:
 compact participant header, one Agents dialog, inline Reads future discussion /
 Replies by default, a separate read-only conversation preview, and fresh Add agent

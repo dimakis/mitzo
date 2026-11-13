@@ -1,5 +1,7 @@
 import {
   createContext,
+  cloneElement,
+  isValidElement,
   useContext,
   useEffect,
   useMemo,
@@ -29,7 +31,7 @@ import { ConversationAgents } from './ConversationAgents';
 import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
-import type { ChatAreaProps } from './ChatArea';
+import { ChatArea, type ChatAreaProps } from './ChatArea';
 
 const applicationApi = new MitzoApiClient(apiFetch);
 const EMPTY_CONTEXT: string[] = [];
@@ -272,6 +274,18 @@ function useSharedConversation({
     progress,
     promptContext,
     forwarding,
+    shareMessage: (messageId: string) => {
+      if (promptContext.busy || promptContext.attached || forwarding.retained || sending.pending)
+        return;
+      promptContext.edit({
+        ...promptContext.form,
+        mode: 'selected',
+        purpose: promptContext.form.purpose || 'Send selected messages',
+        messageIds: [...new Set([...promptContext.form.messageIds, messageId])],
+        shareRecipientIds: promptContext.form.shareRecipientIds ?? [],
+      });
+      promptContext.show();
+    },
     joiningOwner,
     names,
     active,
@@ -361,9 +375,19 @@ export function SharedConversationBody({
     );
   const { presentation, sending, progress, promptContext, forwarding, names } = host;
   const { draft, projection, composerResponders } = presentation;
+  const canShare =
+    !sending.pending && !promptContext.busy && !promptContext.attached && !forwarding.retained;
+  const history =
+    isValidElement<ChatAreaProps>(ordinaryHistory) && ordinaryHistory.type === ChatArea
+      ? cloneElement(ordinaryHistory, {
+          onShareMessage: host.shareMessage,
+          canShareMessage: () => canShare,
+          shareInActions: true,
+        })
+      : ordinaryHistory;
   return (
     <>
-      {ordinaryHistory ?? children}
+      {history ?? children}
       {projection && (
         <CollaborationTranscript
           {...chat}
@@ -411,6 +435,11 @@ export function SharedConversationBody({
                     forwarding={forwarding}
                     names={names}
                     disabled={!!sending.pending}
+                    shareTargets={projection?.view.participantSessionIds.map((id) => ({
+                      id,
+                      name: names[id] ?? id,
+                      unavailable: projection.view.unavailableParticipantSessionIds.includes(id),
+                    }))}
                   />
                 }
                 responders={

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createRef } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { MitzoApiClient } from '@mitzo/client';
@@ -16,6 +16,8 @@ import {
   settings,
   uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
+import { ChatArea } from '../ChatArea';
+import { installDialogStub } from './dialog-stub';
 
 const ordinary = vi.hoisted(() => ({ connection: null as null | { clientId: string } }));
 vi.mock('@mitzo/client/hooks', () => ({
@@ -27,6 +29,93 @@ afterEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
   ordinary.connection = null;
+});
+
+it('opens targeted context sharing from an earlier ordinary transcript message without sending a prompt', async () => {
+  installDialogStub();
+  HTMLElement.prototype.scrollTo = vi.fn();
+  const view = sharedConversationView();
+  view.messages = [];
+  view.joinedParticipants = [{ sessionId: 'reviewer', name: 'Reviewer' }];
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    expect(init?.method ?? 'GET').toBe('GET');
+    if (url.includes('source-setup'))
+      return Response.json({
+        state: 'selected',
+        sourceConversationId: 'architect',
+        collaboration: {
+          version: 1,
+          collaborationId: view.collaborationId,
+          revision: view.membershipRevision,
+          participantSessionIds: view.participantSessionIds,
+        },
+      });
+    if (url.endsWith('/conversation')) return Response.json(view);
+    if (url.endsWith('/progress'))
+      return Response.json({
+        collaborationId: view.collaborationId,
+        membershipRevision: view.membershipRevision,
+        replies: [],
+        refusals: [],
+      });
+    if (url.endsWith('?transcript=durable'))
+      return Response.json({
+        sourceConversationId: 'architect',
+        boundary: { sequence: 1, messageId: 'earlier' },
+        messages: [
+          {
+            conversationId: 'architect',
+            sequence: 1,
+            messageId: 'earlier',
+            author: 'operator',
+            source: null,
+            blocks: [{ blockId: 'text', content: 'The earlier plan', sha256: 'a'.repeat(64) }],
+          },
+        ],
+      });
+    if (url.includes('/context-source-artifacts'))
+      return Response.json({ sourceConversationId: 'architect', artifacts: [] });
+    throw Error('Unexpected request: ' + url);
+  });
+  const chat = {
+    messages: [
+      {
+        messageId: 'earlier',
+        role: 'user' as const,
+        blocks: [{ blockId: 'text', blockType: 'text' as const, content: 'The earlier plan' }],
+      },
+    ],
+    current: null,
+    running: false,
+    permission: null,
+    onPermissionRespond: () => {},
+  };
+  render(
+    <MemoryRouter>
+      <SharedConversationHost
+        sourceConversationId="architect"
+        api={new MitzoApiClient(fetch)}
+        clientId="client"
+        authScope="login"
+        getVerifiedAuthScope={() => 'login'}
+      >
+        <SharedConversationBody
+          sourceConversationId="architect"
+          chat={chat}
+          ordinaryHistory={<ChatArea {...chat} />}
+        >
+          <p>Loading</p>
+        </SharedConversationBody>
+      </SharedConversationHost>
+    </MemoryRouter>,
+  );
+  const share = await screen.findByText('Share excerpt');
+  fireEvent.click(share);
+  const dialog = await screen.findByRole('dialog', { name: 'Send selected messages' });
+  expect(await within(dialog).findByRole('checkbox', { name: /The earlier plan/ })).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Reviewer', exact: true }));
+  expect(within(dialog).queryByRole('button', { name: 'Attach reviewed context' })).toBeNull();
+  expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
 });
 
 it('observes remote rejoining and its reply after the last other participant leaves, without a local send or refresh', async () => {

@@ -112,6 +112,39 @@ function fixture() {
     );
   return { api, view, source, result, draft, options, mount, edit };
 }
+it('shares selected earlier messages only with explicit recipients regardless of automatic readers', async () => {
+  const f = fixture();
+  f.view.policies.forEach((policy) => {
+    policy.readsFutureDiscussion = true;
+  });
+  const hook = f.mount();
+  act(() =>
+    hook.result.current.edit({
+      mode: 'selected',
+      purpose: 'Send selected messages',
+      brief: '',
+      messageIds: ['source'],
+      shareRecipientIds: ['reviewer'],
+    }),
+  );
+  expect(hook.result.current.recipients).toEqual(['reviewer']);
+  expect(drafts.getChatDraft(f.draft.id)?.text).toBe('Original editable prompt');
+  hook.unmount();
+  const restored = f.mount();
+  expect(restored.result.current.recipients).toEqual(['reviewer']);
+  expect(restored.result.current.form.shareRecipientIds).toEqual(['reviewer']);
+  act(() => restored.result.current.reviewContext());
+  await waitFor(() => expect(restored.result.current.canAttach).toBe(true));
+  expect(f.api.collaborations.reviewPrompt).toHaveBeenCalledWith(
+    f.view.collaborationId,
+    'connection',
+    expect.objectContaining({ recipientSessionIds: ['reviewer'] }),
+    expect.any(AbortSignal),
+  );
+  act(() => restored.result.current.attach());
+  expect(restored.result.current.attached).toBe(false);
+});
+
 it('restores focus to the context trigger after a composer pointer action and native dismissal', async () => {
   installDialogStub();
   const f = fixture();

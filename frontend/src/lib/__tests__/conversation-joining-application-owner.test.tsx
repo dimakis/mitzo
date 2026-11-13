@@ -298,12 +298,12 @@ it.each(['', ' \n '])(
   },
 );
 
-it('reviews Default Mitzo without requiring a saved profile selection', async () => {
+it('reviews the pinned built-in Default Mitzo without requiring a saved profile', async () => {
   const h = await harness(),
     request = input();
-  request.setup.agent = null;
+  request.setup.agent = { profileId: 'default-mitzo', revision: 1, kind: 'builtin' };
   const captured = await h.owner.captureReview(request, new AbortController().signal);
-  expect(captured.target.agent).toBeNull();
+  expect(captured.target.agent).toEqual(request.setup.agent);
   expect(h.fetch).toHaveBeenCalledTimes(2);
 });
 

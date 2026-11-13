@@ -47,6 +47,7 @@ export function createConversationJoiningApplicationOwner(options: {
       assertCurrent(signal);
       if (typeof request.joiningBrief !== 'string') throw unavailable();
       const { setup } = request;
+      if (!setup.agent) throw unavailable();
       // Parse independent public intent before either read. In particular, the
       // source's workspace/mode and catalog defaults never fill missing fields.
       const target = CollaborationApplicationReviewInputSchema.shape.target.parse({
