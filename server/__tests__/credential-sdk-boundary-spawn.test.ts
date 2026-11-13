@@ -65,6 +65,8 @@ it('keeps injected SDK environment out of trusted bootstrap, quotes argv and fre
   const policy = args.at(-1) as string;
   const payload = JSON.parse(readFileSync(policy, 'utf8')) as SandboxWorkerPayload;
   expect(payload.env).toMatchObject({ NODE_PATH: '/untrusted' });
+  expect(payload.config.network.allowedDomains).toContain('platform.claude.com');
+  expect(payload.config.network.allowedDomains).not.toContain('*.claude.com');
   expect(payload.env).not.toHaveProperty('AUTH_SECRET');
   expect(payload.env).not.toHaveProperty('AUTH_PASSPHRASE');
   expect(payload.env).not.toHaveProperty('MITZO_INTERNAL_TOKEN');

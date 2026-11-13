@@ -252,6 +252,8 @@ function createSdkBoundary(
             allowedDomains: [
               'api.anthropic.com',
               'claude.ai',
+              // Native Claude OAuth code exchange and token refresh.
+              'platform.claude.com',
               '*.anthropic.com',
               '*.googleapis.com',
               'github.com',

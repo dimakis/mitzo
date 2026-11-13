@@ -120,7 +120,11 @@ import {
   createWorkspaceRuntimeCommandRunner,
   type ProtectedSdkCommandRunner,
 } from './protected-sdk-command.js';
-import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
+import {
+  createCredentialSdkServer,
+  credentialSdkPermission,
+  ordinarySdkHelperTools,
+} from './credential-sdk-tools.js';
 import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
@@ -2895,12 +2899,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         if (
           options.ordinarySdkAuthority &&
           name.startsWith('mcp__mitzo-connections__') &&
-          ![
-            'mcp__mitzo-connections__ListConnections',
-            'mcp__mitzo-connections__SymposiumReadProfiles',
-            'mcp__mitzo-connections__SymposiumProposeProfile',
-            'mcp__mitzo-connections__AgentCommunication',
-          ].includes(name)
+          !ordinarySdkHelperTools.includes(name)
         )
           return {
             behavior: 'deny',
@@ -3082,14 +3081,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
-          ? [
-              'mcp__mitzo-connections__ListConnections',
-              'mcp__mitzo-connections__SymposiumReadProfiles',
-              'mcp__mitzo-connections__SymposiumProposeProfile',
-              'mcp__mitzo-connections__AgentCommunication',
-              'mcp__mitzo-connections__CaptureMemoryCandidate',
-              WEB_ACCESS_SDK_TOOL,
-            ]
+          ? [...ordinarySdkHelperTools, WEB_ACCESS_SDK_TOOL]
           : [
               ...(sdkCredentialIsolation ? [] : mcpAllowed),
               ...extraTools,
