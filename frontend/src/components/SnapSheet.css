@@ -46,6 +46,7 @@
     flex: 0 0 auto;
     order: -1;
     touch-action: none;
+    user-select: none;
     cursor: ns-resize;
   }
   .snap-sheet-grip::before {
@@ -57,9 +58,6 @@
   }
   .snap-sheet header {
     min-block-size: var(--control-height);
-  }
-  .home-dialog.snap-sheet .native-subagent-body {
-    flex: 1;
   }
 }
 @media (prefers-reduced-motion: reduce) {

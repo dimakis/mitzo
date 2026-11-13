@@ -36,6 +36,7 @@ export function SnapSheet({
   };
   const start = (event: PointerEvent<HTMLDivElement>) => {
     if (!surface.current || event.button !== 0) return;
+    event.preventDefault();
     const height = surface.current.getBoundingClientRect().height;
     drag.current = { y: event.clientY, height, current: height };
     surface.current.dataset.dragging = 'true';

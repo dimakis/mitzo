@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1131-native-agent-focus-return';
+  'v1.0.1132-native-agent-empty-sheet';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -37,9 +37,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/native-subagent-dialog-context.ts':
     'f69bbc39e8074b9880c97ec2f6a58f4e9b981437e984660925ab65b4886fd59a',
   '../../frontend/src/components/SnapSheet.tsx':
-    '4b53be0ddc6057a2f138b18d5d29599c856fdd4770126a57bfe609c8cca66e6b',
+    'db7e4148d15c354263469465aa7a72fddd89b6e18e245ef5b761ea5fecfa6e43',
   '../../frontend/src/components/SnapSheet.css':
-    '106a3a5a527afeea1b24f72c7d48ac7caf7c3d5a0928f7158c8a9f55cc61802c',
+    '5c50d4238ded6ba9faa7b1f7b06edf6fccb49603baf1e26807bd9105940350df',
   '../../frontend/src/components/__tests__/NativeSubagentsSession.test.tsx':
     '40e74a15a35055e5c00d031221f03e8ad16277b33e473f6f160f3937828fd418',
   '../../frontend/src/components/__tests__/SnapSheet.test.tsx':
@@ -49,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/approved/codex-subagents/floating.html':
     'cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7',
   '../../docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md':
-    'c13cd4934e20db5321727349d35b7c2fe196b80d54ddf8c7f0b73507504fa0b1',
+    '733a11dee87689fcd821ed9e2258a4a5b2659e4ede1bc4e2ff95d1b45ec71f3b',
   '../../tests/integration/native-subagent-control.test.tsx':
     '09e189944ed0d0fa160bac32287ee2b42e1844ba59941028f0efdbf7ed54ce36',
   '../__tests__/claude-login-sandbox.native.test.ts':
@@ -1030,7 +1030,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/NativeSubagents.css':
     'e5264b67f1cf9c8ec323ada37d074204142b3e90fdfec17afdd41f72ebbb4ae4',
   '../../frontend/src/components/NativeSubagents.tsx':
-    '9c5b1ec9f690d6f2be7fb9206dbdb1f8efee78a51b8fb228bfb6b31e6a1f17d2',
+    'a411f1a4ee3a86373c8385d0c8a15a777e0b4209af23fd8eeaafb3ed9f26a544',
   '../../packages/protocol/src/native-subagents.ts':
     'e72926ec6f9aa5843e41a8f91e6ee0b828e6a40b104a9642e56c2e2832417e33',
   '../__tests__/codex-subagent-routes.test.ts':

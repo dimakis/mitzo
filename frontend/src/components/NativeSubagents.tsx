@@ -179,7 +179,7 @@ export function NativeSubagents({
       {selected && (
         <Dialog
           title={selected.name}
-          {...(floating && navigation?.origin === 'transcript'
+          {...(floating && navigation?.origin === 'transcript' && selected.blocks.length > 0
             ? { initialSnap: 'full' as const }
             : {})}
           className={`native-subagent-dialog${!selected.blocks.length ? ' native-subagent-dialog--empty' : ''}`}

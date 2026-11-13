@@ -87,3 +87,16 @@ file, preserving the ledger-protected tests unchanged. The prior `579fbbf`
 candidate passed hosted compilation, frontend
 and iOS web builds, core checks and general browser interaction checks. Fresh
 hosted validation and Centaur follow-up remain required for this focus correction.
+
+The `579fbbf` mobile WebKit shard exposed the existing empty-inspection regression:
+SnapSheet's more specific body flex rule overrode the compact empty state, leaving
+over 220px between Retry inspection and the composer. Removing that duplicate
+rule preserves the owning empty-state sizing; empty transcript entry now starts
+at half height while explicit Full screen still works. A retained light WebKit
+presence capture was visually inspected (artifact `14057258111`); the full chat
+surface and composer are readable. It also showed text selected during grip
+dragging, now prevented at pointer start and on the grip. These corrections still
+require fresh hosted browser execution. The unrelated unit-shard failure is the
+forwarded-artifact application journey's missing response at line 133. Local
+reproduction stopped earlier because its fixture repository was missing; neither
+cause equivalence nor a successful reproduction is claimed.
