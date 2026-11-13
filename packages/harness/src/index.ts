@@ -70,7 +70,12 @@ export {
 } from './tool-tiers.js';
 
 // Skill policy
-export { setSkillPolicy, clearSkillPolicy, checkSkillPolicy } from './skill-policy.js';
+export {
+  setSkillPolicy,
+  clearSkillPolicy,
+  checkSkillPolicy,
+  checkSkillTool,
+} from './skill-policy.js';
 
 // Worktree guard
 export {

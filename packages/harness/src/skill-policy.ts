@@ -53,7 +53,14 @@ export function checkSkillPolicy(
   const session = registry.get(clientId);
   if (!session) return 'allow';
 
-  const policy = session.activeSkillPolicy;
+  return checkSkillTool(session.activeSkillPolicy, toolName);
+}
+
+/** The same ceiling semantics for a frozen command snapshot and legacy sessions. */
+export function checkSkillTool(
+  policy: ReadonlySet<string> | null | undefined,
+  toolName: string,
+): 'allow' | 'deny' {
   if (!policy) return 'allow';
 
   if (unsupportedDelegation.has(toolName)) return 'deny';

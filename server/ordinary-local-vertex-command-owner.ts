@@ -1,4 +1,7 @@
 import type { EventStore } from './event-store.js';
+import { isDeepStrictEqual } from 'node:util';
+import { checkSkillTool } from '@mitzo/harness';
+import type { OrdinarySkillContext } from '@mitzo/protocol';
 import {
   OrdinarySdkInterruptTargetSchema,
   type OrdinarySdkInterruptTarget,
@@ -10,11 +13,19 @@ import {
   type OrdinaryTurnLifecycle,
 } from './ordinary-turn-lifecycle.js';
 import type { OrdinarySdkTurnEvidence } from './ordinary-sdk-turn-evidence.js';
-import type { OrdinarySdkQueryControl } from './ordinary-local-vertex-sdk-query.js';
+import type {
+  OrdinarySdkQueryControl,
+  OrdinarySdkCommandToolAuthority,
+} from './ordinary-local-vertex-sdk-query.js';
 
 /** A FIFO controller for one existing SDK query. The durable queue is the existing
  * ordinary/send ledger; this object only tracks the live query's active command. */
-type ActiveSdkCommand = { commandId: string; execution: ExecutionToken };
+type ActiveSdkCommand = {
+  commandId: string;
+  execution: ExecutionToken;
+  skillContext?: OrdinarySkillContext;
+  inputReleased: boolean;
+};
 export class OrdinaryLocalVertexCommandOwner {
   #active?: ActiveSdkCommand;
   #pending: string[] = [];
@@ -126,6 +137,48 @@ export class OrdinaryLocalVertexCommandOwner {
     assertOrdinarySynchronousFence(commandId, () =>
       this.#turnLifecycle(commandId)?.beforeDispatch(commandId),
     );
+    this.#assertSkillContext(this.#active);
+    this.#active.inputReleased = true;
+  }
+  #assertSkillContext(active: ActiveSdkCommand): void {
+    const context = this.owners.store.getOrdinarySkillContext(
+      this.owners.sessionId,
+      active.commandId,
+    );
+    if (
+      !isDeepStrictEqual(context, active.skillContext) ||
+      (context && this.owners.store.getSendCommand(active.commandId)?.payload.text !== context.text)
+    )
+      throw Error('Original SDK command skill context changed');
+  }
+  #toolAuthority(active: ActiveSdkCommand): OrdinarySdkCommandToolAuthority {
+    const ceiling =
+      active.skillContext?.allowedTools === undefined
+        ? null
+        : new Set(active.skillContext.allowedTools);
+    return Object.freeze({
+      commandId: active.commandId,
+      checkTool: (name: string): 'allow' | 'deny' => {
+        if (
+          this.#failed ||
+          this.#paused ||
+          this.#active !== active ||
+          !active.inputReleased ||
+          !this.owners.assertCurrentSync
+        )
+          throw Error('Original SDK tool command unavailable');
+        assertOrdinarySynchronousFence(active.commandId, () => this.owners.assertCurrentSync!());
+        const session = this.owners.store.getSession(this.owners.sessionId);
+        if (
+          session?.executionId !== active.execution.executionId ||
+          session.executionGeneration !== active.execution.generation ||
+          !['RUNNING', 'REQUIRES_ACTION'].includes(session.executionPhase ?? '')
+        )
+          throw Error('Original SDK tool command execution unavailable');
+        this.#assertSkillContext(active);
+        return checkSkillTool(ceiling, name);
+      },
+    });
   }
   acceptsPeerMessages(): boolean {
     return !this.#paused && !this.#failed;
@@ -303,6 +356,15 @@ export class OrdinaryLocalVertexCommandOwner {
     await this.#fence();
     assertPreparation();
     this.#turnLifecycle(commandId);
+    const payload = this.owners.store.getSendCommand(commandId)!.payload;
+    const skillContext = this.owners.store.getOrdinarySkillContext(
+      this.owners.sessionId,
+      commandId,
+    );
+    if (skillContext && skillContext.text !== payload.text)
+      throw Error('Original SDK command skill context changed');
+    if (skillContext?.allowedTools !== undefined && !this.owners.query.bindCommandToolAuthority)
+      throw Error('SDK command tool ceiling enforcement unavailable');
     // A signed queue control may cancel this consumed head during authority I/O.
     // Observe that exact cancellation before allocating an execution generation.
     if (
@@ -327,7 +389,7 @@ export class OrdinaryLocalVertexCommandOwner {
       this.owners.sessionId,
       commandId,
     ).token;
-    this.#active = { commandId, execution };
+    this.#active = { commandId, execution, skillContext, inputReleased: false };
     this.#dispatchingCommandId = undefined;
     // No running turn exists here. SDK control calls are acknowledged before
     // yielding the next frozen user input; tool-result continuations bypass this.
@@ -343,7 +405,11 @@ export class OrdinaryLocalVertexCommandOwner {
       await this.#fence();
       assertPreparation();
     }
-    const payload = this.owners.store.getSendCommand(commandId)!.payload;
+    this.#assertSkillContext(this.#active);
+    if (this.owners.query.bindCommandToolAuthority)
+      assertOrdinarySynchronousFence(commandId, () =>
+        this.owners.query.bindCommandToolAuthority!(this.#toolAuthority(this.#active!)),
+      );
     this.#inputDispatched = commandId;
     await this.owners.query.push(commandId, structuredClone(admission), structuredClone(payload));
     await this.#fence();

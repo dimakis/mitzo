@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../skill-runtime-support.ts': '412e9a82cf3c7d6e8606bab79d74b48d71ba157111e67715708ecc21f4f736a9',
   '../slash-commands.ts': '792c67730c519119a89f048790e4fccf91847920436f19d01b27bc9ec6945e89',
   '../../packages/harness/src/skill-policy.ts':
-    '9ead157c098e8dbb608ca40479f1191952d7bf9a251f1c5eb8bb71a56d070c9c',
+    '24d3908f87b6d0534de4e8c5153ecc48ff7befed1fc7f7dfb7c9cd4d87ec8103',
   '../__tests__/restricted-skill-enforcement.test.ts':
     '9394bc96140ef8841b499ff989a8456a9a7dc11ee3fa172bb58865dea9d34569',
   '../__tests__/skills-registry.test.ts':
@@ -83,7 +83,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-claude.test.ts':
     '410c90823efe6e3864e1794152ff92e2b5d942491259d6f557daef1867f51501',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
-    '3b975b54d6be0157211526138905908a2d36dc49d1e990be96c30b31cae34ccd',
+    '757ff7b650039eade67838e01fff4430f19c338fbc31a9105da264d9a1c2b6b4',
   '../__tests__/ordinary-sdk-turn-evidence.test.ts':
     '8c35baf41ef0acb1823c2a6e74e1ca6bb068fc87244e859c354f6891bd1417bf',
   '../ordinary-sdk-turn-evidence.ts':
@@ -2400,7 +2400,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../request-web-access.ts': '7c3827a0e4ddaf8880b6ec02e1af8bc398b4b064a90bf941570751b859e467af',
   '../web-search-adapters.ts': '1db1eb0ce65e6ec4c11699019acf5ca5e65fd3fc7bd4aa6a15a8ca75ad9bbb2b',
   '../../packages/harness/src/index.ts':
-    '6ac7110dc3527bfb14574b8dab89c0267b5f56df4e9f2e0d1e7d2ec39745b2b4',
+    'e42e6ca88232bfe090ea613f77ab9d734a4bfc2c3d97c3776e6c72d508cdd894',
   '../../packages/harness/src/session-transport.ts':
     '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
   '../../frontend/src/components/SymposiumConversation.tsx':
@@ -2944,9 +2944,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-replay.ts':
     'd7ecdd21c89be167a1b627b024687df00ead20df98c349f51b114d98a8800a75',
   '../ordinary-local-vertex-sdk-query.ts':
-    '6c0872b55161533de8b8eefd66f5ac5b233dc23d328e05a887771b793e183f6f',
+    '9d647039ea800452669b73dffaff669f0522e30afbdbdd52e630d4a5679847fd',
   '../ordinary-local-vertex-command-owner.ts':
-    'd7b253f4354c8f574226b9775606dda4401c5fdcb2f349a53e7c3d0ef6bd873b',
+    '7cd6d7bc36ac59b89d535734ed56fe0ecd82acdcfb8d9103b9dd31e4570a5e17',
   '../ordinary-local-vertex-capabilities.ts':
     'f1b3716a985362d937a421f92b4bbed8e58ce5d54b7e047bccca283f833a0cc1',
   '../ordinary-local-vertex-queue.ts':

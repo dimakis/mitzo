@@ -40,9 +40,16 @@ export interface SdkCallbackState {
   runCallback: TurnCallbackRunner;
 }
 /** Host-only opaque capture; a forged object cannot name a native query. */
+export interface OrdinarySdkCommandToolAuthority {
+  readonly commandId: string;
+  /** Revalidates the original runtime, execution generation and frozen context.
+   * This is an additional ceiling, never mode/profile/effect authorization. */
+  checkTool(name: string): 'allow' | 'deny';
+}
 export interface OrdinarySdkQueryControl {
   captureInterruptTarget(): object | undefined;
   interruptIfCurrent(target: object): Promise<boolean>;
+  bindCommandToolAuthority?(authority: OrdinarySdkCommandToolAuthority): void;
 }
 export function createSdkCallbackState(): SdkCallbackState {
   // SDK terminal evidence must retain uncertainty even when the callback

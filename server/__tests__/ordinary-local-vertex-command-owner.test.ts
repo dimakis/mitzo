@@ -6,6 +6,7 @@ import type { OrdinaryTurnLifecycle } from '../ordinary-turn-lifecycle.js';
 import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
 import { randomUUID } from 'node:crypto';
 import { replayEventsToMessages } from '../conversation-transcript.js';
+import type { OrdinarySdkCommandToolAuthority } from '../ordinary-local-vertex-sdk-query.js';
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
 const binding = {
@@ -45,6 +46,8 @@ function setup(turnLifecycle?: OrdinaryTurnLifecycle, recordEvidence = false) {
   const assertCurrent = vi.fn();
   const assertCurrentSync = vi.fn();
   const query = {
+    bindCommandToolAuthority: undefined as
+      ((authority: OrdinarySdkCommandToolAuthority) => void) | undefined,
     applySettings: undefined as
       ((selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>) | undefined,
     setModel: vi.fn(async (model: string) => {
@@ -64,7 +67,7 @@ function setup(turnLifecycle?: OrdinaryTurnLifecycle, recordEvidence = false) {
     ),
     abort: vi.fn(),
   };
-  const owner = new OrdinaryLocalVertexCommandOwner({
+  const owners = {
     store,
     sessionId: 'session',
     assertCurrent,
@@ -73,15 +76,123 @@ function setup(turnLifecycle?: OrdinaryTurnLifecycle, recordEvidence = false) {
     turnEvidence: recordEvidence
       ? new OrdinarySdkTurnEvidence(store, 'session', 'sdk-thread')
       : undefined,
-    ownsClaim: (id) => store.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed',
+    ownsClaim: (id: string) =>
+      store.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed',
     query,
-    settings: (selection) => ({
+    settings: (selection: OrdinaryLocalCommandAdmission['selection']) => ({
       model: selection.model,
       thinkingTokens: selection.thinking === null ? null : 10000,
     }),
-  });
-  return { store, owner, calls, query, assertCurrent, assertCurrentSync };
+  };
+  const owner = new OrdinaryLocalVertexCommandOwner(owners);
+  return {
+    store,
+    owner,
+    calls,
+    query,
+    assertCurrent,
+    assertCurrentSync,
+    restart: () => new OrdinaryLocalVertexCommandOwner(owners),
+  };
 }
+it('binds an immutable ceiling to the released input and never lends it to a queued successor', async () => {
+  const f = setup();
+  f.store.admitWithOrdinarySkillContext(
+    'session',
+    'first',
+    { text: 'first', prompt: 'Instructions', allowedTools: ['Read', 'Agent'] },
+    () => {},
+  );
+  const authorities: OrdinarySdkCommandToolAuthority[] = [];
+  f.query.bindCommandToolAuthority = (authority) => {
+    authorities.push(authority);
+  };
+  await f.owner.enqueue('first');
+  const first = authorities[0];
+  expect(first?.commandId).toBe('first');
+  expect(() => first.checkTool('Read')).toThrow(/input|command/);
+  f.owner.assertInputCurrent('first');
+  expect(first.checkTool('Read')).toBe('allow');
+  expect(first.checkTool('Write')).toBe('deny');
+  expect(first.checkTool('Agent')).toBe('deny');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+  await f.owner.enqueue('second');
+  expect(authorities).toHaveLength(1);
+  expect(first.checkTool('Write')).toBe('deny');
+  f.owner.inputObserved('first-input');
+  await f.owner.resultObserved('first-input');
+  expect(authorities).toHaveLength(2);
+  expect(() => first.checkTool('Read')).toThrow(/command/);
+  f.owner.assertInputCurrent('second');
+  expect(authorities[1].checkTool('Write')).toBe('allow');
+});
+it('refuses a restricted input before execution admission if its query cannot bind the ceiling', async () => {
+  const f = setup();
+  f.store.admitWithOrdinarySkillContext(
+    'session',
+    'first',
+    { text: 'first', prompt: 'Instructions', allowedTools: [] },
+    () => {},
+  );
+  await expect(f.owner.enqueue('first')).rejects.toThrow(/ceiling.*unavailable/);
+  expect(f.store.getExecutionAdmission('session', 'first')).toBeUndefined();
+  expect(f.query.push).not.toHaveBeenCalled();
+});
+it.each(['authority', 'stopping', 'context'] as const)(
+  'rechecks %s revocation for the original command at every tool call',
+  async (kind) => {
+    const f = setup();
+    const context = { text: 'first', prompt: 'Instructions', allowedTools: ['Read'] };
+    f.store.admitWithOrdinarySkillContext('session', 'first', context, () => {});
+    let authority!: OrdinarySdkCommandToolAuthority;
+    f.query.bindCommandToolAuthority = (next) => {
+      authority = next;
+    };
+    await f.owner.enqueue('first');
+    f.owner.assertInputCurrent('first');
+    expect(authority.checkTool('Read')).toBe('allow');
+    if (kind === 'authority')
+      f.assertCurrentSync.mockImplementation(() => {
+        throw Error('Runtime revoked');
+      });
+    else if (kind === 'stopping')
+      f.store.transitionExecution(
+        f.store.getExecutionAdmission('session', 'first')!.token,
+        'STOPPING',
+      );
+    else
+      f.store.append('session', 'ordinary_skill_context', {
+        messageId: 'first',
+        ...context,
+        allowedTools: ['Write'],
+      });
+    expect(() => authority.checkTool('Read')).toThrow();
+    expect(() => authority.checkTool('Write')).toThrow();
+  },
+);
+it('restores a never-started FIFO ceiling into a fresh owner without replaying a completed command', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  await f.owner.complete('first');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('recovered'));
+  f.store.admitWithOrdinarySkillContext(
+    'session',
+    'recovered',
+    { text: 'recovered', prompt: 'Instructions', allowedTools: [] },
+    () => {},
+  );
+  let authority!: OrdinarySdkCommandToolAuthority;
+  f.query.bindCommandToolAuthority = (next) => {
+    authority = next;
+  };
+  const recovered = f.restart();
+  await recovered.enqueue('recovered');
+  recovered.assertInputCurrent('recovered');
+  expect(authority.checkTool('Read')).toBe('deny');
+  await recovered.complete('recovered');
+  expect(() => authority.checkTool('Read')).toThrow(/command/);
+  await expect(recovered.enqueue('first')).rejects.toThrow(/replay/);
+});
 it('renews only the exact active, not-yet-acknowledged SDK input at its final yield', async () => {
   const lifecycle = { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() };
   const f = setup(lifecycle, true);
