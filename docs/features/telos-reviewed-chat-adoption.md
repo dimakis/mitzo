@@ -149,6 +149,20 @@ guards. All 2,395 source pins verify and a parent-union check finds no missing
 registration. Current-base CI and the final Centaur report must cover this
 combined candidate before merge.
 
+Centaur review `5889479048` reported `CEN-5537E55B7984`: adoption could commit
+and release admission yet remain unconfirmed when a chat's admitted thinking
+selection differed from its original allocation. Confirmation now uses the
+canonical reviewed adoption intent rather than requiring the historical
+allocation settings to match. Create-only confirmation keeps its exact settings
+check; assignment identity, original allocation custody, context, retirement and
+committed release checks remain required. A real-store regression completes two
+synthetic admissions with different supported thinking selections, adopts the
+same chat, loses the assignment response and recovers its original receipt
+without allocation or dispatch. It fails against the old comparison and passes
+with the correction. All 57 focused owner/runtime/service checks pass; source
+pins, ESLint and formatting pass at runtime revision 1123. New-head CI and
+Centaur verification remain required.
+
 CI `43397518370` failed server test compilation: the host callback fixture
 returned `Promise<void>` instead of a JSON reply, and spread adoption inputs
 widened `createOnly` from literal `true` to `boolean`. Commit `8811cc5e` fixes

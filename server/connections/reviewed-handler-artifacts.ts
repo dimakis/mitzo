@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1122-enmaas-telos-integration';
+  'v1.0.1123-adoption-reviewed-settings';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4449,7 +4449,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-mcp-server.test.ts':
     '6d80dc711c403e57ea54a10a8b31b5012c9964fec9abb583abb80f095c82964d',
   '../__tests__/telos-ordinary-work-role-setup.test.ts':
-    '62139fdec23cd4cb631e3ad87d11e7e0ae9985233735b9d18cffc5d44b29658c',
+    '17fe41ba5d8710da6a14a5a232fac669158852bd76e562f6ecfc667c79a983bf',
   '../__tests__/telos-session-launch-service.test.ts':
     '6e2b37e6648919c68bbb0f49e49b3d489f74fd18a9a3fecc06d9274dddffed32',
   '../__tests__/telos-work-role-setup.test.ts':
@@ -4457,7 +4457,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-work-store.test.ts':
     '9aa30a23f1c9d8a7f711c9423598307c155aea4f2c32449abfaab5e4a320b728',
   '../telos-session-launch-host.ts':
-    '36391c56c800d7ff57396ba81500bca1546172600e9973539b12e0949337552f',
+    '39a871011b006f96a6d2487af51c30a223ee2d712d68367de0dc6a76292fbb2a',
   '../../docs/features/telos-agent-session-creation-handoff.md':
     '0d31d6abe606cb830e9fed9a636d561e6468f8b25d298e15cea53440b2a6a234',
   '../__tests__/telos-session-launch-adapters.test.ts':

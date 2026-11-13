@@ -179,7 +179,10 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
       preparation.sessionId !== childSessionId ||
       childSessionId === record.sourceSessionId ||
       !deps.ordinaryConversation(childSessionId) ||
-      !isDeepStrictEqual(preparation.settings, input.settings) ||
+      // Adoption retains the reviewed latest admitted settings in the canonical
+      // role intent. Allocation settings predate legitimate later selections.
+      // Creation still requires its exact original allocation selection.
+      (!input.adoption && !isDeepStrictEqual(preparation.settings, input.settings)) ||
       !isDeepStrictEqual(context, input.contextSelection)
     )
       throw new SessionLaunchError(

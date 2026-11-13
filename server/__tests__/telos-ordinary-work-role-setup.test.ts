@@ -164,6 +164,7 @@ it.each([
 it.each([
   'recovery',
   'existing adoption',
+  'changed thinking adoption',
   'lost completed adoption',
   'partial adoption context',
   'adoption release',
@@ -221,7 +222,61 @@ it.each([
       () => {},
       () => {},
     );
-    const settings = f.input.settings;
+    const targetId = f.native.first.receipt.sessionId;
+    if (scenario === 'changed thinking adoption') {
+      const profilesPath = join(f.native.root, 'profiles.json');
+      const profiles = JSON.parse(readFileSync(profilesPath, 'utf8'));
+      profiles[0].models[0].reasoningEfforts.push('high');
+      writeFileSync(profilesPath, JSON.stringify(profiles));
+      // Retain completed synthetic admissions; no native/provider command runs.
+      const firstCommand = {
+        clientMsgId: 'before-settings-change',
+        requestFingerprint: 'before-settings-change',
+        selection: f.input.settings.selection,
+        payload: { text: 'Offline initial command' },
+      };
+      const session = f.native.events.getSession(targetId)!;
+      const meta = {
+        sessionId: targetId,
+        ordinaryWorkspaceId: session.ordinaryWorkspaceId,
+        cwd: session.cwd,
+        accountBinding: session.accountBinding!,
+        agentProfile: session.agentProfile,
+        agentContext: session.agentContext,
+        selectedModel: session.selectedModel,
+        reasoningEffort: session.reasoningEffort,
+        mode: session.mode,
+      };
+      f.native.events.admitPreparedOrdinaryWorkspaceCommand(
+        f.native.first.receipt.allocationOperationId,
+        meta,
+        f.input.settings.binding,
+        firstCommand,
+      );
+      f.native.events.claimOrdinaryLocalCommandDispatch(firstCommand.clientMsgId);
+      f.native.events.completeOrdinaryLocalCommand(firstCommand.clientMsgId);
+      f.native.events.upsertSession({ sessionId: targetId, reasoningEffort: 'high' });
+      f.native.events.admitOrdinaryLocalContinuation(
+        { ...meta, reasoningEffort: 'high' },
+        f.input.settings.binding,
+        {
+          ...firstCommand,
+          clientMsgId: 'after-settings-change',
+          requestFingerprint: 'after-settings-change',
+          selection: { ...firstCommand.selection, thinking: 'high' },
+        },
+      );
+      f.native.events.claimOrdinaryLocalCommandDispatch('after-settings-change');
+      f.native.events.completeOrdinaryLocalCommand('after-settings-change');
+    }
+    const settings =
+      scenario === 'changed thinking adoption'
+        ? f.native.events.getOrdinaryWorkspaceConversationSettings(targetId)!
+        : f.input.settings;
+    if (scenario === 'changed thinking adoption') {
+      expect(settings.selection.thinking).toBe('high');
+      expect(settings).not.toEqual(f.native.first.receipt.settings);
+    }
     if (scenario.includes('Symposium origin')) {
       f.native.events.upsertSession({ sessionId: 'symposium-origin', conversationSource: 'mitzo' });
       f.native.events.setSymposiumConfig('symposium-origin', {
@@ -381,6 +436,7 @@ it.each([
     const input = {
       ...([
         'existing adoption',
+        'changed thinking adoption',
         'lost completed adoption',
         'partial adoption context',
         'adoption release',
@@ -513,14 +569,17 @@ it.each([
       return;
     }
     const recovered = await service.refresh(record.proposalId, 'user', authority);
-    expect(recovered.state).toBe('assigned');
+    expect(recovered.state, recovered.error ?? undefined).toBe('assigned');
     expect(recovered.telos?.role).toBe(scenario === 'feature lead recovery' ? 'lead' : 'worker');
     expect(recovered.childSessionId).not.toBe(sourceSessionId);
     expect(f.native.events.listSessions()).toHaveLength(
       before +
-        (['existing adoption', 'lost completed adoption', 'partial adoption context'].includes(
-          scenario,
-        )
+        ([
+          'existing adoption',
+          'changed thinking adoption',
+          'lost completed adoption',
+          'partial adoption context',
+        ].includes(scenario)
           ? 0
           : 1),
     );
@@ -538,7 +597,14 @@ it.each([
         f.work.read(child.item.id, f.actor).links.find((link) => link.role === 'origin')
           ?.availability,
       ).toBe('available');
-    expect(f.native.events.getOrdinaryInitialCommandId(recovered.childSessionId!)).toBeUndefined();
+    expect(f.native.events.getOrdinaryInitialCommandId(recovered.childSessionId!)).toBe(
+      scenario === 'changed thinking adoption' ? 'before-settings-change' : undefined,
+    );
+    if (scenario === 'changed thinking adoption') {
+      expect(recovered.childSessionId).toBe(targetId);
+      expect(store.get(record.proposalId, 'user').telosSetup?.input.settings).toEqual(settings);
+      expect(f.native.events.contextTransitions.observe(targetId).held).toBe(false);
+    }
     expect(f.native.first.launch).not.toHaveBeenCalled();
     expect(ordinary.start).not.toHaveBeenCalled();
     expect(await service.refresh(record.proposalId, 'user', authority)).toEqual(recovered);
