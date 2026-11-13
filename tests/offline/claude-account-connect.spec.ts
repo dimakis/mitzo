@@ -29,6 +29,25 @@ for (const theme of ['dark', 'light'] as const) {
     let checks = 0,
       releaseCheck: (() => void) | undefined;
     let signedIn = true;
+    let removed = false;
+    let removals = 0;
+    const oldId = '9f78d1a4-07f7-47cb-b6fb-f5e7add9d67b';
+    const oldAccount = {
+      id: `claude-${oldId}`,
+      label: 'Old Claude',
+      email: 'old@example.test',
+      planType: 'max',
+      verifiedAt: Date.now() - 86400000,
+    };
+    const oldFailure = {
+      requestId: oldId,
+      accountId: oldAccount.id,
+      label: oldAccount.label,
+      state: 'failed',
+      expiresAt: Date.now() - 1000,
+      errorCode: 'CLAUDE_LOGIN_START_FAILED',
+      diagnosticId: 'old-reference',
+    };
     const accountId = () => `claude-${requestId}`;
     const attempt = () => ({
       requestId,
@@ -44,10 +63,11 @@ for (const theme of ['dark', 'light'] as const) {
     });
     const snapshot = () => ({
       enabled: true,
-      attempts: state === 'idle' ? [] : [attempt()],
+      attempts: [oldFailure, ...(state === 'idle' || removed ? [] : [attempt()])],
       accounts:
-        state === 'connected'
+        state === 'connected' && !removed
           ? [
+              oldAccount,
               {
                 id: accountId(),
                 label: 'Personal Claude',
@@ -56,16 +76,22 @@ for (const theme of ['dark', 'light'] as const) {
                 verifiedAt: Date.now(),
               },
             ]
-          : [],
+          : [oldAccount],
     });
     await page.route('**/*', async (route) => {
       const url = new URL(route.request().url());
       if (url.hostname !== 'mitzo-ui.test') return route.abort();
       if (url.pathname === '/api/claude-accounts/start') {
         starts++;
+        removed = false;
         requestId = route.request().postDataJSON().requestId;
         state = 'pending';
         return route.fulfill({ json: attempt() });
+      }
+      if (url.pathname === `/api/claude-accounts/accounts/${accountId()}/remove`) {
+        removals++;
+        removed = true;
+        return route.fulfill({ json: snapshot() });
       }
       if (url.pathname.endsWith('/code') && url.pathname.startsWith('/api/claude-accounts/')) {
         codes++;
@@ -121,6 +147,9 @@ for (const theme of ['dark', 'light'] as const) {
       }
     });
     await page.goto('/connections?manage=claude');
+    await expect(page.getByRole('button', { name: 'Sign in with Claude' })).toBeEnabled();
+    await expect(page.getByText('old@example.test · Max')).toHaveCount(0);
+    await expect(page.getByText('Reference: old-reference')).toHaveCount(0);
     await page.getByRole('button', { name: 'Sign in with Claude' }).click();
     await expect(page.getByRole('link', { name: 'Open Claude sign-in' })).toHaveAttribute(
       'href',
@@ -188,5 +217,17 @@ for (const theme of ['dark', 'light'] as const) {
       path: testInfo.outputPath('connections-claude-check-failed.png'),
       fullPage: true,
     });
+    await page.getByRole('button', { name: 'Remove account', exact: true }).click();
+    expect(removals).toBe(0);
+    await checkControls();
+    await page.getByRole('button', { name: 'Confirm removal' }).click();
+    await expect(page.getByText('person@example.test · Max')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Sign in with Claude' })).toBeEnabled();
+    expect(removals).toBe(1);
+    await page.reload();
+    await expect(page.getByText('Reference: old-reference')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Sign in with Claude' }).click();
+    await expect(page.getByRole('link', { name: 'Open Claude sign-in' })).toBeVisible();
+    expect(starts).toBe(2);
   });
 }

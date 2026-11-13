@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import type { SandboxWorkerPayload } from '../sandboxed-command-worker.js';
-import { credentialSdkBoundary } from '../credential-sdk-boundary.js';
+import { claudeLoginSdkBoundary, credentialSdkBoundary } from '../credential-sdk-boundary.js';
 const mocked = vi.hoisted(() => ({ spawn: vi.fn(), dependencies: vi.fn() }));
 vi.mock('node:child_process', async (original) => ({
   ...(await original<object>()),
@@ -42,6 +42,34 @@ function child() {
     stderr: new PassThrough(),
   });
 }
+it('admits only the native login terminal while keeping callback and loopback policy unchanged', () => {
+  vi.spyOn(process, 'kill').mockReturnValue(true);
+  for (const login of [false, true]) {
+    const handle = child();
+    mocked.spawn.mockReturnValue(handle);
+    const boundary = login ? claudeLoginSdkBoundary('darwin')! : credentialSdkBoundary('darwin')!;
+    boundary.spawnClaudeCodeProcess({
+      command: '/usr/bin/true',
+      args: [],
+      env: {},
+      signal: new AbortController().signal,
+    });
+    const payload = JSON.parse(
+      readFileSync(mocked.spawn.mock.calls.at(-1)![1].at(-1), 'utf8'),
+    ) as SandboxWorkerPayload;
+    expect(payload.config.network.allowLocalBinding).toBe(false);
+    expect(payload.config.allowPty).toBe(login);
+    expect(payload.config.network.allowAllUnixSockets).toBe(false);
+    expect(payload.config.filesystem.denyRead).toEqual(
+      expect.arrayContaining(boundary.deniedRoots),
+    );
+    expect(payload.config.filesystem.denyWrite).toEqual(
+      expect.arrayContaining(boundary.deniedRoots),
+    );
+    expect(payload.config.network.allowedDomains).not.toContain('*');
+    handle.emit('close', 0, null);
+  }
+});
 it('keeps injected SDK environment out of trusted bootstrap, quotes argv and freezes private roots', () => {
   const handle = child();
   mocked.spawn.mockReturnValue(handle);

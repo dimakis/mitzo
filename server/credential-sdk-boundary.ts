@@ -64,6 +64,14 @@ export function credentialSdkBoundary(
   return createSdkBoundary(platform, false, selectedAuthorityWriteRoots, selectedProviderBaseUrl);
 }
 
+/** Only the fixed native `auth login` supervisor may allocate a terminal.
+ * Claude's manual fallback after a denied callback bind requires terminal stdin.
+ * Network restrictions, including loopback access, remain unchanged.
+ */
+export function claudeLoginSdkBoundary(platform: NodeJS.Platform = process.platform) {
+  return createSdkBoundary(platform, false, [], 'https://api.anthropic.com', true);
+}
+
 /** Controller project commands need the runtime fence for every provider, with
  * no change to their credential environment or network policy. */
 export function runtimeFilesystemSdkBoundary(platform: NodeJS.Platform = process.platform) {
@@ -75,6 +83,7 @@ function createSdkBoundary(
   runtimeOnly: boolean,
   selectedAuthorityWriteRoots: readonly string[] = [],
   selectedProviderBaseUrl?: string,
+  nativeLogin = false,
 ) {
   const selectedWriteRoots = [...new Set(selectedAuthorityWriteRoots.map(canonical))];
   selectedWriteRoots.forEach(validatePath);
@@ -271,6 +280,7 @@ function createSdkBoundary(
           enableWeakerNestedSandbox: false,
           enableWeakerNetworkIsolation: false,
           allowAppleEvents: false,
+          allowPty: nativeLogin,
         },
       };
       writeFileSync(policy, JSON.stringify(payload), { mode: 0o600 });

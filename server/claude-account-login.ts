@@ -10,6 +10,7 @@ import {
 } from './claude-account-store.js';
 import {
   createClaudeLoginProcess,
+  claudeLoginFailureReason,
   verifyClaudeLoginIdentity,
   type ClaudeNativeLogin,
 } from './claude-login-process.js';
@@ -91,6 +92,17 @@ export class ClaudeAccountLogin {
       accounts: this.options.store.accounts(),
       attempts: this.options.store.recentAttempts(auth.id).map((row) => this.public(row)),
     };
+  }
+  remove(auth: AuthSession, accountId: string) {
+    this.requireAuth(auth);
+    if (this.closing) throw Error('Claude sign-in host is stopping');
+    if (this.unresolved.size) throw Error('Claude sign-in needs host recovery');
+    if (
+      [...this.active.keys()].some((id) => this.options.store.attempt(id)?.accountId === accountId)
+    )
+      throw Error('Finish or cancel the pending Claude sign-in first');
+    this.options.store.remove(accountId);
+    return this.list(auth);
   }
   private track<T>(action: () => Promise<T>): Promise<T> {
     if (this.closing) return Promise.reject(Error('Claude sign-in host is stopping'));
@@ -251,6 +263,7 @@ export class ClaudeAccountLogin {
     log.error(failure.message, {
       stage: 'claude_account_login',
       code: errorCode,
+      failureReason: claudeLoginFailureReason(cause),
       requestId: row.requestId,
       diagnosticId,
     });
