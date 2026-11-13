@@ -80,19 +80,15 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Purpose' }), {
       target: { value: 'Review the selected design' },
     });
-    const profiles = await within(dialog).findByRole('combobox', { name: 'Agent' });
-    await waitFor(() =>
-      expect(within(profiles).getByRole('option', { name: /Reviewer/ })).toBeTruthy(),
-    );
-    fireEvent.change(profiles, {
-      target: {
-        value: (within(profiles).getByRole('option', { name: /Reviewer/ }) as HTMLOptionElement)
-          .value,
-      },
-    });
-    fireEvent.change(await within(dialog).findByRole('combobox', { name: 'Thinking level' }), {
-      target: { value: 'low' },
-    });
+    fireEvent.click(await within(dialog).findByRole('button', { name: /^Agent,/ }));
+    const reviewer = await within(dialog).findByRole('button', { name: /^Reviewer ·/ });
+    await waitFor(() => expect((reviewer as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(reviewer);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: /^Thinking,/ }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'low' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Where it runs,/ }));
     await userEvent
       .setup({ document: window.document })
       .click(within(dialog).getByRole('radio', { name: 'Mac host' }));
@@ -117,6 +113,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       {},
       { timeout: 10000 },
     );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     const review = within(dialog).getByRole('button', { name: 'Review joining brief' });
     await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(review);
@@ -590,4 +587,6 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       Object.defineProperty(HTMLElement.prototype, 'scrollTo', originalScrollTo);
     else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
   }
-}, 30000);
+  // Seven synthetic native turns plus real repository/review/recovery owners.
+  // Keep the complete journey bounded independently of individual UI waits.
+}, 60000);

@@ -686,6 +686,12 @@ export function ChatArea({
                     </div>
                     {createdItemCards(msg)}
                     {renderMessageOutcome?.(msg.messageId)}
+                    {onShareMessage && (!canShareMessage || canShareMessage(msg)) && (
+                      <MessageShareAction
+                        inActions={shareInActions}
+                        onShare={() => onShareMessage(msg.messageId, msg.symposiumProvenance)}
+                      />
+                    )}
                   </>
                 ),
               },

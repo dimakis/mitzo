@@ -64,6 +64,39 @@ function selection(
 }
 const source = () => createCollaborationContextSource({ store, authorizeConversation: authorize });
 
+it('reviews a selected completed reply through the real captured prefix while a later reply streams', async () => {
+  assistant('prior');
+  store.append('one', 'message_start', { messageId: 'active' });
+  store.append('one', 'block_start', { messageId: 'active', blockId: 'stream', blockType: 'text' });
+  store.append('one', 'block_delta', {
+    messageId: 'active',
+    blockId: 'stream',
+    delta: 'Unfinished',
+  });
+  const captured = store.getDurableSessionTranscript('one');
+  const selected = {
+    ...selection(captured.boundary.sequence, captured.boundary.messageId, 'selected'),
+    messageIds: ['prior'],
+  };
+  const owner = createCollaborationContextSource({
+    store,
+    authorizeConversation: authorize,
+    assertConversationCurrent: () => {},
+  });
+  const draft = await compileCollaborationContext(selected, [settings], owner);
+  store.append('one', 'block_delta', {
+    messageId: 'active',
+    blockId: 'stream',
+    delta: ' continuation',
+  });
+  expect(() => owner.assertCurrentAtSave()).not.toThrow();
+  expect(draft.messages.map((message) => message.messageId)).toEqual(['prior']);
+  expect(JSON.stringify(draft.messages)).not.toMatch(/PRIVATE|Unfinished|continuation/);
+  expect(authorize).toHaveBeenCalledWith('one');
+  store.hideSession('one');
+  expect(() => owner.assertCurrentAtSave()).toThrow();
+});
+
 it('compiles the complete real visible prefix across pages while excluding private payloads', async () => {
   let end = 0;
   for (let n = 0; n < 61; n++) {

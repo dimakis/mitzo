@@ -173,3 +173,91 @@ it('forwards an independently retained older artifact through real public applic
     runtime.restore();
   }
 }, 30000);
+
+it('reviews and forwards a completed earlier message through the real source reader while a later reply streams', async () => {
+  const h = await journey.getApplicationUiJourney();
+  (await import('../auth.js')).setAuthRevocationStore(h.events);
+  const runtime = await recordApplicationMessagingRuntime(h.events);
+  const active = randomUUID();
+  try {
+    const before = await h.typedApi.getDurableSessionTranscript('existing-chat');
+    const selected = before.messages[0];
+    h.events.append('existing-chat', 'message_start', { messageId: active });
+    h.events.append('existing-chat', 'block_start', {
+      messageId: active,
+      blockId: 'stream',
+      blockType: 'text',
+    });
+    h.events.append('existing-chat', 'block_delta', {
+      messageId: active,
+      blockId: 'stream',
+      delta: 'Unfinished reply',
+    });
+    const captured = await h.typedApi.getDurableSessionTranscript('existing-chat');
+    expect(captured).toEqual(before);
+    const view = await h.api.view(h.group);
+    const review = await h.typedApi.collaborations.reviewPrompt(h.group, h.clientId, {
+      selection: {
+        requestId: randomUUID(),
+        expectedMembershipRevision: view.membershipRevision,
+        sourceConversationId: 'existing-chat',
+        boundary: captured.boundary,
+        mode: 'selected',
+        messageIds: [selected.messageId],
+        artifacts: [],
+        purpose: 'Share the earlier plan',
+        joiningBrief: 'Read this selected message.',
+      },
+      recipientSessionIds: [h.joinedSessionId!],
+      expectedPolicySequence: view.policySequence,
+    });
+    h.events.append('existing-chat', 'block_delta', {
+      messageId: active,
+      blockId: 'stream',
+      delta: ' continues',
+    });
+    const prepared = await h.typedApi.collaborations.prepareForward(h.group, h.clientId, {
+      selection: {
+        requestId: randomUUID(),
+        target: {
+          collaborationId: h.group,
+          expectedMembershipRevision: view.membershipRevision,
+          sessionIds: [h.joinedSessionId!],
+        },
+        sourceConversationId: 'existing-chat',
+        boundary: review.snapshot.boundary,
+        messages: review.snapshot.messages.map(({ messageId, sequence, blocks }) => ({
+          messageId,
+          sequence,
+          blocks: blocks.map(({ blockId, sha256 }) => ({ blockId, sha256 })),
+        })),
+        artifacts: [],
+      },
+      note: review.snapshot.joiningBrief,
+    });
+    await h.typedApi.collaborations.confirmForward(h.group, h.clientId, {
+      requestId: randomUUID(),
+      expectedMembershipRevision: view.membershipRevision,
+      forward: {
+        forwardId: prepared.forwardId,
+        packetSha256: prepared.packetSha256!,
+        selectionFingerprint: prepared.selectionFingerprint,
+      },
+      requestReply: false,
+    });
+    const observed = await h.typedApi.collaborations.forward(
+      h.group,
+      prepared.forwardId,
+      h.clientId,
+    );
+    expect(observed.state).toBe('confirmed');
+    expect(observed.selection.target.sessionIds).toEqual([h.joinedSessionId]);
+    expect(review.snapshot.messages).toEqual([selected]);
+    expect(JSON.stringify(review.snapshot.messages)).not.toContain('Unfinished reply');
+    expect(runtime.requests).toEqual([]);
+  } finally {
+    h.events.append('existing-chat', 'block_end', { messageId: active, blockId: 'stream' });
+    h.events.append('existing-chat', 'message_end', { messageId: active });
+    runtime.restore();
+  }
+}, 30000);
