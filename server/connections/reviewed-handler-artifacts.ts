@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1143-legacy-brief-hosted-headroom';
+  'v1.0.1146-recoverable-approval-hook-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -266,7 +266,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/pushover.test.ts':
     '5624db8d0ded8694c3888ad56703c8df8260d48a43be92f543ffcf8a3ed1a88d',
   '../__tests__/session-permission-policy.test.ts':
-    '293faeb827e822b45162c310a132cddd1efb81ea7bf4255a7352010e073fd675',
+    '6f2ede9be136703b1c8b07aaa60c888f810e71c598c5d8909eb125a0fed538dd',
   '../__tests__/fixtures/canonical-review-completion.ts':
     '8a60841a9075e8ff5af9c7b6862d44a64949d16ddb710a7df9cc5c3df348921b',
   '../__tests__/fixtures/reviewed-source-adoption.ts':
@@ -2226,7 +2226,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-source-approval-store.ts':
     '04f1fe3d4bb547e83aa08f29331936e111d53cee652cbd7819a2d55c07c39b3b',
   '../session-permission-policy.ts':
-    '64f0dea8becc10df86f4a20ddf8a18d72978f854358267dfdd59badf90fc8595',
+    'd281ec1f9b6312b2bab387d332a5911e6af45ff35d76cb4ad392b531fc345383',
   '../../frontend/src/types/ws-messages.ts':
     'a96a351b882ed2f625059549d5886a1fcf077467d7ee2467fe5ac1272a9bfe4a',
   '../../frontend/src/styles/global.css':
@@ -2851,7 +2851,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '0d59438a3dd722e6a8e7f9955ab0af6d1959f9ac77a79f97ec190aa8fe5d1cae',
   '../__tests__/native-hooks.test.ts':
     'f1c2042d575d03d18f1decc8e6256987b5ffb551aff94cbde55363866ca59aa9',
-  '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
+  '../hook-bridge.ts': 'c074035575cec09da73e694c1a0226763c75ca687ca8d811ad2fa136c60cf6c2',
   '../native-tool-executor.ts': 'da602da8ad60e1dec4e9d0a916752fa49c585a84cd37fc33a5febcadb8e56b36',
   '../repository-preparation-capacity.ts':
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',
@@ -3625,7 +3625,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-ordinary-artifact-platform.test.ts':
     '086b4def092e58d8f03c6c23bd4c54b48e4014d0b05b971779ecb033762c076d',
   '../__tests__/telos-ordinary-canonical-journey.test.ts':
-    '3ae2f1c4533c20a51d344ab8960ca55a5e075ef7dc9ec8e506adc4a4f2049e6b',
+    '2f746ab543045fb194b270b4d495b8df5de235530be8205dfc930f94d9bb7764',
   '../__tests__/telos-owner-constructor-cleanup.test.ts':
     '5f1c1003020ca759f22bc49badf6fffa95da166410dd75eca80e13baf12be94b',
   '../__tests__/telos-permanent-delete-app-owner.test.ts':
@@ -4146,7 +4146,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-backlog-artifacts.test.ts':
     '5ef9b1cc1c26935c9ff558d04b8ff07f773c02eda25f9b0b0b4e98b23af540d4',
   '../__tests__/telos-backlog-tools.test.ts':
-    '7d9ca8286533678d634688562c87ecaf91d51ff2491e8a5b1fa72f3d54628dc8',
+    '847386a94ef62c1443c739c903748301867c96e0b765995e558720ba12fd2cec',
   '../__tests__/telos-backlog.test.ts':
     'e682d8e975298dd997b05183e6b676cefe9fd9944f229cee1f2f6f235237f32e',
   '../__tests__/telos-work-routes.test.ts':

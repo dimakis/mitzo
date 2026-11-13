@@ -516,10 +516,9 @@ it('lets an ordinary authenticated chat find and inspect an item without assigni
     lifecycle: { itemId: 'studio', disposition: 'active' },
   });
 });
-// Hosted shards reconstruct the complete 1.2 MB legacy brief under contention.
-// Allow finite fixture headroom without changing paging or runtime deadlines.
 it(
   'pages oversized legacy briefs without losing content or exceeding the tool result limit',
+  { timeout: 15000 },
   async () => {
     const f = fixture();
     const title = 'Long legacy explanation '.repeat(50000);
@@ -545,7 +544,6 @@ it(
     }
     expect(JSON.parse(reconstructed).item.summary).toBe(title);
   },
-  process.env.CI ? 20000 : 5000,
 );
 it('approves exact brief edits and canonical archive/unarchive with retryable receipts', async () => {
   const f = fixture();
