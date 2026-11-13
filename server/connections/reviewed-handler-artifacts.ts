@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1144-hook-ci-test-budgets';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1145-hook-event-identity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2850,7 +2850,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '0d59438a3dd722e6a8e7f9955ab0af6d1959f9ac77a79f97ec190aa8fe5d1cae',
   '../__tests__/native-hooks.test.ts':
     'f1c2042d575d03d18f1decc8e6256987b5ffb551aff94cbde55363866ca59aa9',
-  '../hook-bridge.ts': '1a6b3c2caf5b83999083ee97b1d5a9b54b750160d534abde3a495cc4f8e479ba',
+  '../hook-bridge.ts': 'c074035575cec09da73e694c1a0226763c75ca687ca8d811ad2fa136c60cf6c2',
   '../native-tool-executor.ts': '53139629352e57d435f554b251e3fc24640305588c01647daf60420cd5b148ae',
   '../repository-preparation-capacity.ts':
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',

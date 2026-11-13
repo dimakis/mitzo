@@ -429,6 +429,7 @@ it.each(
     { hookSpecificOutput: { updatedInput: [] } },
     { permissionDecision: 'allow', hookSpecificOutput: { permissionDecision: 'deny' } },
     { hookSpecificOutput: { hookEventName: 'Stop', permissionDecision: 'allow' } },
+    { hookEventName: 'PostToolUse', updatedInput: { command: 'changed' } },
   ].map((output) => ({ output })),
 )(
   'blocks invalid or unsupported output through the permission consumer: %j',

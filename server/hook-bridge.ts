@@ -134,8 +134,6 @@ export function mapHookOutput(raw: unknown, hookEventName: string): SyncHookJSON
   const result: Record<string, unknown> = {};
   const specific =
     parsed.hookSpecificOutput === undefined ? {} : specificOutput.parse(parsed.hookSpecificOutput);
-  if ('hookEventName' in specific && specific.hookEventName !== hookEventName)
-    throw new Error('Project hook event does not match');
 
   for (const [key, value] of Object.entries(parsed)) {
     if (key === 'hookSpecificOutput') continue;
@@ -146,6 +144,9 @@ export function mapHookOutput(raw: unknown, hookEventName: string): SyncHookJSON
       specific[key] = value;
     }
   }
+
+  if ('hookEventName' in specific && specific.hookEventName !== hookEventName)
+    throw new Error('Project hook event does not match');
 
   if (Object.keys(specific).length > 0) {
     // The pinned SDK ignores onFailure on these four events. Validate their
