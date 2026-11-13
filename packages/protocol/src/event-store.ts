@@ -8883,6 +8883,14 @@ export class EventStore {
     this.sessionMetadata.hideSession(sessionId);
   }
 
+  showSession(sessionId: string): void {
+    this.sessionMetadata.showSession(sessionId);
+  }
+
+  listHiddenSessions(limit: number, offset = 0): SessionMeta[] {
+    return this.sessionMetadata.listHiddenSessions(limit, offset);
+  }
+
   incrementPromptCount(sessionId: string): number {
     return this.sessionMetadata.incrementPromptCount(sessionId);
   }

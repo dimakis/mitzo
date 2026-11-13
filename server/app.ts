@@ -27,6 +27,7 @@ import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
 import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
+import { createSessionVisibilityRouter } from './session-visibility.js';
 import { createSessionRemovalRuntime } from './session-removal-runtime.js';
 import { SessionResourceRemovalService } from './session-resource-removal.js';
 import { createLocalSessionRemoval } from './local-session-removal.js';
@@ -3493,6 +3494,19 @@ mountObservedRouter(
   createSdkConversationImportRouter({
     list: () => listImportableSdkConversations(),
     adopt: (id) => importSdkConversation(id),
+  }),
+);
+
+mountObservedRouter(
+  app,
+  '/api/sessions',
+  createSessionVisibilityRouter({
+    events: eventStore,
+    authorize: operatorAuthMiddleware,
+    changed: () => {
+      overviewEmitter?.scheduleBroadcast();
+      sseRegistry.broadcast('sessions_changed', {});
+    },
   }),
 );
 
