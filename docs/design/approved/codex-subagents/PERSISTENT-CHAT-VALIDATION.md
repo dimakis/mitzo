@@ -175,3 +175,34 @@ This changes only screenshot output names; assertions and product behavior are
 unchanged. The initial combined run's successful compilation, core/browser and
 unit/consumer results remain useful evidence, but a replacement exact-head run
 must retain the corrected captures. No workflow or coverage change is needed.
+
+Hosted candidate `e1850a1` reproduces a native-dialog focus escape in all three
+browser projects: pressing Tab on the preview's lone Close control can leave
+the modal. HomeDialog now supplies opt-in boundary containment, enabled only by
+the new viewer. Other dialogs, header and main composer keep their defaults.
+Local review identified a related Retry focus risk; a regression reproduced
+focus falling to body when Retry unmounts. Retry now focuses the stable Close
+control before starting its reload. Both keyboard directions and dynamic Retry
+boundaries are covered. The focused image/shared-dialog/design batch passes 162
+tests with one existing design skip; scoped lint/format/whitespace pass.
+
+Retained hosted captures were inspected for light mobile WebKit image preview
+(failure artifact `14081986204`), light mobile child chat (artifact `14081711914`)
+and dark desktop child chat/approved robot launcher (artifact `14082350944`).
+The image's full border and bottom content fit the viewport; child drafts and
+conversation controls remain readable. These captures establish appearance,
+not successful keyboard behavior after the local correction. Fresh exact-head
+browser coverage must verify that correction.
+
+The same run's macOS stop-isolation journey failed at its final reload metadata
+observer, after Stop/isolation/draft/survivor assertions reached their captures.
+Artifact `telos-joined-3-of-3-43516135483` contains many valid 200 metadata bodies,
+but its completion-order network log cannot prove post-reload admission before
+the failed deadline. No cause or successful reproduction is claimed. Preserve
+the exact-session/freshness predicate and timeout. The observer now records
+bounded request ordinals/timing, response/body/cancellation stages and pending
+state in its failed assertion before cleanup. New diagnostics use stable failure
+codes and error types, excluding response excerpts and arbitrary error messages.
+All 33 observer unit cases pass,
+including a new diagnostic regression. A repeated hosted failure must be
+investigated with that evidence; no assertion or isolation check is weakened.

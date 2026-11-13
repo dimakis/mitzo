@@ -21,6 +21,7 @@ export function ChatImagePreview({
       className="image-attachment-editor chat-image-preview"
       onClose={onClose}
       isolatePointerEvents
+      containFocus
     >
       <div className="image-editor-stage" aria-busy={state === 'loading'}>
         <img
@@ -54,7 +55,12 @@ export function ChatImagePreview({
           <button
             type="button"
             className="home-secondary"
-            onClick={() => {
+            onClick={(event) => {
+              // Retry disappears while loading; retain a stable modal focus target.
+              event.currentTarget
+                .closest('dialog')
+                ?.querySelector<HTMLButtonElement>('button[aria-label="Close"]')
+                ?.focus({ preventScroll: true });
               setState('loading');
               setAttempt((value) => value + 1);
             }}

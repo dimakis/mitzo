@@ -41,6 +41,36 @@ it('opens the selected restored attachment unchanged and restores focus and scro
   expect(document.body.style.overflow).toBe('auto');
 });
 
+it('wraps keyboard focus around the lone Close control and the available retry action', () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  render(<UserBubble images={['/retained-picture.png']} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Open attachment 1' }));
+  const dialog = screen.getByRole('dialog', { name: 'Image preview' });
+  const close = within(dialog).getByRole('button', { name: 'Close' });
+  const tab = (control: HTMLElement, shiftKey = false) => {
+    const event = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      altKey: true,
+      shiftKey,
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(control, event);
+    expect(event.defaultPrevented).toBe(true);
+  };
+  close.focus();
+  tab(close);
+  expect(document.activeElement).toBe(close);
+  tab(close, true);
+  expect(document.activeElement).toBe(close);
+  fireEvent.error(within(dialog).getByAltText('Attachment 1'));
+  const retry = within(dialog).getByRole('button', { name: 'Retry image' });
+  tab(close, true);
+  expect(document.activeElement).toBe(retry);
+  tab(retry);
+  expect(document.activeElement).toBe(close);
+});
+
 it('keeps preview, text editing and the original message independent', () => {
   const edit = vi.fn();
   render(<UserBubble images={['/retained-picture.png']} text="Keep this message" onEdit={edit} />);
@@ -70,7 +100,10 @@ it('shows a failed load and retries the same image without exposing its URL in d
     attachment: 1,
     attempt: 0,
   });
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Retry image' }));
+  const retry = within(dialog).getByRole('button', { name: 'Retry image' });
+  retry.focus();
+  fireEvent.click(retry);
+  expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Close' }));
   const retried = within(dialog).getByAltText('Attachment 1');
   expect(retried).not.toBe(image);
   expect(retried.getAttribute('src')).toBe('/retained-private-image.png');

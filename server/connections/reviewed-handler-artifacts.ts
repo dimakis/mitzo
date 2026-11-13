@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1143-retained-image-visual-evidence';
+  'v1.0.1144-image-focus-reload-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,11 +24,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatImagePreview.tsx':
-    '6be1d7c0f27b8d286203a50c50cb7b52362723a836a232592a30670cf869bec7',
+    'dbfdd016cc9ef04ad3f5405d8652c0ce4ed432e5a8919803fbe3f780a2827f63',
   '../../frontend/src/styles/chat-image-preview.css':
     '14b3cac3fbbf9d2047ff0b945ace80587fa97f6aceb8ce7080aa199657abde49',
   '../../frontend/src/components/__tests__/ChatImagePreview.test.tsx':
-    '697bbbee9c8d99722fd0b28737cb2b215acb3de99783cccfb4d0a6eb57028d97',
+    '2e22cbbfeccc771245149f5311c34414e9c8efba8aeea96df39942f45242ca3d',
   '../../docs/design/approved/codex-subagents/parent-child-robot-icon.html':
     '66f6edb7515834fee815284258ef49b173100a6bbbf195b996d97380f9f7c96b',
   '../../frontend/src/components/__tests__/NativeSubagentsFocus.test.tsx':
@@ -57,7 +57,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/approved/codex-subagents/floating.html':
     'cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7',
   '../../docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md':
-    '773dc1fd1c3ac1b30059a3681657f3f66fcb4207145091971739b7bed4e3b101',
+    '963ecc87528bb6a304f372b35e04cb598d80a5464c1e2338bbfebf7abae45004',
   '../../tests/integration/native-subagent-control.test.tsx':
     '09e189944ed0d0fa160bac32287ee2b42e1844ba59941028f0efdbf7ed54ce36',
   '../__tests__/symposium-recording-runtime.test.ts':
@@ -382,7 +382,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/ui-smoothness.md':
     '0f36df9e2a40bd66fa12d937b48443d85c592ce8b927fc2dbd6c6f6fbabd25da',
   '../../tests/offline/image-attachments.spec.ts':
-    'f73f23839b4ff30426bb8d5fd782c6cc105d5f8ec063c073103e70e4c785a3d2',
+    '91b52c712630ee9bdb320d05d7642da00397f169b5e325705f78b9e842af8e43',
   '../../tests/offline/terminal.spec.ts':
     '5ccdb84c7f2618e0a6f69df867bd5d1ec3aa99af44302187290b62c3e30c5b72',
   '../../tests/support/motion-settled.ts':
@@ -2540,7 +2540,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/OrdinaryCollaborationEntry.tsx':
     '23d4b7d10ec64b7e3e9daf19d81dd0951ed6c6d3d6602fb0b977e305cc535360',
   '../../frontend/src/components/HomeDialog.tsx':
-    'ebb06e1f6e3b514fade80f0324640304e7b8b691e9bb58c35a8e3418f2fa485a',
+    '4fae121c386aa452ac19ab7659f7595bfd6d474fc9fe10f37a99cff0e6c11565',
   '../../frontend/src/components/SessionTray.tsx':
     'fb925d5d5e01d29a29fefcac96fcd3913eb6a45130cf5b910a590116d45e5e1a',
   '../../frontend/src/components/WorkspaceControls.tsx':
@@ -3812,9 +3812,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/supplemental-shards.mjs':
     '8c8d58ddbf0c2049b8b54ec64bfb1198afdfe57744cc913f7ff2c2876a7999b0',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.test.ts':
-    'b35ca4e371b01a1e05d94153be971a3dda2ae7051ef8450f448a20ee9d3befdf',
+    'c325396bde2f0babfef78999739dfca79079523a0813d5eed85b136924000b2a',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.ts':
-    'c3d72168186d72be40eb2bda9cf4d7422b5a0c814a2c2a5c5879aea3bd857917',
+    '8462b00053b9722887b84cbf43deaa3a59088c67e7a2e4c3c69f0074fc648227',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-app.contract.ts':
     'bc5e67dabcec6cf4aa9ef4c58fa6279cc1ecf18b7056f5bb61a02ca396eaad89',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-tree-geometry.ts':

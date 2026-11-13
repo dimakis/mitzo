@@ -39,6 +39,7 @@ export function HomeDialog({
   headerActions,
   surfaceRef,
   isolatePointerEvents = false,
+  containFocus = false,
 }: {
   title: string;
   onClose: () => void;
@@ -55,6 +56,8 @@ export function HomeDialog({
   surfaceRef?: RefObject<HTMLDialogElement | null>;
   /** Portals retain React ancestry; transcript previews must not trigger message gestures. */
   isolatePointerEvents?: boolean;
+  /** Explicit boundary wrapping for previews where native Tab can leave a lone control. */
+  containFocus?: boolean;
 }) {
   const internalDialogRef = useRef<HTMLDialogElement>(null);
   const dialogRef = surfaceRef ?? internalDialogRef;
@@ -112,7 +115,30 @@ export function HomeDialog({
       hidden={!open}
       inert={!open || inactive || undefined}
       aria-hidden={!open || inactive || undefined}
-      onKeyDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (!containFocus || event.key !== 'Tab') return;
+        const controls = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(
+            'button, a[href], input, textarea, select, [tabindex], [contenteditable="true"]',
+          ),
+        ).filter(
+          (control) =>
+            control.tabIndex >= 0 &&
+            !control.matches(':disabled') &&
+            !control.closest('[hidden], [inert]') &&
+            control.closest('dialog') === event.currentTarget,
+        );
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus({ preventScroll: true });
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus({ preventScroll: true });
+        }
+      }}
       onPointerDown={isolatePointerEvents ? (event) => event.stopPropagation() : undefined}
       onPointerUp={isolatePointerEvents ? (event) => event.stopPropagation() : undefined}
       onPointerCancel={isolatePointerEvents ? (event) => event.stopPropagation() : undefined}

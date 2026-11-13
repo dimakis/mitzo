@@ -61,6 +61,22 @@ export function observeTaskChatReads(page: Page) {
   const pending = new Map<number, { path: string; requestOrdinal: number }>();
   const failed = new Set<number>();
   const admissions: Array<{ path: string; requestOrdinal: number }> = [];
+  const started = performance.now();
+  const trace: Array<Record<string, unknown> & { requestOrdinal: number }> = [];
+  const record = (
+    admission: { path: string; requestOrdinal: number },
+    stage: string,
+    detail: Record<string, unknown> = {},
+  ) => {
+    trace.push({
+      path: admission.path,
+      requestOrdinal: admission.requestOrdinal,
+      stage,
+      elapsedMs: Math.round(performance.now() - started),
+      ...detail,
+    });
+    if (trace.length > 200) trace.shift();
+  };
   let ordinal = 0;
   const onRequest = (request: Request) => {
     const path = new URL(request.url()).pathname;
@@ -78,6 +94,7 @@ export function observeTaskChatReads(page: Page) {
       const read = { path, requestOrdinal: admission.requestOrdinal };
       admissions.push(read);
       pending.set(admission.requestOrdinal, read);
+      record(admission, 'request');
     }
   };
   const onRequestFailed = (request: Request) => {
@@ -85,18 +102,41 @@ export function observeTaskChatReads(page: Page) {
     if (admission?.observed) {
       failed.add(admission.requestOrdinal);
       pending.delete(admission.requestOrdinal);
+      record(admission, 'request_failed', {
+        reason:
+          /\b(?:net::)?ERR_[A-Z_0-9]+\b/.exec(request.failure?.()?.errorText ?? '')?.[0] ??
+          'request_failed',
+      });
     }
   };
   const onResponse = (response: Response) => {
     const admission = requests.get(response.request());
     if (!admission?.observed) return;
     const { path, requestOrdinal } = admission;
+    record(admission, 'response', { status: response.status() });
     void (async () => {
       const read = { path, requestOrdinal, status: response.status() };
       try {
         const body = await response.json();
+        record(admission, 'body', {
+          status: read.status,
+          discarded: failed.has(requestOrdinal),
+          sessionId:
+            body && typeof body === 'object' && typeof body.sessionId === 'string'
+              ? body.sessionId.slice(0, 200)
+              : undefined,
+        });
         if (!failed.has(requestOrdinal)) reads.push({ ...read, body });
       } catch (error) {
+        record(admission, 'body_failed', {
+          code: error instanceof SyntaxError ? 'invalid_json' : 'response_body_unavailable',
+          errorType:
+            error instanceof SyntaxError
+              ? 'SyntaxError'
+              : error instanceof Error
+                ? 'Error'
+                : 'unknown',
+        });
         if (!failed.has(requestOrdinal)) reads.push({ ...read, bodyReadError: String(error) });
       } finally {
         pending.delete(requestOrdinal);
@@ -172,7 +212,25 @@ export function observeTaskChatReads(page: Page) {
             'sessionId' in read.body &&
             read.body.sessionId === sessionId,
         );
-        expect(read, 'new browser GET for the exact destination conversation').toBeDefined();
+        expect(
+          read,
+          read
+            ? undefined
+            : 'new browser GET for the exact destination conversation: ' +
+                JSON.stringify({
+                  code: 'chat_metadata_read_not_observed',
+                  stage: 'metadata_readiness',
+                  sessionId,
+                  boundary,
+                  elapsedMs: Math.round(performance.now() - started),
+                  pathname: typeof page.url === 'function' ? new URL(page.url()).pathname : null,
+                  admitted: admissions
+                    .filter((entry) => entry.requestOrdinal > boundary)
+                    .slice(-12),
+                  pending: [...pending.values()].slice(-12),
+                  trace: trace.filter((entry) => entry.requestOrdinal > boundary).slice(-24),
+                }),
+        ).toBeDefined();
         return read!;
       }, options);
     },

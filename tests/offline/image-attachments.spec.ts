@@ -298,8 +298,14 @@ for (const theme of ['dark', 'light']) {
     }
     await page.getByRole('button', { name: 'Open attachment 3', exact: true }).click();
     await expect(dialog.getByRole('alert')).toContainText('could not be loaded');
+    await dialog.getByRole('button', { name: 'Close', exact: true }).focus();
+    await page.keyboard.press(browserName === 'webkit' ? 'Alt+Shift+Tab' : 'Shift+Tab');
+    await expect(dialog.getByRole('button', { name: 'Retry image', exact: true })).toBeFocused();
+    await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+    await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused();
     imageAvailable = true;
     await dialog.getByRole('button', { name: 'Retry image', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused();
     await expect(dialog.getByRole('alert')).toHaveCount(0);
     await expect
       .poll(() =>
