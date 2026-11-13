@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1131-chat-read-recovery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1132-chat-ordering-fixture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1200,7 +1200,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/MotionList.tsx':
     '8819e2c661eac34f6264fb8bb0d85a0640f1b01022e78003d37e555f9ed615c3',
   '../../frontend/src/hooks/__tests__/useSessionOrder.test.ts':
-    'd76b4d5459f08edc00cf08745d6e4485fe41be31b733baa603b526d4a8293af6',
+    '89a9dfe1313888c6696de8431c09611411bcc44526c0afaef220c44e15391387',
   '../../frontend/src/hooks/__tests__/useListBrowsing.test.tsx':
     '843b07631446bc1f29793661949cfc4109d222a8e754e02befbd9db318f35fbb',
   '../../frontend/src/components/__tests__/MotionList.test.tsx':
@@ -4307,7 +4307,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/TodoWorkspace.test.tsx':
     '6da5dfa21630d242bb7d070c6487772106a81b31eccfb015f5ea999025d89427',
   '../../tests/offline/session-library.spec.ts':
-    '6f5b50439d5383ca046fec26e59f5e27f2c6c9fa9bdc620a1229c391dc3303b8',
+    'eeffdb6f6b7b88109de7298a2356cfceea0e08160baa5b47236be025dc2d6fc2',
   '../../frontend/src/hooks/__tests__/useAttentionFeed.canonical.test.tsx':
     'cac18f7dcd86924d644f88afcaaf886f0a01e39ca090d9dd9c882b4e70e9c6af',
   '../../frontend/src/components/__tests__/TelosTreeConversationEntry.refresh.test.tsx':

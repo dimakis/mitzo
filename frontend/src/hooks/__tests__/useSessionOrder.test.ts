@@ -156,6 +156,30 @@ it('coalesces bursts and limits reorder frequency without starving under tool up
   expect(view.result.current.map((s) => s.id)).toEqual(['recent', 'older']);
 });
 
+it('drains a finished group change before a newer reply in two separate cooldowns', () => {
+  const view = renderHook(
+    ({ activities }) => useSessionOrdering(sessions, activities, false, { grouped: true }),
+    { initialProps: { activities: [activity('working', 100)] } },
+  );
+  view.rerender({ activities: [activity('waiting', 4000)] });
+  act(() => view.result.current.showLatest());
+  view.rerender({ activities: [activity('done', 5000)] });
+  view.rerender({ activities: [activity('idle', 5000)] });
+  view.rerender({
+    activities: [
+      { ...activity('working', 6000, { lastUserMessageAt: 6000 }), sessionId: 'recent' },
+    ],
+  });
+  expect(view.result.current.pendingCount).toBe(2);
+  tick(8000);
+  expect(view.result.current.sessions[0].id).toBe('older');
+  expect(view.result.current.groups.get('older')).toBe(1);
+  expect(view.result.current.pendingCount).toBe(1);
+  tick(2000);
+  expect(view.result.current.sessions[0].id).toBe('recent');
+  expect(view.result.current.pendingCount).toBe(0);
+});
+
 it('loads older pages chronologically and defers new-chat insertion during browsing', () => {
   const view = setup();
   const rows = [

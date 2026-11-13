@@ -483,7 +483,9 @@ for (const theme of ['dark', 'light'])
       (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
       [activity(10, 'working', { lastUserMessageAt: Date.now() + 1000 })],
     );
-    await expect(rows.first()).toHaveText('Conversation 10', { timeout: 8000 });
+    // The preceding finished-group move drains first; the reply promotion gets
+    // its own five-second cooldown. Reduced Motion removes animation, not pacing.
+    await expect(rows.first()).toHaveText('Conversation 10', { timeout: 12000 });
     expect(
       await page
         .locator('.session-list')
