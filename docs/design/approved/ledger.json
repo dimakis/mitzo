@@ -827,7 +827,7 @@
             },
             {
               "path": "tests/offline/native-subagents-presence.spec.ts",
-              "sha256": "63fbb37c817d4fa6c9178b9250c4198e3aaed090c912fc6400a319138a46ca95"
+              "sha256": "436e3afa573ff6140bd9cdd296c74f895f03c950891ec5f33bf44f4545bf6aed"
             }
           ],
           "implementationEvidence": [],

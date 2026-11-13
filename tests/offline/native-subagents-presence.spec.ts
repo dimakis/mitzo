@@ -122,7 +122,7 @@ for (const theme of ['dark', 'light'])
       await page.mouse.up();
       await expect(dialog).toHaveAttribute('data-snap', 'full');
     }
-    await page.screenshot({ path: info.outputPath(`native-agents-presence-${theme}.png`) });
+    await page.screenshot({ path: info.outputPath(`native-subagents-presence-${theme}.png`) });
     await dialog.getByRole('button', { name: 'Hide agent chat' }).click();
     await expect(parent).toHaveValue('Keep parent draft');
     await page.evaluate(() =>

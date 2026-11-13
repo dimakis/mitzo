@@ -70,3 +70,9 @@ proposal bytes remain retained. The catalog fixture is regenerated from the
 authoritative TaskExecution description, fixing the separate inventory parity
 failure. The expanded local batch passes 199 tests across fourteen files.
 Fresh hosted mobile rendering remains required for this correction.
+
+The new capture names use the existing `native-subagents-*.png` retention
+pattern so hosted sizing/dragging evidence survives the runner. The integration
+with accepted main `f850dcc` preserved both source changes; the only conflict
+was generated registry metadata. Post-integration ChatArea/session/sizing and
+ledger checks passed, alongside complete source integrity.

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1129-subagent-integrated-sharing';
+  'v1.0.1130-native-agent-visual-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -43,11 +43,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/SnapSheet.test.tsx':
     '04e11efe411e1f1eaff472cdcc8237e228ccdcc00dafd25609365333f5f6490d',
   '../../tests/offline/native-subagents-presence.spec.ts':
-    '63fbb37c817d4fa6c9178b9250c4198e3aaed090c912fc6400a319138a46ca95',
+    '436e3afa573ff6140bd9cdd296c74f895f03c950891ec5f33bf44f4545bf6aed',
   '../../docs/design/approved/codex-subagents/floating.html':
     'cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7',
   '../../docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md':
-    '87219a04fa6a84c93060eebe0ebfb2360980d549d8bc3430a73d97b6591ba4bc',
+    '159ee6093446995598bfce02d87b0057cc6fc7412a40a889e3af2d02e7d7e470',
   '../../tests/integration/native-subagent-control.test.tsx':
     '09e189944ed0d0fa160bac32287ee2b42e1844ba59941028f0efdbf7ed54ce36',
   '../__tests__/claude-login-sandbox.native.test.ts':
