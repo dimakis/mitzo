@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1129-chat-lifecycle-review';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1130-chat-lifecycle-tests';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -37,7 +37,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/HiddenSessionsDialog.test.tsx':
     'bcbd9162a404397c1ca48be5ae95df30daf511e4db3c96a902bf759e5850d5a1',
   '../../frontend/src/components/__tests__/SessionPanelVisibility.test.tsx':
-    '96cf9f332c97e820877d4f6757970b1d6d977ea5d541dd089158e860135ff221',
+    'b494f9100f52c94f9c742fa25af979acc0d1dc7a4aac0654c78f297fc9b7b807',
   '../../frontend/src/hooks/__tests__/conversation-calm-ordering.test.tsx':
     '385d06156a4bab3acc5efb52885775e3f5ad1567c59183247e8e58d943c3de9a',
   '../../packages/client/__tests__/reply-read-boundary.test.ts':

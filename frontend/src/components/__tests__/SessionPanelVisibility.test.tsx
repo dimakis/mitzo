@@ -48,11 +48,15 @@ it('retains an off-page active row in the shared sidebar queue when SSE disconne
   mocks.overview.lastKnownActivities = [activity];
   mocks.overview.connected = true;
   localStorage.setItem('mitzo-session-view-mode', 'active');
-  const view = render(<SessionPanel onNewChat={vi.fn()} onSelectSession={vi.fn()} />);
+  const view = render(
+    <SessionPanel activeSessionId={undefined} onNewChat={vi.fn()} onSelectSession={vi.fn()} />,
+  );
   expect(screen.getByText('Off-page working chat')).toBeTruthy();
   mocks.overview.activities = [];
   mocks.overview.connected = false;
-  view.rerender(<SessionPanel onNewChat={vi.fn()} onSelectSession={vi.fn()} />);
+  view.rerender(
+    <SessionPanel activeSessionId={undefined} onNewChat={vi.fn()} onSelectSession={vi.fn()} />,
+  );
   expect(screen.getByText('Off-page working chat')).toBeTruthy();
 });
 it('offers hiding directly from sidebar actions without entering deletion review', async () => {
