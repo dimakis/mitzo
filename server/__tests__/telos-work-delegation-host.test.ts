@@ -13,6 +13,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { resolveTelosWorkRolePresentation } from '../telos-work-role-presentation.js';
 import { resolveTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { createTelosWorkDelegationHost } from '../telos-work-delegation-host.js';
+import { createTelosWorkerStarter } from '../telos-worker-start.js';
 import { createTelosWorkRoleHost } from '../telos-work-role-host.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { TaskStore } from '../task-store.js';
@@ -180,6 +181,211 @@ it('repairs an unnamed allocated worker on recovery and preserves a chosen chat 
   f.ordinary.store.upsertSession({ sessionId: receipt.workerConversationId, summary: 'My worker' });
   await f.host().delegate(f.request());
   expect(f.ordinary.store.getSession(receipt.workerConversationId)?.summary).toBe('My worker');
+});
+
+async function executionFixture() {
+  const f = await fixture();
+  const allocation = await f.host().delegate(f.request());
+  let occupied = false;
+  const dispatch = vi.fn(
+    async (input: import('../ordinary-scoped-command.js').OwnedOrdinaryDispatchInput) => {
+      input.assertCurrent?.();
+      const meta = f.ordinary.store.getSession(input.sessionId)!;
+      const prepared = f.ordinary.store.getOrdinarySessionPreparationForConversation(
+        input.sessionId,
+      )!;
+      const command = input.command as { clientMsgId: string; payload: { text: string } };
+      f.ordinary.store.admitPreparedOrdinaryCommand(
+        prepared.allocationOperationId,
+        {
+          sessionId: input.sessionId,
+          repositoryWorkspaceId: meta.repositoryWorkspaceId,
+          cwd: meta.cwd,
+          accountBinding: meta.accountBinding!,
+          agentProfile: meta.agentProfile,
+          agentContext: meta.agentContext,
+          mode: meta.mode,
+          selectedModel: meta.selectedModel,
+          reasoningEffort: meta.reasoningEffort,
+        },
+        prepared.settings.binding,
+        {
+          ...command,
+          requestFingerprint: 'offline-worker-start',
+          selection: prepared.settings.selection,
+        },
+      );
+      f.ordinary.store.claimOrdinaryLocalCommandDispatch(input.commandId);
+      f.ordinary.store.completeOrdinaryLocalCommand(input.commandId);
+    },
+  );
+  const qualify = vi.fn(async () => ({
+    ...(await f.ordinary.resolvePreparation()),
+    capabilityRevision: 'offline-capability',
+  }));
+  const starter = () =>
+    createTelosWorkerStarter({
+      events: f.ordinary.store,
+      work: f.work,
+      tasks: f.tasks,
+      workspaces: f.ordinary.workspaces,
+      qualify,
+      dispatch,
+      occupied: () => occupied,
+      hasNativeConversation: () => false,
+      accepted: () => false,
+    });
+  const authority = {
+    sourceConversationId: f.leadId,
+    operatorConnectionId: 'offline-connection',
+    authSessionId: 'offline-operator',
+    signal: f.ordinary.signal,
+    assertCurrent: () => f.request().assertAuthorized(),
+  };
+  return {
+    ...f,
+    allocation,
+    starter,
+    dispatch,
+    qualify,
+    authority,
+    occupy: () => {
+      occupied = true;
+    },
+  };
+}
+
+it('starts the exact cold worker through ordinary admission and recovers its original command after restart', async () => {
+  const f = await executionFixture();
+  const before = f.ordinary.store.listSessions().length;
+  const result = await f.starter()(f.allocation, f.authority);
+  expect(result).toMatchObject({ allocation: f.allocation, execution: { state: 'admitted' } });
+  const call = f.dispatch.mock.calls[0][0];
+  expect(call).toMatchObject({
+    sessionId: f.allocation.workerConversationId,
+    workspaceKind: 'repository',
+    preparationOperationId: f.allocation.attempt.allocationReceiptId,
+    ownerAuthSessionId: 'offline-operator',
+    continuation: false,
+    existingOwner: false,
+  });
+  expect(f.ordinary.store.getOrdinaryInitialCommandId(call.sessionId)).toBe(
+    result.execution.commandId,
+  );
+  expect(await f.starter()(f.allocation, f.authority)).toEqual(result);
+  expect(f.dispatch).toHaveBeenCalledTimes(1);
+  expect(f.ordinary.store.listSessions()).toHaveLength(before);
+  expect(f.work.read('sibling', f.actor).attempts).toHaveLength(0);
+});
+
+it('deduplicates concurrent worker starts at the existing ordinary command owner', async () => {
+  const f = await executionFixture();
+  const [first, second] = await Promise.all([
+    f.starter()(f.allocation, f.authority),
+    f.starter()(f.allocation, f.authority),
+  ]);
+  expect(first).toEqual(second);
+  expect(f.dispatch).toHaveBeenCalledTimes(1);
+});
+
+it.each(['wrong lead', 'revoked', 'busy', 'brief changed', 'cancelled'])(
+  'refuses %s worker startup without a new command or replacement',
+  async (scenario) => {
+    const f = await executionFixture();
+    const authority = { ...f.authority };
+    if (scenario === 'wrong lead') authority.sourceConversationId = 'not-the-lead';
+    if (scenario === 'revoked')
+      f.qualify.mockImplementationOnce(async () => {
+        f.revoke();
+        return { ...(await f.ordinary.resolvePreparation()), capabilityRevision: 'offline' };
+      });
+    if (scenario === 'busy') f.occupy();
+    if (scenario === 'brief changed') {
+      const db = new Database(f.path);
+      db.prepare("UPDATE items SET intent='Changed scope' WHERE id='slice'").run();
+      db.close();
+    }
+    if (scenario === 'cancelled') authority.signal = AbortSignal.abort();
+    await expect(f.starter()(f.allocation, authority)).rejects.toThrow();
+    expect(f.dispatch).not.toHaveBeenCalled();
+    expect(
+      f.ordinary.store.getOrdinaryInitialCommandId(f.allocation.workerConversationId),
+    ).toBeUndefined();
+  },
+);
+
+it('retains an uncertain admission failure and never replays an already admitted worker command', async () => {
+  const f = await executionFixture();
+  const admit = f.dispatch.getMockImplementation()!;
+  f.dispatch.mockImplementationOnce(async (input) => {
+    await admit(input);
+    throw Error('private transport failure');
+  });
+  const result = await f.starter()(f.allocation, f.authority);
+  expect(result.execution).toMatchObject({ state: 'admitted' });
+  expect(JSON.stringify(result)).not.toContain('private transport');
+  expect(await f.starter()(f.allocation, f.authority)).toEqual(result);
+  expect(f.dispatch).toHaveBeenCalledTimes(1);
+});
+
+it('retains startup uncertainty without replay when ordinary dispatch fails before an admission receipt', async () => {
+  const f = await executionFixture();
+  f.dispatch.mockRejectedValueOnce(Error('private startup cause'));
+  const result = await f.starter()(f.allocation, f.authority);
+  expect(result.execution).toMatchObject({ state: 'uncertain', code: 'worker_start_unconfirmed' });
+  expect(await f.starter()(f.allocation, f.authority)).toEqual(result);
+  expect(f.dispatch).toHaveBeenCalledTimes(1);
+});
+
+it('passes explicit execution through the mounted lead route and shared tool consumer', async () => {
+  const f = await executionFixture();
+  const app = express();
+  app.use(express.json());
+  app.use(
+    createTelosWorkRouter({
+      dbPath: () => f.path,
+      operatorAuth: (_req, res) => {
+        res.sendStatus(403);
+      },
+      verifyInternal: (req) => req.headers['x-internal-token'] === 'offline-token',
+      sessionId: (id) => (id === 'exact-client' ? f.leadId : undefined),
+      ordinaryConversation: (id) =>
+        isAvailableTelosWorkConversation(f.ordinary.store.getSession(id)),
+      delegateSlice: async (req) => {
+        const allocation = await f.host().delegate(req);
+        return (req.raw as { execute?: true }).execute
+          ? f.starter()(allocation, f.authority)
+          : allocation;
+      },
+    }),
+  );
+  const { executeTelosWorkTool } = await import('../telos-work-tools.js');
+  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+    const res = await request(app)
+      .post('/api/internal/telos/work/delegate')
+      .set(init.headers as Record<string, string>)
+      .send(JSON.parse(init.body as string));
+    return new Response(JSON.stringify(res.body), { status: res.status });
+  });
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const result = await executeTelosWorkTool(
+      'http://fixture',
+      'exact-client',
+      f.leadId,
+      'offline-token',
+      'TelosStartSlice',
+      { ...f.input, execute: true },
+    );
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content)).toMatchObject({
+      allocation: f.allocation,
+      execution: { state: 'admitted' },
+    });
+    expect(f.dispatch).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 it('refuses ambiguous or forged scope before allocating another conversation', async () => {
   const f = await fixture();

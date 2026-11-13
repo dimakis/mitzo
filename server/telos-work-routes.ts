@@ -10,6 +10,7 @@ import {
   TelosWorkDelegationInputSchema,
   TelosOrdinaryWorkDelegationInputSchema,
   TelosWorkDelegationReceiptSchema,
+  TelosSliceExecutionReceiptSchema,
   TelosStartSliceInputSchema,
   TelosWorkLifecycleCommandSchema,
   TelosWorkLifecycleListSchema,
@@ -568,7 +569,9 @@ export function createTelosWorkRouter(options: {
         assertAuthorized,
       });
       assertAuthorized();
-      const receipt = TelosWorkDelegationReceiptSchema.safeParse(result);
+      const receipt = selected.input.execute
+        ? TelosSliceExecutionReceiptSchema.safeParse(result)
+        : TelosWorkDelegationReceiptSchema.safeParse(result);
       if (!receipt.success) throw new Error('Ordinary delegation receipt unavailable');
       res.json(receipt.data);
     } catch (error) {

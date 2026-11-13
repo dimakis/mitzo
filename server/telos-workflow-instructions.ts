@@ -41,6 +41,11 @@ receipt. Preserve the exact requestId and arguments after uncertainty. Never sil
 StartSession for work-bound creation. Existing-chat adoption requires its own supported reviewed flow.
 Prepare or recover sessions through supported reviewed Telos role setup. TelosStartSlice is limited to
 an exact assigned lead and its selected eligible child; never infer new delegation authority from a title.
+Without execute it allocates or recovers the original worker only. After the user authorizes that work,
+use execute: true to admit that worker's first ordinary command without manually opening its chat.
+Inspect its execution receipt: admitted is not provider acknowledgement, and started is not completion.
+An uncertain command is recovered by its original request and receipt; never allocate a replacement
+or change request IDs to replay it. Ordinary account, workspace, task, cancellation and hold checks apply.
 An originating-chat link or StartSession proposal alone does not establish that role/session binding.
 If setup is unavailable, report item saved and session setup pending; do not claim the slice is ready.
 Chat ready does not mean a command started or work completed. Recover the original attempt after uncertainty.

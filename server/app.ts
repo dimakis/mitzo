@@ -160,6 +160,7 @@ import { createTelosItemRouter } from './telos-item-routes.js';
 import { createTelosWorkRouter, type TelosWorkRoleRequest } from './telos-work-routes.js';
 import { createTelosWorkRoleHost } from './telos-work-role-host.js';
 import { createTelosWorkDelegationHost } from './telos-work-delegation-host.js';
+import { startAllocatedTelosWorker } from './telos-worker-start-runtime.js';
 import type { TelosWorkDelegationScope } from './telos-work-delegation.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { resolveTelosWorkRolePresentation } from './telos-work-role-presentation.js';
@@ -2502,7 +2503,7 @@ async function delegateTelosSlice(request: TelosWorkRoleRequest, explicitOrdinar
     explicitOrdinary ||
     (request.actor.kind === 'conversation' &&
       eventStore.getSession(request.actor.id)?.ordinaryWorkspaceId != null);
-  const run = (connectionId?: string) => {
+  const run = async (connectionId?: string) => {
     const leadId = request.actor.kind === 'conversation' ? request.actor.id : undefined;
     const resolve = async (scope: TelosWorkDelegationScope, signal: AbortSignal) => {
       const selected = await resolveTelosOrdinaryPreparation(
@@ -2557,7 +2558,34 @@ async function delegateTelosSlice(request: TelosWorkRoleRequest, explicitOrdinar
         return orchestrator.delegateSlice(owner, actor, input, signal);
       },
     });
-    return explicitOrdinary ? host.delegateOrdinary(request) : host.delegate(request);
+    const allocation = await (explicitOrdinary
+      ? host.delegateOrdinary(request)
+      : host.delegate(request));
+    if ((request.raw as { execute?: unknown }).execute !== true) return allocation;
+    return startAllocatedTelosWorker(request, allocation, {
+      dbPath: telosDatabasePath,
+      tasks: taskStore,
+      qualify: async (settings, workerId, authority) => {
+        const selected =
+          'workspace' in settings
+            ? await resolveTelosOrdinaryWorkspaceSelection(
+                settings,
+                authority.signal,
+                authority.operatorConnectionId,
+                workerId,
+              )
+            : await resolveTelosOrdinaryPreparation(
+                settings,
+                authority.signal,
+                authority.operatorConnectionId,
+                workerId,
+              );
+        const { ordinaryRepositoryRuntimeInventory } =
+          await import('./ordinary-local-codex-entry.js');
+        const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
+        return { ...selected, capabilityRevision: inventory.result.capabilityRevision };
+      },
+    });
   };
   return request.actor.kind === 'operator'
     ? withAgentLibraryRecoveryAuthorization(request.authorization, run)

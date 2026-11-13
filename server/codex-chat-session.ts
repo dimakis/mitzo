@@ -3992,7 +3992,7 @@ async function openCodexChatBound(
         })(name, parsed.data, {
           signal,
           toolUseID: randomUUID(),
-          allowSessionGrant: true,
+          allowSessionGrant: !parsed.data.execute,
         });
         assertLead();
         if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
