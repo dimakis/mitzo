@@ -2015,7 +2015,7 @@ it('reports uncertain native dispatch failure without treating it as queued or r
   expect(f.native.commands(f.b.sessionId, f.b.initial.lease.binding)).toHaveLength(2);
 }, 20000);
 
-it.each(['user-closing', 'aborted', 'missing-owner', 'unsupported', 'foreign-login'] as const)(
+it.each(['user-closing', 'aborted', 'missing-owner', 'unsupported', 'unverified-owner'] as const)(
   'does not advertise or prompt a fresh message to a known %s recipient and retains queued history',
   async (failure) => {
     const f = await fixture();
@@ -2036,19 +2036,19 @@ it.each(['user-closing', 'aborted', 'missing-owner', 'unsupported', 'foreign-log
         ...f.b.session.ordinaryRuntimeOwner!,
         admitAgentMessage: undefined,
       };
-    if (failure === 'foreign-login')
+    if (failure === 'unverified-owner')
       f.b.session.ordinaryRuntimeOwner = {
         ...f.b.session.ordinaryRuntimeOwner!,
         authSessionId: 'different-login',
       };
     const list = await f.a.call({ operation: 'list' });
-    expect
-      .soft(
-        list.value.chats.find(
-          (row: { conversationId: string }) => row.conversationId === f.b.sessionId,
-        )?.availability,
-      )
-      .toBe('unavailable');
+    const peer = list.value.chats.find(
+      (row: { conversationId: string }) => row.conversationId === f.b.sessionId,
+    );
+    // Historical custody does not reveal an unverified live owner. Our original
+    // queued receipt remains readable below without granting new peer access.
+    if (failure === 'unverified-owner') expect.soft(peer).toBeUndefined();
+    else expect.soft(peer?.availability).toBe('unavailable');
     const requestId = randomUUID();
     const result = await f.a.call({
       operation: 'send',

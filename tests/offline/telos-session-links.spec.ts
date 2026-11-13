@@ -97,6 +97,8 @@ for (const theme of ['dark', 'light'])
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
       ).toBe(true);
       expect(errors).toEqual([]);
-      await page.screenshot({ path: info.outputPath(`telos-session-links-${theme}-${state}.png`) });
+      await page.screenshot({
+        path: info.outputPath(`linked-context-reporting-${theme}-${state}.png`),
+      });
     });
   }
