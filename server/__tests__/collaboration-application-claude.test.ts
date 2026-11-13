@@ -35,6 +35,7 @@ const observed = vi.hoisted(() => ({
   settle: undefined as (() => void) | undefined,
   interrupts: 0,
 }));
+const specialistDeliveryTimeout = process.env.CI ? 20_000 : 5_000;
 vi.mock('../claude-account-history.js', () => ({
   readClaudeAccountHistory: async (sessionId: string, cwd: string) => ({
     info: { sessionId, cwd },
@@ -635,7 +636,7 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
             native: native.requests.map((r) => r.method),
           }),
         ).toBe('completed'),
-      { timeout: 5000 },
+      { timeout: specialistDeliveryTimeout },
     );
     const review = {
       ...input,
@@ -652,7 +653,7 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
           service.read(authority, review.requestId).status,
           JSON.stringify(service.read(authority, review.requestId).deliveries),
         ).toBe('completed'),
-      { timeout: 5000 },
+      { timeout: specialistDeliveryTimeout },
     );
     expect(service.read(authority, review.requestId).contributions[0]).toMatchObject({
       role: 'consult-reviewer',
@@ -673,4 +674,4 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
     await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
     native.restore();
   }
-}, 30000);
+}, 60000);

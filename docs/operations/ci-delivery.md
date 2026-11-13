@@ -371,10 +371,17 @@ inner operation, authority check and assertion remains unchanged. This is fixtur
 resource headroom, not a product latency guarantee or proof of the root cause of
 hosted slowness. The next combined CI must verify both full journeys.
 
-The cross-provider specialist review separately retains its completion assertion
-and uses the same five-second bounded observation window as its planner, with
-delivery diagnostics on failure. Its former default one-second wait expired
-while the reply was still running on the hosted unit shard.
+The cross-provider specialist review retains its completion assertions and delivery
+diagnostics. Run `43484622490`, unit shard three, exhausted the planner's five-second
+observation window with delivery still queued and native startup through
+`thread/start`; the full case failed after 8.184 seconds. A later synthetic callback
+also reached a retired owner during teardown. The hosted planner and reviewer
+observations now each have a finite 20-second allowance, with five seconds locally
+and a 60-second whole-case bound. No runtime operation deadline changes. This
+records the observed incomplete startup, without claiming a cause for its delay.
+The recording transport now cancels its own scheduled notifications when closed
+or restored and rejects requests after close. A regression reproduced the late
+notifications before the repair and verifies they no longer escape teardown.
 
 ## Review events and durable landing
 

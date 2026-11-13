@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1132-specialist-session-capability-integration';
+  'v1.0.1133-specialist-fixture-lifecycle';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -94,7 +94,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-joining-review.spec.ts':
     'a358613009c080cd19182eebae43bb62ebf79739ac4e8e0efee5598a1279f61d',
   '../__tests__/collaboration-application-claude.test.ts':
-    'f177823f4e7b254b76c470de21096f17a113893ca4beb950b98e38a486ae060b',
+    '0b91f49d0aaa73947e52a5b9b3fb6e66db2b53836a6d5b141fedc06643840948',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
     '3b975b54d6be0157211526138905908a2d36dc49d1e990be96c30b31cae34ccd',
   '../__tests__/ordinary-sdk-turn-evidence.test.ts':
@@ -586,7 +586,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-ui.test.tsx':
     '3511cb87d6dba5d651188f12e91e1ff243b23fb8a989e2592fbf1f19ba5f1ce3',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
-    'a4abaac2bb70cce41376bc1fe62d1bba1d6c98e6a9fdc9b93bbc265c7084390f',
+    '562b8801ea6befdd046cde6de5d36a275e8651dd6c366991dee86abee55d268e',
+  '../__tests__/symposium-recording-runtime.test.ts':
+    'df304c9f5a82e7f8034aaf5b88717ffdf3bd8cfc28cfef22410ec06b61205820',
   '../../tests/fixtures/symposium-composer.tsx':
     '7c7e35320372a92967305a1751af602b4217545d0f476b8fbdd9f0555ee77598',
   '../../tests/offline/symposium-composer.spec.ts':
