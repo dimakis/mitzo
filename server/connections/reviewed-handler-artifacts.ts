@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1142-subagents-images-telos-specialists';
+  'v1.0.1143-retained-image-visual-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -57,7 +57,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/approved/codex-subagents/floating.html':
     'cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7',
   '../../docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md':
-    '0494e54dcf057c883f30a9f75a1408ca26b53a0ef7c2b50b2aeb7698e2027cc9',
+    '773dc1fd1c3ac1b30059a3681657f3f66fcb4207145091971739b7bed4e3b101',
   '../../tests/integration/native-subagent-control.test.tsx':
     '09e189944ed0d0fa160bac32287ee2b42e1844ba59941028f0efdbf7ed54ce36',
   '../__tests__/symposium-recording-runtime.test.ts':
@@ -382,7 +382,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/ui-smoothness.md':
     '0f36df9e2a40bd66fa12d937b48443d85c592ce8b927fc2dbd6c6f6fbabd25da',
   '../../tests/offline/image-attachments.spec.ts':
-    '523191a76d7d2a04b8d4277ee801e73690bf9011c9bd3d44f2751fffe4fe3a10',
+    'f73f23839b4ff30426bb8d5fd782c6cc105d5f8ec063c073103e70e4c785a3d2',
   '../../tests/offline/terminal.spec.ts':
     '5ccdb84c7f2618e0a6f69df867bd5d1ec3aa99af44302187290b62c3e30c5b72',
   '../../tests/support/motion-settled.ts':

@@ -168,3 +168,10 @@ before invocation and exactly one replacement start under the original command.
 The combined local batch passes223 tests across17files; eight real-conversation
 adapter cases also pass, with unselected cases explicitly skipped by name.
 Hosted checks and current-head trusted final review remain required before merge.
+
+Visual-evidence correction: the existing successful-run artifact owner retains
+`responsiveness-*.png`, so the new retained-image captures use that prefix.
+This changes only screenshot output names; assertions and product behavior are
+unchanged. The initial combined run's successful compilation, core/browser and
+unit/consumer results remain useful evidence, but a replacement exact-head run
+must retain the corrected captures. No workflow or coverage change is needed.

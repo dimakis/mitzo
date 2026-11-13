@@ -288,7 +288,7 @@ for (const theme of ['dark', 'light']) {
         await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
       ).toBe(true);
       await page.screenshot({
-        path: info.outputPath(`image-retained-${theme}-${index}.png`),
+        path: info.outputPath(`responsiveness-image-retained-${theme}-${index}.png`),
         animations: 'disabled',
       });
       await page.keyboard.press('Escape');
