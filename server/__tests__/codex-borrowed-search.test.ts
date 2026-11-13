@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BorrowedCodexSearch } from '../codex-borrowed-search.js';
 import { searchCodex } from '../codex-approved-search.js';
+import { assertCodexApiProviderConfiguration, codexApiProvider } from '../codex-api-provider.js';
 
 function fixture() {
   let current = true;
@@ -8,6 +9,7 @@ function fixture() {
     if (!current) throw Error('Revoked owner');
   });
   const rpc = {
+    validateConfiguration: vi.fn((_configuration: unknown) => {}),
     initialize: vi.fn(),
     close: vi.fn(),
     request: vi.fn(async (method: string, params: Record<string, unknown>): Promise<unknown> => {
@@ -59,6 +61,7 @@ describe('approved search on the original owned Codex transport', () => {
   it('returns cited search evidence without reattaching or closing the parent connection', async () => {
     const f = fixture();
     await expect(f.run()).resolves.toContain('https://example.test/source');
+    expect(f.rpc.validateConfiguration).toHaveBeenCalledExactlyOnceWith({});
     expect(f.rpc.initialize).not.toHaveBeenCalled();
     expect(f.rpc.close).not.toHaveBeenCalled();
     expect(f.rpc.request).toHaveBeenCalledWith('thread/unsubscribe', { threadId: 'search-child' });
@@ -77,6 +80,48 @@ describe('approved search on the original owned Codex transport', () => {
     );
     expect(f.child.notification('turn/completed', { threadId: 'parent-thread' })).toBe(false);
   });
+
+  it.each(['http_headers', 'experimental_bearer_token', 'env_key'])(
+    'rejects a new %s provider extension through the borrowed transport before creating a child',
+    async (extension) => {
+      const f = fixture();
+      const provider = codexApiProvider({
+        endpoint: 'https://gateway.example/v1',
+        protocol: 'responses',
+        qualification: {
+          source: 'operator',
+          streaming: true,
+          toolCalls: true,
+          continuation: true,
+          cancellation: true,
+        },
+      });
+      const configuration = {
+        model_provider: 'mitzo_api',
+        model_providers: {
+          mitzo_api: {
+            name: 'Configured API',
+            base_url: 'https://gateway.example/v1',
+            wire_api: 'responses',
+            requires_openai_auth: true,
+            supports_websockets: false,
+            [extension]: extension === 'http_headers' ? { 'x-api-key': 'synthetic' } : 'synthetic',
+          },
+        },
+      };
+      f.rpc.validateConfiguration.mockImplementation((config) =>
+        assertCodexApiProviderConfiguration(config, provider),
+      );
+      const original = f.rpc.request.getMockImplementation()!;
+      f.rpc.request.mockImplementation(async (method, params) =>
+        method === 'config/read' ? { config: configuration } : original(method, params),
+      );
+      await expect(f.run()).rejects.toThrow('provider configuration rejected');
+      expect(f.rpc.validateConfiguration).toHaveBeenCalledExactlyOnceWith(configuration);
+      expect(f.rpc.request.mock.calls.map(([method]) => method)).toEqual(['config/read']);
+      expect(f.rpc.close).not.toHaveBeenCalled();
+    },
+  );
 
   it('refuses a revoked owner before starting a search', async () => {
     const f = fixture();
