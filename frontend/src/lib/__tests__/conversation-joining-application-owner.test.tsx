@@ -298,6 +298,15 @@ it.each(['', ' \n '])(
   },
 );
 
+it('reviews Default Mitzo without requiring a saved profile selection', async () => {
+  const h = await harness(),
+    request = input();
+  request.setup.agent = null;
+  const captured = await h.owner.captureReview(request, new AbortController().signal);
+  expect(captured.target.agent).toBeNull();
+  expect(h.fetch).toHaveBeenCalledTimes(2);
+});
+
 it.each(['repository', 'permission', 'brief', 'account', 'agent'] as const)(
   'refuses missing %s before any read',
   async (missing) => {
@@ -309,7 +318,7 @@ it.each(['repository', 'permission', 'brief', 'account', 'agent'] as const)(
       delete (request.setup as Partial<typeof request.setup>).permissionMode;
     if (missing === 'brief') delete (request as Partial<typeof request>).joiningBrief;
     if (missing === 'account') request.setup.selection = null;
-    if (missing === 'agent') request.setup.agent = null;
+    if (missing === 'agent') delete (request.setup as Partial<typeof request.setup>).agent;
     await expect(h.owner.captureReview(request, new AbortController().signal)).rejects.toThrow();
     expect(h.fetch).not.toHaveBeenCalled();
   },
