@@ -4,6 +4,10 @@ import {
   retainedLocalCodexRecoveryReservation,
 } from './retained-local-codex-effects.js';
 import {
+  observeTelosSessionCoordination,
+  renderTelosSessionCoordination,
+} from './telos-session-coordination.js';
+import {
   assembleCommandPrompt,
   assembleReplyText,
   captureMessageReply,
@@ -24,6 +28,10 @@ import { createSessionTranscriptReader } from './session-transcript-reader.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
 import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
+import {
+  captureOrdinaryFirstCommandAuthority,
+  type OrdinaryFirstCommandAuthority,
+} from './ordinary-first-command-authority.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import {
   RetainedLocalCodexRecovery,
@@ -231,7 +239,12 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { checkSkillPolicy, setSkillPolicy } from './skill-policy.js';
-import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from './query-loop.js';
+import {
+  runQueryLoop,
+  retainQueryFinalization,
+  broadcastToObservers,
+  deliverRetainedSessionEvent,
+} from './query-loop.js';
 import type { SessionChangeEvent } from './session-overview.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
@@ -2553,6 +2566,14 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           (options.contributorGuidance
             ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
             : '') +
+          renderTelosSessionCoordination(
+            observeTelosSessionCoordination(
+              eventStore,
+              session.sessionId ?? stateSessionId ?? newSdkSessionId,
+              undefined,
+              (id) => !!registry.findBySessionId(id),
+            ),
+          ) +
           bootContextAppend +
           (codexProfile
             ? ''
@@ -3800,6 +3821,7 @@ export async function startOwnedLocalCodexCommand(
     resume?: boolean;
     recovery?: boolean;
     savedRecovery?: boolean;
+    firstCommandAuthority?: OrdinaryFirstCommandAuthority;
     /** Trusted silent allocation receipt; explicit first command only. */
     preparationOperationId?: string;
     ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
@@ -3834,6 +3856,11 @@ export async function startOwnedLocalCodexCommand(
   };
   try {
     const commandId = input.commandId;
+    const firstCommandAuthority = captureOrdinaryFirstCommandAuthority(
+      input.firstCommandAuthority,
+      commandId,
+    );
+    firstCommandAuthority?.assertCurrent();
     const preparationOperationId = input.preparationOperationId;
     const requestedResume = input.resume;
     const resume = requestedResume === true;
@@ -4035,6 +4062,7 @@ export async function startOwnedLocalCodexCommand(
           onEnded: release,
           adviserScope: input.adviserScope,
           onSessionPrepared: input.onSessionPrepared,
+          firstCommandAuthority,
           ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
           onQueryEvent: input.onQueryEvent,
           onTerminalOutcome: input.onTerminalOutcome,
@@ -4187,6 +4215,7 @@ export async function prepareOwnedCodexChat(
     ownerConnectionId?: string;
     ownerAuthSessionId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    firstCommandAuthority?: OrdinaryFirstCommandAuthority;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
     onEnded: () => void;
@@ -4274,6 +4303,10 @@ export async function prepareOwnedCodexChat(
   const { expected, workspace, payload, profile } = selected;
   const sessionId = input.sessionId;
   const commandId = input.commandId;
+  const firstCommandAuthority = captureOrdinaryFirstCommandAuthority(
+    options.firstCommandAuthority,
+    commandId,
+  );
   const admission = input.admission;
   const abortController = new AbortController();
   let queryInstance: QueryInstance | undefined;
@@ -4282,16 +4315,21 @@ export async function prepareOwnedCodexChat(
   let closed = false;
   let ran = false;
   let releaseNativeHostOperator: (() => void) | undefined;
+  let closeFailure: { cause: unknown } | undefined;
+  let settleOwner: ((failure: { cause: unknown } | undefined) => void) | undefined;
   const close = () => {
-    if (closed) return;
+    if (closed) {
+      if (closeFailure)
+        throw new Error('Owned local Codex chat unavailable', { cause: closeFailure.cause });
+      return;
+    }
     closed = true;
     abortController.signal.removeEventListener('abort', onAbort);
-    let failed = false;
     const attempt = (operation: () => void) => {
       try {
         operation();
-      } catch {
-        failed = true;
+      } catch (cause) {
+        closeFailure ??= { cause };
       }
     };
     attempt(() => queryInstance?.close());
@@ -4313,7 +4351,16 @@ export async function prepareOwnedCodexChat(
     );
     attempt(releaseOwner);
     attempt(() => _onSessionChange?.(ownedClientId, 'end', sessionId));
-    if (failed) throw unavailable();
+    settleOwner?.(closeFailure);
+    if (closeFailure) {
+      log.warn('Owned chat owner cleanup remains unconfirmed', {
+        code: 'owned_query_finalization_failed',
+        stage: 'owner_release',
+        sessionId,
+        commandId,
+      });
+      throw new Error('Owned local Codex chat unavailable', { cause: closeFailure.cause });
+    }
   };
   const onAbort = () => {
     try {
@@ -4341,6 +4388,14 @@ export async function prepareOwnedCodexChat(
       ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
+    retainQueryFinalization(
+      session,
+      new Promise<{ cause: unknown } | undefined>((resolve) => {
+        settleOwner = resolve;
+      }).then((failure) => {
+        if (failure) throw failure.cause;
+      }),
+    );
     if (options.operatorConnectionId)
       releaseNativeHostOperator = retainNativeHostToolOperator(
         session,
@@ -4348,6 +4403,7 @@ export async function prepareOwnedCodexChat(
       );
     resolveOwnedTelosWorkCommandScope(sessionId);
     options.onSessionPrepared?.(session);
+    firstCommandAuthority?.assertCurrent();
     if (options.adviserScope) {
       options.adviserScope.assertSelection(boundAccount, expected.selection.thinking);
       eventStore.append(sessionId, 'adviser_task_scope', {
@@ -4432,6 +4488,7 @@ export async function prepareOwnedCodexChat(
         resolveOwnedTelosWorkCommandScope(sessionId, true);
       },
       ordinaryTurnLifecycle: options.ordinaryTurnLifecycle,
+      firstCommandAuthority,
       assertAgentContextAuthorization: () => {
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId);
@@ -4556,6 +4613,7 @@ export async function prepareOwnedCodexChat(
           throw findSessionRuntimeError(error) ?? unavailable();
         }
       };
+      let commandFailure: { cause: unknown } | undefined;
       try {
         if (localAdmission) {
           // openCodexChat can enqueue and attempt a pump while the owning
@@ -4587,10 +4645,19 @@ export async function prepareOwnedCodexChat(
           },
         );
       } catch (error) {
-        throw findSessionRuntimeError(error) ?? unavailable();
-      } finally {
-        close();
+        commandFailure = {
+          cause:
+            findSessionRuntimeError(error) ??
+            retainCodexPreparationFailure('runtime_connection', error),
+        };
       }
+      // Retain/report cleanup-only failures without replacing a command error.
+      try {
+        close();
+      } catch (cause) {
+        commandFailure ??= { cause };
+      }
+      if (commandFailure) throw commandFailure.cause;
     },
   };
 }

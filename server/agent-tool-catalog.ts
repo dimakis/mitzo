@@ -134,7 +134,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
             : tool.name === 'TelosWorkControl'
               ? 'Requires explicit native tool selection, a current retained lead or worker role and original request-only tool approval. The existing coordinator and scope checks still control every operation; selection grants no role or hold authority.'
               : tool.name === 'TelosStartSlice'
-                ? 'Requires explicit native tool selection, this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child; selection grants no lead role or model execution.'
+                ? 'Requires explicit native tool selection, this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child. Explicit execute requests use one-use approval and the original worker’s ordinary command owner; selection alone grants no lead role or execution.'
                 : [
                       'TelosCreateOutcome',
                       'TelosAdoptSource',

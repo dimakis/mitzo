@@ -20,6 +20,7 @@ import { authenticateToken, login, setAuthRevocationStore } from '../auth.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
 import { CodexStartupError } from '../codex-startup-error.js';
+import { drainQueryLoopFinalization } from '../query-loop.js';
 
 const nativeQueues = vi.hoisted(() => new WeakMap<object, { startQueued(): Promise<void> }>());
 vi.mock('../codex-chat-session.js', () => ({
@@ -72,6 +73,30 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+
+it('retains outer prepared-owner cleanup failure after registry removal', async () => {
+  const f = fixture();
+  const original = Error('private outer owner cleanup failure');
+  f.ended.mockImplementation(() => {
+    throw original;
+  });
+  const prepared = await chat.prepareOwnedLocalCodexChat(
+    f.transport,
+    f.id,
+    f.input,
+    f.serverOptions,
+  );
+  const session = chat.registry.get(f.id)!;
+  f.events.completeOrdinaryLocalCommand(f.commandId);
+  await expect(prepared.run()).rejects.toMatchObject({
+    message: 'Owned local Codex chat unavailable',
+    cause: original,
+  });
+  expect(chat.registry.findBySessionId(f.id)).toBeNull();
+  await expect(drainQueryLoopFinalization(session)).rejects.toMatchObject({ cause: original });
+  expect(() => prepared.close()).toThrow('Owned local Codex chat unavailable');
+  await expect(drainQueryLoopFinalization(session)).rejects.toMatchObject({ cause: original });
 });
 
 it('retains the precise recovery blocker when the native queue cannot start', async () => {

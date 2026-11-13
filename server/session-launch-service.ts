@@ -64,7 +64,8 @@ export interface TelosSessionLaunchPort {
   inspect(
     record: RetainedSessionLaunch,
     authority: SessionLaunchAuthority,
-  ): Promise<TelosSessionAssignmentReceipt | { state: 'uncertain' }>;
+  ): Promise<TelosSessionAssignmentReceipt | { state: 'uncertain' | 'released' }>;
+  release?(record: RetainedSessionLaunch, authority: SessionLaunchAuthority): Promise<void>;
 }
 /** A request-only user approval owns the frozen config. The runtime still owns
  * actual admission, revocation, provider startup and command deduplication. */
@@ -115,6 +116,7 @@ export class SessionLaunchService {
         authority.assertCurrent();
         authority.signal.throwIfAborted();
         if (observed.state === 'assigned') return this.assigned(record, observed);
+        if (observed.state === 'released') return this.store.markReleased(id);
       } catch (cause) {
         // Stale work authority keeps the retained intent uncertain. Revoked
         // authentication/cancellation still denies the read and any mutation.
@@ -143,6 +145,41 @@ export class SessionLaunchService {
         true,
       );
     return this.store.get(id, owner);
+  }
+  async release(
+    id: string,
+    owner: string,
+    expectedRevision: number,
+    authority: SessionLaunchAuthority,
+  ) {
+    authority.assertCurrent();
+    authority.signal.throwIfAborted();
+    const record = this.store.get(id, owner);
+    if (
+      this.inFlight.has(id) ||
+      record.state !== 'uncertain' ||
+      record.revision !== expectedRevision ||
+      !record.telos
+    )
+      throw new SessionLaunchError('Review the exact unfinished work request before release.');
+    const port = this.workPort();
+    if (!port.release) throw new SessionLaunchError('Reviewed reservation release is unavailable.');
+    this.inFlight.add(id);
+    try {
+      await port.release(record, authority);
+      authority.assertCurrent();
+      authority.signal.throwIfAborted();
+      return this.store.markReleased(id);
+    } catch (cause) {
+      recordSessionLaunchFailure(record, 'release_reservation', cause);
+      throw new SessionLaunchError(
+        'Release is unconfirmed or refused. Check the original request; an existing allocation must be recovered.',
+        409,
+        { cause },
+      );
+    } finally {
+      this.inFlight.delete(id);
+    }
   }
   async approve(
     id: string,

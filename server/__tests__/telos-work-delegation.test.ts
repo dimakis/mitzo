@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -15,14 +15,21 @@ import {
 } from '../telos-work-role-context.js';
 import { TelosWorkDelegation } from '../telos-work-delegation.js';
 import { createJoiningFixture, cleanupJoiningFixtures } from './fixtures/collaboration-joining.js';
+import { ownedOrdinaryRuntimeFixture } from './fixtures/owned-ordinary-workspace-runtime.js';
+import { EventStore } from '../event-store.js';
+import { setAuthRevocationStore } from '../auth.js';
 
-const cleanups: (() => void)[] = [];
+const authRoot = mkdtempSync(join(tmpdir(), 'telos-delegation-auth-'));
+const authStore = new EventStore(join(authRoot, 'events.db'));
+beforeAll(() => setAuthRevocationStore(authStore));
+afterAll(() => {
+  authStore.close();
+  rmSync(authRoot, { recursive: true, force: true });
+});
+const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   vi.restoreAllMocks();
-  cleanups
-    .splice(0)
-    .reverse()
-    .forEach((cleanup) => cleanup());
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   await cleanupJoiningFixtures();
 });
 
@@ -289,6 +296,45 @@ it('blocks delegation before allocation when create-only worker setup owns the r
     }),
   ).toThrow(/assigned or reserved/);
   expect(f.work.prepareRoleSetup(setup, f.actor)).toEqual(original);
+});
+
+it('delegates after an absent ordinary worker reservation is durably released', async () => {
+  const f = await fixture();
+  const native = await ownedOrdinaryRuntimeFixture(cleanups);
+  const input = {
+    version: 2 as const,
+    requestId: randomUUID(),
+    itemId: f.input.childItemId,
+    role: 'worker' as const,
+    createOnly: true as const,
+    expectedRevision: f.input.expectedRevision,
+    expectedAssignmentRevision: 0,
+    settings: native.first.receipt.settings,
+    contextSelection: f.input.contextSelection,
+  };
+  const saved = f.work.prepareOrdinaryRoleSetup(input, f.actor);
+  await expect(f.owner().delegate(f.actor, f.input, f.ordinary.signal)).rejects.toThrow(
+    /assigned or reserved/,
+  );
+  expect(f.work.latestDelegationForHost('slice')).toBeNull();
+  native.workspaces.releaseAbsentOrdinaryAllocation(saved.setup.allocationOperationId, () => {
+    expect(
+      native.events.getOrdinaryWorkspaceSessionPreparation(saved.setup.allocationOperationId),
+    ).toBeUndefined();
+  });
+  f.work.releaseAbsentOrdinaryRoleSetup(saved.setup, f.actor, () => undefined);
+  f.reopen();
+  expect(f.work.ordinaryRoleSetupForHost(input.requestId, f.actor)?.released).toBe(true);
+  expect(() => f.work.prepareOrdinaryRoleSetup(input, f.actor)).toThrow(/released/i);
+  const result = await f.owner().delegate(f.actor, f.input, f.ordinary.signal);
+  expect(result).toEqual(await f.owner().delegate(f.actor, f.input, f.ordinary.signal));
+  expect(f.work.read('slice', f.actor).links).toContainEqual(
+    expect.objectContaining({
+      role: 'worker',
+      conversation: { namespace: 'mitzo', conversationId: result.workerConversationId },
+    }),
+  );
+  expect(f.work.read('slice', f.actor).attempts).toHaveLength(1);
 });
 
 type WorkerCommandState =

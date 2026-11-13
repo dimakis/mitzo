@@ -15,6 +15,13 @@ import {
 } from '@mitzo/protocol';
 
 export const MAX_TELOS_ARTIFACT_BYTES = 5 * 1024 * 1024;
+/** Absence is distinct from a storage failure; callers may offer a reviewed retry. */
+export class TelosArtifactNotFoundError extends Error {
+  constructor() {
+    super('Artifact not found');
+    this.name = 'TelosArtifactNotFoundError';
+  }
+}
 export const artifactFilename = z
   .string()
   .min(1)
@@ -428,7 +435,7 @@ export class TelosArtifactStore {
         : this.db
             .prepare('SELECT * FROM telos_artifact_revisions WHERE id=? AND revision=?')
             .get(id, revision);
-    if (!row) throw new Error('Artifact not found');
+    if (!row) throw new TelosArtifactNotFoundError();
     return row as ArtifactRow;
   }
   read(id: string, revision?: number) {
@@ -444,7 +451,7 @@ export class TelosArtifactStore {
         'SELECT revision FROM telos_artifact_revisions WHERE id=? ORDER BY revision DESC LIMIT 1',
       )
       .get(id) as { revision: number } | undefined;
-    if (!row) throw new Error('Artifact not found');
+    if (!row) throw new TelosArtifactNotFoundError();
     return this.metadataForRevision(id, row.revision);
   }
   /** Exact metadata only: length/typeof inspect custody without transferring a BLOB.
@@ -486,7 +493,7 @@ export class TelosArtifactStore {
   private assertByteCustody(
     row: (ArtifactRow & { actual_size: number; byte_type: string }) | undefined,
   ) {
-    if (!row) throw new Error('Artifact not found');
+    if (!row) throw new TelosArtifactNotFoundError();
     if (
       row.byte_type !== 'blob' ||
       !Number.isSafeInteger(row.size) ||
@@ -518,7 +525,7 @@ export class TelosArtifactStore {
           'SELECT item_id,session_id FROM telos_artifact_revisions WHERE id=? ORDER BY revision DESC LIMIT 1',
         )
         .get(id) as { item_id: string; session_id: string } | undefined;
-      if (!owner) throw new Error('Artifact not found');
+      if (!owner) throw new TelosArtifactNotFoundError();
       const assertPublic = () => {
         if (
           owner.session_id.startsWith('source-capture:') ||

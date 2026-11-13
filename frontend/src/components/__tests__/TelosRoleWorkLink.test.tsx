@@ -12,7 +12,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
-it('reopens a worker with the retained exact item and lead references, independently of originating navigation', async () => {
+it('reopens a worker with the retained item and current lead, independently of originating navigation', async () => {
   vi.spyOn(api, 'apiFetch').mockResolvedValue(
     new Response(
       JSON.stringify({
@@ -28,6 +28,13 @@ it('reopens a worker with the retained exact item and lead references, independe
           artifacts: [],
           leadConversationId: 'lead',
         },
+        telosSessionCoordination: {
+          itemId: 'item',
+          role: 'worker',
+          assignment: 'current',
+          reportingTo: { conversationId: 'current-lead', availability: 'available' },
+          diagnostic: null,
+        },
       }),
       { status: 200 },
     ),
@@ -41,7 +48,7 @@ it('reopens a worker with the retained exact item and lead references, independe
     '/todos/item',
   );
   expect(screen.getByRole('link', { name: 'Return to lead chat' }).getAttribute('href')).toBe(
-    '/chat/lead',
+    '/chat/current-lead',
   );
   expect(screen.getByText('Reviewed acoustic plan')).toBeTruthy();
   expect(screen.getByText('Record a first session')).toBeTruthy();

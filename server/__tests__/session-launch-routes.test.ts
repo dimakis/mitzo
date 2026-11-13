@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createSessionLaunchRouter } from '../session-launch-routes.js';
+import { SessionLaunchError } from '../session-launch-store.js';
 
 vi.mock('../auth.js', () => ({
   isAuthSessionCurrent: (auth: { id: string }) => auth.id !== 'revoked',
@@ -58,6 +59,7 @@ function fixture(login: string | null = 'current') {
     }),
     refresh: vi.fn(async () => record),
     resume: vi.fn(async () => ({ ...record, state: 'created', revision: 5 })),
+    release: vi.fn(async () => ({ ...record, state: 'cancelled', revision: 2 })),
   };
   const controller = { defaults, launches, changed: vi.fn() };
   const app = express();
@@ -87,6 +89,39 @@ function fixture(login: string | null = 'current') {
   return { app, defaults, launches };
 }
 describe('reviewed session launch routes', () => {
+  it('requires exact authenticated release review and delivers an owner refusal without private causes', async () => {
+    const f = fixture();
+    const path = `/api/session-launch/requests/${record.proposalId}/release`;
+    expect(
+      (
+        await request(f.app)
+          .post(path)
+          .set('Origin', 'https://hostile.example')
+          .send({ expectedRevision: 1 })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await request(fixture('revoked').app).post(path).send({ expectedRevision: 1 })).status,
+    ).toBe(403);
+    expect((await request(f.app).post(path).send({})).status).toBe(400);
+    expect(f.launches.release).not.toHaveBeenCalled();
+    f.launches.release.mockRejectedValueOnce(
+      new SessionLaunchError('Release is unconfirmed. Recover the original request.', 409, {
+        cause: Error('private owner detail'),
+      }),
+    );
+    const refusal = await request(f.app).post(path).send({ expectedRevision: 1 });
+    expect(refusal.status).toBe(409);
+    expect(refusal.text).toContain('Release is unconfirmed');
+    expect(refusal.text).not.toContain('private owner detail');
+    expect(f.launches.release).toHaveBeenCalledWith(
+      record.proposalId,
+      'user',
+      1,
+      expect.objectContaining({ authSessionId: 'current' }),
+    );
+    expect(f.defaults.saveInTransaction).not.toHaveBeenCalled();
+  });
   it('keeps link mutations authenticated, same origin and separate from launches and grants', async () => {
     const f = fixture();
     expect(
