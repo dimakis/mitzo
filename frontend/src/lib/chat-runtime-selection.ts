@@ -9,7 +9,9 @@ import type { AccountSelection } from '../types/account-selection';
 const reference = z.string().min(1).max(200).regex(/^\S+$/);
 const accountSelection = z.strictObject({
   accountId: reference.optional(),
-  model: reference,
+  // Local editable intent can retain an account while its model is unselected.
+  // Dispatch and saved session-default protocols retain their nonempty-model schemas.
+  model: z.union([z.literal(''), reference]),
   reasoningEffort: z.string().min(1).max(64).regex(/^\S+$/).nullable().optional(),
 });
 

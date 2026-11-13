@@ -1,7 +1,7 @@
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
 import type { SessionRuntimeBindingV1 } from '@mitzo/protocol';
 import type { Account, AccountSelection } from '../components/AccountModelPicker';
-import { pickerModels } from './model-visibility';
+import { hiddenPickerModels, pickerModels } from './model-visibility';
 
 const KEY = 'mitzo-default-account-model';
 export function getDefaultAccountModel(): AccountSelection | null {
@@ -18,6 +18,15 @@ export function getDefaultAccountModel(): AccountSelection | null {
   } catch {
     return null;
   }
+}
+
+/** Fresh defaults are editable intent; only an existing draft/session retains a hidden model. */
+export function visibleAccountModelSelection(
+  selection: AccountSelection | null,
+): AccountSelection | null {
+  if (!selection?.accountId || !hiddenPickerModels(selection.accountId).includes(selection.model))
+    return selection;
+  return { accountId: selection.accountId, model: '' };
 }
 /** Public routing identity only; preferences never grant dispatch authority. */
 export function getDefaultAccountReference(): SessionRuntimeBindingV1['account'] | null {
