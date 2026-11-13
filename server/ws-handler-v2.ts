@@ -94,6 +94,7 @@ import {
 } from './chat.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { resolveSlashCommand } from './slash-commands.js';
+import { executableSkillResolution } from './skill-runtime-support.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
 import type { NativeCommandRegistry } from './native-commands.js';
 import { createLogger } from './logger.js';
@@ -828,7 +829,9 @@ export function handleSendV2(
           : undefined;
         const cwd = validatedCwd ?? storedMeta?.cwd ?? BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
-        const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+        const resolution = executableSkillResolution(
+          resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES),
+        );
         if (msg.sourceSnapshots?.length && resolution.type === 'native')
           throw new Error(
             'Saved source snapshots require an ordinary chat prompt. Native commands do not consume them.',

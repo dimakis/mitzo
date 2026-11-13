@@ -1726,6 +1726,7 @@ describe('skills routes', () => {
     expect(skill.description).toBe('A test skill');
     expect(skill.scope).toBe('repo');
     expect(skill.allowedTools).toEqual(['Read', 'Glob']);
+    expect(skill.unavailableReason).toMatch(/tool restrictions/);
     // filePath should NOT be exposed to the client
     expect(skill.filePath).toBeUndefined();
   });

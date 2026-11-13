@@ -5,15 +5,15 @@ import { buildSkillRegistry } from './skill-registry-runtime.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { HostRepositoryReservationInput } from './repository-workspaces.js';
+import { assertSkillRuntimeSupport } from './skill-runtime-support.js';
 
-const restriction = 'This skill requires tool restrictions that this runtime cannot enforce.';
 const nativeNames = new Set(['skills', 'models', 'close', 'deliberate', 'fuse']);
 
 function assertSupported(registry: SkillRegistry, name: string, seen = new Set<string>()) {
   if (seen.has(name)) return; // The shared resolver reports circular dependencies.
   seen.add(name);
   const skill = registry.get(name);
-  if (skill?.allowedTools !== undefined) throw Error(restriction);
+  assertSkillRuntimeSupport(skill?.allowedTools);
   for (const dependency of skill?.requiredSkills ?? []) assertSupported(registry, dependency, seen);
 }
 

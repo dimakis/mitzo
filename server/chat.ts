@@ -234,6 +234,7 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { setSkillPolicy } from './skill-policy.js';
+import { assertSkillRuntimeSupport } from './skill-runtime-support.js';
 import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from './query-loop.js';
 import type { SessionChangeEvent } from './session-overview.js';
 import { clearSessionImages } from './image-store.js';
@@ -1364,6 +1365,7 @@ export async function startChat(
       ? nativeStartupSessionId(initialMessageId)
       : undefined;
   try {
+    assertSkillRuntimeSupport(options.skillAllowedTools);
     const retainedBinding = options.resume
       ? eventStore.getSession(options.resume)?.accountBinding
       : undefined;
