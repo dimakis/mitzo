@@ -48,6 +48,24 @@ function fixture() {
   vi.mocked(query).mockReturnValue({ supportedModels, accountInfo, close } as never);
   return { env, verify, assertCurrent, supportedModels, accountInfo, close };
 }
+it('reports failed Check sign-in when the native status passes but the SDK account is unavailable', async () => {
+  const f = fixture();
+  f.accountInfo.mockResolvedValueOnce({ apiProvider: 'firstParty' } as never);
+  const profiles = new AccountProfiles([
+    {
+      id: 'sdk-sign-in-check',
+      label: 'Personal Claude',
+      provider: 'anthropic-claude',
+      credentialRef: f.env.CLAUDE_CONFIG_DIR,
+      email: f.env.MITZO_CLAUDE_EXPECTED_EMAIL,
+      planType: 'max',
+      models: [{ id: 'sonnet', label: 'Sonnet' }],
+    },
+  ]);
+  await profiles.checkSignIn(new AbortController().signal);
+  expect(profiles.catalog()[0].signIn?.status).toBe('failed');
+  expect(f.accountInfo).toHaveBeenCalledOnce();
+});
 it('reads native model capabilities without a prompt and closes its isolated metadata query', async () => {
   const f = fixture();
   const result = await discoverClaudeModels(f.env, new AbortController().signal);
@@ -135,6 +153,13 @@ it('publishes discovered choices consistently, scopes refresh, and retains stale
   expect(warn).toHaveBeenLastCalledWith(
     'Claude model discovery failed',
     expect.objectContaining({ signIn: failure.telemetry() }),
+  );
+  expect(profiles.catalog()[0].modelDiscovery.failure).toEqual({
+    code: 'claude_sign_in_unavailable',
+    diagnosticId: failure.diagnosticId,
+  });
+  expect(profiles.ordinaryLocalVertexInventory()[0].modelDiscovery.failure).toEqual(
+    profiles.catalog()[0].modelDiscovery.failure,
   );
   f.accountInfo.mockResolvedValueOnce({
     apiProvider: 'firstParty',

@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { TelosCreateSessionInputSchema } from '@mitzo/protocol';
+import { sessionLaunchTools } from './session-launch-tools.js';
+import { telosSessionLaunchDefinition } from './telos-session-launch-tool.js';
+import { learningToolSchemas, learningToolDefinitions } from './session-learning-tools.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
@@ -31,6 +35,9 @@ import { sessionCredentialTools } from './session-credential-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 
 const prefix = 'mcp__mitzo-connections__';
+/** Keep SDK auto-admission and the mandatory PreToolUse route fence aligned.
+ * Every handler still enforces its profile, live authority and operation policy. */
+export { ordinarySdkConnectionHelperTools as ordinarySdkHelperTools } from './ordinary-sdk-helper-registration.js';
 /** A failed authority check cannot become a recoverable application failure. */
 class SdkAuthorityFailure extends SessionRuntimeError {
   constructor(cause: unknown) {
@@ -38,18 +45,21 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  TelosCreateSession: TelosCreateSessionInputSchema,
   AgentCommunication: AgentCommunicationSdkInput,
   ...sessionPromptSchemas,
   ...credentialConnectionSchemas,
   ...repositoryChatSchemas,
   ...profileToolSchemas,
   ...knowledgeToolSchemas,
+  ...learningToolSchemas,
 };
 const definitions = [
   ...credentialConnectionToolDefinitions,
   ...repositoryChatToolDefinitions,
   ...profileToolDefinitions,
   ...knowledgeToolDefinitions,
+  ...learningToolDefinitions,
   ...sessionPromptDefinitions,
 ];
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
@@ -83,6 +93,7 @@ export function credentialSdkPermission(
       short === 'ConnectionWebSocket' ||
       short === 'ApplySecretRelay' ||
       short === 'PrepareRepositoryChat' ||
+      (short === 'CaptureMemoryCandidate' && input.action === 'capture') ||
       short === 'SaveKnowledgeDraft')
   )
     return { behavior: 'deny' as const, message: 'Ask mode only permits connection reads' };
@@ -131,9 +142,11 @@ export function createCredentialSdkServer(
             ),
             ...profileToolDefinitions,
             ...sessionPromptDefinitions,
+            ...learningToolDefinitions,
           ]
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
+      ...(boundary ? [telosSessionLaunchDefinition] : []),
     ]).map((definition) =>
       tool(
         definition.name,
@@ -176,6 +189,32 @@ export function createCredentialSdkServer(
                     ],
                     isError: true,
                   };
+                if (definition.name === 'TelosCreateSession' && authority) {
+                  await authority.assertCurrent(signal);
+                  const result = await sessionLaunchTools({
+                    sessionId: id,
+                    session,
+                    registry,
+                    permissionPrefix: prefix,
+                    assertCurrent: () => authority.assertCurrent(signal),
+                    assertCurrentSync: () => authority.assertCurrentSync(signal),
+                  }).execute(
+                    input,
+                    signal,
+                    {
+                      turnId: runtimeId,
+                      callId: String(
+                        (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+                      ),
+                    },
+                    'TelosCreateSession',
+                  );
+                  await authority.assertCurrent(signal);
+                  return {
+                    content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+                    isError: false,
+                  };
+                }
                 if (definition.name === 'AgentCommunication' && boundary?.agentCommunication) {
                   await authority!.assertCurrent(signal);
                   const peerInput = AgentCommunicationSdkInput.parse(input);

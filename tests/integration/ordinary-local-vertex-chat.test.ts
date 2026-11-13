@@ -17,6 +17,7 @@ const services = vi.hoisted(() => ({
   workspace: undefined as unknown,
   library: undefined as unknown,
   query: vi.fn(),
+  credentialReadFailure: false,
   requests: [] as Array<{
     options: Record<string, unknown>;
     prompt: AsyncIterable<Record<string, unknown>>;
@@ -112,6 +113,19 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
 vi.mock('../../server/account-use-store.js', () => ({
   getAccountUseStore: () => ({ record() {} }),
 }));
+vi.mock('../../server/keychain-rotation-credentials.js', () => ({
+  KeychainRotationCredentials: class {
+    async read() {
+      if (services.credentialReadFailure)
+        throw Error('OFFLINE_KEYCHAIN_UNAVAILABLE synthetic-secret');
+      return {
+        value: 'synthetic-key',
+        version: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+        managed: true,
+      };
+    }
+  },
+}));
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -120,16 +134,80 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   services.requests.length = 0;
   services.query.mockReset();
+  services.credentialReadFailure = false;
 });
-it.each([
-  { personal: false, managed: false, stdinRevocation: false },
-  { personal: true, managed: false, stdinRevocation: false },
-  { personal: true, managed: true, stdinRevocation: false },
-  { personal: false, managed: false, stdinRevocation: true },
-  { personal: false, managed: false, stdinRevocation: false, idleSuccess: true },
-])(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess',
-  async ({ personal, managed, stdinRevocation, idleSuccess }) => {
+it.each(
+  [
+    {
+      personal: false,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: true,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: true,
+      managed: true,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: false,
+      managed: false,
+      refuseStartup: true,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: true,
+      managed: false,
+      refuseStartup: true,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: false,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: true,
+      idleSuccess: false,
+    },
+    {
+      personal: false,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: true,
+    },
+    ...(['none', 'input', 'permission'] as const).map((credentialFailure) => ({
+      personal: false,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+      anthropicApi: true,
+      credentialFailure,
+    })),
+  ].map((scenario) => ({ anthropicApi: false, credentialFailure: 'none', ...scenario })),
+)(
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure',
+  async ({
+    personal,
+    managed,
+    refuseStartup,
+    stdinRevocation,
+    idleSuccess,
+    anthropicApi,
+    credentialFailure,
+  }) => {
     const nextModel = managed ? 'opus' : 'next-model';
     const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
@@ -142,6 +220,7 @@ it.each([
       chatRoute: true,
       personal,
       managed,
+      anthropicApi: anthropicApi || (refuseStartup && !personal),
       ...(idleSuccess ? { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } : {}),
     });
     if (personal) {
@@ -184,12 +263,13 @@ it.each([
       });
       const instance = {
         accountInfo: vi.fn(async () => ({
-          email: 'person@example.test',
+          email: refuseStartup ? 'other@example.test' : 'person@example.test',
           subscriptionType: 'max',
           apiProvider: 'firstParty',
         })),
         async *[Symbol.asyncIterator]() {
           if (idleInputReady) await idleInputReady;
+          if (credentialFailure === 'input') services.credentialReadFailure = true;
           const inputs = request.prompt[Symbol.asyncIterator]();
           for await (const message of { [Symbol.asyncIterator]: () => inputs }) {
             if (closed.value) break;
@@ -276,7 +356,10 @@ it.each([
         interrupt: vi.fn(async () => {}),
         setModel: vi.fn(async () => {}),
         setMaxThinkingTokens: vi.fn(async () => {}),
-        setPermissionMode: vi.fn(async () => {}),
+        setPermissionMode: vi.fn(async () => {
+          if (refuseStartup) throw Error('OFFLINE_MODE_REFUSED synthetic-secret');
+          if (credentialFailure === 'permission') services.credentialReadFailure = true;
+        }),
         stopTask: vi.fn(async () => {}),
       };
       return instance;
@@ -399,6 +482,35 @@ it.each([
     );
     expect(persisted).toBe('[]');
     outbox.stop();
+    if (refuseStartup || credentialFailure !== 'none') {
+      const sessionId = f.reservation.conversationId;
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+      expect(providerInputs).toEqual([]);
+      expect(chat.eventStore.hasUserMessage(sessionId, wire.clientMsgId)).toBe(true);
+      const events = chat.eventStore.getSessionEvents(sessionId);
+      const failures = events.filter((event) => event.type === 'error');
+      expect(failures).toHaveLength(1);
+      expect(failures[0].payload).toMatchObject({
+        clientMsgId: wire.clientMsgId,
+        retainedCommandFailure: true,
+        runtimeFailure: { runtimeFailureCode: 'input_not_dispatched' },
+      });
+      expect(transport.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          sessionId,
+          clientMsgId: wire.clientMsgId,
+          error: expect.stringContaining('Message saved.'),
+        }),
+      );
+      expect(events.findIndex((event) => event.type === 'error')).toBeLessThan(
+        events.findIndex((event) => event.type === 'session_end'),
+      );
+      expect(JSON.stringify(events)).not.toContain('synthetic-secret');
+      expect(JSON.stringify(transport.send.mock.calls)).not.toContain('synthetic-secret');
+      expect(services.requests).toHaveLength(1);
+      return;
+    }
     // HTTP preparation has finished. A late deadline callback cannot abort the
     // admitted conversation or its subsequent frozen followup.
     const deadline = preparationTimers.mock.calls.find(([, delay]) => delay === 120000)?.[0];
@@ -715,7 +827,9 @@ it.each([
             CLAUDE_CONFIG_DIR: f.configuration[0].credentialRef,
             MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
           }
-        : { ANTHROPIC_VERTEX_PROJECT_ID: 'offline-project', CLOUD_ML_REGION: 'offline-region' },
+        : anthropicApi
+          ? { MITZO_ANTHROPIC_API_CUSTODY: expect.any(String) }
+          : { ANTHROPIC_VERTEX_PROJECT_ID: 'offline-project', CLOUD_ML_REGION: 'offline-region' },
     });
     expect(services.requests[1].options).not.toHaveProperty('sessionId');
     chat.eventStore.agentCommunication.recordForHost(outgoingPeer.messageId, 'delivered');

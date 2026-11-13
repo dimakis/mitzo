@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { AgentProfileSelectionSchema } from './agent-library.js';
 import { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
+import { TelosWorkArtifactReferenceSchema } from './telos-work.js';
+import { TelosWorkRoleContextReviewSchema } from './telos-work-role-presentation.js';
 
 const reference = z.string().min(1).max(200).regex(/^\S+$/);
 const account = z.strictObject({
@@ -75,6 +77,26 @@ export const StartSessionInputSchema = z.strictObject({
   overrides: SessionLaunchOverridesSchema.optional(),
 });
 export type StartSessionInput = z.infer<typeof StartSessionInputSchema>;
+/** Host-derived canonical responsibility. This is never an approval edit or a
+ * saved default; selecting a child cannot grant authority over another item. */
+export const TelosSessionLaunchScopeSchema = z.strictObject({
+  version: z.literal(1),
+  parentItemId: reference,
+  parentAssignmentRevision: z.number().int().positive().safe(),
+  itemId: reference,
+  expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  role: z.enum(['lead', 'worker']),
+  sourceSnapshotIds: z.array(reference).max(100),
+  artifactRefs: z.array(TelosWorkArtifactReferenceSchema).max(100),
+});
+export type TelosSessionLaunchScope = z.infer<typeof TelosSessionLaunchScopeSchema>;
+export const TelosCreateSessionInputSchema = StartSessionInputSchema.extend({
+  itemId: reference,
+  expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceSnapshotIds: z.array(reference).max(100).default([]),
+  artifactRefs: z.array(TelosWorkArtifactReferenceSchema).max(100).default([]),
+});
+export type TelosCreateSessionInput = z.infer<typeof TelosCreateSessionInputSchema>;
 export const SessionLaunchStateSchema = z.enum([
   'pending',
   'starting',
@@ -83,6 +105,7 @@ export const SessionLaunchStateSchema = z.enum([
   'failed',
   'cancelled',
   'uncertain',
+  'assigned',
 ]);
 export const SessionLaunchRecordSchema = z.strictObject({
   proposalId: z.uuid(),
@@ -91,6 +114,8 @@ export const SessionLaunchRecordSchema = z.strictObject({
   title: z.string().min(1).max(160),
   prompt: z.string().min(1).max(32000),
   configuration: SessionLaunchConfigSchema,
+  telos: TelosSessionLaunchScopeSchema.optional(),
+  telosReview: TelosWorkRoleContextReviewSchema.optional(),
   revision: z.number().int().positive(),
   state: SessionLaunchStateSchema,
   childSessionId: reference.nullable(),

@@ -13,14 +13,18 @@ import { openAIEnrollmentCredentialReference } from '../openai-account-enrollmen
 vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
 
 describe('new OpenAI account enrollment routes', () => {
-  it.each([
-    'https://gateway.example/' + '界'.repeat(500),
-    'https://localhost./v1',
-    'https://private.localhost./v1',
-    'https://./v1',
-  ])(
-    'rejects invalid endpoints before the real service reserves a journal row: %s',
-    async (endpoint) => {
+  it.each(
+    [
+      'https://gateway.example/' + '界'.repeat(500),
+      'https://localhost./v1',
+      'https://private.localhost./v1',
+      'https://./v1',
+    ].flatMap((endpoint) =>
+      (['responses', 'messages'] as const).map((protocol) => ({ endpoint, protocol })),
+    ),
+  )(
+    'rejects invalid $protocol endpoint before the real service reserves a journal row: $endpoint',
+    async ({ endpoint, protocol }) => {
       const root = mkdtempSync(join(tmpdir(), 'api-endpoint-router-'));
       const store = new OpenAIAccountEnrollmentStore(join(root, 'accounts.db'));
       try {
@@ -83,7 +87,8 @@ describe('new OpenAI account enrollment routes', () => {
           billingConfirmed: true,
           connection: {
             endpoint,
-            protocol: 'responses',
+            protocol,
+            ...(protocol === 'messages' ? { authentication: 'bearer' } : {}),
             qualification: {
               source: 'operator',
               streaming: true,
@@ -100,11 +105,14 @@ describe('new OpenAI account enrollment routes', () => {
           code: 'ENROLLMENT_INPUT_INVALID',
           effectStatus: 'not_started',
         });
-        const catalog = await request(app).post('/api/connections/api-models').send({
-          csrf: input.csrf,
-          endpoint,
-          apiKey: input.apiKey,
-        });
+        const catalog = await request(app)
+          .post('/api/connections/api-models')
+          .send({
+            csrf: input.csrf,
+            endpoint,
+            apiKey: input.apiKey,
+            ...(protocol === 'messages' ? { protocol, authentication: 'bearer' } : {}),
+          });
         expect(catalog.status).toBe(400);
         expect(gate).not.toHaveBeenCalled();
         expect(reserve).not.toHaveBeenCalled();
@@ -123,7 +131,13 @@ describe('new OpenAI account enrollment routes', () => {
         expect(corrected.body.account.state).toBe('ready');
         const normalized = new URL(correctedEndpoint).toString().replace(/\/+$/, '');
         expect(normalized.length).toBe(2048);
-        expect(store.readyProfiles()[0].connection?.endpoint).toBe(normalized);
+        const saved = store.readyProfiles()[0];
+        expect(saved.provider).toBe(protocol === 'messages' ? 'anthropic-api' : 'openai');
+        expect(saved.connection).toMatchObject({
+          endpoint: normalized,
+          protocol,
+          ...(protocol === 'messages' ? { authentication: 'bearer' } : {}),
+        });
         expect(enrollment.list()).toHaveLength(1);
         expect(reserve).toHaveBeenCalledOnce();
         expect(discoverApiModels).not.toHaveBeenCalled();
@@ -215,12 +229,39 @@ describe('new OpenAI account enrollment routes', () => {
       catalogInput.apiKey,
       expect.any(AbortSignal),
     );
+    expect(
+      (await discover({ ...catalogInput, csrf, protocol: 'messages', authentication: 'bearer' }))
+        .status,
+    ).toBe(200);
+    expect(enrollment.discoverModels).toHaveBeenLastCalledWith(
+      catalogInput.endpoint,
+      catalogInput.apiKey,
+      expect.any(AbortSignal),
+      { protocol: 'messages', authentication: 'bearer' },
+    );
     const escapedKey = '\\'.repeat(16384);
     expect((await discover({ ...catalogInput, csrf, apiKey: escapedKey })).status).toBe(200);
     expect(enrollment.discoverModels).toHaveBeenLastCalledWith(
       catalogInput.endpoint,
       escapedKey,
       expect.any(AbortSignal),
+    );
+    expect(
+      (
+        await discover({
+          ...catalogInput,
+          csrf,
+          apiKey: escapedKey,
+          protocol: 'messages',
+          authentication: 'api-key',
+        })
+      ).status,
+    ).toBe(200);
+    expect(enrollment.discoverModels).toHaveBeenLastCalledWith(
+      catalogInput.endpoint,
+      escapedKey,
+      expect.any(AbortSignal),
+      { protocol: 'messages', authentication: 'api-key' },
     );
     enrollment.discoverModels.mockRejectedValueOnce(Error('PRIVATE_KEY private upstream response'));
     const failedCatalog = await discover({ ...catalogInput, csrf });
@@ -258,6 +299,12 @@ describe('new OpenAI account enrollment routes', () => {
     };
     expect((await post({ ...custom, csrf })).status).toBe(201);
     expect(enrollment.enroll).toHaveBeenLastCalledWith(custom, expect.any(AbortSignal));
+    const messages = {
+      ...custom,
+      connection: { ...custom.connection, protocol: 'messages', authentication: 'bearer' },
+    };
+    expect((await post({ ...messages, csrf })).status).toBe(201);
+    expect(enrollment.enroll).toHaveBeenLastCalledWith(messages, expect.any(AbortSignal));
     const largeSelection = {
       ...custom,
       apiKey: 'k'.repeat(16384),
@@ -267,20 +314,23 @@ describe('new OpenAI account enrollment routes', () => {
       }),
     };
     expect(Buffer.byteLength(JSON.stringify(largeSelection))).toBeGreaterThan(300000);
-    expect((await post({ ...largeSelection, csrf })).status).toBe(201);
-    expect(enrollment.enroll).toHaveBeenLastCalledWith(largeSelection, expect.any(AbortSignal));
-    const callsBeforeInvalid = enrollment.enroll.mock.calls.length;
-    const invalidEndpoint = await post({
-      ...custom,
-      csrf,
-      connection: { ...custom.connection, endpoint: 'http://gateway.example/v1' },
-    });
-    expect(invalidEndpoint.status).toBe(400);
-    expect(invalidEndpoint.body).toMatchObject({
-      code: 'ENROLLMENT_INPUT_INVALID',
-      effectStatus: 'not_started',
-    });
-    expect(enrollment.enroll).toHaveBeenCalledTimes(callsBeforeInvalid);
+    for (const connection of [custom.connection, messages.connection]) {
+      const selection = { ...largeSelection, connection };
+      expect((await post({ ...selection, csrf })).status).toBe(201);
+      expect(enrollment.enroll).toHaveBeenLastCalledWith(selection, expect.any(AbortSignal));
+      const callsBeforeInvalid = enrollment.enroll.mock.calls.length;
+      const invalidEndpoint = await post({
+        ...custom,
+        csrf,
+        connection: { ...connection, endpoint: 'http://gateway.example/v1' },
+      });
+      expect(invalidEndpoint.status).toBe(400);
+      expect(invalidEndpoint.body).toMatchObject({
+        code: 'ENROLLMENT_INPUT_INVALID',
+        effectStatus: 'not_started',
+      });
+      expect(enrollment.enroll).toHaveBeenCalledTimes(callsBeforeInvalid);
+    }
     expect(
       (
         await post({

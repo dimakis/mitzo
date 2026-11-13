@@ -1,3 +1,19 @@
+## EnMaaS account setup and model visibility
+
+EnMaaS uses Connections labelled controls and quiet sections: account name,
+runtime, key and Connect. Discover models automatically; keep manual IDs in
+MotionDetails under Advanced settings. Messages uses x-api-key authentication.
+Show catalog failure with an explicit hosted-model fallback, retain uncertain
+save status, and distinguish saved configuration from successful inference.
+
+Model picker settings reuse HomeDialog and labelled checkbox rows. All models
+are shown initially; hidden IDs are account-scoped browser preferences retained
+across refresh. New models appear automatically. Existing selections stay bound.
+Show all, Hide all and Done retain focus and 44px touch targets. Keep the approved
+Chat settings hierarchy; place the utility in the existing model editor.
+The [approved reference and validation](approved/enmaas-account/VALIDATION.md)
+record Dimitri's explicit implementation approval on 12 November 2026.
+
 ## Account-scoped model and thinking choices
 
 Account switching and model refresh reuse `AccountModelPicker`, the approved
@@ -24,6 +40,15 @@ through an explicit labelled link. Pending, checking, cancelled, interrupted,
 failed and host-recovery states retain their original operation and diagnostic.
 Check status never starts another login or resubmits a code. Start chat saves an
 unsent Local Mac draft and leaves account defaults unchanged.
+
+Fresh Claude setup excludes saved accounts and their previous reconnect failures.
+Manage account offers an explicit Remove account confirmation using the shared
+Connections action group with the shared `--control-height` touch target. Removal forgets the selected enrollment, preserves
+native files and chat history, and returns to fresh setup with a new native
+directory. Pending sign-in and unconfirmed cleanup block removal. Lost removal
+acknowledgements recover through status; repeated removal is idempotent. Mutations
+have a 20-second browser deadline and retain uncertain operation identity. Failed
+sign-in disables Start chat while retry and removal remain available when safe.
 
 An explicit Claude status check uses the existing button and status/alert text to
 show progress and its result. Connected accounts reuse the native Connections
@@ -90,6 +115,17 @@ The existing web appearance and approved-design references are unchanged. See
 SDK checks and the remaining physical-device/visual verification.
 
 ## Agent-created ordinary sessions
+
+Work-bound Telos requests reuse this same originating-chat review. The exact
+named work and Feature lead / Slice worker role precede the editable session
+settings. `TelosLinkedContext` shows the retained brief, parent goal and explicitly
+selected sources/materials in the existing scroll area. Missing or mismatched
+review data disables approval. **Approve & create** allocates and assigns the chat;
+it starts no model command. **Created & assigned** is a historical creation receipt,
+not evidence of current execution or completion. Uncertain assignment retains
+**Check request** and **Recover creation** for the original operation. The shared
+dialog, transcript row, settings controls, appearance and focus/draft ownership
+remain unchanged; there is no separate manual Telos linking journey.
 
 An agent's pending session proposal uses a compact actionable transcript entry
 in its originating chat. After a confirmed start, retain a linked transcript event
@@ -1694,6 +1730,38 @@ confirmation, failure preservation and replacement. Captures show
 
 ## Symposium participant presentation
 
+### Phone setup and deliberate sharing — 13 November 2026
+
+Dimitri's phone test rejected the long Add agent form and its unexplained disabled
+review button. The ordinary application setup now reuses the compact settings rows
+and `QuickSettingsChoices` within its own navigation scope. Name and purpose appear
+first; Agent, Account, Model, Thinking, Where it runs and Starting context open their
+existing editors on request. Back, Done and Escape return to the originating row.
+Repository preparation is required before review, with the missing choice explained
+beside the action. The built-in Default Mitzo selection is pinned explicitly before
+capture; an empty library selection must never stand in for that reviewed identity.
+Legacy retained/reference surfaces preserve their existing owner and expanded fields.
+
+Unknown sharing policies use disabled indeterminate checkboxes and an explicit
+unchecked-evidence message. Future-reading/default-reply choices do not prohibit a
+later deliberate share of earlier messages. The ordinary transcript's Share excerpt
+action opens Send selected messages with explicit recipients. This uses the existing
+context-review and forwarding owners, excludes automatic readers from that deliberate
+audience, preserves the prompt draft and cannot attach the forwarding review to a prompt.
+The dialog stays mounted independently of the active composer. Previously selected
+unavailable agents remain removable, and a retained uncertain send exposes its recovery
+controls after reload even without a fresh source review. A separate Review message
+delivery status action stays outside the composer switch, including while an ordinary
+reply streams. It opens the original recovery controls without requiring a new send.
+The compact setup bounds its grid children to the dialog body and flattens the ordinary
+paired picker wrappers into full-width rows. Phone browser checks require contained
+inputs and vertically stacked Model/Thinking rows; screenshots exposed the missing
+wrapper rules even though the earlier interaction assertions passed.
+Review failures retain a readable error and collapsed Technical details with stage,
+stable code and original request reference. Private exception payloads are not rendered
+or logged. Earlier approval references and protected checks remain intact; source checks
+and synthetic application tests do not establish physical-device acceptance.
+
 The shared `ConversationAgents` surface follows the approved fresh-agent mock:
 compact participant header, one Agents dialog, inline Reads future discussion /
 Replies by default, a separate read-only conversation preview, and fresh Add agent
@@ -1702,6 +1770,13 @@ and shared color/type/spacing/radius/control-height tokens own its presentation.
 The dialog body scrolls independently of the heading/footer; narrow participant
 names truncate instead of increasing header height. Checkbox/radio geometry is
 explicitly bounded so the shared full-width input rule cannot push labels offscreen.
+
+Participant dialogs own their profile, account/model and repository editors.
+`ConversationAgents` clears the source chat's quick-settings navigation context
+at its boundary: React portals retain context, and otherwise these editors can
+project into the source chat's hidden settings slots. Verify Add agent inside
+`WorkspaceControls`, as well as in standalone dialog fixtures. Closing or editing
+participant setup must preserve the source chat's settings and drafts.
 
 Ordinary chat retains its actual `ChatInput`, voice, attachments, commands, resources,
 queue and lifecycle controls. `ComposerResponders` adds an explicit stable-ID @

@@ -47,7 +47,10 @@ it('CT06: canonical advisor save through real ordinary dispatch retains output, 
   const canonical = createCanonicalAdvisorFixture('fresh', 'child');
   cleanups.push(() => canonical.close());
   // Copy the synthetic origin into the SAME real event owner used by execution.
-  native.events.upsertSession(canonical.events.getSession('planning')!);
+  const planning = { ...canonical.events.getSession('planning')! };
+  // Synthetic public metadata is copied; policy belongs to the destination controller.
+  delete planning.learningPolicy;
+  native.events.upsertSession(planning);
   for (const event of canonical.events.getSessionEvents('planning'))
     native.events.append('planning', event.type, event.payload);
   const available = (id: string) => isAvailableTelosWorkConversation(native.events.getSession(id));

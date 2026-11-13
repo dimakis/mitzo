@@ -340,6 +340,39 @@ export function createConnectionsRouter(options: {
     },
   );
   router.post(
+    '/openai-accounts/:id/models',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '4kb' }),
+    async (req, res) => {
+      const parsed = z
+        .object({ csrf: z.string().min(1) })
+        .strict()
+        .safeParse(req.body);
+      req.body = undefined;
+      const accountId = z.string().min(1).max(200).safeParse(req.params.id);
+      if (!parsed.success || !accountId.success)
+        return res.status(400).json({ error: 'Invalid model refresh request' });
+      if (!recentAuthorizationExpiry(res, parsed.data.csrf))
+        return res.status(403).json({ error: 'Recent browser reauthorization required' });
+      if (!options.openAIAccounts)
+        return res.status(503).json({ error: 'API account setup is not configured' });
+      try {
+        const account = await options.openAIAccounts.refreshAccountModels(
+          accountId.data,
+          AbortSignal.timeout(15000),
+        );
+        return res.json({ account });
+      } catch {
+        return res.status(422).json({
+          code: 'MODEL_REFRESH_FAILED',
+          error:
+            'Could not refresh models. The saved model list is retained. Check the account and retry.',
+        });
+      }
+    },
+  );
+  router.post(
     '/api-models',
     mutate,
     requireSameOriginJson,
@@ -351,6 +384,8 @@ export function createConnectionsRouter(options: {
           csrf: z.string().min(1),
           endpoint: ApiProviderEndpointSchema,
           apiKey: z.string().min(1).max(16384),
+          protocol: z.enum(['responses', 'messages']).optional(),
+          authentication: z.enum(['api-key', 'bearer']).optional(),
         })
         .strict()
         .safeParse(req.body);
@@ -366,6 +401,14 @@ export function createConnectionsRouter(options: {
             parsed.data.endpoint,
             parsed.data.apiKey,
             AbortSignal.timeout(15000),
+            ...(parsed.data.protocol === 'messages'
+              ? [
+                  {
+                    protocol: 'messages' as const,
+                    authentication: parsed.data.authentication ?? ('api-key' as const),
+                  },
+                ]
+              : []),
           ),
         );
       } catch (cause) {

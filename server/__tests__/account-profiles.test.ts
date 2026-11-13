@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+beforeEach(resetOfflineUserEnvironment);
 import {
   AccountProfiles,
   LEGACY_MODELS,

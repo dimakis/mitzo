@@ -1,5 +1,6 @@
 import {
   StartSessionInputSchema,
+  TelosCreateSessionInputSchema,
   resolveSessionLaunchConfig,
   sessionLaunchConfigurationReason,
   sessionLaunchHandoverUrl,
@@ -15,6 +16,12 @@ import { getSessionLaunches, type SessionLaunchController } from './session-laun
 import type { ProfileToolCall } from './session-profile-tools.js';
 import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { publicSessionLaunchRecord } from './session-launch-store.js';
+import { SessionLaunchError } from './session-launch-store.js';
+import type { SessionLaunchAuthority } from './session-launch-service.js';
+import {
+  telosSessionLaunchDefinition,
+  TelosSessionProposalResponseSchema,
+} from './telos-session-launch-tool.js';
 
 export const sessionLaunchDefinitions = [
   {
@@ -23,7 +30,55 @@ export const sessionLaunchDefinitions = [
       'Propose a new ordinary Mitzo chat using saved defaults and optional overrides. Put the complete self-contained handover in prompt; do not rely on a temporary file path. The retained request provides handoverDownloadUrl for exact Markdown download, even before startup. The user reviews and edits configuration, title and handoff before Approve & start. A pending proposal has not allocated or started a chat. Reuse the exact requestId and arguments after uncertainty. Supports independent Local Mac Codex sessions and additional tools already exposed by the selected agent profile; selection grants no permissions. Unsupported context/workspace choices return startupBlocker and remain editable in review.',
     input_schema: z.toJSONSchema(StartSessionInputSchema),
   },
+  telosSessionLaunchDefinition,
 ];
+
+/** Shared native/SDK proposal owner. Its authority is captured by the verified
+ * adapter; pending intent confers no workspace, role or execution permissions. */
+export async function proposeTelosSession(
+  controller: SessionLaunchController,
+  sourceSessionId: string,
+  raw: unknown,
+  authority: SessionLaunchAuthority,
+) {
+  const input = TelosCreateSessionInputSchema.parse(raw);
+  authority.assertCurrent();
+  authority.signal.throwIfAborted();
+  if (!controller.telos)
+    throw new SessionLaunchError(
+      'Telos session creation is unavailable on this controller. Do not substitute StartSession.',
+    );
+  const previous = controller.launches.store.forRequest(sourceSessionId, 'user', input.requestId);
+  const selected = previous?.telos
+    ? {
+        telos: previous.telos,
+        telosReview: previous.telosReview,
+        telosReviewOwner: previous.telosReviewOwner,
+      }
+    : await controller.telos.propose(sourceSessionId, input, authority);
+  authority.assertCurrent();
+  authority.signal.throwIfAborted();
+  const record = controller.launches.store.propose({
+    ...input,
+    ...selected,
+    operatorId: 'user',
+    sourceSessionId,
+    originalInput: input,
+    configuration:
+      previous?.configuration ??
+      resolveSessionLaunchConfig(
+        controller.defaults.get('user').configuration ?? initialSessionLaunchConfig(),
+        input.overrides,
+      ),
+  });
+  controller.changed(sourceSessionId);
+  const startupBlocker = sessionLaunchConfigurationReason(record.configuration);
+  return TelosSessionProposalResponseSchema.parse({
+    ...publicSessionLaunchRecord(record),
+    handoverDownloadUrl: sessionLaunchHandoverUrl(record.proposalId),
+    ...(startupBlocker ? { startupBlocker } : {}),
+  });
+}
 
 export function initialSessionLaunchConfig(): SessionLaunchConfig {
   return {
@@ -53,12 +108,19 @@ export function sessionLaunchTools(options: {
   sessionId: string;
   session: ManagedSession;
   registry: SessionRegistry;
+  /** Transport's exposed tool namespace; native callers use bare names. */
+  permissionPrefix?: string;
   assertCurrent(): Promise<void>;
   assertCurrentSync(): void;
   controller?(): SessionLaunchController;
 }) {
   return {
-    async execute(raw: unknown, externalSignal: AbortSignal, call?: ProfileToolCall) {
+    async execute(
+      raw: unknown,
+      externalSignal: AbortSignal,
+      call?: ProfileToolCall,
+      name: 'StartSession' | 'TelosCreateSession' = 'StartSession',
+    ) {
       if (!call?.turnId || !call.callId) throw Error('Verified current tool call required.');
       const signal = AbortSignal.any([externalSignal, options.session.abortController.signal]);
       const current = () => {
@@ -68,8 +130,12 @@ export function sessionLaunchTools(options: {
         if (
           !owner ||
           owner.session !== options.session ||
-          !agentToolAllowed(options.session, 'StartSession') ||
-          checkSkillPolicy(options.registry, owner.clientId, 'StartSession') === 'deny' ||
+          !agentToolAllowed(options.session, name) ||
+          checkSkillPolicy(
+            options.registry,
+            owner.clientId,
+            (options.permissionPrefix ?? '') + name,
+          ) === 'deny' ||
           options.registry.isClosingOut(owner.clientId) ||
           options.registry.isUserClose(owner.clientId)
         )
@@ -84,6 +150,26 @@ export function sessionLaunchTools(options: {
       captured.assertCurrent();
       if (sessionToolOperatorConnection(next.session, next.clientId) !== connectionId)
         throw Error('Session operator changed.');
+      if (name === 'TelosCreateSession')
+        return proposeTelosSession(
+          (options.controller ?? getSessionLaunches)(),
+          options.sessionId,
+          raw,
+          {
+            operatorConnectionId: connectionId,
+            authSessionId: captured.auth.id,
+            signal,
+            assertCurrent() {
+              const currentOwner = current();
+              captured.assertCurrent();
+              if (
+                sessionToolOperatorConnection(currentOwner.session, currentOwner.clientId) !==
+                connectionId
+              )
+                throw new SessionLaunchError('Session operator changed.', 403);
+            },
+          },
+        );
       const input = StartSessionInputSchema.parse(raw);
       const controller = (options.controller ?? getSessionLaunches)();
       const previous = controller.launches.store.forRequest(

@@ -12,6 +12,7 @@ import { TurnCallbacks, type TurnCallbackRunner } from './turn-callbacks.js';
 import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { assertClaudeSubscriptionAccount } from './claude-subscription-custody.js';
+import { SessionRuntimeError } from './session-runtime-error.js';
 import { assertOrdinarySynchronousFence } from './ordinary-turn-lifecycle.js';
 import type { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
 import { createLogger } from './logger.js';
@@ -124,7 +125,8 @@ export function createOrdinaryLocalVertexSdkQuery<
   sdkSessionId: string;
   cwd: string;
   controller: AbortController;
-  authorize(signal: AbortSignal): Promise<void>;
+  /** Invoke an input's refusal reporter before retiring the owning query. */
+  authorize(signal: AbortSignal, beforeRefusal?: (cause: unknown) => never): Promise<void>;
   authorizeSync(signal: AbortSignal): void;
   /** Trusted ordinary command/source fence, after every awaited SDK account
    * check and immediately before yielding that exact frozen user input. */
@@ -134,6 +136,8 @@ export function createOrdinaryLocalVertexSdkQuery<
     selection: OrdinaryLocalCommandAdmission['selection'],
   ): Pick<Options, 'model' | 'thinking' | 'effort'>;
   inputChanged(queue: AsyncQueue<SDKUserMessage>): void;
+  /** Retain and deliver a refused input before abort retires its live viewer. */
+  onUnsent(message: SDKUserMessage, error: SessionRuntimeError): void;
   peerMessages?(): Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> | undefined;
   mcpServers?(state: {
     retired: boolean;
@@ -148,20 +152,71 @@ export function createOrdinaryLocalVertexSdkQuery<
     postTerminalFailure?: unknown;
   };
   const states = new WeakMap<Query, State>();
+  const restoreApiPermissionMode = !!owners.options.env?.MITZO_ANTHROPIC_API_CUSTODY;
+  let permissionMode = owners.options.permissionMode ?? 'default';
+  const refuseInput = (message: SDKUserMessage, cause: unknown, stage: string): never => {
+    // An explicit stop is cancellation, not a provider refusal. Otherwise
+    // report while the original session still owns its live delivery path:
+    // query-loop deliberately suppresses errors after an abort.
+    if (owners.controller.signal.aborted) throw cause;
+    const failure = new SessionRuntimeError('input_not_dispatched', { cause });
+    log.warn('SDK input refused before provider dispatch', {
+      sessionId: owners.sdkSessionId,
+      stage,
+      ...failure.telemetry(),
+    });
+    try {
+      owners.onUnsent(message, failure);
+    } catch (reportingError) {
+      failure.cause = new AggregateError(
+        [cause, reportingError],
+        'SDK input refusal and diagnostic delivery failure',
+      );
+      log.warn('Could not report refused SDK input', {
+        sessionId: owners.sdkSessionId,
+        stage,
+        code: 'sdk_input_failure_reporting_failed',
+        ...failure.telemetry(),
+      });
+    }
+    owners.controller.abort(failure);
+    throw failure;
+  };
   const interruptTargets = new WeakMap<
     object,
     { run: Query; state: State; interrupt: Query['interrupt'] }
   >();
   const prompt = async function* (queue: AsyncQueue<SDKUserMessage>, current: () => Query) {
+    let permissionRestored = false;
     for await (const message of queue) {
-      await owners.authorize(owners.controller.signal);
+      const authorizeInput = async (stage: string) => {
+        try {
+          await owners.authorize(owners.controller.signal, (cause) =>
+            refuseInput(message, cause, stage),
+          );
+        } catch (error) {
+          refuseInput(message, error, stage);
+        }
+      };
+      await authorizeInput('input_authority');
+      if (restoreApiPermissionMode && !permissionRestored) {
+        try {
+          // SDK 0.2.141's credential scrub forces startup to default. Its normal
+          // control API restores plan/default without disabling the scrub. Wait
+          // for acknowledgement before the native process can see user input.
+          await current().setPermissionMode(permissionMode);
+          await authorizeInput('permission_mode_authority');
+          permissionRestored = true;
+        } catch (error) {
+          refuseInput(message, error, 'permission_mode_acknowledgement');
+        }
+      }
       if (owners.options.env?.MITZO_CLAUDE_EXPECTED_EMAIL) {
         try {
           assertClaudeSubscriptionAccount(await current().accountInfo(), owners.options.env);
-          await owners.authorize(owners.controller.signal);
+          await authorizeInput('subscription_identity_authority');
         } catch (error) {
-          owners.controller.abort(error);
-          throw error;
+          refuseInput(message, error, 'subscription_identity');
         }
       }
       try {
@@ -180,8 +235,7 @@ export function createOrdinaryLocalVertexSdkQuery<
             throw Error('Original SDK input command identity unavailable');
         }
       } catch (error) {
-        owners.controller.abort(error);
-        throw error;
+        refuseInput(message, error, 'ordinary_input_authority');
       }
       yield message;
     }
@@ -291,6 +345,25 @@ export function createOrdinaryLocalVertexSdkQuery<
     get(_target, property) {
       if (property === Symbol.asyncIterator) return events;
       if (property === 'close') return close;
+      if (property === 'setPermissionMode' && restoreApiPermissionMode) {
+        // Observe below the adapter: the public query accepts Mitzo modes,
+        // while continuation must retain the acknowledged native SDK mode.
+        const observed = new Proxy(native, {
+          get(target, key) {
+            if (key === 'setPermissionMode')
+              return async (mode: typeof permissionMode) => {
+                await owners.authorize(owners.controller.signal);
+                await target.setPermissionMode(mode);
+                permissionMode = mode;
+              };
+            const value: unknown = Reflect.get(target, key, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+        const adapted = owners.adapt(observed);
+        const control: unknown = Reflect.get(adapted, property, adapted);
+        return typeof control === 'function' ? control.bind(adapted) : control;
+      }
       const current = owners.adapt(native),
         value: unknown = Reflect.get(current, property, current);
       return typeof value === 'function' ? value.bind(current) : value;

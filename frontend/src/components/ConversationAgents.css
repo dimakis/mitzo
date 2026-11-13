@@ -146,7 +146,14 @@
   overscroll-behavior: contain;
   padding: var(--space-3) var(--space-4);
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: var(--space-4);
+}
+/* The dialog body owns scrolling; keep the full repository form in its grid row. */
+.conversation-agents-body .repository-chat-picker {
+  min-height: auto;
+  overflow: visible;
 }
 .conversation-agent-record {
   border-bottom: 1px solid var(--color-border);
@@ -267,6 +274,45 @@
   min-width: calc(3 * var(--space-5));
   color: var(--color-muted);
   font-size: var(--text-sm);
+  flex-basis: 100%;
+}
+.conversation-agent-setup,
+.conversation-agent-identity {
+  min-width: 0;
+}
+.conversation-agent-identity {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.conversation-agent-identity[hidden] {
+  display: none;
+}
+.conversation-agent-setup--compact
+  :is(
+    .account-model-settings-account,
+    .account-model-settings-pair,
+    .account-model-settings-utilities
+  ) {
+  display: contents;
+}
+.conversation-agent-setup.workspace-controls--quick .quick-settings-row:not([hidden]) {
+  padding-inline: 0;
+}
+.conversation-agent-setup .quick-settings-row::after {
+  inset-inline: 0;
+}
+.conversation-agent-setup .quick-settings-editor {
+  padding-inline: 0;
+}
+.conversation-setup-reason {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+.conversation-setup-reason:empty {
+  display: none;
 }
 .conversation-agents-footer .conversation-agents-primary {
   color: var(--color-on-accent);

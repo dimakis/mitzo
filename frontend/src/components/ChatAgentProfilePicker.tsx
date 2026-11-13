@@ -17,7 +17,7 @@ import {
 import { apiFetch } from '../lib/api-fetch';
 import './ChatAgentProfilePicker.css';
 import { useQuickSettings } from '../lib/quick-settings-context';
-import { QuickSettingsField } from './QuickChatSettings';
+import { QuickSettingsChoices, QuickSettingsField } from './QuickChatSettings';
 
 type ProfileOption = Pick<AgentLibraryVersion, 'kind' | 'profileId' | 'revision' | 'definition'>;
 
@@ -72,7 +72,9 @@ function LibraryChatAgentProfilePicker({
   allowedRoles,
   label = 'Agent profile',
   onLabelChange,
+  presentation = 'select',
 }: {
+  presentation?: 'select' | 'choices';
   label?: string;
   onLabelChange?(label: string | undefined): void;
   sessionId: string | null;
@@ -248,6 +250,74 @@ function LibraryChatAgentProfilePicker({
     !eligible.includes(historical)
   )
     eligible.push(historical);
+  const choose = (value: string) => {
+    const version = eligible.find((v) => optionKey(v) === value);
+    const selection = version
+      ? {
+          profileId: version.profileId,
+          revision: version.revision,
+          ...(version.kind ? { kind: version.kind } : {}),
+        }
+      : null;
+    setSelected(selection);
+    setError('');
+    changed.current(selection, undefined);
+    if (updateSearchParams)
+      setSearchParams(
+        (params) => {
+          const next = new URLSearchParams(params);
+          if (selection) {
+            next.set('agentProfile', selection.profileId);
+            next.set('profileRevision', String(selection.revision));
+            if (selection.kind) next.set('agentProfileKind', selection.kind);
+            else next.delete('agentProfileKind');
+          } else {
+            next.delete('agentProfile');
+            next.delete('profileRevision');
+            next.delete('agentProfileKind');
+          }
+          return next;
+        },
+        { replace: true },
+      );
+  };
+  if (presentation === 'choices')
+    return (
+      <>
+        <QuickSettingsChoices
+          title={label}
+          value={
+            selected?.kind === 'builtin' &&
+            selected.profileId === DEFAULT_MITZO_PROFILE_ID &&
+            selected.revision === DEFAULT_MITZO_PROFILE_REVISION
+              ? ''
+              : selected
+                ? optionKey(selected)
+                : ''
+          }
+          choices={[
+            { id: '', label: 'Default Mitzo' },
+            ...eligible
+              .filter(
+                (v) =>
+                  !(
+                    v.kind === 'builtin' &&
+                    v.profileId === DEFAULT_MITZO_PROFILE_ID &&
+                    v.revision === DEFAULT_MITZO_PROFILE_REVISION
+                  ),
+              )
+              .map((v) => ({
+                id: optionKey(v),
+                label: `${agentProfileLabel(v.definition)} · r${v.revision}`,
+              })),
+          ]}
+          disabled={disabled || loading}
+          disabledReason={loading ? 'Loading agents…' : undefined}
+          onChange={choose}
+        />
+        {error && <span role="alert">{error}</span>}
+      </>
+    );
   return (
     <div className="chat-agent-profile">
       <label>
@@ -256,37 +326,7 @@ function LibraryChatAgentProfilePicker({
           aria-label={label}
           disabled={disabled || loading}
           value={selected ? optionKey(selected) : ''}
-          onChange={(e) => {
-            const version = eligible.find((v) => optionKey(v) === e.target.value);
-            const selection = version
-              ? {
-                  profileId: version.profileId,
-                  revision: version.revision,
-                  ...(version.kind ? { kind: version.kind } : {}),
-                }
-              : null;
-            setSelected(selection);
-            setError('');
-            changed.current(selection, undefined);
-            if (updateSearchParams)
-              setSearchParams(
-                (params) => {
-                  const next = new URLSearchParams(params);
-                  if (selection) {
-                    next.set('agentProfile', selection.profileId);
-                    next.set('profileRevision', String(selection.revision));
-                    if (selection.kind) next.set('agentProfileKind', selection.kind);
-                    else next.delete('agentProfileKind');
-                  } else {
-                    next.delete('agentProfile');
-                    next.delete('profileRevision');
-                    next.delete('agentProfileKind');
-                  }
-                  return next;
-                },
-                { replace: true },
-              );
-          }}
+          onChange={(e) => choose(e.target.value)}
         >
           <option value="">Default Mitzo</option>
           {eligible.map((v) => (

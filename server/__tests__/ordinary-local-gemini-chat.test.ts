@@ -104,6 +104,10 @@ it.each([false, true, 'cold-queue'] as const)(
         type: 'authorized_user',
         client_id: 'offline-client',
       });
+      // Exercise qualification beyond the old one-second request polling
+      // window, within the unchanged whole-case budget. No live credentials.
+      if (!prepared && requests.length === 3)
+        await new Promise((resolve) => setTimeout(resolve, 1100));
       if (!prepared && requests.length === 4) {
         queuedTokenStarted.resolve();
         await queuedTokenGate.promise;
@@ -122,7 +126,11 @@ it.each([false, true, 'cold-queue'] as const)(
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
     const queuedTokenStarted = phaseSignal();
     const queuedTokenGate = phaseSignal();
-    const fifthRequest = phaseSignal();
+    const requestPhases = Array.from({ length: 6 }, phaseSignal);
+    const expectRequestCount = async (count: number) => {
+      await requestPhases[count - 1].promise;
+      expect(requests).toHaveLength(count);
+    };
     cleanups.push(() => queuedTokenGate.resolve());
     let hold = false;
     let release: () => void = () => {};
@@ -133,7 +141,7 @@ it.each([false, true, 'cold-queue'] as const)(
       expect(init.headers).toMatchObject({ Authorization: 'Bearer offline-google-token' });
       const body = JSON.parse(String(init.body));
       requests.push({ url: String(url), body });
-      if (requests.length === 5) fifthRequest.resolve();
+      requestPhases[requests.length - 1]?.resolve();
       const receipt = chat.eventStore.getLatestOrdinaryCommandAdmission(
         f.reservation.conversationId,
       );
@@ -226,7 +234,7 @@ it.each([false, true, 'cold-queue'] as const)(
       status: 202,
       body: { state: 'consumed', dispatched: true },
     });
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await expectRequestCount(1);
     await vi.waitFor(() =>
       expect(native.status(f.reservation.conversationId, f.reservation.binding)).toBe('idle'),
     );
@@ -284,7 +292,7 @@ it.each([false, true, 'cold-queue'] as const)(
     await expect(invoke('/continue', command('follow', 'Same task'))).resolves.toMatchObject({
       status: 202,
     });
-    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    await expectRequestCount(2);
     await vi.waitFor(() =>
       expect(native.status(f.reservation.conversationId, f.reservation.binding)).toBe('idle'),
     );
@@ -306,7 +314,7 @@ it.each([false, true, 'cold-queue'] as const)(
     await expect(invoke('/continue', command('cold', 'Retained task'))).resolves.toMatchObject({
       status: 202,
     });
-    await vi.waitFor(() => expect(requests).toHaveLength(3));
+    await expectRequestCount(3);
     await vi.waitFor(() =>
       expect(native.status(f.reservation.conversationId, f.reservation.binding)).toBe('idle'),
     );
@@ -382,7 +390,7 @@ it.each([false, true, 'cold-queue'] as const)(
       await expect(
         invoke('/continue', command('held-full', 'Hold accepted turn')),
       ).resolves.toMatchObject({ status: 202 });
-      await vi.waitFor(() => expect(requests).toHaveLength(4));
+      await expectRequestCount(4);
       const accepted = Array.from({ length: 32 }, (_, i) =>
         command(`cold-full-${i}`, `Frozen FIFO ${i}`),
       );
@@ -542,7 +550,7 @@ it.each([false, true, 'cold-queue'] as const)(
     await expect(invoke('/continue', command('held', 'Hold turn'))).resolves.toMatchObject({
       status: 202,
     });
-    await vi.waitFor(() => expect(requests).toHaveLength(4));
+    await expectRequestCount(4);
     await expect(invoke('/continue', command('queued', 'Frozen future'))).resolves.toMatchObject({
       status: 202,
     });
@@ -610,8 +618,7 @@ it.each([false, true, 'cold-queue'] as const)(
     }
     // Wait for the fake provider's actual fifth request under the unchanged
     // 60s case budget, then retain the exact count, signed history and idle checks.
-    await fifthRequest.promise;
-    expect(requests).toHaveLength(5);
+    await expectRequestCount(5);
     await vi.waitFor(() =>
       expect(native.status(f.reservation.conversationId, f.reservation.binding)).toBe('idle'),
     );
@@ -621,7 +628,7 @@ it.each([false, true, 'cold-queue'] as const)(
     });
     hold = true;
     await invoke('/continue', command('stopped', 'Stop active turn'));
-    await vi.waitFor(() => expect(requests).toHaveLength(6));
+    await expectRequestCount(6);
     const live = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
     await responses.getResponsesRuntime(live)!.interrupt();
     await vi.waitFor(() =>

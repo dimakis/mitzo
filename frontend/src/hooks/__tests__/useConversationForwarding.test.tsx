@@ -1,5 +1,14 @@
 // @vitest-environment jsdom
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  renderHook,
+  waitFor,
+  render,
+  screen,
+  fireEvent,
+  within,
+} from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MitzoApiClient } from '@mitzo/client';
 import {
@@ -13,6 +22,9 @@ import {
 import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../../lib/api-fetch';
 import * as drafts from '../../lib/chat-drafts';
 import { useConversationForwarding } from '../useConversationForwarding';
+import { useConversationPromptContext } from '../useConversationPromptContext';
+import { ConversationPromptContext } from '../../components/ConversationPromptContext';
+import { installDialogStub } from '../../components/__tests__/dialog-stub';
 import { useDraft } from '../useDraft';
 import { chatStorage } from '../../lib/large-chat-storage';
 import { durableChatStorage as durableStorage } from './durable-chat-storage';
@@ -348,6 +360,75 @@ it('recovers a lost confirmation after remount by reading the original request w
   expect(f.prepare).toHaveBeenCalledTimes(1);
   expect(f.confirm).toHaveBeenCalledTimes(1);
   expect(f.observe.mock.calls[0][1]).toBe(f.prepare.mock.calls[0][2].selection.requestId);
+});
+
+it('renders retained sharing recovery after reload even when source review is unavailable', async () => {
+  installDialogStub();
+  const f = fixture(),
+    initial = f.mount();
+  await f.ready(initial);
+  const accepted = f.confirm.getMockImplementation()!;
+  f.confirm.mockImplementationOnce(async (...args) => {
+    await accepted(...args);
+    throw Error('Response lost');
+  });
+  act(() => initial.result.current.confirm());
+  await waitFor(() => expect(initial.result.current.error).toBe('Response lost'));
+  const saved = drafts.getChatDraft(f.draft.id)!;
+  drafts.saveChatDraft({
+    ...saved,
+    collaborationContext: {
+      collaborationId: f.options.view.collaborationId,
+      authScope: 'login',
+      attached: false,
+      form: {
+        mode: 'selected',
+        purpose: 'Send selected messages',
+        brief: '',
+        messageIds: ['source'],
+        shareRecipientIds: ['reviewer'],
+      },
+    },
+  });
+  initial.unmount();
+  vi.spyOn(f.api, 'getDurableSessionTranscript').mockRejectedValue(
+    Error('Source read unavailable'),
+  );
+  vi.spyOn(f.api.collaborations, 'sourceArtifacts').mockRejectedValue(
+    Error('Source read unavailable'),
+  );
+  function Controls() {
+    const flow = useConversationPromptContext({
+      ...f.options,
+      sourceConversationId: 'architect',
+      responders: { kind: 'selected', sessionIds: ['reviewer'] },
+    });
+    const forwarding = useConversationForwarding({
+      ...f.options,
+      review: undefined,
+      reviewCurrent: false,
+    });
+    return (
+      <ConversationPromptContext
+        flow={flow}
+        forwarding={forwarding}
+        names={{ reviewer: 'Reviewer' }}
+        disabled={false}
+      />
+    );
+  }
+  render(<Controls />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review prompt context' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Send selected messages' });
+  await within(dialog).findByText('Source read unavailable');
+  expect(within(dialog).getByText(/Forwarding is not confirmed/)).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Check original forward' }));
+  await within(dialog).findByText(
+    'Forward recorded. Delivery remains visible in the conversation.',
+  );
+  expect(f.prepare).toHaveBeenCalledTimes(1);
+  expect(f.confirm).toHaveBeenCalledTimes(1);
+  expect(f.send).not.toHaveBeenCalled();
 });
 
 it('requires inspection again after remount before confirming a recovered preparation', async () => {

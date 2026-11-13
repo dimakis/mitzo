@@ -76,6 +76,65 @@ function fixture(path = ':memory:') {
   store.completeOrdinaryLocalCommand('original');
   return store;
 }
+it.each(['commit', 'reconcile'] as const)(
+  'revokes prior learning history atomically with repository %s and keeps recovery idempotent',
+  (route) => {
+    const store = fixture();
+    const source = {
+      messageId: 'old-workspace-message',
+      eventSeq: store.append('session', 'user_message', {
+        messageId: 'old-workspace-message',
+        text: 'Decision made in the old workspace',
+      }),
+    };
+    const candidate = {
+      requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      kind: 'decision',
+      attribution: 'user_statement',
+      text: 'Use the old workspace decision.',
+      sources: [source],
+    };
+    store.captureMemoryCandidate('session', candidate);
+    const deep = store.setSessionLearningMode('session', 'deep', 0);
+    const reserved = store.reservePreparedRepositoryContinuation('session', transition);
+    if (route === 'commit')
+      store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+    else
+      store.reconcilePreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+    const policy = store.getSessionLearningPolicy('session');
+    expect(policy).toMatchObject({
+      mode: 'deep',
+      revision: deep.revision + 1,
+      historyRequest: { status: 'cancelled' },
+    });
+    expect(policy.excludedThroughSeq).toBeGreaterThanOrEqual(source.eventSeq);
+    expect(() => store.setSessionLearningMode('session', 'off', deep.revision)).toThrow(/revision/);
+    expect(store.listSessionLearningSources('session')).toEqual([]);
+    expect(store.memoryCandidateEligibility('session', candidate.requestId).eligible).toBe(false);
+    expect(() =>
+      store.captureMemoryCandidate('session', {
+        ...candidate,
+        requestId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }),
+    ).toThrow(/source_excluded/);
+    store.reconcilePreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+    expect(store.getSessionLearningPolicy('session')).toEqual(policy);
+    const newSource = {
+      messageId: 'new-workspace-message',
+      eventSeq: store.append('session', 'user_message', {
+        messageId: 'new-workspace-message',
+        text: 'Decision made in the new workspace',
+      }),
+    };
+    expect(
+      store.captureMemoryCandidate('session', {
+        ...candidate,
+        requestId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        sources: [newSource],
+      }).status,
+    ).toBe('stored');
+  },
+);
 it('reserves one deterministic uncertain child before mutation and atomically commits only its exact old→new primary', () => {
   const store = fixture();
   const before = store.getOrdinaryLocalCommandAdmission('original');

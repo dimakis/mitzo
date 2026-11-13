@@ -446,9 +446,11 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     const binding = resolution.binding;
     const provider =
       d.adapter === 'claude-sdk'
-        ? binding.account.provider === 'anthropic-claude'
-          ? 'anthropic-claude'
-          : 'anthropic-vertex'
+        ? binding.account.provider === 'anthropic-api'
+          ? 'anthropic-api'
+          : binding.account.provider === 'anthropic-claude'
+            ? 'anthropic-claude'
+            : 'anthropic-vertex'
         : d.adapter === 'gemini'
           ? 'google-vertex'
           : d.adapter === 'responses'

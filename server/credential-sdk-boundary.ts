@@ -59,8 +59,17 @@ function runtimeFilesystemProtection() {
 export function credentialSdkBoundary(
   platform: NodeJS.Platform = process.platform,
   selectedAuthorityWriteRoots: readonly string[] = [],
+  selectedProviderBaseUrl?: string,
 ) {
-  return createSdkBoundary(platform, false, selectedAuthorityWriteRoots);
+  return createSdkBoundary(platform, false, selectedAuthorityWriteRoots, selectedProviderBaseUrl);
+}
+
+/** Only the fixed native `auth login` supervisor may allocate a terminal.
+ * Claude's manual fallback after a denied callback bind requires terminal stdin.
+ * Network restrictions, including loopback access, remain unchanged.
+ */
+export function claudeLoginSdkBoundary(platform: NodeJS.Platform = process.platform) {
+  return createSdkBoundary(platform, false, [], 'https://api.anthropic.com', true);
 }
 
 /** Controller project commands need the runtime fence for every provider, with
@@ -73,6 +82,8 @@ function createSdkBoundary(
   platform: NodeJS.Platform,
   runtimeOnly: boolean,
   selectedAuthorityWriteRoots: readonly string[] = [],
+  selectedProviderBaseUrl?: string,
+  nativeLogin = false,
 ) {
   const selectedWriteRoots = [...new Set(selectedAuthorityWriteRoots.map(canonical))];
   selectedWriteRoots.forEach(validatePath);
@@ -116,7 +127,9 @@ function createSdkBoundary(
       ].map(canonical),
     ),
   ];
-  const providerBaseUrl = credentialIsolation ? process.env.ANTHROPIC_BASE_URL : undefined;
+  const providerBaseUrl = credentialIsolation
+    ? (selectedProviderBaseUrl ?? process.env.ANTHROPIC_BASE_URL)
+    : undefined;
   const providerDomain = providerBaseUrl ? new URL(providerBaseUrl).hostname : undefined;
   if (
     providerDomain &&
@@ -248,6 +261,8 @@ function createSdkBoundary(
             allowedDomains: [
               'api.anthropic.com',
               'claude.ai',
+              // Native Claude OAuth code exchange and token refresh.
+              'platform.claude.com',
               '*.anthropic.com',
               '*.googleapis.com',
               'github.com',
@@ -265,6 +280,7 @@ function createSdkBoundary(
           enableWeakerNestedSandbox: false,
           enableWeakerNetworkIsolation: false,
           allowAppleEvents: false,
+          allowPty: nativeLogin,
         },
       };
       writeFileSync(policy, JSON.stringify(payload), { mode: 0o600 });

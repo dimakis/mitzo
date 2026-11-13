@@ -235,6 +235,22 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
     body: input,
   });
   expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(200);
+  const defaultReview = await state.http!.request('POST', path + '/reviews', {
+    headers: { cookie: state.cookie },
+    body: {
+      ...input,
+      selection: { ...input.selection, requestId: crypto.randomUUID() },
+      target: {
+        ...input.target,
+        agent: { kind: 'builtin', profileId: 'default-mitzo', revision: 1 },
+      },
+    },
+  });
+  expect(defaultReview.status, JSON.stringify(defaultReview.body)).toBe(200);
+  expect(
+    CollaborationSettingsSchema.parse((defaultReview.body as { settings: unknown }).settings)
+      .selection.agent,
+  ).toEqual({ kind: 'builtin', profileId: 'default-mitzo', revision: 1 });
   const result = z
     .object({ snapshot: CollaborationSnapshotSchema, settings: CollaborationSettingsSchema })
     .parse(reviewed.body);

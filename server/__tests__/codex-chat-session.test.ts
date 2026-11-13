@@ -40,7 +40,18 @@ const mocks = vi.hoisted(() => ({
   useTls: false,
   custodianController: false,
   nativeDeniedRoots: ['/offline/owned-login'],
+  proposalLogError: vi.fn(),
 }));
+vi.mock('../logger.js', async (original) => {
+  const actual = await original<typeof import('../logger.js')>();
+  return {
+    ...actual,
+    createLogger(module: string) {
+      const log = actual.createLogger(module);
+      return module === 'codex-chat-session' ? { ...log, error: mocks.proposalLogError } : log;
+    },
+  };
+});
 // These controller tests already replace the conversation, provider and lease.
 // Use a source-faithful qualified lease marker and an explicit synthetic scope;
 // physical qualification/private-root composition have dedicated offline tests.
@@ -176,6 +187,8 @@ import { AccountProfiles } from '../account-profiles.js';
 import { EventStore } from '../event-store.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
+import { installHostKnowledgeStore } from '../published-host-knowledge.js';
+import { hostKnowledgePublication } from './fixtures/host-knowledge-publication.js';
 
 beforeEach(() => {
   mocks.nativeDeniedRoots = ['/offline/owned-login'];
@@ -827,6 +840,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'SymposiumReadProfiles' }),
     expect.objectContaining({ name: 'ReadKnowledge' }),
     expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
+    expect.objectContaining({ name: 'CaptureMemoryCandidate' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
     expect.objectContaining({ name: 'TelosAdoptSource' }),
     expect.objectContaining({ name: 'TelosGetItem' }),
@@ -1148,6 +1162,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'SymposiumReadProfiles' }),
       expect.objectContaining({ name: 'ReadKnowledge' }),
       expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
+      expect.objectContaining({ name: 'CaptureMemoryCandidate' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({ name: 'TelosAdoptSource' }),
       expect.objectContaining({ name: 'TelosGetItem' }),
@@ -3286,6 +3301,8 @@ it.each(['recipe', 'supplied', 'retained'] as const)(
 );
 
 it('keeps scoped adviser context isolated when ordinary local discovery and efficiency are enabled', async () => {
+  const reconcile = vi.fn();
+  const disposeHostMemory = installHostKnowledgeStore({ id: 'mgmt', reconcile });
   mocks.initialize.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
   const integrationExecute = vi.fn(async () => ({ content: 'Ordinary integration output' }));
@@ -3320,6 +3337,13 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
     query = await openCodexChat({ ...f.opts, adviserScope: scope });
     const captured = mocks.conversationOptions!;
     expect(captured.tools).toEqual([]);
+    expect(
+      await (captured.prepareSystemPrompt as (signal: AbortSignal) => Promise<string>)(
+        new AbortController().signal,
+      ),
+    ).toBe('');
+    expect(captured.onApplicationContextAccepted).toBeUndefined();
+    expect(reconcile).not.toHaveBeenCalled();
     expect(captured.disableWebSearch).toBe(true);
     expect(captured.disableProjectDocuments).toBe(true);
     expect(captured.systemPrompt).toContain(scope.instructions());
@@ -3375,6 +3399,7 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
   } finally {
     query?.close();
     f.eventStore.close();
+    disposeHostMemory();
   }
 });
 
@@ -3831,6 +3856,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         ...profileToolDefinitions.map((tool) => tool.name),
         ...nativeConnectionToolNames,
         ...knowledgeToolDefinitions.map((tool) => tool.name),
+        'CaptureMemoryCandidate',
         'AgentReadTasks',
         'AgentProposeTask',
         'AgentCommunication',
@@ -3839,6 +3865,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         'SessionTimers',
         'SendSessionMessage',
         'StartSession',
+        'TelosCreateSession',
         'ReadToolOutput',
         'SearchSkills',
         'RequestWebAccess',
@@ -6898,6 +6925,65 @@ async function openOwnedOpenShellEfficiencyFixture(
   };
 }
 
+it('offers work-bound creation from owned OpenShell Codex without ordinary launch substitution', async () => {
+  const { initializeSessionLaunches, closeSessionLaunches } =
+    await import('../session-launch-controller.js');
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  const release = bindAgentLibraryTransport('openshell-telos-owner', {
+    id: 'openshell-telos-login',
+    expiresAt: Date.now() + 60000,
+  });
+  const f = await openOwnedOpenShellEfficiencyFixture(undefined, {
+    clientId: 'openshell-telos-client',
+    ownerConnectionId: 'openshell-telos-owner',
+  });
+  const controller = initializeSessionLaunches(':memory:', vi.fn());
+  const scope = {
+    version: 1,
+    parentItemId: 'feature',
+    parentAssignmentRevision: 1,
+    itemId: 'slice',
+    expectedRevision: 'a'.repeat(64),
+    role: 'worker',
+    sourceSnapshotIds: [],
+    artifactRefs: [],
+  };
+  controller.telos = { propose: vi.fn(async () => ({ telos: scope })) } as never;
+  const start = vi.spyOn(controller.launches.port, 'start');
+  try {
+    const names = (f.captured.tools as { name: string }[]).map((tool) => tool.name);
+    expect(names).toContain('TelosCreateSession');
+    expect(names).not.toContain('StartSession');
+    const execute = f.captured
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const result = await execute(
+      'TelosCreateSession',
+      {
+        requestId: '13414fa4-9e0e-4ccf-895a-b68a888124fe',
+        itemId: scope.itemId,
+        expectedRevision: scope.expectedRevision,
+        title: 'Slice worker',
+        prompt: 'Reviewed slice',
+        overrides: { runtime: { execution: { location: 'local', targetId: 'child-mac' } } },
+      },
+      new AbortController().signal,
+      { turnId: 'work-turn', callId: 'work-call', assertCurrentSync: vi.fn() },
+    );
+    expect(result.isError, result.content).toBe(false);
+    expect(JSON.parse(result.content)).toMatchObject({
+      state: 'pending',
+      telos: scope,
+      configuration: { runtime: { execution: { location: 'local', targetId: 'child-mac' } } },
+    });
+    expect(start).not.toHaveBeenCalled();
+  } finally {
+    start.mockRestore();
+    closeSessionLaunches();
+    f.cleanup();
+    release();
+  }
+});
+
 it.each(['default', 'selected', 'artifacts', 'excluded', 'unauthorized'] as const)(
   'offers reviewed Telos capture without a retained role and preserves profile scope (%s)',
   async (mode) => {
@@ -7634,6 +7720,73 @@ it('exposes approved web access in owned local chat and integration discovery', 
   }
 });
 
+it('delivers selected host memory on the retained provider thread and records only its acknowledgement', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'host-memory-context-')));
+  const publication = hostKnowledgePublication(root, 'a', 'Accepted memory');
+  const reconcile = vi.fn().mockResolvedValue(publication);
+  const dispose = installHostKnowledgeStore({ id: 'mgmt', reconcile });
+  const fixture = ownedLocalOptions('/tmp');
+  const opts = fixture.opts;
+  vi.spyOn(opts.eventStore, 'append');
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(opts);
+    const prepare = mocks.conversationOptions?.prepareSystemPrompt as (
+      signal: AbortSignal,
+    ) => Promise<string>;
+    const acknowledge = mocks.conversationOptions?.onApplicationContextAccepted as (
+      command: string,
+      thread: string,
+      turn: string,
+      context: string,
+    ) => void;
+    const context = await prepare(AbortSignal.timeout(5000));
+    expect(context).toContain(publication.sourceCommit);
+    expect(context).toContain('<session_learning mode="auto">');
+    expect(opts.eventStore.append).not.toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.anything(),
+    );
+    expect(() =>
+      acknowledge('command', 'same-provider-thread', 'turn', context + 'changed'),
+    ).toThrow();
+    expect(opts.eventStore.append).not.toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.anything(),
+    );
+    acknowledge('command', 'same-provider-thread', 'turn', context);
+    expect(opts.eventStore.append).toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.objectContaining({
+        runtime: 'local-mac',
+        sourceCommit: publication.sourceCommit,
+        threadId: 'same-provider-thread',
+        turnId: 'turn',
+      }),
+    );
+    expect(reconcile).toHaveBeenCalledOnce();
+    opts.eventStore.setSessionLearningMode(opts.conversationId, 'off', 0);
+    const offContext = await prepare(AbortSignal.timeout(5000));
+    expect(offContext).toContain(publication.sourceCommit);
+    expect(offContext).not.toContain('<session_learning');
+    acknowledge('off-command', 'same-provider-thread', 'off-turn', offContext);
+    expect(opts.eventStore.append).toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.objectContaining({ commandId: 'off-command', turnId: 'off-turn' }),
+    );
+  } finally {
+    chat?.close();
+    dispose();
+    fixture.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 it('discovers and executes StartSession through the actual owned native default-agent registration without starting work', async () => {
   const { SessionRegistry } = await import('@mitzo/harness');
   const { readBuiltinAgentLibraryProfile, bindAgentLibraryTransport } =
@@ -7706,7 +7859,10 @@ it('discovers and executes StartSession through the actual owned native default-
     const sourceProviderCalls = mocks.send.mock.calls.length;
     const definitions = captured.tools as import('@mitzo/harness').ToolDefinition[];
     expect(definitions).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'StartSession' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'StartSession' }),
+        expect.objectContaining({ name: 'TelosCreateSession' }),
+      ]),
     );
     const execute =
       captured.executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
@@ -7745,6 +7901,104 @@ it('discovers and executes StartSession through the actual owned native default-
     expect(workspace).not.toHaveBeenCalled();
     expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
     expect(await execute('StartSession', input, signal, call)).toEqual(response);
+    const workInput = {
+      ...input,
+      requestId: '900f0550-a194-4683-b2ee-e516917781fe',
+      itemId: 'selected-slice',
+      expectedRevision: 'a'.repeat(64),
+    };
+    const unbound = await execute('TelosCreateSession', workInput, signal, call);
+    expect(unbound.isError).toBe(true);
+    expect(unbound.content).toMatch(/unavailable|Do not substitute/);
+    expect(controller.launches.store.forSession('owned-session', 'user')).toHaveLength(1);
+    const proposeWork = vi.fn(async () => ({
+      telos: {
+        version: 1,
+        parentItemId: 'parent-feature',
+        parentAssignmentRevision: 1,
+        itemId: workInput.itemId,
+        expectedRevision: workInput.expectedRevision,
+        role: 'worker',
+        sourceSnapshotIds: [],
+        artifactRefs: [],
+      },
+    }));
+    controller.telos = { propose: proposeWork } as never;
+    const workResult = await execute('TelosCreateSession', workInput, signal, call);
+    expect(workResult.isError, workResult.content).toBe(false);
+    expect(JSON.parse(workResult.content)).toMatchObject({
+      state: 'pending',
+      childSessionId: null,
+      telos: { itemId: workInput.itemId },
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
+    const failedInput = { ...workInput, requestId: '6680d040-cb2c-4d1b-8c5f-617d82dbe0af' };
+    const cause = Object.assign(new Error('private database path and proposal contents'), {
+      code: 'SQLITE_BUSY',
+      stdout: 'private process output',
+      stderr: 'private process diagnostic',
+    });
+    proposeWork.mockRejectedValueOnce(cause);
+    const failed = await execute('TelosCreateSession', failedInput, signal, call);
+    const { telosSessionProposalFailure } = await import('../telos-session-proposal-failure.js');
+    expect(telosSessionProposalFailure(failedInput.requestId)).toBe(cause);
+    expect(mocks.proposalLogError).toHaveBeenCalledWith('Telos session proposal unavailable', {
+      code: 'telos_session_proposal_failed',
+      stage: 'proposal',
+      requestId: failedInput.requestId,
+      sourceSessionId: 'owned-session',
+    });
+    expect(failed.isError).toBe(true);
+    expect(JSON.parse(failed.content)).toMatchObject({
+      code: 'telos_session_proposal_failed',
+      stage: 'proposal',
+      requestId: failedInput.requestId,
+      sourceSessionId: 'owned-session',
+      effectStatus: 'unknown',
+    });
+    expect(failed.content).not.toMatch(/private|SQLITE_BUSY/);
+    expect(JSON.stringify(mocks.proposalLogError.mock.calls)).not.toMatch(/private|SQLITE_BUSY/);
+    const diagnosticCause = new Error('offline diagnostic sink unavailable');
+    mocks.proposalLogError.mockImplementationOnce(() => {
+      throw diagnosticCause;
+    });
+    proposeWork.mockRejectedValueOnce(cause);
+    const fs = (await import('node:fs')).default;
+    const write = vi.spyOn(fs, 'write');
+    try {
+      const fallbackInput = { ...workInput, requestId: 'c365e597-5e1f-485c-a239-807b0f6b0ec4' };
+      const fallbackResult = await execute('TelosCreateSession', fallbackInput, signal, call);
+      expect(fallbackResult.isError).toBe(true);
+      expect(telosSessionProposalFailure(fallbackInput.requestId)).toBe(cause);
+      const fallback = write.mock.calls.find(
+        (args) =>
+          args[0] === 2 && String(args[1]).includes('"code":"telos_diagnostic_sink_failed"'),
+      );
+      expect(fallback).toBeDefined();
+      const diagnostic = JSON.parse(String(fallback![1]));
+      expect(diagnostic).toMatchObject({
+        stage: 'proposal',
+        operation: 'TelosCreateSession',
+        sessionId: 'owned-session',
+      });
+      const { telosDiagnosticFailure } = await import('../telos-operation-failure.js');
+      expect(telosDiagnosticFailure(diagnostic.diagnosticId)).toMatchObject({
+        operationCause: cause,
+        diagnosticCause,
+      });
+      expect(fallbackResult.content).not.toMatch(/private|SQLITE_BUSY/);
+      expect(String(fallback![1])).not.toMatch(/private/);
+      expect(diagnostic.operationFailure).toMatchObject({
+        reason: 'sqlite_busy',
+        errorCode: 'SQLITE_BUSY',
+      });
+    } finally {
+      write.mockRestore();
+    }
+    expect(controller.launches.store.forSession('owned-session', 'user')).toHaveLength(2);
+    expect(start).not.toHaveBeenCalled();
+    expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
   } finally {
     query?.close();
     release();

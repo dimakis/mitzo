@@ -12,7 +12,9 @@ export const OrdinaryLocalVertexCommandAdmissionSchema = z.strictObject({
   binding: SessionRuntimeBindingV2Schema.refine(
     (binding) =>
       binding.execution.location === 'local' &&
-      ['anthropic-vertex', 'anthropic-claude'].includes(binding.account.provider) &&
+      ['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(
+        binding.account.provider,
+      ) &&
       binding.harness.implementation === 'claude-sdk',
     'Ordinary Local Vertex Claude route required',
   ),

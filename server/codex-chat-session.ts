@@ -1,3 +1,8 @@
+import {
+  hasHostKnowledgeStore,
+  prepareHostKnowledge,
+  hostKnowledgeReceipt,
+} from './published-host-knowledge.js';
 import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { retainedApplicationEffectObserver } from './retained-application-effects.js';
@@ -45,6 +50,7 @@ import {
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
 import { executeNativeTelosItemOperation } from './native-telos-item-operations.js';
 import { TELOS_WORKFLOW_INSTRUCTIONS } from './telos-workflow-instructions.js';
+import { sessionLearningGuidance, parseSessionLearningPolicy } from '@mitzo/protocol';
 import {
   telosBacklogDefinitions,
   isTelosBacklogTool,
@@ -64,7 +70,7 @@ import { getTelosMainPublicationRuntime } from './telos-main-publication-runtime
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
-import { TelosWorkControlToolInputSchema } from '@mitzo/protocol';
+import { TelosCreateSessionInputSchema, TelosWorkControlToolInputSchema } from '@mitzo/protocol';
 import {
   TELOS_WORK_CONTROL_TOOL,
   telosWorkControlDefinitions,
@@ -77,6 +83,9 @@ import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import { sessionLaunchDefinitions, sessionLaunchTools } from './session-launch-tools.js';
+import { SessionLaunchError } from './session-launch-store.js';
+import { retainTelosSessionProposalFailure } from './telos-session-proposal-failure.js';
+import { retainTelosDiagnosticFailure } from './telos-operation-failure.js';
 import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
@@ -1915,7 +1924,7 @@ async function openCodexChatBound(
         nativeState: (session) => runtimes.get(session)?.peerMessageState() ?? 'unavailable',
       })
     : undefined;
-  const launchTools = options.ownedLocal
+  const launchTools = ownedHost
     ? sessionLaunchTools({
         sessionId: options.conversationId,
         session: options.session,
@@ -2463,6 +2472,9 @@ async function openCodexChatBound(
         ]
       : connectedOpenShell
         ? [
+            ...(launchTools
+              ? sessionLaunchDefinitions.filter((tool) => tool.name === 'TelosCreateSession')
+              : []),
             ...connectionTools.definitions,
             ...openShellHostTools,
             ...capabilityTools.definitions,
@@ -2729,6 +2741,15 @@ async function openCodexChatBound(
         }
       : {}),
     systemPrompt: persistentSystemPrompt,
+    // Application context is rebuilt at every turn admission, also after compaction.
+    // Never retain learning instructions as immutable provider thread instructions.
+    prepareSystemPrompt: async () =>
+      options.adviserScope
+        ? ''
+        : sessionLearningGuidance(
+            options.eventStore.getSession(options.conversationId)?.learningPolicy ??
+              parseSessionLearningPolicy(),
+          ),
     startupSignal: signal,
     prepareAgentContext: ownedHost
       ? async (signal) => {
@@ -2795,6 +2816,39 @@ async function openCodexChatBound(
             await hooks.run('Stop', { stop_hook_active: false }, signal);
           }
         : undefined,
+    ...(options.ownedLocal && !options.adviserScope && hasHostKnowledgeStore()
+      ? {
+          prepareSystemPrompt: async (signal: AbortSignal) => {
+            await options.ownedLocal?.assertCurrent();
+            const selected = await prepareHostKnowledge(
+              options.session,
+              agentContext?.source === 'packs',
+              signal,
+              () =>
+                sessionLearningGuidance(
+                  options.eventStore.getSession(options.conversationId)?.learningPolicy ??
+                    parseSessionLearningPolicy(),
+                ),
+            );
+            await options.ownedLocal?.assertCurrent();
+            return selected?.context;
+          },
+          onApplicationContextAccepted: (
+            commandId: string,
+            threadId: string,
+            turnId: string,
+            context: string,
+          ) => {
+            options.eventStore.append(options.conversationId, 'published_knowledge_adopted', {
+              runtime: 'local-mac',
+              commandId,
+              threadId,
+              turnId,
+              ...hostKnowledgeReceipt(options.session, context),
+            });
+          },
+        }
+      : {}),
     ...(runtimeManager
       ? {
           prepareSystemPrompt: async (signal: AbortSignal, turn?: { commandId: string }) =>
@@ -2843,7 +2897,13 @@ async function openCodexChatBound(
                   ? `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout${agentContext?.sandbox ? ' and saved recipe' : ''}. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${agentContext?.source === 'packs' ? 'The agent profile boot context retains its separately recorded source revisions. This retrieval publication does not replace that pinned profile context.' : selected.context.fullMarkdown}`
                   : '') +
                 taskRuntimeGuidance(capabilities) +
-                meetingPrepGuidance;
+                meetingPrepGuidance +
+                (options.adviserScope
+                  ? ''
+                  : sessionLearningGuidance(
+                      options.eventStore.getSession(options.conversationId)?.learningPolicy ??
+                        parseSessionLearningPolicy(),
+                    ));
               if (agentContext?.sandbox)
                 pendingAgentContextSha256 = createHash('sha256')
                   .update(pendingAdditionalContext)
@@ -3902,7 +3962,7 @@ async function openCodexChatBound(
           },
         );
       }
-      if (name === 'StartSession') {
+      if (name === 'StartSession' || name === 'TelosCreateSession') {
         if (!launchTools)
           return {
             content: 'Session creation requires an ordinary Local Mac Codex session.',
@@ -3910,13 +3970,46 @@ async function openCodexChatBound(
           };
         try {
           return {
-            content: JSON.stringify(await launchTools.execute(input, signal, callContext)),
+            content: JSON.stringify(await launchTools.execute(input, signal, callContext, name)),
             isError: false,
           };
-        } catch {
+        } catch (error) {
+          if (name === 'TelosCreateSession' && !(error instanceof SessionLaunchError)) {
+            const parsed = TelosCreateSessionInputSchema.safeParse(input);
+            const requestId = parsed.success
+              ? parsed.data.requestId
+              : (callContext.callId ?? randomUUID());
+            retainTelosSessionProposalFailure(requestId, 'proposal', error);
+            const diagnostic = {
+              code: 'telos_session_proposal_failed',
+              stage: 'proposal',
+              requestId,
+              sourceSessionId: options.conversationId,
+            };
+            try {
+              log.error('Telos session proposal unavailable', diagnostic);
+            } catch (diagnosticCause) {
+              retainTelosDiagnosticFailure(error, diagnosticCause, {
+                stage: 'proposal',
+                operation: name,
+                sessionId: options.conversationId,
+              });
+            }
+            return {
+              content: JSON.stringify({
+                ...diagnostic,
+                effectStatus: 'unknown',
+                message:
+                  'The work-bound proposal is unconfirmed. Inspect the original request before retrying the same requestId and arguments; no assignment or model command is confirmed.',
+              }),
+              isError: true,
+            };
+          }
           return {
             content:
-              'The session proposal could not be saved under the current session authority. Reuse the same request ID and arguments after checking the original request. No new session is confirmed.',
+              error instanceof SessionLaunchError
+                ? error.message
+                : 'The session proposal could not be saved under the current session authority. Reuse the same request ID and arguments after checking the original request. No new session is confirmed.',
             isError: true,
           };
         }

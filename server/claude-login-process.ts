@@ -1,10 +1,42 @@
 import { execFile, spawn } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
-import { promisify } from 'node:util';
+import { promisify, stripVTControlCharacters } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { claudeSdkExecutable, ClaudeSubscriptionCustody } from './claude-subscription-custody.js';
 import type { ClaudeIdentity } from './claude-account-store.js';
+import { claudeLoginSdkBoundary } from './credential-sdk-boundary.js';
+import { discoverClaudeModels } from './claude-model-discovery.js';
+
+/** Only fixed classifications enter logs; native output and filesystem paths stay private. */
+export function claudeLoginFailureReason(cause: unknown): string {
+  const reasons: Record<string, string> = {
+    'Native login did not provide a sign-in link': 'native_link_timeout',
+    'Native login expired': 'native_login_expired',
+    'Native login custody unavailable': 'native_custody_unavailable',
+    'Native login custody changed': 'native_custody_changed',
+    'Native login URL unsupported': 'native_url_unsupported',
+    'Native login output exceeded its bound': 'native_output_limit',
+    'Protected Claude SDK requires complete OS sandbox dependencies; install them before retrying':
+      'native_sandbox_dependencies',
+    'Keychain SDK sandbox requires a hostname provider endpoint outside local controller addresses':
+      'native_provider_endpoint',
+  };
+  const system: Record<string, string> = {
+    ENOENT: 'native_file_missing',
+    EACCES: 'native_access_denied',
+    EPERM: 'native_permission_denied',
+    ENOSPC: 'native_storage_full',
+  };
+  for (let depth = 0; depth < 5 && cause instanceof Error; depth++, cause = cause.cause) {
+    const code = (cause as NodeJS.ErrnoException).code;
+    if (code && Object.hasOwn(system, code)) return system[code];
+    if (Object.hasOwn(reasons, cause.message)) return reasons[cause.message];
+    const exit = /^Native login exited \((\d{1,3}|SIGTERM|SIGKILL)\)$/.exec(cause.message);
+    if (exit) return `native_exit_${exit[1]}`;
+  }
+  return 'unclassified_native_failure';
+}
 
 export class ClaudeLoginProcessError extends Error {
   readonly code = 'CLAUDE_LOGIN_PROCESS_FAILED';
@@ -47,6 +79,15 @@ function custody(path: string, directory: boolean) {
     ...(directory ? [] : [String(stat.size), String(stat.mtimeNs)]),
   ]);
 }
+// OSC sequences (ESC ] … BEL | ESC \), e.g. the OSC 8 hyperlink Claude prints on a TTY.
+// Node's stripVTControlCharacters only recognises OSC payloads from a narrow character set;
+// a `+` in the OAuth scope makes it fall through to its CSI branch, which eats the `h` of
+// `https://` and leaves the hyperlink target glued to the visible URL. Remove OSC first.
+// eslint-disable-next-line no-control-regex -- matching terminal control sequences is the purpose.
+const OSC_SEQUENCE = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+export function nativeLoginText(raw: string) {
+  return stripVTControlCharacters(raw.replace(OSC_SEQUENCE, ''));
+}
 function loginUrl(value: string) {
   const url = new URL(value);
   const allowed =
@@ -86,15 +127,26 @@ export async function createClaudeLoginProcess(
     )
       throw new ClaudeLoginProcessError(Error('Native login custody changed'));
   };
-  const child = spawn(
-    process.execPath,
-    [fileURLToPath(new URL('./claude-login-supervisor.cjs', import.meta.url)), executable],
-    {
-      cwd: config,
-      env: cleanEnvironment(config),
-      stdio: ['pipe', 'pipe', 'pipe'],
-    },
-  );
+  // Native login must see the same storage restrictions as discovery/chat.
+  // Otherwise it can save a keychain-only login that the SDK cannot subsequently
+  // read. Claude owns its storage selection and fallback; Mitzo never copies tokens.
+  const boundary = claudeLoginSdkBoundary();
+  const args = [
+    fileURLToPath(new URL('./claude-login-supervisor.cjs', import.meta.url)),
+    executable,
+  ];
+  const env = cleanEnvironment(config);
+  const child = boundary
+    ? boundary.spawnClaudeCodeProcess({
+        command: process.execPath,
+        args,
+        cwd: config,
+        env,
+        signal,
+        // Native authentication output can contain private authorization URLs.
+        captureStderr: true,
+      })
+    : spawn(process.execPath, args, { cwd: config, env, stdio: ['pipe', 'pipe', 'pipe'] });
   let finish!: (result: Awaited<ClaudeNativeLogin['completion']>) => void;
   const completion = new Promise<Awaited<ClaudeNativeLogin['completion']>>((resolve) => {
     finish = resolve;
@@ -111,10 +163,10 @@ export async function createClaudeLoginProcess(
     failure: Error | undefined;
   let escalation: ReturnType<typeof setTimeout> | undefined;
   const stop = () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (child.exitCode != null || child.signalCode != null) return;
     child.kill('SIGTERM');
     escalation ??= setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL');
     }, 5000);
     escalation.unref();
   };
@@ -145,7 +197,10 @@ export async function createClaudeLoginProcess(
     if (bytes > 32_768) return fail(Error('Native login output exceeded its bound'));
     if (urlFound) return;
     buffer += chunk.toString('utf8');
-    const match = /If the browser didn't open, visit: (https:\/\/[^\s]+)\r?\n/.exec(buffer);
+    const match =
+      /(?:If the browser didn't open, visit: |Sign in at: )(https:\/\/[^\s]+)\r?\n/.exec(
+        nativeLoginText(buffer),
+      );
     if (match) {
       try {
         assertCurrent();
@@ -164,7 +219,7 @@ export async function createClaudeLoginProcess(
     bytes += chunk.length;
     if (bytes > 32_768) fail(Error('Native login output exceeded its bound'));
   });
-  child.on('close', (code, termination) => {
+  child.once('close', (code, termination) => {
     clearTimeout(killTimer);
     clearTimeout(startupTimer);
     clearTimeout(escalation);
@@ -192,7 +247,11 @@ export async function createClaudeLoginProcess(
       async submit(code) {
         signal.throwIfAborted();
         assertCurrent();
-        if (sent || !code || /[\r\n]/.test(code) || code.length > 4096)
+        const hasTerminalControl = [...code].some((character) => {
+          const value = character.charCodeAt(0);
+          return value < 32 || (value >= 127 && value <= 159);
+        });
+        if (sent || !code || hasTerminalControl || code.length > 4096)
           throw new ClaudeLoginProcessError(Error('Login code unavailable'));
         sent = true;
         await new Promise<void>((resolve, reject) =>
@@ -243,5 +302,9 @@ export async function verifyClaudeLoginIdentity(
     MITZO_CLAUDE_EXPECTED_PLAN: status.subscriptionType,
   };
   await ClaudeSubscriptionCustody.capture(selected, executable).verify(selected, signal);
+  // A CLI-only success cannot qualify the SDK route used by chat. This is a
+  // tool-free metadata query; no model turn or paid inference is submitted.
+  await discoverClaudeModels(selected, AbortSignal.any([signal, AbortSignal.timeout(10_000)]));
+  signal.throwIfAborted();
   return { email: status.email, planType: status.subscriptionType };
 }

@@ -38,6 +38,7 @@ const accountCatalog = z
         'openai',
         'anthropic-vertex',
         'anthropic-claude',
+        'anthropic-api',
         'google-vertex',
         'openai-codex',
       ]),
@@ -50,7 +51,13 @@ const accountCatalog = z
         .strict()
         .optional(),
       models: z.array(CatalogModel),
-      modelDiscovery: z.object({ updatedAt: z.number().optional(), stale: z.boolean() }),
+      modelDiscovery: z.object({
+        updatedAt: z.number().optional(),
+        stale: z.boolean(),
+        failure: z
+          .object({ code: z.literal('claude_sign_in_unavailable'), diagnosticId: z.uuid() })
+          .optional(),
+      }),
       capabilities: z.object({ streaming: z.boolean(), tools: z.boolean(), images: z.boolean() }),
     }),
   )

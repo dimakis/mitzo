@@ -96,6 +96,59 @@ const gatewayConnection = {
     cancellation: true,
   },
 };
+it.each(['responses', 'messages'] as const)(
+  'refreshes saved %s models with the managed key and keeps existing model bindings',
+  async (protocol) => {
+    const f = fixture();
+    const discoverApiModels = vi.fn(async () => ({
+      models: [{ id: 'new/model', label: 'New' }],
+      partial: false,
+    }));
+    const service = new OpenAIAccountEnrollment({ ...f.options, discoverApiModels });
+    const account = await service.enroll(
+      {
+        ...f.input,
+        connection:
+          protocol === 'messages'
+            ? { ...gatewayConnection, protocol, authentication: 'api-key' }
+            : { ...gatewayConnection, protocol },
+        models: [{ id: 'existing/model', label: 'Existing' }],
+      },
+      AbortSignal.timeout(1000),
+    );
+    const refreshed = await service.refreshAccountModels(account.id, AbortSignal.timeout(1000));
+    expect(refreshed.models?.map((model) => model.id)).toEqual(['existing/model', 'new/model']);
+    expect(service.list()[0].models).toEqual(refreshed.models);
+    expect(discoverApiModels).toHaveBeenCalledWith(
+      gatewayConnection.endpoint,
+      f.input.apiKey,
+      expect.any(AbortSignal),
+      ...(protocol === 'messages'
+        ? [expect.objectContaining({ protocol, authentication: 'api-key' })]
+        : []),
+    );
+    discoverApiModels.mockRejectedValueOnce(Error('PRIVATE provider payload'));
+    await expect(
+      service.refreshAccountModels(account.id, AbortSignal.timeout(1000)),
+    ).rejects.toThrow();
+    expect(service.list()[0].models).toEqual(refreshed.models);
+    discoverApiModels.mockImplementationOnce(async () => {
+      const [ref, value] = [...f.secrets.entries()][0];
+      f.secrets.set(ref, { ...value, value: 'changed-credential' });
+      return { models: [{ id: 'drift/model', label: 'Drift' }], partial: false };
+    });
+    await expect(
+      service.refreshAccountModels(account.id, AbortSignal.timeout(1000)),
+    ).rejects.toThrow();
+    expect(service.list()[0].models).toEqual(refreshed.models);
+    f.secrets.clear();
+    discoverApiModels.mockClear();
+    await expect(
+      service.refreshAccountModels(account.id, AbortSignal.timeout(1000)),
+    ).rejects.toThrow();
+    expect(discoverApiModels).not.toHaveBeenCalled();
+  },
+);
 it('enrolls a generic endpoint with discovered models and host-only credential custody', async () => {
   const f = fixture();
   const discoverApiModels = vi.fn(async () => ({
@@ -632,6 +685,50 @@ it('preserves callback failures and releases the gate without returning a custod
   expect(await f.service.resolveKey(account.id, AbortSignal.timeout(1000))).toBe(f.input.apiKey);
 });
 
+it('enrolls Anthropic Messages with the shared journal and Keychain without an OpenAI gateway', async () => {
+  const f = fixture();
+  const connection = {
+    endpoint: 'https://api.enmaas.example',
+    protocol: 'messages' as const,
+    authentication: 'bearer' as const,
+    qualification: {
+      source: 'operator' as const,
+      streaming: true,
+      toolCalls: true,
+      continuation: true,
+      cancellation: true,
+    },
+  };
+  const account = await f.service.enroll(
+    { ...f.input, connection, models: [{ id: 'hosted/sonnet', label: 'Hosted Sonnet' }] },
+    AbortSignal.timeout(1000),
+  );
+  expect(account.state).toBe('ready');
+  const row = f.store.account(account.id)!;
+  expect(f.store.readyProfiles()).toEqual([
+    expect.objectContaining({
+      provider: 'anthropic-api',
+      connection,
+      credentialVersion: row.operationId,
+    }),
+  ]);
+  expect(f.validateKey).not.toHaveBeenCalled();
+  expect(f.gateway.create).not.toHaveBeenCalled();
+  expect(await f.service.resolveHostKey(account.id, AbortSignal.timeout(1000))).toBe(
+    f.input.apiKey,
+  );
+  expect(readFileSync(f.path).includes(Buffer.from(f.input.apiKey))).toBe(false);
+  await expect(
+    f.service.enroll(
+      {
+        ...f.input,
+        connection: { ...connection, authentication: 'api-key' },
+        models: [{ id: 'hosted/sonnet', label: 'Hosted Sonnet' }],
+      },
+      AbortSignal.timeout(1000),
+    ),
+  ).rejects.toThrow('Enrollment request changed');
+});
 it('rejects cancellation after the custody callback without exposing provider errors', async () => {
   const f = fixture();
   const account = await f.service.enroll(f.input, AbortSignal.timeout(1000));

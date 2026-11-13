@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
@@ -11,6 +11,8 @@ import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { sessionCredentialTools } from '../session-credential-tools.js';
 import { installKnowledgeDraftRuntime } from '../session-knowledge-tools.js';
 import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
+import { hostKnowledgePublication } from './fixtures/host-knowledge-publication.js';
+import { installHostKnowledgeStore, prepareHostKnowledge } from '../published-host-knowledge.js';
 import {
   reviewedHandlerSourceArtifacts,
   reviewedHandlerSourceFingerprint,
@@ -24,6 +26,13 @@ let release: () => void;
 let unbind: () => void;
 let revision: string;
 let refresh: Mock<() => Promise<void>>;
+const logging = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+vi.mock('../logger.js', () => ({ createLogger: () => logging }));
 const identity = { turnId: 'turn', callId: 'call' };
 const input = () => ({
   requestId: 'a186b239-7960-4791-97fb-15c4be27da6d',
@@ -54,6 +63,7 @@ it('includes Knowledge draft execution and its registrations in the reviewed run
   }
 });
 beforeEach(() => {
+  logging.warn.mockClear();
   root = mkdtempSync(join(tmpdir(), 'mitzo-chat-knowledge-'));
   git('init', '-b', 'main');
   git('config', 'user.name', 'Fixture');
@@ -143,6 +153,69 @@ it('reads the enrolled accepted document, independently of the writable task cop
     revision,
   });
   expect(store.list()).toEqual([]);
+});
+
+it('reads the selected published turn through ordinary dispatch and rejects revoked operator authority', async () => {
+  const publication = hostKnowledgePublication(realpathSync(root), 'a', 'Accepted turn memory');
+  const reconcile = vi.fn().mockResolvedValue(publication);
+  const restore = installHostKnowledgeStore({ id: 'mgmt', reconcile });
+  try {
+    await prepareHostKnowledge(registry.get('client')!, false, new AbortController().signal);
+    const result = await tools().execute(
+      'ReadKnowledge',
+      { action: 'published', path: 'memory/Observations/lesson.md' },
+      new AbortController().signal,
+      identity,
+    );
+    expect(result?.isError).toBe(false);
+    expect(JSON.parse(result!.content)).toMatchObject({
+      sourceCommit: publication.sourceCommit,
+      content: 'Accepted turn memory',
+    });
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(refresh).not.toHaveBeenCalled();
+    writeFileSync(
+      join(publication.seed, 'memory/Observations/lesson.md'),
+      'private-corrupted-bytes',
+    );
+    const failed = await tools().execute(
+      'ReadKnowledge',
+      { action: 'published', path: 'memory/Observations/lesson.md' },
+      new AbortController().signal,
+      identity,
+    );
+    expect(failed?.isError).toBe(true);
+    expect(JSON.parse(failed!.content)).toMatchObject({
+      status: 'failed',
+      code: 'published_knowledge_read_failed',
+      diagnosticId: expect.any(String),
+    });
+    expect(logging.warn).toHaveBeenCalledWith(
+      'Knowledge operation failed',
+      expect.objectContaining({
+        stage: 'published_read',
+        code: 'published_knowledge_read_failed',
+        reason: 'integrity_mismatch',
+        sessionId: 'chat',
+      }),
+    );
+    expect(JSON.stringify([failed, logging.warn.mock.calls])).not.toContain(
+      'private-corrupted-bytes',
+    );
+    unbind();
+    expect(
+      (
+        await tools().execute(
+          'ReadKnowledge',
+          { action: 'published' },
+          new AbortController().signal,
+          identity,
+        )
+      )?.isError,
+    ).toBe(true);
+  } finally {
+    restore();
+  }
 });
 
 it('saves a visible Library draft at the requested path and returns an honest receipt without publishing', async () => {

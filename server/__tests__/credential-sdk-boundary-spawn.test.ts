@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import type { SandboxWorkerPayload } from '../sandboxed-command-worker.js';
-import { credentialSdkBoundary } from '../credential-sdk-boundary.js';
+import { claudeLoginSdkBoundary, credentialSdkBoundary } from '../credential-sdk-boundary.js';
 const mocked = vi.hoisted(() => ({ spawn: vi.fn(), dependencies: vi.fn() }));
 vi.mock('node:child_process', async (original) => ({
   ...(await original<object>()),
@@ -42,6 +42,34 @@ function child() {
     stderr: new PassThrough(),
   });
 }
+it('admits only the native login terminal while keeping callback and loopback policy unchanged', () => {
+  vi.spyOn(process, 'kill').mockReturnValue(true);
+  for (const login of [false, true]) {
+    const handle = child();
+    mocked.spawn.mockReturnValue(handle);
+    const boundary = login ? claudeLoginSdkBoundary('darwin')! : credentialSdkBoundary('darwin')!;
+    boundary.spawnClaudeCodeProcess({
+      command: '/usr/bin/true',
+      args: [],
+      env: {},
+      signal: new AbortController().signal,
+    });
+    const payload = JSON.parse(
+      readFileSync(mocked.spawn.mock.calls.at(-1)![1].at(-1), 'utf8'),
+    ) as SandboxWorkerPayload;
+    expect(payload.config.network.allowLocalBinding).toBe(false);
+    expect(payload.config.allowPty).toBe(login);
+    expect(payload.config.network.allowAllUnixSockets).toBe(false);
+    expect(payload.config.filesystem.denyRead).toEqual(
+      expect.arrayContaining(boundary.deniedRoots),
+    );
+    expect(payload.config.filesystem.denyWrite).toEqual(
+      expect.arrayContaining(boundary.deniedRoots),
+    );
+    expect(payload.config.network.allowedDomains).not.toContain('*');
+    handle.emit('close', 0, null);
+  }
+});
 it('keeps injected SDK environment out of trusted bootstrap, quotes argv and freezes private roots', () => {
   const handle = child();
   mocked.spawn.mockReturnValue(handle);
@@ -65,6 +93,8 @@ it('keeps injected SDK environment out of trusted bootstrap, quotes argv and fre
   const policy = args.at(-1) as string;
   const payload = JSON.parse(readFileSync(policy, 'utf8')) as SandboxWorkerPayload;
   expect(payload.env).toMatchObject({ NODE_PATH: '/untrusted' });
+  expect(payload.config.network.allowedDomains).toContain('platform.claude.com');
+  expect(payload.config.network.allowedDomains).not.toContain('*.claude.com');
   expect(payload.env).not.toHaveProperty('AUTH_SECRET');
   expect(payload.env).not.toHaveProperty('AUTH_PASSPHRASE');
   expect(payload.env).not.toHaveProperty('MITZO_INTERNAL_TOKEN');
@@ -81,6 +111,29 @@ it('keeps injected SDK environment out of trusted bootstrap, quotes argv and fre
   expect(kill).toHaveBeenCalledWith(-99999, 'SIGKILL');
   handle.emit('close', 0, null);
   expect(existsSync(policy)).toBe(false);
+});
+it('allows the selected Messages endpoint inside the existing SDK sandbox', () => {
+  vi.stubEnv('ANTHROPIC_BASE_URL', 'https://ambient.example');
+  const handle = child();
+  mocked.spawn.mockReturnValue(handle);
+  vi.spyOn(process, 'kill').mockReturnValue(true);
+  try {
+    const boundary = credentialSdkBoundary('darwin', [], 'https://selected.example/anthropic')!;
+    boundary.spawnClaudeCodeProcess({
+      command: '/usr/bin/true',
+      args: [],
+      env: { ANTHROPIC_BASE_URL: 'https://selected.example/anthropic' },
+      signal: new AbortController().signal,
+    });
+    const payload = JSON.parse(
+      readFileSync(mocked.spawn.mock.calls[0][1].at(-1), 'utf8'),
+    ) as SandboxWorkerPayload;
+    expect(payload.config.network.allowedDomains).toContain('selected.example');
+    expect(payload.config.network.allowedDomains).not.toContain('ambient.example');
+    expect(() => credentialSdkBoundary('darwin', [], 'https://127.0.0.1')).toThrow();
+  } finally {
+    handle.emit('close', 0, null);
+  }
 });
 it('fails closed before provider spawn when OS sandbox dependencies are incomplete', () => {
   mocked.dependencies.mockReturnValue({ errors: [], warnings: ['seccomp missing'] });

@@ -49,6 +49,29 @@ export async function getOpenAIAccounts(): Promise<{
 }> {
   return bodyOrError(await apiFetch('/api/connections/openai-accounts'));
 }
+export async function refreshEnrolledApiModels(
+  accountId: string,
+  csrf: string,
+): Promise<EnrolledOpenAIAccount> {
+  const response = await apiFetch(
+    `/api/connections/openai-accounts/${encodeURIComponent(accountId)}/models`,
+    json('POST', { csrf }, csrf),
+  );
+  if (response.status === 401 || response.status === 403)
+    throw new ApiModelDiscoveryFailure('AUTHORIZATION_REQUIRED');
+  const result = await bodyOrError<{ account: EnrolledOpenAIAccount }>(response);
+  if (
+    !result.account ||
+    result.account.id !== accountId ||
+    result.account.state !== 'ready' ||
+    !Array.isArray(result.account.models) ||
+    result.account.models.some(
+      (model) => typeof model.id !== 'string' || typeof model.label !== 'string',
+    )
+  )
+    throw new Error('Could not confirm model refresh. Check account status.');
+  return result.account;
+}
 export class OpenAIAccountEnrollmentFailure extends Error {
   constructor(
     readonly retrySetup: boolean,
@@ -72,7 +95,8 @@ export async function enrollOpenAIAccount(input: {
   billingConfirmed: true;
   connection?: {
     endpoint: string;
-    protocol: 'responses';
+    protocol: 'responses' | 'messages';
+    authentication?: 'api-key' | 'bearer';
     qualification: {
       source: 'operator';
       streaming: true;
@@ -118,14 +142,45 @@ export async function enrollOpenAIAccount(input: {
     throw new OpenAIAccountEnrollmentFailure(false);
   return account as EnrolledOpenAIAccount;
 }
+export class ApiModelDiscoveryFailure extends Error {
+  constructor(readonly code: string) {
+    super(
+      code === 'credential_rejected'
+        ? 'EnMaaS rejected this key. Copy the complete key from Atlas and try again.'
+        : code === 'access_denied'
+          ? 'The provider refused catalog access. Check this key’s permissions.'
+          : code === 'AUTHORIZATION_REQUIRED'
+            ? 'Confirm identity before reading the model catalog.'
+            : 'Could not read the provider catalog. Retry or use explicit model IDs.',
+    );
+    this.name = 'ApiModelDiscoveryFailure';
+  }
+}
 export async function discoverApiModels(input: {
   csrf: string;
   endpoint: string;
   apiKey: string;
+  protocol?: 'messages';
+  authentication?: 'api-key' | 'bearer';
 }): Promise<{ models: { id: string; label: string }[]; partial: boolean }> {
-  return bodyOrError(
-    await apiFetch('/api/connections/api-models', json('POST', input, input.csrf)),
-  );
+  const response = await apiFetch('/api/connections/api-models', json('POST', input, input.csrf));
+  if (response.ok) return bodyOrError(response);
+  if (response.status === 401 || response.status === 403)
+    throw new ApiModelDiscoveryFailure('AUTHORIZATION_REQUIRED');
+  let result: unknown;
+  try {
+    result = await response.json();
+  } catch {
+    throw new ApiModelDiscoveryFailure('CATALOG_UNAVAILABLE');
+  }
+  const code =
+    result &&
+    typeof result === 'object' &&
+    'code' in result &&
+    ['credential_rejected', 'access_denied'].includes(String(result.code))
+      ? String(result.code)
+      : 'CATALOG_UNAVAILABLE';
+  throw new ApiModelDiscoveryFailure(code);
 }
 export class OpenAIKeyFailure extends Error {
   constructor(readonly code: string) {

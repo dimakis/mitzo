@@ -103,7 +103,11 @@ export function agentToolAllowed(session: object, name: string): boolean {
   const selection = selections.get(session);
   if (selection === undefined) return true;
   if (configuredSelections.get(session)?.includes(name)) return true;
-  const canonical = name.startsWith(sdkPrefix) ? name.slice(sdkPrefix.length) : name;
+  const canonical = name.startsWith(sdkPrefix)
+    ? name.slice(sdkPrefix.length)
+    : name === 'mcp__telos__TelosCreateSession'
+      ? 'TelosCreateSession'
+      : name;
   const route = selectionRoutes.get(session) ?? 'local-api';
   const entry = agentToolCatalog().find(
     (tool) => tool.name === canonical && tool.routes.includes(route),

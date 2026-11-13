@@ -112,6 +112,18 @@ describe('Session Access configured helper support', () => {
       'RequestWebAccess',
       'mcp__mitzo-web-access__RequestWebAccess',
     ],
+    [
+      'anthropic-claude',
+      'TelosCreateSession',
+      'mcp__mitzo-connections__TelosCreateSession',
+      'TelosCreateSession',
+    ],
+    [
+      'anthropic-claude',
+      'CaptureMemoryCandidate',
+      'mcp__mitzo-connections__CaptureMemoryCandidate',
+      'CaptureMemoryCandidate',
+    ],
     ['openai-codex', 'TaskStatus', 'mcp__task-board__TaskStatus', 'TaskStatus'],
   ])('uses the executor policy identity for %s %s', (provider, name, allowed, wrong) => {
     const f = fixture(provider);

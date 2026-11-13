@@ -3,15 +3,19 @@ import {
   apiHarnessConnection,
   subscriptionHarnessConnection,
 } from './account-harness-connection.js';
+import { AnthropicApiConnectionSchema } from './anthropic-api-connection.js';
 import { protectCodexProfileRoots } from './codex-private-path.js';
-import {
-  ClaudeSubscriptionCustody,
-  ClaudeSubscriptionSignInError,
-} from './claude-subscription-custody.js';
+import { ClaudeSubscriptionSignInError } from './claude-subscription-custody.js';
 import { createLogger } from './logger.js';
 import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { readManagedClaudeProfiles } from './claude-account-store.js';
-import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
+import {
+  cachedModels,
+  CatalogModel,
+  refreshModels,
+  readCodexModels,
+  ModelDiscoveryError,
+} from './model-catalog.js';
 import { CredentialReferenceSchema, credentials } from './credentials.js';
 import { discoverOpenAIModels } from './openai-enrollment-models.js';
 import { CodexAppServerClient } from './codex-app-server-client.js';
@@ -183,12 +187,23 @@ const GoogleProfile = z
       });
   })
   .strict();
+const AnthropicApiProfile = z.strictObject({
+  id: VertexProfile.shape.id,
+  label: VertexProfile.shape.label,
+  provider: z.literal('anthropic-api'),
+  connection: AnthropicApiConnectionSchema,
+  credentialRef: CredentialReferenceSchema.extend({ provider: z.literal('keychain') }),
+  credentialVersion: z.uuid(),
+  models: VertexProfile.shape.models,
+  paidReasoningRates: PaidReasoningRates.optional(),
+});
 const Profile = z.discriminatedUnion('provider', [
   VertexProfile,
   ClaudeProfile,
   GoogleProfile,
   CodexProfile,
   ApiProfile,
+  AnthropicApiProfile,
 ]);
 const MODEL_DISCOVERY_TIMEOUT_MS = 60_000;
 
@@ -214,38 +229,46 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
                 ? [['paidReasoningRates', profile.paidReasoningRates]]
                 : []),
             ]
-          : profile.provider === 'openai'
+          : profile.provider === 'anthropic-api'
             ? [
                 profile.provider,
+                profile.connection,
                 profile.credentialRef,
-                profile.sandboxProvider,
-                profile.sandboxProviderId,
-                ...(profile.connection ? [profile.connection] : []),
-                ...(profile.paidReasoningRates
-                  ? [['paidReasoningRates', profile.paidReasoningRates]]
-                  : []),
+                profile.credentialVersion,
+                profile.paidReasoningRates,
               ]
-            : profile.provider === 'anthropic-claude'
+            : profile.provider === 'openai'
               ? [
                   profile.provider,
                   profile.credentialRef,
-                  profile.email,
-                  profile.planType,
+                  profile.sandboxProvider,
+                  profile.sandboxProviderId,
+                  ...(profile.connection ? [profile.connection] : []),
                   ...(profile.paidReasoningRates
                     ? [['paidReasoningRates', profile.paidReasoningRates]]
                     : []),
                 ]
-              : [
-                  profile.provider,
-                  profile.projectId,
-                  profile.region,
-                  profile.credentialRef,
-                  profile.sandboxProvider,
-                  profile.sandboxProviderId,
-                  ...(profile.paidReasoningRates
-                    ? [['paidReasoningRates', profile.paidReasoningRates]]
-                    : []),
-                ],
+              : profile.provider === 'anthropic-claude'
+                ? [
+                    profile.provider,
+                    profile.credentialRef,
+                    profile.email,
+                    profile.planType,
+                    ...(profile.paidReasoningRates
+                      ? [['paidReasoningRates', profile.paidReasoningRates]]
+                      : []),
+                  ]
+                : [
+                    profile.provider,
+                    profile.projectId,
+                    profile.region,
+                    profile.credentialRef,
+                    profile.sandboxProvider,
+                    profile.sandboxProviderId,
+                    ...(profile.paidReasoningRates
+                      ? [['paidReasoningRates', profile.paidReasoningRates]]
+                      : []),
+                  ],
       ),
     )
     .digest('hex');
@@ -382,15 +405,18 @@ export class AccountProfiles {
     );
   }
 
-  /** Configuration/cache metadata for the dormant local capability snapshot.
-   * Never refreshes discovery, checks sign-in or opens a provider connection.
-   */
-  /** Selected file-backed ADC profiles only; configuration/cache projection performs no credential I/O. */
+  /** Selected local Claude profiles; configuration/cache projection performs no credential I/O. */
   ordinaryLocalVertexInventory() {
     return this.profiles
       .filter(
-        (profile): profile is z.infer<typeof ClaudeProfile> | z.infer<typeof VertexProfile> =>
+        (
+          profile,
+        ): profile is
+          | z.infer<typeof ClaudeProfile>
+          | z.infer<typeof VertexProfile>
+          | z.infer<typeof AnthropicApiProfile> =>
           profile.provider === 'anthropic-claude' ||
+          profile.provider === 'anthropic-api' ||
           (profile.provider === 'anthropic-vertex' &&
             !profile.sandboxProvider &&
             !profile.sandboxProviderId),
@@ -417,6 +443,7 @@ export class AccountProfiles {
           modelDiscovery: {
             source: discovered?.models ? ('cached' as const) : ('configured' as const),
             stale: !!discovered?.error,
+            ...(discovered?.failure ? { failure: { ...discovered.failure } } : {}),
             ...(discovered?.updatedAt === undefined ? {} : { updatedAt: discovered.updatedAt }),
           },
         };
@@ -590,21 +617,24 @@ export class AccountProfiles {
             ? { signIn: this.signIn(profile) }
             : {}),
           billing:
-            provider === 'anthropic-claude'
-              ? 'claude-subscription'
-              : provider === 'openai-codex'
-                ? 'chatgpt-subscription'
-                : provider === 'openai'
-                  ? 'openai-api'
-                  : 'google-cloud',
+            provider === 'anthropic-api'
+              ? 'anthropic-api'
+              : provider === 'anthropic-claude'
+                ? 'claude-subscription'
+                : provider === 'openai-codex'
+                  ? 'chatgpt-subscription'
+                  : provider === 'openai'
+                    ? 'openai-api'
+                    : 'google-cloud',
           models: supportedModels(
             profile,
-            provider === 'anthropic-vertex'
+            provider === 'anthropic-vertex' || provider === 'anthropic-api'
               ? profile.models
               : (discovered?.models ?? profile.models),
           ),
           modelDiscovery: {
             updatedAt: discovered?.updatedAt,
+            ...(discovered?.failure ? { failure: { ...discovered.failure } } : {}),
             stale:
               !!discovered?.error ||
               (profile.provider === 'openai-codex' &&
@@ -617,6 +647,7 @@ export class AccountProfiles {
             images:
               provider === 'anthropic-vertex' ||
               provider === 'anthropic-claude' ||
+              provider === 'anthropic-api' ||
               provider === 'openai-codex',
           },
         };
@@ -700,7 +731,8 @@ export class AccountProfiles {
                 ),
               ),
             );
-            await ClaudeSubscriptionCustody.capture(env).verify(env, signal);
+            const { discoverClaudeModels } = await import('./claude-model-discovery.js');
+            await discoverClaudeModels(env, AbortSignal.any([signal, AbortSignal.timeout(10_000)]));
             signal.throwIfAborted();
             this.recordSignIn(
               evidence.profileRevision,
@@ -710,7 +742,7 @@ export class AccountProfiles {
                 checkedAt: Date.now(),
                 observedIdentity: { email: profile.email, planType: profile.planType },
                 explanation:
-                  'The native Claude sign-in matches this configured subscription account.',
+                  'The native Claude sign-in and chat runtime match this configured subscription account.',
               },
               generation,
             );
@@ -939,6 +971,8 @@ export class AccountProfiles {
           ? { signIn: cause.telemetry() }
           : { errorType: cause instanceof Error ? cause.name : 'unknown' }),
       });
+      if (cause instanceof ClaudeSubscriptionSignInError)
+        throw new ModelDiscoveryError(cause.diagnosticId, { cause });
       throw cause;
     } finally {
       clearTimeout(timeout);
@@ -1146,7 +1180,7 @@ export class AccountProfiles {
       throw new Error('Codex execution is not enabled; development acceptance is required');
     const selectableModels = supportedModels(
       profile,
-      configured || profile.provider === 'anthropic-vertex'
+      configured || profile.provider === 'anthropic-vertex' || profile.provider === 'anthropic-api'
         ? profile.models
         : (cachedModels(JSON.stringify(profile))?.models ?? profile.models),
     );
@@ -1420,6 +1454,7 @@ export class AccountProfiles {
           'CLAUDE_CONFIG_DIR',
           'MITZO_CLAUDE_EXPECTED_EMAIL',
           'MITZO_CLAUDE_EXPECTED_PLAN',
+          'MITZO_ANTHROPIC_API_CUSTODY',
           'GOOGLE_API_KEY',
           'GOOGLE_APPLICATION_CREDENTIALS',
           'GOOGLE_CLOUD_QUOTA_PROJECT',
@@ -1429,6 +1464,23 @@ export class AccountProfiles {
       )
         delete env[key];
     }
+    if (profile.provider === 'anthropic-api')
+      return {
+        ...env,
+        CLAUDE_CODE_USE_VERTEX: '0',
+        // The locked SDK removes billing credentials from native tool children
+        // only when its subprocess scrub mechanism is explicitly enabled.
+        CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
+        ANTHROPIC_BASE_URL: profile.connection.endpoint,
+        MITZO_ANTHROPIC_API_CUSTODY: JSON.stringify({
+          kind: 'anthropic-api-key',
+          version: 1,
+          endpoint: profile.connection.endpoint,
+          authentication: profile.connection.authentication,
+          credentialRef: profile.credentialRef,
+          credentialVersion: profile.credentialVersion,
+        }),
+      };
     if (profile.provider === 'anthropic-claude')
       return {
         ...env,

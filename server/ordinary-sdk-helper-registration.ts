@@ -8,6 +8,8 @@ const connectionHelpers: readonly string[] = Object.freeze([
   'SymposiumReadProfiles',
   'SymposiumProposeProfile',
   'AgentCommunication',
+  'TelosCreateSession',
+  'CaptureMemoryCandidate',
 ]);
 export const ordinarySdkConnectionHelperTools: readonly string[] = Object.freeze(
   connectionHelpers.map((name) => `${SDK_CONNECTION_PREFIX}${name}`),

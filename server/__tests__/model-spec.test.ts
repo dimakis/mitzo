@@ -1,7 +1,20 @@
+import './fixtures/offline-user-home.js';
 import { describe, it, expect } from 'vitest';
 import { parseModelSpec, resolveThinking, resolveClaudeEffort } from '../chat.js';
 
 describe('parseModelSpec', () => {
+  it('keeps an admitted API model tag independent from thinking controls', () => {
+    expect(parseModelSpec('gateway/opus:max', true)).toEqual({
+      model: 'gateway/opus:max',
+      effort: undefined,
+    });
+    expect(resolveClaudeEffort('gateway/opus:max', undefined, true)).toBeUndefined();
+    expect(resolveClaudeEffort('gateway/opus:max', 'high', true)).toBe('high');
+    expect(resolveThinking('gateway/opus:max', true)).toEqual({
+      type: 'adaptive',
+      display: 'summarized',
+    });
+  });
   it('returns empty model and no effort for undefined', () => {
     expect(parseModelSpec(undefined)).toEqual({ model: '', effort: undefined });
   });

@@ -208,6 +208,73 @@ global `CLAUDE_CONFIG_DIR`. Transcript parsing remains SDK-owned.
 
 ## Verification status
 
+### Hyperlinked sign-in link, 13 November 2026
+
+Release `8ea17fe9bc9c` still failed every attempt with `native_link_timeout`.
+Under the new private terminal, Claude 2.1.322 prints its link as an OSC 8
+hyperlink. Node's `stripVTControlCharacters` cannot parse an OSC payload containing
+`+` (present in the OAuth `scope`), so it consumed the `h` of `https://` and the
+link pattern never matched. The earlier fixture URL had no `+` and so passed.
+Mitzo now removes complete OSC sequences before the generic strip, and the fixture
+mirrors the real link shape. With the real bundled CLI under the real login
+sandbox and an empty account, the old parser timed out at 15 s and the fixed one
+returned a valid link in about 1 s. An invalid synthetic code was rejected by
+Claude with either line ending, confirming the code-submission path. A real
+account sign-in after deployment remains the final check.
+
+### Native startup and recovery, 13 November 2026
+
+Fresh attempts on release `cfa324ca72d7` failed before returning a sign-in link;
+the live diagnostic recorded `CLAUDE_LOGIN_START_FAILED` without its cause.
+An empty-account probe with bundled Claude 2.1.322 produced a link and opened a
+loopback callback listener. Inspection of that pinned CLI confirms that denied
+callback binding aborts piped-input login, while terminal input enables its manual
+code fallback. The protected SDK policy deliberately denies callback binding.
+
+The fixed native auth supervisor now provides a private terminal so Claude can
+use its own manual fallback. The login-only boundary permits terminal allocation;
+local binding, loopback egress and private storage restrictions remain unchanged.
+The parser accepts the native manual-link label and removes terminal formatting.
+Submitted codes reject terminal controls, and supervisor EOF or termination closes
+the native process. No token exchange is implemented in Mitzo.
+
+macOS CI checks the old piped-input failure, native link creation with an empty
+account, ordinary-session listener denial and login-session loopback egress denial.
+These startup checks submit no authorization code and make no model request.
+Successful account authorization and SDK verification still require a real user
+sign-in after activation; this source change alone does not prove live recovery.
+
+Account removal preserves history and native files while removing enrollment.
+Uncertain removal retains its identity separately from confirmation visibility
+until a status read resolves the outcome. Fresh setup hides old saved accounts
+and their previous reconnect failures.
+
+### Protected sign-in qualification, 12 November 2026
+
+The model-refresh incident on release `9c087d0da76c` reported native CLI success
+followed by SDK account verification failure (`sdk_account`, `email` and `plan`).
+The logs do not distinguish missing SDK fields from changed identity values.
+The installed SDK's tool-free metadata query succeeded with synthetic file-backed
+account data. No production credential was read or copied and no model prompt was sent.
+
+Login previously ran outside the outer SDK boundary, while discovery/chat ran
+inside it. Login now uses that same boundary, with native stderr captured privately.
+Claude retains ownership of credential storage and fallback. Onboarding completion
+and Connections **Check sign-in** now require the tool-free SDK metadata query;
+a passing native status alone cannot claim the account is usable for chat.
+The picker retains a sanitized sign-in failure reference and directs recovery to
+Connections rather than presenting every failure as a generic refresh problem.
+Existing saved credentials are not migrated or rewritten by this change.
+
+Regression tests cover native-status success followed by SDK failure, protected
+login dispatch, cancellation, diagnostic propagation through both account catalogs,
+route validation and picker rendering, and clearing diagnostics after recovery.
+The intercepted browser journey includes the failure notice and refresh recovery.
+Local unit/design checks pass; browser execution, CI and real-account recovery
+remain separate verification. The current task sandbox cannot admit a nested
+macOS sandbox, so production storage-access causality and a real reconnect are
+not claimed as reproduced or resolved by the offline fixtures.
+
 ### Model controls, 11 November 2026
 
 The account picker, account preferences and native metadata tests reuse existing

@@ -1,0 +1,227 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { ConversationAgents } from '../ConversationAgents';
+import { WorkspaceControls } from '../WorkspaceControls';
+import { apiFetch } from '../../lib/api-fetch';
+
+vi.mock('../../lib/api-fetch', async (original) => ({
+  ...(await original<typeof import('../../lib/api-fetch')>()),
+  apiFetch: vi.fn(),
+  currentVerifiedAuthSessionId: () => 'offline-settings-login',
+}));
+
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (path === '/api/agent-library')
+      return Response.json({
+        drafts: [],
+        versions: [
+          {
+            profileId: 'reviewer',
+            revision: 1,
+            definition: {
+              name: 'Reviewer',
+              descriptor: 'Independent review',
+              role: 'agent',
+              instructions: 'Review the plan.',
+              expectedOutput: 'Findings',
+              acceptanceCriteria: ['Evidence'],
+              modelPolicyRole: 'agent',
+            },
+          },
+        ],
+      });
+    if (path === '/api/accounts')
+      return Response.json([
+        {
+          id: 'offline-account',
+          label: 'Offline account',
+          models: [{ id: 'offline-model', label: 'Offline model', reasoningEfforts: ['high'] }],
+        },
+      ]);
+    if (String(path).startsWith('/api/chat/runtime/capabilities')) {
+      const account = {
+        accountId: 'offline-account',
+        provider: 'openai-codex',
+        profileRevision: 'r1',
+      };
+      const models = [{ id: 'offline-model', label: 'Offline model' }];
+      return Response.json({
+        version: 1,
+        authority: 'configuration-only',
+        defaultLocation: 'openshell',
+        capabilityRevision: 'r1',
+        accounts: [
+          {
+            account,
+            label: 'Offline account',
+            models,
+            modelDiscovery: { source: 'configured', stale: false },
+          },
+        ],
+        targets: [
+          {
+            targetId: 'local-mac',
+            targetRevision: 'r1',
+            label: 'Local Mac',
+            location: 'local',
+            harness: 'codex',
+          },
+        ],
+        routes: [
+          {
+            account,
+            targetId: 'local-mac',
+            location: 'local',
+            harness: 'codex',
+            modes: ['agent'],
+            models,
+          },
+        ],
+        locations: [{ location: 'local', status: 'configured' }],
+        agentProfiles: [],
+      });
+    }
+    if (String(path).startsWith('/api/repository-workspaces/catalog'))
+      return Response.json({
+        available: true,
+        location: 'local',
+        repositories: [
+          {
+            connectionId: 'local',
+            repositoryId: 'project',
+            repository: 'local/project',
+            label: 'Selected project',
+          },
+        ],
+      });
+    throw Error(`Unexpected fixture request: ${path}`);
+  });
+});
+
+it('keeps the selected profile when its catalog refresh fails instead of falling back to Default Mitzo', async () => {
+  render(
+    <MemoryRouter>
+      <ConversationAgents
+        scope="profile-failure"
+        agents={[]}
+        messages={[]}
+        joiningOwner={{
+          kind: 'application',
+          sourceConversationId: 'profile-failure',
+          collaborationId: '00000000-0000-4000-8000-000000000002',
+          captureReview: vi.fn(),
+          review: vi.fn(),
+          confirm: vi.fn(),
+          recover: vi.fn(),
+        }}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  const dialog = screen.getByRole('dialog', { name: 'Add agent' });
+  await within(dialog).findByRole('button', { name: /^Account, Offline account$/ });
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Agent,/ }));
+  const reviewer = await within(dialog).findByRole('button', {
+    name: 'Reviewer · Independent review · r1',
+  });
+  vi.mocked(apiFetch).mockRejectedValueOnce(Error('Selected profile could not be read.'));
+  fireEvent.click(reviewer);
+  await act(async () => {});
+  expect(
+    await within(dialog).findAllByText('Selected profile could not be read.'),
+  ).not.toHaveLength(0);
+  expect(reviewer.getAttribute('aria-pressed')).toBe('true');
+});
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  vi.resetAllMocks();
+});
+
+it('keeps real Add agent pickers inside the dialog when opened from compact chat settings', async () => {
+  const joiningMutation = vi.fn(async () => {
+    throw Error('Setup must not start joining');
+  });
+  render(
+    <MemoryRouter>
+      <WorkspaceControls
+        status="Ready"
+        settings={<input aria-label="Source setting" defaultValue="Original chat" />}
+        actions={
+          <ConversationAgents
+            compact
+            scope="source-chat"
+            agents={[{ id: 'source-chat', name: 'Architect', state: 'Current conversation' }]}
+            messages={[]}
+            joiningOwner={{
+              kind: 'application',
+              sourceConversationId: 'source-chat',
+              collaborationId: '00000000-0000-4000-8000-000000000001',
+              captureReview: joiningMutation,
+              review: joiningMutation,
+              confirm: joiningMutation,
+              recover: joiningMutation,
+            }}
+          />
+        }
+      >
+        <p>Original chat controls</p>
+      </WorkspaceControls>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Agents, Architect' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
+  const dialog = screen.getByRole('dialog', { name: 'Add agent' });
+  const account = await within(dialog).findByRole('button', { name: /^Account, Offline account$/ });
+  fireEvent.click(account);
+  expect(
+    within(dialog).getByRole('button', { name: 'Offline account' }).getAttribute('aria-pressed'),
+  ).toBe('true');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Model, Offline model$/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Offline model' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  expect(within(dialog).getByRole('button', { name: /^Thinking,/ })).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Agent,/ }));
+  fireEvent.click(
+    await within(dialog).findByRole('button', {
+      name: 'Reviewer · Independent review · r1',
+    }),
+  );
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name in this chat' }), {
+    target: { value: 'Bob' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Where it runs,/ }));
+  fireEvent.click(within(dialog).getByRole('radio', { name: 'Mac host' }));
+  fireEvent.click(await within(dialog).findByRole('button', { name: /^Add repository$/ }));
+  expect(await within(dialog).findByRole('combobox', { name: 'Local repository' })).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
+  expect(
+    (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
+  ).toBe('Bob');
+  expect(await screen.findByRole('button', { name: /^Account, Offline account$/ })).toBeTruthy();
+  expect(await screen.findByRole('button', { name: /^Agent, Reviewer/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
+  expect((screen.getByRole('textbox', { name: 'Source setting' }) as HTMLInputElement).value).toBe(
+    'Original chat',
+  );
+  expect(screen.queryByRole('button', { name: /^Agent, Reviewer/ })).toBeNull();
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+  ).toBe(true);
+  expect(joiningMutation).not.toHaveBeenCalled();
+});

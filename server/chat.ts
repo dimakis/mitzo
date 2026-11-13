@@ -59,6 +59,7 @@ import { getOrdinarySessionPromptPort } from './session-prompt-runtime.js';
 import { agentMessagePrompt } from '@mitzo/protocol';
 import type { AccountBinding, OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
+import { claudeSdkInferenceEnvironment } from './claude-sdk-credentials.js';
 import {
   OrdinaryLocalResponsesOwnedRuntime,
   type OrdinaryLocalResponsesOwnedDispatch,
@@ -421,6 +422,7 @@ import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
 import { getAccountUseStore } from './account-use-store.js';
 import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
+import { sessionLearningGuidance, parseSessionLearningPolicy } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -802,9 +804,13 @@ export function getRepoConfig() {
 
 export const AVAILABLE_MODELS = LEGACY_MODELS;
 
-/** Split "claude-opus-4-8:max" → { model: "claude-opus-4-8", effort: "max" } */
-export function parseModelSpec(spec?: string): { model: string; effort: string | undefined } {
+/** Legacy shorthand carries effort after a colon. Selected API model IDs are opaque. */
+export function parseModelSpec(
+  spec?: string,
+  exactModelId = false,
+): { model: string; effort: string | undefined } {
   if (!spec) return { model: '', effort: undefined };
+  if (exactModelId) return { model: spec, effort: undefined };
   const idx = spec.indexOf(':');
   if (idx === -1) return { model: spec, effort: undefined };
   return { model: spec.slice(0, idx), effort: spec.slice(idx + 1) };
@@ -881,11 +887,12 @@ export function nativeExecutionEnv(): Record<string, string> {
 
 export function resolveThinking(
   spec?: string,
+  exactModelId = false,
 ):
   | { type: 'adaptive'; display: 'summarized' }
   | { type: 'enabled'; budgetTokens: number; display: 'summarized' }
   | undefined {
-  const { model, effort } = parseModelSpec(spec);
+  const { model, effort } = parseModelSpec(spec, exactModelId);
   // Opus 4.7+ rejects fixed budgets and omits thinking text unless opted in.
   const adaptiveOnlyOpus = /^claude-opus-(?:4-[7-9]|[5-9])(?:[.@-]|$)/.test(model);
   if (model.includes('opus') && effort === 'max' && !adaptiveOnlyOpus)
@@ -899,9 +906,10 @@ export function resolveThinking(
 export function resolveClaudeEffort(
   spec?: string,
   reasoningEffort?: string | null,
+  exactModelId = false,
 ): 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
   if (reasoningEffort === null) return undefined;
-  const effort = reasoningEffort ?? parseModelSpec(spec).effort;
+  const effort = reasoningEffort ?? parseModelSpec(spec, exactModelId).effort;
   if (
     effort === 'low' ||
     effort === 'medium' ||
@@ -1657,7 +1665,8 @@ async function _startChatInner(
         accountBinding.provider === 'openai' ||
         accountBinding.provider === 'google-vertex' ||
         accountBinding.provider === 'anthropic-vertex' ||
-        accountBinding.provider === 'anthropic-claude'
+        accountBinding.provider === 'anthropic-claude' ||
+        accountBinding.provider === 'anthropic-api'
       )
         profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);
       if (accountBinding.provider === 'openai-codex') {
@@ -1745,10 +1754,14 @@ async function _startChatInner(
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkChildEnvironmentBase());
       if (
-        accountBinding.provider === 'anthropic-claude' &&
+        ['anthropic-claude', 'anthropic-api'].includes(accountBinding.provider) &&
         (!options.ordinarySdkAuthority || openShellRequested)
       )
-        throw Error('Personal Claude requires the selected Local Mac Claude SDK runtime');
+        throw Error(
+          accountBinding.provider === 'anthropic-api'
+            ? 'Anthropic API requires the selected Local Mac Claude SDK runtime'
+            : 'Personal Claude requires the selected Local Mac Claude SDK runtime',
+        );
     }
     if (options.adviserScope) {
       if (!accountBinding || accountBinding.provider !== 'anthropic-vertex')
@@ -2282,10 +2295,15 @@ async function _startChatInner(
     }
 
     // Build session env with worktree paths for the agent (all repos including primary)
-    const sessionEnv = accountEnv
-      ? accountBinding && ['anthropic-vertex', 'anthropic-claude'].includes(accountBinding.provider)
-        ? await resolveSdkChildSocket(accountEnv, session.abortController.signal)
-        : accountEnv
+    const selectedSdkEnv =
+      accountBinding?.provider === 'anthropic-api'
+        ? await claudeSdkInferenceEnvironment(accountEnv!, session.abortController.signal)
+        : accountEnv;
+    const sessionEnv = selectedSdkEnv
+      ? accountBinding &&
+        ['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(accountBinding.provider)
+        ? await resolveSdkChildSocket(selectedSdkEnv, session.abortController.signal)
+        : selectedSdkEnv
       : await buildSdkChildEnvironment(session.abortController.signal);
     assertStartupCurrent();
     sessionEnv.MITZO_SESSION_ID = wtId;
@@ -2303,7 +2321,13 @@ async function _startChatInner(
 
     const sdkCredentialBoundary =
       !codexProfile && !apiCredentialRef && !gemini
-        ? credentialSdkBoundary(process.platform, options.ordinarySdkAuthority?.writeRoots())
+        ? credentialSdkBoundary(
+            process.platform,
+            options.ordinarySdkAuthority?.writeRoots(),
+            accountBinding?.provider === 'anthropic-api'
+              ? sessionEnv.ANTHROPIC_BASE_URL
+              : undefined,
+          )
         : undefined;
     options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
 
@@ -2481,28 +2505,36 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       : openShellWorkdir
         ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
         : buildWorktreeSystemPrompt(repoWorktrees);
-    const systemPromptAppend = options.adviserScope
-      ? options.adviserScope.instructions()
-      : repositoryChatContext(repositoryWorkspace) +
-        'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
-        SESSION_PERMISSION_INSTRUCTIONS +
-        PROFILE_TOOL_INSTRUCTIONS +
-        (options.contributorGuidance === undefined
-          ? telosArtifactInstructions(!!agentContext)
-          : '') +
-        '- Read operations are fine without asking.\n' +
-        '- Keep responses concise — small screen.\n' +
-        (agentContext
-          ? ''
-          : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
-        buildClientCapabilitiesPrompt() +
-        workspacePrompt +
-        (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
-        (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
-        (options.contributorGuidance
-          ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
-          : '') +
-        bootContextAppend;
+    const currentSystemPromptAppend = () =>
+      options.adviserScope
+        ? options.adviserScope.instructions()
+        : repositoryChatContext(repositoryWorkspace) +
+          'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
+          SESSION_PERMISSION_INSTRUCTIONS +
+          PROFILE_TOOL_INSTRUCTIONS +
+          (options.contributorGuidance === undefined
+            ? telosArtifactInstructions(!!agentContext)
+            : '') +
+          '- Read operations are fine without asking.\n' +
+          '- Keep responses concise — small screen.\n' +
+          (agentContext
+            ? ''
+            : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
+          buildClientCapabilitiesPrompt() +
+          workspacePrompt +
+          (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
+          (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
+          (options.contributorGuidance
+            ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
+            : '') +
+          bootContextAppend +
+          (codexProfile
+            ? ''
+            : sessionLearningGuidance(
+                eventStore.getSession(stateSessionId ?? options.resume ?? wtId)?.learningPolicy ??
+                  parseSessionLearningPolicy(),
+              ));
+    const systemPromptAppend = currentSystemPromptAppend();
 
     // Recipe-bound chats already have their exact Library definition and context.
     // Loading the legacy definition would compile another, unrelated default bundle.
@@ -2784,7 +2816,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const packBoundSdk = agentContext?.source === 'packs' || !!options.ordinarySdkAuthority;
       const contextStopReason = 'Accepted agent context is no longer authorized; start a new chat.';
       const sdkHookLifetime = new SdkHookLifetime();
-      const authorizeSdkContext = async (signal: AbortSignal) => {
+      const authorizeSdkContext = async (
+        signal: AbortSignal,
+        beforeRefusal?: (cause: unknown) => never,
+      ) => {
         const joined = AbortSignal.any([abortController.signal, signal]);
         try {
           options.adviserScope?.assertCurrent();
@@ -2795,8 +2830,16 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         } catch (error) {
           // SDK hook failures can be recoverable diagnostics. Abort the owning
           // provider process too, so a denied continuation cannot be retried.
-          if (packBoundSdk && !sdkHookLifetime.retired(signal))
-            abortController.abort(new Error(contextStopReason));
+          if (packBoundSdk && !sdkHookLifetime.retired(signal)) {
+            try {
+              // An input owner must retain its actionable refusal while the
+              // original viewer is still attached. Explicit cancellation has
+              // already selected its outcome and must not become a refusal.
+              if (!joined.aborted) beforeRefusal?.(error);
+            } finally {
+              abortController.abort(new Error(contextStopReason, { cause: error }));
+            }
+          }
           throw error;
         }
       };
@@ -2910,6 +2953,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,
       });
+      const exactSdkModelId = accountBinding?.provider === 'anthropic-api';
       const createSdkWebAccess = (state?: {
         retired: boolean;
         completing: boolean;
@@ -2931,7 +2975,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 ...owner,
                 executionStore: eventStore,
                 env: sessionEnv,
-                model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
+                model: parseModelSpec(session.model ?? accountBinding?.model ?? '', exactSdkModelId)
+                  .model,
                 ...(options.ordinarySdkAuthority
                   ? {
                       assertCurrent: assertWebCurrent,
@@ -2977,15 +3022,18 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         ...(sdkCredentialIsolation || options.ordinarySdkAuthority
           ? { strictMcpConfig: true }
           : {}),
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append:
-            systemPromptAppend +
-            WEB_ACCESS_INSTRUCTIONS +
-            (options.ordinarySdkAuthority
-              ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
-              : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
+        // Replacement queries must read the controller's current learning mode.
+        get systemPrompt() {
+          return {
+            type: 'preset' as const,
+            preset: 'claude_code' as const,
+            append:
+              currentSystemPromptAppend() +
+              WEB_ACCESS_INSTRUCTIONS +
+              (options.ordinarySdkAuthority
+                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
+                : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
+          };
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
@@ -3002,9 +3050,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           'WebFetch',
           ...(options.ordinarySdkAuthority ? [GITHUB_PUBLISH_SDK_TOOL] : []),
         ],
-        thinking: resolveThinking(options.model),
-        effort: resolveClaudeEffort(options.model, options.reasoningEffort),
-        ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
+        thinking: resolveThinking(options.model, exactSdkModelId),
+        effort: resolveClaudeEffort(options.model, options.reasoningEffort, exactSdkModelId),
+        ...(options.model ? { model: parseModelSpec(options.model, exactSdkModelId).model } : {}),
         ...(resolvedResume ? { resume: resolvedResume } : {}),
         ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
         mcpServers: options.ordinarySdkAuthority
@@ -3034,6 +3082,17 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           sdkSessionId: options.ordinarySdkAuthority.sdkSessionId(),
           cwd,
           controller: abortController,
+          onUnsent: (message, error) =>
+            reportRetainedRuntimeFailure({
+              store: eventStore,
+              sessionId: options.ordinarySdkAuthority!.sdkSessionId(),
+              session,
+              onlyIfSaved: true,
+              commandId: (message as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId,
+              error,
+              deliver: (event) =>
+                deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
+            }),
           authorize: authorizeSdkContext,
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
           beforeInput: (commandId) => {
@@ -3042,9 +3101,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           },
           adapt: adaptSdkQuery,
           settings: (selection) => ({
-            model: parseModelSpec(selection.model).model,
-            thinking: resolveThinking(selection.model),
-            effort: resolveClaudeEffort(selection.model, selection.thinking),
+            model: parseModelSpec(selection.model, exactSdkModelId).model,
+            thinking: resolveThinking(selection.model, exactSdkModelId),
+            effort: resolveClaudeEffort(selection.model, selection.thinking, exactSdkModelId),
           }),
           inputChanged: (queue) => {
             session.inputQueue = queue as { push(message: unknown): void; close(): void };
@@ -5953,7 +6012,8 @@ export async function renameSessionById(
     provider === 'openai' ||
     provider === 'openai-codex' ||
     provider === 'google-vertex' ||
-    provider === 'anthropic-claude'
+    provider === 'anthropic-claude' ||
+    provider === 'anthropic-api'
   ) {
     if (manual) eventStore.markManuallyRenamed(sessionId);
     eventStore.upsertSession({ sessionId, summary: title });

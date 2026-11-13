@@ -126,6 +126,8 @@ import { createGithubPublicationOperatorRouter } from './github-publication-oper
 import { createKnowledgeLibraryRouter } from './knowledge-library-router.js';
 import { knowledgeLibraryFromEnvironment } from './knowledge-library-runtime.js';
 import { installKnowledgeDraftRuntime } from './session-knowledge-tools.js';
+import { installSessionLearningRuntime } from './session-learning-tools.js';
+import { createSessionLearningRouter } from './session-learning-router.js';
 import { createKnowledgeLibraryLoader } from './knowledge-library-loader.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createCredentialConnectionsRouter } from './credential-connections-router.js';
@@ -255,6 +257,12 @@ import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { initializeSessionLaunches, closeSessionLaunches } from './session-launch-controller.js';
+import { createTelosSessionLaunchHost } from './telos-session-launch-host.js';
+import { createTelosSessionProposalRouter } from './telos-session-launch-adapters.js';
+import {
+  qualifySessionLaunchConfig,
+  prepareTelosSessionSettings,
+} from './session-launch-runtime.js';
 import { createSessionLaunchRouter } from './session-launch-routes.js';
 import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
 import {
@@ -792,6 +800,7 @@ const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
 );
 installContextPackRuntime(getKnowledgeLibraryRuntime);
 installKnowledgeDraftRuntime(getKnowledgeLibraryRuntime);
+installSessionLearningRuntime(eventStore);
 mountObservedRouter(
   app,
   '/api/knowledge',
@@ -1303,6 +1312,27 @@ const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
 const sessionLaunchController = initializeSessionLaunches(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
   (sessionId) => sseRegistry.broadcast('session_launch_changed', { sessionId }),
+  (store) =>
+    createTelosSessionLaunchHost({
+      store,
+      events: eventStore,
+      dbPath: () => telosDatabasePath(),
+      ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+      sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+      roleHost: (authority) => telosRoleHost(authority.operatorConnectionId, true),
+      qualify: async (configuration, authority) => {
+        await qualifySessionLaunchConfig(configuration, authority);
+      },
+      prepareSettings: prepareTelosSessionSettings,
+    }),
+);
+app.use(
+  createTelosSessionProposalRouter({
+    controller: sessionLaunchController,
+    registry,
+    verifyInternal: (req) => isValidInternalToken(req.headers['x-internal-token']),
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+  }),
 );
 mountObservedRouter(
   app,
@@ -3175,6 +3205,15 @@ mountObservedRouter(
         ? {
             canManageOpenAIKey: (accountId: string) =>
               runtime.openAIKeys?.manages(accountId) ?? false,
+            canManageApiAccount: (accountId: string) =>
+              runtime.openAIAccounts
+                ?.list()
+                .some(
+                  (account) =>
+                    account.id === accountId &&
+                    !!account.endpoint &&
+                    new URL(account.endpoint).hostname === 'api.enmaas.devshift.net',
+                ) ?? false,
             managed: () =>
               runtime.store.list('operator').map((connection) => ({
                 ...connection,
@@ -3707,6 +3746,12 @@ mountObservedRouter(
 );
 
 const sessionCapabilityGrants = new SessionCapabilityGrants(registry, repositoryCapabilityIdentity);
+mountObservedRouter(
+  app,
+  '/api/sessions/:id/learning',
+  operatorAuthMiddleware,
+  createSessionLearningRouter(eventStore),
+);
 mountObservedRouter(
   app,
   '/api/sessions/:id/access-grants',

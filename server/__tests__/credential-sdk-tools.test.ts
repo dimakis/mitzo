@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { createCredentialSdkServer, credentialSdkPermission } from '../credential-sdk-tools.js';
 import * as credentialRuntime from '../credential-connections-runtime.js';
 import * as credentialTools from '../session-credential-tools.js';
+import * as launchTools from '../session-launch-tools.js';
 import { SessionRegistry, ToolGuardTimeoutError, type ToolGuardPolicy } from '@mitzo/harness';
 import { TurnCallbacks, assertTurnCallbackEffects } from '../turn-callbacks.js';
 import { AgentCommunicationError } from '../agent-message-runtime.js';
@@ -23,6 +24,65 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
     return { type: 'sdk', name: 'mitzo-connections' };
   },
 }));
+it('routes Telos proposals through the owned callback and refuses retired query execution', async () => {
+  const registry = new SessionRegistry();
+  registry.register('owned', {
+    sessionId: 'sdk-owned',
+    mode: 'agent',
+    abortController: new AbortController(),
+  } as never);
+  let retired = false;
+  let insideCallback = false;
+  const execute = vi.fn(async () => {
+    expect(insideCallback).toBe(true);
+    return { state: 'pending', childSessionId: null };
+  });
+  const adapter = vi.spyOn(launchTools, 'sessionLaunchTools').mockReturnValue({ execute } as never);
+  const assertCurrent = () => {
+    if (retired) throw Error('query retired');
+  };
+  try {
+    createCredentialSdkServer(() => 'sdk-owned', registry.get('owned')!, registry, {
+      profilesOnly: true,
+      assertCurrent: async () => assertCurrent(),
+      assertCurrentSync: assertCurrent,
+      runCallback: async (work) => {
+        insideCallback = true;
+        try {
+          return await work();
+        } finally {
+          insideCallback = false;
+        }
+      },
+    });
+    const tool = mocked.tools.find((item) => item.name === 'TelosCreateSession')!;
+    expect(tool).toBeDefined();
+    const input = {
+      requestId: '54adcba3-65b2-4e60-98bc-226117e90fc2',
+      itemId: 'slice',
+      expectedRevision: 'a'.repeat(64),
+      title: 'Slice',
+      prompt: 'Do the selected work',
+    };
+    expect(await tool.handler(input, { requestId: 'sdk-call' })).toMatchObject({ isError: false });
+    expect(execute).toHaveBeenCalledWith(
+      input,
+      expect.any(AbortSignal),
+      { turnId: expect.any(String), callId: 'sdk-call' },
+      'TelosCreateSession',
+    );
+    expect(adapter).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionPrefix: 'mcp__mitzo-connections__' }),
+    );
+    retired = true;
+    await expect(tool.handler(input)).rejects.toThrow('query retired');
+    expect(execute).toHaveBeenCalledOnce();
+  } finally {
+    adapter.mockRestore();
+    registry.dispose();
+  }
+});
+
 it('exposes peer messaging only through an explicitly installed owned SDK callback and retains capability diagnostics', async () => {
   const registry = new SessionRegistry();
   registry.register('owned', {
@@ -115,6 +175,7 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'SymposiumReadProfiles',
     'ReadKnowledge',
     'SaveKnowledgeDraft',
+    'CaptureMemoryCandidate',
     'TaskExecution',
     'SchedulePrompt',
     'SessionTimers',
