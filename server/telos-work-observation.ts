@@ -2,6 +2,7 @@ import type { EventStore } from './event-store.js';
 import type { Session, TelosWorkView } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
+import { sessionConversationNavigation } from './session-list-metadata.js';
 
 /** Read-only observations. A retained routing choice is never runtime readiness,
  * command authority, or proof that a provider accepted a turn. */
@@ -20,7 +21,10 @@ export function observeWorkConversation(
     };
   const identity = {
     conversationId,
-    name: meta.summary || 'Untitled conversation',
+    name:
+      sessionConversationNavigation(events, conversationId).summary ??
+      meta.summary ??
+      'Untitled conversation',
     availability: 'available' as const,
     agentName: meta.agentProfile?.definition.name ?? meta.agentName ?? undefined,
     model: meta.selectedModel ?? meta.accountBinding?.model ?? undefined,

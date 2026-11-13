@@ -23,6 +23,7 @@ import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { EventStore } from '../event-store.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
+import { observeWorkConversation } from '../telos-work-observation.js';
 import { CodexConversation, type CodexConversationOptions } from '../codex-conversation.js';
 import { composeOwnedLocalNativeExecutionPolicy } from '../owned-local-codex-native-policy.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
@@ -111,6 +112,7 @@ it('names a saved Telos peer from retained setup without inspecting messages or 
     artifacts: [],
   });
   const result = await f.a.call({ operation: 'list' });
+  expect(observeWorkConversation(f.f.events, f.b.sessionId).name).toBe('PR monitor architecture');
   expect(result.response.success).toBe(true);
   expect(result.value.chats).toEqual(
     expect.arrayContaining([

@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-worker-start-runtime.ts':
     '19b349d6087e0f6ef255b18650fbabb35a4b2dc468c361864f85265731d73faa',
   '../telos-work-observation.ts':
-    'df0208c79734f4ac045c72007cd153bfa7c1f2817b93ab09089b90a0093f088c',
+    'e77564eee372f8687582e35936911beea207ed94592e3b2a2d424d4872d7c2f1',
   '../__tests__/telos-work-observation.test.ts':
     'd887c97d8aca1e6197cf470f50cb44480b460f6aaf8338414bd3e87e324c00f4',
   '../__tests__/telos-work-delegation.test.ts':
@@ -1759,7 +1759,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/existing-local-repository-workspaces.test.ts':
     '5f33af94efe047dbac10317ba60e9461e0e7e7d598fabaab5d11eac476669e46',
   '../__tests__/agent-communication-native.test.ts':
-    '4b5c1ff7cb2858ea665d589f67659873c583856c5235b202777359b8e243f6c7',
+    '83161415d9f85cc16f4c5b9eb10f06eabbd761b40e157128c6a5a22143f2ad97',
   '../session-history-authorization.ts':
     '68d9d36a11ed5ac179f6143a08adecf3109daf264fa2e1898d12a70e37819801',
   '../session-history-tools.ts': 'f66039084b4c156b3be20cf65dc7cd1b8729135f747356d2ed9ed3b611dab782',
