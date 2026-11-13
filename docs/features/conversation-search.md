@@ -136,3 +136,13 @@ and regenerated against the combined tree. The accepted Telos source-review
 readiness helper and search's finite cold composer-readiness allowance both remain
 in the composition fixture. This integration requires fresh combined-result CI
 and targeted Centaur verification while retaining the approved search baseline.
+
+Combined-result run `43410159340` hit the five-second default in the inherited
+offline Anthropic SDK integration test. Its fixture performs cold module loading
+and three admitted SDK turns, including real permission hooks and MCP discovery;
+focused local runs took 4.4–4.8 seconds, and the hosted shard timed out at 5.05
+seconds without an assertion failure. This fixture now has a finite 15-second CI
+allowance while retaining five seconds locally, all assertions, and every
+production operation deadline. The model, permission-failure and model-discovery
+regressions passed 21 focused checks after the adjustment. Fresh combined-result
+CI and exact-head Centaur verification remain required.

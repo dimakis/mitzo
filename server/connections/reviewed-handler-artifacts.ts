@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1118-enmaas-account-settings-search-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1119-search-sdk-ci-budget';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -46,7 +45,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/session-search.tsx':
     '269ed45b0f74a4f9166d1e1ec4ac7e07a4d7002f8d24317b827d7293e019a1c1',
   '../../docs/features/conversation-search.md':
-    '08044b7333bfa7341cfa40f52c272ac224474eb08fdcdbfbe1389244fe023956',
+    'd561554b60e70334ff297c798083970a20972be32790877b756fd3bc6ccd0647',
   '../../packages/protocol/src/session-search-query.ts':
     'b69aed39ebbbdc0acb461c5f57c8ef783d9993c26af5b64f4dbf7a808f029c58',
   '../__tests__/session-search-relevance.test.ts':
@@ -4484,7 +4483,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/model-spec.test.ts':
     'c6990b6483e9acdffcb63fb63efa5551c74960b481d4e21c623978555c92e3b8',
   '../__tests__/anthropic-api-sdk-model.test.ts':
-    'b7bce9b8273c25ef5677e2c5bdd1b989e6e57134f893732e152fe546c3b7e998',
+    '950599a2b495f4de6b1ee075ff2259b77a4cb47c5607bc887f2c14b3b1a92cd5',
   '../anthropic-api-connection.ts':
     '0d28e1cccf86680c56196be272422a35be34ee809e83dcb57713dc41a14da731',
   '../__tests__/anthropic-api-child-env.test.ts':
