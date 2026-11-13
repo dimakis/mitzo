@@ -42,19 +42,27 @@ function show(coordination: unknown) {
     </MemoryRouter>,
   );
 }
-it('returns to the currently assigned lead while preserving the original reviewed context', async () => {
-  show({
-    itemId: 'slice',
-    role: 'worker',
-    assignment: 'current',
-    reportingTo: { conversationId: 'current-lead', availability: 'available' },
-    diagnostic: null,
-  });
-  expect(
-    (await screen.findByRole('link', { name: 'Return to lead chat' })).getAttribute('href'),
-  ).toBe('/chat/current-lead');
-  expect(screen.getByText('Reviewed task')).toBeTruthy();
-});
+it.each([undefined, 'TERMINAL'])(
+  'returns to the currently assigned idle lead (%s)',
+  async (executionPhase) => {
+    show({
+      itemId: 'slice',
+      role: 'worker',
+      assignment: 'current',
+      reportingTo: {
+        conversationId: 'current-lead',
+        availability: 'available',
+        executionPhase,
+        executionTerminalReason: 'completed',
+      },
+      diagnostic: null,
+    });
+    expect(
+      (await screen.findByRole('link', { name: 'Return to lead chat' })).getAttribute('href'),
+    ).toBe('/chat/current-lead');
+    expect(screen.getByText('Reviewed task')).toBeTruthy();
+  },
+);
 it.each([
   undefined,
   { diagnostic: 'coordination_unavailable' },

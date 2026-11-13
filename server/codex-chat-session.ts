@@ -232,6 +232,10 @@ import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
 import type { ConfiguredCatalogOptions } from './configured-tool-catalog.js';
 import { AsyncQueue } from './async-queue.js';
 import {
+  captureOrdinaryFirstCommandAuthority,
+  type OrdinaryFirstCommandAuthority,
+} from './ordinary-first-command-authority.js';
+import {
   CodexAppServerClient,
   CodexTransportError,
   SUPPORTED_CODEX_CLI_VERSION,
@@ -746,6 +750,7 @@ interface Options {
   /** Exact admitted ordinary OpenShell target; bypasses deployment route inference. */
   ownedOpenShell?: OwnedOpenShellCodexChatAdmission;
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+  firstCommandAuthority?: OrdinaryFirstCommandAuthority;
   /** Host-owned admitted-command context delivery; never a public execution port. */
   ordinaryCollaborationDelivery?: OrdinaryCollaborationDelivery;
   contributorGuidance?: string;
@@ -1002,6 +1007,10 @@ async function openCodexChatBound(
   onDemandConnections: readonly Connection[] = [],
   deferInitialSend = false,
 ) {
+  let firstCommandAuthority = captureOrdinaryFirstCommandAuthority(
+    options.firstCommandAuthority,
+    options.messageId,
+  );
   await options.ownedLocal?.assertCurrent();
   await options.ownedOpenShell?.assertCurrent();
   options.assertCapturedContext();
@@ -2855,8 +2864,13 @@ async function openCodexChatBound(
           canClaimCommand: (commandId: string) => options.ownedLocal!.canClaimCommand(commandId),
           withQueueMutation: <T>(operation: () => T) =>
             options.ownedLocal!.withQueueMutation(operation),
-          assertQueueCommandCurrent: (commandId: string) =>
-            options.ownedLocal!.assertQueueCommandCurrent(commandId),
+          assertQueueCommandCurrent: (commandId: string) => {
+            options.ownedLocal!.assertQueueCommandCurrent(commandId);
+            // Recheck after intervening dispatch/native-policy callbacks, at the
+            // final synchronous fence immediately before physical turn/start.
+            if (firstCommandAuthority?.commandId === commandId)
+              firstCommandAuthority.assertCurrent();
+          },
           beforeThreadInitialization: (store: CodexConversationStore) =>
             options.ownedLocal!.persistCustody(store),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
@@ -3330,6 +3344,7 @@ async function openCodexChatBound(
       });
     },
     onProviderDispatch: (messageId) => {
+      if (firstCommandAuthority?.commandId === messageId) firstCommandAuthority.assertCurrent();
       options.adviserScope?.assertCommand(options.conversationId, messageId);
       options.assertWorkTurnAdmission?.();
       if (ownedHost) options.assertAgentContextAuthorization?.();
@@ -3346,6 +3361,9 @@ async function openCodexChatBound(
         });
     },
     onProviderAccepted: (messageId, threadId, turnId) => {
+      // Once this first turn is acknowledged, subsequent worker commands and
+      // tool continuations depend on the worker's own retained authority.
+      if (firstCommandAuthority?.commandId === messageId) firstCommandAuthority = undefined;
       if (options.ownedLocal) {
         recordAgentMessageAcceptance(
           options.eventStore,

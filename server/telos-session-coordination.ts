@@ -43,7 +43,10 @@ export function observeTelosSessionCoordination(
       reportingTo &&
       (reportingTo.availability === 'unavailable' ||
         (isLive && reportingTo.runtimeState === 'not_live') ||
-        ('executionPhase' in reportingTo && reportingTo.executionPhase === 'TERMINAL'));
+        ('executionPhase' in reportingTo &&
+          (reportingTo.executionPhase === 'STOPPING' ||
+            (reportingTo.executionPhase === 'TERMINAL' &&
+              ['stopped', 'interrupted'].includes(reportingTo.executionTerminalReason ?? '')))));
     return {
       observedAt: Date.now(),
       itemId: selected.itemId,

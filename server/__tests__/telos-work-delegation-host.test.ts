@@ -18,6 +18,7 @@ import { createTelosWorkRoleHost } from '../telos-work-role-host.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { TaskStore } from '../task-store.js';
 import { isAvailableTelosWorkConversation } from '../telos-work-conversation.js';
+import { captureTelosWorkerFirstCommandAuthority } from '../telos-worker-start-authority.js';
 import { createJoiningFixture, cleanupJoiningFixtures } from './fixtures/collaboration-joining.js';
 
 vi.mock('../chat.js', () => ({ sendToChat: vi.fn() }));
@@ -288,6 +289,42 @@ it('deduplicates concurrent worker starts at the existing ordinary command owner
   expect(first).toEqual(second);
   expect(f.dispatch).toHaveBeenCalledTimes(1);
 });
+it.each(['lead reassignment', 'tool revocation'] as const)(
+  'rechecks %s from fresh pending first-command authority after admission completes',
+  async (scenario) => {
+    const f = await executionFixture();
+    const result = await f.starter()(f.allocation, f.authority);
+    let selected = true;
+    const authority = captureTelosWorkerFirstCommandAuthority({
+      commandId: result.execution.commandId,
+      allocation: f.allocation,
+      events: f.ordinary.store,
+      databasePath: () => f.path,
+      assertSourceCurrent() {
+        if (!selected) throw Error('Startup tool deselected');
+      },
+    });
+    expect(() => authority.assertCurrent()).not.toThrow();
+    if (scenario === 'tool revocation') selected = false;
+    else {
+      f.ordinary.store.upsertSession({ sessionId: 'replacement-lead' });
+      f.work.execute(
+        {
+          operation: 'setup_role',
+          requestId: 'replace-current-lead',
+          itemId: 'outcome',
+          role: 'lead',
+          conversationId: 'replacement-lead',
+          expectedAssignmentRevision: 1,
+          expectedRevision: f.work.read('outcome', f.actor).revision,
+        },
+        f.actor,
+      );
+    }
+    expect(() => authority.assertCurrent()).toThrow();
+    expect(f.dispatch).toHaveBeenCalledTimes(1);
+  },
+);
 
 it.each(['wrong lead', 'revoked', 'busy', 'brief changed', 'cancelled'])(
   'refuses %s worker startup without a new command or replacement',

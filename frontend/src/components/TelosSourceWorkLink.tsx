@@ -22,6 +22,7 @@ const Coordination = z.object({
       conversationId: z.string().min(1).max(200),
       availability: z.string(),
       executionPhase: z.string().nullable().optional(),
+      executionTerminalReason: z.string().nullable().optional(),
     })
     .nullable(),
   diagnostic: z.string().nullable().optional(),
@@ -77,7 +78,11 @@ export function TelosSourceWorkLink({
           current.assignment === 'current' &&
           !current.diagnostic &&
           current.reportingTo?.availability === 'available' &&
-          current.reportingTo.executionPhase !== 'TERMINAL'
+          current.reportingTo.executionPhase !== 'STOPPING' &&
+          !(
+            current.reportingTo.executionPhase === 'TERMINAL' &&
+            ['stopped', 'interrupted'].includes(current.reportingTo.executionTerminalReason ?? '')
+          )
             ? current.reportingTo.conversationId
             : undefined;
         if (!controller.signal.aborted)

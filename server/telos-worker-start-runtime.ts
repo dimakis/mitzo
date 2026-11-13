@@ -16,6 +16,7 @@ import { TelosWorkStore } from './telos-work-store.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import type { TelosWorkRoleRequest } from './telos-work-routes.js';
 import type { TaskStore } from './task-store.js';
+import { captureTelosWorkerFirstCommandAuthority } from './telos-worker-start-authority.js';
 
 /** The signed source owner is supplied by the live runtime, never tool JSON. */
 export async function startAllocatedTelosWorker(
@@ -46,6 +47,23 @@ export async function startAllocatedTelosWorker(
   const operatorConnectionId = sessionToolOperatorConnection(source.session, source.clientId);
   const captured = captureAgentLibraryAuthorization(operatorConnectionId);
   const signal = AbortSignal.any([request.signal, source.session.abortController.signal]);
+  const assertSourceCurrent = () => {
+    source.session.abortController.signal.throwIfAborted();
+    captured.assertCurrent();
+    const now = registry.findBySessionId(sourceId);
+    if (
+      now?.session !== source.session ||
+      now.clientId !== source.clientId ||
+      now.session.ordinaryRuntimeOwner !== driver ||
+      driver.authSessionId !== captured.auth.id ||
+      sessionToolOperatorConnection(now.session, now.clientId) !== operatorConnectionId ||
+      registry.isClosingOut(source.clientId) ||
+      registry.isUserClose(source.clientId) ||
+      !agentToolAllowed(now.session, 'TelosStartSlice') ||
+      checkSkillPolicy(registry, source.clientId, 'TelosStartSlice') === 'deny'
+    )
+      throw Error('Original signed Telos lead authority changed');
+  };
   const authority: TelosWorkerStartAuthority = {
     sourceConversationId: sourceId,
     operatorConnectionId,
@@ -54,20 +72,7 @@ export async function startAllocatedTelosWorker(
     assertCurrent() {
       request.assertAuthorized();
       signal.throwIfAborted();
-      captured.assertCurrent();
-      const now = registry.findBySessionId(sourceId);
-      if (
-        now?.session !== source.session ||
-        now.clientId !== source.clientId ||
-        now.session.ordinaryRuntimeOwner !== driver ||
-        driver.authSessionId !== captured.auth.id ||
-        sessionToolOperatorConnection(now.session, now.clientId) !== operatorConnectionId ||
-        registry.isClosingOut(source.clientId) ||
-        registry.isUserClose(source.clientId) ||
-        !agentToolAllowed(now.session, 'TelosStartSlice') ||
-        checkSkillPolicy(registry, source.clientId, 'TelosStartSlice') === 'deny'
-      )
-        throw Error('Original signed Telos lead authority changed');
+      assertSourceCurrent();
     },
   };
   authority.assertCurrent();
@@ -106,6 +111,13 @@ export async function startAllocatedTelosWorker(
       dispatch: (input) =>
         dispatchOwnedOrdinaryCommand({
           ...input,
+          firstCommandAuthority: captureTelosWorkerFirstCommandAuthority({
+            commandId: input.commandId,
+            allocation,
+            events: eventStore,
+            databasePath: deps.dbPath,
+            assertSourceCurrent,
+          }),
           onSessionPrepared(session) {
             authority.assertCurrent();
             const retained = retainedNativeHostToolOperator(session);

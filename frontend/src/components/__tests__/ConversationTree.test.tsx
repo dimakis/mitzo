@@ -73,9 +73,12 @@ it('offers direct navigation, disclosure controls, current-chat indication and l
     .map((el) => el.closest('summary'))
     .find(Boolean)!;
   expect(group.getAttribute('aria-expanded')).toBe('true');
-  fireEvent.click(group);
+  const toggle = group.querySelector('.conversation-tree-toggle')!;
+  expect(toggle).toBeTruthy();
+  fireEvent.click(toggle);
   expect(group.getAttribute('aria-expanded')).toBe('false');
-  fireEvent.click(group);
+  expect(select).toHaveBeenCalledTimes(1);
+  fireEvent.click(toggle);
   expect(group.getAttribute('aria-expanded')).toBe('true');
 });
 it('nests outcome, feature lead and slice worker while preserving each chat runtime', () => {

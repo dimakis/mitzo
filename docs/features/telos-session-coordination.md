@@ -2,7 +2,7 @@
 
 Prepared on 13 November 2026 in an independent ordinary session. This repair is
 not assigned beneath capability feature `8e186fdf-9058-4ad6-af18-8fd6797bf935`.
-No active worker, worktree, task grant, PR owner or live Telos assignment is changed.
+No active worker, worktree, task grant or live Telos assignment is changed.
 
 ## Dependency and incident evidence
 
@@ -12,10 +12,14 @@ This follow-up uses PR [#1330](https://github.com/dimakis/mitzo/pull/1330) at
 adoption, worker-start, assignment-observation and chat-tree implementation.
 The earlier linked-session and adoption conversations were read. PR #1302 is
 historical; #1330 has a current owner and its branch is preserved.
-At the final dependency check #1330 was still open, at `39c2b53ded1a06381b1d7e10bdf8f9974d526e5b`,
-with GitHub reporting conflicts. This candidate has not integrated that later delta.
-Integration and publication must be sequenced with that owner, rather than making
-another competing recovery/adoption delivery or launching obsolete CI.
+The existing owner explicitly transferred sole PR integration/publication ownership
+after the user requested adding this repair and merging. The combined candidate
+reuses its unpublished `c2ec53535947df6d0ab2aad761d78a651d157eb6`, which includes
+published `39c2b53ded1a06381b1d7e10bdf8f9974d526e5b` and accepted main
+`1df45e8e3b0ae57753d6bcb49015fa96fc6a7333`. Its original checkout is preserved.
+The only merge conflict was the source registry; both key sets are retained and
+hashes recalculated. The first-command authority fence remains enforced through
+provider submission and releases only at the first acknowledgement.
 
 The supported `TelosManageItem` read confirmed the capability item is a feature
 with five direct slices. Its current brief explicitly distinguishes canonical
@@ -59,6 +63,9 @@ incident has been repaired.
 - The existing **Return to lead chat** link uses current metadata. Missing,
   mismatched, superseded, stopped or unavailable coordination shows the existing
   inline status treatment, retaining the work link, reviewed context and composer.
+  Successful completed turns leave an idle coordinator available; stopping,
+  stopped and interrupted sessions remain unavailable. An independent review
+  identified this distinction, and real execution-ledger/UI regressions cover it.
 
 ## Evidence states
 
@@ -123,6 +130,11 @@ current-lead UI cases. Tests and implementation are committed together.
   assertions. Twelve browser cases did not run. No screenshots or visual acceptance
   are claimed. Retained logs are under the local ignored `.mitzo-devtools/` directory.
 
-Required hosted CI, browser evidence, trusted review and integration with the later
-#1330 delta remain gates. This session has not requested live model review, merged,
-deployed, started hosted CI or repaired live assignments.
+Combined-candidate validation also passed 293 focused startup, canonical and
+communication tests, then 38 focused identity and idle-coordinator regressions
+after the independent-review fix (counts overlap). The combined server/frontend
+builds, full source TypeScript check, source fingerprints and changed-file lint pass.
+The missing-custody fixture uses the owner's actual nullable return contract.
+
+Required hosted CI, browser evidence and trusted exact-head review remain landing
+gates. No deployment, live model test or live assignment repair is included.

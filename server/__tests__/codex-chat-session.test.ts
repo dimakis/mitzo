@@ -624,6 +624,74 @@ it('reattaches the provider runtime without admitting or replaying user intent',
   expect(mocks.send).not.toHaveBeenCalled();
   chat.close();
 });
+it('checks retained first-command source authority immediately before dispatch and releases it after acceptance', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  let current = true;
+  const guard = vi.fn(() => {
+    if (!current) throw Error('Source startup tool revoked');
+  });
+  const query = await openCodexChat({
+    ...options(new AbortController()),
+    messageId: 'command',
+    firstCommandAuthority: { commandId: 'command', assertCurrent: guard },
+  });
+  const controls = mocks.conversationOptions as unknown as {
+    onProviderDispatch(id: string): void;
+    onProviderAccepted(id: string, thread: string, turn: string): void;
+  };
+  current = false;
+  expect(() => controls.onProviderDispatch('command')).toThrow('Source startup tool revoked');
+  current = true;
+  controls.onProviderDispatch('command');
+  controls.onProviderAccepted('command', 'thread', 'turn');
+  const checked = guard.mock.calls.length;
+  current = false;
+  controls.onProviderDispatch('command');
+  controls.onProviderDispatch('later-worker-command');
+  expect(guard).toHaveBeenCalledTimes(checked);
+  query.close();
+});
+
+it('rechecks the pending source after intervening dispatch callbacks at the final queue fence', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const f = ownedLocalOptions();
+  // This controller fixture replaces send/enqueue; queue-fence ownership stays real.
+  vi.spyOn(f.ownedLocal, 'assertBeforeDispatch').mockImplementation(() => {});
+  let current = true;
+  try {
+    const query = await openCodexChat({
+      ...f.opts,
+      firstCommandAuthority: {
+        commandId: 'owned-command',
+        assertCurrent() {
+          if (!current) throw Error('Source startup tool revoked');
+        },
+      },
+    });
+    const controls = mocks.conversationOptions as unknown as {
+      onProviderDispatch(id: string): void;
+      assertQueueCommandCurrent(id: string): void;
+      onProviderAccepted(id: string, thread: string, turn: string): void;
+    };
+    controls.onProviderDispatch('owned-command');
+    // A policy/admission callback can revoke the source after dispatch markers.
+    // CodexConversation calls this queue fence again immediately before turn/start.
+    current = false;
+    expect(() => controls.assertQueueCommandCurrent('owned-command')).toThrow(
+      'Source startup tool revoked',
+    );
+    current = true;
+    controls.assertQueueCommandCurrent('owned-command');
+    controls.onProviderAccepted('owned-command', 'thread', 'turn');
+    current = false;
+    controls.assertQueueCommandCurrent('owned-command');
+    query.close();
+  } finally {
+    f.eventStore.close();
+  }
+});
 
 it.each([false, true])(
   'forwards ordinary provider receipts alongside retained context (%s) without treating close as termination',

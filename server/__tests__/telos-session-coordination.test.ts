@@ -93,6 +93,23 @@ it('keeps current classification, reporting and discoverable children across rea
       });
     }
     const observe = (id: string) => observeTelosSessionCoordination(f.events, id, work);
+    const finishLead = (reason: 'completed' | 'stopped' | 'interrupted') => {
+      const { token } = f.events.beginExecution('lead');
+      f.events.transitionExecution(token, 'TERMINAL', reason);
+    };
+    finishLead('completed');
+    expect(observe('worker')).toMatchObject({ diagnostic: null });
+    for (const reason of ['stopped', 'interrupted'] as const) {
+      finishLead(reason);
+      expect(observe('worker')).toMatchObject({
+        diagnostic: 'assigned_coordinator_unavailable',
+      });
+    }
+    const stopping = f.events.beginExecution('lead').token;
+    f.events.transitionExecution(stopping, 'STOPPING');
+    expect(observe('worker')).toMatchObject({ diagnostic: 'assigned_coordinator_unavailable' });
+    f.events.transitionExecution(stopping, 'TERMINAL', 'stopped');
+    finishLead('completed');
     expect(observe('worker')).toMatchObject({
       workLevel: 'slice',
       assignment: 'current',

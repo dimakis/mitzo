@@ -165,7 +165,7 @@ async function signedOperator() {
 
 it('identifies unavailable sender custody separately from an inaccessible recipient', async () => {
   const f = fixture();
-  vi.mocked(f.native.readHostCustody).mockReturnValue(undefined);
+  vi.mocked(f.native.readHostCustody).mockReturnValue(null);
   await expect(f.execute({ operation: 'inbox', after: 0 })).rejects.toMatchObject({
     code: 'sender_custody_unavailable',
     stage: 'ownership',
