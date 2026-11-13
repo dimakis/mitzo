@@ -31,12 +31,16 @@ export class SpecialistConsultationStore {
   close() {
     this.db.close();
   }
-  policy(lead: string, policyId: string): SpecialistPolicy {
+  findPolicy(lead: string, policyId: string): SpecialistPolicy | undefined {
     const row = this.db
       .prepare('SELECT body FROM specialist_consultation_policies WHERE lead_id=? AND policy_id=?')
       .get(lead, policyId) as { body: string } | undefined;
-    if (!row) throw Error('Consultation policy not found');
-    return SpecialistPolicySchema.parse(JSON.parse(row.body));
+    return row ? SpecialistPolicySchema.parse(JSON.parse(row.body)) : undefined;
+  }
+  policy(lead: string, policyId: string): SpecialistPolicy {
+    const policy = this.findPolicy(lead, policyId);
+    if (!policy) throw Error('Consultation policy not found');
+    return policy;
   }
   policies(lead: string) {
     return (
@@ -54,7 +58,7 @@ export class SpecialistConsultationStore {
     if (policy.authSessionId !== login) throw Error('Original consultation authorization required');
     return policy;
   }
-  authorize(lead: string, login: string, raw: unknown) {
+  authorize(lead: string, login: string, raw: unknown, collaborationId?: string) {
     const input = SpecialistPolicyInputSchema.parse(raw);
     return this.db
       .transaction(() => {
@@ -72,7 +76,7 @@ export class SpecialistConsultationStore {
         const policy = SpecialistPolicySchema.parse({
           ...input,
           policyId: input.requestId,
-          collaborationId: randomUUID(),
+          collaborationId: collaborationId ?? randomUUID(),
           leadSessionId: lead,
           authSessionId: login,
           revoked: false,
@@ -83,16 +87,6 @@ export class SpecialistConsultationStore {
         return policy;
       })
       .immediate();
-  }
-  useCollaboration(lead: string, policyId: string, collaborationId: string) {
-    const policy = SpecialistPolicySchema.parse({
-      ...this.policy(lead, policyId),
-      collaborationId,
-    });
-    this.db
-      .prepare('UPDATE specialist_consultation_policies SET body=? WHERE lead_id=? AND policy_id=?')
-      .run(JSON.stringify(policy), lead, policyId);
-    return policy;
   }
   revoke(lead: string, policyId: string) {
     const policy = { ...this.policy(lead, policyId), revoked: true };

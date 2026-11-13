@@ -221,9 +221,7 @@ export class SpecialistConsultations {
     const input = specialistToolSchema.parse({ ...(raw as object), operation: 'authorize' });
     if (!input.requestId || !input.routes || !input.repository || !input.connectionId)
       throw Error('Authorization requires requestId, repository, connectionId and routes');
-    const prior = this.receipts
-      .policies(a.leadSessionId)
-      .find((policy) => policy.policyId === input.requestId);
+    const prior = this.receipts.findPolicy(a.leadSessionId, input.requestId);
     const versions = getAgentLibrary().list('user').versions;
     const routes: SpecialistRoute[] = [];
     for (const choice of input.routes) {
@@ -281,17 +279,20 @@ export class SpecialistConsultations {
     this.current(a);
     for (const route of routes) await this.resolveRoute(route);
     this.current(a);
-    let policy = this.receipts.authorize(a.leadSessionId, a.auth.id, selection);
-    const groups = this.owners.events.listSessionCollaborations(a.leadSessionId);
-    if (groups.nextCursor || groups.collaborations.length > 1)
+    const groups = prior
+      ? undefined
+      : this.owners.events.listSessionCollaborations(a.leadSessionId);
+    if (groups && (groups.nextCursor || groups.collaborations.length > 1))
       throw Error('Choose one shared conversation before consulting specialists');
-    if (groups.collaborations.length)
-      policy = this.receipts.useCollaboration(
-        a.leadSessionId,
-        policy.policyId,
-        groups.collaborations[0].collaborationId,
-      );
-    else
+    // Select the final group before saving. A replay or interrupted setup must
+    // retain this identity even if the lead has since joined another group.
+    const policy = this.receipts.authorize(
+      a.leadSessionId,
+      a.auth.id,
+      selection,
+      groups?.collaborations[0]?.collaborationId,
+    );
+    if (!this.owners.events.getSessionCollaboration(policy.collaborationId))
       this.owners.events.collaborationConversation.begin(policy.collaborationId, {
         requestId: policy.requestId,
         sessionId: a.leadSessionId,

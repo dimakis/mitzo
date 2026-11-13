@@ -6,6 +6,86 @@ import { join } from 'node:path';
 const journey = createApplicationJourney();
 afterAll(() => journey.close());
 
+async function authorizationFixture() {
+  const h = await journey.getApplicationUiJourney();
+  const { getSpecialistConsultations } = await import('../specialist-consultation-runtime.js');
+  const { captureAgentLibraryAuthorization } = await import('../agent-library-transport.js');
+  const { getAgentLibrary } = await import('../agent-library-runtime.js');
+  const captured = captureAgentLibraryAuthorization(h.clientId);
+  (await import('../auth.js')).setAuthRevocationStore(h.events);
+  const authority = {
+    leadSessionId: 'existing-chat',
+    operatorConnectionId: h.clientId,
+    auth: captured.auth,
+    signal: new AbortController().signal,
+    assertCurrent: () => captured.assertCurrent(),
+  };
+  const library = getAgentLibrary();
+  const role = 'authorization-reviewer';
+  if (!library.version('user', role, 1)) {
+    library.saveDraft('user', {
+      profileId: role,
+      expectedVersion: 0,
+      expectedRevision: 0,
+      idempotencyKey: `draft-${role}`,
+      definition: {
+        name: role,
+        role,
+        modelPolicyRole: role,
+        instructions: 'Review the bounded assignment.',
+        expectedOutput: 'Evidence',
+        acceptanceCriteria: ['Cite evidence'],
+      },
+    });
+    library.publish('user', {
+      profileId: role,
+      expectedVersion: 1,
+      idempotencyKey: `publish-${role}`,
+    });
+  }
+  const view = await h.api.view(h.group);
+  for (const policy of view.policies.filter((p) => p.readsFutureDiscussion))
+    await h.api.setPolicy(h.group, {
+      requestId: crypto.randomUUID(),
+      expectedMembershipRevision: view.membershipRevision,
+      expectedRevision: policy.revision,
+      sessionId: policy.sessionId,
+      readsFutureDiscussion: false,
+      repliesByDefault: false,
+    });
+  const service = getSpecialistConsultations();
+  const catalog = await service.catalog(authority);
+  const input = {
+    requestId: crypto.randomUUID(),
+    connectionId: catalog.repositories[0].connectionId,
+    repository: 'example/acceptance',
+    durationMinutes: 10,
+    routes: [
+      {
+        role,
+        accountId: 'offline-personal',
+        model: 'fixture-model',
+        reasoningEffort: 'low',
+        runOn: 'local',
+        targetId: 'offline-observation',
+      },
+    ],
+  };
+  const approve = vi.fn(async (_display: Record<string, unknown>) => true);
+  return { h, service, authority, input, approve };
+}
+
+it('replays an exact authorization outside the recent-policy catalog without another approval', async () => {
+  const { service, authority, input, approve } = await authorizationFixture();
+  const original = await service.authorize(authority, input, approve);
+  for (let i = 0; i < 21; i++)
+    await service.authorize(authority, { ...input, requestId: crypto.randomUUID() }, approve);
+  expect(service.receipts.policies(authority.leadSessionId)).toHaveLength(20);
+  const approvals = approve.mock.calls.length;
+  await expect(service.authorize(authority, input, approve)).resolves.toEqual(original);
+  expect(approve).toHaveBeenCalledTimes(approvals);
+}, 30000);
+
 it('lets an ordinary lead recruit a saved planner, read its attributed result and request independent review without replay', async () => {
   const h = await journey.getApplicationUiJourney();
   const { getSpecialistConsultations } = await import('../specialist-consultation-runtime.js');
@@ -481,3 +561,29 @@ it('recovers a lost join response using the original shared owner without alloca
     native.restore();
   }
 }, 60000);
+
+it('does not redirect a retained policy when its lead moves to another shared conversation', async () => {
+  const { h, service, authority, input, approve } = await authorizationFixture();
+  const original = await service.authorize(authority, input, approve);
+  const membership = h.events.getSessionCollaboration(original.collaborationId)!;
+  h.events.setSessionCollaboration(original.collaborationId, {
+    expectedRevision: membership.revision,
+    participantSessionIds: membership.participantSessionIds.filter(
+      (id) => id !== authority.leadSessionId,
+    ),
+  });
+  const replacementGroup = crypto.randomUUID();
+  h.events.collaborationConversation.begin(replacementGroup, {
+    requestId: crypto.randomUUID(),
+    sessionId: authority.leadSessionId,
+  });
+  const replay = await service.authorize(authority, input, approve).then(
+    (policy) => ({ policy }),
+    (error: unknown) => ({ error }),
+  );
+  expect(service.receipts.policy(authority.leadSessionId, original.policyId)).toEqual(original);
+  expect(approve).toHaveBeenCalledOnce();
+  if ('error' in replay)
+    expect(replay.error).toMatchObject({ message: expect.stringContaining('Agents sharing') });
+  else expect(replay.policy).toEqual(original);
+});
