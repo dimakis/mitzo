@@ -17,6 +17,7 @@ import { ChatAgentProfilePicker } from './ChatAgentProfilePicker';
 import './ConversationAgents.css';
 import '../styles/header-actions.css';
 import { ConversationRepositoryPicker } from './ConversationRepositoryPicker';
+import { QuickSettingsContext } from '../lib/quick-settings-context';
 
 export interface ConversationAgent {
   id: string;
@@ -63,7 +64,13 @@ export function ConversationAgents(props: {
   joiningOwner?: ConversationJoiningOwner;
 }) {
   // A route change synchronously retires the dialog, callbacks and private setup.
-  return <ConversationAgentsBody key={props.scope} {...props} />;
+  // Participant editors belong to this dialog. Portals retain React context,
+  // so inheriting the source chat's navigation would move them into its settings.
+  return (
+    <QuickSettingsContext.Provider value={null}>
+      <ConversationAgentsBody key={props.scope} {...props} />
+    </QuickSettingsContext.Provider>
+  );
 }
 /** The query box is the available conversation width, before the header's own gutter. */
 function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; children: ReactNode }) {
