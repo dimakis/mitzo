@@ -1,4 +1,4 @@
-import { localCommandStatusMessage } from '@mitzo/client';
+import { activeSteeringCommandId, localCommandStatusMessage } from '@mitzo/client';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import { SessionLaunchConfigSchema, supportsUserTurnSteering } from '@mitzo/protocol';
 import { SessionLaunchDefaultsControl } from '../components/SessionLaunchDefaultsControl';
@@ -290,9 +290,7 @@ function DesktopChatViewContent() {
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew || localRuntime.preparedFirst;
-  const steerTarget = messages.messages
-    .filter((message) => message.role === 'user' && message.commandState === 'running')
-    .at(-1)?.messageId;
+  const steerTarget = activeSteeringCommandId(messages);
   const supportsSteering = localBound && supportsUserTurnSteering(localRuntime.binding);
   const turnSteering = useTurnSteering(activeSessionId, steerTarget, !!supportsSteering);
 

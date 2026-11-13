@@ -9,6 +9,8 @@ import {
   CollaborationDurableTranscriptSchema,
   COLLABORATION_DURABLE_TRANSCRIPT_MAX_WIRE_BYTES,
   SymposiumProvenanceSchema,
+  TranscriptCommandStateSchema,
+  type TranscriptCommandState,
 } from '@mitzo/protocol';
 import { CollaborationApiClient } from './collaboration-api.js';
 import type { FinishedBlock, FinishedMessage, Session, SymposiumProvenance } from '@mitzo/protocol';
@@ -43,6 +45,7 @@ export interface GitInfo {
 
 export interface ReconnectTranscript {
   cursor?: number;
+  commandStates?: TranscriptCommandState[];
   messages: FinishedMessage[];
   current: {
     messageId: string;
@@ -304,7 +307,17 @@ export class MitzoApiClient {
       (!Number.isSafeInteger(transcript.cursor) || transcript.cursor < 0)
     )
       throw new Error('Invalid transcript cursor');
-    return { ...transcript, currents };
+    const commandStates =
+      transcript.commandStates === undefined
+        ? undefined
+        : TranscriptCommandStateSchema.array().parse(transcript.commandStates);
+    if (
+      commandStates?.some(
+        (command) => transcript.cursor !== undefined && command.seq > transcript.cursor,
+      )
+    )
+      throw new Error('Command state exceeds transcript cursor');
+    return { ...transcript, currents, ...(commandStates ? { commandStates } : {}) };
   }
 
   async getSessionMeta(sessionId: string): Promise<SessionMetaResponse | null> {
