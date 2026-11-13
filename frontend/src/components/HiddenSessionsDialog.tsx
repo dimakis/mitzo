@@ -34,7 +34,7 @@ function RetainedChat({
     <>
       <p>
         {session.resourcesReleased
-          ? 'Resources were released. Saved history remains; continuing starts a new chat with its own workspace.'
+        ? 'Cleanup finished. Saved history remains; continuing starts a new chat with its own workspace. Retained files follow the cleanup review’s preservation policy.'
           : 'Hiding keeps saved history and workspace resources. Cleanup requires a separate review.'}
       </p>
       {session.canRestore === false && !session.resourcesReleased && (

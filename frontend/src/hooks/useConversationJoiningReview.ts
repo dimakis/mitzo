@@ -35,6 +35,7 @@ type State = {
   brief: string;
   pending: 'review' | 'confirm' | 'recover' | null;
   error: string | null;
+  diagnostic?: { code: string; stage: string; requestId: string };
   submission: CollaborationJoinInput | null;
   uncertain: boolean;
   join: CollaborationJoin | null;
@@ -222,6 +223,8 @@ export function useConversationJoiningReview(
   });
   const current = useRef(state);
   const generation = useRef(0);
+  // Keep the original failure locally; only bounded metadata enters diagnostics.
+  const lastFailure = useRef<unknown>(null);
   const read = useRef<AbortController | null>(null);
   const alive = useRef(true);
   const boundSource = useRef<string | null>(owner?.sourceConversationId ?? null);
@@ -414,6 +417,7 @@ export function useConversationJoiningReview(
       setup: captured,
       pending: 'review',
       error: null,
+      diagnostic: undefined,
       ...(brief !== undefined ? { brief } : { review: null }),
     });
     try {
@@ -450,11 +454,13 @@ export function useConversationJoiningReview(
       });
       return;
     }
+    let reviewStage: 'capture' | 'review' | 'validation' = 'review';
     try {
       let result: ConversationJoiningReviewResult;
       if (owner.kind === 'application') {
         if (retained.current?.version !== 2) throw new Error('Application intent unavailable');
         if (retained.current.application.state === 'capture_pending') {
+          reviewStage = 'capture';
           const raw = await owner.captureReview(structuredClone(input), controller.signal);
           if (!canPublish(operation, identity)) return;
           const normalized = CollaborationApplicationReviewInputSchema.parse(raw);
@@ -474,6 +480,7 @@ export function useConversationJoiningReview(
         if (record?.version !== 2 || record.application.state !== 'captured')
           throw new Error('Captured application intent unavailable');
         const applicationInput = structuredClone(record.application.input);
+        reviewStage = 'review';
         result = await owner.review(structuredClone(applicationInput), controller.signal);
         if (!canPublish(operation, identity)) return;
         const { snapshot, settings } = result;
@@ -490,14 +497,29 @@ export function useConversationJoiningReview(
         result = await owner.review(structuredClone(input), controller.signal);
       }
       if (!canPublish(operation, identity)) return;
+      reviewStage = 'validation';
       const accepted = readReview(result, owner, captured, brief, previous);
       save({ ...retained.current!, acceptedReview: joiningReviewFence(accepted) });
       update({ review: accepted, brief: accepted.snapshot.joiningBrief, pending: null });
-    } catch {
+      lastFailure.current = null;
+    } catch (cause) {
       if (!canPublish(operation, identity)) return;
+      lastFailure.current = cause;
+      const code = `joining_${reviewStage}_failed`;
+      console.error('Symposium joining failed', {
+        code,
+        stage: reviewStage,
+        requestId: input.requestId,
+        sourceConversationId: owner.sourceConversationId,
+        errorName: cause instanceof Error ? cause.name : 'UnknownError',
+      });
       update({
         pending: null,
-        error: 'The joining brief could not be checked. Your setup and edits stay here.',
+        error:
+          reviewStage === 'capture'
+            ? 'The selected agent, account, repository or conversation context could not be checked. Your setup and edits stay here.'
+            : 'The joining brief could not be checked. Your setup and edits stay here.',
+        diagnostic: { code, stage: reviewStage, requestId: input.requestId },
       });
     }
   };

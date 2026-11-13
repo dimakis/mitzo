@@ -71,3 +71,14 @@ fixtures, but macOS denied browser Mach service registration at startup even
 through the approved bounded executor. No fixture ran and no rendered capture
 was inspected. Do not claim visual acceptance until CI supplies that evidence.
 No production activation, live model call or actual resource deletion occurred.
+
+## Combined-main integration
+
+PR #1340 supersedes the now-closed #1307; its branch and review history remain.
+GitHub reported an actual manifest conflict after #1333 landed on main as
+`f850dcc2`. Integrated that accepted change, preserving its deliberate sharing
+controls and this feature's read boundaries. The combined candidate passed 161
+focused chat, prompt-context, receipt, hidden-history and design checks, with one
+existing skip. Runtime source inventory advanced to
+`v1.0.1126-chat-lifecycle-integration`. Full CI and exact-head Centaur review remain
+separate delivery evidence.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ConversationAgents } from '../ConversationAgents';
 import { WorkspaceControls } from '../WorkspaceControls';
@@ -106,6 +106,42 @@ beforeEach(() => {
     throw Error(`Unexpected fixture request: ${path}`);
   });
 });
+
+it('keeps the selected profile when its catalog refresh fails instead of falling back to Default Mitzo', async () => {
+  render(
+    <MemoryRouter>
+      <ConversationAgents
+        scope="profile-failure"
+        agents={[]}
+        messages={[]}
+        joiningOwner={{
+          kind: 'application',
+          sourceConversationId: 'profile-failure',
+          collaborationId: '00000000-0000-4000-8000-000000000002',
+          captureReview: vi.fn(),
+          review: vi.fn(),
+          confirm: vi.fn(),
+          recover: vi.fn(),
+        }}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  const dialog = screen.getByRole('dialog', { name: 'Add agent' });
+  await within(dialog).findByRole('button', { name: /^Account, Offline account$/ });
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Agent,/ }));
+  const reviewer = await within(dialog).findByRole('button', {
+    name: 'Reviewer · Independent review · r1',
+  });
+  vi.mocked(apiFetch).mockRejectedValueOnce(Error('Selected profile could not be read.'));
+  fireEvent.click(reviewer);
+  await act(async () => {});
+  expect(
+    await within(dialog).findAllByText('Selected profile could not be read.'),
+  ).not.toHaveLength(0);
+  expect(reviewer.getAttribute('aria-pressed')).toBe('true');
+});
 afterEach(() => {
   cleanup();
   localStorage.clear();
@@ -146,34 +182,44 @@ it('keeps real Add agent pickers inside the dialog when opened from compact chat
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Architect' }));
   fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
   const dialog = screen.getByRole('dialog', { name: 'Add agent' });
-  const agent = await within(dialog).findByRole('combobox', { name: /^Agent$/ });
-  const account = await within(dialog).findByRole('combobox', { name: /^Account$/ });
-  const model = within(dialog).getByRole('combobox', { name: /^Model$/ });
-  expect((account as HTMLSelectElement).value).toBe('offline-account');
-  expect((model as HTMLSelectElement).value).toBe('offline-model');
-  expect(within(dialog).getByRole('combobox', { name: 'Thinking level' })).toBeTruthy();
-  fireEvent.change(agent, { target: { value: '["saved","reviewer",1]' } });
+  const account = await within(dialog).findByRole('button', { name: /^Account, Offline account$/ });
+  fireEvent.click(account);
+  expect(
+    within(dialog).getByRole('button', { name: 'Offline account' }).getAttribute('aria-pressed'),
+  ).toBe('true');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Model, Offline model$/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Offline model' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  expect(within(dialog).getByRole('button', { name: /^Thinking,/ })).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Agent,/ }));
+  fireEvent.click(
+    await within(dialog).findByRole('button', {
+      name: 'Reviewer · Independent review · r1',
+    }),
+  );
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name in this chat' }), {
     target: { value: 'Bob' },
   });
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Where it runs,/ }));
   fireEvent.click(within(dialog).getByRole('radio', { name: 'Mac host' }));
   fireEvent.click(await within(dialog).findByRole('button', { name: /^Add repository$/ }));
   expect(await within(dialog).findByRole('combobox', { name: 'Local repository' })).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
   fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
   expect(
     (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
   ).toBe('Bob');
-  expect(await screen.findByRole('combobox', { name: /^Account$/ })).toBeTruthy();
-  expect((screen.getByRole('combobox', { name: /^Agent$/ }) as HTMLSelectElement).value).toBe(
-    '["saved","reviewer",1]',
-  );
+  expect(await screen.findByRole('button', { name: /^Account, Offline account$/ })).toBeTruthy();
+  expect(await screen.findByRole('button', { name: /^Agent, Reviewer/ })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
   fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
   expect((screen.getByRole('textbox', { name: 'Source setting' }) as HTMLInputElement).value).toBe(
     'Original chat',
   );
-  expect(screen.queryByRole('combobox', { name: /^Agent$/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Agent, Reviewer/ })).toBeNull();
   expect(
     vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
   ).toBe(true);
