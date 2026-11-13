@@ -1,3 +1,8 @@
+import {
+  hasHostKnowledgeStore,
+  prepareHostKnowledge,
+  hostKnowledgeReceipt,
+} from './published-host-knowledge.js';
 import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { retainedApplicationEffectObserver } from './retained-application-effects.js';
@@ -2828,6 +2833,39 @@ async function openCodexChatBound(
             await hooks.run('Stop', { stop_hook_active: false }, signal);
           }
         : undefined,
+    ...(options.ownedLocal && !options.adviserScope && hasHostKnowledgeStore()
+      ? {
+          prepareSystemPrompt: async (signal: AbortSignal) => {
+            await options.ownedLocal?.assertCurrent();
+            const selected = await prepareHostKnowledge(
+              options.session,
+              agentContext?.source === 'packs',
+              signal,
+              () =>
+                sessionLearningGuidance(
+                  options.eventStore.getSession(options.conversationId)?.learningPolicy ??
+                    parseSessionLearningPolicy(),
+                ),
+            );
+            await options.ownedLocal?.assertCurrent();
+            return selected?.context;
+          },
+          onApplicationContextAccepted: (
+            commandId: string,
+            threadId: string,
+            turnId: string,
+            context: string,
+          ) => {
+            options.eventStore.append(options.conversationId, 'published_knowledge_adopted', {
+              runtime: 'local-mac',
+              commandId,
+              threadId,
+              turnId,
+              ...hostKnowledgeReceipt(options.session, context),
+            });
+          },
+        }
+      : {}),
     ...(runtimeManager
       ? {
           prepareSystemPrompt: async (signal: AbortSignal, turn?: { commandId: string }) =>
