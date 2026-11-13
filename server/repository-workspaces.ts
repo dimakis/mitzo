@@ -676,6 +676,9 @@ export class RepositoryWorkspaces {
   getOrdinaryWorkspaceForOperation(operationId: string) {
     return this.ordinaryWorkspaceProvider().forOperation(operationId);
   }
+  releaseAbsentOrdinaryAllocation(operationId: string, assertAbsent: () => void): void {
+    this.ordinaryWorkspaceProvider().releaseAbsent(operationId, assertAbsent);
+  }
   validateRetainedOrdinaryWorkspace(conversationId: string) {
     return this.ordinaryWorkspaceProvider().validateRetained(conversationId);
   }

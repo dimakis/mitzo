@@ -54,6 +54,7 @@ export async function proposeTelosSession(
         telos: previous.telos,
         telosReview: previous.telosReview,
         telosReviewOwner: previous.telosReviewOwner,
+        configuration: previous.configuration,
       }
     : await controller.telos.propose(sourceSessionId, input, authority);
   authority.assertCurrent();
@@ -66,6 +67,7 @@ export async function proposeTelosSession(
     originalInput: input,
     configuration:
       previous?.configuration ??
+      selected.configuration ??
       resolveSessionLaunchConfig(
         controller.defaults.get('user').configuration ?? initialSessionLaunchConfig(),
         input.overrides,

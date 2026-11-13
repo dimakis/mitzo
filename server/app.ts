@@ -258,6 +258,7 @@ import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { initializeSessionLaunches, closeSessionLaunches } from './session-launch-controller.js';
 import { createTelosSessionLaunchHost } from './telos-session-launch-host.js';
+import { createTelosAdoptionRuntime } from './telos-adoption-runtime.js';
 import { createTelosSessionProposalRouter } from './telos-session-launch-adapters.js';
 import {
   qualifySessionLaunchConfig,
@@ -1315,6 +1316,7 @@ const sessionLaunchController = initializeSessionLaunches(
   (store) =>
     createTelosSessionLaunchHost({
       store,
+      workspaces: getOrdinaryWorkspaces,
       events: eventStore,
       dbPath: () => telosDatabasePath(),
       ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
@@ -2438,6 +2440,13 @@ async function resolveTelosOrdinaryWorkspaceSelection(
   ordinaryWorkspaceTaskRoot(true);
   return selected;
 }
+// Host lifetime: separate authenticated requests must recover the same exact
+// retired object after registry removal. No request authority is stored here.
+const telosAdoptionRuntime = createTelosAdoptionRuntime({
+  events: eventStore,
+  registry,
+  native: getCodexConversationStore,
+});
 function telosRoleHost(operatorConnectionId?: string, ordinary = false) {
   return createTelosWorkRoleHost({
     dbPath: telosDatabasePath,
@@ -2446,6 +2455,7 @@ function telosRoleHost(operatorConnectionId?: string, ordinary = false) {
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
     workspaces: () => (ordinary ? getOrdinaryWorkspaces() : getRepositoryWorkspaces()),
     ordinary: {
+      adoption: telosAdoptionRuntime,
       resolveSelection: (scope, signal) =>
         resolveTelosOrdinaryWorkspaceSelection(scope.input.settings, signal, operatorConnectionId),
       authorizeSettings: async (scope, signal) => {

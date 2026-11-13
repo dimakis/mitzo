@@ -230,7 +230,12 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { setSkillPolicy } from './skill-policy.js';
-import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from './query-loop.js';
+import {
+  runQueryLoop,
+  retainQueryFinalization,
+  broadcastToObservers,
+  deliverRetainedSessionEvent,
+} from './query-loop.js';
 import type { SessionChangeEvent } from './session-overview.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
@@ -4238,16 +4243,21 @@ export async function prepareOwnedCodexChat(
   let closed = false;
   let ran = false;
   let releaseNativeHostOperator: (() => void) | undefined;
+  let closeFailure: { cause: unknown } | undefined;
+  let settleOwner: ((failure: { cause: unknown } | undefined) => void) | undefined;
   const close = () => {
-    if (closed) return;
+    if (closed) {
+      if (closeFailure)
+        throw new Error('Owned local Codex chat unavailable', { cause: closeFailure.cause });
+      return;
+    }
     closed = true;
     abortController.signal.removeEventListener('abort', onAbort);
-    let failed = false;
     const attempt = (operation: () => void) => {
       try {
         operation();
-      } catch {
-        failed = true;
+      } catch (cause) {
+        closeFailure ??= { cause };
       }
     };
     attempt(() => queryInstance?.close());
@@ -4269,7 +4279,16 @@ export async function prepareOwnedCodexChat(
     );
     attempt(releaseOwner);
     attempt(() => _onSessionChange?.(ownedClientId, 'end', sessionId));
-    if (failed) throw unavailable();
+    settleOwner?.(closeFailure);
+    if (closeFailure) {
+      log.warn('Owned chat owner cleanup remains unconfirmed', {
+        code: 'owned_query_finalization_failed',
+        stage: 'owner_release',
+        sessionId,
+        commandId,
+      });
+      throw new Error('Owned local Codex chat unavailable', { cause: closeFailure.cause });
+    }
   };
   const onAbort = () => {
     try {
@@ -4297,6 +4316,14 @@ export async function prepareOwnedCodexChat(
       ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
+    retainQueryFinalization(
+      session,
+      new Promise<{ cause: unknown } | undefined>((resolve) => {
+        settleOwner = resolve;
+      }).then((failure) => {
+        if (failure) throw failure.cause;
+      }),
+    );
     if (options.operatorConnectionId)
       releaseNativeHostOperator = retainNativeHostToolOperator(
         session,
@@ -4512,6 +4539,7 @@ export async function prepareOwnedCodexChat(
           throw findSessionRuntimeError(error) ?? unavailable();
         }
       };
+      let commandFailure: { cause: unknown } | undefined;
       try {
         if (localAdmission) {
           // openCodexChat can enqueue and attempt a pump while the owning
@@ -4543,10 +4571,19 @@ export async function prepareOwnedCodexChat(
           },
         );
       } catch (error) {
-        throw findSessionRuntimeError(error) ?? unavailable();
-      } finally {
-        close();
+        commandFailure = {
+          cause:
+            findSessionRuntimeError(error) ??
+            retainCodexPreparationFailure('runtime_connection', error),
+        };
       }
+      // Retain/report cleanup-only failures without replacing a command error.
+      try {
+        close();
+      } catch (cause) {
+        commandFailure ??= { cause };
+      }
+      if (commandFailure) throw commandFailure.cause;
     },
   };
 }

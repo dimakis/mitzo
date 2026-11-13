@@ -748,11 +748,42 @@ export class TelosWorkStore {
     return row
       ? {
           setup: TelosOrdinaryWorkRoleSetupIntentSchema.parse(JSON.parse(row.intent)),
+          released: !!this.db
+            .prepare(
+              'SELECT 1 FROM telos_work_role_setup_releases WHERE request_id=? AND actor_id=?',
+            )
+            .get(requestId, `operator:${actor.id}`),
           receipt: row.receipt
             ? TelosWorkCommandReceiptSchema.parse(JSON.parse(row.receipt))
             : null,
         }
       : undefined;
+  }
+  releaseAbsentOrdinaryRoleSetup(
+    setup: TelosOrdinaryWorkRoleSetupIntent,
+    actor: TelosWorkActor,
+    assertAbsent: () => void,
+  ): void {
+    this.operator(actor);
+    this.db
+      .transaction(() => {
+        const retained = this.ordinaryRoleSetupForHost(setup.input.requestId, actor);
+        if (
+          !retained ||
+          JSON.stringify(retained.setup) !== JSON.stringify(setup) ||
+          retained.receipt ||
+          setup.input.createOnly !== true
+        )
+          conflict('Original unfinished role reservation required');
+        const proof: unknown = assertAbsent();
+        if (proof !== undefined) conflict('Synchronous allocation-owner reconciliation required');
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO telos_work_role_setup_releases(request_id,actor_id,fingerprint) VALUES(?,?,?)',
+          )
+          .run(setup.input.requestId, setup.actorId, hash(setup.input));
+      })
+      .immediate();
   }
   rolePresentationForSetup(
     raw: unknown,
@@ -849,6 +880,12 @@ export class TelosWorkStore {
         if (saved) {
           if (saved.fingerprint !== fingerprint)
             conflict('Role setup identity reused with different input');
+          if (
+            this.db
+              .prepare('SELECT 1 FROM telos_work_role_setup_releases WHERE request_id=?')
+              .get(input.requestId)
+          )
+            conflict('Original role reservation was safely released; retain its journal');
           return {
             setup: TelosWorkRoleSetupRequestIntentSchema.parse(JSON.parse(saved.intent)),
             receipt: saved.receipt
@@ -889,6 +926,7 @@ export class TelosWorkStore {
           const pending = this.db
             .prepare(
               `SELECT request_id FROM telos_work_role_setups WHERE receipt IS NULL
+            AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
             AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
             AND (?=1 OR json_extract(intent,'$.input.createOnly')=1) LIMIT 1`,
             )
@@ -1607,6 +1645,7 @@ export class TelosWorkStore {
           const reserved = this.db
             .prepare(
               `SELECT intent FROM telos_work_role_setups WHERE receipt IS NULL
+            AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
             AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
             AND json_extract(intent,'$.input.createOnly')=1`,
             )

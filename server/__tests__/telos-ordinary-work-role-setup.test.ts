@@ -56,6 +56,45 @@ afterAll(() => {
 const fixture = (role?: 'advisor' | 'lead' | 'worker') =>
   createTelosOrdinaryWorkFixture(cleanup, role);
 
+it('releases only a proved absent create allocation and permanently fences its original allocator', async () => {
+  const f = await fixture();
+  const input = { ...f.input, createOnly: true };
+  const saved = f.work.prepareOrdinaryRoleSetup(input, f.actor);
+  const operationId = saved.setup.allocationOperationId;
+  const settings = input.settings;
+  f.native.workspaces.releaseAbsentOrdinaryAllocation(operationId, () => {
+    expect(f.native.events.getOrdinaryWorkspaceSessionPreparation(operationId)).toBeUndefined();
+  });
+  f.work.releaseAbsentOrdinaryRoleSetup(saved.setup, f.actor, () => undefined);
+  f.restart();
+  expect(() => f.work.prepareOrdinaryRoleSetup(input, f.actor)).toThrow(/released/i);
+  expect(f.work.ordinaryRoleSetupForHost(input.requestId, f.actor)?.released).toBe(true);
+  await expect(
+    f.native.workspaces.reserveOrdinaryWorkspace({
+      allocationOperationId: operationId,
+      preparationId: settings.workspace.preparationId,
+      settings,
+      binding: f.native.binding,
+      taskRoot: f.native.taskRoot,
+      agentProfile: f.native.library.version(
+        'user',
+        settings.selection.agent.profileId,
+        settings.selection.agent.revision,
+      )!,
+      signal: f.native.signal.signal,
+    }),
+  ).rejects.toThrow(/released/i);
+  expect(
+    f.work.prepareOrdinaryRoleSetup({ ...input, requestId: randomUUID() }, f.actor).receipt,
+  ).toBeNull();
+  expect(() =>
+    f.native.workspaces.releaseAbsentOrdinaryAllocation(
+      f.native.first.receipt.allocationOperationId,
+      () => undefined,
+    ),
+  ).toThrow(/allocation/i);
+});
+
 it.each([
   'success',
   'lost response',
@@ -101,7 +140,9 @@ it.each([
     });
     if (scenario !== 'success') {
       await expect(owner.setup(f.actor, input, signal.signal)).rejects.toThrow();
-      expect(f.work.read('studio', f.actor).assignments).toEqual([]);
+      expect(f.work.read('studio', f.actor).assignments).toHaveLength(
+        scenario === 'context failure' ? 1 : 0,
+      );
       expect(reserve).not.toHaveBeenCalled();
       if (scenario !== 'lost response' && scenario !== 'context failure') return;
       if (scenario === 'context failure')
@@ -122,6 +163,11 @@ it.each([
 
 it.each([
   'recovery',
+  'existing adoption',
+  'lost completed adoption',
+  'partial adoption context',
+  'adoption release',
+  'safe release',
   'feature lead recovery',
   'Symposium origin recovery',
   'stale Symposium origin before allocation',
@@ -259,6 +305,7 @@ it.each([
     };
     const store = new SessionLaunchStore(':memory:');
     cleanup.push(() => store.close());
+    let retiredForAbort = false;
     const roleHost = createTelosWorkRoleHost({
       dbPath: () => f.canonical.dbPath,
       events: f.native.events,
@@ -273,6 +320,12 @@ it.each([
         throw Error('Repository settings must not run');
       },
       ordinary: {
+        adoption: {
+          assertQuiescent: () => {},
+          retire: async () => {
+            retiredForAbort = scenario === 'adoption release';
+          },
+        },
         resolveSelection: async () => ({
           binding: f.native.binding,
           agentProfile: f.native.library.version(
@@ -282,11 +335,18 @@ it.each([
           )!,
           taskRoot: f.native.taskRoot,
         }),
-        authorizeSettings: async () => {},
+        authorizeSettings: async () => {
+          if (retiredForAbort) throw Error('Authority changed after retirement');
+        },
       },
     });
-    let loseResponse = true;
+    let loseResponse = !['existing adoption', 'partial adoption context'].includes(scenario);
+    if (scenario === 'existing adoption')
+      vi.spyOn(f.native.events.contextTransitions, 'release').mockImplementationOnce(() => {
+        throw Error('Lost context release');
+      });
     const host = createTelosSessionLaunchHost({
+      workspaces: () => f.native.workspaces,
       store,
       events: f.native.events,
       dbPath: () => f.canonical.dbPath,
@@ -319,6 +379,14 @@ it.each([
       assertCurrent: () => {},
     };
     const input = {
+      ...([
+        'existing adoption',
+        'lost completed adoption',
+        'partial adoption context',
+        'adoption release',
+      ].includes(scenario)
+        ? { existingConversationId: f.native.first.receipt.sessionId }
+        : {}),
       requestId: randomUUID(),
       title: 'Panel placement worker',
       prompt: 'Review the selected slice.',
@@ -354,8 +422,70 @@ it.each([
         },
       );
     }
+    if (scenario === 'safe release')
+      vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace').mockRejectedValue(
+        Error('allocation unavailable'),
+      );
+    if (scenario === 'partial adoption context') {
+      const append = f.native.events.append.bind(f.native.events);
+      let fail = true;
+      vi.spyOn(f.native.events, 'append').mockImplementation((...args) => {
+        if (args[1] === 'contributor_guidance' && fail) {
+          fail = false;
+          throw Error('Partial context storage failure');
+        }
+        return append(...args);
+      });
+    }
     const uncertain = await service.approve(record.proposalId, 'user', edits, 1, authority);
     expect(uncertain.state).toBe('uncertain');
+    if (scenario === 'lost completed adoption')
+      f.native.events.upsertSession({
+        sessionId: f.native.first.receipt.sessionId,
+        selectedModel: 'user-choice-after-adoption',
+      });
+    if (scenario === 'safe release' || scenario === 'adoption release') {
+      if (scenario === 'adoption release')
+        items.update(
+          {
+            itemId: child.item.id,
+            requestId: randomUUID(),
+            expectedRevision: items.read(child.item.id).revision,
+            note: 'Work changed during retirement',
+          },
+          sourceSessionId,
+        );
+      vi.spyOn(store, 'markReleased').mockImplementationOnce(() => {
+        throw Error('Lost release response');
+      });
+      await expect(
+        service.release(record.proposalId, 'user', uncertain.revision, authority),
+      ).rejects.toThrow(/Release/);
+      if (scenario === 'adoption release')
+        f.native.events.upsertSession({
+          sessionId: f.native.first.receipt.sessionId,
+          selectedModel: 'user-changed-after-release',
+        });
+      const released = await service.refresh(record.proposalId, 'user', authority);
+      expect(released.state).toBe('cancelled');
+      expect(f.work.ordinaryRoleSetupForHost(record.proposalId, f.actor)?.released).toBe(true);
+      expect(f.native.events.listSessions()).toHaveLength(before);
+      expect(
+        f.native.events.contextTransitions.observe(f.native.first.receipt.sessionId).held,
+      ).toBe(false);
+      expect((await service.refresh(record.proposalId, 'user', authority)).state).toBe('cancelled');
+      return;
+    }
+    if (scenario === 'partial adoption context')
+      items.update(
+        {
+          itemId: child.item.id,
+          requestId: randomUUID(),
+          expectedRevision: items.read(child.item.id).revision,
+          note: 'Work changed after partial context',
+        },
+        sourceSessionId,
+      );
     if (scenario.startsWith('stale')) {
       // Hiding the existing Symposium removes one visible row; it must not allocate a child.
       expect(f.native.events.listSessions()).toHaveLength(
@@ -369,6 +499,9 @@ it.each([
       expect(refresh.state).toBe('uncertain');
       expect(refresh.error).toContain(record.proposalId);
       if (scenario === 'stale after reservation') {
+        await expect(
+          service.release(record.proposalId, 'user', uncertain.revision, authority),
+        ).rejects.toThrow(/Release/);
         const setup = store.get(record.proposalId, 'user').telosSetup!;
         expect(() =>
           f.work.prepareOrdinaryRoleSetup(
@@ -383,7 +516,20 @@ it.each([
     expect(recovered.state).toBe('assigned');
     expect(recovered.telos?.role).toBe(scenario === 'feature lead recovery' ? 'lead' : 'worker');
     expect(recovered.childSessionId).not.toBe(sourceSessionId);
-    expect(f.native.events.listSessions()).toHaveLength(before + 1);
+    expect(f.native.events.listSessions()).toHaveLength(
+      before +
+        (['existing adoption', 'lost completed adoption', 'partial adoption context'].includes(
+          scenario,
+        )
+          ? 0
+          : 1),
+    );
+    if (scenario === 'existing adoption')
+      expect(recovered.childSessionId).toBe(f.native.first.receipt.sessionId);
+    if (scenario === 'existing adoption')
+      expect(f.native.events.contextTransitions.observe(recovered.childSessionId!).held).toBe(
+        false,
+      );
     expect(f.work.read(child.item.id, f.actor).assignments[0].conversation.conversationId).toBe(
       recovered.childSessionId,
     );

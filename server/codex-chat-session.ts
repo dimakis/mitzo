@@ -2667,6 +2667,13 @@ async function openCodexChatBound(
       }
     : undefined;
   const runtimeOptions: CodexConversationOptions = {
+    ...(selectedTelosRole && options.ownedLocal
+      ? {
+          providerContextRevision: createHash('sha256')
+            .update(JSON.stringify(selectedTelosRole))
+            .digest('hex'),
+        }
+      : {}),
     canStartCommand: () => options.eventStore.deployment.canDispatch(options.conversationId),
     assertSubagentControlAdmission: () => {
       if (options.eventStore.deployment.active())

@@ -134,7 +134,8 @@ export class OrdinaryWorkspaceCustody {
     db.exec(`CREATE TABLE IF NOT EXISTS ordinary_workspace_preparations (
       id TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS ordinary_workspaces (
-      id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT UNIQUE);`);
+      id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT UNIQUE);
+      CREATE TABLE IF NOT EXISTS ordinary_allocation_releases (operation_id TEXT PRIMARY KEY);`);
     this.migratePrimaryPointer();
   }
   /** Preserve every historical byte while allowing only the current pointer to retire. */
@@ -358,6 +359,22 @@ export class OrdinaryWorkspaceCustody {
       throw Error('Ordinary allocation identity changed');
     return record;
   }
+  /** Durable allocation-owner tombstone, serialized with reserve after readiness
+   * awaits. Missing EventStore receipts alone can never authorize this release. */
+  releaseAbsent(operationId: string, assertAbsent: () => void): void {
+    z.uuid().parse(operationId);
+    this.db
+      .transaction(() => {
+        if (this.forOperation(operationId))
+          throw Error('Original workspace allocation exists; recover it');
+        const proof: unknown = assertAbsent();
+        if (proof !== undefined) throw Error('Synchronous allocation absence proof required');
+        this.db
+          .prepare('INSERT OR IGNORE INTO ordinary_allocation_releases(operation_id) VALUES(?)')
+          .run(operationId);
+      })
+      .immediate();
+  }
   forConversation(conversationId: string) {
     const row = this.db
       .prepare('SELECT id FROM ordinary_workspaces WHERE conversation_id=?')
@@ -448,6 +465,12 @@ export class OrdinaryWorkspaceCustody {
     return this.db
       .transaction(() => {
         sameDirectory(selected.taskRoot, rootIdentity);
+        if (
+          this.db
+            .prepare('SELECT 1 FROM ordinary_allocation_releases WHERE operation_id=?')
+            .get(selected.allocationOperationId)
+        )
+          throw Error('Original allocation was safely released; it cannot be replayed');
         const existing = this.db
           .prepare(
             'SELECT workspace_id,fingerprint FROM ordinary_preparation_allocations WHERE operation_id=?',

@@ -1,6 +1,11 @@
 # Agent-driven Telos session creation
 
-Delivery candidate, 12 November 2026. `TelosCreateSession` proposes a distinct
+Historical delivery note, 12 November 2026. #1302 and #1320 are accepted on main.
+The next bounded source candidate is documented in
+[Reviewed existing-chat adoption and safe recovery](telos-reviewed-chat-adoption.md).
+The original custody/recovery contracts and evidence below remain retained.
+
+`TelosCreateSession` proposes a distinct
 ordinary chat already assigned to selected work. Configuration and retained-work
 context review occur in the originating chat with **Approve & create**. There is
 no manual linking step. Creation admits no provider command. The prompt stays in

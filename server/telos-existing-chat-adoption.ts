@@ -6,9 +6,23 @@ import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import { TelosWorkError, type TelosWorkActor, type TelosWorkStore } from './telos-work-store.js';
 
 type Selection = NonNullable<TelosOrdinaryWorkRoleSetupIntent['input']['adoption']>;
+export function telosAdoptionTransition(setup: TelosOrdinaryWorkRoleSetupIntent) {
+  return {
+    sessionId: setup.input.adoption!.conversationId,
+    operationId: setup.allocationOperationId,
+    fingerprint: createHash('sha256').update(JSON.stringify(setup)).digest('hex'),
+    expectedEpoch: setup.input.adoption!.expectedEpoch,
+  };
+}
 export interface TelosAdoptionRuntime {
-  assertQuiescent(conversationId: string): void;
-  retire(conversationId: string, assertCurrent: () => void, signal: AbortSignal): Promise<void>;
+  assertQuiescent(conversationId: string, operationId: string): void;
+  assertRetirable?(conversationId: string, operationId: string): void;
+  retire(
+    conversationId: string,
+    assertCurrent: () => void,
+    signal: AbortSignal,
+    operationId: string,
+  ): Promise<void>;
 }
 
 /** Bounded identity only: never copies transcript, credentials, grants or drafts. */
@@ -77,12 +91,7 @@ export async function adoptTelosExistingChat(input: {
 }) {
   const { setup, events, work, workspaces, runtime, signal } = input;
   const selected = setup.input.adoption!;
-  const transition = {
-    sessionId: selected.conversationId,
-    operationId: setup.allocationOperationId,
-    fingerprint: createHash('sha256').update(JSON.stringify(setup)).digest('hex'),
-    expectedEpoch: selected.expectedEpoch,
-  };
+  const transition = telosAdoptionTransition(setup);
   const assertCustody = () => {
     signal.throwIfAborted();
     input.assertCurrent();
@@ -97,6 +106,10 @@ export async function adoptTelosExistingChat(input: {
   assertCustody();
   const retained = work.ordinaryRoleSetupForHost(setup.input.requestId, input.actor);
   if (retained?.receipt) {
+    // Assignment is committed under the hold before context. Its immutable
+    // receipt permits recovery after partial context writes or a work edit.
+    await input.retainContext(selected.conversationId);
+    await input.authorize();
     events.contextTransitions.release(transition, 'committed', () => {
       assertCustody();
     });
@@ -105,11 +118,13 @@ export async function adoptTelosExistingChat(input: {
   const assertIdle = () => {
     assertCustody();
     events.assertOrdinaryContextQuiescent(selected.conversationId);
-    runtime.assertQuiescent(selected.conversationId);
+    runtime.assertQuiescent(selected.conversationId, transition.operationId);
     work.assertConversationAvailableForAdoption(selected.conversationId);
   };
   events.contextTransitions.withAdmissionLock(() => {
     assertIdle();
+    if (!events.contextTransitions.hasRetirement(transition))
+      runtime.assertRetirable?.(selected.conversationId, transition.operationId);
     if (
       !events.contextTransitions.read(transition.operationId) &&
       events
@@ -126,19 +141,19 @@ export async function adoptTelosExistingChat(input: {
   });
   // Cancellation or retirement failure retains the same hold and journal.
   if (!events.contextTransitions.hasRetirement(transition)) {
-    await runtime.retire(selected.conversationId, assertCustody, signal);
+    await runtime.retire(selected.conversationId, assertCustody, signal, transition.operationId);
     events.contextTransitions.retainRetirement(transition, assertIdle);
   }
   await input.authorize();
   assertIdle();
-  await input.retainContext(selected.conversationId);
-  await input.authorize();
   const receipt = work.completeOrdinaryRoleSetup(
     setup,
     selected.conversationId,
     input.actor,
     assertIdle,
   );
+  await input.retainContext(selected.conversationId);
+  await input.authorize();
   events.contextTransitions.release(transition, 'committed', () => {
     assertCustody();
     if (!work.ordinaryRoleSetupForHost(setup.input.requestId, input.actor)?.receipt)
