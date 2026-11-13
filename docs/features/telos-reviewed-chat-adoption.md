@@ -122,8 +122,56 @@ the parent was not present in the enrolled Knowledge revision
 `8ca45db12597353d2f3a245da0c2c3a5583feaf9`; retained branch history and the live
 contracts were used without replaying historical operational instructions.
 
-This is source preparation only. CI, independent final review, browser evidence
-and live runtime qualification are separate facts. No merge, deployment,
-staging restart, credential borrowing or live-model invocation is authorized or
-performed. Broader parity remains with native harness owner `477c9d52d200c0f6`
-and readiness owner `65129503d34b4bc3` for a later delivery.
+The original delivery above authorized source preparation only. Broader parity
+remains with native harness owner `477c9d52d200c0f6` and readiness owner
+`65129503d34b4bc3` for a later delivery.
+
+## Landing takeover, 13 November 2026
+
+Dimitri requested takeover and merge of #1330 in conversation
+`b1b28524-e090-8e60-8e29-5408706fd02d`, explicitly after the EnMaaS work lands.
+The prerequisite is #1329. The previous owner confirmed its stand-down and
+preserved its checkout; this takeover uses a separate clone. Deployment and
+live-model qualification remain outside this request. No landing request may
+allow #1330 to overtake #1329.
+
+CI `43397518370` failed server test compilation: the host callback fixture
+returned `Promise<void>` instead of a JSON reply, and spread adoption inputs
+widened `createOnly` from literal `true` to `boolean`. Commit `8811cc5e` fixes
+both fixture types without changing production behavior. The affected suites
+passed 103 tests; selected-file semantic checks loaded 2,249 files with zero
+diagnostics. These checks do not replace full CI.
+
+Commit `e76f5a89` integrates accepted #1326 at
+`f08f01733fa5e722569203d90018b1853b909705`, preserving both source-registry sets.
+Its shared owner/helper/delegation integration passed 98 focused tests. An
+independent correctness review then found that the incoming worker-reservation
+guard also blocked safely released reservations: retained setup rows have no
+receipt after release. A regression reproduced the refusal after durable
+allocator release and canonical-owner reopen. The guard now excludes canonical
+release tombstones, consistent with role setup's existing exclusion. Active
+reservations remain blocking; old setup replay remains rejected; delegation
+allocates one worker and replays its original receipt. Both affected suites pass
+74 tests, including the new regression.
+
+An independent full permission/security pass found no blocking issue at
+`e76f5a89`; its targeted follow-up approved the release-guard correction.
+The independent correctness review also verified the correction with no remaining
+blocker. Full hosted CI, current-source browser screenshot inspection and
+exact-head Centaur final approval remain separate gates. Local review cannot
+supply Centaur's trusted status.
+
+Non-blocking resource follow-up from security review: the host-lifetime
+`retired` map in `server/telos-adoption-runtime.ts` retains completed runtime
+owners. Add a host-only forget operation after durable retirement proof and
+canonical completion, preserving exact operation identity and strong ownership
+for interrupted pre-proof recovery. Verify completed-owner collection and
+uncertain-owner replay before changing this lifetime policy.
+
+The new selected-file commit-service request
+`6cf03919-f50f-426c-99c3-17ff10143306` targeted the enclosing MGMT repository.
+Its unpublished accidental commit was removed with all source files preserved;
+MGMT returned to its original `8ca45db1` head with no tracked payload changes.
+Mitzo commits use the native nested-repository route. Read-only request
+`ebcdd0ab-a1f6-402d-b16c-b35d5686fa1e` exceeded the tool output bound and retains
+an uncertain receipt; it was not replayed or counted as successful execution.

@@ -1971,6 +1971,7 @@ export class TelosWorkStore {
         .prepare(
           `SELECT 1 FROM telos_work_role_setups
         WHERE (receipt IS NULL OR json_extract(intent,'$.input.createOnly')=1)
+        AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
         AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')='worker'
         LIMIT 1`,
         )
