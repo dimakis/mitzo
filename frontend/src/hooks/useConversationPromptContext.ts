@@ -124,14 +124,16 @@ export function useConversationPromptContext(options: {
   const scoped = !!record && record.collaborationId === group && record.authScope === authScope;
   const form = scoped ? record.form : emptyForm();
   const recipients =
-    view && responders
-      ? [
-          ...new Set([
-            ...resolveConversationResponders(view, responders),
-            ...view.policies.filter((p) => p.readsFutureDiscussion).map((p) => p.sessionId),
-          ]),
-        ].sort()
-      : [];
+    form.shareRecipientIds !== undefined
+      ? [...new Set(form.shareRecipientIds)].sort()
+      : view && responders
+        ? [
+            ...new Set([
+              ...resolveConversationResponders(view, responders),
+              ...view.policies.filter((p) => p.readsFutureDiscussion).map((p) => p.sessionId),
+            ]),
+          ].sort()
+        : [];
   const audienceCurrent =
     !!record?.input &&
     record.input.selection.expectedMembershipRevision === view?.membershipRevision &&
@@ -270,6 +272,7 @@ export function useConversationPromptContext(options: {
     visible.review.snapshot.snapshotId === record.snapshot?.snapshotId &&
     visible.review.snapshot.sha256 === record.snapshot?.sha256;
   const attach = () => {
+    if (form.shareRecipientIds !== undefined) return;
     if (!reviewUsable || !record || visible.busy) return;
     try {
       persist({ ...record, attached: true });
@@ -333,7 +336,11 @@ export function useConversationPromptContext(options: {
     canAttach: !!reviewUsable && !visible.busy,
     snapshot: scoped && record.attached && reviewUsable ? record.snapshot : undefined,
     disabledReason,
-    unavailable: !valid() || !group || !clientId || !recipients.length,
+    unavailable:
+      !valid() ||
+      !group ||
+      !clientId ||
+      (form.shareRecipientIds === undefined && !recipients.length),
     show,
     edit,
     reviewContext: review,
