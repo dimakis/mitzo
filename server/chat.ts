@@ -2508,34 +2508,36 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       : openShellWorkdir
         ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
         : buildWorktreeSystemPrompt(repoWorktrees);
-    const systemPromptAppend = options.adviserScope
-      ? options.adviserScope.instructions()
-      : repositoryChatContext(repositoryWorkspace) +
-        'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
-        SESSION_PERMISSION_INSTRUCTIONS +
-        PROFILE_TOOL_INSTRUCTIONS +
-        (options.contributorGuidance === undefined
-          ? telosArtifactInstructions(!!agentContext)
-          : '') +
-        '- Read operations are fine without asking.\n' +
-        '- Keep responses concise — small screen.\n' +
-        (agentContext
-          ? ''
-          : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
-        buildClientCapabilitiesPrompt() +
-        workspacePrompt +
-        (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
-        (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
-        (options.contributorGuidance
-          ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
-          : '') +
-        bootContextAppend +
-        (codexProfile
-          ? ''
-          : sessionLearningGuidance(
-              eventStore.getSession(stateSessionId ?? options.resume ?? wtId)?.learningPolicy ??
-                parseSessionLearningPolicy(),
-            ));
+    const currentSystemPromptAppend = () =>
+      options.adviserScope
+        ? options.adviserScope.instructions()
+        : repositoryChatContext(repositoryWorkspace) +
+          'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
+          SESSION_PERMISSION_INSTRUCTIONS +
+          PROFILE_TOOL_INSTRUCTIONS +
+          (options.contributorGuidance === undefined
+            ? telosArtifactInstructions(!!agentContext)
+            : '') +
+          '- Read operations are fine without asking.\n' +
+          '- Keep responses concise — small screen.\n' +
+          (agentContext
+            ? ''
+            : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
+          buildClientCapabilitiesPrompt() +
+          workspacePrompt +
+          (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
+          (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
+          (options.contributorGuidance
+            ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
+            : '') +
+          bootContextAppend +
+          (codexProfile
+            ? ''
+            : sessionLearningGuidance(
+                eventStore.getSession(stateSessionId ?? options.resume ?? wtId)?.learningPolicy ??
+                  parseSessionLearningPolicy(),
+              ));
+    const systemPromptAppend = currentSystemPromptAppend();
 
     // Recipe-bound chats already have their exact Library definition and context.
     // Loading the legacy definition would compile another, unrelated default bundle.
@@ -3023,15 +3025,18 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         ...(sdkCredentialIsolation || options.ordinarySdkAuthority
           ? { strictMcpConfig: true }
           : {}),
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append:
-            systemPromptAppend +
-            WEB_ACCESS_INSTRUCTIONS +
-            (options.ordinarySdkAuthority
-              ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
-              : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
+        // Replacement queries must read the controller's current learning mode.
+        get systemPrompt() {
+          return {
+            type: 'preset' as const,
+            preset: 'claude_code' as const,
+            append:
+              currentSystemPromptAppend() +
+              WEB_ACCESS_INSTRUCTIONS +
+              (options.ordinarySdkAuthority
+                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
+                : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
+          };
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority

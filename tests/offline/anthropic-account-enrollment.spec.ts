@@ -47,23 +47,14 @@ for (const theme of ['light', 'dark'] as const) {
     });
     await page.goto('/');
     await page.getByRole('combobox', { name: 'Provider', exact: true }).selectOption('enmaas');
-    await page.getByRole('combobox', { name: 'Model API', exact: true }).selectOption('messages');
-    await expect(page.getByLabel('Additional model IDs')).toHaveValue('');
-    await expect(page.getByText(/existing Claude Agent SDK/)).toBeVisible();
-    await page.getByLabel('Account label', { exact: true }).fill('EnMaaS Claude');
-    await page.getByLabel('Intended work project name').fill('Work');
+    await page.getByRole('combobox', { name: 'Runtime', exact: true }).selectOption('messages');
+    await page.getByLabel('Account name', { exact: true }).fill('EnMaaS Claude');
     await page.getByLabel('API key', { exact: true }).fill('synthetic-key');
+    const submit = page.getByRole('button', { name: 'Connect EnMaaS', exact: true });
+    await expect(submit).toBeEnabled();
+    await page.getByText('Advanced settings', { exact: true }).click();
+    await expect(page.getByText(/Messages uses x-api-key/)).toBeVisible();
     await page.getByLabel('Additional model IDs').fill('hosted/omitted');
-    const submit = page.getByRole('button', { name: 'Save API account', exact: true });
-    await expect(submit).toBeDisabled();
-    await page.getByRole('checkbox').check();
-    const consentCopy = await page
-      .getByRole('checkbox')
-      .locator('..')
-      .locator('span')
-      .boundingBox();
-    expect(consentCopy!.width).toBeGreaterThan(100);
-    expect(consentCopy!.x + consentCopy!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
     await submit.focus();
     await expect(submit).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

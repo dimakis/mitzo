@@ -5,6 +5,7 @@ import {
   actToItemChatChooser,
   actToReviewedRoleSetup,
   actToRoleSetupDraft,
+  actToSourcePermissionReview,
 } from './joined-role-setup-ready';
 
 const origin = 'http://127.0.0.1:4321';
@@ -73,6 +74,108 @@ function fixture() {
   return { page, events, request, start, respond };
 }
 afterEach(() => vi.useRealTimers());
+const sourceTarget = {
+  origin,
+  permId: 'source-permission',
+  sessionId: 'lead-chat',
+  artifact: { artifactId: 'report', revision: 1, sha256: 'd'.repeat(64) },
+};
+const sourceUrl =
+  origin + '/api/telos/work/source/permissions/source-permission?sessionId=lead-chat';
+function sourceReview() {
+  return {
+    permId: sourceTarget.permId,
+    sessionId: sourceTarget.sessionId,
+    toolUseId: 'native:adopt',
+    expiresAt: 1_900_000_000_000,
+    proposalSha256: 'a'.repeat(64),
+    operation: { kind: 'adopt', itemId: 'slice', expectedRevision: 'b'.repeat(64) },
+    source: {
+      conversationId: sourceTarget.sessionId,
+      title: null,
+      boundary: { sequence: 1, messageId: 'operator-message' },
+    },
+    messages: [],
+    artifacts: [
+      {
+        ...sourceTarget.artifact,
+        title: 'Role report',
+        filename: 'report.md',
+        sizeBytes: 50,
+        createdAt: '2026-11-13T09:41:51Z',
+        sessionId: 'worker-chat',
+      },
+    ],
+    cursor: 1,
+    hasMore: false,
+  };
+}
+it('waits for fresh exact source bytes across a responsive remount before the five-second DOM checks', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const old = f.request(undefined, sourceUrl, 'GET');
+  f.start(old);
+  let completed = false;
+  const work = actToSourcePermissionReview(f.page, sourceTarget, async () => {
+    f.respond(old, { body: sourceReview() });
+    for (const url of [
+      sourceUrl.replace(origin, 'https://foreign.invalid'),
+      sourceUrl.replace('lead-chat', 'other-chat'),
+    ]) {
+      const wrong = f.request(undefined, url, 'GET');
+      f.start(wrong);
+      f.respond(wrong, { body: sourceReview() });
+    }
+    setTimeout(() => {
+      const fresh = f.request(undefined, sourceUrl, 'GET');
+      f.start(fresh);
+      f.respond(fresh, { body: sourceReview() });
+    }, 6000);
+  }).then(() => {
+    completed = true;
+  });
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(completed).toBe(false);
+  await vi.advanceTimersByTimeAsync(1000);
+  await work;
+  expect(f.events.listenerCount('request')).toBe(0);
+  expect(f.events.listenerCount('response')).toBe(0);
+});
+it.each([
+  'status',
+  'finished',
+  'schema',
+  'permission',
+  'session',
+  'conversation',
+  'artifact',
+  'deadline',
+])('refuses invalid source remount readiness: %s', async (failure) => {
+  vi.useFakeTimers();
+  const f = fixture(),
+    body = sourceReview();
+  if (failure === 'permission') body.permId = 'other';
+  if (failure === 'session') body.sessionId = 'other';
+  if (failure === 'conversation') body.source.conversationId = 'other';
+  if (failure === 'artifact') body.artifacts[0].sha256 = 'e'.repeat(64);
+  const work = actToSourcePermissionReview(f.page, sourceTarget, async () => {
+    const fresh = f.request(undefined, sourceUrl, 'GET');
+    f.start(fresh);
+    f.respond(fresh, {
+      status: failure === 'status' ? 503 : 200,
+      body: failure === 'schema' ? {} : body,
+      finished:
+        failure === 'deadline'
+          ? new Promise(() => {})
+          : Promise.resolve(failure === 'finished' ? Error('Aborted') : null),
+    });
+  });
+  const refused = expect(work).rejects.toThrow();
+  await vi.advanceTimersByTimeAsync(10000);
+  await refused;
+  expect(f.events.listenerCount('request')).toBe(0);
+  expect(f.events.listenerCount('response')).toBe(0);
+});
 it('arms before the real action and awaits complete exact review bytes within the existing ten-second contract', async () => {
   const f = fixture();
   let finish!: () => void;

@@ -3205,6 +3205,15 @@ mountObservedRouter(
         ? {
             canManageOpenAIKey: (accountId: string) =>
               runtime.openAIKeys?.manages(accountId) ?? false,
+            canManageApiAccount: (accountId: string) =>
+              runtime.openAIAccounts
+                ?.list()
+                .some(
+                  (account) =>
+                    account.id === accountId &&
+                    !!account.endpoint &&
+                    new URL(account.endpoint).hostname === 'api.enmaas.devshift.net',
+                ) ?? false,
             managed: () =>
               runtime.store.list('operator').map((connection) => ({
                 ...connection,
