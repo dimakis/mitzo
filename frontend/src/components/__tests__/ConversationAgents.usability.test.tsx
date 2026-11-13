@@ -173,8 +173,8 @@ it('keeps review disabled while repository preparation is pending and exposes pe
   fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   fireEvent.click(within(dialog).getByRole('button', { name: /^Permissions,/ }));
   for (const mode of ['Ask', 'Agent', 'Auto'])
-    expect(within(dialog).getByRole('button', { name: mode, exact: true })).toBeTruthy();
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Auto', exact: true }));
+    expect(within(dialog).getByRole('button', { name: new RegExp(`^${mode}$`) })).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Auto$/ }));
   fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
   fireEvent.click(within(dialog).getByRole('button', { name: 'Review joining brief' }));

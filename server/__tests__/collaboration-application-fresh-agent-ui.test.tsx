@@ -113,7 +113,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     );
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     fireEvent.click(within(dialog).getByRole('button', { name: /^Permissions,/ }));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Auto', exact: true }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Auto$/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     const review = within(dialog).getByRole('button', { name: 'Review joining brief' });
     await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
