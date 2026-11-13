@@ -6,7 +6,7 @@ Mitzo `9e47c4ab81d836673bacb461d2b03d46d8de390f`, Claude Agent SDK `0.3.322`.
 `allowed-tools` is an exact, case-sensitive tool-name ceiling. Omission imposes
 no additional restriction; an empty list permits no tools. A YAML string may
 separate names with commas or whitespace; a YAML sequence contains individual
-names. Wildcards, command patterns, mappings, non-string entries and duplicate
+names. Wildcards, command patterns, mappings, non-string entries, YAML merges and duplicate
 YAML keys are unsupported and must produce a visible resolution error. Invalid
 restrictions must remain discoverable rather than disappear into an unrestricted
 fallback. `requires-skills` must be a sequence of skill names.
@@ -67,7 +67,7 @@ and either inherited enforcement in each worker or visible delegation refusal.
 Native skill readers need their own enforceable admission decision. Until then,
 the supported product behavior is explicit refusal, not restricted execution.
 
-Offline verification on 13 November: 639 focused tests pass across 18 suites
+Offline verification on 13 November: 643 focused tests pass across 18 suites
 (including the six selected skills HTTP-route tests). Evidence covers strict
 metadata and dependency resolution, denied/allowed SDK hook calls, actual native
 executor reads/writes, configured MCP admission, managed SDK dispatch, pending

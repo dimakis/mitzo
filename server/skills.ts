@@ -65,6 +65,7 @@ function parseFrontmatter(raw: string): {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
       throw Error('Expected a metadata mapping');
     meta = parsed as Record<string, unknown>;
+    if (Object.hasOwn(meta, '<<')) throw Error('YAML merge keys are unsupported');
   } catch {
     // Do not skip the selected skill and fall through to a lower-precedence
     // or provider-native definition. Never expose parser source excerpts.
@@ -148,12 +149,13 @@ function discoverScope(dir: string): Map<string, ParsedSkill> {
     }
 
     const { meta, body } = parsed;
-    if (typeof meta.description !== 'string' || !meta.description) {
-      log.warn(`Skipping ${entry}: missing description in frontmatter`);
-      continue;
-    }
-
     let policyError = parsed.policyError;
+    const description =
+      typeof meta.description === 'string' && meta.description.trim()
+        ? meta.description
+        : 'Invalid skill metadata';
+    if (typeof meta.description !== 'string' || !meta.description.trim())
+      policyError ??= 'Skill description must be a non-empty string.';
     const tools = meta['allowed-tools'];
     const allowedTools = typeof tools === 'string' ? tools.split(/[\s,]+/).filter(Boolean) : tools;
     const exactNames = (value: unknown, pattern: RegExp): value is string[] =>
@@ -172,7 +174,7 @@ function discoverScope(dir: string): Map<string, ParsedSkill> {
     const mutating = meta['mutating'] === true || meta['mutating'] === 'true' ? true : undefined;
 
     skills.set(entry, {
-      description: meta.description,
+      description,
       allowedTools: exactNames(allowedTools, /^[A-Za-z0-9_][A-Za-z0-9_.:-]*$/)
         ? allowedTools
         : undefined,

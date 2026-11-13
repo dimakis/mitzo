@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   SessionRegistry,
   buildPermissionHandler,
@@ -119,6 +119,7 @@ it.each([
   'allowed-tools: [Read, {name: Write}]',
   'requires-skills: leaf',
   'requires-skills: [leaf, 42]',
+  'base: &restricted {allowed-tools: [Read]}\n<<: *restricted',
 ])('refuses unsupported declarations before resolution: %s', (declaration) => {
   const registry = skills({ invalid: declaration, wrapper: 'requires-skills: [invalid]' });
   for (const name of ['invalid', 'wrapper']) {
@@ -129,6 +130,27 @@ it.each([
     ).toBeTruthy();
   }
 });
+
+it.each(['', 'description: null\n', 'description: 7\n'])(
+  'retains an invalid selected description instead of using an unrestricted fallback: %j',
+  (description) => {
+    const bundled = skills({ selected: '' });
+    const repo = skills({ selected: 'allowed-tools: [Read]' });
+    const file = repo.get('selected')!.filePath;
+    writeFileSync(file, `---\n${description}allowed-tools: [Read]\n---\nRestricted instructions`);
+    const registry = new SkillRegistry({
+      repoDir: dirname(dirname(file)),
+      bundledDir: dirname(dirname(bundled.get('selected')!.filePath)),
+    });
+    expect(registry.get('selected')).toMatchObject({
+      scope: 'repo',
+      policyError: expect.any(String),
+    });
+    expect(
+      executableSkillResolution(resolveSlashCommand('/selected', registry, new Set())),
+    ).toMatchObject({ type: 'error' });
+  },
+);
 
 it('enforces exact names for auto-approved and MCP tools through SDK PreToolUse', async () => {
   const f = owner();

@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/skill-policy.ts':
     '9ead157c098e8dbb608ca40479f1191952d7bf9a251f1c5eb8bb71a56d070c9c',
   '../__tests__/restricted-skill-enforcement.test.ts':
-    '3ea4b137be5f23a909a69b11a56e114078aeef1408f52ae3feb12ed8a36d2946',
+    '9394bc96140ef8841b499ff989a8456a9a7dc11ee3fa172bb58865dea9d34569',
   '../__tests__/skills-registry.test.ts':
     'f55b3f0ae95b9243c61e2ebcdafb3568be5a76037bc98387f4333abb564c0e73',
   '../__tests__/ws-handler-v2.test.ts':
@@ -910,7 +910,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b89a2881606c1ca8447177d548f27adbb57fbefe88afd7783237f0042df579e3',
   '../skill-registry-runtime.ts':
     'e117a1a9a4ae2215836e886bc1be9af5e2c6b9e5bb85daeb86b176adea69d538',
-  '../skills.ts': '5534bd41fb01e80c36e81b39e245d250a9c28c14e066e7458e3405fcde1131ee',
+  '../skills.ts': 'eca19df04fb3b331fe8fc0cf4482b00000b49003ecc7f4e16f20a0f7b9497877',
   '../__tests__/ordinary-composer-skills.test.ts':
     'f0e877a985b147023fbbe75154eda76ab87f8ca79bb8268816f94d966594abf7',
   '../../frontend/src/lib/chat-composer-capabilities.ts':
