@@ -14,7 +14,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
   const { setAuthRevocationStore } = await import('../auth.js');
   const auth = captureAgentLibraryAuthorization(h.clientId);
   setAuthRevocationStore(h.events);
-  const service = getSpecialistConsultations();
+  let service = getSpecialistConsultations();
   const library = getAgentLibrary();
   for (const role of ['planner', 'plan-reviewer']) {
     library.saveDraft('user', {
@@ -63,7 +63,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         repliesByDefault: false,
       });
   }
-  const authority = {
+  let authority = {
     leadSessionId: 'existing-chat',
     operatorConnectionId: h.clientId,
     auth: auth.auth,
@@ -82,7 +82,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
       connectionId: catalog.repositories[0].connectionId,
       repository: 'example/acceptance',
       durationMinutes: 10,
-      maxConsultations: 3,
+      maxConsultations: 4,
       maxContextBytes: 32000,
       routes: ['planner', 'plan-reviewer'].map((role) => ({
         role,
@@ -97,12 +97,12 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
   );
   expect(approve).toHaveBeenCalledOnce();
   expect(approve.mock.calls[0][0]).toMatchObject({
-    maxConsultations: 3,
+    maxConsultations: 4,
     specialistPermissionMode: 'ask',
   });
   const { recordApplicationMessagingRuntime } =
     await import('./fixtures/symposium-recording-runtime.js');
-  const native = await recordApplicationMessagingRuntime(h.events);
+  let native = await recordApplicationMessagingRuntime(h.events);
   try {
     const input = {
       requestId: crypto.randomUUID(),
@@ -119,15 +119,17 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         .filter((line) => line.includes('specialist-consultation'))
         .join('\n'),
     ).toBe('dispatched');
-    await vi.waitFor(() =>
-      expect(
-        service.read(authority, input.requestId).status,
-        readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
-          .split('\n')
-          .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
-          .slice(-10)
-          .join('\n'),
-      ).toBe('completed'),
+    await vi.waitFor(
+      () =>
+        expect(
+          service.read(authority, input.requestId).status,
+          readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
+            .split('\n')
+            .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
+            .slice(-10)
+            .join('\n'),
+        ).toBe('completed'),
+      { timeout: 5000 },
     );
     const planned = service.read(authority, input.requestId);
     expect(planned.contributions[0]).toMatchObject({
@@ -150,13 +152,88 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
     const second = await service.consult(authority, policy.policyId, reviewed);
     expect(second.receipt.sessionId).not.toBe(first.receipt.sessionId);
     expect(second.independence).toMatchObject({ independent: true, differentFamily: false });
-    await vi.waitFor(() =>
-      expect(service.read(authority, reviewed.requestId).status).toBe('completed'),
+    await vi.waitFor(
+      () => expect(service.read(authority, reviewed.requestId).status).toBe('completed'),
+      { timeout: 5000 },
     );
     expect(native.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
     const starts = native.requests.filter((r) => r.method === 'turn/start');
     expect(JSON.stringify(starts[1].params)).toContain('Reviewed the selected design.');
     expect(JSON.stringify(starts[1].params)).not.toContain('Synthetic design requirement');
+    expect(
+      h.events.getSession(first.receipt.sessionId!)?.agentContext?.context.fullMarkdown,
+    ).toContain('Synthetic project context for specialists.');
+    native.holdTurn(3);
+    const held = { ...input, requestId: crypto.randomUUID(), messageIds: [] };
+    await service.consult(authority, policy.policyId, held);
+    await vi.waitFor(() =>
+      expect(native.requests.filter((r) => r.method === 'turn/start')).toHaveLength(3),
+    );
+    await vi.waitFor(() => native.streamTurn(3, 'Partial specialist reply'));
+    await service.stop(authority, held.requestId);
+    expect(service.read(authority, held.requestId)).toMatchObject({
+      status: 'stopped',
+      terminal: false,
+    });
+    await service.stop(authority, held.requestId);
+    expect(native.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+    native.finishTurn(3, 'completed');
+    await vi.waitFor(() => expect(service.read(authority, held.requestId).terminal).toBe(true));
+
+    const { ApplicationCollaborationMessaging } =
+      await import('../collaboration-application-messaging.js');
+    const send = ApplicationCollaborationMessaging.prototype.send;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const gate = vi
+      .spyOn(ApplicationCollaborationMessaging.prototype, 'send')
+      .mockImplementationOnce(async function (...args) {
+        await released;
+        return send.apply(this, args);
+      });
+    const cancelled = { ...input, requestId: crypto.randomUUID(), messageIds: [] };
+    const preparing = service.consult(authority, policy.policyId, cancelled);
+    try {
+      await vi.waitFor(
+        () =>
+          expect(
+            gate,
+            JSON.stringify(service.read(authority, cancelled.requestId).receipt),
+          ).toHaveBeenCalledOnce(),
+        { timeout: 10000 },
+      );
+      await service.stop(authority, cancelled.requestId);
+    } finally {
+      release();
+    }
+    expect((await preparing).status).toBe('stopped');
+    expect(native.requests.filter((r) => r.method === 'turn/start')).toHaveLength(3);
+    gate.mockRestore();
+
+    const { registry } = await import('../chat.js');
+    for (const entry of registry.entries(true)) registry.abort(entry[0]);
+    native.restore();
+    await journey.restartApplication();
+    const reopened = await journey.getApplicationUiJourney();
+    const recoveredAuth = (
+      await import('../agent-library-transport.js')
+    ).captureAgentLibraryAuthorization(reopened.clientId);
+    authority = {
+      ...authority,
+      operatorConnectionId: reopened.clientId,
+      auth: recoveredAuth.auth,
+      assertCurrent: () => recoveredAuth.assertCurrent(),
+    };
+    (await import('../auth.js')).setAuthRevocationStore(reopened.events);
+    service = (await import('../specialist-consultation-runtime.js')).getSpecialistConsultations();
+    native = await (
+      await import('./fixtures/symposium-recording-runtime.js')
+    ).recordApplicationMessagingRuntime(reopened.events);
+    expect(service.read(authority, input.requestId).status).toBe('completed');
+    expect((await service.consult(authority, policy.policyId, input)).status).toBe('completed');
+    expect(native.requests).toEqual([]);
     service.revoke(authority, policy.policyId);
     await expect(
       service.consult(authority, policy.policyId, { ...input, requestId: crypto.randomUUID() }),
@@ -169,4 +246,4 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
     await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
     native.restore();
   }
-}, 30000);
+}, 60000);

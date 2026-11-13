@@ -43,7 +43,11 @@ export class SpecialistConsultations {
   readonly receipts: SpecialistConsultationStore;
   private readonly pending = new Map<
     string,
-    { requestId: string; result: Promise<ReturnType<SpecialistConsultations['read']>> }
+    {
+      requestId: string;
+      cancel: AbortController;
+      result: Promise<ReturnType<SpecialistConsultations['read']>>;
+    }
   >();
   constructor(
     private readonly owners: {
@@ -354,11 +358,15 @@ export class SpecialistConsultations {
           ? deliveries.every((d) => d.outcome === 'completed') && contributions.length
             ? 'completed'
             : 'failed'
-          : receipt.state === 'uncertain'
+          : receipt.state === 'uncertain' ||
+              deliveries.some((delivery) => delivery.status === 'uncertain')
             ? 'uncertain'
-            : receipt.state === 'dispatched'
-              ? 'running'
-              : 'pending';
+            : deliveries.length &&
+                deliveries.every((delivery) => ['failed', 'unavailable'].includes(delivery.status))
+              ? 'failed'
+              : receipt.state === 'dispatched'
+                ? 'running'
+                : 'pending';
     this.current(a);
     return {
       receipt,
@@ -406,20 +414,24 @@ export class SpecialistConsultations {
       return pending.result;
     }
     if (record.state !== 'reserved') return this.read(a, record.requestId);
-    const result = this.execute(a, policy, record).finally(() =>
+    const cancel = new AbortController();
+    const result = this.execute(a, policy, record, cancel.signal).finally(() =>
       this.pending.delete(a.leadSessionId),
     );
-    this.pending.set(a.leadSessionId, { requestId: record.requestId, result });
+    this.pending.set(a.leadSessionId, { requestId: record.requestId, cancel, result });
     return result;
   }
   private async execute(
     a: SpecialistAuthority,
     policy: SpecialistPolicy,
     original: ConsultationRecord,
+    stopSignal: AbortSignal,
   ) {
+    const signal = AbortSignal.any([a.signal, stopSignal]);
     let record = original;
     let stage = 'preparation';
     const assertCurrent = () => {
+      signal.throwIfAborted();
       this.current(a);
       this.receipts.assertPolicy(a.leadSessionId, a.auth.id, policy.policyId);
       const current = this.receipts.read(a.leadSessionId, record.requestId);
@@ -441,7 +453,7 @@ export class SpecialistConsultations {
         resolved.binding,
         policy.connectionId,
         policy.repository,
-        a.signal,
+        signal,
         {
           runOn: record.route.runOn,
           runtime: {
@@ -453,7 +465,7 @@ export class SpecialistConsultations {
         record.workspaceId,
       );
       assertCurrent();
-      await workspace.prepare(record.workspaceId, resolved.binding, a.signal);
+      await workspace.prepare(record.workspaceId, resolved.binding, signal);
       assertCurrent();
       stage = 'context_review';
       const reviewOwner = new CollaborationApplicationReview({
@@ -488,7 +500,7 @@ export class SpecialistConsultations {
             permissionMode: 'ask',
           },
         },
-        a.signal,
+        signal,
       );
       assertCurrent();
       let text = record.input.assignment;
@@ -519,7 +531,7 @@ export class SpecialistConsultations {
           settings: reviewed.settings,
           snapshot: { snapshotId: reviewed.snapshot.snapshotId, sha256: reviewed.snapshot.sha256 },
         },
-        a.signal,
+        signal,
       );
       assertCurrent();
       if (joined.state !== 'linked' || !joined.sessionId)
@@ -537,7 +549,7 @@ export class SpecialistConsultations {
       stage = 'delivery';
       update({ messageInput });
       assertCurrent();
-      await this.owners.messaging.send(a.auth, policy.collaborationId, messageInput, a.signal);
+      await this.owners.messaging.send(a.auth, policy.collaborationId, messageInput, signal);
       assertCurrent();
       update({ state: 'dispatched' });
       return this.read(a, record.requestId);
@@ -551,7 +563,7 @@ export class SpecialistConsultations {
         code: 'specialist_consultation_failed',
       });
       const current = this.receipts.read(a.leadSessionId, record.requestId);
-      if (current.state !== 'stopped')
+      if (current.state !== 'stopped' && current.revision === record.revision)
         this.receipts.update(a.leadSessionId, record.requestId, current.revision, {
           state: 'uncertain',
           diagnostic: {
@@ -567,7 +579,11 @@ export class SpecialistConsultations {
   }
   revoke(a: SpecialistAuthority, policyId: string) {
     this.current(a);
-    return this.receipts.revoke(a.leadSessionId, policyId);
+    const policy = this.receipts.revoke(a.leadSessionId, policyId);
+    const pending = this.pending.get(a.leadSessionId);
+    if (pending && this.receipts.read(a.leadSessionId, pending.requestId).policyId === policyId)
+      pending.cancel.abort();
+    return policy;
   }
   async stop(a: SpecialistAuthority, requestId: string) {
     this.current(a);
@@ -577,7 +593,15 @@ export class SpecialistConsultations {
       record.state === 'stopped'
         ? record
         : this.receipts.update(a.leadSessionId, requestId, record.revision, { state: 'stopped' });
-    const result = stopped.messageInput
+    const pending = this.pending.get(a.leadSessionId);
+    if (pending?.requestId === requestId) pending.cancel.abort();
+    const accepted =
+      stopped.messageInput &&
+      this.owners.events.collaborationConversation.getMessageForRequest(
+        policy.collaborationId,
+        stopped.messageInput,
+      );
+    const result = accepted
       ? await this.owners.messaging.stop(a.auth, policy.collaborationId, stopped.messageInput)
       : null;
     this.current(a);

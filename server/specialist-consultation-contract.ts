@@ -93,7 +93,7 @@ export const specialistToolSchema = z.strictObject({
 export const specialistToolDefinition = {
   name: 'SymposiumConsult',
   description:
-    'Consult saved specialist agents through ordinary shared conversations. First catalog profiles, eligible account/model/runtime routes and repository sources; authorize a bounded session policy with concrete routes for operator review. Then consult by role with an assignment and selected public message/artifact references. reviewOf requests independent review of a completed contribution; choose an eligible different model family when configured. Read returns attributed results and original receipts without model work. Stop targets the original work; revoke prevents future work. Retain policyId and requestId after interruption. No manual agent choice before starting the lead chat is required. Policy approval authorizes only bounded requested turns; it grants no specialist tools, merge or deployment authority.',
+    'Consult saved specialists in ordinary shared conversations. Catalog profiles/routes, then authorize a bounded policy for operator review. Consult by role with an assignment and selected public context. reviewOf requests independent review of a completed contribution. Read returns attributed results without model work. Stop targets original work; revoke prevents future work. Retain policyId/requestId after interruption. No tools, merge or deployment authority is inherited.',
   input_schema: z.toJSONSchema(specialistToolSchema),
 };
 export const SPECIALIST_INSTRUCTIONS =

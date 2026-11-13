@@ -15,6 +15,7 @@ import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import {
   specialistToolSchema,
   specialistToolDefinition,
+  SPECIALIST_INSTRUCTIONS,
 } from './specialist-consultation-contract.js';
 import { sessionSpecialistTools } from './session-specialist-tools.js';
 
@@ -39,7 +40,8 @@ export const profileToolDefinitions = [
   },
 ];
 export const PROFILE_TOOL_INSTRUCTIONS =
-  '\nUse SymposiumReadProfiles to inspect saved agents. Use SymposiumProposeProfile to create editable agent draft cards in this conversation, including one call per agent when proposing several. The user can edit and Save each card into the Agent Library. Tool success means draft created, not saved. Never claim a profile was saved without confirmation.\n';
+  '\nUse SymposiumReadProfiles to inspect saved agents. Use SymposiumProposeProfile to create editable agent draft cards in this conversation, including one call per agent when proposing several. The user can edit and Save each card into the Agent Library. Tool success means draft created, not saved. Never claim a profile was saved without confirmation.\n' +
+  SPECIALIST_INSTRUCTIONS;
 export type ProfileToolCall = { turnId: string; callId: string };
 export function sessionProfileTools(
   sessionId: string,
