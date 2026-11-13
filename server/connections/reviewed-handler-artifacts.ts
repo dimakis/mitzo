@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-sdk-command-skill-boundary.test.ts':
-    'a6f76d21a536b52b2e1f23ce069def69f832f2a3ebd5278a47be09d04bc6ef60',
+    '4c960002a56b01a186efb13d68bfafb582dd5d33714f0e7a4649894a0bca0443',
   '../../packages/protocol/src/ordinary-skill-context.ts':
     '08bc53929fe62921486620ff72685d2b068dd2004ff866eb396a959efe2f8878',
   '../skill-runtime-support.ts': '412e9a82cf3c7d6e8606bab79d74b48d71ba157111e67715708ecc21f4f736a9',

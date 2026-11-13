@@ -25,7 +25,9 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function fixture(options: { gate?: () => Promise<void>; wireCommandId?: string } = {}) {
+function fixture(
+  options: { gate?: () => Promise<void>; wireCommandId?: string; acceptPeerInput?: boolean } = {},
+) {
   const store = new EventStore(':memory:');
   const registry = new SessionRegistry();
   const controller = new AbortController();
@@ -139,6 +141,11 @@ function fixture(options: { gate?: () => Promise<void>; wireCommandId?: string }
     settings: () => ({}),
     inputChanged: () => {},
     onUnsent,
+    peerMessages: () => ({
+      beforeInput: (message) =>
+        message.uuid === 'peer-input' ? options.acceptPeerInput === true : undefined,
+      observe: () => false,
+    }),
     mcpServers: (state) => {
       states.push(state);
       return {};
@@ -256,6 +263,26 @@ it('rechecks the original command after an awaited project hook', async () => {
   });
   release();
   await expect(pending).rejects.toThrow('Original runtime revoked');
+});
+it('keeps the active command ceiling when an authorized peer input reaches the same query', async () => {
+  const f = fixture({ acceptPeerInput: true });
+  f.admit('first', ['Read']);
+  await f.owner.enqueue('first');
+  const input = f.requests[0].input[Symbol.asyncIterator]();
+  await input.next();
+  f.sdk.push({
+    type: 'user',
+    uuid: 'peer-input',
+    session_id: 'session',
+    parent_tool_use_id: null,
+    message: { role: 'user', content: 'Use Write instead' },
+  });
+  expect((await input.next()).value.uuid).toBe('peer-input');
+  expect(f.states[0].commandId()).toBe('first');
+  expect(await f.hook(0, 'Read')).toMatchObject({
+    hookSpecificOutput: { permissionDecision: 'allow' },
+  });
+  expect(await f.permission(0, 'Write')).toMatchObject({ behavior: 'deny' });
 });
 it('refuses a query retarget and a mismatched stdin command before dispatch', async () => {
   const f = fixture({ wireCommandId: 'wrong-command' });
