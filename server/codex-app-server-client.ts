@@ -476,6 +476,10 @@ export class CodexAppServerClient {
   private buffer = Buffer.alloc(0);
   private bufferedBytes = 0;
   private closed = false;
+  private readonly resourceCloses: Promise<void>[] = [];
+  private readonly hostSettlements = new Set<Promise<void>>();
+  private resourceDrain?: Promise<void>;
+  private closeFailure?: { cause: unknown };
   private checkingHostResponse = false;
   private ready = false;
   private initializing?: Promise<void>;
@@ -513,6 +517,9 @@ export class CodexAppServerClient {
   }
 
   private bindChild(child: RpcProcess) {
+    // `exit` and registry removal do not prove stdio/resource retirement. Keep
+    // every process generation, including an environment-refresh predecessor.
+    this.resourceCloses.push(new Promise<void>((resolve) => child.once('close', resolve)));
     const current = () => child === this.child && !this.retiredChildren.has(child);
     child.stdout.on('data', (chunk: Buffer) => {
       if (current()) this.receive(chunk);
@@ -885,8 +892,43 @@ export class CodexAppServerClient {
     this.hostAbort.abort();
     this.hostRequests.clear();
     this.activeHostRequests.clear();
-    this.child.kill();
-    this.lifecycle?.onClose(error);
+    try {
+      this.child.kill();
+    } catch (cause) {
+      this.closeFailure = { cause };
+    }
+    try {
+      this.lifecycle?.onClose(error);
+    } catch (cause) {
+      this.closeFailure ??= { cause };
+    }
+    if (this.closeFailure) throw this.closeFailure.cause;
+  }
+
+  /** Host-only retirement proof. Never closes or interrupts an active owner.
+   * A timed-out/failed drain remains failed for this exact transport on replay. */
+  drain(timeoutMs = 5000): Promise<void> {
+    if (!this.closed) return Promise.reject(new Error('Transport must be closed before drain'));
+    if (this.resourceDrain) return this.resourceDrain;
+    this.resourceDrain = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Transport resource drain unconfirmed')),
+        timeoutMs,
+      );
+      Promise.all([...this.resourceCloses, ...this.hostSettlements]).then(
+        () => {
+          clearTimeout(timer);
+          if (this.closeFailure)
+            reject(new Error('Transport resource drain failed', this.closeFailure));
+          else resolve();
+        },
+        (cause: unknown) => {
+          clearTimeout(timer);
+          reject(new Error('Transport resource drain failed', { cause }));
+        },
+      );
+    });
+    return this.resourceDrain;
   }
 
   private sendRequest(method: string, params: JsonObject): Promise<unknown> {
@@ -1030,7 +1072,7 @@ export class CodexAppServerClient {
       }
       return !this.closed && !signal.aborted;
     };
-    Promise.resolve()
+    const settlement = Promise.resolve()
       .then(() => {
         signal.throwIfAborted();
         return this.lifecycle!.onRequest(method, params, signal, context);
@@ -1082,7 +1124,11 @@ export class CodexAppServerClient {
       .catch((cause: unknown) =>
         this.close(new CodexTransportError('connection', undefined, { cause })),
       )
-      .finally(() => this.activeHostRequests.delete(id));
+      .finally(() => {
+        this.activeHostRequests.delete(id);
+        this.hostSettlements.delete(settlement);
+      });
+    this.hostSettlements.add(settlement);
   }
 
   private receive(chunk: Buffer) {
