@@ -135,7 +135,7 @@ export function SessionPanel({
     retainSessionModel(modelObservations.current, result.sessionId, result);
   const combined = mergeSessionActivities(
     sessions,
-    activities,
+    connected === false ? lastKnownActivities : activities,
     lastKnownActivities,
     modelObservations.current,
   );
@@ -146,8 +146,10 @@ export function SessionPanel({
     showLatest,
   } = useSessionOrdering(
     [...combined.values()].filter((session) => !hiddenSessionIds?.has(session.id)),
-    activities.filter((activity) => !hiddenSessionIds?.has(activity.sessionId)),
-    paused,
+    (connected === false ? lastKnownActivities : activities).filter(
+      (activity) => !hiddenSessionIds?.has(activity.sessionId),
+    ),
+    paused || connected === false,
     { grouped: true },
   );
   const displayById = new Map(

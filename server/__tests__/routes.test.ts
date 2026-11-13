@@ -106,6 +106,12 @@ vi.mock('../chat.js', async () => {
     setTaskStore: vi.fn(),
     eventStore: {
       ...createRoutesRuntimeLedgerFixture(),
+      getSessionReadState: vi.fn(() => ({
+        latestReplySeq: 0,
+        readReplySeq: 0,
+        markedUnread: false,
+        revision: 0,
+      })),
       removals: { read: vi.fn(), assertArchivable: vi.fn() },
       setSessionState: vi.fn(),
       append: vi.fn(),

@@ -120,7 +120,7 @@ for (const surface of ['/sessions', '/panel'])
           });
         return route.fulfill({
           contentType: 'text/html',
-          body: '<div id="root"></div><link rel="stylesheet" href="/fixture.css"><script type="module" src="/fixture.js"></script>',
+          body: '<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><link rel="stylesheet" href="/fixture.css"><script type="module" src="/fixture.js"></script></html>',
         });
       });
       await page.goto(surface);

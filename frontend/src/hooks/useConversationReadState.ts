@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { ConversationReadState } from '@mitzo/protocol';
+import { eventBus } from '../lib/event-bus-singleton';
 import {
   getConversationReadState,
   isConversationUnread,
@@ -22,26 +23,38 @@ export function useConversationReadState(
   );
   useEffect(() => retainConversationReadState(id, observed), [id, observed]);
   const current = !saved || (observed && observed.revision > saved.revision) ? observed : saved;
+  const projected = observed !== undefined;
   useEffect(() => {
-    if (!hydrate || current) return;
+    if (!hydrate) return;
     let active = true;
     setFailure(undefined);
-    void loadConversationReadState(id).catch((cause) => {
-      if (active)
-        setFailure({
-          id,
-          message: cause instanceof Error ? cause.message : 'Read status unavailable. Try again.',
-        });
+    if (projected) return;
+    const refresh = () => {
+      setFailure(undefined);
+      void loadConversationReadState(id).catch((cause) => {
+        if (active)
+          setFailure({
+            id,
+            message: cause instanceof Error ? cause.message : 'Read status unavailable. Try again.',
+          });
+      });
+    };
+    // Off-page pins have no fresh list projection. Cached state survives while
+    // each mount/reconnect reconciles changes made on another device.
+    refresh();
+    const unsubscribe = eventBus.onConnectionChange((connected) => {
+      if (connected) refresh();
     });
     return () => {
       active = false;
+      unsubscribe();
     };
-  }, [id, hydrate, current, attempt]);
+  }, [id, hydrate, projected, attempt]);
   return {
     state: current,
     unread: isConversationUnread(current),
     loading: hydrate && !current && failure?.id !== id,
-    error: !current && failure?.id === id ? failure.message : undefined,
+    error: failure?.id === id ? failure.message : undefined,
     retry: () => setAttempt((value) => value + 1),
   };
 }

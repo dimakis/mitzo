@@ -99,3 +99,29 @@ CI now retains the hidden-history and guarded-cleanup screenshots in its existin
 responsiveness artifact; previously their filenames were omitted from the upload
 patterns. All 30 focused workflow/gate checks pass. The reviewed source inventory
 includes these changes at `v1.0.1128-chat-menu-resize`.
+
+Claude fix #1336 was accepted on 13 November at 16:42:38 UTC as `9e47c4ab`.
+The combined candidate includes that accepted commit and preserves both source
+inventories. Centaur report `5895079901` on `a0baae67` identified four blockers:
+off-page restore tombstones, retained sidebar rows on disconnect, cached off-page
+read observations and scrollports removed after their first idle check. Each has
+a failing regression and a corresponding fix. The shared sidebar queue retains
+last-known rows with disconnected status; read observations revalidate on mount
+and reconnect; DOM removal releases scroll holds; confirmed restores and later
+visible pages reconcile local hidden state.
+
+Related CI corrections retain stable accessible pin titles when status fails,
+update the routes fixture for the read-state contract, keep tool-only ordering
+tests independent of group transitions, use the real mobile viewport in the new
+fixtures, and allow the slower reorder interval in browser assertions. Native
+sign-in fixture cleanup retries transient directory removal errors three times
+and still fails on persistent errors. The combined seven-suite run passed 238
+checks before the additional pagination regression. Runtime source inventory is
+`v1.0.1129-chat-lifecycle-review`; final combined CI and Centaur verification are
+still required.
+
+The local bounded executor cannot launch even a synthetic PTY (`posix_spawnp
+failed`). Three inherited native-login process tests consequently fail locally;
+their parser and cancellation checks remain intact for CI. The seven other suites
+in that run passed 111 checks, including pagination and source qualification.
+No local browser or PTY qualification is claimed.

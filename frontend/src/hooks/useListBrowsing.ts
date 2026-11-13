@@ -32,6 +32,18 @@ export function useListBrowsing(ref: RefObject<HTMLElement | null>, blocked: boo
       hold();
       release();
     };
+    // A nested port can disappear after the one-shot idle check has retained
+    // its scroll hold; removal does not generate a final scroll event.
+    const removedPorts = new MutationObserver(() => {
+      let removed = false;
+      for (const port of scrolled)
+        if (!element.contains(port)) {
+          scrolled.delete(port);
+          removed = true;
+        }
+      if (removed) release();
+    });
+    removedPorts.observe(element, { childList: true, subtree: true });
     const scroll = (event: Event) => {
       if (event.target instanceof HTMLElement) {
         if (event.target.scrollTop > 1) scrolled.add(event.target);
@@ -100,6 +112,7 @@ export function useListBrowsing(ref: RefObject<HTMLElement | null>, blocked: boo
     window.addEventListener('blur', blur);
     return () => {
       clearTimeout(timer);
+      removedPorts.disconnect();
       element.removeEventListener('scroll', scroll, true);
       element.removeEventListener('pointerenter', enter);
       element.removeEventListener('pointerleave', leave);

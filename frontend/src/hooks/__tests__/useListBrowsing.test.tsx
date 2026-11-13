@@ -59,3 +59,16 @@ it('holds an open menu or modal and clears timers on unmount', () => {
   view.unmount();
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it('releases after a nested scrolled port is removed after its first idle check', async () => {
+  render(<List />);
+  const port = document.createElement('div');
+  screen.getByTestId('list').append(port);
+  port.scrollTop = 40;
+  fireEvent.scroll(port);
+  tick();
+  expect(screen.getByText('Paused')).toBeTruthy();
+  await act(async () => port.remove());
+  tick();
+  expect(screen.getByText('Live')).toBeTruthy();
+});

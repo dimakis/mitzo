@@ -1,10 +1,19 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { HiddenSessionsDialog } from '../HiddenSessionsDialog';
 import { readApiJson } from '../../lib/api-json-read';
 import { apiFetch } from '../../lib/api-fetch';
 import { newChatPathWithDraft } from '../../lib/chat-drafts';
+import { useSessionList } from '../../hooks/useSessionList';
 vi.mock('../../lib/api-json-read', () => ({ readApiJson: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
@@ -84,4 +93,34 @@ it('continues released work in an editable fresh draft with explicit workspace g
   expect(newChatPathWithDraft).toHaveBeenCalledWith(expect.stringContaining('The PR was merged.'));
   expect(continued).toHaveBeenCalledWith('/chat?draft=continuation');
   expect(apiFetch).not.toHaveBeenCalled();
+});
+
+it('clears the local hide marker on confirmed restore even outside the recent page', async () => {
+  window.dispatchEvent(new Event('auth-lost'));
+  let firstPage = [{ id: 'c', summary: 'Finished chat', lastModified: 1 }];
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    Response.json(url === '/api/sessions' ? { sessions: firstPage, hasMore: true } : { ok: true }),
+  );
+  const list = renderHook(() => useSessionList());
+  await waitFor(() => expect(list.result.current.sessions).toHaveLength(1));
+  await act(async () => {
+    await list.result.current.hideSession('c');
+  });
+  expect(list.result.current.hiddenSessionIds.has('c')).toBe(true);
+  firstPage = Array.from({ length: 20 }, (_, i) => ({
+    id: `new-${i}`,
+    summary: 'Newer',
+    lastModified: i + 2,
+  }));
+  render(
+    <HiddenSessionsDialog
+      onClose={vi.fn()}
+      onChanged={list.result.current.retry}
+      onCleanup={vi.fn()}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Finished chat' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Restore chat' }));
+  await waitFor(() => expect(list.result.current.sessions).toHaveLength(20));
+  expect(list.result.current.hiddenSessionIds.has('c')).toBe(false);
 });

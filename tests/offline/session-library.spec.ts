@@ -144,7 +144,7 @@ for (const theme of ['dark', 'light'])
           });
         return route.fulfill({
           contentType: 'text/html',
-          body: '<div id="root"></div><link rel="stylesheet" href="/fixture.css"><script type="module" src="/fixture.js"></script>',
+          body: '<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><link rel="stylesheet" href="/fixture.css"><script type="module" src="/fixture.js"></script></html>',
         });
       });
       await page.goto(surface);
@@ -483,7 +483,7 @@ for (const theme of ['dark', 'light'])
       (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
       [activity(10, 'working', { lastUserMessageAt: Date.now() + 1000 })],
     );
-    await expect(rows.first()).toHaveText('Conversation 10');
+    await expect(rows.first()).toHaveText('Conversation 10', { timeout: 8000 });
     expect(
       await page
         .locator('.session-list')

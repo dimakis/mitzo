@@ -34,6 +34,7 @@ function PinRow({ session, props }: { session: Session; props: Props }) {
         onFocus={() => props.onPreview?.(session)}
         onDoubleClick={props.onOpen ? () => props.onOpen?.(session.id) : undefined}
         title={title}
+        aria-label={title}
       >
         <span className="conversation-pin-title">
           <ConversationUnreadDot session={session} hydrate />

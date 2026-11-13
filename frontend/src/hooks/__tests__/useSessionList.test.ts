@@ -46,6 +46,38 @@ afterEach(() => {
 });
 
 describe('useSessionList', () => {
+  it('reconciles a locally hidden chat when a later visible page confirms restoration', async () => {
+    let recent = [{ id: 'later-restored', summary: 'Old chat', lastModified: 1 }];
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      Response.json(
+        url.startsWith('/api/sessions?')
+          ? {
+              sessions: [{ id: 'later-restored', summary: 'Old chat', lastModified: 1 }],
+              hasMore: false,
+            }
+          : url === '/api/sessions'
+            ? { sessions: recent, hasMore: true }
+            : { ok: true },
+      ),
+    );
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    await act(async () => {
+      await result.current.hideSession('later-restored');
+    });
+    recent = Array.from({ length: 20 }, (_, i) => ({
+      id: `newer-${i}`,
+      summary: 'Newer',
+      lastModified: i + 2,
+    }));
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.sessions).toHaveLength(20));
+    expect(result.current.hiddenSessionIds.has('later-restored')).toBe(true);
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.sessions).toHaveLength(21));
+    expect(result.current.hiddenSessionIds.has('later-restored')).toBe(false);
+  });
+
   it('hides through the visibility endpoint without requesting resource removal', async () => {
     vi.mocked(apiFetch).mockImplementation(
       async (url) =>

@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SessionActions } from '../../components/SessionActions';
 import { ConversationUnreadDot } from '../../components/ConversationUnreadDot';
 import { apiFetch } from '../../lib/api-fetch';
+import { eventBus } from '../../lib/event-bus-singleton';
+import { retainConversationReadState } from '../../lib/conversation-read-state';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
-vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: vi.fn(() => () => {}) } }));
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: { on: vi.fn(() => () => {}), onConnectionChange: vi.fn(() => () => {}) },
+}));
 vi.mock('../../components/HomePinButton', () => ({ HomePinButton: () => null }));
 const initial = { latestReplySeq: 30, readReplySeq: 0, markedUnread: false, revision: 0 };
 afterEach(() => {
@@ -74,4 +78,28 @@ it('hydrates unread state for an off-page pinned conversation without a list pro
   );
   expect(await screen.findByLabelText('Unread reply')).toBeTruthy();
   expect(apiFetch).toHaveBeenCalledWith('/api/sessions/off-page-pin/read-state', expect.anything());
+});
+
+it('revalidates cached off-page read state on mount and reconnect', async () => {
+  const session = { id: 'cached-off-page', summary: 'Pinned', lastModified: 1 };
+  retainConversationReadState(session.id, initial);
+  vi.mocked(apiFetch).mockImplementation(async () =>
+    Response.json({ ...initial, readReplySeq: 30, revision: 1 }),
+  );
+  const view = render(<ConversationUnreadDot session={session} hydrate />);
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
+  await waitFor(() => expect(screen.queryByLabelText('Unread reply')).toBeNull());
+  const connected = vi.mocked(eventBus.onConnectionChange).mock.calls.at(-1)![0];
+  vi.mocked(apiFetch).mockImplementation(async () =>
+    Response.json({ ...initial, markedUnread: true, revision: 2 }),
+  );
+  await act(async () => connected(true));
+  expect(await screen.findByLabelText('Unread reply')).toBeTruthy();
+  view.unmount();
+  vi.mocked(apiFetch).mockImplementation(async () =>
+    Response.json({ ...initial, readReplySeq: 30, revision: 3 }),
+  );
+  render(<ConversationUnreadDot session={session} hydrate />);
+  await waitFor(() => expect(screen.queryByLabelText('Unread reply')).toBeNull());
+  expect(apiFetch).toHaveBeenCalledTimes(3);
 });

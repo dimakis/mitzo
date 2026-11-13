@@ -4,6 +4,7 @@ import { readApiJson } from '../lib/api-json-read';
 import { apiFetch, AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { newChatPathWithDraft } from '../lib/chat-drafts';
 import { useSavedSessionMessages } from '../hooks/useSavedSessionMessages';
+import { observeSessionRestored } from '../hooks/useSessionList';
 import { SavedSessionHistoryContent } from './SavedSessionHistory';
 import { HomeDialog } from './HomeDialog';
 
@@ -34,7 +35,7 @@ function RetainedChat({
     <>
       <p>
         {session.resourcesReleased
-        ? 'Cleanup finished. Saved history remains; continuing starts a new chat with its own workspace. Retained files follow the cleanup review’s preservation policy.'
+          ? 'Cleanup finished. Saved history remains; continuing starts a new chat with its own workspace. Retained files follow the cleanup review’s preservation policy.'
           : 'Hiding keeps saved history and workspace resources. Cleanup requires a separate review.'}
       </p>
       {session.canRestore === false && !session.resourcesReleased && (
@@ -151,6 +152,7 @@ export function HiddenSessionsDialog({ onClose, onChanged, onCleanup, onContinue
           result?.error || 'Restore could not be confirmed. Reload hidden chats before retrying.',
         );
       if (signal.aborted) return;
+      observeSessionRestored(selected.id);
       onChanged();
       setSelected(null);
       setAttempt((value) => value + 1);

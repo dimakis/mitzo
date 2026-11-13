@@ -18,7 +18,13 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
-  roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+  // Native exit can race the last disposable config-directory writes. Retry
+  // transient removal failures briefly; persistent cleanup failures still fail.
+  roots
+    .splice(0)
+    .forEach((root) =>
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
+    );
 });
 function disposableAccount() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-login-sandbox-')));

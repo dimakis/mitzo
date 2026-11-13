@@ -18,6 +18,20 @@ function retainHidden(ids: Set<string>) {
   locallyHidden = ids;
   visibilityListeners.forEach((listener) => listener());
 }
+/** A confirmed server restore must also release tombstones outside the recent page. */
+export function observeSessionRestored(id: string) {
+  if (locallyHidden.has(id)) {
+    const next = new Set(locallyHidden);
+    next.delete(id);
+    retainHidden(next);
+  }
+  sessionCache.invalidate();
+}
+function reconcileVisiblePage(page: Session[]) {
+  const visible = new Set(page.map((session) => session.id));
+  if ([...locallyHidden].some((id) => visible.has(id)))
+    retainHidden(new Set([...locallyHidden].filter((id) => !visible.has(id))));
+}
 const subscribeVisibility = (listener: () => void) => {
   visibilityListeners.add(listener);
   return () => {
@@ -128,10 +142,7 @@ export function useSessionList(): UseSessionListReturn {
         return parseSessionsResponse(await response.json());
       });
       setSessions(applyActivity(page, activeIds.current));
-      if (page.some((session) => locallyHidden.has(session.id)))
-        retainHidden(
-          new Set([...locallyHidden].filter((id) => !page.some((session) => session.id === id))),
-        );
+      reconcileVisiblePage(page);
       setHasMore(more);
       nextOffset.current = page.length;
       hasLoaded.current = true;
@@ -202,6 +213,7 @@ export function useSessionList(): UseSessionListReturn {
       })
       .then((data) => {
         const { sessions: page, hasMore: more } = parseSessionsResponse(data);
+        reconcileVisiblePage(page);
         setSessions((prev) => applyActivity([...prev, ...page], activeIds.current));
         setHasMore(more);
         nextOffset.current += page.length;
