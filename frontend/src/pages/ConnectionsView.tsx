@@ -664,7 +664,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
           </div>
         )
       ) : mode === 'claude' ? (
-        <ClaudeAccountConnection accountId={connectionId} />
+        <ClaudeAccountConnection key={connectionId ?? 'new'} accountId={connectionId} />
       ) : mode === 'personal' ? (
         <SymposiumPersonalConnections mode="manage" connectionId={connectionId} />
       ) : mode === 'keychain' || mode === 'api' ? (

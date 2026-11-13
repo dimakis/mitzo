@@ -91,7 +91,7 @@ export class ClaudeAccountStore {
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('synchronous = FULL');
       this.db.exec(
-        'CREATE TABLE IF NOT EXISTS attempts (id TEXT PRIMARY KEY, metadata TEXT NOT NULL); CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, metadata TEXT NOT NULL)',
+        'CREATE TABLE IF NOT EXISTS attempts (id TEXT PRIMARY KEY, metadata TEXT NOT NULL); CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, metadata TEXT NOT NULL); CREATE TABLE IF NOT EXISTS removed_accounts (id TEXT PRIMARY KEY)',
       );
     }
   }
@@ -123,7 +123,7 @@ export class ClaudeAccountStore {
     return (
       this.db
         .prepare(
-          "SELECT metadata FROM attempts WHERE json_extract(metadata,'$.owner') = ? ORDER BY rowid DESC LIMIT 20",
+          "SELECT metadata FROM attempts WHERE json_extract(metadata,'$.owner') = ? AND json_extract(metadata,'$.accountId') NOT IN (SELECT id FROM removed_accounts) ORDER BY rowid DESC LIMIT 20",
         )
         .all(owner) as { metadata: string }[]
     )
@@ -147,6 +147,17 @@ export class ClaudeAccountStore {
   config(accountId: string) {
     if (!/^claude-[0-9a-f-]{36}$/.test(accountId)) throw Error('Unknown Claude account');
     return join(this.root, accountId);
+  }
+  /** Remove enrollment only. Native credentials and conversation history remain in custody. */
+  remove(accountId: string) {
+    this.config(accountId);
+    this.db.transaction(() => {
+      if (this.pendingAttempts().some((row) => row.accountId === accountId))
+        throw Error('Finish or cancel the pending Claude sign-in first');
+      if (this.hasUnconfirmedCleanup()) throw Error('Claude sign-in needs host recovery');
+      this.db.prepare('INSERT OR IGNORE INTO removed_accounts VALUES (?)').run(accountId);
+      this.db.prepare('DELETE FROM accounts WHERE id = ?').run(accountId);
+    })();
   }
   assertConfig(attempt: ClaudeLoginAttempt) {
     const config = this.config(attempt.accountId);
@@ -209,6 +220,8 @@ export class ClaudeAccountStore {
       .run(JSON.stringify(row), row.requestId);
   }
   connected(attempt: ClaudeLoginAttempt, identity: ClaudeIdentity) {
+    if (this.db.prepare('SELECT 1 FROM removed_accounts WHERE id = ?').get(attempt.accountId))
+      throw Error('Claude account was removed');
     this.assertConfig(attempt);
     const account = Account.parse({
       id: attempt.accountId,
