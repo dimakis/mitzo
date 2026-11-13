@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SessionRuntimeError } from '../session-runtime-error.js';
+import { NativeHostEffectsRecoveryError } from '../native-host-effects-recovery-error.js';
 import type { EventStore } from '../event-store.js';
 type EffectsEligibility =
   typeof import('../retained-local-codex-effects.js').reconcilableLocalCodexCommand;
@@ -235,6 +236,27 @@ it.each([false, true])(
     expect(saved.payload.error).toBe(response.body.error);
   },
 );
+
+it('delivers a receipt reconciliation failure through HTTP and retained history using one reference', async () => {
+  const failure = new NativeHostEffectsRecoveryError({
+    stage: 'native_host_effects',
+    reason: 'receipt_count_mismatch',
+    commandId: 'original-command',
+    nativeCallCount: 0,
+    receiptCount: 1,
+  });
+  fixture.continue.mockRejectedValueOnce(failure);
+  const response = await request(app)
+    .post(`/api/sessions/${id}/codex-queue/continue`)
+    .set('X-Connection-ID', 'current-signed-sse')
+    .send({});
+  expect(response.status).toBe(409);
+  expect(response.body.runtimeFailure).toEqual(failure.telemetry());
+  expect(response.body.error).toBe(failure.publicMessage());
+  expect(response.body.error).toContain('tool or child-agent effects');
+  expect(response.body).not.toHaveProperty('recoveryDiagnostic');
+  expect(store.getLatestEvent(id, 'error')!.payload.runtimeFailure).toEqual(failure.telemetry());
+});
 
 it('does not offer saved recovery while a live unpaused owner is already progressing', async () => {
   fixture.queue.paused = false;

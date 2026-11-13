@@ -2,6 +2,7 @@ import type { ManagedSession, SessionTransport } from '@mitzo/harness';
 import type { EventStore } from './event-store.js';
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import { createLogger } from './logger.js';
+import { NativeHostEffectsRecoveryError } from './native-host-effects-recovery-error.js';
 
 const log = createLogger('retained-runtime-failure');
 const unclassified = new WeakMap<Error, SessionRuntimeError>();
@@ -76,6 +77,9 @@ export function reportRetainedRuntimeFailure(input: {
   log.warn('Saved runtime work requires attention', {
     sessionId: input.sessionId,
     ...failure.telemetry(),
+    ...(failure instanceof NativeHostEffectsRecoveryError
+      ? { recoveryDiagnostic: failure.diagnostic }
+      : {}),
   });
   if (input.deliver) {
     try {
