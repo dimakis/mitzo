@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subagent icon choices</title>
+  <style>
+    :root { color-scheme:dark; --bg:#111214; --surface:#1a1b22; --line:#34363f; --ink:#c2c3ca; --accent:#b1dca0; }
+    :root[data-theme="light"] { color-scheme:light; --bg:#fafaf8; --surface:#fff; --line:#d9dad5; --ink:#454841; --accent:#48723c; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:20px; background:var(--bg); color:var(--ink); font:14px system-ui,sans-serif; }
+    main { max-width:360px; margin:auto; }
+    .tools { display:flex; justify-content:flex-end; }
+    button { color:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    button:focus-visible { outline:2px solid var(--accent); outline-offset:5px; }
+    .theme { display:grid; place-items:center; width:44px; height:44px; border:1px solid var(--line); border-radius:50%; background:transparent; }
+    .preview { display:flex; justify-content:center; padding:28px 0 36px; }
+    .choice { display:flex; align-items:center; justify-content:center; gap:12px; min-width:94px; height:56px; padding:9px 16px; border:1px solid var(--line); border-radius:30px; background:var(--surface); }
+    .choice:hover { border-color:var(--ink); }
+    .choice[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
+    .glyph { width:34px; height:34px; fill:none; stroke:currentColor; stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round; }
+    .count { font-size:14px; font-variant-numeric:tabular-nums; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+  </style>
+</head>
+<body>
+  <main aria-label="Combined subagent icon preview">
+    <div class="tools">
+      <button type="button" class="theme" aria-label="Switch to light appearance" title="Switch appearance">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/></svg>
+      </button>
+    </div>
+    <div class="preview">
+      <button type="button" class="choice" aria-label="Subagents: parent robot with downward arrows to two smaller robots, 3 subagents" aria-pressed="false" title="Parent agent and its subagents">
+        <svg class="glyph" viewBox="0 0 48 48" aria-hidden="true">
+          <!-- Slightly larger parent robot. -->
+          <g data-part="parent">
+            <path d="M24 6V2h-3M13 10v4m22-4v4"/>
+            <rect x="16" y="6" width="16" height="12" rx="2"/>
+            <path d="M21 10v3m6-3v3"/>
+          </g>
+          <!-- Both arrowheads point vertically down, toward the children. -->
+          <g data-part="downward-arrows">
+            <path d="M24 20v3M10 23h28M10 23v7m-3-3 3 3 3-3M38 23v7m-3-3 3 3 3-3"/>
+          </g>
+          <g data-part="children">
+            <path d="M10 35v-3M2 38v3m16-3v3M38 35v-3m-8 6v3m16-3v3"/>
+            <rect x="4" y="35" width="12" height="9" rx="1.5"/>
+            <rect x="32" y="35" width="12" height="9" rx="1.5"/>
+            <path d="M8 38v2m4-2v2m24-2v2m4-2v2"/>
+          </g>
+        </svg>
+        <span class="count" aria-hidden="true">3</span>
+      </button>
+    </div>
+    <p class="sr-only" id="selection" role="status" aria-live="polite"></p>
+  </main>
+  <script>
+    document.querySelector('.choice').addEventListener('click', event => {
+      const selected = event.currentTarget.getAttribute('aria-pressed') !== 'true';
+      event.currentTarget.setAttribute('aria-pressed', String(selected));
+      document.getElementById('selection').textContent = selected ? 'Combined icon selected for this preview.' : 'Preview selection cleared.';
+    });
+    document.querySelector('.theme').addEventListener('click', event => {
+      const light = document.documentElement.dataset.theme !== 'light';
+      document.documentElement.dataset.theme = light ? 'light' : 'dark';
+      event.currentTarget.setAttribute('aria-label', `Switch to ${light ? 'dark' : 'light'} appearance`);
+    });
+  </script>
+</body>
+</html>

@@ -31,6 +31,7 @@ import {
 import { ContextInjectionDisclosure } from './ContextInjectionDisclosure';
 import { AgentMessageCard } from './AgentMessageCard';
 import { MessageActionsContext } from '../lib/message-actions-context';
+import { ChatImagePreview } from './ChatImagePreview';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -62,6 +63,9 @@ export function UserBubble({
   readAloud,
 }: UserBubbleProps) {
   const actions = useContext(MessageActionsContext);
+  const [preview, setPreview] = useState<{ src: string; index: number; images: string[] } | null>(
+    null,
+  );
   const context = text && splitContextPrompt(text);
   const displayText = context ? context.text : text;
   const injections = contextInjections ?? (context ? context.injections : undefined);
@@ -72,20 +76,44 @@ export function UserBubble({
       data-telos-source-anchor={sourceAnchor || undefined}
     >
       <ContextInjectionDisclosure names={contextBlocks ?? []} injections={injections} />
-      <div
-        className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
-        onClick={() => displayText && onEdit?.(displayText)}
-        role={onEdit ? 'button' : undefined}
-        tabIndex={onEdit ? 0 : undefined}
-      >
+      <div className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}>
         {images && images.length > 0 && (
           <div className="msg-bubble-images">
             {images.map((src, i) => (
-              <img key={i} src={src} alt={`Attachment ${i + 1}`} className="msg-bubble-img" />
+              <button
+                key={i}
+                type="button"
+                className="msg-bubble-image-preview"
+                aria-label={`Open attachment ${i + 1}`}
+                aria-haspopup="dialog"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  event.currentTarget.focus({ preventScroll: true });
+                  setPreview({ src, index: i, images });
+                }}
+              >
+                <img src={src} alt={`Attachment ${i + 1}`} className="msg-bubble-img" />
+              </button>
             ))}
           </div>
         )}
-        {displayText && <div className="msg-bubble-content">{displayText}</div>}
+        {displayText && (
+          <div
+            className="msg-bubble-content"
+            onClick={() => onEdit?.(displayText)}
+            role={onEdit ? 'button' : undefined}
+            tabIndex={onEdit ? 0 : undefined}
+            onKeyDown={(event) => {
+              if (onEdit && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                event.stopPropagation();
+                onEdit(displayText);
+              }
+            }}
+          >
+            {displayText}
+          </div>
+        )}
         {(time || displayText) && (
           <div className="msg-bubble-footer msg-bubble-footer--user">
             {time && (
@@ -115,6 +143,14 @@ export function UserBubble({
           </div>
         )}
       </div>
+      {preview && preview.images === images && (
+        <ChatImagePreview
+          key={preview.index}
+          src={preview.src}
+          attachment={preview.index + 1}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   );
 }

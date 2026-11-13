@@ -38,6 +38,7 @@ export function HomeDialog({
   backLabel = 'Back',
   headerActions,
   surfaceRef,
+  isolatePointerEvents = false,
 }: {
   title: string;
   onClose: () => void;
@@ -52,6 +53,8 @@ export function HomeDialog({
   backLabel?: string;
   headerActions?: ReactNode;
   surfaceRef?: RefObject<HTMLDialogElement | null>;
+  /** Portals retain React ancestry; transcript previews must not trigger message gestures. */
+  isolatePointerEvents?: boolean;
 }) {
   const internalDialogRef = useRef<HTMLDialogElement>(null);
   const dialogRef = surfaceRef ?? internalDialogRef;
@@ -110,12 +113,17 @@ export function HomeDialog({
       inert={!open || inactive || undefined}
       aria-hidden={!open || inactive || undefined}
       onKeyDown={(event) => event.stopPropagation()}
+      onPointerDown={isolatePointerEvents ? (event) => event.stopPropagation() : undefined}
+      onPointerUp={isolatePointerEvents ? (event) => event.stopPropagation() : undefined}
+      onPointerCancel={isolatePointerEvents ? (event) => event.stopPropagation() : undefined}
+      onContextMenu={isolatePointerEvents ? (event) => event.stopPropagation() : undefined}
       onCancel={(event) => {
         event.preventDefault();
         event.stopPropagation();
         onClose();
       }}
       onClick={(event) => {
+        if (isolatePointerEvents) event.stopPropagation();
         if (event.target === event.currentTarget) onClose();
       }}
     >

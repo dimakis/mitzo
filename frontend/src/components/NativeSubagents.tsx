@@ -124,7 +124,7 @@ export function NativeSubagents({
         }}
       >
         {!floating && <UiIcon name={expanded ? 'down' : 'forward'} size={16} />}
-        <UiIcon name="agents" size={16} />
+        <UiIcon name="subagents" size={floating ? 24 : 20} />
         {floating ? (
           <>
             <span aria-hidden="true">{agents.length}</span>

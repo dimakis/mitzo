@@ -207,6 +207,12 @@ See [scope and validation evidence](../features/approval-modes-reusable-access.m
 
 ## Native Codex subagents
 
+The native subagent launcher uses the approved parent-and-children robot icon:
+one slightly larger head above two smaller heads, with arrows pointing down.
+Keep the existing top robot, Symposium composer shortcut and all other header
+and composer controls unchanged. This 13 November follow-up approval replaces
+only the native subagent symbol; retain its count, status and existing behavior.
+
 Keep historical turn rows and add a persistent agent control just above the
 composer. Both entry points share one session-wide dialog and per-child drafts;
 the persistent list includes children from earlier turns. Use quiet rows for the
@@ -1013,6 +1019,21 @@ and [the full-screen desktop preview](assets/image-preview-desktop-dark.png).
 The intercepted browser fixture checks saved PNG pixels and the exact attachment
 bytes submitted across four runtime bindings on mobile WebKit, mobile Chromium
 and desktop Chromium, without backend or provider calls.
+
+## Retained chat image preview
+
+Sent and restored image thumbnails are labelled preview buttons. They open the
+original retained image in a read-only full-screen `HomeDialog`, reusing the
+draft attachment preview's surface, safe-area layout and contain sizing. Preserve
+aspect ratio and show the entire picture. Image preview, message-text editing
+and message actions remain separate targets; do not nest image buttons inside
+an editable button. Closing or Escape restores thumbnail focus and transcript
+scrolling without changing the draft or resending/editing the historical image.
+Loading and failed images retain explicit status and a Retry action. Diagnostics
+include a stable load stage and attachment position, never the image URL/data.
+This is Dimitri's explicit 13 November addition to PR1338. Component and intercepted
+browser coverage includes restored landscape/portrait images, keyboard dismissal,
+draft retention, failure/retry, phone/desktop and alternate appearance.
 
 ## Approval cards
 

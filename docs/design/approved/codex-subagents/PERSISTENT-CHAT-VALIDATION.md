@@ -100,3 +100,51 @@ require fresh hosted browser execution. The unrelated unit-shard failure is the
 forwarded-artifact application journey's missing response at line 133. Local
 reproduction stopped earlier because its fixture repository was missing; neither
 cause equivalence nor a successful reproduction is claimed.
+
+## Approved icon and retained-image addition, 13 November
+
+Baseline `dc9eeccd5b846a0b6553d3b78a91832e4d33fad1` passed all hosted CI,
+including Swift, all desktop/mobile layouts, unit shards and macOS acceptance.
+Trusted Centaur review `PRR_kwDOR2Rn9s8AAAABX4DiVA` at20:02:52Z gave exact-head
+LGTM/merge with zero blockers. Its three prior review threads were resolved.
+The later accepted main change requires coordinated final integration; this
+baseline review and unchanged coverage remain retained evidence.
+
+Dimitri then explicitly approved the combined icon in
+`parent-child-robot-icon.html` (public user event5748923, direction5748590): one
+slightly larger robot above two smaller heads, connected by downward arrows.
+The new design revision appends that approval without rewriting earlier ledger
+entries, references or protected tests. `UiIcon` owns the geometry, and only the
+native subagent entries use the new symbol. Existing header controls, top robot,
+Symposium composer shortcut, context indicator and other composer controls are
+unchanged. Earlier full-page mocks simplified those controls and must not be
+interpreted as approval to change them.
+
+The same request adds full-screen viewing for pictures already sent in chat.
+`UserBubble` gives each retained image its own labelled button. The read-only
+`ChatImagePreview` reuses HomeDialog and the draft image preview's full-screen
+surface, contain sizing, safe areas and modal focus/scroll ownership. Text editing
+and image preview have separate interactive targets. Loading/failure status and
+Retry remain visible; sanitized load diagnostics omit the URL and image bytes.
+No historical image edits, sends, header changes or composer-control changes
+are introduced. Closing restores thumbnail focus and leaves the draft intact.
+
+The initial focused local batch passes206 tests across14files, with the existing
+documented design skip. It includes restored-message rendering, preview load/
+retry/close, source-scope changes, existing message stability, composer preview,
+header controls, native focus and all design checks. New intercepted browser
+coverage reopens retained landscape/portrait pictures and retries an unavailable
+image on phone/desktop and alternate appearances without backend/model calls.
+Fresh hosted browser/type verification and targeted delta review remain required
+for these additions; the known blocked local browser route was not retried.
+
+Focused read-only correctness review found that portal pointer/context-menu
+events could reach the transcript's MessageActions and select a reply behind
+the viewer. Three regression cases reproduced the failure before the fix.
+HomeDialog now offers opt-in pointer isolation, used only by this viewer, while
+preserving native image context-menu behavior. Both local reviewers verified
+the correction and the added browser assertions; neither reports a remaining
+blocking finding. The final focused batch passes225 tests across18files,
+including actual MessageActions touch/pen/context-menu regression coverage.
+Browser coverage now also checks just-sent images, meaningful contained image
+dimensions, modal keyboard focus, draft preservation and retry recovery.

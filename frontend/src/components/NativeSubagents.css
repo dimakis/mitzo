@@ -37,6 +37,10 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
 }
+.native-subagents--floating > .native-subagent-summary > [data-icon='subagents'] {
+  inline-size: var(--space-6);
+  block-size: var(--space-6);
+}
 .native-subagent-summary,
 .native-subagent-row {
   display: flex;

@@ -9,7 +9,11 @@ test.use({ baseURL: 'https://mitzo-ui.test' });
 const providers = ['openai', 'openai-codex', 'google-vertex', 'anthropic-vertex'] as const;
 type Send = { type: string; prompt: string; images: { data: string; mediaType: string }[] };
 
-async function fixtureImages(page: Page, provider: (typeof providers)[number]) {
+async function fixtureImages(
+  page: Page,
+  provider: (typeof providers)[number],
+  restoredImages: string[] = [],
+) {
   const sessionId = 'image-fixture';
   const sent: Send[] = [];
   await page.addInitScript(() => {
@@ -37,6 +41,10 @@ async function fixtureImages(page: Page, provider: (typeof providers)[number]) {
             sessionId,
             messageId: message.clientMsgId,
             text: message.prompt,
+            images: message.images.map(
+              (image: { mediaType: string; data: string }) =>
+                `data:${image.mediaType};base64,${image.data}`,
+            ),
           }),
         );
       }
@@ -67,7 +75,17 @@ async function fixtureImages(page: Page, provider: (typeof providers)[number]) {
     '/api/home/briefing-chats': [],
     '/api/service-health': { services: [], checkedAt: Date.now() },
     '/api/tasks': [],
-    [`/api/sessions/${sessionId}/messages`]: [],
+    [`/api/sessions/${sessionId}/messages`]: restoredImages.length
+      ? [
+          {
+            messageId: 'retained-picture',
+            role: 'user',
+            timestamp: 1,
+            blocks: [{ blockId: 'prompt', blockType: 'text', content: 'An earlier screenshot' }],
+            images: restoredImages,
+          },
+        ]
+      : [],
     [`/api/sessions/${sessionId}/outputs`]: { outputs: [], candidates: [] },
     [`/api/sessions/${sessionId}/meta`]: {
       sessionType: 'chat',
@@ -174,6 +192,126 @@ async function expectTarget(control: Locator) {
   const bounds = (await control.boundingBox())!;
   expect(bounds.width).toBeGreaterThanOrEqual(44);
   expect(bounds.height).toBeGreaterThanOrEqual(44);
+}
+
+for (const theme of ['dark', 'light']) {
+  test(`retained chat pictures reopen full screen with the draft intact (${theme})`, async ({
+    page,
+    isMobile,
+    browserName,
+  }, info) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: isMobile ? 640 : 800 });
+    const images = await page.evaluate(() =>
+      [
+        [1600, 900],
+        [900, 1600],
+      ].map(([width, height]) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d')!;
+        context.fillStyle = '#dcebd4';
+        context.fillRect(0, 0, width, height);
+        context.strokeStyle = '#284123';
+        context.lineWidth = 16;
+        context.strokeRect(8, 8, width - 16, height - 16);
+        context.fillStyle = '#284123';
+        context.font = '44px sans-serif';
+        context.fillText('Retained screenshot', 40, 80);
+        context.fillText('Bottom of the picture', 40, height - 40);
+        return canvas.toDataURL('image/png');
+      }),
+    );
+    let imageAvailable = false;
+    const sent = await fixtureImages(page, 'openai-codex', [...images, '/retained-missing.png']);
+    await page.route('**/retained-missing.png', (route) =>
+      route.fulfill({
+        status: imageAvailable ? 200 : 404,
+        contentType: 'image/png',
+        headers: { 'Cache-Control': 'no-store' },
+        body: imageAvailable
+          ? Buffer.from(images[0].split(',')[1], 'base64')
+          : 'Unavailable fixture image',
+      }),
+    );
+    await page.evaluate((appearance) => {
+      document.documentElement.dataset.theme = appearance;
+      document.documentElement.dataset.accent = appearance === 'light' ? 'teal' : 'mint';
+      document.documentElement.dataset.font = appearance === 'light' ? 'georgia' : 'system';
+      if (appearance === 'light') document.documentElement.style.fontSize = '20px';
+    }, theme);
+    const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+    await input.fill('Keep my current draft');
+    const dialog = page.getByRole('dialog', { name: 'Image preview', exact: true });
+    for (const index of [0, 1]) {
+      const thumbnail = page.getByRole('button', {
+        name: `Open attachment ${index + 1}`,
+        exact: true,
+      });
+      await expectTarget(thumbnail);
+      await thumbnail.click();
+      await expect(dialog).toBeVisible();
+      expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(
+        true,
+      );
+      const image = dialog.getByAltText(`Attachment ${index + 1}`);
+      await expect(image).toHaveAttribute('src', images[index]);
+      await expect
+        .poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth))
+        .toBeGreaterThan(0);
+      await expect(image).toHaveCSS('object-fit', 'contain');
+      await expect(dialog.getByRole('button', { name: 'Save image', exact: true })).toHaveCount(0);
+      await expectTarget(dialog.getByRole('button', { name: 'Close', exact: true }));
+      await dialog.getByRole('button', { name: 'Close', exact: true }).focus();
+      await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+      expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(
+        true,
+      );
+      await page.keyboard.press('Control+Enter');
+      const stage = (await dialog.locator('.image-editor-stage').boundingBox())!;
+      const displayedImage = (await image.boundingBox())!;
+      expect(stage.height).toBeGreaterThan(page.viewportSize()!.height * 0.5);
+      expect(displayedImage.width).toBeGreaterThan(100);
+      expect(displayedImage.height).toBeGreaterThan(100);
+      expect(displayedImage.x).toBeGreaterThanOrEqual(0);
+      expect(displayedImage.y).toBeGreaterThanOrEqual(0);
+      expect(displayedImage.x + displayedImage.width).toBeLessThanOrEqual(
+        page.viewportSize()!.width + 1,
+      );
+      expect(displayedImage.y + displayedImage.height).toBeLessThanOrEqual(
+        page.viewportSize()!.height + 1,
+      );
+      const bounds = (await dialog.boundingBox())!;
+      expect(bounds.height).toBeGreaterThanOrEqual(page.viewportSize()!.height - 1);
+      expect(bounds.width).toBeGreaterThanOrEqual(page.viewportSize()!.width - 1);
+      expect(
+        await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      ).toBe(true);
+      await page.screenshot({
+        path: info.outputPath(`image-retained-${theme}-${index}.png`),
+        animations: 'disabled',
+      });
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(thumbnail).toBeFocused();
+      await expect(input).toHaveValue('Keep my current draft');
+    }
+    await page.getByRole('button', { name: 'Open attachment 3', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('could not be loaded');
+    imageAvailable = true;
+    await dialog.getByRole('button', { name: 'Retry image', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
+    await expect
+      .poll(() =>
+        dialog
+          .getByAltText('Attachment 3')
+          .evaluate((element) => (element as HTMLImageElement).naturalWidth),
+      )
+      .toBe(1600);
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(input).toHaveValue('Keep my current draft');
+    expect(sent).toHaveLength(0);
+  });
 }
 
 for (const provider of providers) {
@@ -323,6 +461,12 @@ for (const provider of providers) {
     expect(pixels).toMatchObject({ width: 320, height: 180 });
     expect(pixels.red).toBeGreaterThan(100);
     await input.fill('Keep this next draft');
+    await page.getByRole('button', { name: 'Open attachment 1', exact: true }).click();
+    await expect(dialog.getByAltText('Attachment 1')).toHaveAttribute('src', annotated!);
+    await expect(dialog.getByRole('button', { name: 'Save image', exact: true })).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(input).toHaveValue('Keep this next draft');
+    expect(sent).toHaveLength(1);
     await pasteSyntheticImage(page);
     await expect(preview).toBeVisible();
     await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
