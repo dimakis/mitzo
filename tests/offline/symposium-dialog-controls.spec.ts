@@ -193,6 +193,19 @@ for (const theme of ['dark', 'light'])
       dialog.getByText('Choose a repository in Where it runs.', { exact: true }),
     ).toBeInViewport();
     await expect(dialog.getByRole('button', { name: 'Review joining brief' })).toBeDisabled();
+    const body = dialog.locator('.conversation-agents-body');
+    expect(await body.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    const bodyBox = (await body.boundingBox())!;
+    for (const label of ['Name in this chat', 'Purpose']) {
+      const inputBox = (await dialog
+        .getByRole('textbox', { name: label, exact: true })
+        .boundingBox())!;
+      expect(inputBox.x + inputBox.width).toBeLessThanOrEqual(bodyBox.x + bodyBox.width);
+    }
+    const modelBox = (await dialog.getByRole('button', { name: /^Model,/ }).boundingBox())!;
+    const thinkingBox = (await dialog.getByRole('button', { name: /^Thinking,/ }).boundingBox())!;
+    expect(thinkingBox.y).toBeGreaterThanOrEqual(modelBox.y + modelBox.height);
+    expect(thinkingBox.width).toBe(modelBox.width);
     await page.screenshot({ path: info.outputPath(`fresh-setup-fields-${theme}.png`) });
     await dialog.getByRole('button', { name: /^Where it runs,/ }).click();
     await expect(dialog.getByRole('radio', { name: 'Mac host' })).toBeChecked();

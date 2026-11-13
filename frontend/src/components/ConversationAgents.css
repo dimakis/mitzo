@@ -276,6 +276,10 @@
   font-size: var(--text-sm);
   flex-basis: 100%;
 }
+.conversation-agent-setup,
+.conversation-agent-identity {
+  min-width: 0;
+}
 .conversation-agent-identity {
   display: grid;
   gap: var(--space-3);
@@ -284,8 +288,19 @@
 .conversation-agent-identity[hidden] {
   display: none;
 }
-.conversation-agent-setup .quick-settings-row {
+.conversation-agent-setup--compact
+  :is(
+    .account-model-settings-account,
+    .account-model-settings-pair,
+    .account-model-settings-utilities
+  ) {
+  display: contents;
+}
+.conversation-agent-setup.workspace-controls--quick .quick-settings-row:not([hidden]) {
   padding-inline: 0;
+}
+.conversation-agent-setup .quick-settings-row::after {
+  inset-inline: 0;
 }
 .conversation-agent-setup .quick-settings-editor {
   padding-inline: 0;

@@ -26,7 +26,11 @@ The selection dialog remains available while the original agent is running. Sele
 agents that become unavailable or leave the conversation remain visible and can be
 removed. After reload, a retained uncertain forward keeps its recovery controls even
 when the original source can no longer be read; checking the original receipt does
-not prepare another forward or start a model reply.
+not prepare another forward or start a model reply. A separate Review message delivery
+action remains visible beside the active composer after reload. The durable source
+reader freezes the completed prefix before the earliest unfinished ordinary reply;
+partial replies and later interleaved material stay outside that reviewed boundary.
+Source validation, authority and exact retained hashes still apply to the whole prefix.
 
 Regression evidence includes the real authenticated application review accepting the
 pinned built-in default, setup gating, indeterminate policy state, isolated picker
@@ -34,8 +38,11 @@ choices, exact targeted audience across restoration, and message-action composit
 Package compilation and design checks pass locally. The local full frontend typecheck
 exceeded the required 1 GiB heap. Both normal and explicitly approved browser commands
 were rejected by the runtime's macOS sandbox guard, before launching a browser.
-Hosted typechecking, browser renders, trusted review, source landing and phone/runtime
-acceptance remain required; this candidate changes no production deployment.
+Hosted compilation and all phone/desktop browser partitions passed at `22d81647e`.
+Its unit suite exposed the old application journey retaining an obsolete profile select;
+the journey now uses the compact settings controls and passes locally. Current-head CI,
+trusted review, source landing and phone/runtime acceptance remain required; this
+candidate changes no production deployment.
 
 ## Source-acceptance checkpoint — 12 November 2026
 

@@ -408,6 +408,18 @@ export function SharedConversationBody({
           onRefresh={() => void presentation.refresh()}
         />
       )}
+      {forwarding.retained && (
+        <ChatStatusMessage
+          status={
+            forwarding.observation?.state === 'confirmed'
+              ? 'Message sharing is recorded.'
+              : forwarding.uncertain
+                ? 'Message delivery is uncertain. Check the original send.'
+                : 'A message send is saved for review.'
+          }
+          action={{ label: 'Review message delivery', onClick: promptContext.show }}
+        />
+      )}
       <ConversationPromptContext
         flow={promptContext}
         forwarding={forwarding}

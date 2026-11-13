@@ -1741,7 +1741,13 @@ context-review and forwarding owners, excludes automatic readers from that delib
 audience, preserves the prompt draft and cannot attach the forwarding review to a prompt.
 The dialog stays mounted independently of the active composer. Previously selected
 unavailable agents remain removable, and a retained uncertain send exposes its recovery
-controls after reload even without a fresh source review.
+controls after reload even without a fresh source review. A separate Review message
+delivery status action stays outside the composer switch, including while an ordinary
+reply streams. It opens the original recovery controls without requiring a new send.
+The compact setup bounds its grid children to the dialog body and flattens the ordinary
+paired picker wrappers into full-width rows. Phone browser checks require contained
+inputs and vertically stacked Model/Thinking rows; screenshots exposed the missing
+wrapper rules even though the earlier interaction assertions passed.
 Review failures retain a readable error and collapsed Technical details with stage,
 stable code and original request reference. Private exception payloads are not rendered
 or logged. Earlier approval references and protected checks remain intact; source checks

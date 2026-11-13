@@ -18,6 +18,7 @@ import {
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 import { ChatArea } from '../ChatArea';
 import { installDialogStub } from './dialog-stub';
+import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 
 const ordinary = vi.hoisted(() => ({ connection: null as null | { clientId: string } }));
 vi.mock('@mitzo/client/hooks', () => ({
@@ -29,6 +30,127 @@ afterEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
   ordinary.connection = null;
+});
+
+it('reopens retained forwarding recovery during an actual ordinary turn even if source reads fail', async () => {
+  installDialogStub();
+  HTMLElement.prototype.scrollTo = vi.fn();
+  const view = sharedConversationView();
+  view.messages = [];
+  const input = {
+    selection: {
+      requestId: uuid(200),
+      target: {
+        collaborationId: view.collaborationId,
+        expectedMembershipRevision: view.membershipRevision,
+        sessionIds: ['reviewer'],
+      },
+      sourceConversationId: 'architect',
+      boundary: { sequence: 1, messageId: 'earlier' },
+      messages: [
+        {
+          messageId: 'earlier',
+          sequence: 1,
+          blocks: [{ blockId: 'text', sha256: 'a'.repeat(64) }],
+        },
+      ],
+      artifacts: [],
+    },
+    note: 'The earlier plan',
+  };
+  expect(
+    saveChatDraft({
+      ...createChatDraft(),
+      id: 'shared:' + view.collaborationId,
+      collaborationContext: {
+        collaborationId: view.collaborationId,
+        authScope: 'login',
+        attached: false,
+        form: {
+          mode: 'selected',
+          purpose: 'Send selected messages',
+          brief: '',
+          messageIds: ['earlier'],
+          shareRecipientIds: ['reviewer'],
+        },
+      },
+      collaborationForward: {
+        collaborationId: view.collaborationId,
+        authScope: 'login',
+        input,
+        confirmationAttempted: true,
+      },
+    }),
+  ).toBe(true);
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    expect(init?.method ?? 'GET').toBe('GET');
+    if (url.includes('source-setup'))
+      return Response.json({
+        state: 'selected',
+        sourceConversationId: 'architect',
+        collaboration: {
+          version: 1,
+          collaborationId: view.collaborationId,
+          revision: view.membershipRevision,
+          participantSessionIds: view.participantSessionIds,
+        },
+      });
+    if (url.endsWith('/conversation')) return Response.json(view);
+    if (url.endsWith('/progress'))
+      return Response.json({
+        collaborationId: view.collaborationId,
+        membershipRevision: view.membershipRevision,
+        replies: [],
+        refusals: [],
+      });
+    if (url.includes('/forward-preparations/')) return Response.json(null);
+    if (url.endsWith('?transcript=durable') || url.includes('/context-source-artifacts'))
+      throw Error('Source read unavailable');
+    throw Error('Unexpected request: ' + url);
+  });
+  render(
+    <MemoryRouter>
+      <SharedConversationHost
+        sourceConversationId="architect"
+        api={new MitzoApiClient(fetch)}
+        clientId="client"
+        authScope="login"
+        getVerifiedAuthScope={() => 'login'}
+      >
+        <SharedConversationBody
+          sourceConversationId="architect"
+          chat={{
+            messages: [],
+            current: {
+              messageId: 'active',
+              blocks: new Map([
+                [
+                  'stream',
+                  { blockId: 'stream', blockType: 'text', content: 'Still working', done: false },
+                ],
+              ]),
+              blockOrder: ['stream'],
+            },
+            running: true,
+            permission: null,
+            onPermissionRespond: () => {},
+          }}
+          ordinaryComposer={<p>The original agent is working</p>}
+        >
+          <p>Loading</p>
+        </SharedConversationBody>
+      </SharedConversationHost>
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Review message delivery' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Send selected messages' });
+  expect(await within(dialog).findByText('Source read unavailable')).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Check original forward' }));
+  await waitFor(() =>
+    expect(fetch.mock.calls.some(([url]) => url.includes('/forward-preparations/'))).toBe(true),
+  );
+  expect(screen.getByText('The original agent is working')).toBeTruthy();
+  expect(fetch.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
 });
 
 it.each([false, true])(

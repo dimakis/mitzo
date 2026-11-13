@@ -436,7 +436,7 @@ function ConversationAgentsBody({
               >
                 <div
                   ref={setupFields}
-                  className="workspace-controls--quick conversation-agent-setup"
+                  className={`workspace-controls--quick conversation-agent-setup${compactSetup ? ' conversation-agent-setup--compact' : ''}`}
                   onKeyDown={(event) => {
                     if (event.key === 'Escape' && setupPage) {
                       event.preventDefault();
