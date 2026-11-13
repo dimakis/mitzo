@@ -172,32 +172,49 @@ for (const theme of ['dark', 'light'])
     await opener.click();
     await page.getByRole('button', { name: 'Add agent', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Add agent', exact: true });
-    const agent = dialog.getByRole('combobox', { name: 'Agent', exact: true });
-    await expect(agent).toBeVisible();
-    await agent.selectOption({ label: 'Reviewer · Independent review · r1' });
     await dialog.getByRole('textbox', { name: 'Name in this chat' }).fill('Bob');
-    await expect(dialog.getByRole('combobox', { name: 'Account', exact: true })).toBeVisible();
-    await expect(dialog.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-      'offline-model',
-    );
-    await expect(dialog.getByRole('combobox', { name: 'Thinking level' })).toBeVisible();
-    await dialog.getByRole('combobox', { name: 'Model', exact: true }).scrollIntoViewIfNeeded();
+    await dialog.getByRole('textbox', { name: 'Purpose', exact: true }).fill('Review the plan.');
+    await dialog.getByRole('button', { name: /^Agent,/ }).click();
+    const reviewer = dialog.getByRole('button', {
+      name: 'Reviewer · Independent review · r1',
+      exact: true,
+    });
+    await reviewer.click();
+    await expect(reviewer).toHaveAttribute('aria-pressed', 'true');
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await dialog.getByRole('button', { name: /^Account, Offline account$/ }).click();
+    await dialog.getByRole('button', { name: 'Offline account', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await dialog.getByRole('button', { name: /^Model, Offline model$/ }).click();
+    await dialog.getByRole('button', { name: 'Offline model', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: /^Thinking,/ })).toBeVisible();
+    await expect(
+      dialog.getByText('Choose a repository in Where it runs.', { exact: true }),
+    ).toBeInViewport();
+    await expect(dialog.getByRole('button', { name: 'Review joining brief' })).toBeDisabled();
+    const body = dialog.locator('.conversation-agents-body');
+    expect(await body.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    const bodyBox = (await body.boundingBox())!;
+    for (const label of ['Name in this chat', 'Purpose']) {
+      const inputBox = (await dialog
+        .getByRole('textbox', { name: label, exact: true })
+        .boundingBox())!;
+      expect(inputBox.x + inputBox.width).toBeLessThanOrEqual(bodyBox.x + bodyBox.width);
+    }
+    const modelBox = (await dialog.getByRole('button', { name: /^Model,/ }).boundingBox())!;
+    const thinkingBox = (await dialog.getByRole('button', { name: /^Thinking,/ }).boundingBox())!;
+    expect(thinkingBox.y).toBeGreaterThanOrEqual(modelBox.y + modelBox.height);
+    expect(thinkingBox.width).toBe(modelBox.width);
     await page.screenshot({ path: info.outputPath(`fresh-setup-fields-${theme}.png`) });
-    await dialog.getByRole('radio', { name: 'Mac host' }).check();
+    await dialog.getByRole('button', { name: /^Where it runs,/ }).click();
+    await expect(dialog.getByRole('radio', { name: 'Mac host' })).toBeChecked();
     const repositorySection = dialog.getByRole('region', { name: 'Repository for new chat' });
     const expectRepositoryLayout = async () => {
       await expect
         .poll(() => repositorySection.evaluate((el) => el.scrollHeight <= el.clientHeight))
         .toBe(true);
-      await expect
-        .poll(async () => {
-          const [box, heading] = await Promise.all([
-            repositorySection.boundingBox(),
-            dialog.getByRole('heading', { name: 'Starting context' }).boundingBox(),
-          ]);
-          return !!box && !!heading && box.y + box.height <= heading.y;
-        })
-        .toBe(true);
+      await expect(dialog.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
     };
     const addRepository = dialog.getByRole('button', { name: 'Add repository', exact: true });
     await addRepository.scrollIntoViewIfNeeded();
@@ -218,12 +235,11 @@ for (const theme of ['dark', 'light'])
         .evaluate((el) => el.scrollWidth <= el.clientWidth),
     ).toBe(true);
     await page.screenshot({ path: info.outputPath(`fresh-setup-repository-${theme}.png`) });
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Add agent', exact: true }).click();
     await expect(dialog.getByRole('textbox', { name: 'Name in this chat' })).toHaveValue('Bob');
-    await expect(dialog.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
-      '["saved","reviewer",1]',
-    );
+    await expect(dialog.getByRole('button', { name: /^Agent, Reviewer/ })).toBeVisible();
     await dialog.getByRole('button', { name: 'Close Agents' }).click();
     await expect(opener).toBeFocused();
     await page.getByRole('button', { name: /^Workspace controls/ }).click();
