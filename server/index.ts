@@ -153,6 +153,7 @@ import { HealthMonitor } from './health-monitor.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { getPendingSessionId, resolvePending } from './permissions.js';
 import { resolveSlashCommand } from './slash-commands.js';
+import { executableSkillResolution } from './skill-runtime-support.js';
 import { routeLegacySkillMessage } from './legacy-skill-routing.js';
 import { NativeCommandRegistry } from './native-commands.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
@@ -1127,10 +1128,8 @@ function handleChatWs(
                 : undefined;
               const cwd = validatedCwd ?? registry.get(clientId)?.cwd ?? BASE_REPO;
               const skillRegistry = buildSkillRegistry(cwd);
-              const resolution = resolveSlashCommand(
-                msg.prompt,
-                skillRegistry,
-                NATIVE_COMMAND_NAMES,
+              const resolution = executableSkillResolution(
+                resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES),
               );
               span.setAttribute('ws.send.resolution', resolution.type);
 

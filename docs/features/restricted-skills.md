@@ -27,9 +27,18 @@ allowing a discovery or dispatch wrapper does not allow every target.
 
 Delegated model execution has no qualified inherited ceiling. Agent/Task and
 session-creation routes therefore refuse under an active ceiling, even when named
-in the list. Removing the ceiling requires a subsequent explicitly admitted plain
-user command; project instructions or cached approvals cannot clear it. A pending
-permission decision must revalidate the ceiling before returning an allow.
+in the list. A pending permission decision must revalidate the ceiling before
+returning an allow. These checks qualify the shared executor primitives, not a
+complete prompt-adapter lifecycle.
+
+Inspection found that legacy inputs change a mutable session policy before FIFO
+delivery, startup can apply policy before registry ownership exists, and cold
+resume does not retain a command-bound ceiling. All current prompt entry points
+therefore refuse restricted skills, including empty ceilings and unrestricted
+wrappers with restricted dependencies. This is an intentional support decision:
+the existing SDK hook cannot establish queued-command or restart inheritance.
+The catalogue exposes the same reason through the existing disabled-choice UI.
+Unrestricted skills continue to resolve and execute.
 
 This is a tool-call boundary, not command argument filtering or a semantic
 read-only promise. Allowing Bash allows commands subject to its existing executor
@@ -38,15 +47,31 @@ existing approval policy. Skill text and provider claims are untrusted instructi
 not enforcement. Server-owned control-plane consent is separate from model-call
 authority and cannot widen the skill ceiling.
 
-| Engine / adapter                  | Restriction support                                           | Boundary                                                                          |
-| --------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Legacy Claude SDK controller      | Exact tool names, dependency intersection; delegation refused | Mandatory PreToolUse, canUseTool, managed executor checks                         |
-| Owned ordinary Local Claude SDK   | Unsupported                                                   | Composer catalogue reason and admission refusal before restricted prompt delivery |
-| Local / OpenShell Codex           | Unsupported                                                   | Controller enqueue/start refusal; ordinary host composer refusal                  |
-| Owned ordinary Responses / Gemini | Unsupported composer skills                                   | Existing ordinary composer refusal                                                |
+| Engine / adapter                  | Restriction support                                      | Boundary                                                                              |
+| --------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Legacy Claude SDK controller      | Unsupported prompt execution; executor primitives tested | v1/v2 command refusal and startup guard before Library, workspace or provider effects |
+| Owned ordinary Local Claude SDK   | Unsupported                                              | Composer catalogue reason and admission refusal before restricted prompt delivery     |
+| Local / OpenShell Codex           | Unsupported                                              | Controller enqueue/start refusal; ordinary host composer refusal                      |
+| Owned ordinary Responses / Gemini | Unsupported composer skills                              | Existing ordinary composer refusal                                                    |
 
 Native skill readers, externally installed hooks and independently launched
 workers are outside this controller contract. Unsupported routes stay unavailable
 until their real execution boundary can carry and revalidate the ceiling. Offline
 adapter evidence does not establish provider/live acceptance; no live model call
 or deployment is authorized by this document.
+
+Enabling restricted execution later requires an immutable ceiling bound to the
+durable command and verified runtime owner, atomic activation with provider input,
+safe handling of queued/steered work, continuation and cold-resume revalidation,
+and either inherited enforcement in each worker or visible delegation refusal.
+Native skill readers need their own enforceable admission decision. Until then,
+the supported product behavior is explicit refusal, not restricted execution.
+
+Offline verification on 13 November: 611 focused tests pass across 16 suites
+(including the six selected skills HTTP-route tests). Evidence covers strict
+metadata and dependency resolution, denied/allowed SDK hook calls, actual native
+executor reads/writes, configured MCP admission, managed SDK dispatch, pending
+approval revocation, ordinary Codex admission, and legacy active/startup refusal.
+The SDK startup fixture verifies both PreToolUse and canUseTool in the real query
+options with a fake provider. Full CI, review and live provider acceptance remain
+separate gates. No model call or deployment was performed.

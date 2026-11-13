@@ -13,6 +13,7 @@ import { SkillRegistry } from '../skills.js';
 import { resolveSlashCommand } from '../slash-commands.js';
 import { ordinarySkillEntries, resolveOrdinarySkillPrompt } from '../ordinary-composer-skills.js';
 import { buildSessionPermissionHooks } from '../session-permission-policy.js';
+import { executableSkillResolution } from '../skill-runtime-support.js';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -62,6 +63,22 @@ function owner() {
     );
   return { registry, send, decide, run };
 }
+
+it('keeps unrestricted execution available and refuses empty and inherited ceilings at prompt admission', () => {
+  const registry = skills({
+    unrestricted: '',
+    empty: 'allowed-tools: []',
+    restricted: 'allowed-tools: [Read]',
+    wrapper: 'requires-skills: [restricted]',
+  });
+  expect(
+    executableSkillResolution(resolveSlashCommand('/unrestricted', registry, new Set())),
+  ).toMatchObject({ type: 'skill', allowedTools: undefined });
+  for (const name of ['empty', 'restricted', 'wrapper'])
+    expect(
+      executableSkillResolution(resolveSlashCommand(`/${name}`, registry, new Set())),
+    ).toMatchObject({ type: 'error', message: expect.stringMatching(/tool restrictions/) });
+});
 
 it.each([{ root: undefined }, { root: ['Read', 'Write'] }])(
   'intersects dependency ceilings with root $root',

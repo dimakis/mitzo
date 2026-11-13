@@ -3425,11 +3425,7 @@ app.get('/api/skills', (req, res) => {
     return;
   }
   const skillRegistry = buildSkillRegistry(cwd);
-  res.json(
-    req.query.runtime === 'ordinary'
-      ? ordinarySkillEntries(skillRegistry)
-      : skillRegistry.listPublic(),
-  );
+  res.json(ordinarySkillEntries(skillRegistry));
 });
 
 app.get('/api/commands', (_req, res) => {
