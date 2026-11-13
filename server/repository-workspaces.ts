@@ -1,4 +1,5 @@
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
+import { canRenewRepositoryApproval } from './local-repository-approval-recovery.js';
 import { assertGithubPreparationCapacity } from './repository-preparation-capacity.js';
 import {
   RepositoryMaterializationReceiptSchema,
@@ -147,6 +148,8 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   pendingHostTask?: PendingHostTaskReceipt;
   /** One bounded private phase record on this same allocation row; never a grant. */
   pendingHostTaskDecision?: PendingHostTaskDecision;
+  /** An expired request is historical refusal evidence, never permission. */
+  approvalExpiry?: { requestSha256: string; recordedAt: number };
   /** Historical conversationId remains immutable; only this disposition owns
    * the UNIQUE live conversation pointer after an explicit custody transfer. */
   primaryDisposition?: z.infer<typeof primaryDispositionSchema>;
@@ -650,6 +653,9 @@ export class RepositoryWorkspaces {
     );
     this.db.exec(`CREATE TABLE IF NOT EXISTS ordinary_preparation_allocations (
       operation_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS repository_approval_attempts (
+      workspace_id TEXT NOT NULL, request_sha256 TEXT NOT NULL, record TEXT NOT NULL,
+      PRIMARY KEY(workspace_id, request_sha256));`);
     try {
       this.ordinaryWorkspaceProvider();
     } catch (error) {
@@ -2492,35 +2498,58 @@ export class RepositoryWorkspaces {
       const retained = this.db
         .prepare('SELECT id FROM repository_workspaces WHERE id=?')
         .get(request.id);
+      let replacing: RepositoryWorkspace | undefined;
       if (retained) {
         await revalidate();
         const record = this.get(request.id);
         if (
-          record.state !== 'ready' ||
-          record.hostReservation ||
-          record.pendingHostTask ||
-          record.pendingHostTaskDecision ||
-          record.conversationId !== undefined ||
-          record.directory !== undefined ||
-          record.sandbox !== undefined ||
-          record.taskIdentity ||
-          record.ordinaryFirstReservation ||
-          record.sourceReleased ||
-          record.preparedRepositoryTransitionAdoption ||
-          record.previewIntentFingerprint !== fingerprint ||
-          !isDeepStrictEqual(record.qualifiedLocalPreparation, qualifiedLocalPreparation) ||
-          !isDeepStrictEqual(record.localSource, localSource) ||
-          !isDeepStrictEqual(record.binding, request.binding) ||
-          !isDeepStrictEqual(record.ordinaryPreparation?.originalBinding, request.binding) ||
-          !isDeepStrictEqual(record.ordinaryPreparation?.runtimeBinding, request.runtimeBinding) ||
-          record.sourceDigest !== digest ||
-          record.featureBranch !== facts.featureBranch ||
-          record.baseOid !== labels.baseOid ||
-          record.baseBranch !== labels.baseBranch
-        )
-          throw new PendingHostTaskError('pending_host_task_uncertain');
-        current();
-        return publicRepositoryWorkspace(record);
+          canRenewRepositoryApproval(record) &&
+          isDeepStrictEqual(record.binding, request.binding) &&
+          isDeepStrictEqual(record.qualifiedLocalPreparation?.oldWorkspace, oldWorkspace) &&
+          record.qualifiedLocalPreparation?.request.conversationId === request.conversationId &&
+          record.qualifiedLocalPreparation?.request.taskRoot === request.taskRoot &&
+          isDeepStrictEqual(record.localSource, localSource) &&
+          isDeepStrictEqual(
+            record.qualifiedLocalPreparation?.allocationFacts.baseIntent,
+            facts.baseIntent,
+          ) &&
+          isDeepStrictEqual(
+            record.qualifiedLocalPreparation?.allocationFacts.sourceIntent,
+            facts.sourceIntent,
+          )
+        ) {
+          replacing = record;
+        } else {
+          if (
+            record.state !== 'ready' ||
+            record.hostReservation ||
+            record.pendingHostTask ||
+            record.pendingHostTaskDecision ||
+            record.conversationId !== undefined ||
+            record.directory !== undefined ||
+            record.sandbox !== undefined ||
+            record.taskIdentity ||
+            record.ordinaryFirstReservation ||
+            record.sourceReleased ||
+            record.preparedRepositoryTransitionAdoption ||
+            record.previewIntentFingerprint !== fingerprint ||
+            !isDeepStrictEqual(record.qualifiedLocalPreparation, qualifiedLocalPreparation) ||
+            !isDeepStrictEqual(record.localSource, localSource) ||
+            !isDeepStrictEqual(record.binding, request.binding) ||
+            !isDeepStrictEqual(record.ordinaryPreparation?.originalBinding, request.binding) ||
+            !isDeepStrictEqual(
+              record.ordinaryPreparation?.runtimeBinding,
+              request.runtimeBinding,
+            ) ||
+            record.sourceDigest !== digest ||
+            record.featureBranch !== facts.featureBranch ||
+            record.baseOid !== labels.baseOid ||
+            record.baseBranch !== labels.baseBranch
+          )
+            throw new PendingHostTaskError('pending_host_task_uncertain');
+          current();
+          return publicRepositoryWorkspace(record);
+        }
       }
       const assertCapacity = () => {
         if (facts.layout !== 'standalone') return;
@@ -2543,7 +2572,7 @@ export class RepositoryWorkspaces {
             effectStatus: 'not_started',
           });
       };
-      assertCapacity();
+      if (!replacing) assertCapacity();
       if (facts.layout === 'standalone') {
         const capacity = await statfs(request.taskRoot);
         current();
@@ -2595,6 +2624,28 @@ export class RepositoryWorkspaces {
       this.db
         .transaction(() => {
           current();
+          if (replacing) {
+            if (!canRenewRepositoryApproval(replacing))
+              throw new PendingHostTaskError('pending_host_task_ownership_changed');
+            this.assertUnchangedHostRecord(replacing);
+            this.db
+              .prepare(
+                'INSERT INTO repository_approval_attempts(workspace_id,request_sha256,record) VALUES(?,?,?)',
+              )
+              .run(
+                request.id,
+                pendingHostTaskDecisionHash(replacing.qualifiedLocalPreparation!.request),
+                JSON.stringify(replacing),
+              );
+            const renewed = this.db
+              .prepare(
+                'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
+              )
+              .run(JSON.stringify(record), request.id, JSON.stringify(replacing));
+            if (renewed.changes !== 1)
+              throw new PendingHostTaskError('pending_host_task_ownership_changed');
+            return;
+          }
           if (!this.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get(request.id))
             assertCapacity();
           this.db
@@ -3605,6 +3656,39 @@ export class RepositoryWorkspaces {
     if (changed.changes !== 1)
       throw new PendingHostTaskError('pending_host_task_ownership_changed');
     return next;
+  }
+  /** Exact original approval owner only. No consumed decision, reservation or
+   * filesystem effect exists here; renewal replaces this context and asks again. */
+  retainLocalRepositoryApprovalExpiry(
+    input: PendingHostTaskRequest,
+    owner: PendingHostTaskDecisionOwner,
+  ): void {
+    const request = this.snapshotPendingInput(input);
+    this.assertDecisionOwner(request, owner);
+    const record = this.pendingRecord(request);
+    if (
+      record.pendingHostTask ||
+      record.retirement ||
+      (record.pendingHostTaskDecision &&
+        (record.pendingHostTaskDecision.state === 'consumed' ||
+          record.pendingHostTaskDecision.evidence.expiresAt > Date.now()))
+    )
+      throw new PendingHostTaskError('pending_host_task_uncertain');
+    const next: RepositoryWorkspace = {
+      ...record,
+      approvalExpiry: {
+        requestSha256: pendingHostTaskDecisionHash(request),
+        recordedAt: Date.now(),
+      },
+    };
+    this.assertUnchangedHostRecord(record);
+    const changed = this.db
+      .prepare(
+        'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
+      )
+      .run(JSON.stringify(next), record.id, JSON.stringify(record));
+    if (changed.changes !== 1)
+      throw new PendingHostTaskError('pending_host_task_ownership_changed');
   }
   /** Private metadata only. Observed evidence is historical and cannot authorize effects. */
   retainPendingHostTaskDecisionObservation(

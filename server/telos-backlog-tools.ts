@@ -9,6 +9,7 @@ import {
 } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { ToolDefinition } from '@mitzo/harness';
+import { throwIfApprovalExpired, expiredApprovalToolResult } from '@mitzo/harness';
 import type { TelosItemStore } from './telos-item-store.js';
 import { TelosWorkError, type TelosWorkStore } from './telos-work-store.js';
 import type { TelosToolResult } from './telos-tool.js';
@@ -131,6 +132,7 @@ export async function executeTelosBacklogOperation(
       const permission = await owners.approve(name, structuredClone(input), ctx.signal);
       await ctx.assertCurrent();
       current();
+      throwIfApprovalExpired(permission);
       if (permission.behavior !== 'allow')
         throw new TelosWorkError(
           'unauthorized',
@@ -242,6 +244,8 @@ export async function executeTelosBacklogOperation(
     }
     return { content, isError: false };
   } catch (error) {
+    const expired = expiredApprovalToolResult(error);
+    if (expired) return expired;
     const known =
       error instanceof TelosWorkError ||
       (error instanceof Error &&

@@ -2,7 +2,7 @@ import { ToolSetupCards } from './ToolSetupCards';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useId, useState } from 'react';
-import { getToolStatus, type ToolBlock } from '../lib/tool-status';
+import { getToolStatus, isApprovalTimeout, type ToolBlock } from '../lib/tool-status';
 import { ToolPill } from './ToolPill';
 
 interface Props {
@@ -18,7 +18,10 @@ export function ToolGroup({ tools, sessionId }: Props) {
   if (tools.length === 1) return <ToolPill block={tools[0]} sessionId={sessionId} />;
   const statuses = tools.map(getToolStatus);
   const doneCount = statuses.filter((status) => status.done).length;
-  const failedCount = statuses.filter((status) => status.done && status.hasError).length;
+  const failedCount = statuses.filter(
+    (status, index) => status.done && status.hasError && !isApprovalTimeout(tools[index]),
+  ).length;
+  const expiredCount = tools.filter(isApprovalTimeout).length;
   const runningCount = statuses.filter((status) => status.running).length;
   const interruptedCount = statuses.filter((status) => status.interrupted).length;
   const summary =
@@ -28,6 +31,7 @@ export function ToolGroup({ tools, sessionId }: Props) {
   const statusSummary = [
     summary,
     interruptedCount > 0 ? `${interruptedCount} interrupted` : '',
+    expiredCount > 0 ? `${expiredCount} approval${expiredCount === 1 ? '' : 's'} timed out` : '',
     failedCount > 0 ? `${failedCount} failed` : '',
   ]
     .filter(Boolean)

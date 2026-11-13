@@ -9,7 +9,11 @@ import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
-import { expiredApprovalResult, type ApprovalPermissionResult } from './approval-outcome.js';
+import {
+  ApprovalExpiredError,
+  expiredApprovalResult,
+  type ApprovalPermissionResult,
+} from './approval-outcome.js';
 import { toolFailure } from '@mitzo/protocol';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
@@ -629,6 +633,7 @@ export function buildPermissionHandler(
           if (modeDenial) return modeDenial;
           if (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
             return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+          if (request.expiresAt! <= Date.now()) return expiredApprovalResult();
           if (onDecision) {
             try {
               if (
@@ -637,8 +642,7 @@ export function buildPermissionHandler(
                 !decisionInput ||
                 snapshotDecisionInput(result.updatedInput ?? {}).serialized !==
                   decisionInput.serialized ||
-                originalSignal.aborted ||
-                request.expiresAt! <= Date.now()
+                originalSignal.aborted
               )
                 throw Error('Original one-shot decision is no longer current');
             } catch {
@@ -726,12 +730,17 @@ export function buildPermissionHandler(
       const onAbort = () => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          removePending(permId, 'cancelled');
-          wrappedResolve({
-            behavior: 'deny',
-            message: 'Tool approval cancelled because the operation was aborted',
-            failure: toolFailure('cancelled', 'approval', 'not_started'),
-          });
+          const expired = originalSignal.reason instanceof ApprovalExpiredError;
+          removePending(permId, expired ? 'expired' : 'cancelled');
+          wrappedResolve(
+            expired
+              ? expiredApprovalResult()
+              : {
+                  behavior: 'deny',
+                  message: 'Tool approval cancelled because the operation was aborted',
+                  failure: toolFailure('cancelled', 'approval', 'not_started'),
+                },
+          );
         }
       };
       originalSignal.addEventListener('abort', onAbort, { once: true });

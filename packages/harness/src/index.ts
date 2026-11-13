@@ -30,6 +30,8 @@ export {
   ApprovalExpiredError,
   expiredApprovalResult,
   throwIfApprovalExpired,
+  permissionRefusalContent,
+  expiredApprovalToolResult,
   PERMISSION_EXPIRED_MESSAGE,
 } from './approval-outcome.js';
 export type { ApprovalPermissionResult } from './approval-outcome.js';

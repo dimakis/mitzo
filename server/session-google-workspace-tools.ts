@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
   buildPermissionHandler,
+  permissionRefusalContent,
   checkSkillPolicy,
   effectivePermissionMode,
   type ManagedSession,
@@ -114,7 +115,8 @@ export function sessionGoogleWorkspaceTools(options: {
           permission.decisionClassification === 'user_permanent';
         await readGuard();
         combined.throwIfAborted();
-        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (permission.behavior !== 'allow')
+          return { content: permissionRefusalContent(permission), isError: true };
         if (!isDeepStrictEqual(permission.updatedInput, review))
           throw Error('Google read approval changed');
         onAuthorized?.(readCurrent);

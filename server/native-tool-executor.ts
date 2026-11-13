@@ -33,6 +33,7 @@ import {
 } from './workspace-runtime-private-paths.js';
 import {
   buildPermissionHandler,
+  permissionRefusalContent,
   effectivePermissionMode,
   checkSkillPolicy,
   UserQuestionsSchema,
@@ -284,7 +285,7 @@ export function createNativeToolExecutor(
         signal.throwIfAborted();
         return permission.behavior === 'allow'
           ? result(JSON.stringify({ answers: permission.updatedInput?.answers }))
-          : refused(permission.message);
+          : refused(permissionRefusalContent(permission));
       }
       if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
         const log =
@@ -378,7 +379,7 @@ export function createNativeToolExecutor(
           ...taskConsent,
         });
         signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return refused(permission.message);
+        if (permission.behavior !== 'allow') return refused(permissionRefusalContent(permission));
         if (!isDeepStrictEqual(permission.updatedInput, input))
           return refused('Tool input changed during approval; retry the tool');
         if (
@@ -437,7 +438,7 @@ export function createNativeToolExecutor(
             : {}),
         });
         signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return refused(permission.message);
+        if (permission.behavior !== 'allow') return refused(permissionRefusalContent(permission));
         if (!isDeepStrictEqual(permission.updatedInput, input))
           return refused('Tool input changed during approval; retry the tool');
         if (registry.get(clientId) !== session || effectivePermissionMode(session) === 'ask')
@@ -546,7 +547,7 @@ export function createNativeToolExecutor(
         forcePrompt,
       });
       signal.throwIfAborted();
-      if (permission.behavior !== 'allow') return refused(permission.message);
+      if (permission.behavior !== 'allow') return refused(permissionRefusalContent(permission));
       // The shared handler returns the checked input. Never execute unchecked replacements.
       if (!isDeepStrictEqual(permission.updatedInput, input))
         return refused('Tool input changed during approval; retry the tool');

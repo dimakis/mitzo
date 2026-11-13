@@ -10,6 +10,7 @@ import { agentToolAllowed } from './agent-tool-selection.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { buildPermissionHandler } from './permission-handler.js';
+import { throwIfApprovalExpired, expiredApprovalToolResult } from '@mitzo/harness';
 import { sessionPromptSchemas } from './session-prompt-definitions.js';
 import { getSessionPrompts } from './session-prompt-runtime.js';
 import { sessionPromptReceipt } from './session-prompt-service.js';
@@ -85,6 +86,7 @@ export function sessionPromptTools(
             { signal, toolUseID: call.callId },
           );
           verify();
+          throwIfApprovalExpired(decision);
           if (
             decision.behavior !== 'allow' ||
             !isDeepStrictEqual(decision.updatedInput ?? input, input)
@@ -138,6 +140,8 @@ export function sessionPromptTools(
         verify();
         return { content: JSON.stringify(value), isError: false };
       } catch (error) {
+        const expired = expiredApprovalToolResult(error);
+        if (expired) return expired;
         return {
           content: error instanceof Error ? error.message : 'Session automation is unavailable.',
           isError: true,

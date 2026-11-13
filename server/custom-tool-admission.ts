@@ -1,5 +1,6 @@
 import type { AgentToolReference } from '@mitzo/protocol';
 import type { buildPermissionHandler } from '@mitzo/harness';
+import { throwIfApprovalExpired, expiredApprovalToolResult } from '@mitzo/harness';
 import { isDeepStrictEqual } from 'node:util';
 import { compileToolBuilderSchema } from './tool-builder-schema.js';
 import type { ToolBuilderStore } from './tool-builder-store.js';
@@ -75,6 +76,7 @@ export function admitCustomTools(options: {
         });
         await options.assertRuntimeCurrent?.();
         check();
+        throwIfApprovalExpired(approved);
         if (approved.behavior !== 'allow' || !isDeepStrictEqual(approved.updatedInput, requested))
           return {
             content: 'Custom tool approval denied or changed. Retry the exact intended input.',
@@ -86,7 +88,9 @@ export function admitCustomTools(options: {
           requested,
           { signal, assertCurrent: check },
         );
-      } catch {
+      } catch (error) {
+        const expired = expiredApprovalToolResult(error);
+        if (expired) return expired;
         return {
           content: signal.aborted
             ? 'Custom tool invocation cancelled'

@@ -13,6 +13,14 @@ and the next safe action. Preserve partial work and continue independent authori
 A failed result is not a successful operation. Correct invalid inputs and known prerequisites before
 retrying; inspect the original receipt before repeating an uncertain operation. Reuse its request ID
 where supported. Do not bypass denial, cancellation, lost authority or a required recovery pause.
+An approval_expired result means the user did not respond before the approval deadline.
+It is a recoverable timeout, not a user rejection, broken environment or lost session authority.
+Keep the conversation usable and wait for the user to return; do not loop on new approval cards.
+When the user asks to continue, request fresh approval for the same operation under current policy.
+Preserve original receipts and recover the existing operation through its owner. Only a proved
+not_started outcome permits a fresh attempt without reconciling effects; unknown outcomes still
+require inspection. Never reset a session, bypass approval or allocate a replacement just to escape
+an expired card. Explicit rejection and Stop remain separate decisions.
 `;
 
 export const SESSION_PERMISSION_INSTRUCTIONS =

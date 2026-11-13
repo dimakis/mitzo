@@ -3,7 +3,12 @@ import { z } from 'zod';
 import { waitForChange } from './wait-for-change.js';
 import { isDeepStrictEqual } from 'node:util';
 import { AgentMessageSendSchema, agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
-import { checkSkillPolicy, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
+import {
+  checkSkillPolicy,
+  throwIfApprovalExpired,
+  type ManagedSession,
+  type SessionRegistry,
+} from '@mitzo/harness';
 import {
   captureAgentLibraryAuthorization,
   captureAgentLibraryOperation,
@@ -551,6 +556,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         assertSupported(input.recipientConversationId);
         const permission = await owners.approve(input, signal);
         current();
+        throwIfApprovalExpired(permission);
         if (permission.behavior !== 'allow' || !isDeepStrictEqual(permission.updatedInput, input))
           throw new AgentCommunicationError(
             'approval_denied',

@@ -66,6 +66,10 @@ for (const theme of ['dark', 'light'] as const)
       });
     });
     await page.goto('/');
+    const expired = page.getByRole('region', { name: 'Expired approval', exact: true });
+    await expect(expired.getByText('Approval timed out', { exact: true })).toBeVisible();
+    await expect(expired.getByText('Failed', { exact: true })).toHaveCount(0);
+    await expect(expired.locator('.tool-pill--interrupted')).toBeVisible();
     const command = page.getByRole('region', { name: 'Owned command', exact: true });
     const web = page.getByRole('region', { name: 'Owned web request', exact: true });
     const group = page.getByRole('region', { name: 'Mixed tool group', exact: true });

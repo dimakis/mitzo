@@ -6,6 +6,51 @@ import { toolFailure } from '@mitzo/protocol';
 
 afterEach(() => vi.useRealTimers());
 
+it('retains expiry if validation crosses the deadline after an explicit tap', async () => {
+  vi.useFakeTimers();
+  const sent: Record<string, unknown>[] = [];
+  const abort = new AbortController();
+  const registry = new SessionRegistry();
+  registry.register('validation', {
+    sessionId: 'session',
+    mode: 'agent',
+    abortController: abort,
+    sessionAllowList: new Set(),
+    transport: { isOpen: () => true, send: (event) => sent.push(event) },
+  });
+  try {
+    const pending = buildPermissionHandler('validation', registry)(
+      'PrepareLocalRepository',
+      {},
+      {
+        signal: abort.signal,
+        toolUseID: 'validation',
+        forcePrompt: true,
+        allowSessionGrant: false,
+        rememberSessionGrant: false,
+        approvalScope: 'request',
+        onDecision(evidence) {
+          vi.setSystemTime(evidence.expiresAt + 1);
+        },
+      },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    resolvePending(String(sent[0].permId), 'once');
+    expect(await pending).toMatchObject({
+      behavior: 'deny',
+      failure: toolFailure('approval_expired', 'approval', 'not_started'),
+    });
+    expect(sent[1]).toMatchObject({
+      type: 'permission_timeout',
+      failure: toolFailure('approval_expired', 'approval', 'not_started'),
+    });
+    expect(abort.signal.aborted).toBe(false);
+  } finally {
+    abort.abort();
+    registry.dispose();
+  }
+});
+
 it.each(['Bash', 'PrepareLocalRepository', 'ConnectionRequest', 'TelosCreateFeature'])(
   '%s reports expiry consistently and accepts a fresh request in the same session',
   async (toolName) => {
