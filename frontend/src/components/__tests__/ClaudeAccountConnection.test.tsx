@@ -277,6 +277,12 @@ it.each(['verified', 'failed', 'unavailable', 'revoked'] as const)(
       );
     } else {
       expect((await screen.findByRole('alert')).textContent).toContain('could not be checked');
+      expect(
+        (screen.getByRole('button', { name: 'Start chat' }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      expect(
+        (screen.getByRole('button', { name: 'Sign in again' }) as HTMLButtonElement).disabled,
+      ).toBe(false);
     }
     await waitFor(() => expect(screen.queryByText('Checking native Claude sign-in…')).toBeNull());
     expect(

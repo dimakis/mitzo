@@ -400,7 +400,7 @@ export function ClaudeAccountConnection({ accountId: selectedAccountId }: { acco
                 <button
                   type="button"
                   className="access-row-action"
-                  disabled={controlsDisabled || busyAttempt || signInFailed}
+                  disabled={controlsDisabled || busyAttempt || signInFailed || !!error}
                   onClick={() => void startChat(account.id)}
                 >
                   Start chat

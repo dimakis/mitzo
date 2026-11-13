@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1118-enmaas-account-settings';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1119-claude-account-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -230,40 +230,40 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-model-discovery.ts':
     '167e5a4dcd8547f1433e918707d31d92ba0d725a40483a70ab740349b628fac1',
   '../../frontend/src/components/ClaudeAccountConnection.tsx':
-    'c21367f9ecaac62955707a0db3cd0b3111559aa59769d3513a7975d321824315',
+    'bc89982ca1453871a5ce575bdf3206493a1fc6dd7443d22cac0c150603de4b43',
   '../../frontend/src/components/__tests__/ClaudeAccountConnection.test.tsx':
-    'e1c42108da7697ed566a05c76b8cae2b0afded3c633df8a85fa0cc8473341e30',
+    '78eff80fbeee2199db81086cb9009fcd2f699a6abdb7e18199a9c1d2c7f62145',
   '../../frontend/src/lib/claude-account-api.ts':
-    '1a69ade9fcf7c97440bfc4d2040a5faa8ccc5048136488a4bc4fefeeb6de063a',
+    '6434a06f5350267b263fec65b38fa80b81809e5f4cb3875ac8c2fbf97013e7dc',
   '../../frontend/src/pages/ConnectionsRoute.tsx':
     '73524a2b6ff2a19bb6a7bced8a99f7f5f3cec3aeb6d3f50957f948d7ce11e14e',
   '../../frontend/src/pages/ConnectionsView.tsx':
-    'cc3c472c2659c4d39fd311e525978cf41e4679fa5dfaa9fb631dbad4ea3daabe',
+    '77c1c5bdb486e6abc6d081f5d2fd98c50b0cf4ff8096e1fa4fd23828644d14d2',
   '../../frontend/src/pages/__tests__/ConnectionsRoute.claude.test.tsx':
     '28d23b2e9da80244c23b9b5d4325b9fc50a66a007d521c63bea7048b04487440',
   '../../frontend/src/types/connections.ts':
     'c1fa48b515ffd7fea0f66c9a84ef23963c3fde98734896d2b4e256c353294b37',
   '../__tests__/claude-account-login.test.ts':
-    'a0860f4fbb2b9e2a8e9380d268d10d6b5cde2175778f02b9fa6ab8d77f2e5c35',
+    'ec39e133535b7169f1733196aa8543f60975cb9b79466f3e1568c99b305a1993',
   '../__tests__/claude-account-router.test.ts':
-    '46004233169a4fb2aaec87f7296b1fcff6058266a936f2c9eeed95fb8b40a066',
+    '0466af14870c32b60b80fd8f467bcdc1dcd98eb429ae069c8bcccf1392b9ab16',
   '../__tests__/claude-account-store.test.ts':
     '36cff4bc1481aa588c3f82e4f4232616e8b493265ed6d9a2f05280d4a9616483',
   '../__tests__/claude-login-process.test.ts':
-    '083e4e398abb2b5c1b2c7324d78387f85333dc067baf5454eb8e1bec4bb46969',
+    '215a38cc1fa37f10e1ce774dc8e5b0bb5c5bdb0e67c2e256a0e7e2ddb93793b8',
   '../__tests__/claude-login-supervisor.test.ts':
     '74e89a04474829bb42121ee8904adb5cda09e4e28f4c856855987741b8328a51',
   '../__tests__/claude-managed-profiles.test.ts':
     'a68e41f0a6117e120509894afb4f35c92e7e4487c813cbf7d092969a5c358aea',
-  '../claude-account-login.ts': 'b3bbcc7f14699ba3cd23355dc685b52bf7ce690b90ce11b0c109dc95d06d25a2',
-  '../claude-account-router.ts': '05b9793ab2d514ae53e034a0ff8b156f39bf988bbb047fd3c2c5acd66078aaf6',
-  '../claude-account-store.ts': '00da4a597cb473ae23dddecc717b957718b39c6ba6ce6387d44e4b603b553118',
-  '../claude-login-process.ts': '2b4774d31e316a1b3cc1b6f8ae73ea68d4e397785497fdec210a67a8cacfb6ca',
+  '../claude-account-login.ts': '3857b02e3b4db1d5f869475721d72504348f72c3fe66dfe86f71f0d539061934',
+  '../claude-account-router.ts': 'd2fb76fc573f246ddbfc57a8ef3c3ab3450737c16a9ae3364326b9865e01f04d',
+  '../claude-account-store.ts': '99d6054f487411d9a208613a0c5d0733bd29669151dffe5cb15fb5aa6da9cbd6',
+  '../claude-login-process.ts': '1c7d553ed25286916aceca0e49b409b2946b17d5faf38207e70975f2037aec9c',
   '../claude-login-supervisor.cjs':
     'd62c9117de7255c4087d54fa5840f382f594ee7ef4b3f35b47fcaa20bebafa94',
   '../connections-access.ts': 'd8b5053d8b0c76cdbca40cb7b664e2eaefbbc3b9736c650018c8b2d014e55bf0',
   '../../tests/offline/claude-account-connect.spec.ts':
-    '5c98b2408afd69e8244cfe7896b50a079c1ad8e608d5766de92f87f4aa59b43b',
+    '1304c8b72af386e38ed303ce589d85fb78a7e17afdf8ff53f0f3987869d5035c',
   '../../packages/client/src/__tests__/fixtures/local-first-command.ts':
     '1cffdd0cc5fb01bb7d4c7032506358ddd6dca17212e1d3a9115b6fbb3ae5b90d',
   '../../frontend/src/hooks/__tests__/useTurnSteering.storage-recovery.test.tsx':
@@ -1040,7 +1040,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '3d8114db9049ec3efec819e867b74b3982f264c2cd58c55617932f426b143077',
+    'b970fb0ed79439b9523ba845d11efca3ef9d935284878668e9e7fa4a84e668ca',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
