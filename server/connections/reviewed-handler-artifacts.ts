@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1130-native-agent-visual-evidence';
+  'v1.0.1131-native-agent-focus-return';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/__tests__/NativeSubagentsFocus.test.tsx':
+    '4a3952e6003e5d4ca86aae2918ef42130d7bf4afc2e18142372f74fe6738452b',
   '../../docs/design/approved/codex-subagents/floating-v004.html':
     '22219f3795f5fdcfa941c8e0529e98f85d7f1aa52904301127ae2bd98ccad0f3',
   '../../.prettierignore': '8cbb87e3cef27c9d25480d0d0604de7e04d83d3bdc98ca6a25f8189a25eaad70',
@@ -47,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/approved/codex-subagents/floating.html':
     'cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7',
   '../../docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md':
-    '159ee6093446995598bfce02d87b0057cc6fc7412a40a889e3af2d02e7d7e470',
+    'c13cd4934e20db5321727349d35b7c2fe196b80d54ddf8c7f0b73507504fa0b1',
   '../../tests/integration/native-subagent-control.test.tsx':
     '09e189944ed0d0fa160bac32287ee2b42e1844ba59941028f0efdbf7ed54ce36',
   '../__tests__/claude-login-sandbox.native.test.ts':
@@ -1028,7 +1030,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/NativeSubagents.css':
     'e5264b67f1cf9c8ec323ada37d074204142b3e90fdfec17afdd41f72ebbb4ae4',
   '../../frontend/src/components/NativeSubagents.tsx':
-    'a1885a62939117fa855d90fcfa0e0571d88619b1d1b0535fa6329399178564ce',
+    '9c5b1ec9f690d6f2be7fb9206dbdb1f8efee78a51b8fb228bfb6b31e6a1f17d2',
   '../../packages/protocol/src/native-subagents.ts':
     'e72926ec6f9aa5843e41a8f91e6ee0b828e6a40b104a9642e56c2e2832417e33',
   '../__tests__/codex-subagent-routes.test.ts':

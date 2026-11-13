@@ -1,4 +1,4 @@
-import { useContext, useEffect, useId, useState } from 'react';
+import { useContext, useEffect, useId, useRef, useState } from 'react';
 import type { NativeSubagentControl, NativeSubagentSnapshot } from '@mitzo/protocol';
 import { useNativeSubagents } from '../hooks/useNativeSubagents';
 import { createBrowserId } from '../lib/browser-crypto';
@@ -50,6 +50,7 @@ export function NativeSubagents({
   const agents = feed.agents.filter((agent) => !commandId || agent.commandId === commandId);
   const navigation = useContext(NativeSubagentDialogContext);
   const [expanded, setExpanded] = useState(false);
+  const launcher = useRef<HTMLButtonElement>(null);
   const [localSelectedId, setLocalSelectedId] = useState<string>();
   const selectedId = navigation ? (floating ? navigation.selectedId : undefined) : localSelectedId;
   const setSelectedId = (threadId?: string) => {
@@ -109,6 +110,7 @@ export function NativeSubagents({
       aria-label={floating ? 'Session agents' : 'Subagents'}
     >
       <button
+        ref={launcher}
         type="button"
         className="native-subagent-summary"
         aria-expanded={expanded}
@@ -143,7 +145,9 @@ export function NativeSubagents({
               key={agent.threadId}
               className="native-subagent-row"
               onClick={(event) => {
-                event.currentTarget.focus({ preventScroll: true });
+                // The floating list disappears while inspecting a child. Give
+                // the shared modal a connected target for focus restoration.
+                (floating ? launcher.current : event.currentTarget)?.focus({ preventScroll: true });
                 setSelectedId(agent.threadId);
                 if (floating) setExpanded(false);
               }}

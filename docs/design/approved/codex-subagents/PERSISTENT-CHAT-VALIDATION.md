@@ -76,3 +76,14 @@ pattern so hosted sizing/dragging evidence survives the runner. The integration
 with accepted main `f850dcc` preserved both source changes; the only conflict
 was generated registry metadata. Post-integration ChatArea/session/sizing and
 ledger checks passed, alongside complete source integrity.
+
+Centaur's review of `2df6991` identified the desktop sizing behavior (already
+corrected above) and focus loss after the floating list unmounted. Three new
+regressions reproduced focus loss after Hide, Escape and Back. The launcher now
+serves as the modal's connected focus-return target for floating-list entry;
+historical transcript entry retains its original target. The 12 targeted owner,
+dialog and sizing tests pass. The new focus cases live in a separate regression
+file, preserving the ledger-protected tests unchanged. The prior `579fbbf`
+candidate passed hosted compilation, frontend
+and iOS web builds, core checks and general browser interaction checks. Fresh
+hosted validation and Centaur follow-up remain required for this focus correction.
