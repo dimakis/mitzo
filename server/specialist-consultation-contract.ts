@@ -50,6 +50,7 @@ export const ConsultationRecordSchema = z.strictObject({
   leadSessionId: id,
   revision: z.number().int().nonnegative(),
   input: ConsultationInputSchema,
+  route: SpecialistRouteSchema,
   boundary: CollaborationSnapshotSelectionSchema.shape.boundary,
   workspaceId: z.uuid(),
   reviewRequestId: z.uuid(),

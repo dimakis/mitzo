@@ -84,6 +84,16 @@ export class SpecialistConsultationStore {
       })
       .immediate();
   }
+  useCollaboration(lead: string, policyId: string, collaborationId: string) {
+    const policy = SpecialistPolicySchema.parse({
+      ...this.policy(lead, policyId),
+      collaborationId,
+    });
+    this.db
+      .prepare('UPDATE specialist_consultation_policies SET body=? WHERE lead_id=? AND policy_id=?')
+      .run(JSON.stringify(policy), lead, policyId);
+    return policy;
+  }
   revoke(lead: string, policyId: string) {
     const policy = { ...this.policy(lead, policyId), revoked: true };
     this.db
@@ -108,6 +118,7 @@ export class SpecialistConsultationStore {
     policyId: string,
     raw: unknown,
     boundary: ConsultationRecord['boundary'],
+    selectedRoute?: ConsultationRecord['route'],
   ) {
     const input = ConsultationInputSchema.parse(raw);
     return this.db
@@ -132,6 +143,7 @@ export class SpecialistConsultationStore {
           leadSessionId: lead,
           revision: 0,
           input,
+          route: selectedRoute ?? policy.routes.find((route) => route.role === input.role),
           boundary,
           workspaceId: randomUUID(),
           reviewRequestId: randomUUID(),

@@ -41,7 +41,20 @@ const unavailable = () => new CollaborationContractError('execution_unavailable'
  * No native capacity adapter is installed, so every new review is unverified.
  */
 export class CollaborationApplicationReview {
-  constructor(private readonly owners: { store: EventStore; workspaces: RepositoryWorkspaces }) {}
+  constructor(
+    private readonly owners: {
+      store: EventStore;
+      workspaces: RepositoryWorkspaces;
+      /** Trusted ordinary lead adapter; public HTTP retains its live transport fence. */
+      authorizeOperator?: (auth: AuthSession, connectionId: string) => void;
+    },
+  ) {}
+
+  private operatorCurrent(auth: AuthSession, connectionId: string) {
+    if (this.owners.authorizeOperator) this.owners.authorizeOperator(auth, connectionId);
+    else if (liveTransportAuthSessionId(connectionId) !== auth.id) throw unavailable();
+    return true;
+  }
 
   /** Bounded registered metadata only; no candidate content or inference. The
    * source/compiler renews exact selected artifact bytes during actual review. */
@@ -58,7 +71,7 @@ export class CollaborationApplicationReview {
       if (
         !isAuthSessionCurrent(auth) ||
         operator.auth.id !== auth.id ||
-        liveTransportAuthSessionId(operatorConnectionId) !== auth.id ||
+        !this.operatorCurrent(auth, operatorConnectionId) ||
         !source ||
         source.isHidden ||
         source.sessionType === 'symposium' ||
@@ -98,7 +111,7 @@ export class CollaborationApplicationReview {
       if (
         !isAuthSessionCurrent(auth) ||
         operator.auth.id !== auth.id ||
-        liveTransportAuthSessionId(operatorConnectionId) !== auth.id ||
+        !this.operatorCurrent(auth, operatorConnectionId) ||
         !source ||
         source.isHidden ||
         source.sessionType === 'symposium' ||
@@ -244,7 +257,7 @@ export class CollaborationApplicationReview {
       if (
         !isAuthSessionCurrent(auth) ||
         operator.auth.id !== auth.id ||
-        liveTransportAuthSessionId(operatorConnectionId) !== auth.id
+        !this.operatorCurrent(auth, operatorConnectionId)
       )
         throw unavailable();
       const membership = this.owners.store.getSessionCollaboration(group);
