@@ -319,6 +319,17 @@
     "requirement": "Requires a Local Mac Codex chat with native command and file tools (Bash, Read, Write and Edit) selected. Approve the displayed repository and task changes each time, in every mode. Selecting this tool grants no access. The prepared task becomes active after the current turn finishes."
   },
   {
+    "id": "mitzo:SymposiumConsult",
+    "version": 1,
+    "name": "SymposiumConsult",
+    "description": "Consult saved specialists in ordinary shared conversations. Catalog profiles/routes, then authorize a bounded policy for operator review. Consult by role with an assignment and selected public context. reviewOf requests independent review of a completed contribution. Read returns attributed results without model work. Stop targets original work; revoke prevents future work. Retain policyId/requestId after interruption. No tools, merge or deployment authority is inherited.",
+    "source": "Agent Library",
+    "required": false,
+    "behavior": "mixed",
+    "routes": ["local-api", "codex-owned-local", "claude-sdk"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
     "id": "mitzo:SymposiumProposeProfile",
     "version": 1,
     "name": "SymposiumProposeProfile",

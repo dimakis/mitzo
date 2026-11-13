@@ -75,6 +75,7 @@ it.each(['async', 'sync', 'wrapped'] as const)(
     });
     expect([...sdk.handlers.keys()]).toEqual([
       'ListConnections',
+      'SymposiumConsult',
       'SymposiumProposeProfile',
       'SymposiumReadProfiles',
       'TaskExecution',

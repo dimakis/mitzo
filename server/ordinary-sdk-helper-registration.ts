@@ -6,6 +6,7 @@ export const SDK_CONNECTION_PREFIX = 'mcp__mitzo-connections__';
 const connectionHelpers: readonly string[] = Object.freeze([
   'ListConnections',
   'SymposiumReadProfiles',
+  'SymposiumConsult',
   'SymposiumProposeProfile',
   'AgentCommunication',
   'TelosCreateSession',

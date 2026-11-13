@@ -3481,6 +3481,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         log.error('startChat failed after register, cleaning up', {
           clientId,
           sessionId: newSdkSessionId ?? session.sessionId,
+          ...(options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority
+            ? { err, code: 'ordinary_sdk_startup_failed', stage: 'sdk_startup' }
+            : {}),
           ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
             ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))
             : {}),

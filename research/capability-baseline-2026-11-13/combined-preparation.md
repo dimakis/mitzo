@@ -70,6 +70,30 @@ timeout and an unavailable process-list command are not test evidence.
 
 ## Publication and remaining acceptance
 
+The coordinated final-validation slot selected accepted main
+`778c55bccd17c234c4380db9545962afcc5f651c` (PR #1341). It was integrated once.
+The catalog conflict preserves both upstream `SymposiumConsult` routes and this
+candidate's qualified Claude `TaskExecution` route. Shared helper registration
+contains both names; source fingerprints retain both changes. The accepted SDK
+startup diagnostic is preserved. No consultation policy or delivery owner was
+replaced.
+
+After this integration, 82 checks passed across the catalog, native TaskExecution
+fences, credential helpers, ordinary SDK effects, specialist owner, actual
+application startup/continuation and original command boundary suites. This
+overlaps the earlier 384 and is not an additional unique-test count. The two
+larger specialist application suites could not start their loopback transport:
+five cases reported `listen EPERM 127.0.0.1`, and a dependent restart case reported
+an uninitialized fixture. Those six cases remain pending hosted evidence; they
+are not code-failure or green claims. Logs are
+`.verification/final-accepted-delta.log` and
+`.verification/final-specialist-consumers.log`.
+
+Protocol/harness/client compilation and conflict-resolution lint, format,
+whitespace and source preflight pass. Final integrated runtime revision is
+`v1.0.1136-claude-parity-specialist-composition`. The prior revision above records
+the original preparation checkpoint.
+
 PR #1342 custody was released by its original owner in receipt
 `6a45b05f-cf1c-416f-8df0-6cef65230d9b`, with its branch still at `6dc2ba33` and
 no operation in flight. This candidate preserves that ancestor so publication
