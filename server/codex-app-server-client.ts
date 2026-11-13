@@ -28,6 +28,11 @@ import {
   type AccountBinding,
 } from '@mitzo/protocol';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+import {
+  assertCodexApiProviderConfiguration,
+  codexApiProvider,
+  type CodexApiProvider,
+} from './codex-api-provider.js';
 import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
 import { tracer } from './tracing.js';
@@ -489,6 +494,8 @@ export class CodexAppServerClient {
   private readonly timeoutMs: number;
   private readonly loginOnly: boolean;
   private readonly observeTurnStartWrite?: TurnInputWriteObserver;
+  readonly modelProvider?: string;
+  private readonly apiProvider?: CodexApiProvider;
 
   constructor(
     private child: RpcProcess,
@@ -501,9 +508,14 @@ export class CodexAppServerClient {
       environmentLaunch?: { create: () => RpcProcess };
       /** Trusted opt-in metadata observer; prepared persistence must succeed before write. */
       observeTurnStartWrite?: TurnInputWriteObserver;
+      /** Trusted launcher selection; never read from provider notifications. */
+      modelProvider?: string;
+      apiProvider?: CodexApiProvider;
     } = {},
   ) {
     this.lifecycle = options.lifecycle;
+    this.modelProvider = options.modelProvider;
+    this.apiProvider = options.apiProvider;
     this.observeTurnStartWrite = options.observeTurnStartWrite;
     this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
@@ -756,12 +768,7 @@ export class CodexAppServerClient {
     preflightExecutable?: string,
     connection?: ApiHarnessConnection,
   ) {
-    const selected =
-      authentication === 'api'
-        ? apiHarnessConnection(
-            connection ? ApiHarnessConnectionSchema.parse(connection) : undefined,
-          )
-        : undefined;
+    const provider = authentication === 'api' ? codexApiProvider(connection) : undefined;
     const env = codexEnvironment(credentialRef, base);
     const executablePath = executable?.path ?? preflightExecutable;
     observeLocalCodexSyncPhase('native_version_check', () =>
@@ -776,11 +783,9 @@ export class CodexAppServerClient {
           '--stdio',
           '-c',
           `forced_login_method="${authentication}"`,
-          '-c',
-          'model_provider="openai"',
-          ...(authentication === 'api'
-            ? ['-c', `openai_base_url=${JSON.stringify(selected!.endpoint)}`]
-            : []),
+          ...Object.entries(provider?.configuration ?? { model_provider: 'openai' }).flatMap(
+            ([key, value]) => ['-c', `${key}=${JSON.stringify(value)}`],
+          ),
           ...(isolated ? ['-c', 'cli_auth_credentials_store="file"'] : []),
           ...(lifecycle || authentication === 'api'
             ? Object.entries(codexRuntimeOverrides({})).flatMap(([key, value]) => [
@@ -791,7 +796,7 @@ export class CodexAppServerClient {
         ],
         { env, stdio: ['pipe', 'pipe', 'pipe'] },
       ),
-      { lifecycle },
+      { lifecycle, modelProvider: provider?.modelProvider ?? 'openai', apiProvider: provider },
     );
   }
 
@@ -817,6 +822,10 @@ export class CodexAppServerClient {
       lifecycle,
       ...(options.requiredProviderEnvironment?.length ? { environmentLaunch: { create } } : {}),
     });
+  }
+
+  validateConfiguration(configuration: unknown): void {
+    if (this.apiProvider) assertCodexApiProviderConfiguration(configuration, this.apiProvider);
   }
 
   initialize(): Promise<void> {
