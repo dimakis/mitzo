@@ -195,6 +195,15 @@ availability.
 
 ## Reusable access grants
 
+The existing Links & access sheet also contains a collapsed Capabilities
+disclosure. Reuse its native disclosures and quiet fact rows for configured
+helper support and scoped runtime observations. Unsupported, profile-excluded,
+skill-restricted, unknown and expired states stay explicit. Route support never
+implies execution verification or service permission. Refresh failures retain
+earlier evidence. Keep helper names and detailed requirements inside disclosures;
+preserve the sheet's navigation, focus, unsent drafts and appearance preferences.
+See [scope and validation](../features/session-capability-visibility.md).
+
 Links & access uses the shared compact sheet: observed chat context, recent linked chats,
 New chat, Permissions, Connections and session details on request. The chosen
 Design A review starts a new linked chat without navigating the originating chat

@@ -353,6 +353,7 @@ jobs:
         with:
           name: responsiveness-visuals-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            test-results/offline/**/capabilities-*.png
             test-results/offline/**/responsiveness-*.png
             test-results/offline/**/chat-status-*.png
             test-results/offline/**/chat-queue-*.png
