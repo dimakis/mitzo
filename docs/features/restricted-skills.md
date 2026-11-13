@@ -67,7 +67,7 @@ and either inherited enforcement in each worker or visible delegation refusal.
 Native skill readers need their own enforceable admission decision. Until then,
 the supported product behavior is explicit refusal, not restricted execution.
 
-Offline verification on 13 November: 611 focused tests pass across 16 suites
+Offline verification on 13 November: 639 focused tests pass across 18 suites
 (including the six selected skills HTTP-route tests). Evidence covers strict
 metadata and dependency resolution, denied/allowed SDK hook calls, actual native
 executor reads/writes, configured MCP admission, managed SDK dispatch, pending

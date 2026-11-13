@@ -766,7 +766,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-launch-store.test.ts':
     '86f879dfc66732f9ca14ac44cc004130b2eafa3c8151d319d706c7f2353a8e77',
   '../__tests__/session-launch-tools.test.ts':
-    'ea7a38da25ffef75c284a782837077e10f6c951482320aaab62bc3f3dca6f003',
+    'f25708e76ff92eaceb5f1a42e01b8d87a1610fd87a796c00489e53d551fa8a34',
   '../session-launch-controller.ts':
     '5eb7bba194fa8f0ddacd2eedf557b936e8d34c7fcb5fb77e57ba58215677c2fe',
   '../session-launch-defaults.ts':
@@ -777,7 +777,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-launch-service.ts':
     'd4eb60aef32262f7358cc3297c3662277bc4ad050e2e0ac703c3b289daed85bf',
   '../session-launch-store.ts': 'b1d2fc704c276b062d2d105ba167636a9c84c3642330ae8dc6eabf827c4a1a76',
-  '../session-launch-tools.ts': 'a4076918af3710c3f3fca29553abc379966778305fa832514e106dba7198e809',
+  '../session-launch-tools.ts': '4d67f75e9e09e7c56bda83a51d3ceb15a56d96a8f988c2ec9ac47f05b939fdbe',
   '../../tests/fixtures/session-launch-defaults.tsx':
     '95fd8cddebfa31f139afc11617dad1b448f0d06cdf40ec41588a9bda46894bf9',
   '../../tests/fixtures/session-launch.tsx':
