@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1121-claude-recovery-controls';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1122-claude-login-validation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4459,7 +4458,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/model-spec.test.ts':
     'c6990b6483e9acdffcb63fb63efa5551c74960b481d4e21c623978555c92e3b8',
   '../__tests__/anthropic-api-sdk-model.test.ts':
-    'b7bce9b8273c25ef5677e2c5bdd1b989e6e57134f893732e152fe546c3b7e998',
+    'ef8edbdbe9d9b906423ee3412c8a8a81206eda45ed01423b59112469ddbec53b',
   '../anthropic-api-connection.ts':
     '0d28e1cccf86680c56196be272422a35be34ee809e83dcb57713dc41a14da731',
   '../__tests__/anthropic-api-child-env.test.ts':
