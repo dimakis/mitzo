@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1126-custom-codex-api-provider';
+  'v1.0.1127-custom-codex-api-provider';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3683,7 +3683,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/process-restart-fixture.ts':
     '22f0b057d91aac94d4a14482aff4a8f314bd8e824365e396537ffc2b111f3d8e',
   '../../tests/integration/telos-s9/integrated-candidate/repository-browser.contract.ts':
-    '086087ff09b8dc66191457f62cf880368c99d6678bce4e01d1550f7b9f7eeb28',
+    '15c8b6d8ece9dfbc368b7a6dcb0462af89191cb5fcc9c44a9959162450dfd464',
   '../../tests/integration/telos-s9/integrated-candidate/restart-child-app.mjs':
     '9e1bdc20f6fb5f5987c68e8fbf989618f194a4d49b95d3e629f7c51a13d0ccc8',
   '../../tests/integration/telos-s9/integrated-candidate/restart-child-loader.mjs':
