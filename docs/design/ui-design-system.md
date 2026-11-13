@@ -198,16 +198,22 @@ See [scope and validation evidence](../features/approval-modes-reusable-access.m
 
 ## Native Codex subagents
 
-Keep one collapsed subagent count/status row within the spawning agent's activity.
-Expand it to a quiet list of child names and states; inspect a child in the shared
-HomeDialog with Back and Close. Use TextBubble and ToolPill for public output and
-tool activity. Keep the task and recipient explicit, with Message and Stop in a
-reachable footer and independent body scrolling. Preserve parent and sibling
-drafts, restore focus to the originating child, and disable controls when live
-authority is unavailable. Retain the existing composer, Terminal, context wheel
-and Resources. Use semantic tokens, shared motion and 44px controls; the dialog
-fills narrow phone widths. The approved mock and protected checks are recorded
-in the codex-subagents entry of the approved design ledger.
+Keep historical turn rows and add a persistent agent control just above the
+composer. Both entry points share one session-wide dialog and per-child drafts;
+the persistent list includes children from earlier turns. Use quiet rows for the
+list, TextBubble/UserBubble and ToolPill for conversation activity, and the shared
+HomeDialog through SnapSheet for inspection. SnapSheet adds a mobile grip and
+explicit Half screen, Full screen and Hide controls; native modal focus, Escape,
+scroll locking and safe areas remain with HomeDialog. Geometry follows the
+viewport while colors, type, spacing, radius and motion use shared tokens.
+
+Keep task and recipient explicit, with Message and Stop in a reachable footer
+and independent body scrolling. Preserve parent and sibling drafts, uncertain
+delivery identities and originating focus. Disable controls when live authority
+is unavailable. Retain the existing composer, Terminal, context wheel and
+Resources. This change follows Dimitri's explicit 13 November layout direction;
+the exact mock remains a proposal rather than a separate visual approval. The
+direction, reference and checks are recorded in the codex-subagents design ledger.
 
 The full-width phone inspection respects all four safe-area insets. Empty
 inspections keep the recovery action, explicit empty-output state and compact

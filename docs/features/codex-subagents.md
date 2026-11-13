@@ -57,9 +57,12 @@ source implementation evidence, not acceptance, deployment or live model qualifi
 
 ## Product scope
 
-Show one compact subagent row beneath the spawning agent's activity. Expanding
-it exposes each child's task and state. Opening a child shows its streamed output
-and tool activity, with **Message** and **Stop** targeting that child's thread.
+Retain the compact historical subagent rows and keep a floating agent control
+above the composer, so earlier children remain reachable without scrolling.
+Both entry points share one dialog and draft owner. Opening a child shows its
+streamed output and tool activity, with **Message** and **Stop** targeting that
+child's thread. The mobile view uses the shared SnapSheet for dragging between
+half height, full screen and hidden; labelled buttons provide equivalent actions.
 Main-composer messages retain the existing Symposium responder behavior.
 
 A native child belongs to its spawning agent. Spawning does not add a Symposium
@@ -181,10 +184,11 @@ slow or revoked connections. The frontend shares one stream per conversation.
 
 ## Approved interface and validation
 
-The original approval is retained in the
+The original approval and 13 November explicit layout direction are retained in the
 [design ledger](../design/approved/ledger.json), with the verbatim final mock.
-The implementation uses a collapsed row beneath the spawning agent's activity,
-then a shared dialog for child output, tool activity, Message and Stop. Parent
+The implementation retains the row beneath the spawning agent's activity and
+adds persistent session access with a shared snap sheet for output, activity,
+Message and Stop. Parent
 composer and per-child drafts survive inspection and sibling navigation. The
 existing toolbar, Terminal, context wheel and Resources remain in their owners.
 

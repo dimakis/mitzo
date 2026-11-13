@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { UiIcon } from './UiIcon';
 import '../styles/home.css';
@@ -36,6 +36,8 @@ export function HomeDialog({
   closeLabel = 'Close',
   onBack,
   backLabel = 'Back',
+  headerActions,
+  surfaceRef,
 }: {
   title: string;
   onClose: () => void;
@@ -48,8 +50,11 @@ export function HomeDialog({
   closeLabel?: string;
   onBack?(): void;
   backLabel?: string;
+  headerActions?: ReactNode;
+  surfaceRef?: RefObject<HTMLDialogElement | null>;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const internalDialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = surfaceRef ?? internalDialogRef;
   const restoreFocus = useRef(document.activeElement);
   const reduced = useReducedMotion();
   const previousOpen = useRef(false);
@@ -85,7 +90,7 @@ export function HomeDialog({
         }
       }
     };
-  }, [open]);
+  }, [open, dialogRef]);
   // The modal is shown in the preceding effect; start its motion in that same
   // effect flush. Focus restoration stays after DOM removal, outside React's
   // mutation-time focus restoration.
@@ -95,7 +100,7 @@ export function HomeDialog({
     if (!opening || inactive || reduced || !dialogRef.current) return;
     const animation = animateMotion(dialogRef.current, 'sheet');
     return () => animation?.cancel();
-  }, [open, inactive, reduced]);
+  }, [open, inactive, reduced, dialogRef]);
   return createPortal(
     <dialog
       ref={dialogRef}
@@ -122,6 +127,7 @@ export function HomeDialog({
             </button>
           )}
           <h2>{title}</h2>
+          {headerActions}
           <button type="button" className="header-action" aria-label={closeLabel} onClick={onClose}>
             <UiIcon name="close" size={16} />
           </button>

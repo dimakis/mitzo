@@ -29,6 +29,7 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 import { telosWorkerReceipt } from './TelosWorkerReceiptCard';
 import { AgentActivity } from './AgentActivity';
+import { NativeSubagentsSession } from './NativeSubagentsSession';
 import { completedWebsiteRead } from '../lib/web-access-outcome';
 import { PermissionBanner } from './PermissionBanner';
 import { ProgressWidget } from './ProgressWidget';
@@ -866,8 +867,17 @@ export function ChatArea({
     rowsWithCompactions.splice(position < 0 ? rowsWithCompactions.length : position + 1, 0, marker);
   }
 
+  const hasNativeSubagents = [
+    ...messages,
+    ...(current ? [current] : []),
+    ...Object.values(currentByMessage),
+  ].some((message) => message.blocks.some((block) => !!block.rawInput?.nativeSubagentCommandId));
   return (
-    <>
+    <NativeSubagentsSession
+      key={sessionId ?? 'new'}
+      sessionId={sessionId ?? ''}
+      enabled={!!sessionId && hasNativeSubagents}
+    >
       <div
         className="chat-messages"
         ref={scrollRef}
@@ -936,6 +946,6 @@ export function ChatArea({
           onExpire={onPermissionExpire}
         />
       )}
-    </>
+    </NativeSubagentsSession>
   );
 }

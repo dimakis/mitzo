@@ -753,8 +753,78 @@
     },
     {
       "id": "codex-subagents",
-      "activeRevision": "nested-child-activity-2026-11-05",
+      "activeRevision": "persistent-agent-chat-2026-11-13",
       "revisions": [
+        {
+          "id": "persistent-agent-chat-2026-11-13",
+          "approvedBy": "Dimitri (explicit layout direction; exact mock not separately approved)",
+          "approvedOn": "2026-11-13",
+          "approval": {
+            "thread": "03fad929-1c23-86cc-a3b2-354651787b90",
+            "quote": "I want the chat to be more like the current chat we have, and on mobile it should be draggable to full screen, half screen or hidden like the codex ios app",
+            "scope": "Explicitly requested persistent floating agent access and current-chat-style child inspection with mobile full/half/hidden dragging. This records the prescribed behavior and layout, not separate approval of the exact proposal bytes. Retain earlier references and protected checks."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/codex-subagents/floating.html",
+              "sha256": "cdf0bac11e36df2b5b5d122023828cdb7b63d0430949eece6d4610747e8b6af7"
+            }
+          ],
+          "invariants": [
+            "Persistent agent access stays above the composer; historical transcript rows remain usable.",
+            "Both entry points share one dialog and retain parent/sibling drafts and original uncertain request identity.",
+            "Mobile inspection supports dragging to half height, full screen and hidden, with labelled keyboard-equivalent controls.",
+            "Reuse HomeDialog modal ownership, semantic tokens, shared motion, current chat bubbles, safe areas, independent scrolling and 44px controls.",
+            "Preserve Terminal, Resources, context wheel and the main composer recipient; native children do not become Symposium participants.",
+            "Lost authority preserves known activity and disables controls; rejected/uncertain controls retain visible diagnostics."
+          ],
+          "sources": [
+            "frontend/src/components/NativeSubagents.tsx",
+            "frontend/src/components/NativeSubagents.css",
+            "frontend/src/components/NativeSubagentsSession.tsx",
+            "frontend/src/lib/native-subagent-dialog-context.ts",
+            "frontend/src/components/SnapSheet.tsx",
+            "frontend/src/components/SnapSheet.css",
+            "frontend/src/components/HomeDialog.tsx",
+            "frontend/src/components/ChatArea.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+            "tests/offline/native-subagents.spec.ts",
+            "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+            "frontend/src/components/__tests__/NativeSubagentsSession.test.tsx",
+            "frontend/src/components/__tests__/SnapSheet.test.tsx",
+            "tests/offline/native-subagents-presence.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+              "sha256": "90556b4248ca66e47e978c5a3e7b8672a9f66098230dc774f5d91e65ca199d4b"
+            },
+            {
+              "path": "tests/offline/native-subagents.spec.ts",
+              "sha256": "32359e1c7a446c2792ca45331d3bc488cf270378ad95ca269e12901e89ad256f"
+            },
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+              "sha256": "251b6f7c834cfc5088e347b83e55343c99ba33c4f077017ae4f8aaa54a29b84d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagentsSession.test.tsx",
+              "sha256": "95a08f2759eefdb588d793d522d46d0b51456317e67b532a8ac1c99aec039ccc"
+            },
+            {
+              "path": "frontend/src/components/__tests__/SnapSheet.test.tsx",
+              "sha256": "713e314257295f44d759ed08c87e6268607f8353b5fed008d4d245c68fb2390a"
+            },
+            {
+              "path": "tests/offline/native-subagents-presence.spec.ts",
+              "sha256": "857e18896c3e301405f07de2abc264316cb0ff64f001a156d6c89787ee9771ad"
+            }
+          ],
+          "implementationEvidence": [],
+          "validation": "docs/design/approved/codex-subagents/PERSISTENT-CHAT-VALIDATION.md"
+        },
         {
           "id": "nested-child-activity-2026-11-05",
           "approvedBy": "Dimitri (originating approval and current implementation direction)",
