@@ -3,7 +3,13 @@ import { z } from 'zod';
 import { waitForChange } from './wait-for-change.js';
 import { isDeepStrictEqual } from 'node:util';
 import { AgentMessageSendSchema, agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
-import { checkSkillPolicy, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
+import {
+  checkSkillPolicy,
+  throwIfApprovalExpired,
+  expiredApprovalToolResult,
+  type ManagedSession,
+  type SessionRegistry,
+} from '@mitzo/harness';
 import {
   captureAgentLibraryAuthorization,
   captureAgentLibraryOperation,
@@ -158,8 +164,9 @@ export async function executeAgentCommunicationTool(
   try {
     return { content: JSON.stringify(await work()), isError: false };
   } catch (error) {
+    const expired = expiredApprovalToolResult(error);
     const diagnostic = {
-      ...agentCommunicationDiagnostic(error),
+      ...(expired ? JSON.parse(expired.content) : agentCommunicationDiagnostic(error)),
       conversationId: context.conversationId,
       ...(z.uuid().safeParse(context.requestId).success ? { requestId: context.requestId } : {}),
       ...(typeof context.recipientConversationId === 'string' &&
@@ -167,7 +174,7 @@ export async function executeAgentCommunicationTool(
         ? { recipientConversationId: context.recipientConversationId }
         : {}),
     };
-    log.warn('Agent communication operation refused or unconfirmed', diagnostic);
+    if (!expired) log.warn('Agent communication operation refused or unconfirmed', diagnostic);
     const failure = { content: JSON.stringify(diagnostic), isError: true };
     internalFailures.set(failure, error);
     return error instanceof Error ? copyCallbackOutcome(error, failure) : failure;
@@ -579,6 +586,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         assertSupported(input.recipientConversationId);
         const permission = await owners.approve(input, signal);
         current();
+        throwIfApprovalExpired(permission);
         if (permission.behavior !== 'allow' || !isDeepStrictEqual(permission.updatedInput, input))
           throw new AgentCommunicationError(
             'approval_denied',

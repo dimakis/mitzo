@@ -26,6 +26,26 @@ afterEach(() => {
 });
 
 describe('ToolGroup', () => {
+  it('keeps an expired approval neutral in the collapsed group summary', () => {
+    const expired = {
+      ...makeTool('expiry', true),
+      toolError: true,
+      toolResult: JSON.stringify({
+        failure: {
+          code: 'approval_expired',
+          phase: 'approval',
+          effectStatus: 'not_started',
+          recovery: 'renew_approval',
+        },
+      }),
+    };
+    const { container } = render(wrap(<ToolGroup tools={[expired, makeTool('done', true)]} />));
+    expect(
+      screen.getByRole('button', { name: /2 tool calls · 1 approval timed out/ }),
+    ).toBeTruthy();
+    expect(container.querySelectorAll('.tool-pill-dot--error')).toHaveLength(0);
+    expect(container.querySelectorAll('.tool-pill-dot--interrupted')).toHaveLength(1);
+  });
   it('shows tool count label when all done', () => {
     const tools = [makeTool('t1', true), makeTool('t2', true), makeTool('t3', true)];
     render(wrap(<ToolGroup tools={tools} />));

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
+import type { ToolFailure } from '@mitzo/protocol';
 
 export const CodexUserInput = z.object({
   threadId: z.string().min(1),
@@ -35,6 +36,7 @@ export async function requestCodexUserInput(
   signal: AbortSignal,
   clientId: string,
   registry: SessionRegistry,
+  observeFailure?: (failure: ToolFailure) => void,
 ): Promise<Record<string, unknown>> {
   const input = CodexUserInput.parse(params);
   const result = await buildPermissionHandler(clientId, registry)(
@@ -54,7 +56,10 @@ export async function requestCodexUserInput(
       })),
     },
   );
-  if (result.behavior !== 'allow') return { answers: {} };
+  if (result.behavior !== 'allow') {
+    if (result.failure) observeFailure?.(result.failure);
+    return { answers: {} };
+  }
   const answers = z.record(z.string(), z.string()).parse(result.updatedInput?.answers);
   return {
     answers: Object.fromEntries(
