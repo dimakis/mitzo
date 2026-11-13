@@ -5,6 +5,45 @@ Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another par
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
+## Phone repair candidate — 13 November 2026
+
+Dimitri's current phone test reached a disabled review action, unknown sharing shown
+as unchecked, and a generic failed joining review after entering a purpose. The UI
+had supplied a null default profile even though both capture and the ordinary server
+review require an explicit profile identity. The repaired form pins the built-in
+Default Mitzo revision, checks repository preparation before review, places purpose
+beside the name and reuses compact settings rows with actual tappable choices.
+
+The ordinary history's Share excerpt action now opens explicit selected-message and
+recipient review. Its audience is independent of automatic reading/default reply
+policies; forwarding starts no reply and preserves the unsent prompt. This entry is
+for the original ordinary transcript. Shared projection messages with no ordinary
+source identity are not made forwardable by inventing a source selector; broader
+cross-source message selection remains a separate gap. Forwarding retains the existing
+review, preparation, confirmation and uncertain-delivery controls.
+
+The selection dialog remains available while the original agent is running. Selected
+agents that become unavailable or leave the conversation remain visible and can be
+removed. After reload, a retained uncertain forward keeps its recovery controls even
+when the original source can no longer be read; checking the original receipt does
+not prepare another forward or start a model reply. A separate Review message delivery
+action remains visible beside the active composer after reload. The durable source
+reader freezes the completed prefix before the earliest unfinished ordinary reply;
+partial replies and later interleaved material stay outside that reviewed boundary.
+Source validation, authority and exact retained hashes still apply to the whole prefix.
+
+Regression evidence includes the real authenticated application review accepting the
+pinned built-in default, setup gating, indeterminate policy state, isolated picker
+choices, exact targeted audience across restoration, and message-action composition.
+Package compilation and design checks pass locally. The local full frontend typecheck
+exceeded the required 1 GiB heap. Both normal and explicitly approved browser commands
+were rejected by the runtime's macOS sandbox guard, before launching a browser.
+Hosted compilation and all phone/desktop browser partitions passed at `22d81647e`.
+Its unit suite exposed the old application journey retaining an obsolete profile select;
+the journey now uses the compact settings controls and passes locally. Current-head CI,
+trusted review, source landing and phone/runtime acceptance remain required; this
+candidate changes no production deployment.
+
 ## Source-acceptance checkpoint — 12 November 2026
 
 GitHub merge receipts were checked on 12 November. The table updates source

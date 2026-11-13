@@ -399,7 +399,7 @@ export class SpecialistConsultations {
       a.auth.id,
       policyId,
       input,
-      this.owners.events.getCollaborationCompletedBoundary(a.leadSessionId),
+      this.owners.events.getDurableSessionTranscript(a.leadSessionId).boundary,
       candidates[0],
     );
     if (record.state !== 'reserved' && !this.pending.has(a.leadSessionId))

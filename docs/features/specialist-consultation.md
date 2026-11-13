@@ -1,6 +1,6 @@
 # Specialist consultation from ordinary conversations
 
-Implementation baseline: Mitzo `8ea17fe9bc9c`, 13 November 2026. This document
+Implementation baseline: Mitzo `f850dcc2d995`, 13 November 2026. This document
 describes source behavior and synthetic-provider coverage, not production activation.
 
 `SymposiumConsult` lets an ordinary lead select saved specialists during a
@@ -90,10 +90,10 @@ sharing, context and runtime choices have actionable refusal messages.
 - No profile is created or published by consultation. Portable specialist drafting
   remains an independent Agent Library operation.
 
-Integration watch, checked 13 November: open [PR #1333](https://github.com/dimakis/mitzo/pull/1333)
-at `16f2935c29df` separately corrects the completed-prefix reader and joining UI.
-Before landing this branch, reconcile the completed-boundary helper with that
-change's accepted version and retain both suites' source/privacy assertions.
+Integrated accepted [PR #1333](https://github.com/dimakis/mitzo/pull/1333),
+`f850dcc2d995`, on 13 November. Consultation uses its ordinary durable-transcript
+boundary rather than a separate completed-prefix reader. Both suites retain
+their source/privacy assertions.
 
 Coverage uses the actual application composition with synthetic native/SDK
 providers: planning, same-family and cross-family review, attribution, selected

@@ -20,7 +20,7 @@ it('freezes the completed public prefix while the calling lead is in an active t
       blockId: 'partial',
       delta: 'Unfinished text',
     });
-    const boundary = store.getCollaborationCompletedBoundary('lead');
+    const boundary = store.getDurableSessionTranscript('lead').boundary;
     expect(boundary).toEqual({ sequence: first, messageId: 'user' });
     const source = store.openCollaborationVisibleSource('lead', boundary);
     expect(
