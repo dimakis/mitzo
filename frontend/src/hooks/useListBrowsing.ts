@@ -22,6 +22,8 @@ export function useListBrowsing(ref: RefObject<HTMLElement | null>, blocked: boo
     const release = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
+        for (const port of scrolled)
+          if (!element.contains(port) || port.scrollTop <= 1) scrolled.delete(port);
         if (!pointers.size && !touching && !focused() && !hovering && !scrolled.size)
           setBrowsing(false);
       }, 1000);

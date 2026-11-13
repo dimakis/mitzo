@@ -142,7 +142,7 @@ export function HiddenSessionsDialog({ onClose, onChanged, onCleanup, onContinue
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ hidden: false }),
-          signal,
+          signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
         },
       );
       const result = await response.json();

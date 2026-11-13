@@ -605,6 +605,7 @@ it('exposes the completed ordinary message boundary for advisor capture after te
   const history = f.replay();
   const last = history.messages.at(-1)!;
   expect(last).toMatchObject({ messageId: 'proposal', completedSeq: boundary });
+  expect(last.replyReadSeq).toBe(boundary);
   const selected = f.selection(
     (last as typeof last & { completedSeq: number }).completedSeq,
     last.messageId,
@@ -640,6 +641,10 @@ it('retains the public error anchor while preserving complete-prefix refusal', a
   f.append('session_end', {});
   const last = f.replay().messages.at(-1)!;
   expect(last).toMatchObject({ messageId: `provider-error-${failure}`, completedSeq: failure });
+  expect(last.replyReadSeq).toBeUndefined();
+  expect(
+    f.replay().messages.find((message) => message.messageId === 'answer')?.replyReadSeq,
+  ).toBeGreaterThan(0);
   await expect(
     f.source.openConversation(f.selection(failure, last.messageId, 'conversation_so_far')),
   ).rejects.toThrow(

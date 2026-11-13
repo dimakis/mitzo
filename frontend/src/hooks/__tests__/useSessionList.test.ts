@@ -46,6 +46,33 @@ afterEach(() => {
 });
 
 describe('useSessionList', () => {
+  it('hides through the visibility endpoint without requesting resource removal', async () => {
+    vi.mocked(apiFetch).mockImplementation(
+      async (url) =>
+        new Response(
+          JSON.stringify(
+            url === '/api/sessions'
+              ? [{ id: 'hidden-later', summary: 'Done', lastModified: 1 }]
+              : { ok: true },
+          ),
+        ),
+    );
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    await act(async () => {
+      expect(await result.current.hideSession('hidden-later')).toBe(true);
+    });
+    expect(result.current.sessions).toHaveLength(0);
+    expect(result.current.hiddenSessionIds.has('hidden-later')).toBe(true);
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/sessions/hidden-later/visibility',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ hidden: true }) }),
+    );
+    expect(vi.mocked(apiFetch).mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(
+      false,
+    );
+  });
+
   it('keeps unchanged activity snapshots and rows stable across repeated broadcasts', async () => {
     const sessions = [
       { id: 'one', isActive: true, isAttached: true },

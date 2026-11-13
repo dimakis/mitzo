@@ -21,6 +21,8 @@ it('tracks the latest completed visible reply, excluding tools, whitespace and s
   const store = setup();
   const seq = reply(store, 'reply');
   reply(store, 'empty', '   ');
+  for (const [index, text] of ['\n', '\t', '\r\n', '\u00a0', '\u2003', '\ufeff'].entries())
+    reply(store, `whitespace-${index}`, text);
   store.append('chat', 'message_end', { messageId: 'tools-only' });
   store.append('chat', 'block_delta', {
     messageId: 'stream',

@@ -16,6 +16,7 @@ export function SessionContextMenu({
   onOpen,
   onRename,
   onDelete,
+  onHide,
   onDetails,
 }: {
   state: SessionMenuState | null;
@@ -23,6 +24,7 @@ export function SessionContextMenu({
   onOpen: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onHide?: () => void;
   onDetails?: () => void;
 }) {
   const retained = useRef(state);
@@ -61,6 +63,7 @@ export function SessionContextMenu({
     onOpen,
     onRename,
     onDelete,
+    onHide,
     onClose,
     onDetails,
     menu: true,

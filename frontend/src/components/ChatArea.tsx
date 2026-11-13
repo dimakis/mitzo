@@ -235,7 +235,7 @@ export function ChatArea({
       !message.agentMessage &&
       (!messageSessionId || messageSessionId(message.messageId) === sessionId) &&
       message.blocks.some((block) => block.blockType === 'text' && block.content?.trim())
-        ? Math.max(latest, message.completedSeq ?? 0)
+        ? Math.max(latest, message.replyReadSeq ?? 0)
         : latest,
     0,
   );
@@ -826,7 +826,7 @@ export function ChatArea({
                   data-reply-source={block === firstVisibleText ? msg.messageId : undefined}
                   data-read-reply-seq={
                     !streaming && block.blockType === 'text' && block.content?.trim()
-                      ? finished?.completedSeq
+                      ? finished?.replyReadSeq
                       : undefined
                   }
                   tabIndex={-1}

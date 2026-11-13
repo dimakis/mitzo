@@ -4,6 +4,7 @@ import { eventBus } from './event-bus-singleton';
 
 const states = new Map<string, ConversationReadState>();
 const listeners = new Set<() => void>();
+const loads = new Map<string, Promise<ConversationReadState | undefined>>();
 let generation = 0;
 export const subscribeConversationReads = (listener: () => void) => {
   listeners.add(listener);
@@ -38,6 +39,36 @@ function parse(data: unknown): ConversationReadState {
   return state;
 }
 
+/** Coalesce missing off-page pin/menu observations within this auth generation. */
+export function loadConversationReadState(id: string): Promise<ConversationReadState | undefined> {
+  const prior = loads.get(id);
+  if (prior) return prior;
+  const captured = generation;
+  const request = (async () => {
+    try {
+      const response = await apiFetch(`/api/sessions/${encodeURIComponent(id)}/read-state`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw Error('Read status unavailable');
+      const state = parse(await response.json());
+      if (captured !== generation) return;
+      retainConversationReadState(id, state);
+      return state;
+    } catch (cause) {
+      console.warn('Conversation read status unavailable', {
+        code: 'conversation_read_unavailable',
+        stage: 'observe',
+        sessionId: id,
+      });
+      throw new Error('Read status unavailable. Try again.', { cause });
+    }
+  })().finally(() => {
+    if (loads.get(id) === request) loads.delete(id);
+  });
+  loads.set(id, request);
+  return request;
+}
+
 export async function changeConversationReadState(
   id: string,
   update: { readReplySeq: number } | { markedUnread: true },
@@ -49,12 +80,10 @@ export async function changeConversationReadState(
     retainConversationReadState(id, observed);
     let current = states.get(id);
     if (!current) {
-      const response = await apiFetch(url, { signal: AbortSignal.timeout(5000) });
-      if (!response.ok) throw Error('Read status unavailable');
-      current = parse(await response.json());
+      current = await loadConversationReadState(id);
       if (captured !== generation) return;
-      retainConversationReadState(id, current);
     }
+    if (!current) return;
     if (captured !== generation) return;
     const response = await apiFetch(url, {
       method: 'PUT',
@@ -103,5 +132,6 @@ eventBus.on('session_read_state', (data) => {
 window.addEventListener('mitzo:auth-lost', () => {
   generation++;
   states.clear();
+  loads.clear();
   for (const listener of listeners) listener();
 });

@@ -7,7 +7,7 @@ Mitzo uses the same brief motion on the web and in the Capacitor iOS app.
 | ------------- | -------------- | ------------------------------ |
 | Fast          | 150ms          | Press feedback, menus, pickers |
 | Standard      | 200ms          | Pages, sheets, disclosures     |
-| Reorder       | 1100ms         | One conversation promotion     |
+| Reorder       | 1800ms         | One conversation promotion     |
 | Spin / status | 800ms / 1200ms | Repeating activity indicators  |
 
 Use `var(--motion-ease)` for interaction easing. Activity indicators can use

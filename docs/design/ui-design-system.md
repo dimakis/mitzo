@@ -457,21 +457,27 @@ Chats keeps search and status filters inside the conversation list's scrolling
 area on phones and desktop. The page heading and desktop preview keep their
 existing owners. Recency advances on a new user message, completion, or entering
 an attention state; tool output, repeated status snapshots, history refreshes and
-done-to-idle aging only update metadata. Promotions batch for 600ms with at least
-2.5 seconds between batches. Scrolling, held pointers/touches, keyboard focus,
+done-to-idle aging only update metadata. Promotions collect for 600ms and move one
+conversation at a time, with at least five seconds between moves. Scrolling, held pointers/touches, keyboard focus,
 editing, swipe actions, search and open menus/dialogs defer moves. Browsing resumes
 after a one-second idle interval; pending meaningful events survive later status
 changes. New rows enter chronologically, including older pages; insertions during
 browsing wait below existing rows until the pending batch is released.
 
 Shared `MotionList` preserves keyed row identity, focus and the first visible
-conversation while animating position changes through the standard 200ms motion
-token. Swipe transforms remain on the inner row. Initial rendering and ordinary
+conversation while animating position changes through the shared 1800ms reorder
+token on both Chats and its sidebar. Swipe transforms remain on the inner row. Initial rendering and ordinary
 metadata updates do not replay motion; interruption, unmount and Reduce Motion
 cancel owned animations. Existing search, filter, row and preview styles and
 shared tokens remain authoritative. Focused unit and intercepted session-library
 browser regressions cover ordering, browsing, scrolling and motion. Rendered
 validation requires the permitted macOS browser host; CI retains browser captures.
+
+The existing action menu adds Hide conversation. Hidden chats is reachable from
+Chats options and beside sidebar filters. Its shared HomeDialog reuses quiet rows,
+SavedSessionHistory and secondary controls for restoration, separate cleanup review
+and editable fresh continuation. Previewing history starts no runtime; removal
+fences stay intact. See [behavior and validation](../features/chat-lifecycle-and-ordering.md).
 
 Chat load errors distinguish an initial request from a refresh of a previously loaded
 list. A failed refresh retains its rows beside the existing error and Retry control,

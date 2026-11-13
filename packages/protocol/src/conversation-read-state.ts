@@ -1,6 +1,12 @@
 import type Database from 'better-sqlite3';
 import type { ConversationReadState } from './types.js';
 
+// ECMAScript WhiteSpace + LineTerminator code points, matching String.trim().
+const trimCharacters =
+  'char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)';
+const visibleText = (column: string) =>
+  `length(trim(json_extract(${column}, '$.delta'), ${trimCharacters}))>0`;
+
 /** Operator presentation metadata; never changes execution or session recency. */
 export class ConversationReadStore {
   constructor(private readonly database: () => Database.Database | null) {
@@ -10,10 +16,11 @@ export class ConversationReadStore {
       marked_unread INTEGER NOT NULL DEFAULT 0,
       revision INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_events_visible_reply_message
+    CREATE INDEX IF NOT EXISTS idx_events_visible_reply_message_v2
       ON events(session_id, json_extract(payload, '$.messageId'))
       WHERE type='block_delta' AND json_extract(payload, '$.blockType')='text'
-      AND length(trim(json_extract(payload, '$.delta')))>0`);
+      AND ${visibleText('payload')};
+    DROP INDEX IF EXISTS idx_events_visible_reply_message`);
   }
 
   get(sessionId: string): ConversationReadState {
@@ -29,7 +36,7 @@ export class ConversationReadStore {
         AND t.seat_id IS e.seat_id AND t.symposium_provenance IS e.symposium_provenance
         AND json_extract(t.payload, '$.messageId')=json_extract(e.payload, '$.messageId')
         AND json_extract(t.payload, '$.blockType')='text'
-        AND length(trim(json_extract(t.payload, '$.delta')))>0
+        AND ${visibleText('t.payload')}
       ) ORDER BY e.seq DESC LIMIT 1`,
       )
       .get(sessionId) as { seq: number } | undefined;

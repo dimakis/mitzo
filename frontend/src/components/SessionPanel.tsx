@@ -20,6 +20,7 @@ import { ActiveSessionsList } from './ActiveSessionsList';
 import { ConversationPins } from './ConversationPins';
 import { SessionContextMenu, type SessionMenuState } from './SessionContextMenu';
 import { SessionRemovalDialog } from './SessionRemovalDialog';
+import { HiddenSessionsDialog } from './HiddenSessionsDialog';
 import { SessionRenameDialog } from './SessionRenameDialog';
 import { SessionDetailsDialog } from './SessionDetailsDialog';
 import { SessionWorkLink } from './SessionWorkLink';
@@ -29,6 +30,7 @@ export interface SessionPanelProps {
   activeSessionId: string | undefined;
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
+  onContinue?: (path: string) => void;
 }
 type ViewMode = 'active' | 'all';
 const STORAGE_KEY = 'mitzo-session-view-mode';
@@ -95,9 +97,15 @@ function SessionPanelRow({
     </div>
   );
 }
-export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: SessionPanelProps) {
+export function SessionPanel({
+  activeSessionId,
+  onSelectSession,
+  onNewChat,
+  onContinue,
+}: SessionPanelProps) {
   const {
     sessions,
+    hiddenSessionIds,
     loading,
     error,
     retry,
@@ -105,6 +113,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
     hasMore,
     loadMore,
     dismissSession,
+    hideSession,
     handleRename,
   } = useSessionList();
   const search = useSessionSearch();
@@ -114,10 +123,12 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
   const [renaming, setRenaming] = useState<Session | null>(null);
   const [details, setDetails] = useState<Session | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [hiddenOpen, setHiddenOpen] = useState(false);
+  const [visibilityError, setVisibilityError] = useState('');
   const scroller = useRef<HTMLDivElement>(null);
   const paused = useListBrowsing(
     scroller,
-    Boolean(menu || renaming || details || removing || search.active),
+    Boolean(menu || renaming || details || removing || hiddenOpen || search.active),
   );
   const modelObservations = useRef(new Map<string, ModelObservation>());
   for (const result of search.results)
@@ -133,7 +144,12 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
     groups,
     pendingCount,
     showLatest,
-  } = useSessionOrdering([...combined.values()], activities, paused, { grouped: true });
+  } = useSessionOrdering(
+    [...combined.values()].filter((session) => !hiddenSessionIds?.has(session.id)),
+    activities.filter((activity) => !hiddenSessionIds?.has(activity.sessionId)),
+    paused,
+    { grouped: true },
+  );
   const displayById = new Map(
     (connected === false ? lastKnownActivities : activities).map((a) => [a.sessionId, a]),
   );
@@ -170,7 +186,11 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
     <div className="session-panel" ref={scroller}>
       <div className="session-panel-heading">
         <h1>Conversations</h1>
-        <SessionSearchBar {...search} onSelectSession={onSelectSession} />
+        <SessionSearchBar
+          {...search}
+          results={search.results.filter((result) => !hiddenSessionIds?.has(result.sessionId))}
+          onSelectSession={onSelectSession}
+        />
       </div>
       <button type="button" className="session-panel-new" onClick={onNewChat}>
         <UiIcon name="edit" size={16} />
@@ -202,6 +222,10 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
         onSelect={onSelectSession}
         onActions={showActions}
       />
+      <button type="button" className="session-load-more" onClick={() => setHiddenOpen(true)}>
+        Hidden chats
+      </button>
+      {visibilityError && <p role="alert">{visibilityError}</p>}
       {pendingCount > 0 && !menu && !renaming && !removing && (
         <button type="button" className="session-freshness" onClick={showLatest}>
           {pendingCount} updated · Show latest
@@ -209,6 +233,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
       )}
       {viewMode === 'active' ? (
         <ActiveSessionsList
+          ordering={{ sessions: ordered, groups }}
           paused={paused}
           activeSessionId={activeSessionId}
           onSelectSession={onSelectSession}
@@ -268,6 +293,18 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
       <SessionContextMenu
         state={menu}
         onClose={closeMenu}
+        onHide={() => {
+          if (menu) {
+            setVisibilityError('');
+            void hideSession(menu.session.id).then((ok) => {
+              if (!ok)
+                setVisibilityError(
+                  'Could not hide this conversation. Review any resource removal and try again.',
+                );
+            });
+          }
+          closeMenu();
+        }}
         onOpen={() => {
           if (menu) onSelectSession(menu.session.id);
           closeMenu();
@@ -290,6 +327,24 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
           session={renaming}
           onSave={handleRename}
           onClose={() => setRenaming(null)}
+        />
+      )}
+      {hiddenOpen && (
+        <HiddenSessionsDialog
+          onClose={() => setHiddenOpen(false)}
+          onChanged={retry}
+          onCleanup={(id) => {
+            setHiddenOpen(false);
+            setRemoving(id);
+          }}
+          onContinue={
+            onContinue
+              ? (path) => {
+                  setHiddenOpen(false);
+                  onContinue(path);
+                }
+              : undefined
+          }
         />
       )}
       {details && <SessionDetailsDialog session={details} onClose={() => setDetails(null)} />}

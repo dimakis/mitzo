@@ -63,3 +63,15 @@ it('keeps a failed unread mutation visible and keeps its menu open for retry', a
   expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save read status');
   expect(close).not.toHaveBeenCalled();
 });
+
+it('hydrates unread state for an off-page pinned conversation without a list projection', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(initial)));
+  render(
+    <ConversationUnreadDot
+      session={{ id: 'off-page-pin', summary: 'Pinned', lastModified: 1 }}
+      hydrate
+    />,
+  );
+  expect(await screen.findByLabelText('Unread reply')).toBeTruthy();
+  expect(apiFetch).toHaveBeenCalledWith('/api/sessions/off-page-pin/read-state', expect.anything());
+});

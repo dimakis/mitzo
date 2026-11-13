@@ -27,6 +27,7 @@ export function createSessionVisibilityRouter(deps: {
           summary: session.summary || session.initialPrompt || 'Untitled conversation',
           lastModified: session.updatedAt,
           resourcesReleased: deps.events.removals.read(session.sessionId)?.phase === 'completed',
+          canRestore: !deps.events.removals.read(session.sessionId),
         })),
         hasMore: rows.length > limit,
       });
@@ -36,12 +37,10 @@ export function createSessionVisibilityRouter(deps: {
         code: 'hidden_chats_unavailable',
         stage: 'list',
       });
-      res
-        .status(503)
-        .json({
-          error: 'Hidden chats are unavailable. Try again.',
-          code: 'hidden_chats_unavailable',
-        });
+      res.status(503).json({
+        error: 'Hidden chats are unavailable. Try again.',
+        code: 'hidden_chats_unavailable',
+      });
     }
   });
   router.post('/:id/visibility', deps.authorize, requireSameOriginJson, (req, res) => {
@@ -54,13 +53,11 @@ export function createSessionVisibilityRouter(deps: {
         return res.status(404).json({ error: 'Chat not found.' });
       deps.events.removals.assertArchivable(id);
       if (!req.body.hidden && deps.events.removals.read(id))
-        return res
-          .status(409)
-          .json({
-            error:
-              'This chat has a resource removal record. View its saved history and review recovery before starting more work.',
-            code: 'chat_recovery_required',
-          });
+        return res.status(409).json({
+          error:
+            'This chat has a resource removal record. View its saved history and review recovery before starting more work.',
+          code: 'chat_recovery_required',
+        });
       if (req.body.hidden) deps.events.hideSession(id);
       else deps.events.showSession(id);
       deps.changed(id);
@@ -72,12 +69,10 @@ export function createSessionVisibilityRouter(deps: {
         stage: 'visibility',
         code: 'chat_visibility_failed',
       });
-      return res
-        .status(409)
-        .json({
-          error: 'Visibility could not be changed. Review any resource removal, then try again.',
-          code: 'chat_visibility_failed',
-        });
+      return res.status(409).json({
+        error: 'Visibility could not be changed. Review any resource removal, then try again.',
+        code: 'chat_visibility_failed',
+      });
     }
   });
   return router;

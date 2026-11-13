@@ -150,7 +150,9 @@ it('coalesces bursts and limits reorder frequency without starving under tool up
     activities: [{ ...recent, lastEventAt: 1200 }, activity('working', 1300)],
     paused: false,
   });
-  tick(2000);
+  tick(3599);
+  expect(view.result.current.map((s) => s.id)).toEqual(['older', 'recent']);
+  tick(1);
   expect(view.result.current.map((s) => s.id)).toEqual(['recent', 'older']);
 });
 

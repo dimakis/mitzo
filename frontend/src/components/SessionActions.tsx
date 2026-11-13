@@ -12,6 +12,7 @@ export interface SessionActionsProps {
   onOpen: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onHide?: () => void;
   onClose?: () => void;
   menu?: boolean;
   onDetails?: () => void;
@@ -21,12 +22,19 @@ export function SessionActions({
   onOpen,
   onRename,
   onDelete,
+  onHide,
   onClose,
   menu = false,
   onDetails,
 }: SessionActionsProps) {
   const pins = useConversationPins();
-  const { state: readState, unread } = useConversationReadState(session.id, session.replyReadState);
+  const {
+    state: readState,
+    unread,
+    loading: loadingRead,
+    error: loadReadError,
+    retry: retryRead,
+  } = useConversationReadState(session.id, session.replyReadState, true);
   const [readError, setReadError] = useState('');
   const [savingRead, setSavingRead] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
@@ -38,10 +46,16 @@ export function SessionActions({
         <UiIcon name="chats" />
         Open conversation
       </button>
+      {onHide && (
+        <button type="button" role={role} onClick={onHide}>
+          <UiIcon name="chats" />
+          Hide conversation
+        </button>
+      )}
       <button
         type="button"
         role={role}
-        disabled={savingRead}
+        disabled={savingRead || loadingRead || !!loadReadError}
         onClick={async () => {
           setSavingRead(true);
           setReadError('');
@@ -62,9 +76,23 @@ export function SessionActions({
         }}
       >
         <UiIcon name="chats" />
-        {savingRead ? 'Saving read status…' : unread ? 'Mark as read' : 'Mark as unread'}
+        {loadingRead
+          ? 'Loading read status…'
+          : savingRead
+            ? 'Saving read status…'
+            : unread
+              ? 'Mark as read'
+              : 'Mark as unread'}
       </button>
       {readError && <p role="alert">{readError}</p>}
+      {loadReadError && (
+        <>
+          <p role="status">{loadReadError}</p>
+          <button type="button" role={role} onClick={retryRead}>
+            Retry read status
+          </button>
+        </>
+      )}
       <button
         type="button"
         role={role}

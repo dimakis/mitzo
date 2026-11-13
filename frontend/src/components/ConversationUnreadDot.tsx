@@ -2,8 +2,20 @@ import type { Session } from '../types/chat';
 import { useConversationReadState } from '../hooks/useConversationReadState';
 import '../styles/session-library.css';
 
-export function ConversationUnreadDot({ session }: { session: Session }) {
-  const { unread } = useConversationReadState(session.id, session.replyReadState);
+export function ConversationUnreadDot({
+  session,
+  hydrate = false,
+}: {
+  session: Session;
+  hydrate?: boolean;
+}) {
+  const { unread, error } = useConversationReadState(session.id, session.replyReadState, hydrate);
+  if (error)
+    return (
+      <span role="status" title="Retry read status in conversation actions">
+        Read status unavailable
+      </span>
+    );
   return (
     <span className="conversation-read-marker" aria-hidden={!unread || undefined}>
       {unread && (

@@ -1798,6 +1798,7 @@ function DesktopChatViewContent() {
           activeSessionId={activeSessionId ?? undefined}
           onSelectSession={handleSelectSession}
           onNewChat={handleNewChat}
+          onContinue={navigate}
         />
       }
       center={

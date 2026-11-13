@@ -36,7 +36,7 @@ function PinRow({ session, props }: { session: Session; props: Props }) {
         title={title}
       >
         <span className="conversation-pin-title">
-          <ConversationUnreadDot session={session} />
+          <ConversationUnreadDot session={session} hydrate />
           {title}
         </span>
         <small>

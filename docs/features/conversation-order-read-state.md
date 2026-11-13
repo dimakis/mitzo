@@ -1,5 +1,10 @@
 # Conversation ordering and reply read state
 
+Historical PR #1307 record. On 13 November Dimitri requested incorporating and
+superseding it in [hidden conversations and calmer ordering](chat-lifecycle-and-ordering.md).
+That combined feature uses 1800ms motion and five seconds between promotions,
+and addresses the six blocking review findings retained on this draft.
+
 Dimitri requested these changes in the originating conversation on 11 November
 2026 after reporting that both the desktop sidebar and regular Chats list jumped
 while several sessions ran. He asked for slower, pronounced promotions, one at a

@@ -10,7 +10,7 @@ export function conversationGroup(session: Session, activity?: SessionActivity) 
 // Scheduling policy, independent of animation timing. Bounded batches cannot be
 // starved by continuous tool output, and successive batches have a cooldown.
 const BATCH_MS = 600;
-const MIN_REORDER_MS = 2500;
+const MIN_REORDER_MS = 5000;
 function observedRank(session: Session, activity?: SessionActivity) {
   return Math.max(
     session.lastModified,

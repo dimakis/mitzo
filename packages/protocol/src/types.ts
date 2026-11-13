@@ -220,6 +220,8 @@ export interface FinishedMessage {
   startedSeq?: number;
   /** Exact durable completed message anchor; absent for interrupted or synthetic history. */
   completedSeq?: number;
+  /** Acknowledgeable assistant message_end; synthetic error anchors are excluded. */
+  replyReadSeq?: number;
   symposiumProvenance?: SymposiumProvenance;
   role: 'user' | 'assistant';
   blocks: FinishedBlock[];

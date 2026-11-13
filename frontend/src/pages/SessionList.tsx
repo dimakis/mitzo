@@ -40,6 +40,7 @@ import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOve
 import { SessionPreview } from '../components/SessionPreview';
 import { UiIcon } from '../components/UiIcon';
 import { MotionDetails } from '../components/MotionDetails';
+import { HiddenSessionsDialog } from '../components/HiddenSessionsDialog';
 
 function SwipeableSession({
   session,
@@ -47,6 +48,7 @@ function SwipeableSession({
   activity,
   connected,
   onDismiss,
+  onHide,
   onClick,
   onRename,
   desktop = false,
@@ -65,6 +67,7 @@ function SwipeableSession({
   activity?: SessionActivity;
   connected?: boolean;
   onDismiss: (id: string) => void;
+  onHide: (id: string) => void;
   onClick: (id: string) => void;
   onRename: (id: string, title: string) => void;
 }) {
@@ -338,6 +341,10 @@ function SwipeableSession({
       {previewing && (
         <SessionPreview
           session={session}
+          onHide={() => {
+            closePreview();
+            onHide(session.id);
+          }}
           activity={activity}
           connected={connected}
           onClose={closePreview}
@@ -362,6 +369,8 @@ function SwipeableSession({
 
 export function SessionList() {
   const [timersOpen, setTimersOpen] = useState(false);
+  const [hiddenOpen, setHiddenOpen] = useState(false);
+  const [visibilityError, setVisibilityError] = useState('');
   const [removing, setRemoving] = useState<string | null>(null);
   const navigate = useNavigate();
   const desktop = useMediaQuery('(min-width: 768px)');
@@ -382,12 +391,14 @@ export function SessionList() {
   const drafts = useSavedChatDrafts();
   const {
     sessions,
+    hiddenSessionIds,
     quickActions,
     loading,
     error,
     loadingMore,
     hasMore,
     dismissSession,
+    hideSession,
     clearAll,
     handleRename: renameSession,
     loadMore,
@@ -428,6 +439,7 @@ export function SessionList() {
       importOpen ||
       search.active ||
       optionsOpen ||
+      hiddenOpen ||
       busyRows.size,
     ),
   );
@@ -452,30 +464,37 @@ export function SessionList() {
     groups,
     pendingCount,
     showLatest,
-  } = useSessionOrdering([...combined.values()], activities, paused, { grouped: true });
+  } = useSessionOrdering(
+    [...combined.values()].filter((session) => !hiddenSessionIds?.has(session.id)),
+    activities.filter((activity) => !hiddenSessionIds?.has(activity.sessionId)),
+    paused,
+    { grouped: true },
+  );
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
     return activity && sessionNeedsYouReason(activity) !== null;
   });
   const visible = filter === 'active' ? active : filter === 'attention' ? attention : all;
-  const searchSessions = search.results.map((result) => {
-    const existing = combined.get(result.sessionId);
-    return {
-      ...existing,
-      id: result.sessionId,
-      summary: result.summary || '',
-      lastModified: result.updatedAt,
-      ...retainSessionModel(
-        modelObservations.current,
-        result.sessionId,
-        mergeSessionModel(existing, result),
-      ),
-      accountLabel: result.accountLabel ?? existing?.accountLabel,
-      replyReadState: result.replyReadState ?? existing?.replyReadState,
-      snippet: result.snippet,
-    };
-  });
+  const searchSessions = search.results
+    .filter((result) => !hiddenSessionIds?.has(result.sessionId))
+    .map((result) => {
+      const existing = combined.get(result.sessionId);
+      return {
+        ...existing,
+        id: result.sessionId,
+        summary: result.summary || '',
+        lastModified: result.updatedAt,
+        ...retainSessionModel(
+          modelObservations.current,
+          result.sessionId,
+          mergeSessionModel(existing, result),
+        ),
+        accountLabel: result.accountLabel ?? existing?.accountLabel,
+        replyReadState: result.replyReadState ?? existing?.replyReadState,
+        snippet: result.snippet,
+      };
+    });
   const currentPreview = preview
     ? (searchSessions.find((session) => session.id === preview.id) ?? combined.get(preview.id))
     : undefined;
@@ -500,6 +519,16 @@ export function SessionList() {
   }
   function dismiss(id: string) {
     setRemoving(id);
+  }
+  async function hideConversation(id: string) {
+    setVisibilityError('');
+    if (await hideSession(id)) {
+      setPreview((current) => (current?.id === id ? null : current));
+      setMobilePinPreview(null);
+    } else
+      setVisibilityError(
+        'Could not hide this conversation. Review any resource removal and try again.',
+      );
   }
 
   async function handleRename(id: string, title: string) {
@@ -547,6 +576,15 @@ export function SessionList() {
               <UiIcon name="more" />
             </summary>
             <div className="conversation-options-menu">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open');
+                  setHiddenOpen(true);
+                }}
+              >
+                Hidden chats
+              </button>
               <button
                 onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open');
@@ -607,6 +645,7 @@ export function SessionList() {
         }
       >
         <div className="session-list-scroll" ref={scroller}>
+          {visibilityError && <p role="alert">{visibilityError}</p>}
           <div className="conversation-search">
             <input
               id="conversation-search"
@@ -715,6 +754,7 @@ export function SessionList() {
                   activity={displayById.get(session.id)}
                   connected={connected}
                   onDismiss={dismiss}
+                  onHide={hideConversation}
                   desktop={desktop}
                   selected={desktop && selectedPreview?.id === session.id}
                   onPreview={previewSession}
@@ -781,6 +821,7 @@ export function SessionList() {
                     activity={displayById.get(s.id)}
                     connected={connected}
                     onDismiss={dismiss}
+                    onHide={hideConversation}
                     desktop={desktop}
                     selected={desktop && selectedPreview?.id === s.id}
                     onPreview={previewSession}
@@ -803,6 +844,10 @@ export function SessionList() {
       <SessionContextMenu
         state={menu}
         onClose={closeMenu}
+        onHide={() => {
+          if (menu) void hideConversation(menu.session.id);
+          closeMenu();
+        }}
         onOpen={() => {
           if (menu) openSession(menu.session.id);
           closeMenu();
@@ -845,6 +890,7 @@ export function SessionList() {
           activity={displayById.get(mobilePinPreview.id)}
           connected={connected}
           onClose={() => setMobilePinPreview(null)}
+          onHide={() => void hideConversation(mobilePinPreview.id)}
           onOpen={() => openSession(mobilePinPreview.id)}
           onRename={() => {
             setRenaming(mobilePinPreview);
@@ -853,6 +899,20 @@ export function SessionList() {
           onDelete={() => {
             dismiss(mobilePinPreview.id);
             setMobilePinPreview(null);
+          }}
+        />
+      )}
+      {hiddenOpen && (
+        <HiddenSessionsDialog
+          onClose={() => setHiddenOpen(false)}
+          onChanged={retry}
+          onCleanup={(id) => {
+            setHiddenOpen(false);
+            setRemoving(id);
+          }}
+          onContinue={(path) => {
+            setHiddenOpen(false);
+            navigate(path);
           }}
         />
       )}

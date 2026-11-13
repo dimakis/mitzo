@@ -53,6 +53,7 @@ function ActivityCard({
 }
 
 export interface ActiveSessionsListProps {
+  ordering?: Pick<ReturnType<typeof useSessionOrdering>, 'sessions' | 'groups'>;
   paused?: boolean;
   activeSessionId?: string;
   onSelectSession: (id: string) => void;
@@ -64,24 +65,26 @@ export function ActiveSessionsList({
   activeSessionId,
   onSelectSession,
   onActions,
+  ordering,
 }: ActiveSessionsListProps) {
   const { activities, attendCount, connected, lastKnownActivities = [] } = useSessionOverview();
 
   const display = connected === false ? lastKnownActivities : activities;
   const byId = new Map(display.map((a) => [a.sessionId, a]));
-  const { sessions: ordered, groups } = useSessionOrdering(
+  const ownOrdering = useSessionOrdering(
     display.map((a) => ({
       id: a.sessionId,
       summary: a.title,
       lastModified: a.lastMessageAt ?? a.lastEventAt,
     })),
     activities,
-    paused || connected === false,
+    paused || connected === false || ordering !== undefined,
     { grouped: true },
   );
+  const { sessions: ordered, groups } = ordering ?? ownOrdering;
   const visible = ordered
     .map((s) => byId.get(s.id)!)
-    .filter((a) => a.state !== 'idle' && a.state !== 'init');
+    .filter((a) => a && a.state !== 'idle' && a.state !== 'init');
 
   const handleTap = useCallback(
     (sessionId: string) => {

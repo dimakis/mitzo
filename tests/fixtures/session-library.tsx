@@ -49,6 +49,7 @@ function Surface() {
                   activeSessionId="session-0"
                   onSelectSession={() => {}}
                   onNewChat={() => {}}
+                  onContinue={navigate}
                 />
               }
             />
@@ -63,6 +64,7 @@ function Surface() {
           path="/chat/:id"
           element={<button onClick={() => navigate('/sessions')}>Opened conversation</button>}
         />
+        <Route path="/chat" element={<p>New continuation draft</p>} />
       </Routes>
     </MobileShell>
   );

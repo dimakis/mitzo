@@ -45,7 +45,9 @@ it('promotes one conversation at a time and coalesces repeated updates for the s
   view.rerender({ activities: [live('a', 300), live('b', 700), live('c', 600)] });
   tick(1000);
   expect(view.result.current.sessions.map((s) => s.id)).toEqual(['c', 'a', 'b']);
-  tick(1500);
+  tick(3999);
+  expect(view.result.current.sessions.map((s) => s.id)).toEqual(['c', 'a', 'b']);
+  tick(1);
   expect(view.result.current.sessions.map((s) => s.id)).toEqual(['b', 'c', 'a']);
 });
 
@@ -106,6 +108,25 @@ it('does not interrupt a promotion when Show latest is pressed repeatedly', () =
   act(() => view.result.current.showLatest());
   act(() => view.result.current.showLatest());
   expect(view.result.current.sessions.map((s) => s.id)).toEqual(['c', 'a', 'b']);
+});
+
+it('releases browsing after a scrolled nested list is removed', () => {
+  function List({ nested }: { nested: boolean }) {
+    const ref = useRef<HTMLDivElement>(null);
+    const held = useListBrowsing(ref, false);
+    return (
+      <div ref={ref} data-testid="root" data-held={held}>
+        {nested && <div data-testid="nested" />}
+      </div>
+    );
+  }
+  const view = render(<List nested />);
+  view.getByTestId('nested').scrollTop = 200;
+  fireEvent.scroll(view.getByTestId('nested'));
+  expect(view.getByTestId('root').dataset.held).toBe('true');
+  view.rerender(<List nested={false} />);
+  tick(1000);
+  expect(view.getByTestId('root').dataset.held).toBe('false');
 });
 
 it('queues newly discovered conversations instead of inserting a burst above known rows', () => {

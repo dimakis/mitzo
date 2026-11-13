@@ -1,9 +1,9 @@
 import { removeConversationPins, renameConversationPin } from './useConversationPins';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import type { Session } from '../types/chat';
 import type { SessionRemovalOptions } from '../types/sandboxes';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
-import { apiFetch } from '../lib/api-fetch';
+import { apiFetch, AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import type { SessionActivity } from './useSessionOverview';
 import { isSessionActivityActive } from '../lib/session-attention';
@@ -12,6 +12,23 @@ import { ListCache, SupersededListRequest } from '../lib/list-cache';
 type SessionPage = { sessions: Session[]; hasMore: boolean };
 const sessionCache = new ListCache<SessionPage>();
 const sessionsUrl = '/api/sessions';
+let locallyHidden = new Set<string>();
+const visibilityListeners = new Set<() => void>();
+function retainHidden(ids: Set<string>) {
+  locallyHidden = ids;
+  visibilityListeners.forEach((listener) => listener());
+}
+const subscribeVisibility = (listener: () => void) => {
+  visibilityListeners.add(listener);
+  return () => {
+    visibilityListeners.delete(listener);
+  };
+};
+if (typeof window !== 'undefined') {
+  const resetVisibility = () => retainHidden(new Set());
+  window.addEventListener(AUTH_LOST_EVENT, resetVisibility);
+  window.addEventListener(AUTH_RESTORED_EVENT, resetVisibility);
+}
 // Invalidate once per broadcast, before the mounted consumers revalidate.
 eventBus.on('sessions_changed', () => sessionCache.invalidate());
 
@@ -40,6 +57,7 @@ function buildQuickActions(serverActions: QuickAction[] | undefined): QuickActio
 
 export interface UseSessionListReturn {
   sessions: Session[];
+  hiddenSessionIds: ReadonlySet<string>;
   quickActions: QuickAction[];
   loading: boolean;
   error: string | null;
@@ -48,6 +66,7 @@ export interface UseSessionListReturn {
   updateAvailable: boolean;
   checking: boolean;
   dismissSession: (id: string, options?: SessionRemovalOptions) => Promise<boolean>;
+  hideSession: (id: string) => Promise<boolean>;
   clearAll: () => Promise<boolean>;
   handleRename: (id: string, title: string) => Promise<boolean>;
   checkForUpdates: () => Promise<void>;
@@ -82,6 +101,11 @@ function applyActivity(sessions: Session[], activeIds: Set<string> | null): Sess
 }
 
 export function useSessionList(): UseSessionListReturn {
+  const hiddenSessionIds = useSyncExternalStore(
+    subscribeVisibility,
+    () => locallyHidden,
+    () => locallyHidden,
+  );
   const [sessions, setSessions] = useState<Session[]>(
     () => sessionCache.get(sessionsUrl)?.sessions ?? [],
   );
@@ -104,6 +128,10 @@ export function useSessionList(): UseSessionListReturn {
         return parseSessionsResponse(await response.json());
       });
       setSessions(applyActivity(page, activeIds.current));
+      if (page.some((session) => locallyHidden.has(session.id)))
+        retainHidden(
+          new Set([...locallyHidden].filter((id) => !page.some((session) => session.id === id))),
+        );
       setHasMore(more);
       nextOffset.current = page.length;
       hasLoaded.current = true;
@@ -210,6 +238,38 @@ export function useSessionList(): UseSessionListReturn {
       .catch(() => false);
   }, []);
 
+  const hideSession = useCallback(async (id: string) => {
+    try {
+      const response = await apiFetch(`/api/sessions/${encodeURIComponent(id)}/visibility`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hidden: true }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const result = await response.json();
+      if (!response.ok || result?.ok !== true) return false;
+      retainHidden(new Set(locallyHidden).add(id));
+      removeConversationPins(id);
+      sessionCache.update((page) => ({
+        ...page,
+        sessions: page.sessions.filter((s) => s.id !== id),
+      }));
+      setSessions((previous) => previous.filter((s) => s.id !== id));
+      return true;
+    } catch (cause) {
+      console.warn('Chat visibility change failed', {
+        code: 'chat_visibility_failed',
+        stage: 'hide',
+        sessionId: id,
+        error:
+          cause instanceof Error
+            ? { name: cause.name, message: cause.message }
+            : { type: typeof cause },
+      });
+      return false; // The owning action retains its visible error and retry.
+    }
+  }, []);
+
   const clearAll = useCallback(() => {
     return apiFetch('/api/sessions', { method: 'DELETE' })
       .then((response) => {
@@ -261,6 +321,7 @@ export function useSessionList(): UseSessionListReturn {
 
   return {
     sessions,
+    hiddenSessionIds,
     quickActions,
     loading,
     loadingMore,
@@ -269,6 +330,7 @@ export function useSessionList(): UseSessionListReturn {
     checking,
     error,
     dismissSession,
+    hideSession,
     clearAll,
     handleRename,
     checkForUpdates,

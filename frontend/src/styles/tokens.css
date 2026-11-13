@@ -56,7 +56,7 @@
   /* Motion roles shared by CSS and Web Animations. */
   --motion-duration-fast: 150ms;
   --motion-duration-standard: 200ms;
-  --motion-duration-reorder: 1100ms;
+  --motion-duration-reorder: 1800ms;
   --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --motion-distance-popover: 4px;
   --motion-distance-sheet: 12px;

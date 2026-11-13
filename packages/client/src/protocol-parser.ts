@@ -490,6 +490,10 @@ export function parseServerMessage(
         type: 'MESSAGE_END',
         messageId: msg.messageId as string,
         sessionId: msg.sessionId as string | undefined,
+        seq:
+          typeof msg.seq === 'number' && Number.isSafeInteger(msg.seq) && msg.seq > 0
+            ? msg.seq
+            : undefined,
       });
       if (msg.sessionId && !state.currentSessionId) {
         callbacks.onSessionAssigned(msg.sessionId as string);
