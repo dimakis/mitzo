@@ -83,6 +83,7 @@ function custody(path: string, directory: boolean) {
 // Node's stripVTControlCharacters only recognises OSC payloads from a narrow character set;
 // a `+` in the OAuth scope makes it fall through to its CSI branch, which eats the `h` of
 // `https://` and leaves the hyperlink target glued to the visible URL. Remove OSC first.
+// eslint-disable-next-line no-control-regex -- matching terminal control sequences is the purpose.
 const OSC_SEQUENCE = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
 export function nativeLoginText(raw: string) {
   return stripVTControlCharacters(raw.replace(OSC_SEQUENCE, ''));
