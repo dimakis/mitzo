@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 import { ConnectionRegistry } from '../../packages/harness/src/connection-registry.js';
-import { runQueryLoop } from '../query-loop.js';
+import { runQueryLoop, drainQueryLoopFinalization } from '../query-loop.js';
 import { classifyProviderFailure } from '../provider-failure.js';
 import * as notificationCenter from '../notification-center.js';
 import * as ntfyTransport from '../notify.js';
@@ -151,6 +151,33 @@ async function* eventStream(events: Record<string, unknown>[]) {
 function v2msg(type: string, rest: Record<string, unknown> = {}) {
   return expect.objectContaining({ v: 2, type, ...rest });
 }
+
+it('retains exact finalization after registry removal and refuses unknown owners', async () => {
+  const registry = fakeRegistry(fakeTransport());
+  const session = registry.get('client')!;
+  registry.setSessionId('client', 'session');
+  await expect(drainQueryLoopFinalization(session)).rejects.toThrow(/unavailable/i);
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  async function* stream() {
+    yield { type: 'result', session_id: 'session' };
+    await barrier;
+  }
+  const running = runQueryLoop(stream(), 'client', registry, new AbortController());
+  let drained = false;
+  const waiting = drainQueryLoopFinalization(session).then(() => {
+    drained = true;
+  });
+  await Promise.resolve();
+  expect(drained).toBe(false);
+  release();
+  await running;
+  await waiting;
+  expect(registry.remove).toHaveBeenCalled();
+  await drainQueryLoopFinalization(session);
+});
 
 it('reports completion only at the provider result, across message gaps and later turns', async () => {
   const transport = fakeTransport();

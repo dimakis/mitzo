@@ -61,6 +61,56 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it('retires only an idle exact owner and awaits its transport drain', async () => {
+  const f = await setup();
+  let release!: () => void;
+  const drained = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const drain = vi.fn(() => drained);
+  Object.assign(f.rpc, { drain });
+  const assertCurrent = vi.fn();
+  let complete = false;
+  const pending = f.c.retireIdle(assertCurrent).then(() => {
+    complete = true;
+  });
+  await Promise.resolve();
+  expect(complete).toBe(false);
+  expect(f.rpc.close).toHaveBeenCalledOnce();
+  release();
+  await pending;
+  await f.c.retireIdle(assertCurrent);
+  expect(drain).toHaveBeenCalledOnce();
+  expect(f.requests.filter((request) => request.method === 'turn/interrupt')).toEqual([]);
+});
+
+it('refuses active or unqualified idle retirement without closing the owner', async () => {
+  const f = await setup();
+  await expect(f.c.retireIdle(() => undefined)).rejects.toThrow(/drain/i);
+  expect(f.rpc.close).not.toHaveBeenCalled();
+  Object.assign(f.rpc, { drain: vi.fn(async () => {}) });
+  await f.c.send({ id: 'active-retirement', prompt: 'Keep working' });
+  await expect(f.c.retireIdle(() => undefined)).rejects.toThrow(/idle/i);
+  expect(f.rpc.close).not.toHaveBeenCalled();
+});
+
+it('keeps the original retirement failure and rechecks authority on replay', async () => {
+  const f = await setup();
+  const failure = new Error('private cleanup diagnostic');
+  Object.assign(f.rpc, {
+    drain: vi.fn(async () => {
+      throw failure;
+    }),
+  });
+  await expect(f.c.retireIdle(() => undefined)).rejects.toBe(failure);
+  await expect(f.c.retireIdle(() => undefined)).rejects.toBe(failure);
+  await expect(
+    f.c.retireIdle(() => {
+      throw Error('revoked');
+    }),
+  ).rejects.toThrow('revoked');
+});
+
 it('bounds a noncooperative host tool, fences its late callback and retains unknown effects', async () => {
   const f = await setup();
   f.conversationOptions.toolGuardPolicy = { executionMs: 20, approvalMs: 100, cleanupMs: 20 };
@@ -178,7 +228,15 @@ it('excludes an actual adapter approval phase from its host execution deadline',
   expect(result.success).toBe(true);
 });
 
-it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] as const)(
+it.each([
+  'clear',
+  'unfinished',
+  'failed-earlier',
+  'suppressed-during-prepare',
+  'context-held',
+  'context-held-diagnostic-failure',
+  'context-held-delivery-failure',
+] as const)(
   'continues once after authoritative approval expiry only with safe command-wide native outcomes (%s)',
   async (nativeOutcome) => {
     const f = await setup();
@@ -247,12 +305,32 @@ it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] a
           turnId,
           item: { type: 'commandExecution', id: 'unfinished', command: 'unknown operation' },
         });
+      if (nativeOutcome.startsWith('context-held')) {
+        if (nativeOutcome === 'context-held-diagnostic-failure') {
+          const telemetry = runtimeDiagnostics.codexRuntimeErrorTelemetry;
+          vi.spyOn(runtimeDiagnostics, 'codexRuntimeErrorTelemetry').mockImplementation((error) => {
+            if (error.message === 'Context transition held') throw Error('Diagnostic sink failed');
+            return telemetry(error);
+          });
+        }
+        if (nativeOutcome === 'context-held-delivery-failure') {
+          f.onError.mockImplementation(() => {
+            throw Error('Viewer failed');
+          });
+        }
+        f.conversationOptions.assertQueueCommandCurrent = (id) => {
+          expect(id).toBe('expired-source');
+          throw Error('Context transition held');
+        };
+      }
       f.callbacks.onNotification('turn/completed', {
         threadId: f.getProviderThread(),
         turn: { id: turnId, status: 'completed' },
       });
     };
-    await fail('turn-1', 'approval-1');
+    if (nativeOutcome === 'context-held-delivery-failure') {
+      await expect(fail('turn-1', 'approval-1')).rejects.toThrow('Viewer failed');
+    } else await fail('turn-1', 'approval-1');
     if (nativeOutcome !== 'clear') {
       if (nativeOutcome === 'suppressed-during-prepare')
         await vi.waitFor(() => expect(f.c.isPaused()).toBe(true));
@@ -268,6 +346,16 @@ it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] a
               command.toolFailureContinuation && ['queued', 'running'].includes(command.status),
           ),
       ).toBe(false);
+      if (nativeOutcome.startsWith('context-held')) {
+        expect(f.c.queue().filter((command) => command.toolFailureContinuation)).toEqual([]);
+        expect(f.c.queue()[0].status).toBe('completed');
+        expect(f.onClosed).toHaveBeenCalledOnce();
+        expect(f.onError).toHaveBeenCalledWith(
+          expect.objectContaining({
+            cause: expect.objectContaining({ message: 'Context transition held' }),
+          }),
+        );
+      }
       return;
     }
     await vi.waitFor(() =>
@@ -604,6 +692,185 @@ it.each(['missing command', 'rejected selection'])(
     expect(f.execute).not.toHaveBeenCalled();
     expect(f.c.queue()[0].status).toBe('running');
     if (failure === 'missing command') expect(validateModel).not.toHaveBeenCalled();
+  },
+);
+
+async function admittedContextChild() {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  enableSubagentFixture(f);
+  await f.c.send({ id: 'root-command', prompt: 'Review' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  const child = {
+    id: 'child',
+    parentThreadId: f.getProviderThread(),
+    sessionId: 'native-tree',
+    cwd: '/workspace',
+    model: 'test-model',
+    modelProvider: 'openai',
+  };
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+    if (params.threadId === child.id) {
+      if (method === 'thread/resume')
+        return { thread: child, model: child.model, modelProvider: child.modelProvider };
+      if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+      if (method === 'turn/steer') return { turnId: params.expectedTurnId };
+      if (method === 'turn/start') return { turn: { id: 'child-next' } };
+      if (method === 'turn/interrupt') return {};
+    }
+    return rpc(method, params);
+  });
+  f.callbacks.onNotification('thread/started', { thread: child });
+  f.callbacks.onNotification('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
+  const owner = f.c.getSubagents()!;
+  await owner.settled();
+  return { ...f, owner };
+}
+
+it.each(
+  ['before-claim', 'during-preparation', 'final-callback', 'new-parent'].flatMap((phase) =>
+    ['working', 'completed'].map((state) => ({ phase, state })),
+  ),
+)(
+  'refuses child messages against their original source context at $phase with $state child, preserving observation and stop',
+  async ({ phase, state }) => {
+    const f = await admittedContextChild();
+    const owner = f.owner;
+    if (state === 'completed')
+      f.callbacks.onNotification('turn/completed', {
+        threadId: 'child',
+        turn: { id: 'child-turn', status: 'completed' },
+      });
+    if (phase === 'new-parent') {
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+      await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+      await f.c.send({ id: 'new-parent', prompt: 'Next parent turn' });
+    }
+    let held = phase === 'before-claim' || phase === 'new-parent';
+    const checked: string[] = [];
+    f.conversationOptions.assertQueueCommandCurrent = (id) => {
+      checked.push(id);
+      if (held && id === 'root-command') throw Error('Original source context held');
+    };
+    if (phase === 'during-preparation')
+      f.conversationOptions.prepareAgentContext = async () => {
+        held = true;
+      };
+    const input = {
+      requestId: 'held-child',
+      threadId: 'child',
+      action: 'message' as const,
+      text: 'Do not run',
+    };
+    let checks = 0;
+    const result = await owner.control(input, () => {
+      checks++;
+      if (phase === 'final-callback' && checks >= 3) held = true;
+    });
+    expect(result).toBe('rejected');
+    expect(checked).toContain('root-command');
+    expect(
+      f.rpc.request.mock.calls.filter(
+        ([method, params]) =>
+          params.threadId === 'child' && ['turn/start', 'turn/steer'].includes(method),
+      ),
+    ).toHaveLength(0);
+    expect(owner.list()[0]).toMatchObject({ threadId: 'child', state, available: true });
+    expect(await owner.inspect('child', () => {})).toMatchObject({
+      threadId: 'child',
+      state,
+      available: true,
+    });
+    expect(await owner.control(input)).toBe('rejected');
+    expect(await owner.control({ requestId: 'held-stop', threadId: 'child', action: 'stop' })).toBe(
+      state === 'working' ? 'accepted' : 'rejected',
+    );
+    expect(
+      f.rpc.request.mock.calls.filter(
+        ([method, params]) => params.threadId === 'child' && method === 'turn/interrupt',
+      ),
+    ).toHaveLength(state === 'working' ? 1 : 0);
+  },
+);
+
+it.each(
+  ['ack', 'sync-failure'].flatMap((outcome) =>
+    ['working', 'completed'].map((state) => ({ outcome, state })),
+  ),
+)(
+  'serializes child control for $state child through invocation and releases before $outcome',
+  async ({ outcome, state }) => {
+    const f = await admittedContextChild();
+    if (state === 'completed')
+      f.callbacks.onNotification('turn/completed', {
+        threadId: 'child',
+        turn: { id: 'child-turn', status: 'completed' },
+      });
+    const controlMethod = state === 'completed' ? 'turn/start' : 'turn/steer';
+    const eventsPath = join(dirname(f.storePath!), 'child-events.db');
+    const events = new EventStore(eventsPath);
+    const writer = new Database(eventsPath, { timeout: 0 });
+    const rpc = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const input = {
+      requestId: 'serialized-child',
+      threadId: 'child',
+      action: 'message' as const,
+      text: 'Check',
+    };
+    f.conversationOptions.withQueueMutation = (operation) =>
+      events.contextTransitions.withAdmissionLock(operation);
+    const claim = f.store.subagents.claimControl.bind(f.store.subagents);
+    vi.spyOn(f.store.subagents, 'claimControl').mockImplementation((...args) => {
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      return claim(...args);
+    });
+    f.conversationOptions.assertQueueCommandCurrent = (id) => {
+      expect(id).toBe('root-command');
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+    };
+    f.rpc.request.mockImplementation((method, params) => {
+      if (method !== controlMethod || params.threadId !== 'child') return rpc(method, params);
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      if (outcome === 'sync-failure') throw Error('Lost child control ACK');
+      return pending.then(() =>
+        state === 'completed' ? { turn: { id: 'child-next' } } : { turnId: params.expectedTurnId },
+      );
+    });
+    try {
+      const control = f.owner.control(input);
+      await vi.waitFor(() =>
+        expect(
+          f.rpc.request.mock.calls.some(
+            ([method, params]) => method === controlMethod && params.threadId === 'child',
+          ),
+        ).toBe(true),
+      );
+      writer.exec('BEGIN IMMEDIATE; ROLLBACK');
+      release();
+      const expected = outcome === 'ack' ? 'accepted' : 'uncertain';
+      expect(await control).toBe(expected);
+      f.conversationOptions.assertQueueCommandCurrent = () => {
+        throw Error('Context now held');
+      };
+      expect(await f.owner.control(input)).toBe(expected);
+      expect(
+        f.rpc.request.mock.calls.filter(
+          ([method, params]) => method === controlMethod && params.threadId === 'child',
+        ),
+      ).toHaveLength(1);
+    } finally {
+      release();
+      f.conversationOptions.withQueueMutation = undefined;
+      writer.close();
+      events.close();
+    }
   },
 );
 
@@ -1642,6 +1909,191 @@ it('passes the exact claimed command identity to knowledge preparation before di
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
 });
 
+it('holds the owning mutation fence across enqueue and exact FIFO claim, outside notifications', async () => {
+  const f = await setup();
+  const eventsPath = join(dirname(f.storePath!), 'events.db');
+  const events = new EventStore(eventsPath);
+  const concurrentWriter = new Database(eventsPath, { timeout: 0 });
+  try {
+    let locked = false;
+    let claims = 0;
+    f.conversationOptions.withQueueMutation = (operation) => {
+      expect(locked).toBe(false);
+      locked = true;
+      try {
+        return events.contextTransitions.withAdmissionLock(operation);
+      } finally {
+        locked = false;
+      }
+    };
+    f.conversationOptions.assertQueueCommandCurrent = (id) => {
+      expect(locked).toBe(true);
+      expect(id).toBe('guarded');
+    };
+    const enqueue = f.store.enqueue.bind(f.store);
+    vi.spyOn(f.store, 'enqueue').mockImplementation((...args) => {
+      expect(locked).toBe(true);
+      expect(() => concurrentWriter.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      return enqueue(...args);
+    });
+    const claim = f.store.claimNext.bind(f.store);
+    vi.spyOn(f.store, 'claimNext').mockImplementation((...args) => {
+      expect(locked).toBe(true);
+      expect(() => concurrentWriter.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      claims++;
+      return claim(...args);
+    });
+    f.conversationOptions.onCommandQueued = () => {
+      expect(locked).toBe(false);
+      concurrentWriter.exec('BEGIN IMMEDIATE; ROLLBACK');
+    };
+    f.conversationOptions.onQueueChange = () => {
+      expect(locked).toBe(false);
+    };
+    await f.c.send({ id: 'guarded', prompt: 'Frozen command' });
+    expect(claims).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    f.conversationOptions.onCommandQueued = undefined;
+    f.conversationOptions.onQueueChange = undefined;
+    f.conversationOptions.withQueueMutation = undefined;
+    concurrentWriter.close();
+    events.close();
+  }
+});
+
+it('refuses a context change in the last provider callback before turn submission', async () => {
+  const f = await setup();
+  let held = false;
+  f.conversationOptions.assertQueueCommandCurrent = () => {
+    if (held) throw Error('Context held');
+  };
+  f.conversationOptions.onProviderDispatch = () => {
+    held = true;
+  };
+  await expect(f.c.send({ id: 'stale-dispatch', prompt: 'Do not dispatch' })).rejects.toThrow(
+    'Context held',
+  );
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+});
+
+it.each(['ack', 'sync-failure', 'falsy-failure', 'sync-close'] as const)(
+  'serializes provider submission and commits its marker before awaiting %s',
+  async (outcome) => {
+    const f = await setup();
+    const eventsPath = join(dirname(f.storePath!), 'dispatch-events.db');
+    const events = new EventStore(eventsPath);
+    const concurrentWriter = new Database(eventsPath, { timeout: 0 });
+    let pending!: () => void;
+    const ack = new Promise<void>((resolve) => {
+      pending = resolve;
+    });
+    const rpc = f.rpc.request.getMockImplementation()!;
+    f.conversationOptions.withQueueMutation = (operation) =>
+      events.contextTransitions.withAdmissionLock(operation);
+    f.conversationOptions.onProviderDispatch = () => {
+      expect(() => concurrentWriter.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      events.append('app', 'ordinary_provider_dispatch_started', { messageId: 'dispatch' });
+    };
+    f.rpc.request.mockImplementation((method, params) => {
+      if (method !== 'turn/start') return rpc(method, params);
+      expect(() => concurrentWriter.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      if (outcome === 'sync-failure') throw Error('Synchronous transport close');
+      if (outcome === 'falsy-failure') throw null;
+      if (outcome === 'sync-close') f.c.close();
+      return ack.then(() => rpc(method, params));
+    });
+    try {
+      const sending = f.c.send({ id: 'dispatch', prompt: 'Original request' }).then(
+        () => ({ error: undefined }),
+        (error: unknown) => ({ error }),
+      );
+      await vi.waitFor(() =>
+        expect(f.rpc.request.mock.calls.some(([method]) => method === 'turn/start')).toBe(true),
+      );
+      // No writer is held across provider acknowledgement, including a failed invocation.
+      concurrentWriter.exec('BEGIN IMMEDIATE; ROLLBACK');
+      expect(
+        concurrentWriter
+          .prepare(
+            "SELECT count(*) AS count FROM events WHERE session_id='app' AND type='ordinary_provider_dispatch_started'",
+          )
+          .get(),
+      ).toEqual({ count: 1 });
+      pending();
+      const result = await sending;
+      if (outcome === 'sync-failure')
+        expect(result.error).toEqual(Error('Synchronous transport close'));
+      else if (outcome === 'falsy-failure') expect(result.error).toBeNull();
+      else expect(result.error).toBeUndefined();
+    } finally {
+      pending();
+      f.conversationOptions.withQueueMutation = undefined;
+      concurrentWriter.close();
+      events.close();
+    }
+  },
+);
+
+it.each(['dispatch', 'steering'] as const)(
+  'does not submit %s when its final native-policy callback closes the original owner',
+  async (kind) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    let closeOnCheck = false;
+    Object.assign(f.conversationOptions, {
+      nativeExecution: codexNativeExecutionPolicy({
+        bindingRevision: 'owner',
+        mode: 'agent',
+        cwd: '/workspace',
+        readableRoots: ['/'],
+        writableRoots: ['/workspace'],
+        deniedRoots: ['/private/auth'],
+      }),
+      assertNativeExecutionCurrent: () => {
+        if (closeOnCheck) f.c.close();
+      },
+      requestNativeApproval: async () => ({ decision: 'decline' }),
+    });
+    if (kind === 'dispatch')
+      f.conversationOptions.onProviderDispatch = () => {
+        closeOnCheck = true;
+      };
+    await f.c.send({ id: 'a', prompt: 'Original' });
+    if (kind === 'steering') {
+      f.conversationOptions.onSteeringUpdate = (_input, status) => {
+        if (status === 'steering') closeOnCheck = true;
+      };
+      expect(
+        await f.c.steer(
+          { requestId: 'closed-correction', targetCommandId: 'a', text: 'Correction' },
+          () => {},
+        ),
+      ).toEqual({ status: 'rejected' });
+    }
+    expect(
+      f.requests.filter(
+        ({ method }) => method === (kind === 'dispatch' ? 'turn/start' : 'turn/steer'),
+      ),
+    ).toHaveLength(0);
+  },
+);
+
+it('refuses a context change during enqueue validation before persisting native input', async () => {
+  const f = await setup();
+  let held = false;
+  f.conversationOptions.beforeEnqueue = () => {
+    expect(held).toBe(false);
+  };
+  f.conversationOptions.validateModel = () => {
+    held = true;
+  };
+  f.conversationOptions.assertQueueCommandCurrent = () => {
+    if (held) throw Error('Context held');
+  };
+  expect(() => f.c.enqueue({ id: 'stale', prompt: 'Do not queue' })).toThrow('Context held');
+  expect(f.c.queue()).toEqual([]);
+});
+
 it('runs the owning enqueue fence before direct or serialized command persistence', async () => {
   const f = await setup();
   const beforeRequests = f.requests.length;
@@ -2441,6 +2893,146 @@ it('retains framing diagnostics without making an accepted turn eligible for rep
   await expect(f.c.retryLatestFailed()).resolves.toBe('not_found');
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
 });
+
+it('refreshes unchanged tools for committed provider context only at the acknowledged replacement boundary', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'before-role', prompt: 'Discuss the feature' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  const before = f.store.read('app', f.getBinding());
+  f.c.close();
+  const options: CodexConversationOptions = {
+    ...f.conversationOptions,
+    storedBinding: f.getBinding(),
+    deferToolSurfaceReplacement: true,
+    providerContextRevision: 'a'.repeat(64),
+  };
+  const next = new CodexConversation(options);
+  cleanup.push(() => next.close());
+  options.deferToolSurfaceReplacement = false;
+  options.providerThreadLifecycle = 'attempt';
+  await next.initialize();
+  // Constructing the next authorized owner starts no model turn and cannot
+  // pretend that the old provider thread already carries the new role context.
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(2);
+  expect(f.store.read('app', f.getBinding())).toMatchObject({
+    threadId: before.threadId,
+    toolSurfaceRevision: before.toolSurfaceRevision,
+  });
+  const replacement = f.getProviderThread();
+  expect(replacement).not.toBe(before.threadId);
+  // Caller mutation cannot change a constructed owner's selected context.
+  options.providerContextRevision = 'b'.repeat(64);
+  await next.send({ id: 'after-role', prompt: 'Delegate the selected slice' });
+  const accepted = f.store.read('app', f.getBinding());
+  expect(accepted).toMatchObject({
+    threadId: replacement,
+    threadGeneration: before.threadGeneration + 1,
+  });
+  expect(accepted.toolSurfaceRevision).not.toBe(before.toolSurfaceRevision);
+  expect(f.requests.at(-1)?.params.additionalContext).toMatchObject({
+    'mitzo.tool-surface-rollover': {
+      kind: 'untrusted',
+      value: expect.stringContaining('Keep the existing workstream.'),
+    },
+  });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: replacement,
+    turn: { id: 'turn-2', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(next.queue().at(-1)?.status).toBe('completed'));
+  next.close();
+  const restarted = new CodexConversation({
+    ...options,
+    providerContextRevision: 'a'.repeat(64),
+    deferToolSurfaceReplacement: true,
+    providerThreadLifecycle: undefined,
+  });
+  cleanup.push(() => restarted.close());
+  await restarted.initialize();
+  expect(f.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(2);
+  expect(f.store.read('app', f.getBinding()).toolSurfaceRevision).toBe(
+    accepted.toolSurfaceRevision,
+  );
+});
+
+it('preserves context-refresh dispatch uncertainty across owner reconstruction without another thread or turn', async () => {
+  const f = await setup();
+  const before = f.store.read('app', f.getBinding());
+  f.c.close();
+  const options = {
+    ...f.conversationOptions,
+    storedBinding: f.getBinding(),
+    deferToolSurfaceReplacement: true,
+    providerContextRevision: 'a'.repeat(64),
+  };
+  const next = new CodexConversation(options);
+  cleanup.push(() => next.close());
+  await next.initialize();
+  const rpc = f.rpc.request.getMockImplementation()!;
+  const lost = new CodexTransportError('connection', { reason: 'stream_error' });
+  f.rpc.request.mockImplementation((method, params) => {
+    if (method === 'turn/start') throw lost;
+    return rpc(method, params);
+  });
+  await expect(
+    next.send({ id: 'refresh-uncertain', prompt: 'Use the committed role' }),
+  ).rejects.toBe(lost);
+  expect(f.store.read('app', f.getBinding())).toMatchObject({
+    threadId: before.threadId,
+    toolSurfaceRevision: before.toolSurfaceRevision,
+  });
+  expect(() => f.store.assertNoPendingThreadDispatch('app', f.getBinding())).toThrow();
+  next.close();
+  const starts = f.rpc.request.mock.calls.filter(([method]) =>
+    ['thread/start', 'turn/start'].includes(method),
+  ).length;
+  const restarted = new CodexConversation(options);
+  cleanup.push(() => restarted.close());
+  await expect(restarted.initialize()).rejects.toThrow();
+  expect(
+    f.rpc.request.mock.calls.filter(([method]) => ['thread/start', 'turn/start'].includes(method)),
+  ).toHaveLength(starts);
+  expect(
+    f.store.commands('app', f.getBinding()).filter((command) => command.id === 'refresh-uncertain'),
+  ).toHaveLength(1);
+});
+
+it.each(['', 'not-a-context-revision', 'A'.repeat(64)])(
+  'rejects malformed host context revision before constructing transport: %s',
+  async (providerContextRevision) => {
+    const f = await setup();
+    const createClient = vi.fn(f.conversationOptions.createClient);
+    expect(
+      () =>
+        new CodexConversation({ ...f.conversationOptions, createClient, providerContextRevision }),
+    ).toThrow();
+    expect(createClient).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['immediate', 'attempt'] as const)(
+  'refuses context refresh with %s thread ownership before transport construction',
+  async (mode) => {
+    const f = await setup();
+    const createClient = vi.fn(f.conversationOptions.createClient);
+    expect(
+      () =>
+        new CodexConversation({
+          ...f.conversationOptions,
+          createClient,
+          providerContextRevision: 'a'.repeat(64),
+          deferToolSurfaceReplacement: mode !== 'immediate',
+          ...(mode === 'attempt' ? { providerThreadLifecycle: 'attempt' as const } : {}),
+        }),
+    ).toThrow('Committed provider context requires deferred durable thread ownership');
+    expect(createClient).not.toHaveBeenCalled();
+  },
+);
 
 it('preserves prior conversation text once when refreshing a stale tool surface', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-stale-tools-'));
@@ -11276,6 +11868,124 @@ it('observes each native base-read claim once per fence and refreshes after the 
     f.callbacks.onRequest('item/tool/call', call, new AbortController().signal),
   ).resolves.toMatchObject({ success: true });
 });
+
+it.each(['before-claim', 'after-claim'] as const)(
+  'rejects a held source context %s without sending a correction',
+  async (phase) => {
+    const f = await setup();
+    await f.c.send({ id: 'a', prompt: 'First' });
+    let held = phase === 'before-claim';
+    f.conversationOptions.assertQueueCommandCurrent = (id) => {
+      expect(id).toBe('a');
+      if (held) throw Error('Context held');
+    };
+    f.conversationOptions.onSteeringUpdate = (_input, status) => {
+      if (status === 'steering') held = true;
+    };
+    const input = { requestId: 'context-correction', targetCommandId: 'a', text: 'Correction' };
+    expect(await f.c.steer(input, () => {})).toEqual({ status: 'rejected' });
+    expect(f.requests.filter(({ method }) => method === 'turn/steer')).toHaveLength(0);
+    const receipt = f.store.steeringReceipt('app', f.getBinding(), input);
+    expect(receipt?.status).toBe(phase === 'before-claim' ? undefined : 'rejected');
+    if (phase === 'after-claim') {
+      // Reading the retained result must remain possible while admission is held.
+      f.conversationOptions.assertQueueCommandCurrent = () => {
+        throw Error('Do not readmit');
+      };
+      expect(await f.c.steer(input, () => {})).toEqual({ status: 'rejected' });
+    }
+  },
+);
+
+it.each(['ack', 'sync-failure'] as const)(
+  'serializes correction claim and submission but releases the writer before %s',
+  async (outcome) => {
+    const f = await setup();
+    await f.c.send({ id: 'a', prompt: 'First' });
+    const eventsPath = join(dirname(f.storePath!), 'steering-events.db');
+    const events = new EventStore(eventsPath);
+    const writer = new Database(eventsPath, { timeout: 0 });
+    const rpc = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const input = { requestId: 'serialized-correction', targetCommandId: 'a', text: 'Correction' };
+    f.conversationOptions.withQueueMutation = (operation) =>
+      events.contextTransitions.withAdmissionLock(operation);
+    const claim = f.store.claimSteering.bind(f.store);
+    vi.spyOn(f.store, 'claimSteering').mockImplementation((...args) => {
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      return claim(...args);
+    });
+    f.rpc.request.mockImplementation((method, params) => {
+      if (method !== 'turn/steer') return rpc(method, params);
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      expect(f.store.steeringReceipt('app', f.getBinding(), input)?.status).toBe('claimed');
+      if (outcome === 'sync-failure') throw Error('Lost correction ACK');
+      return pending.then(() => ({ turnId: params.expectedTurnId }));
+    });
+    try {
+      const steering = f.c.steer(input, () => {});
+      await vi.waitFor(() =>
+        expect(f.rpc.request.mock.calls.some(([method]) => method === 'turn/steer')).toBe(true),
+      );
+      writer.exec('BEGIN IMMEDIATE; ROLLBACK');
+      release();
+      expect(await steering).toEqual({ status: outcome === 'ack' ? 'accepted' : 'uncertain' });
+      expect(await f.c.steer(input, () => {})).toEqual({
+        status: outcome === 'ack' ? 'accepted' : 'uncertain',
+      });
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(
+        1,
+      );
+    } finally {
+      release();
+      f.conversationOptions.withQueueMutation = undefined;
+      writer.close();
+      events.close();
+    }
+  },
+);
+
+it.each(['admission', 'submission'] as const)(
+  'preserves a correction outcome when %s diagnostics also fail',
+  async (phase) => {
+    const f = await setup();
+    await f.c.send({ id: 'a', prompt: 'First' });
+    const diagnostic = vi
+      .spyOn(runtimeDiagnostics, 'codexRuntimeErrorTelemetry')
+      .mockImplementation(() => {
+        throw Error('Diagnostic extraction failed');
+      });
+    const input = { requestId: 'diagnostic-correction', targetCommandId: 'a', text: 'Correction' };
+    const failure = Error('Original failure');
+    const rpc = f.rpc.request.getMockImplementation()!;
+    if (phase === 'admission')
+      f.conversationOptions.assertSteeringCurrent = () => {
+        throw failure;
+      };
+    else
+      f.rpc.request.mockImplementation((method, params) => {
+        if (method === 'turn/steer') throw failure;
+        return rpc(method, params);
+      });
+    try {
+      const expected = { status: phase === 'admission' ? 'rejected' : 'uncertain' };
+      expect(await f.c.steer(input, () => {})).toEqual(expected);
+      expect(diagnostic).toHaveBeenCalledWith(failure);
+      expect(await f.c.steer(input, () => {})).toEqual(expected);
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(
+        phase === 'admission' ? 0 : 1,
+      );
+      expect(f.store.steeringReceipt('app', f.getBinding(), input)?.status).toBe(
+        phase === 'admission' ? undefined : 'uncertain',
+      );
+    } finally {
+      diagnostic.mockRestore();
+    }
+  },
+);
 
 it('steers screenshot bytes only to the selected active turn with an immutable receipt', async () => {
   const f = await setup();

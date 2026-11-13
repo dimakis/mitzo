@@ -257,6 +257,41 @@ export interface QueryLoopOptions {
   onSuccessfulAccountUse?: (binding: AccountUseBinding) => void;
 }
 
+type FinalizationFailure = { cause: unknown };
+const queryFinalizations = new WeakMap<object, Array<Promise<FinalizationFailure | undefined>>>();
+
+/** Retain the complete prepared owner, including cleanup outside the translator. */
+export function retainQueryFinalization(session: object, finalization: Promise<void>): void {
+  const retained = queryFinalizations.get(session) ?? [];
+  retained.push(
+    finalization.then(
+      () => undefined,
+      (cause: unknown) => ({ cause }),
+    ),
+  );
+  queryFinalizations.set(session, retained);
+}
+/** Includes cleanup after registry removal. Missing ownership is never proof. */
+export async function drainQueryLoopFinalization(session: object): Promise<void> {
+  const retained = queryFinalizations.get(session);
+  if (!retained) throw Error('Original query finalization is unavailable');
+  const selected = [...retained];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const failures = await Promise.race([
+      Promise.all(selected),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(Error('Query finalization remains unconfirmed')), 6000);
+      }),
+    ]);
+    const failure = failures.find((value) => value !== undefined);
+    if (failure) throw new Error('Query finalization failed', { cause: failure.cause });
+    if (retained.length !== selected.length) throw Error('Query owner changed during retirement');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function runQueryLoop(
   q: AsyncIterable<Record<string, unknown>>,
   clientId: string,
@@ -273,9 +308,28 @@ export async function runQueryLoop(
   // Run the entire loop body inside the session span's context so that:
   // - All log.info() calls inject trace_id/span_id via the pino OTel mixin
   // - Child spans (turn, tool) inherit the session span as parent
-  return context.with(sessionContext, () =>
-    _runQueryLoopInner(q, clientId, registry, abortController, span, store, initialPrompt, options),
+  const owner = registry.get(clientId);
+  let failure: FinalizationFailure | undefined;
+  const run = context.with(sessionContext, () =>
+    _runQueryLoopInner(q, clientId, registry, abortController, span, store, initialPrompt, {
+      ...options,
+      onTerminalOutcome(error) {
+        if (error) failure = { cause: error };
+        options?.onTerminalOutcome?.(error);
+      },
+    }),
   );
+  if (owner) {
+    const retained = queryFinalizations.get(owner) ?? [];
+    retained.push(
+      run.then(
+        () => failure,
+        (cause: unknown) => ({ cause }),
+      ),
+    );
+    queryFinalizations.set(owner, retained);
+  }
+  return run;
 }
 
 async function _runQueryLoopInner(

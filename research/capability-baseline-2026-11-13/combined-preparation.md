@@ -211,3 +211,48 @@ session grant. It retains the exact `Aborted` denial assertion. All 96 permissio
 and guarded TaskExecution checks pass, including these zero-effect assertions;
 the log is `.verification/pre-abort-zero-effects.log`. This final increment adds
 test evidence and its source pin, with no further production behavior change.
+
+## Accepted Telos composition after an actual merge conflict
+
+The coordinated publication fast-forwarded the existing PR branch from
+`183951ef` to `2a2024e0`, preserving the `267b0290` repair batch and its additional
+pre-aborted zero-effect assertions. Ordinary current-head CI did not start:
+GitHub reports the PR as conflicting with accepted main
+`9deeb2f1f43afc59e982bf49f20ffebca3e88c8e` (merged PR #1330). The PR's cached
+`baseRefOid` still reported `778c55bc`; both native remote inspection and GraphQL
+`baseRef.target.oid` identified the actual advanced base. No workflow was manually
+dispatched or rerun to work around this conflict.
+
+Accepted main was fetched once to diagnose and resolve that actual blocker. The
+local merge preserves both histories. Its two textual conflicts were a shared
+import in `server/chat.ts` and reviewed source fingerprints. The import retains
+both the restricted-skill admission refusal and accepted query-finalization owner.
+The source inventory retains the combined inputs with runtime revision
+`v1.0.1142-claude-telos-composition`. Accepted Telos context-transition admission,
+operator/custody and session-lifecycle behavior remain owned by their existing
+modules; the immutable skill context and original SDK callback fences remain in
+place. No public restricted-skill enablement or new execution authority is added.
+
+All 209 focused tests across 11 suites pass, covering accepted context-transition
+storage/admission, immutable command skills, original SDK profile retirement,
+guarded TaskExecution, SDK hooks, query finalization/shared notifications, peer
+identity and session launch. Another 56 tests across three suites pass for
+Session Access controls, effective capabilities and runtime readiness; their log
+is `.verification/telos-composition-projection.log`.
+Protocol/harness/client compilation and semantic
+TypeScript checking of the seven actual merged application sources pass within
+the 1 GiB heap. The semantic checker initially printed a hardcoded three-source
+label; the invocation and successful diagnostics cover all seven supplied roots,
+and the local script's label has been corrected. Scoped ESLint, Prettier,
+whitespace and source-inventory checks also pass. Logs are
+`.verification/telos-accepted-composition.log`,
+`.verification/telos-composition-package-types.log`,
+`.verification/telos-composition-semantic.log` and
+`.verification/telos-composition-lint.log`.
+
+This local merge requires one coordinated follow-up publication and current-head
+validation. The published branch remains `2a2024e0` while local evidence is
+assembled. Trusted review job `7346` and its eventual findings must be retained;
+no replacement review has been requested. Current combined CI, targeted review
+of the accepted composition and final exact-head trusted approval remain gates.
+No merge to main, deployment or live model call is authorized or performed.

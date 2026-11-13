@@ -47,6 +47,7 @@ import { SessionLifecycleStore } from './session-lifecycle-store.js';
 import { SessionLearningStore } from './session-learning-store.js';
 import type { SessionLearningMode } from './session-learning.js';
 import { SessionRemovalStore } from './session-removal-store.js';
+import { OrdinaryContextTransitionStore } from './ordinary-context-transition-store.js';
 import {
   ConversationReplayStore,
   type ConversationTextEvent,
@@ -483,6 +484,93 @@ export class OrdinaryExecutionEvidenceUnavailable extends Error {
 export class EventStore {
   readonly removals: SessionRemovalStore;
   readonly deployment: DeploymentStore;
+  readonly contextTransitions: OrdinaryContextTransitionStore;
+  /** Negative proof from the command/admission owner, under its writer fence.
+   * Native runtime/effect and workspace custody require separate owner proofs. */
+  assertOrdinaryContextQuiescent(sessionId: string): void {
+    this.assertConversationIdentity(sessionId);
+    if (
+      this.db!.prepare(
+        `SELECT 1 FROM send_commands WHERE session_id=? AND
+        (preparing<>0 OR ordinary_admission IS NULL OR
+         json_extract(ordinary_admission,'$.state') IS NOT 'consumed') LIMIT 1`,
+      ).get(sessionId) ||
+      this.db!.prepare(
+        "SELECT 1 FROM provider_attempts WHERE session_id=? AND phase<>'TERMINAL' LIMIT 1",
+      ).get(sessionId) ||
+      this.db!.prepare(
+        "SELECT 1 FROM sessions WHERE session_id=? AND execution_phase IS NOT NULL AND execution_phase<>'TERMINAL'",
+      ).get(sessionId)
+    )
+      throw Error('Ordinary command admission remains active or uncertain');
+  }
+  private readonly ordinaryContextAdmission = new AsyncLocalStorage<{
+    sessionId: string;
+    epoch: number;
+  }>();
+
+  /** Host-only scope captured before asynchronous preparation, never a client
+   * field. Every durable mutation rechecks it under its own writer transaction. */
+  withOrdinaryContextAdmission<T>(sessionId: string, epoch: number, operation: () => T): T {
+    const previous = this.ordinaryContextAdmission.getStore();
+    if (previous?.sessionId === sessionId && previous.epoch !== epoch)
+      throw Error('Conversation context preparation is stale');
+    this.contextTransitions.assertAdmission(sessionId, epoch);
+    return this.ordinaryContextAdmission.run({ sessionId, epoch }, operation);
+  }
+  private preparedContextEpoch(sessionId: string): number {
+    const selected = this.ordinaryContextAdmission.getStore();
+    return selected?.sessionId === sessionId ? selected.epoch : 0;
+  }
+  /** Current command identity comes from retained payload bytes, not caller fields.
+   * Native claims must compose this check with their queue mutation synchronously. */
+  assertOrdinaryContextCommand(sessionId: string, commandId: string): void {
+    const command = this.getSendCommand(commandId);
+    if (!command || command.sessionId !== sessionId)
+      throw Error('Original command context identity required');
+    this.contextTransitions.assertCommand({
+      sessionId,
+      commandId,
+      requestFingerprint: createHash('sha256')
+        .update(JSON.stringify(command.payload))
+        .digest('hex'),
+    });
+  }
+  /** A derived command inherits its actual consumed source, never a newer
+   * ambient scope. The native primary command remains separate workspace lineage.
+   * This synchronous host callback must recheck after mutable owner callbacks. */
+  withOrdinaryDerivedCommandContext<T>(
+    sessionId: string,
+    sourceCommandId: string,
+    operation: (assertSourceCurrent: () => void) => T,
+  ): T {
+    return this.contextTransitions.withAdmissionLock(() => {
+      this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+      const source = this.getSendCommand(sourceCommandId)!;
+      if (source.error) throw Error('Original source admission failed');
+      const payloadHash = createHash('sha256').update(JSON.stringify(source.payload)).digest('hex');
+      const sourceEpoch = this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0;
+      const receipt = this.getOrdinaryCommandExecutionAdmission(sourceCommandId);
+      if (receipt?.state !== 'consumed') throw Error('Original source admission required');
+      const assertSourceCurrent = () => {
+        this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+        const current = this.getSendCommand(sourceCommandId)!;
+        if (
+          current.error ||
+          (this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0) !== sourceEpoch ||
+          createHash('sha256').update(JSON.stringify(current.payload)).digest('hex') !==
+            payloadHash ||
+          !isDeepStrictEqual(this.getOrdinaryCommandExecutionAdmission(sourceCommandId), receipt)
+        )
+          throw Error('Original source context changed');
+      };
+      return this.withOrdinaryContextAdmission(sessionId, sourceEpoch, () => {
+        const result = operation(assertSourceCurrent);
+        assertSourceCurrent();
+        return result;
+      });
+    });
+  }
   private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
     scope: OrdinaryCommandWireScope;
     assertCurrentSync: () => void;
@@ -586,6 +674,14 @@ export class EventStore {
       this.deployment.assertAdmission(sessionId, clientMsgId);
       if (this.userSteering.hasRequest(clientMsgId))
         throw Error('Identity belongs to a user correction');
+      this.contextTransitions.retainCommand(
+        {
+          sessionId,
+          commandId: clientMsgId,
+          requestFingerprint: createHash('sha256').update(JSON.stringify(payload)).digest('hex'),
+        },
+        this.preparedContextEpoch(sessionId),
+      );
       this.db!.prepare(
         'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
       ).run(clientMsgId, sessionId, JSON.stringify(payload));
@@ -1161,6 +1257,8 @@ export class EventStore {
         )
           throw Error('Prepared repository continuation identity changed');
         if (previous.state === 'reserved') {
+          this.assertOrdinaryContextCommand(sessionId, childCommandId);
+          this.assertOrdinaryContextCommand(sessionId, transition.source.commandId);
           this.db!.prepare(
             'UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?',
           ).run(JSON.stringify(admission), childCommandId);
@@ -1170,6 +1268,7 @@ export class EventStore {
       }
       if (this.hasUncertainOrdinaryCommand(sessionId))
         throw Error('Prepared repository continuation requires reconciliation');
+      this.assertOrdinaryContextCommand(sessionId, transition.source.commandId);
       this.claimClientCommand(childCommandId, requestFingerprint);
       this.insertSendCommand(childCommandId, sessionId, payload);
       this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
@@ -2644,6 +2743,7 @@ export class EventStore {
       const admission = this.getOrdinaryCommandAdmission(clientMsgId);
       if (!admission) throw new Error('Ordinary command admission required');
       if (admission.state !== 'reserved' || this.getSendCommand(clientMsgId)?.error) return false;
+      this.assertOrdinaryContextCommand(command!.sessionId!, clientMsgId);
       return (
         this.db!.prepare(
           "UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=? AND json_extract(ordinary_admission,'$.state')='reserved'",
@@ -2771,6 +2871,7 @@ export class EventStore {
     const ids = [...new Set(sessionIds)];
     for (const id of ids) {
       this.assertConversationIdentity(id);
+      this.contextTransitions.assertAdmission(id, this.preparedContextEpoch(id));
       if (!this.deployment.canDispatch(id)) throw Error('Deployment holds ordinary startup');
       if (this.getSession(id)?.symposiumConfig)
         throw new Error('Use Symposium directed prompts for this session');
@@ -2801,6 +2902,7 @@ export class EventStore {
       db.exec(SCHEMA);
       this.removals = new SessionRemovalStore(db);
       this.deployment = new DeploymentStore(db);
+      this.contextTransitions = new OrdinaryContextTransitionStore(db);
       db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
       operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL UNIQUE,
       receipt TEXT NOT NULL, metadata TEXT NOT NULL);`);
@@ -3064,8 +3166,14 @@ export class EventStore {
         database: () => this.db,
         statements: this.stmts,
         assertConversationIdentity: (id) => this.assertConversationIdentity(id),
-        assertExecutionAdmission: (id) => {
+        assertExecutionAdmission: (id, commandId) => {
           this.removals.assertAdmissible(id);
+          this.contextTransitions.assertAdmission(id, this.preparedContextEpoch(id));
+          if (commandId && this.getSendCommand(commandId))
+            this.assertOrdinaryContextCommand(id, commandId);
+          else
+            // Unstamped legacy execution cannot borrow a newer preparation scope.
+            this.contextTransitions.assertAdmission(id, 0);
           if (!this.deployment.canDispatch(id))
             throw Error('Server deployment has paused execution admission');
         },

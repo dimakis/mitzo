@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { TelosSourceCapture } from './telos-source-capture.js';
-import type { TelosWorkStore, TelosWorkActor } from './telos-work-store.js';
-import type { TelosArtifactStore } from './telos-artifact-store.js';
+import { TelosWorkError, type TelosWorkStore, type TelosWorkActor } from './telos-work-store.js';
+import { TelosArtifactNotFoundError, type TelosArtifactStore } from './telos-artifact-store.js';
 import {
   TelosWorkRoleContextSelectionSchema,
   renderTelosWorkRoleContext,
@@ -80,12 +80,14 @@ export function reviewTelosWorkRoleContext(
   };
   for (const ref of [...artifacts, ...sources.flatMap((source) => source.artifacts)]) {
     if (!input.artifacts || !input.artifacts.userUploadAllowed(itemId))
-      throw new Error('Selected retained artifact unavailable');
+      throw new TelosWorkError('conflict', 'Selected retained artifact unavailable');
     let artifact;
     try {
       artifact = input.artifacts.read(ref.artifactId, ref.revision);
-    } catch {
-      throw new Error('Selected retained artifact unavailable');
+    } catch (error) {
+      if (error instanceof TelosArtifactNotFoundError)
+        throw new TelosWorkError('conflict', 'Selected retained artifact unavailable');
+      throw new Error('Selected retained artifact unavailable', { cause: error });
     }
     if (
       (artifact.itemId !== itemId && !hasReviewedCustody(ref)) ||
@@ -94,7 +96,7 @@ export function reviewTelosWorkRoleContext(
       artifact.sha256 !== ref.sha256 ||
       createHash('sha256').update(artifact.bytes).digest('hex') !== ref.sha256
     )
-      throw new Error('Selected retained artifact unavailable');
+      throw new TelosWorkError('conflict', 'Selected retained artifact unavailable');
   }
   let leadConversationId: string | undefined;
   if (role === 'worker') {

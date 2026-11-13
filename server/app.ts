@@ -3,6 +3,7 @@ import { agentMessageRuntime } from './agent-message-runtime.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
+import { observeTelosSessionCoordination } from './telos-session-coordination.js';
 import { createQueuedMessageReceiptHandler } from './queued-message-receipt.js';
 import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { installChatCommandJson } from './chat-command-json.js';
@@ -48,6 +49,7 @@ import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import {
   readSessionModelSelection,
   sessionListMetadata,
+  sessionConversationNavigation,
   sessionModelIdentity,
 } from './session-list-metadata.js';
 import { readCompactionHistory } from './compaction-history.js';
@@ -160,11 +162,14 @@ import { createTelosItemRouter } from './telos-item-routes.js';
 import { createTelosWorkRouter, type TelosWorkRoleRequest } from './telos-work-routes.js';
 import { createTelosWorkRoleHost } from './telos-work-role-host.js';
 import { createTelosWorkDelegationHost } from './telos-work-delegation-host.js';
+import { startAllocatedTelosWorker } from './telos-worker-start-runtime.js';
 import type { TelosWorkDelegationScope } from './telos-work-delegation.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { resolveTelosWorkRolePresentation } from './telos-work-role-presentation.js';
 import { captureTaskToolExecution, type TaskToolExecution } from './task-worker-authority.js';
 import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
+import { TelosItemStore } from './telos-item-store.js';
+import { sessionRuntimeIdentity } from './telos-work-observation.js';
 import { TelosWorkAdvisorDraft } from './telos-work-advisor-draft.js';
 import { TelosArtifactStore } from './telos-artifact-store.js';
 import { resolveOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
@@ -263,6 +268,7 @@ import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { initializeSessionLaunches, closeSessionLaunches } from './session-launch-controller.js';
 import { createTelosSessionLaunchHost } from './telos-session-launch-host.js';
+import { createTelosAdoptionRuntime } from './telos-adoption-runtime.js';
 import { createTelosSessionProposalRouter } from './telos-session-launch-adapters.js';
 import {
   qualifySessionLaunchConfig,
@@ -1320,6 +1326,7 @@ const sessionLaunchController = initializeSessionLaunches(
   (store) =>
     createTelosSessionLaunchHost({
       store,
+      workspaces: getOrdinaryWorkspaces,
       events: eventStore,
       dbPath: () => telosDatabasePath(),
       ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
@@ -2443,6 +2450,13 @@ async function resolveTelosOrdinaryWorkspaceSelection(
   ordinaryWorkspaceTaskRoot(true);
   return selected;
 }
+// Host lifetime: separate authenticated requests must recover the same exact
+// retired object after registry removal. No request authority is stored here.
+const telosAdoptionRuntime = createTelosAdoptionRuntime({
+  events: eventStore,
+  registry,
+  native: getCodexConversationStore,
+});
 function telosRoleHost(operatorConnectionId?: string, ordinary = false) {
   return createTelosWorkRoleHost({
     dbPath: telosDatabasePath,
@@ -2451,6 +2465,7 @@ function telosRoleHost(operatorConnectionId?: string, ordinary = false) {
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
     workspaces: () => (ordinary ? getOrdinaryWorkspaces() : getRepositoryWorkspaces()),
     ordinary: {
+      adoption: telosAdoptionRuntime,
       resolveSelection: (scope, signal) =>
         resolveTelosOrdinaryWorkspaceSelection(scope.input.settings, signal, operatorConnectionId),
       authorizeSettings: async (scope, signal) => {
@@ -2497,7 +2512,7 @@ async function delegateTelosSlice(request: TelosWorkRoleRequest, explicitOrdinar
     explicitOrdinary ||
     (request.actor.kind === 'conversation' &&
       eventStore.getSession(request.actor.id)?.ordinaryWorkspaceId != null);
-  const run = (connectionId?: string) => {
+  const run = async (connectionId?: string) => {
     const leadId = request.actor.kind === 'conversation' ? request.actor.id : undefined;
     const resolve = async (scope: TelosWorkDelegationScope, signal: AbortSignal) => {
       const selected = await resolveTelosOrdinaryPreparation(
@@ -2552,7 +2567,34 @@ async function delegateTelosSlice(request: TelosWorkRoleRequest, explicitOrdinar
         return orchestrator.delegateSlice(owner, actor, input, signal);
       },
     });
-    return explicitOrdinary ? host.delegateOrdinary(request) : host.delegate(request);
+    const allocation = await (explicitOrdinary
+      ? host.delegateOrdinary(request)
+      : host.delegate(request));
+    if ((request.raw as { execute?: unknown }).execute !== true) return allocation;
+    return startAllocatedTelosWorker(request, allocation, {
+      dbPath: telosDatabasePath,
+      tasks: taskStore,
+      qualify: async (settings, workerId, authority) => {
+        const selected =
+          'workspace' in settings
+            ? await resolveTelosOrdinaryWorkspaceSelection(
+                settings,
+                authority.signal,
+                authority.operatorConnectionId,
+                workerId,
+              )
+            : await resolveTelosOrdinaryPreparation(
+                settings,
+                authority.signal,
+                authority.operatorConnectionId,
+                workerId,
+              );
+        const { ordinaryRepositoryRuntimeInventory } =
+          await import('./ordinary-local-codex-entry.js');
+        const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
+        return { ...selected, capabilityRevision: inventory.result.capabilityRevision };
+      },
+    });
   };
   return request.actor.kind === 'operator'
     ? withAgentLibraryRecoveryAuthorization(request.authorization, run)
@@ -3504,30 +3546,81 @@ app.get('/api/sessions', async (req, res) => {
 
   /** Annotate raw session list with live-status and token metadata. */
   function annotate(sessions: Array<{ id: string; [k: string]: unknown }>) {
-    const activeMap = new Map<string, { attached: boolean }>();
-    for (const s of registry.getActiveSessions()) {
-      if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
-    }
-    return sessions.map((s) => {
-      const live = activeMap.get(s.id);
-      const meta = eventStore.getSession(s.id);
-      return {
-        ...s,
-        isActive: !!live,
-        isAttached: live?.attached ?? false,
-        totalTokens: meta
-          ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
-          : undefined,
-        ...sessionListMetadata(
-          meta ?? {},
-          eventStore.getLatestEvent(s.id, 'token_update'),
-          (id, fallback) => accountAliases.label(id, fallback),
-          readSessionModelSelection(eventStore, s.id),
-        ),
-        numTurns: meta?.numTurns,
-        closedBy: meta?.closedBy ?? undefined,
+    let work: TelosWorkStore | undefined;
+    let items: TelosItemStore | undefined;
+    // Request-local presentation cache only; never reused for command authority.
+    const snapshots = new Map<
+      string,
+      { work: ReturnType<TelosWorkStore['read']>; item: ReturnType<TelosItemStore['read']> }
+    >();
+    const readWork = (id: string) => {
+      const operatorId = (res.locals.authSession as AuthSession | undefined)?.id;
+      if (!operatorId) throw Error('Authenticated conversation navigation required');
+      const cached = snapshots.get(id);
+      if (cached) return cached;
+      work ??= new TelosWorkStore(
+        telosDatabasePath(),
+        {
+          ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+        },
+        true,
+      );
+      items ??= new TelosItemStore(telosDatabasePath(), { readOnly: true });
+      const snapshot = {
+        work: work.read(id, { kind: 'operator', id: operatorId }),
+        item: items.read(id),
       };
-    });
+      snapshots.set(id, snapshot);
+      return snapshot;
+    };
+    try {
+      const activeMap = new Map<string, { attached: boolean }>();
+      for (const s of registry.getActiveSessions()) {
+        if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
+      }
+      return sessions.map((s) => {
+        const live = activeMap.get(s.id);
+        const meta = eventStore.getSession(s.id);
+        return {
+          ...s,
+          isActive: !!live,
+          isAttached: live?.attached ?? false,
+          totalTokens: meta
+            ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
+            : undefined,
+          ...sessionListMetadata(
+            meta ?? {},
+            eventStore.getLatestEvent(s.id, 'token_update'),
+            (id, fallback) => accountAliases.label(id, fallback),
+            readSessionModelSelection(eventStore, s.id),
+          ),
+          numTurns: meta?.numTurns,
+          ...sessionRuntimeIdentity(eventStore, s.id),
+          closedBy: meta?.closedBy ?? undefined,
+          ...sessionConversationNavigation(
+            eventStore,
+            s.id,
+            () =>
+              sessionLaunchController.launches.store
+                .forSession(s.id, 'user')
+                .find((record) => record.childSessionId === s.id)?.sourceSessionId,
+            readWork,
+          ),
+        };
+      });
+    } finally {
+      for (const owner of [items, work]) {
+        try {
+          owner?.close();
+        } catch (cause) {
+          log.warn('Conversation navigation connection cleanup failed', {
+            stage: 'conversation_tree_cleanup',
+            code: 'conversation_tree_cleanup_failed',
+            ...sessionMetadataDiagnostic(cause),
+          });
+        }
+      }
+    }
   }
 
   try {
@@ -4092,6 +4185,16 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
       : {}),
     ...(repositoryContext ? { repositoryContext } : {}),
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
+    ...(telosWorkRoleContext
+      ? {
+          telosSessionCoordination: observeTelosSessionCoordination(
+            eventStore,
+            meta.sessionId,
+            undefined,
+            (id) => !!registry.findBySessionId(id),
+          ),
+        }
+      : {}),
     ...(telosWorkRolePresentation ? { telosWorkRolePresentation } : {}),
     ...runtimeMetadata,
     ...(preparedStatus.prepared

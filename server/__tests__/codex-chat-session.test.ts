@@ -624,6 +624,74 @@ it('reattaches the provider runtime without admitting or replaying user intent',
   expect(mocks.send).not.toHaveBeenCalled();
   chat.close();
 });
+it('checks retained first-command source authority immediately before dispatch and releases it after acceptance', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  let current = true;
+  const guard = vi.fn(() => {
+    if (!current) throw Error('Source startup tool revoked');
+  });
+  const query = await openCodexChat({
+    ...options(new AbortController()),
+    messageId: 'command',
+    firstCommandAuthority: { commandId: 'command', assertCurrent: guard },
+  });
+  const controls = mocks.conversationOptions as unknown as {
+    onProviderDispatch(id: string): void;
+    onProviderAccepted(id: string, thread: string, turn: string): void;
+  };
+  current = false;
+  expect(() => controls.onProviderDispatch('command')).toThrow('Source startup tool revoked');
+  current = true;
+  controls.onProviderDispatch('command');
+  controls.onProviderAccepted('command', 'thread', 'turn');
+  const checked = guard.mock.calls.length;
+  current = false;
+  controls.onProviderDispatch('command');
+  controls.onProviderDispatch('later-worker-command');
+  expect(guard).toHaveBeenCalledTimes(checked);
+  query.close();
+});
+
+it('rechecks the pending source after intervening dispatch callbacks at the final queue fence', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const f = ownedLocalOptions();
+  // This controller fixture replaces send/enqueue; queue-fence ownership stays real.
+  vi.spyOn(f.ownedLocal, 'assertBeforeDispatch').mockImplementation(() => {});
+  let current = true;
+  try {
+    const query = await openCodexChat({
+      ...f.opts,
+      firstCommandAuthority: {
+        commandId: 'owned-command',
+        assertCurrent() {
+          if (!current) throw Error('Source startup tool revoked');
+        },
+      },
+    });
+    const controls = mocks.conversationOptions as unknown as {
+      onProviderDispatch(id: string): void;
+      assertQueueCommandCurrent(id: string): void;
+      onProviderAccepted(id: string, thread: string, turn: string): void;
+    };
+    controls.onProviderDispatch('owned-command');
+    // A policy/admission callback can revoke the source after dispatch markers.
+    // CodexConversation calls this queue fence again immediately before turn/start.
+    current = false;
+    expect(() => controls.assertQueueCommandCurrent('owned-command')).toThrow(
+      'Source startup tool revoked',
+    );
+    current = true;
+    controls.assertQueueCommandCurrent('owned-command');
+    controls.onProviderAccepted('owned-command', 'thread', 'turn');
+    current = false;
+    controls.assertQueueCommandCurrent('owned-command');
+    query.close();
+  } finally {
+    f.eventStore.close();
+  }
+});
 
 it.each([false, true])(
   'forwards ordinary provider receipts alongside retained context (%s) without treating close as termination',
@@ -736,6 +804,43 @@ it('cancels reconnect polling when the request is aborted', async () => {
   abort.abort();
   await expect(waiting).resolves.toBeUndefined();
   expect(registry.findBySessionId).toHaveBeenCalledTimes(1);
+});
+
+it('retains finalizer proof after runtime removal and delivers cleanup failure on replay', async () => {
+  const { drainCodexChatFinalizers, getCodexRuntime } = await import('../codex-chat-session.js');
+  vi.clearAllMocks();
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  mocks.connect.mockResolvedValue({ definitions: [], close: () => pending });
+  const selected = options(new AbortController());
+  const chat = await openCodexChat(selected);
+  await expect(drainCodexChatFinalizers(selected.session)).rejects.toThrow(/closed/i);
+  chat.close();
+  expect(getCodexRuntime(selected.session)).toBeUndefined();
+  let settled = false;
+  const drain = drainCodexChatFinalizers(selected.session).then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  finish();
+  await drain;
+  await drainCodexChatFinalizers(selected.session);
+
+  const cause = new Error('private MCP cleanup detail');
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: async () => {
+      throw cause;
+    },
+  });
+  const second = options(new AbortController());
+  const secondChat = await openCodexChat(second);
+  secondChat.close();
+  await expect(drainCodexChatFinalizers(second.session)).rejects.toMatchObject({ cause });
+  await expect(drainCodexChatFinalizers(second.session)).rejects.toMatchObject({ cause });
 });
 
 it('cleans each resource once across explicit close, runtime close and abort', async () => {
@@ -5044,6 +5149,73 @@ it.each(['worker', 'advisor'] as const)(
   },
 );
 
+it('supplements retained native startup context with the current canonical feature assignment', async () => {
+  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+  const { TelosWorkStore } = await import('../telos-work-store.js');
+  const { TelosItemStore } = await import('../telos-item-store.js');
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const canonical = createTelosCanonicalData();
+  const work = new TelosWorkStore(canonical.dbPath, { ordinaryConversation: () => true });
+  const items = new TelosItemStore(canonical.dbPath);
+  const f = ownedLocalOptions('/tmp');
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    items.editGuarded(
+      {
+        itemId: 'studio',
+        requestId: 'classify-startup',
+        expectedRevision: items.read('studio').revision,
+        workLevel: 'feature',
+        note: 'Canonical feature',
+      },
+      'planning',
+      () => {},
+    );
+    work.execute(
+      {
+        operation: 'setup_role',
+        requestId: 'lead-startup',
+        itemId: 'studio',
+        role: 'lead',
+        conversationId: f.opts.conversationId,
+        expectedAssignmentRevision: 0,
+        expectedRevision: work.read('studio', canonical.actor).revision,
+      },
+      canonical.actor,
+    );
+    const text = 'Original reviewed outcome context';
+    retainTelosWorkRoleContext(f.eventStore, f.opts.conversationId, f.opts.binding, {
+      version: 1,
+      itemId: 'studio',
+      itemKind: 'coordinator',
+      role: 'lead',
+      brief: {
+        revision: 'original',
+        text,
+        sha256: createHash('sha256').update(text).digest('hex'),
+      },
+      parentCriteria: [],
+      overallGoal: { itemId: 'studio', revision: 'original', text },
+      sources: [],
+      artifacts: [],
+    });
+    vi.stubEnv('TELOS_DB_PATH', canonical.dbPath);
+    chat = await openCodexChat(f.opts);
+    const prompt = mocks.conversationOptions!.systemPrompt!;
+    expect(prompt).toContain('## Current Telos coordination');
+    expect(prompt).toContain('"workLevel":"feature"');
+    expect(prompt).toContain('"assignment":"current"');
+    expect(prompt).toContain('Missing evidence never proves work has not started');
+  } finally {
+    chat?.close();
+    f.eventStore.close();
+    work.close();
+    items.close();
+    canonical.close();
+  }
+});
+
 it('exposes slice allocation to a retained OpenShell lead without enabling selected profile tool routes', async () => {
   vi.clearAllMocks();
   vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
@@ -5084,6 +5256,7 @@ it('exposes slice allocation to a retained OpenShell lead without enabling selec
     expect.objectContaining({ name: 'TelosStartSlice' }),
   );
   expect(mocks.conversationOptions?.systemPrompt).toContain('propose Telos');
+  expect(mocks.conversationOptions?.systemPrompt).toContain('coordination_unavailable');
   expect(mocks.conversationOptions?.systemPrompt?.split('## Telos work planning')).toHaveLength(2);
   chat.close();
   store.close();

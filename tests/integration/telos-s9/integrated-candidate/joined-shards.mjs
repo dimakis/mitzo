@@ -29,6 +29,12 @@ const originalCases = [
   {
     name: 's6-app-owners',
     config: 'vitest.s6-app-owners.config.ts',
+    assertions: {
+      'server/__tests__/telos-ordinary-canonical-journey.test.ts': [
+        'CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion (manual start)',
+        'CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion (lead start)',
+      ],
+    },
     files: [
       'server/__tests__/telos-ordinary-canonical-journey.test.ts',
       'server/__tests__/agent-communication-nongit-app.test.ts',
@@ -66,6 +72,7 @@ export const joinedCases = originalCases.map((selected) => ({
   name: selected.name,
   configPath: selected.configPath ?? suite + '/' + selected.config,
   files: selected.files ?? [suite + '/' + selected.file],
+  assertions: selected.assertions ?? {},
 }));
 export const joinedShards = Object.freeze({
   '1/3': ['non-git', 'repository', 'native-complete-repository', 'selected-model-readiness'],
@@ -99,19 +106,29 @@ export function parseJoinedShardArgs(args) {
   return args[0]?.slice('--shard='.length);
 }
 export function requireJoinedReport(observed, selected) {
+  const expectedTests = selected.files.reduce(
+    (total, path) => total + (selected.assertions?.[path]?.length ?? 1),
+    0,
+  );
   const completeFiles = selected.files.every((path) => {
     const matches = observed.testResults.filter((r) => r.name.endsWith('/' + path));
+    const expectedNames = selected.assertions?.[path];
     return (
       matches.length === 1 &&
       matches[0].status === 'passed' &&
-      matches[0].assertionResults.length === 1 &&
-      matches[0].assertionResults[0].status === 'passed'
+      matches[0].assertionResults.length === (expectedNames?.length ?? 1) &&
+      matches[0].assertionResults.every((test) => test.status === 'passed') &&
+      (!expectedNames ||
+        expectedNames.every(
+          (name) =>
+            matches[0].assertionResults.filter((test) => test.fullName === name).length === 1,
+        ))
     );
   });
   if (
     !observed.success ||
-    observed.numTotalTests !== selected.files.length ||
-    observed.numPassedTests !== selected.files.length ||
+    observed.numTotalTests !== expectedTests ||
+    observed.numPassedTests !== expectedTests ||
     observed.numFailedTests !== 0 ||
     observed.numPendingTests !== 0 ||
     observed.testResults.length !== selected.files.length ||

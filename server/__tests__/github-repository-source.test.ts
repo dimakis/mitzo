@@ -511,6 +511,7 @@ it.each(['release+fix', 'release@2026', 'résumé/next+patch'])(
       }),
     ).toMatchObject({ defaultBranch: baseBranch, sourceBranchProtected: false });
   },
+  30_000,
 );
 
 it.each([

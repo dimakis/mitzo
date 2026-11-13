@@ -44,6 +44,16 @@ const initial: SessionLaunchRecord = {
   createdAt: 1793959200000,
   updatedAt: 1793959200000,
 };
+if (new URLSearchParams(window.location.search).has('adopt') && initial.telos) {
+  initial.telos.adoption = {
+    conversationId: 'child',
+    title: 'Retained design discussion',
+    workspaceId: 'c27561fa-0971-4c47-a87c-c56367e7a9bb',
+    expectedEpoch: 0,
+    custodyHash: 'a'.repeat(64),
+  };
+}
+if (new URLSearchParams(window.location.search).has('release')) initial.state = 'uncertain';
 function Fixture() {
   const [record, setRecord] = useState(initial);
   const observe = async () => {
