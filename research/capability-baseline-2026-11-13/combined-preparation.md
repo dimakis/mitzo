@@ -128,3 +128,39 @@ unfinished. Task grants do not authorize native tools or broader actions.
 
 Routine Telos mutations remain deferred. This is retained repository evidence,
 not a saved Telos status, formal reassignment or acceptance receipt.
+
+## First published CI diagnosis and local repair
+
+PR #1342 was subsequently fast-forwarded once to `84f14925`, after independent
+targeted re-review cleared the original retirement probe. The initial bounded
+check did not yet show CI; run `43510395151` later completed with failure on that
+exact head. No green CI claim was made. Logs from preflight job `132178813289`
+and frontend job `132178913591` identify four owned causes:
+
+- The frozen command wrapper callback parameter needed an explicit `string` type.
+- The task fixture collected general transport records in a narrower event array.
+  It now retains the actual record type and validates the permission ID before use.
+- The peer fixture returned a tool envelope instead of the peer owner's actual
+  `{ chats, nextOffset }` result. It now uses that result contract.
+- The peer input fixture used `peer-input` where the SDK requires a UUID. The
+  same valid UUID now identifies dispatch, recognition and assertion.
+
+The production annotation also caused frontend compilation to fail. The joined
+coverage job `132180381973` reports skipped prerequisite shards after preflight
+failed; it does not establish a separate runtime failure. The missing iOS archive
+is downstream of the frontend compile failure.
+
+All 48 focused command, task, profile-retirement and SDK-query tests pass after
+the repair. A focused TypeScript program checks the three real changed source
+files semantically using the existing strict project options and references,
+within the 1 GiB heap; it passes. Full-project checking remains a CI gate. Retained
+logs are `.verification/ci-43510395151-preflight.log`,
+`.verification/ci-43510395151-frontend.log`,
+`.verification/ci-43510395151-joined.log`, `.verification/ci-type-fix-tests.log`
+and `.verification/ci-type-fix-semantic.log`. The local focused checker is
+`.verification/typecheck-owned-delta.mjs`.
+
+Source revision is `v1.0.1138-claude-parity-typecheck`. The fixes are batched
+locally for one coordinated follow-up validation decision; no rerun, new push,
+main refresh, guard weakening, workflow change, merge or deployment is included
+in this diagnosis.

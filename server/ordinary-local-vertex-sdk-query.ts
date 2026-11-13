@@ -72,7 +72,10 @@ export function createSdkCallbackState(): SdkCallbackState {
       const { commandId, checkTool } = next;
       if (!/^\S{1,200}$/.test(commandId) || typeof checkTool !== 'function')
         throw Error('Original SDK command tool authority unavailable');
-      authority = Object.freeze({ commandId, checkTool: (name) => checkTool.call(next, name) });
+      authority = Object.freeze({
+        commandId,
+        checkTool: (name: string) => checkTool.call(next, name),
+      });
     },
     commandId: () => authority?.commandId,
     checkTool(name) {

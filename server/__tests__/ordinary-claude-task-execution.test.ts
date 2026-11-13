@@ -60,7 +60,7 @@ async function fixture(
   const storeRead = vi.spyOn(tasks, 'getTaskExecutionStore').mockReturnValue(store);
   const registry = new SessionRegistry();
   cleanups.push(() => registry.dispose());
-  const sent: Array<{ type: string; permId?: string }> = [];
+  const sent: Array<Record<string, unknown>> = [];
   const controller = new AbortController();
   cleanups.push(() => controller.abort());
   const sessionId = 'ordinary-claude-task';
@@ -115,7 +115,7 @@ async function fixture(
               await authority.effectGate?.();
               assertToolCurrent?.();
               agentEffects();
-              return { content: JSON.stringify({ chats: [] }), isError: false };
+              return { chats: [], nextOffset: null };
             },
           }),
         }
@@ -232,7 +232,8 @@ async function authorize(f: Fixture, decision: 'once' | 'deny' = 'once') {
   );
   await f.center.flush();
   const request = f.sent.filter((event) => event.type === 'permission_request').at(-1)!;
-  resolvePending(request.permId!, decision, undefined, f.sessionId);
+  if (typeof request.permId !== 'string') throw Error('Expected a pending permission identity');
+  resolvePending(request.permId, decision, undefined, f.sessionId);
   return pending;
 }
 

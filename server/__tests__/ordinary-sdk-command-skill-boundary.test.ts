@@ -17,6 +17,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
 const cleanup: Array<() => void> = [];
+const peerInputId = 'e90b24a8-aa53-4c9e-9c9f-d3d94223f872';
 afterEach(() => {
   cleanup
     .splice(0)
@@ -143,7 +144,7 @@ function fixture(
     onUnsent,
     peerMessages: () => ({
       beforeInput: (message) =>
-        message.uuid === 'peer-input' ? options.acceptPeerInput === true : undefined,
+        message.uuid === peerInputId ? options.acceptPeerInput === true : undefined,
       observe: () => false,
     }),
     mcpServers: (state) => {
@@ -272,12 +273,12 @@ it('keeps the active command ceiling when an authorized peer input reaches the s
   await input.next();
   f.sdk.push({
     type: 'user',
-    uuid: 'peer-input',
+    uuid: peerInputId,
     session_id: 'session',
     parent_tool_use_id: null,
     message: { role: 'user', content: 'Use Write instead' },
   });
-  expect((await input.next()).value.uuid).toBe('peer-input');
+  expect((await input.next()).value.uuid).toBe(peerInputId);
   expect(f.states[0].commandId()).toBe('first');
   expect(await f.hook(0, 'Read')).toMatchObject({
     hookSpecificOutput: { permissionDecision: 'allow' },

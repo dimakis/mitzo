@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1137-claude-original-profile-fence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1138-claude-parity-typecheck';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -57,11 +56,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-isolated-host-launch.test.ts':
     '96c89c2e5ff418c70c71ca611cdfd265e7cd539e9ad57f8941a5c527ce55843a',
   '../__tests__/ordinary-claude-task-execution.test.ts':
-    '32179f0ee4e99b67f1c28cc0286b2cdbab02f2d0a65a8dc2d8f5e65410391e15',
+    '8faeabae3b7a005dd686312ea1f63eafeeafeabf43348e9ec28853cfc4452a20',
   '../__tests__/ordinary-local-vertex-sdk-effects.test.ts':
     'c1b06fcb6285019c04c455bf99c864aad767f129ef97c7bc2178c76348d3a380',
   '../__tests__/ordinary-sdk-command-skill-boundary.test.ts':
-    '4c960002a56b01a186efb13d68bfafb582dd5d33714f0e7a4649894a0bca0443',
+    '6e241c799d92ce12028e786a4c8dd88aa3e555608337644912ce598db9fa5d53',
   '../__tests__/ordinary-sdk-profile-retirement.test.ts':
     '4ec14505cdfd8df03aff80ef8a847bb21782f64bf75ee9f7344e8b81494161c9',
   '../../packages/protocol/src/ordinary-skill-context.ts':
@@ -2997,7 +2996,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-replay.ts':
     'd7ecdd21c89be167a1b627b024687df00ead20df98c349f51b114d98a8800a75',
   '../ordinary-local-vertex-sdk-query.ts':
-    '6302a0565ea16bbc957b3715a3b100f8b613204c9311aaaf67922084b97fe9a8',
+    '7b0c78e81717859bb1be301bf794195609db740943a0d118ee1aa3b50da21a4f',
   '../ordinary-local-vertex-command-owner.ts':
     '7cd6d7bc36ac59b89d535734ed56fe0ecd82acdcfb8d9103b9dd31e4570a5e17',
   '../ordinary-local-vertex-capabilities.ts':
