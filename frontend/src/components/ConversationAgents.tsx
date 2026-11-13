@@ -494,7 +494,10 @@ function ConversationAgentsBody({
                     label="Agent"
                     presentation={compactSetup ? 'choices' : 'select'}
                     onChange={(agent, reason) => {
-                      setSetup((s) => ({ ...s, agent: agent ?? defaultAgent }));
+                      setSetup((s) => ({
+                        ...s,
+                        agent: reason && !agent ? s.agent : (agent ?? defaultAgent),
+                      }));
                       setProfileReason(reason);
                     }}
                   />

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ConversationAgents } from '../ConversationAgents';
 import { WorkspaceControls } from '../WorkspaceControls';
@@ -105,6 +105,43 @@ beforeEach(() => {
       });
     throw Error(`Unexpected fixture request: ${path}`);
   });
+});
+
+it('keeps the selected profile when its catalog refresh fails instead of falling back to Default Mitzo', async () => {
+  render(
+    <MemoryRouter>
+      <ConversationAgents
+        scope="profile-failure"
+        agents={[]}
+        messages={[]}
+        joiningOwner={{
+          kind: 'application',
+          sourceConversationId: 'profile-failure',
+          collaborationId: '00000000-0000-4000-8000-000000000002',
+          captureReview: vi.fn(),
+          review: vi.fn(),
+          confirm: vi.fn(),
+          recover: vi.fn(),
+        }}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+  const dialog = screen.getByRole('dialog', { name: 'Add agent' });
+  await within(dialog).findByRole('button', { name: /^Account, Offline account$/ });
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Agent,/ }));
+  const reviewer = await within(dialog).findByRole('button', {
+    name: 'Reviewer · Independent review · r1',
+    exact: true,
+  });
+  vi.mocked(apiFetch).mockRejectedValueOnce(Error('Selected profile could not be read.'));
+  fireEvent.click(reviewer);
+  await act(async () => {});
+  expect(
+    await within(dialog).findAllByText('Selected profile could not be read.'),
+  ).not.toHaveLength(0);
+  expect(reviewer.getAttribute('aria-pressed')).toBe('true');
 });
 afterEach(() => {
   cleanup();

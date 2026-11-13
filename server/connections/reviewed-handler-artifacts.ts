@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-login-verification.test.ts':
     '797dbf9475236f698f540b928498b856aa43bfa2ad1ebc71dd0b28a36065659f',
   '../../frontend/src/components/__tests__/ConversationAgents.settings-scope.test.tsx':
-    '669dfe83258332e255b3b060b8fba6edc8b810bdaca34969a8b58104a1919427',
+    'fb9b39055b08aac6a1e35969eb9bb513d97d64e98f255787423a9b54e282b8cb',
   '../../tests/offline/symposium-dialog-controls.spec.ts':
     '0bde69d77ae5826231b6d62ea5678912875aa867f593dff6582d7aa8dec90700',
   '../published-host-knowledge.ts':
@@ -2238,7 +2238,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../frontend/src/components/ConversationAgents.tsx':
-    '37dbf40c4f779ff67812eeb6695fdfbeb30fab435465718064845a684a6254fd',
+    'b9ecdf59556fe385e3b0bdc164957821593114b1eba23787b1c362847912359f',
   '../../frontend/src/components/ConversationAgents.css':
     '09fd5c1a79be3e2accbdefc31a4d9c299d50a5df93ea36c6f5351668100e4873',
   '../../frontend/src/components/ComposerResponders.tsx':
