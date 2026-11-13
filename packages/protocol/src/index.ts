@@ -424,3 +424,4 @@ export {
 export * from './session-prompts.js';
 export * from './native-subagents.js';
 export * from './session-learning.js';
+export * from './session-control-support.js';

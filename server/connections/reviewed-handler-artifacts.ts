@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1126-claude-login-hyperlink';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1127-session-control-support';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2602,7 +2602,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/runtime-readiness.ts':
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
-  '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
+  '../session-access.ts': 'b7228088ecc7bbdd4bc9eb750387e5041d6c8c2f8c7a0360d3ffaae592112587',
+  '../session-control-support.ts':
+    'a5b20e47fb59831d1988391924d2995223f500ef5a07b61c23dc73cdc6172e79',
+  '../../packages/protocol/src/session-control-support.ts':
+    'afe208126d189cd85b883714e53276108c2087c35570be6d2fef48db90bfd41d',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
   '../app.ts': 'b90b5e0ea0f8bd7ca9439eaaedb940c77bced6716941cc95c0ea617cc596b69a',
@@ -2838,7 +2842,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '500351d93c1864b700fcfab696f13f469465d21fb874bb99577ad1a7ebf4fa1d',
+    'a00e5d3fa9c93f834d0a2e5246a32fcc865da5fa04d03b03f38bae1666714449',
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':

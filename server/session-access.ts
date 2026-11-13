@@ -5,9 +5,11 @@ import type {
   MitzoMode,
   PermissionRequest,
   RuntimeReadiness,
+  SessionControlSupport,
 } from '@mitzo/protocol';
 import { recentAuthorizationSession } from './connections-router.js';
 import { projectRuntimeReadiness, type RuntimeReadinessInput } from './runtime-readiness.js';
+import { projectSessionControlSupport } from './session-control-support.js';
 
 /** Bounded observation, not admission or an authority token. Unknown is never an empty grant. */
 export interface SessionAccessEvidence {
@@ -24,6 +26,7 @@ export interface SessionAccessEvidence {
   tools: null;
   limits: null;
   readiness: RuntimeReadiness;
+  controls: SessionControlSupport;
 }
 export function projectSessionAccess(
   sessionId: string,
@@ -47,6 +50,7 @@ export function projectSessionAccess(
     tools: null,
     limits: null,
     readiness,
+    controls: projectSessionControlSupport(readiness),
   };
   if (!session || readiness.session.state !== 'observed') return value;
   const { accountId, accountLabel, provider } = readiness.session.account;
