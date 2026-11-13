@@ -22,17 +22,19 @@ import { SessionRenameDialog } from './SessionRenameDialog';
 import { SessionDetailsDialog } from './SessionDetailsDialog';
 import { SessionWorkLink } from './SessionWorkLink';
 import { recordTitle } from '../lib/record-title';
+import { ConversationTree } from './ConversationTree';
 import '../styles/session-library.css';
 export interface SessionPanelProps {
   activeSessionId: string | undefined;
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
 }
-type ViewMode = 'active' | 'all';
+type ViewMode = 'active' | 'all' | 'tree';
 const STORAGE_KEY = 'mitzo-session-view-mode';
 function readViewMode(): ViewMode {
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'all' ? 'all' : 'active';
+    const value = localStorage.getItem(STORAGE_KEY);
+    return value === 'all' || value === 'tree' ? value : 'active';
   } catch {
     return 'active';
   }
@@ -181,6 +183,14 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
         >
           All
         </button>
+        <button
+          type="button"
+          className={viewMode === 'tree' ? 'active' : ''}
+          aria-pressed={viewMode === 'tree'}
+          onClick={() => switchView('tree')}
+        >
+          Tree
+        </button>
       </div>
       <ConversationPins
         sessions={ordered}
@@ -214,17 +224,28 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
           {!loading && ordered.length > 0 && (
             <div className="session-panel-list">
               <h2 className="session-list-group-title">All conversations</h2>
-              {ordered.map((session) => (
-                <SessionPanelRow
-                  key={session.id}
-                  session={session}
-                  active={session.id === activeSessionId}
-                  activity={displayById.get(session.id)}
+              {viewMode === 'tree' ? (
+                <ConversationTree
+                  sessions={ordered}
+                  selectedId={activeSessionId}
+                  activities={displayById}
                   connected={connected}
                   onSelect={onSelectSession}
                   onActions={showActions}
                 />
-              ))}
+              ) : (
+                ordered.map((session) => (
+                  <SessionPanelRow
+                    key={session.id}
+                    session={session}
+                    active={session.id === activeSessionId}
+                    activity={displayById.get(session.id)}
+                    connected={connected}
+                    onSelect={onSelectSession}
+                    onActions={showActions}
+                  />
+                ))
+              )}
               {hasMore && (
                 <button
                   type="button"

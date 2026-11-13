@@ -1312,9 +1312,7 @@ it.each([
     );
     expect(
       db
-        .prepare(
-          "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name!='ordinary_workspace_preparations' ORDER BY name",
-        )
+        .prepare("SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name")
         .all(),
     ).toEqual(before);
   },

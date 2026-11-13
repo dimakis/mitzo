@@ -3,6 +3,7 @@ import { CodexStartupError } from '../codex-startup-error.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
 import { retainCodexPreparationFailure } from '../codex-preparation-failure.js';
 import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
+import { TelosExecutionContextChangedError } from '../telos-work-store.js';
 
 it('preserves the original startup cause and safe stage across consumer and OpenShell wrappers', () => {
   const cause = new CodexStartupError('runtime_connection', Error('secret-token /private/path'));
@@ -24,6 +25,18 @@ it('retains reviewed recovery reasons and reference IDs without exposing cause t
   const failure = retainCodexPreparationFailure('runtime_admission', original);
   expect(failure).toBe(original);
   expect(codexRuntimeErrorTelemetry(failure)).toEqual(original.telemetry());
+});
+
+it('keeps a changed Telos execution contract actionable through ordinary startup wrappers', () => {
+  const original = new TelosExecutionContextChangedError();
+  const wrapped = new CodexStartupError('runtime_admission', original);
+  const failure = retainCodexPreparationFailure('runtime_admission', wrapped);
+  expect(failure).toBeInstanceOf(SessionRuntimeError);
+  expect(codexRuntimeErrorTelemetry(failure)).toMatchObject({
+    runtimeFailureCode: 'telos_work_context_changed',
+  });
+  expect((failure as SessionRuntimeError).publicMessage()).toMatch(/review.*Telos brief/i);
+  expect(failure.cause).toBe(wrapped);
 });
 
 it('does not trust arbitrary stage fields and bounds cyclic causes', () => {

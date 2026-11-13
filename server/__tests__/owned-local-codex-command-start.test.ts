@@ -555,6 +555,25 @@ it('connects the actual consumer to driver admission and pumps its existing nati
     'consumed',
   );
 });
+it('refuses lost first-command source authority after session preparation before native bootstrap', async () => {
+  const f = request();
+  let current = true;
+  await expect(
+    chat.startOwnedLocalCodexCommand(f.transport, f.clientId, {
+      ...f.args,
+      firstCommandAuthority: {
+        commandId: f.args.commandId,
+        assertCurrent() {
+          if (!current) throw Error('Source lead reassigned');
+        },
+      },
+      onSessionPrepared() {
+        current = false;
+      },
+    }),
+  ).rejects.toThrow();
+  expect(openCodexChat).not.toHaveBeenCalled();
+});
 
 it('retains the captured operator and command identity if caller arguments change during admission', async () => {
   const f = request();

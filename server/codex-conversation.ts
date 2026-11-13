@@ -102,6 +102,30 @@ import { tracer } from './tracing.js';
 import { createLogger } from './logger.js';
 import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 const log = createLogger('codex-conversation');
+function reportCommandFailure(
+  conversationId: string,
+  commandId: string,
+  stage:
+    | 'tool_recovery_admission'
+    | 'tool_recovery_cleanup'
+    | 'steering_admission'
+    | 'steering_submission',
+  cause: unknown,
+  requestId?: string,
+): void {
+  try {
+    log.warn('Native command requires attention', {
+      conversationId,
+      commandId,
+      stage,
+      code: `${stage}_failed`,
+      ...(requestId ? { requestId } : {}),
+      ...(cause instanceof Error ? codexRuntimeErrorTelemetry(cause) : {}),
+    });
+  } catch {
+    // Diagnostics cannot replace the original cause or prevent cleanup/delivery.
+  }
+}
 import {
   resolveWebSearchPolicy,
   type PersistedWebSearchGrant,
@@ -158,6 +182,7 @@ interface Rpc {
   initialize(): Promise<void>;
   request(method: string, params: ObjectValue): Promise<unknown>;
   close(): void;
+  drain?(): Promise<void>;
 }
 export interface CodexStartupConfigObservation {
   readonly cwd: string;
@@ -170,6 +195,9 @@ export type { NativeBaseReadScope } from './native-base-read-scope.js';
 import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
+  /** Host-only committed context identity, never an admission epoch or public input.
+   * Selected before constructing the owner; absent retains exact legacy behavior. */
+  providerContextRevision?: string;
   enableToolFailureContinuation?: boolean;
   /** Original live owner admits the exact durable child under unchanged authority. */
   admitToolFailureContinuation?(input: CodexCommandInput): boolean | void;
@@ -184,6 +212,10 @@ export interface CodexConversationOptions {
   /** An enrolled route's existing command owner rejects unadmitted sends before
    * private queue mutation. No default gate is imposed on legacy conversations. */
   beforeEnqueue?: (input: CodexCommandInput) => void;
+  /** Host-only synchronous event-writer lock, acquired before the native writer. */
+  withQueueMutation?: <T>(operation: () => T) => T;
+  /** Final read-only command check after mutable validation callbacks. */
+  assertQueueCommandCurrent?: (commandId: string) => void;
   /** A guarded enqueue may retain uncertainty until its outer receipt commits. */
   canClaimCommand?: (commandId: string) => boolean;
   /** Maintenance fences new FIFO claims; active tool and terminal receipts still settle. */
@@ -518,6 +550,8 @@ export class CodexConversation {
   private lastSubagentCommandId?: string;
   private subagentAnchors = new Set<string>();
   private client: Rpc;
+  private readonly ownedTransports = new Set<Rpc>();
+  private idleRetirement?: Promise<void>;
   private transportGeneration = 0;
   private replaySavedSources = false;
   private capacityTimer?: ReturnType<typeof setTimeout>;
@@ -563,7 +597,21 @@ export class CodexConversation {
   private readonly disableProjectDocuments: boolean;
   private adviserSkills: { path: string }[] = [];
   private readonly agentContextSource?: string;
+  private readonly providerContextRevision?: string;
   constructor(private opts: CodexConversationOptions) {
+    this.providerContextRevision = z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional()
+      .parse(opts.providerContextRevision);
+    if (
+      this.providerContextRevision !== undefined &&
+      (opts.deferToolSurfaceReplacement !== true || opts.providerThreadLifecycle === 'attempt')
+    )
+      throw Error('Committed provider context requires deferred durable thread ownership');
+    // Context-bearing owners retain the validated mode selection as well as
+    // its revision. Later caller mutation cannot bypass deferred ACK custody.
+    if (this.providerContextRevision !== undefined) this.opts = { ...opts };
     assertNativeCodexContextAdmission({ source: opts.agentContextSource });
     this.agentContextSource = opts.agentContextSource;
     this.disableWebSearch = opts.disableWebSearch === true;
@@ -600,7 +648,7 @@ export class CodexConversation {
     this.subagentOwner?.close();
     this.subagentOwner = undefined;
     const generation = ++this.transportGeneration;
-    return this.opts.createClient({
+    const client = this.opts.createClient({
       onNotification: (m, p) => {
         if (!this.closed && generation === this.transportGeneration) {
           if (!this.borrowedSearch?.notification(m, p)) this.notification(m, p);
@@ -639,6 +687,8 @@ export class CodexConversation {
       },
       onClose: (error) => this.transportClosed(generation, error),
     });
+    this.ownedTransports.add(client);
+    return client;
   }
   getSubagents(): CodexSubagents | undefined {
     if (
@@ -699,7 +749,15 @@ export class CodexConversation {
           throw Error('Native subagent policy owner unavailable');
         this.opts.assertNativeExecutionCurrent(this.opts.nativeExecution, child.commandId);
       },
-      request: async (method, params, beforeDispatch) => {
+      withControlAdmission: <T>(sourceCommandId: string, operation: () => T) => {
+        const claim = () => {
+          this.opts.assertSubagentControlAdmission?.();
+          this.opts.assertQueueCommandCurrent?.(sourceCommandId);
+          return operation();
+        };
+        return this.opts.withQueueMutation ? this.opts.withQueueMutation(claim) : claim();
+      },
+      request: async (method, params, beforeDispatch, submission) => {
         await this.opts.prepareAgentContext?.(
           this.opts.startupSignal ?? new AbortController().signal,
         );
@@ -710,9 +768,30 @@ export class CodexConversation {
           generation !== this.transportGeneration
         )
           throw Error('Original subagent transport unavailable');
-        if (method === 'turn/start' || method === 'turn/steer')
-          this.opts.assertSubagentControlAdmission?.();
+        if (method === 'turn/start' || method === 'turn/steer') {
+          if (!submission) throw Error('Original child control source required');
+          return this.withProviderSubmission(
+            () => {
+              this.opts.assertSubagentControlAdmission?.();
+              beforeDispatch?.();
+              if (
+                this.closed ||
+                !this.ready ||
+                this.client !== client ||
+                generation !== this.transportGeneration ||
+                this.binding !== binding
+              )
+                throw Error('Original subagent transport unavailable');
+              this.opts.assertQueueCommandCurrent?.(submission.sourceCommandId);
+            },
+            () => {
+              submission.onSubmitted();
+              return client.request(method, params);
+            },
+          );
+        }
         beforeDispatch?.();
+        submission?.onSubmitted();
         return client.request(method, params);
       },
       tools: this.opts.tools,
@@ -840,9 +919,13 @@ export class CodexConversation {
       });
     } catch {
       // Closing and fencing unknown work must survive diagnostic storage failure.
-      log.warn('Native transport diagnostic could not be retained', {
-        conversationId: this.opts.conversationId,
-      });
+      try {
+        log.warn('Native transport diagnostic could not be retained', {
+          conversationId: this.opts.conversationId,
+        });
+      } catch {
+        // A broken diagnostic sink cannot replace the original transport failure.
+      }
     }
   }
   private transportClosed(generation: number, error: Error, requireRecoveryPersistence = false) {
@@ -1563,6 +1646,28 @@ export class CodexConversation {
     else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
   }
   enqueue(input: CodexCommandInput) {
+    const persist = () => this.persistQueuedInput(input);
+    const { saved, model, reasoningEffort } = this.opts.withQueueMutation
+      ? this.opts.withQueueMutation(persist)
+      : persist();
+    if (saved) {
+      this.clearCapacityTimer();
+      this.commandContexts.set(input.id, context.active());
+      // The durable enqueue has returned; time waiting for this exact command's claim.
+      const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
+      if (timing) {
+        this.queueTimingSpans.set(input.id, timing);
+        recordCommandQueueReason(
+          timing,
+          this.active ? 'active_turn' : this.paused ? 'recovery' : 'queued',
+        );
+      }
+      this.opts.onCommandQueued?.(input.id);
+    }
+    this.notifyQueueChange();
+    return { model, reasoningEffort };
+  }
+  private persistQueuedInput(input: CodexCommandInput) {
     this.opts.beforeEnqueue?.(input);
     // A transport loss keeps the durable binding. Accept an explicit new user
     // message before reconnecting so it cannot be lost between recovery and send.
@@ -1593,23 +1698,9 @@ export class CodexConversation {
         reasoningEffort,
       },
       true,
+      this.opts.assertQueueCommandCurrent,
     );
-    if (saved) {
-      this.clearCapacityTimer();
-      this.commandContexts.set(input.id, context.active());
-      // The durable enqueue has returned; time waiting for this exact command's claim.
-      const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
-      if (timing) {
-        this.queueTimingSpans.set(input.id, timing);
-        recordCommandQueueReason(
-          timing,
-          this.active ? 'active_turn' : this.paused ? 'recovery' : 'queued',
-        );
-      }
-      this.opts.onCommandQueued?.(input.id);
-    }
-    this.notifyQueueChange();
-    return { model, reasoningEffort };
+    return { saved, model, reasoningEffort };
   }
   async admitExplicitSend(
     input: CodexCommandInput,
@@ -2354,7 +2445,18 @@ export class CodexConversation {
   }
 
   private toolSurfaceRevision() {
-    return createHash('sha256').update(JSON.stringify(this.dynamicToolsOption())).digest('hex');
+    const tools = this.dynamicToolsOption();
+    // Native provider configuration is immutable for both tools and role context.
+    // Reuse its ACK/ownership journal; never mark the old thread current at adoption.
+    const surface =
+      this.providerContextRevision === undefined
+        ? tools
+        : {
+            version: 'provider-context-v1',
+            tools,
+            contextRevision: this.providerContextRevision,
+          };
+    return createHash('sha256').update(JSON.stringify(surface)).digest('hex');
   }
 
   /** Preserve the original phase target until its exact owner has settled.
@@ -2868,21 +2970,20 @@ export class CodexConversation {
       (this.pendingToolSurface || this.threadId !== recovery.threadId)
     )
       throw new Error('Capacity recovery thread changed');
-    if (this.opts.canClaimCommand) {
-      const nextQueued = this.opts.store.nextQueuedCommandId(
-        this.opts.conversationId,
-        this.binding!,
-      );
-      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) {
-        this.recordQueueReason('admission');
-        return;
-      }
-    }
-    if (this.opts.canStartCommand?.() === false) {
-      this.recordQueueReason('deployment');
-      return;
-    }
-    const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
+    const claim = () =>
+      this.opts.store.claimNext(this.opts.conversationId, this.binding!, (id) => {
+        if (this.opts.canClaimCommand?.(id) === false) {
+          this.recordQueueReason('admission');
+          return false;
+        }
+        if (this.opts.canStartCommand?.() === false) {
+          this.recordQueueReason('deployment');
+          return false;
+        }
+        this.opts.assertQueueCommandCurrent?.(id);
+        return true;
+      });
+    const command = this.opts.withQueueMutation ? this.opts.withQueueMutation(claim) : claim();
     if (!command) return;
     recordCommandQueueReason(this.queueTimingSpans.get(command.id), 'eligible');
     finishCommandTimingSpan(this.queueTimingSpans.get(command.id), 'claimed');
@@ -3001,9 +3102,6 @@ export class CodexConversation {
           this.binding!,
           command,
         );
-      this.opts.onProviderDispatch?.(command.id);
-      if (active.nativeExecution)
-        this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
       active.span = tracer.startSpan('codex.turn', {}, active.traceContext);
       active.span.setAttribute('mitzo.route', this.opts.route ?? 'chatgpt-subscription');
       active.span.setAttribute('gen_ai.request.model', model);
@@ -3016,19 +3114,6 @@ export class CodexConversation {
           value: rolloverContext,
         };
       const pending = this.pendingToolSurface;
-      if (pending)
-        this.opts.store.beginThreadReplacementDispatch(
-          this.opts.conversationId,
-          this.binding!,
-          pending.parent,
-          pending.thread,
-          command,
-        );
-      if (continuation) {
-        assertCapacityAdmissionDeadline(this.capacityAdmissionDeadlines.get(command.id));
-        this.opts.store.beginCapacityDispatch(this.opts.conversationId, this.binding!, command.id);
-        this.capacityAdmissionDeadlines.delete(command.id);
-      }
       active.abort.signal.throwIfAborted();
       this.turnDispatchCount += 1;
       const turnContext = trace.setSpan(active.traceContext, active.span);
@@ -3041,14 +3126,6 @@ export class CodexConversation {
       let response: unknown;
       let dispatched = false;
       try {
-        if (active.nativeExecution)
-          this.opts.store.prepareNativeExecution(
-            this.opts.conversationId,
-            this.binding!,
-            command,
-            this.threadId!,
-            active.nativeExecution,
-          );
         finishCommandTimingSpan(active.preparationSpan, 'submitted');
         active.preparationSpan = undefined;
         const params = codexTurnStartParams({
@@ -3065,17 +3142,69 @@ export class CodexConversation {
           reasoningEffort: command.reasoningEffort,
           additionalContext,
         });
-        // A synchronous transport close can reenter close() from request().
-        // Once invocation is attempted, missing ACK/history is uncertainty.
         active.preparationStage = 'provider_request';
-        if (command.toolFailureContinuation)
-          this.opts.store.assertClaimedToolFailureContinuation(
-            this.opts.conversationId,
-            this.binding!,
-            command,
-          );
-        active.providerSubmitted = true;
-        const pendingAck = this.client.request('turn/start', params);
+        const dispatchClient = this.client;
+        const dispatchBinding = this.binding!;
+        const dispatchThread = this.threadId!;
+        const current = () => {
+          active.abort.signal.throwIfAborted();
+          if (
+            this.closed ||
+            this.active !== active ||
+            this.client !== dispatchClient ||
+            this.binding !== dispatchBinding ||
+            this.threadId !== dispatchThread ||
+            this.transportGeneration !== transportGeneration
+          )
+            throw Error('Original provider submission owner changed');
+          this.opts.assertQueueCommandCurrent?.(command.id);
+        };
+        const pendingAck = this.withProviderSubmission(
+          () => {
+            current();
+            this.opts.onProviderDispatch?.(command.id);
+            if (active.nativeExecution)
+              this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
+            current();
+            if (pending)
+              this.opts.store.beginThreadReplacementDispatch(
+                this.opts.conversationId,
+                dispatchBinding,
+                pending.parent,
+                pending.thread,
+                command,
+              );
+            if (continuation) {
+              assertCapacityAdmissionDeadline(this.capacityAdmissionDeadlines.get(command.id));
+              this.opts.store.beginCapacityDispatch(
+                this.opts.conversationId,
+                dispatchBinding,
+                command.id,
+              );
+              this.capacityAdmissionDeadlines.delete(command.id);
+            }
+            if (active.nativeExecution)
+              this.opts.store.prepareNativeExecution(
+                this.opts.conversationId,
+                dispatchBinding,
+                command,
+                dispatchThread,
+                active.nativeExecution,
+              );
+            if (command.toolFailureContinuation)
+              this.opts.store.assertClaimedToolFailureContinuation(
+                this.opts.conversationId,
+                dispatchBinding,
+                command,
+              );
+            current();
+          },
+          () => {
+            // Invocation can synchronously close the transport. Retain uncertainty.
+            active.providerSubmitted = true;
+            return dispatchClient.request('turn/start', params);
+          },
+        );
         dispatchSpan.end();
         dispatched = true;
         response = await pendingAck;
@@ -3921,13 +4050,16 @@ export class CodexConversation {
               failedToolSource.commandId,
               turn.data.id,
             );
-          child = this.opts.store.queueToolFailureContinuation(
-            this.opts.conversationId,
-            this.binding!,
-            failedToolSource.commandId,
-            turn.data.id,
-            finalToolFailure,
-          );
+          const queue = () =>
+            this.opts.store.queueToolFailureContinuation(
+              this.opts.conversationId,
+              this.binding!,
+              failedToolSource.commandId,
+              turn.data.id,
+              finalToolFailure,
+              this.opts.assertQueueCommandCurrent,
+            );
+          child = this.opts.withQueueMutation ? this.opts.withQueueMutation(queue) : queue();
           if (child) {
             const admitted = this.opts.admitToolFailureContinuation?.(child);
             if (admitted !== true) this.opts.beforeEnqueue?.(child);
@@ -3943,20 +4075,35 @@ export class CodexConversation {
               commandId: child.id,
             });
           }
-        } catch {
+        } catch (cause) {
+          reportCommandFailure(
+            this.opts.conversationId,
+            failedToolSource.commandId,
+            'tool_recovery_admission',
+            cause,
+          );
           if (child) {
             try {
               this.opts.store.cancelQueued(this.opts.conversationId, this.binding!, child.id);
-            } catch {
-              /* Preserve uncertain receipt. */
+            } catch (cleanupCause) {
+              reportCommandFailure(
+                this.opts.conversationId,
+                child.id,
+                'tool_recovery_cleanup',
+                cleanupCause,
+              );
             }
           }
-          this.opts.onError?.(
-            new Error(
-              'Tool recovery admission failed; saved work and the original failure are preserved.',
-            ),
-          );
-          this.close();
+          try {
+            this.opts.onError?.(
+              new Error(
+                'Tool recovery admission failed; saved work and the original failure are preserved.',
+                { cause },
+              ),
+            );
+          } finally {
+            this.close();
+          }
         }
       }
       if (providerFailure)
@@ -4845,6 +4992,29 @@ export class CodexConversation {
       this.opts.store.deploymentTurnSettled(this.opts.conversationId, this.binding, target)
     );
   }
+  /** Commit submission evidence even if request synchronously throws/reenters.
+   * Only invocation is serialized; no lock survives an await or ACK observer.
+   * This does not make the event/native databases and provider crash-atomic. */
+  private withProviderSubmission(
+    prepare: () => void,
+    submit: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const invoke = () => {
+      prepare();
+      try {
+        const pending = submit();
+        // Observe only to bound a rejection if the subsequent database commit fails.
+        // The original promise/cause still reaches the normal awaited dispatch path.
+        void pending.catch(() => undefined);
+        return { submitted: true as const, pending };
+      } catch (error) {
+        return { submitted: false as const, error };
+      }
+    };
+    const result = this.opts.withQueueMutation ? this.opts.withQueueMutation(invoke) : invoke();
+    if (!result.submitted) throw result.error;
+    return result.pending;
+  }
   /** A correction uses the accepted turn's unchanged settings. It never starts,
    * interrupts, retries or reorders a command. A durable claim fences lost ACKs. */
   async steer(raw: CodexSteerInput, authorize: () => void): Promise<CodexSteerResult> {
@@ -4864,38 +5034,62 @@ export class CodexConversation {
     )
       return { status: 'stale_target' };
     const client = this.client,
-      generation = this.transportGeneration;
-    await this.verifyCurrentBinding(this.binding);
+      generation = this.transportGeneration,
+      steeringBinding = this.binding;
+    await this.verifyCurrentBinding(steeringBinding);
     authorize();
     if (
       this.closed ||
       this.paused ||
       this.active !== active ||
       this.client !== client ||
+      this.binding !== steeringBinding ||
       this.transportGeneration !== generation ||
       active.interruptRequested ||
       active.turnId !== target.turnId
     )
       return { status: 'stale_target' };
+    let claimed: boolean;
     try {
       if (!this.opts.assertSteeringCurrent) return { status: 'rejected' };
       this.opts.assertSteeringCurrent();
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+      const claim = () => {
+        if (
+          this.closed ||
+          this.paused ||
+          this.active !== active ||
+          this.client !== client ||
+          this.binding !== steeringBinding ||
+          this.transportGeneration !== generation ||
+          active.interruptRequested ||
+          active.turnId !== target.turnId
+        )
+          throw Error('Original turn unavailable');
+        this.opts.assertQueueCommandCurrent?.(target.commandId);
+        return this.opts.store.claimSteering(
+          this.opts.conversationId,
+          steeringBinding,
+          input,
+          target,
+        );
+      };
+      claimed = this.opts.withQueueMutation ? this.opts.withQueueMutation(claim) : claim();
     } catch (error) {
-      log.warn('Correction refused before native submission', {
-        conversationId: this.opts.conversationId,
-        commandId: active.command.id,
-        requestId: input.requestId,
-        phase: 'admission',
-        ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
-      });
+      reportCommandFailure(
+        this.opts.conversationId,
+        target.commandId,
+        'steering_admission',
+        error,
+        input.requestId,
+      );
       return { status: 'rejected' };
     }
-    if (!this.opts.store.claimSteering(this.opts.conversationId, this.binding, input, target)) {
+    if (!claimed) {
       const retained = this.opts.store.steeringReceipt(
         this.opts.conversationId,
-        this.binding,
+        steeringBinding,
         input,
       );
       return {
@@ -4930,12 +5124,7 @@ export class CodexConversation {
               throw Error('Reply context unavailable');
             })()
           : input.text);
-      this.opts.assertSteeringCurrent!();
-      if (active.nativeExecution)
-        this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
-      // Exact target, no turn-level overrides; a successor can never accept it.
-      attempted = true;
-      const ack = await client.request('turn/steer', {
+      const params = {
         threadId: target.threadId,
         expectedTurnId: target.turnId,
         input: [
@@ -4945,13 +5134,44 @@ export class CodexConversation {
             url: `data:${image.mediaType};base64,${image.data}`,
           })),
         ],
-      });
+      };
+      const ack = await this.withProviderSubmission(
+        () => {
+          this.opts.assertSteeringCurrent!();
+          if (active.nativeExecution)
+            this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+          if (
+            this.closed ||
+            this.paused ||
+            this.active !== active ||
+            this.client !== client ||
+            this.binding !== steeringBinding ||
+            this.transportGeneration !== generation ||
+            active.interruptRequested ||
+            active.turnId !== target.turnId
+          )
+            throw Error('Original turn unavailable');
+          this.opts.assertQueueCommandCurrent?.(target.commandId);
+        },
+        () => {
+          // Exact target, no overrides; only actual invocation creates uncertainty.
+          attempted = true;
+          return client.request('turn/steer', params);
+        },
+      );
       if (z.object({ turnId: z.literal(target.turnId) }).safeParse(ack).success)
         status = 'accepted';
     } catch (error) {
       if (!attempted || error instanceof CodexRequestError) status = 'rejected';
+      reportCommandFailure(
+        this.opts.conversationId,
+        target.commandId,
+        'steering_submission',
+        error,
+        input.requestId,
+      );
     } finally {
-      this.opts.store.settleSteering(this.opts.conversationId, this.binding, input, status);
+      this.opts.store.settleSteering(this.opts.conversationId, steeringBinding, input, status);
       this.opts.onSteeringUpdate?.(input, status);
       span.setAttribute('mitzo.steering.status', status);
       span.end();
@@ -4987,6 +5207,42 @@ export class CodexConversation {
     };
     const parent = interruptParent();
     await Promise.all([parent, this.subagentOwner?.interruptAll()]);
+  }
+  /** The caller holds the durable context fence. This operation never interrupts
+   * active work; all native queues/effects and every transport must prove idle. */
+  async retireIdle(assertCurrent: () => void): Promise<void> {
+    assertCurrent();
+    if (this.idleRetirement) {
+      await this.idleRetirement;
+      assertCurrent();
+      return;
+    }
+    if (!this.binding || !this.ready || this.peerMessageState() !== 'idle')
+      throw Error('Exact idle native owner required');
+    if ([...this.ownedTransports].some((client) => !client.drain))
+      throw Error('Native transport drain is unavailable');
+    this.opts.store.assertContextTransitionQuiescent(
+      this.opts.conversationId,
+      this.binding,
+      this.opts.cwd,
+    );
+    assertCurrent();
+    this.idleRetirement = (async () => {
+      let failed: { cause: unknown } | undefined;
+      try {
+        this.close();
+      } catch (cause) {
+        failed = { cause };
+      }
+      const drained = await Promise.allSettled(
+        [...this.ownedTransports].map((client) => client.drain!()),
+      );
+      if (failed) throw failed.cause;
+      const failure = drained.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
+    })();
+    await this.idleRetirement;
+    assertCurrent();
   }
   close() {
     this.subagentOwner?.close();

@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { TelosStartSliceInputSchema, TelosWorkDelegationReceiptSchema } from '@mitzo/protocol';
+import {
+  TelosStartSliceInputSchema,
+  TelosWorkDelegationReceiptSchema,
+  TelosSliceExecutionReceiptSchema,
+} from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { TelosToolResult } from './telos-tool.js';
 import { toolInputError } from './tool-input-error.js';
@@ -10,7 +14,7 @@ export const telosWorkDefinitions: ToolDefinition[] = [
   {
     name: TELOS_START_SLICE_TOOL,
     description:
-      'Allocate or recover one dedicated ordinary worker chat for the exact eligible child of this assigned lead. Returns the retained link while staying in the lead; does not start a model turn or complete work. Runtime eligibility does not establish semantic feature-lead nesting. Use start to recover existing work; retry requires an explicit user request and the exact predecessor attempt. Reuse requestId after uncertainty. Never guess an ambiguous child, treat the originating chat as its worker, or start siblings.',
+      'Allocate or recover one dedicated ordinary worker chat for the exact eligible child of this assigned lead. Omission of execute does not start a model turn. After the user authorizes work, supply execute: true to admit the original worker’s first ordinary command; no manual chat initialization is needed. Execution has its own receipt: admitted is not provider acknowledgement or completion. Use start to recover existing work; retry requires an explicit user request and the exact predecessor attempt. Reuse requestId after uncertainty. Never guess an ambiguous child, treat the originating chat as its worker, start siblings, or use a new request to replay an uncertain command.',
     input_schema: z.toJSONSchema(TelosStartSliceInputSchema),
   },
 ];
@@ -47,8 +51,13 @@ export async function executeTelosWorkTool(
     });
     const body: unknown = await response.json();
     signal?.throwIfAborted();
-    const receipt = TelosWorkDelegationReceiptSchema.safeParse(body);
-    if (!response.ok || !receipt.success) {
+    const execution = parsed.data.execute
+      ? TelosSliceExecutionReceiptSchema.safeParse(body)
+      : undefined;
+    const receipt = TelosWorkDelegationReceiptSchema.safeParse(
+      execution?.success ? execution.data.allocation : body,
+    );
+    if (!response.ok || !receipt.success || (execution && !execution.success)) {
       const error = z.object({ error: z.string() }).safeParse(body);
       return {
         content: error.success
@@ -74,7 +83,12 @@ export async function executeTelosWorkTool(
           'Telos worker receipt does not match the exact selected child and lead; allocation not confirmed',
         isError: true,
       };
-    return { content: JSON.stringify(result), isError: false };
+    return {
+      content: JSON.stringify(execution?.success ? execution.data : result),
+      isError: execution?.success
+        ? ['failed', 'uncertain'].includes(execution.data.execution.state)
+        : false,
+    };
   } catch {
     return {
       content:

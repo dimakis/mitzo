@@ -25,9 +25,11 @@ function hostInventory() {
   inventory.routes.push({ ...inventory.routes[0], targetId: 'build-mac' });
   return inventory;
 }
-for (const workBound of [false, true]) {
+for (const mode of ['start', 'create', 'adopt', 'release']) {
+  const workBound = mode !== 'start',
+    adoption = mode === 'adopt';
   for (const theme of ['dark', 'light']) {
-    test(`agent ${workBound ? 'work creation' : 'session launch'} review, receipt and retained draft (${theme})`, async ({
+    test(`agent ${mode} review, receipt and retained draft (${theme})`, async ({
       page,
       isMobile,
     }, info) => {
@@ -60,6 +62,13 @@ for (const workBound of [false, true]) {
         if (path === '/api/accounts') return route.fulfill({ json: { accounts: [] } });
         if (path === '/api/repository-workspaces/catalog')
           return route.fulfill({ json: { repositories: [] } });
+        if (path.endsWith('/release')) {
+          mutations.push({ path, body: route.request().postDataJSON() });
+          return route.fulfill({
+            status: 409,
+            json: { error: 'Release is unconfirmed. Recover the original allocation.' },
+          });
+        }
         if (path === '/api/session-launch/requests/b391d65c-33c8-4ea4-a38e-84385256bb8d/approve') {
           mutations.push({ path, body: route.request().postDataJSON() });
           return route.fulfill({
@@ -78,13 +87,40 @@ for (const workBound of [false, true]) {
       });
       await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
       await page.emulateMedia({ reducedMotion: 'reduce' });
-      await page.goto(workBound ? '/?telos=1' : '/');
+      await page.goto(workBound ? `/?telos=1&${mode}=1` : '/');
       if (theme === 'light') await page.addStyleTag({ content: 'html {font-size:125%}' });
-      const trigger = page.getByRole('button', { name: 'Review new session' });
+      if (mode === 'release') {
+        await page.getByRole('button', { name: 'Review release' }).click();
+        const release = page.getByRole('dialog', { name: 'Release unfinished reservation' });
+        await expect(release).toBeVisible();
+        expect(mutations).toHaveLength(0);
+        await release.getByRole('button', { name: 'Approve release' }).click();
+        await expect(release.getByRole('alert')).toContainText('Release is unconfirmed');
+        await expect(page.getByLabel('Original chat draft')).toHaveValue(
+          'Keep my original chat draft',
+        );
+        expect(mutations).toHaveLength(1);
+        expect(mutations[0].body).toEqual({ expectedRevision: 1 });
+        await page.screenshot({
+          path: info.outputPath(`session-launch-release-${theme}-refusal.png`),
+        });
+        expect(errors).toEqual([]);
+        return;
+      }
+      const reviewLabel = adoption ? 'Review existing chat' : 'Review new session';
+      const trigger = page.getByRole('button', { name: reviewLabel });
       await trigger.click();
-      const dialog = page.getByRole('dialog', { name: 'Review new session' });
+      const dialog = page.getByRole('dialog', { name: reviewLabel });
       await expect(dialog).toBeVisible();
-      const approvalLabel = workBound ? 'Approve & create' : 'Approve & start';
+      const approvalLabel = adoption
+        ? 'Approve & adopt'
+        : workBound
+          ? 'Approve & create'
+          : 'Approve & start';
+      if (adoption)
+        await expect(
+          dialog.getByRole('link', { name: 'Retained design discussion' }),
+        ).toHaveAttribute('href', '/chat/child');
       if (workBound) {
         await expect(dialog.getByRole('link', { name: 'Capability baseline' })).toBeVisible();
         await expect(dialog.getByText('Feature lead', { exact: true })).toBeVisible();
@@ -110,9 +146,14 @@ for (const workBound of [false, true]) {
         ratio: 1,
       });
       await expect(dialog.getByLabel('Execution host')).toHaveValue('mac');
-      await dialog.getByLabel('Execution host').selectOption('build-mac');
-      await expect(dialog.getByLabel('Execution host')).toHaveValue('build-mac');
-      await dialog.getByLabel('Save configuration as default').check();
+      if (adoption) {
+        await expect(dialog.getByLabel('Execution host')).toBeDisabled();
+        await expect(dialog.getByLabel('Save configuration as default')).toHaveCount(0);
+      } else {
+        await dialog.getByLabel('Execution host').selectOption('build-mac');
+        await expect(dialog.getByLabel('Execution host')).toHaveValue('build-mac');
+        await dialog.getByLabel('Save configuration as default').check();
+      }
       await expect(dialog.getByRole('button', { name: approvalLabel })).toBeInViewport({
         ratio: 1,
       });
@@ -131,13 +172,15 @@ for (const workBound of [false, true]) {
       await expect(trigger).toBeFocused();
       await trigger.click();
       await dialog.getByText('Session settings', { exact: true }).click();
-      await dialog.getByLabel('Execution host').selectOption('build-mac');
-      await expect(dialog.getByLabel('Execution host')).toHaveValue('build-mac');
-      await dialog
-        .getByRole('combobox', { name: 'Thinking level', exact: true })
-        .selectOption('low');
-      await dialog.getByLabel('Permission mode').selectOption('ask');
-      await dialog.getByLabel('Save configuration as default').check();
+      if (!adoption) {
+        await dialog.getByLabel('Execution host').selectOption('build-mac');
+        await expect(dialog.getByLabel('Execution host')).toHaveValue('build-mac');
+        await dialog
+          .getByRole('combobox', { name: 'Thinking level', exact: true })
+          .selectOption('low');
+        await dialog.getByLabel('Permission mode').selectOption('ask');
+        await dialog.getByLabel('Save configuration as default').check();
+      }
       await dialog.getByRole('button', { name: approvalLabel }).click();
       await expect(dialog).toBeHidden();
       await expect(page.getByRole('link', { name: 'Open chat', exact: true })).toHaveAttribute(
@@ -145,21 +188,25 @@ for (const workBound of [false, true]) {
         '/chat/child',
       );
       await expect(page.getByRole('status')).toHaveText(
-        workBound ? 'Created & assigned' : 'Started',
+        adoption ? 'Adopted & assigned' : workBound ? 'Created & assigned' : 'Started',
       );
       await expect(page.getByLabel('Original chat draft')).toHaveValue(
         'Keep my original chat draft',
       );
       expect(mutations).toHaveLength(1);
-      expect(mutations[0].body.saveAsDefault).toBe(true);
+      expect(mutations[0].body.saveAsDefault).toBe(!adoption);
       expect(mutations[0].body.configuration).toMatchObject({
         runtime: {
-          account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+          account: {
+            accountId: 'personal',
+            model: 'luna-fixture',
+            reasoningEffort: adoption ? 'high' : 'low',
+          },
           accountReference: hostInventory().accounts[0].account,
           agentProfile: { profileId: 'agent', revision: 1 },
-          execution: { location: 'local', targetId: 'build-mac' },
+          execution: { location: 'local', targetId: adoption ? 'mac' : 'build-mac' },
         },
-        mode: 'ask',
+        mode: adoption ? 'agent' : 'ask',
         isolation: true,
         repositoryWorkspaceId: null,
         contextBlocks: [],

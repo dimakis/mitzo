@@ -1,7 +1,9 @@
 # Hook support and runtime qualification
 
 Observation date: **13 November 2026**. Source baseline: `778c55bcc` (accepted
-main); bridge repair: `aded988` and review corrections: `988d7810a`. Telos slice: `0dd9bb6a-c919-4c07-9599-7b5c594f2168`.
+main); bridge repair: `aded988` and review corrections: `988d7810a`.
+Conflict-required main integration preserves accepted `9deeb2f1f` and both source
+registrations. Telos slice: `0dd9bb6a-c919-4c07-9599-7b5c594f2168`.
 This is an inventory and offline qualification increment. It does not establish
 live provider acceptance, complete hook parity, deployment or adoption.
 
@@ -105,8 +107,10 @@ successful tools reach PostToolUse. Startup context is used only where the legac
 startup path invokes SessionStart; an existing context owner may skip it. Stop
 hooks gate completion but nonblocking Stop context does not trigger another model
 turn. SessionEnd is asynchronous cleanup, cannot retroactively block completed
-effects, and currently has no user-visible failure receipt. Its discarded failure
-diagnostic is a retained gap, not qualified parity.
+effects, and currently has no user-visible failure receipt. Accepted `9deeb2f1f`
+adds bounded finalization/drain failures and a `codex_finalizer_failed` diagnostic
+at `session_hooks`. User-visible delivery and original NativeHooks cause retention
+remain qualification gaps.
 
 SDK-only event-specific output fields outside the common permission/context
 contract are delegated to the pinned SDK's blocking validation path, except for
@@ -148,16 +152,17 @@ already installed matching SDK 0.3.322, Vitest 4.1.12 and Zod 4.6.6 through loca
 dependency links; a fresh lockfile install was not performed. Test temp files and
 raw logs remain under ignored `test-results/hook-runtime/` in this checkout.
 
-| Evidence                                         | Result                                                                                          | Scope                                                                                                                                                                                                                                                                  |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Initial hook contract red run                    | 18 failed, 24 passed                                                                            | Reproduced canonical decision loss, silently ignored configuration and fail-open callback errors                                                                                                                                                                       |
-| Additional malformed-output red run              | 3 failed, 43 passed                                                                             | Reproduced invalid common permission fields                                                                                                                                                                                                                            |
-| Hook/consumer/adapter regression run             | **279 passed, 5 files**                                                                         | hook-bridge, session-permission-policy, native-hooks, codex-chat-session, chat-sdk-query-adapter                                                                                                                                                                       |
-| Final hook/consumer/SDK lifecycle regression run | **315 passed, 6 files**                                                                         | The five suites above plus ordinary-local-vertex-sdk-query; verifies review corrections, safe diagnostics and ignored-event output handling                                                                                                                            |
-| Runtime qualification run                        | **729 passed; 82 failed/blocked, 11 files**; one listener error                                 | Seven suites pass entirely. 81 failures stop at disposable `git init` under TaskExecution's metadata fence; the remaining OpenShell check cannot bind supertest's local listener under `network: none`. No product assertion result is inferred from blocked fixtures. |
-| Focused TypeScript command                       | **Blocked: 1 GiB heap exhausted**, exit 134                                                     | noEmit produced no compilation artifact; full type/build validation remains for CI                                                                                                                                                                                     |
-| Lint / formatting / source artifacts             | **Passed** on the corrected source; runtime revision **v1.0.1135-hook-failure-policy**          | Registered sources retained and regenerated; not a replacement for hosted CI or exact-head review                                                                                                                                                                      |
-| Independent local read-only reviews              | Two reviews; callback failure-policy and diagnostic findings fixed and rechecked on `988d7810a` | Development reviews, not Centaur final approval                                                                                                                                                                                                                        |
+| Evidence                                         | Result                                                                                                           | Scope                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Initial hook contract red run                    | 18 failed, 24 passed                                                                                             | Reproduced canonical decision loss, silently ignored configuration and fail-open callback errors                                                                                                                                                                       |
+| Additional malformed-output red run              | 3 failed, 43 passed                                                                                              | Reproduced invalid common permission fields                                                                                                                                                                                                                            |
+| Hook/consumer/adapter regression run             | **279 passed, 5 files**                                                                                          | hook-bridge, session-permission-policy, native-hooks, codex-chat-session, chat-sdk-query-adapter                                                                                                                                                                       |
+| Final hook/consumer/SDK lifecycle regression run | **315 passed, 6 files**                                                                                          | The five suites above plus ordinary-local-vertex-sdk-query; verifies review corrections, safe diagnostics and ignored-event output handling                                                                                                                            |
+| Integrated-main regression run                   | **412 passed, 7 files**                                                                                          | The six suites above plus query-loop against accepted `9deeb2f1f`; focused integration review found no hook/permission incompatibility                                                                                                                                 |
+| Runtime qualification run                        | **729 passed; 82 failed/blocked, 11 files**; one listener error                                                  | Seven suites pass entirely. 81 failures stop at disposable `git init` under TaskExecution's metadata fence; the remaining OpenShell check cannot bind supertest's local listener under `network: none`. No product assertion result is inferred from blocked fixtures. |
+| Focused TypeScript command                       | **Blocked: 1 GiB heap exhausted**, exit 134                                                                      | noEmit produced no compilation artifact; full type/build validation remains for CI                                                                                                                                                                                     |
+| Lint / formatting / source artifacts             | **Passed** on corrected sources; main integration advances runtime revision to **v1.0.1142-hook-failure-policy** | Registered sources retained and regenerated; not a replacement for hosted CI or exact-head review                                                                                                                                                                      |
+| Independent local read-only reviews              | Two reviews; callback failure-policy and diagnostic findings fixed and rechecked on `988d7810a`                  | Development reviews, not Centaur final approval                                                                                                                                                                                                                        |
 
 Reproduce the focused hook run after installing the lockfile dependencies in an
 authorized development checkout:
@@ -200,7 +205,7 @@ Do not substitute the current chat's model, staging or production.
 
 Qualify event firing and failure display through each enabled real SDK route,
 resolve the legacy project-setting duplicate-dispatch question and SessionEnd
-diagnostic gap, then rerun the final matrix after source acceptance, required CI
+consumer-delivery/cause-retention gap, then rerun the final matrix after source acceptance, required CI
 and exact-current-head Centaur review. Permission changes require the independent
 review specified by the landing policy. Integration, deployment and runtime
 adoption receipts must be recorded separately. This slice remains active until

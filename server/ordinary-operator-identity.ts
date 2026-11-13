@@ -15,3 +15,17 @@ export function ordinaryOperatorOwnsConversation(
     (ownerLoginId === actorLoginId || isAuthenticatedOperatorSessionId(actorLoginId))
   );
 }
+
+/** Live peers must prove both admitted identities belong to the primary realm.
+ * Unlike historical creating-login custody, an unknown live owner is not provenance. */
+export function ordinaryOperatorsShareIdentity(
+  left: string | undefined,
+  right: string | undefined,
+): boolean {
+  return (
+    !!left &&
+    !!right &&
+    (left === right ||
+      (isAuthenticatedOperatorSessionId(left) && isAuthenticatedOperatorSessionId(right)))
+  );
+}
