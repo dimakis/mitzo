@@ -48,6 +48,7 @@ export function buildSessionPermissionHooks(
     PreToolUse: [
       {
         timeout: 180,
+        onFailure: 'block',
         hooks: [
           async (input, toolUseId, options) => {
             if (input.hook_event_name !== 'PreToolUse') return {};

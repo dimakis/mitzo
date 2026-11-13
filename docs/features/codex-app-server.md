@@ -125,6 +125,11 @@ chat to obtain newly introduced tools.
 
 ## Credentials and project hooks
 
+The dated [hook support and runtime matrix](hooks-runtime-qualification.md)
+records current route eligibility. In particular, enrolled Local Mac and OpenShell
+routes do not enable project command hooks; the compatibility behavior below is
+limited to eligible legacy local routes with explicit operator trust.
+
 OpenAI API profiles use a credential reference, for example
 `{"provider":"keychain","service":"com.mitzo.openai","account":"work"}`.
 The credential resolver registry accepts additional provider implementations.
