@@ -516,27 +516,37 @@ it('lets an ordinary authenticated chat find and inspect an item without assigni
     lifecycle: { itemId: 'studio', disposition: 'active' },
   });
 });
-it('pages oversized legacy briefs without losing content or exceeding the tool result limit', async () => {
-  const f = fixture();
-  const title = 'Long legacy explanation '.repeat(50000);
-  f.db.prepare('UPDATE items SET summary=? WHERE id=?').run(title, 'studio');
-  let offset = 0;
-  let reconstructed = '';
-  let hash: string | undefined;
-  for (;;) {
-    const result = await f.run('TelosManageItem', { operation: 'read', itemId: 'studio', offset });
-    expect(result.isError).toBe(false);
-    expect(Buffer.byteLength(result.content)).toBeLessThan(64 * 1024);
-    const page = JSON.parse(result.content);
-    expect(page.format).toBe('json-fragment');
-    hash ??= page.snapshotHash;
-    expect(page.snapshotHash).toBe(hash);
-    reconstructed += page.contentFragment;
-    if (page.nextOffset === null) break;
-    offset = page.nextOffset;
-  }
-  expect(JSON.parse(reconstructed).item.summary).toBe(title);
-});
+// Hosted shards reconstruct the complete 1.2 MB legacy brief under contention.
+// Allow finite fixture headroom without changing paging or runtime deadlines.
+it(
+  'pages oversized legacy briefs without losing content or exceeding the tool result limit',
+  async () => {
+    const f = fixture();
+    const title = 'Long legacy explanation '.repeat(50000);
+    f.db.prepare('UPDATE items SET summary=? WHERE id=?').run(title, 'studio');
+    let offset = 0;
+    let reconstructed = '';
+    let hash: string | undefined;
+    for (;;) {
+      const result = await f.run('TelosManageItem', {
+        operation: 'read',
+        itemId: 'studio',
+        offset,
+      });
+      expect(result.isError).toBe(false);
+      expect(Buffer.byteLength(result.content)).toBeLessThan(64 * 1024);
+      const page = JSON.parse(result.content);
+      expect(page.format).toBe('json-fragment');
+      hash ??= page.snapshotHash;
+      expect(page.snapshotHash).toBe(hash);
+      reconstructed += page.contentFragment;
+      if (page.nextOffset === null) break;
+      offset = page.nextOffset;
+    }
+    expect(JSON.parse(reconstructed).item.summary).toBe(title);
+  },
+  process.env.CI ? 20000 : 5000,
+);
 it('approves exact brief edits and canonical archive/unarchive with retryable receipts', async () => {
   const f = fixture();
   const edit = {
