@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1108-local-knowledge-learning-gates-chat-search-integration';
+  'v1.0.1108-local-knowledge-learning-gates-chat-search-appearance-fixture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -42,11 +42,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/SearchMatchText.test.tsx':
     'd5f5d2aea36dfdf3e49f07817d3d9fdfdc5ff9c943a4200850ab4ac2dd5d8b16',
   '../../tests/offline/session-search.spec.ts':
-    '08e7a2995d74d47bbc9876a7be573180645acde07fcbc16a74b5f8c859661e5d',
+    '11533aebf1026110e73b67756f9ebc86ef75d46e213e7e82d8c126d9ae15fc78',
   '../../tests/fixtures/session-search.tsx':
     '269ed45b0f74a4f9166d1e1ec4ac7e07a4d7002f8d24317b827d7293e019a1c1',
   '../../docs/features/conversation-search.md':
-    'b7ef9dee627d3c9fd9ae2ac8e3e40d6c7a58dbcb4c3060e79a1ec9052ad771b6',
+    'f7898757f42dce450dc7d5f4254365f0f7664eb85d8a0a8d0c19011f067eb932',
   '../../packages/protocol/src/session-search-query.ts':
     'b69aed39ebbbdc0acb461c5f57c8ef783d9993c26af5b64f4dbf7a808f029c58',
   '../__tests__/session-search-relevance.test.ts':

@@ -106,3 +106,11 @@ not establish a search-related cause. All coverage, ownership checks and operati
 deadlines remain intact for the fresh combined run. Local browser discovery works,
 but the isolated executor has no matching binaries and both full/headless browser
 downloads failed with a closed CDN connection; rendered verification remains in CI.
+
+The six search journeys passed after the disclosure correction. Inspection of
+their captures then exposed missing root appearance attributes: the fixture's
+light/alternate preference labels were not reflected in its rendered theme. The
+fixture now uses the existing library fixture's explicit HTML theme/accent/font
+attributes and asserts them before interaction. The approved host executor also
+refused browser process registration when given matching cached binaries, so the
+corrected appearance captures require a fresh hosted run.

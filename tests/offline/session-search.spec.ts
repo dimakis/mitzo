@@ -101,12 +101,21 @@ for (const theme of ['dark', 'light'])
           });
         return route.fulfill({
           contentType: 'text/html',
-          body: '<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>',
+          body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
         });
       });
       await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto('/sessions');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      await expect(page.locator('html')).toHaveAttribute(
+        'data-accent',
+        theme === 'dark' ? 'mint' : 'teal',
+      );
+      await expect(page.locator('html')).toHaveAttribute(
+        'data-font',
+        theme === 'dark' ? 'system' : 'georgia',
+      );
       const drafts = page.locator('.conversation-drafts-section');
       await expect(drafts.locator('summary')).toBeVisible();
       await drafts.locator('summary').click();
