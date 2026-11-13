@@ -9,6 +9,8 @@ import {
 } from '../ordinary-local-vertex-owned-runtime.js';
 import { OrdinaryLocalVertexSdkAuthority } from '../ordinary-local-vertex-sdk-authority.js';
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 const keychain = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('../keychain-rotation-credentials.js', () => ({
@@ -228,6 +230,24 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
     });
     expect.soft(calls[1].model).toBe(models[1]);
     expect.soft(calls[1].effort).toBe('high');
+    // Inspect the actual servers composed by chat for both initial and successor
+    // protected queries, not a standalone MCP registration fixture.
+    for (const options of calls) {
+      expect(options.allowedTools).toContain('mcp__mitzo-connections__TelosCreateSession');
+      const server = options.mcpServers!['mitzo-connections'];
+      if (server.type !== 'sdk') throw Error('Protected in-process SDK server required');
+      const client = new Client({ name: 'offline-telos-discovery', version: '1' });
+      const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+      await server.instance.connect(serverTransport);
+      await client.connect(clientTransport);
+      try {
+        expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(
+          'TelosCreateSession',
+        );
+      } finally {
+        await client.close();
+      }
+    }
     await searches.at(-1)!('Synthetic search', new AbortController().signal, {
       parentSessionId: f.reservation.conversationId,
       operationId: 'search-next',

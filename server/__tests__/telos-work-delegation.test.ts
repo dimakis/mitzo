@@ -231,6 +231,66 @@ async function fixture() {
   };
 }
 
+it.each(['requested', 'allocated'] as const)(
+  'blocks create-only setup after a %s delegation, preserving recovery',
+  async (state) => {
+    const f = await fixture();
+    if (state === 'allocated') await f.owner().delegate(f.actor, f.input, f.ordinary.signal);
+    else f.work.prepareDelegation(f.input, f.actor);
+    f.reopen();
+    expect(() => f.work.sessionCreationScope(f.input.leadConversationId, 'slice')).toThrow(
+      /delegated worker attempt/,
+    );
+    expect(() =>
+      f.work.prepareRoleSetup(
+        {
+          requestId: randomUUID(),
+          itemId: 'slice',
+          role: 'worker',
+          createOnly: true,
+          expectedRevision: f.work.read('slice', f.actor).revision,
+          expectedAssignmentRevision: 0,
+          settings: f.input.settings,
+          contextSelection: f.input.contextSelection,
+        },
+        f.actor,
+      ),
+    ).toThrow(/delegated worker attempt/);
+    await expect(f.owner().delegate(f.actor, f.input, f.ordinary.signal)).resolves.toBeDefined();
+  },
+);
+
+it('blocks delegation before allocation when create-only worker setup owns the reservation', async () => {
+  const f = await fixture();
+  const setup = {
+    requestId: randomUUID(),
+    itemId: 'slice',
+    role: 'worker' as const,
+    createOnly: true,
+    expectedRevision: f.input.expectedRevision,
+    expectedAssignmentRevision: 0,
+    settings: f.input.settings,
+    contextSelection: f.input.contextSelection,
+  };
+  const original = f.work.prepareRoleSetup(setup, f.actor);
+  f.reopen();
+  await expect(f.owner().delegate(f.actor, f.input, f.ordinary.signal)).rejects.toThrow(
+    /assigned or reserved/,
+  );
+  expect(f.work.latestDelegationForHost('slice')).toBeNull();
+  expect(() =>
+    f.command('slice', {
+      operation: 'request_attempt',
+      attemptId: randomUUID(),
+      predecessorAttemptId: null,
+      leadConversationId: f.input.leadConversationId,
+      contextSnapshotId: 'not-yet-allocated',
+      configuration: { binding: f.input.settings.binding, selection: f.input.settings.selection },
+    }),
+  ).toThrow(/assigned or reserved/);
+  expect(f.work.prepareRoleSetup(setup, f.actor)).toEqual(original);
+});
+
 type WorkerCommandState =
   | 'first_reserved'
   | 'first_uncertain'

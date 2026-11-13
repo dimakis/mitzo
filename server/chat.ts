@@ -3034,6 +3034,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               'mcp__mitzo-connections__SymposiumReadProfiles',
               'mcp__mitzo-connections__SymposiumProposeProfile',
               'mcp__mitzo-connections__AgentCommunication',
+              'mcp__mitzo-connections__TelosCreateSession',
               WEB_ACCESS_SDK_TOOL,
             ]
           : [

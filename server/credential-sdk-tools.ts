@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { TelosCreateSessionInputSchema } from '@mitzo/protocol';
+import { sessionLaunchTools } from './session-launch-tools.js';
+import { telosSessionLaunchDefinition } from './telos-session-launch-tool.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
@@ -38,6 +41,7 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  TelosCreateSession: TelosCreateSessionInputSchema,
   AgentCommunication: AgentCommunicationSdkInput,
   ...sessionPromptSchemas,
   ...credentialConnectionSchemas,
@@ -134,6 +138,7 @@ export function createCredentialSdkServer(
           ]
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
+      ...(boundary ? [telosSessionLaunchDefinition] : []),
     ]).map((definition) =>
       tool(
         definition.name,
@@ -176,6 +181,31 @@ export function createCredentialSdkServer(
                     ],
                     isError: true,
                   };
+                if (definition.name === 'TelosCreateSession' && authority) {
+                  await authority.assertCurrent(signal);
+                  const result = await sessionLaunchTools({
+                    sessionId: id,
+                    session,
+                    registry,
+                    assertCurrent: () => authority.assertCurrent(signal),
+                    assertCurrentSync: () => authority.assertCurrentSync(signal),
+                  }).execute(
+                    input,
+                    signal,
+                    {
+                      turnId: runtimeId,
+                      callId: String(
+                        (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+                      ),
+                    },
+                    'TelosCreateSession',
+                  );
+                  await authority.assertCurrent(signal);
+                  return {
+                    content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+                    isError: false,
+                  };
+                }
                 if (definition.name === 'AgentCommunication' && boundary?.agentCommunication) {
                   await authority!.assertCurrent(signal);
                   const peerInput = AgentCommunicationSdkInput.parse(input);

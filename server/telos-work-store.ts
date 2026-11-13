@@ -857,6 +857,7 @@ export class TelosWorkStore {
           return { rejection: rejected.reason };
         }
         this.assertLifecycleActive(input.itemId);
+        if (input.createOnly && input.role === 'worker') this.assertNoDelegatedWorker(input.itemId);
         if (input.role === 'worker') this.assertControlAction(input.itemId, 'new_worker_dispatch');
         const reason =
           this.snapshot(input.itemId).revision !== input.expectedRevision
@@ -1339,6 +1340,7 @@ export class TelosWorkStore {
         throw new TelosWorkError('unauthorized', 'The current assigned ordinary lead is required');
       if (child.assignments.some((assignment) => assignment.role === role))
         conflict('This work already has an assigned session. Recover its existing assignment.');
+      if (role === 'worker') this.assertNoDelegatedWorker(childItemId);
       return {
         version: 1 as const,
         parentItemId: parentId,
@@ -1819,6 +1821,7 @@ export class TelosWorkStore {
     input: Extract<TelosWorkCommand, { operation: 'request_attempt' }>,
     actorId: string,
   ) {
+    this.assertNoWorkerRoleReservation(input.itemId);
     const child = this.item(input.itemId);
     if (!child.parent_id) invalid('Delegation requires an exact child item');
     const lead = this.json<TelosWorkAssignment>(
@@ -1903,6 +1906,29 @@ export class TelosWorkStore {
     }));
   }
   /** Scoped host capability: a bound lead may request only its exact child. */
+  private assertNoDelegatedWorker(itemId: string) {
+    if (this.db.prepare('SELECT 1 FROM telos_work_attempts WHERE item_id=? LIMIT 1').get(itemId))
+      conflict(
+        'This work has a delegated worker attempt. Recover its original allocation or use explicit delegation retry.',
+      );
+  }
+
+  private assertNoWorkerRoleReservation(itemId: string) {
+    if (
+      this.db
+        .prepare(
+          `SELECT 1 FROM telos_work_role_setups
+        WHERE (receipt IS NULL OR json_extract(intent,'$.input.createOnly')=1)
+        AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')='worker'
+        LIMIT 1`,
+        )
+        .get(itemId)
+    )
+      conflict(
+        'This worker role is assigned or reserved by role setup. Recover the original session creation.',
+      );
+  }
+
   assertDelegationAuthority(intent: TelosWorkDelegationRequestIntent, actor: TelosWorkActor) {
     const input = intent.input;
     if (
@@ -1930,6 +1956,7 @@ export class TelosWorkStore {
       )
       .get(intent.attemptId);
     if (!receipt) {
+      this.assertNoWorkerRoleReservation(input.childItemId);
       this.assertLifecycleActive(input.childItemId);
       this.assertControlAction(input.leadItemId, 'new_worker_dispatch');
       for (const pin of intent.recordRevisions) {
