@@ -6,6 +6,7 @@ import { AgentMessageSendSchema, agentMessagePrompt, type AgentMessage } from '@
 import {
   checkSkillPolicy,
   throwIfApprovalExpired,
+  expiredApprovalToolResult,
   type ManagedSession,
   type SessionRegistry,
 } from '@mitzo/harness';
@@ -158,8 +159,9 @@ export async function executeAgentCommunicationTool(
   try {
     return { content: JSON.stringify(await work()), isError: false };
   } catch (error) {
+    const expired = expiredApprovalToolResult(error);
     const diagnostic = {
-      ...agentCommunicationDiagnostic(error),
+      ...(expired ? JSON.parse(expired.content) : agentCommunicationDiagnostic(error)),
       conversationId: context.conversationId,
       ...(z.uuid().safeParse(context.requestId).success ? { requestId: context.requestId } : {}),
       ...(typeof context.recipientConversationId === 'string' &&
@@ -167,7 +169,7 @@ export async function executeAgentCommunicationTool(
         ? { recipientConversationId: context.recipientConversationId }
         : {}),
     };
-    log.warn('Agent communication operation refused or unconfirmed', diagnostic);
+    if (!expired) log.warn('Agent communication operation refused or unconfirmed', diagnostic);
     const failure = { content: JSON.stringify(diagnostic), isError: true };
     internalFailures.set(failure, error);
     return error instanceof Error ? copyCallbackOutcome(error, failure) : failure;

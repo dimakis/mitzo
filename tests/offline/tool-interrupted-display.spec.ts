@@ -96,7 +96,10 @@ for (const theme of ['dark', 'light'] as const)
     }));
     expect(neutral.animation).toBe('none');
     expect(neutral.color).toBe(neutral.muted);
-    await page.screenshot({ path: info.outputPath('interrupted-consumers.png'), fullPage: true });
+    await page.screenshot({
+      path: info.outputPath('approval-timeout-consumers.png'),
+      fullPage: true,
+    });
     await page.keyboard.press(key);
     await page.keyboard.press(key);
     const commandToggle = command.getByRole('button', { name: /Bash.*Interrupted/ });
@@ -126,7 +129,10 @@ for (const theme of ['dark', 'light'] as const)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       isMobile ? 320 : 1280,
     );
-    await page.screenshot({ path: info.outputPath('late-real-output.png'), fullPage: true });
+    await page.screenshot({
+      path: info.outputPath('approval-timeout-late-output.png'),
+      fullPage: true,
+    });
     expect(errors).toEqual([]);
     expect(unexpected).toEqual([]);
   });

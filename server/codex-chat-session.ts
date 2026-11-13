@@ -50,7 +50,13 @@ import {
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
 import { executeNativeTelosItemOperation } from './native-telos-item-operations.js';
 import { TELOS_WORKFLOW_INSTRUCTIONS } from './telos-workflow-instructions.js';
-import { sessionLearningGuidance, parseSessionLearningPolicy } from '@mitzo/protocol';
+import {
+  sessionLearningGuidance,
+  parseSessionLearningPolicy,
+  ToolFailureSchema,
+  toolFailure,
+  toolFailureAction,
+} from '@mitzo/protocol';
 import {
   telosBacklogDefinitions,
   isTelosBacklogTool,
@@ -4077,11 +4083,31 @@ async function openCodexChatBound(
           capabilityApprovalForConversation(options.registry, options.conversationId),
           assertCapabilityCurrent,
         );
+        const retainedResult = operation.result;
+        const failure = ToolFailureSchema.safeParse(
+          retainedResult && typeof retainedResult === 'object' && !Array.isArray(retainedResult)
+            ? retainedResult.failure
+            : undefined,
+        );
+        // Provider output may itself contain a schema-shaped "failure".
+        // Only the host's pre-dispatch journal states establish expiry.
+        const expectedExpiry =
+          operation.status === 'cancelled' && operation.failureCode === 'APPROVAL_EXPIRED'
+            ? toolFailure('approval_expired', 'approval', 'not_started')
+            : operation.status === 'failed' &&
+                operation.failureCode === 'APPROVAL_EXPIRY_CLEANUP_FAILED'
+              ? toolFailure('approval_expired', 'cleanup', 'unknown')
+              : undefined;
+        const expired =
+          expectedExpiry && failure.success && isDeepStrictEqual(failure.data, expectedExpiry);
         return {
           content: JSON.stringify({
             operationId: operation.id,
             status: operation.status,
             result: operation.result,
+            ...(expired
+              ? { failure: expectedExpiry, message: toolFailureAction(expectedExpiry) }
+              : {}),
           }),
           isError: operation.status !== 'succeeded',
         };

@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { retainAgentContextAuthority } from '../agent-context-authority.js';
 import { revokeAuthSession } from '../auth.js';
 import { callbackOutcome } from '../turn-callbacks.js';
+import { toolFailure } from '@mitzo/protocol';
+import { isApprovalTimeout } from '../../frontend/src/lib/tool-status.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
@@ -1660,7 +1662,12 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       signal: AbortSignal,
       approve: import('../connections/capabilities/types.js').CapabilityApproval,
       current?: import('../connections/capabilities/types.js').CapabilityCurrentAssertion,
-    ) => {
+    ): Promise<
+      Pick<
+        import('../connections/capabilities/types.js').CapabilityOperation,
+        'id' | 'status' | 'result' | 'failureCode'
+      >
+    > => {
       // The production service validates unknown tool input before it becomes
       // approval-card data. This session fixture supplies that already-typed
       // capability input rather than bypassing the contract with a cast.
@@ -1681,6 +1688,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
         id: 'operation-1',
         status: approved ? 'verification_pending' : 'denied',
         result: null,
+        failureCode: null,
       };
     },
   );
@@ -1847,6 +1855,78 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       expect.anything(),
       expect.any(Function),
     );
+    for (const state of [
+      {
+        status: 'cancelled',
+        failureCode: 'APPROVAL_EXPIRED',
+        phase: 'approval',
+        effectStatus: 'not_started',
+      },
+      {
+        status: 'failed',
+        failureCode: 'APPROVAL_EXPIRY_CLEANUP_FAILED',
+        phase: 'cleanup',
+        effectStatus: 'unknown',
+      },
+    ] as const) {
+      const failure = toolFailure('approval_expired', state.phase, state.effectStatus);
+      const retained = { failure, retained: 'operation receipt' };
+      invoke.mockResolvedValueOnce({
+        id: 'operation-1',
+        status: state.status,
+        failureCode: state.failureCode,
+        result: retained,
+      });
+      const expired = await executeTool(
+        tool!.name,
+        capabilityInput,
+        new AbortController().signal,
+        nativeCall,
+      );
+      expect(JSON.parse(expired.content)).toMatchObject({
+        operationId: 'operation-1',
+        result: retained,
+        failure,
+      });
+      expect(
+        isApprovalTimeout({
+          blockId: 'capability',
+          blockType: 'tool_use',
+          content: '',
+          done: true,
+          toolResult: expired.content,
+          toolError: expired.isError,
+        }),
+      ).toBe(state.effectStatus === 'not_started');
+      expect(JSON.parse(expired.content).message).toContain(
+        state.effectStatus === 'not_started'
+          ? 'Approval timed out'
+          : 'Inspect the original operation',
+      );
+    }
+    invoke.mockResolvedValueOnce({
+      id: 'operation-1',
+      status: 'verification_pending',
+      failureCode: null,
+      result: { failure: toolFailure('approval_expired', 'approval', 'not_started') },
+    });
+    const unverified = await executeTool(
+      tool!.name,
+      capabilityInput,
+      new AbortController().signal,
+      nativeCall,
+    );
+    expect(JSON.parse(unverified.content)).not.toHaveProperty('failure');
+    expect(
+      isApprovalTimeout({
+        blockId: 'capability',
+        blockType: 'tool_use',
+        content: '',
+        done: true,
+        toolResult: unverified.content,
+        toolError: unverified.isError,
+      }),
+    ).toBe(false);
     const capturedCall = invoke.mock.calls[0][3]!;
     callCurrent = false;
     await expect(capturedCall()).rejects.toThrow('Original native call expired');

@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { toolFailure, toolFailureAction } from '@mitzo/protocol';
 import { loadAccountProfiles } from './account-profiles.js';
 import { toolInputError } from './tool-input-error.js';
 import { authorizeGitHubRead } from './github-read-approval.js';
@@ -33,6 +34,7 @@ import {
 } from './workspace-runtime-private-paths.js';
 import {
   buildPermissionHandler,
+  ApprovalExpiredError,
   permissionRefusalContent,
   effectivePermissionMode,
   checkSkillPolicy,
@@ -581,6 +583,20 @@ export function createNativeToolExecutor(
       );
       return result(operation.content, operation.is_error);
     } catch (err: unknown) {
+      if (err instanceof ApprovalExpiredError && !signal.aborted) {
+        const failure = toolFailure(
+          'approval_expired',
+          'approval',
+          executionStarted ? 'unknown' : 'not_started',
+        );
+        return refused(
+          permissionRefusalContent({
+            behavior: 'deny',
+            message: toolFailureAction(failure),
+            failure,
+          }),
+        );
+      }
       const failure = refused(
         signal.aborted
           ? 'Tool execution cancelled'
