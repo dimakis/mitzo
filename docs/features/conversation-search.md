@@ -114,3 +114,12 @@ fixture now uses the existing library fixture's explicit HTML theme/accent/font
 attributes and asserts them before interaction. The approved host executor also
 refused browser process registration when given matching cached binaries, so the
 corrected appearance captures require a fresh hosted run.
+
+Candidate `5f17058d` passed the native repository workflow with its original
+30-second helper limit, all unit shards, all browser/layout shards and Swift
+builds. Corrected phone/desktop captures were inspected in both appearance
+variants. One Telos composition case reached its default five-second composer
+readiness wait before its composer appeared in the failure capture. That cold
+page-readiness assertion now allows 15 seconds only in CI and retains five
+seconds locally; every operation, approval and authorization deadline is unchanged.
+The final candidate also integrates the accepted Symposium picker fix `9147f18f`.

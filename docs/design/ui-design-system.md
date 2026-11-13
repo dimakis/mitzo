@@ -1722,6 +1722,13 @@ The dialog body scrolls independently of the heading/footer; narrow participant
 names truncate instead of increasing header height. Checkbox/radio geometry is
 explicitly bounded so the shared full-width input rule cannot push labels offscreen.
 
+Participant dialogs own their profile, account/model and repository editors.
+`ConversationAgents` clears the source chat's quick-settings navigation context
+at its boundary: React portals retain context, and otherwise these editors can
+project into the source chat's hidden settings slots. Verify Add agent inside
+`WorkspaceControls`, as well as in standalone dialog fixtures. Closing or editing
+participant setup must preserve the source chat's settings and drafts.
+
 Ordinary chat retains its actual `ChatInput`, voice, attachments, commands, resources,
 queue and lifecycle controls. `ComposerResponders` adds an explicit stable-ID @
 selection without replacing that input. The retained native adapter also renders

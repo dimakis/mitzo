@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1108-local-knowledge-learning-gates-chat-search-appearance-fixture';
+  'v1.0.1110-symposium-accepted-base-integration-search-readiness-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -46,12 +46,16 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/session-search.tsx':
     '269ed45b0f74a4f9166d1e1ec4ac7e07a4d7002f8d24317b827d7293e019a1c1',
   '../../docs/features/conversation-search.md':
-    'f7898757f42dce450dc7d5f4254365f0f7664eb85d8a0a8d0c19011f067eb932',
+    'c65ba37a2fc677627385c2ee77aa2da75302c39e614dbfee742cc1e45e3cc376',
   '../../packages/protocol/src/session-search-query.ts':
     'b69aed39ebbbdc0acb461c5f57c8ef783d9993c26af5b64f4dbf7a808f029c58',
   '../__tests__/session-search-relevance.test.ts':
     '037e1c93f176dd794039425e1400f7739b6ad593a6bb205e689d90defb9caf27',
 
+  '../../frontend/src/components/__tests__/ConversationAgents.settings-scope.test.tsx':
+    'a0d693a1b69e6cd88ff70ece610d44018966e7b72dfeab567d0ef3ae755d7216',
+  '../../tests/offline/symposium-dialog-controls.spec.ts':
+    '463edab4433a48a25a88a62ecd4db9024706a732979009de33883bc5da2776a9',
   '../published-host-knowledge.ts':
     '86e2d852fe6904e90d07ffbf2908ab59d82c7f10a1eda92dd6af3be47a78b52f',
   '../__tests__/published-host-knowledge.test.ts':
@@ -581,11 +585,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/symposium-recording-runtime.ts':
     'a4abaac2bb70cce41376bc1fe62d1bba1d6c98e6a9fdc9b93bbc265c7084390f',
   '../../tests/fixtures/symposium-composer.tsx':
-    '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
+    '7c7e35320372a92967305a1751af602b4217545d0f476b8fbdd9f0555ee77598',
   '../../tests/offline/symposium-composer.spec.ts':
     '9867fcbd4ae751f7b53115b63b8b3914bb80e054da5970be8e35657afc6f72cb',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '1dcd890db409899cac120e8672a1bc3d405eae42a519def4abaca0d30e579ae4',
+    '3d83362710f7cb8c902d2e009268434a3793472f9d666d3e4e976f042847cbc0',
   '../../docs/features/symposium.md':
     '4c3e122d0780454a2519a68129bda931d42091d4201dca074d0e42e4c1527f94',
   '../repository-capability-identity.ts':
@@ -1064,7 +1068,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '8f462b595fd5f5a89b322f6f7df3373521ed8dc62374c806e08dd67a4c872332',
+    '5a03773bc670981f279037304a627c59b62f376d1a94e504d8eb08c16330f6aa',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
@@ -2258,9 +2262,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../frontend/src/components/ConversationAgents.tsx':
-    'bd7e540ae5ba585321b99e85ff2c4faa5f9b75a8fc29a7197450960d064c56f0',
+    'a5aed45759683fa3d016d3b5bfa7871f23a5f93a737b89cb6adc14e62c1cb407',
   '../../frontend/src/components/ConversationAgents.css':
-    '97abcd1b2160b64af5d72959ed79c3bfdde8d802cc0825e319ecac67b73f413b',
+    '4d55b9160bc2bfed0f1a101026772fc7e5a8506b2679b12764e06e03ec972e3c',
   '../../frontend/src/components/ComposerResponders.tsx':
     'b4bd7467859874c67e8bdac851ddc94cd71f9b4abfcf4ca7fd3437775c71be36',
   '../../frontend/src/components/ComposerResponders.css':
@@ -3853,7 +3857,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-source-current-auth.test.ts':
     'a8a7077e148616c7f7d2580f7cb6cf9816105eeff05fc8758457a610bfab74de',
   '../../tests/integration/telos-s5b/native-role-composition.contract.ts':
-    '4d09a3574a9e98c1e955f6fa9bf6ea57884ee3c51c8723d81ce94ae2de35afa3',
+    '8b63d98ede9a1b3d8aa5d7b28859b7bb88e16b8d00dc756d89a165839844b666',
   '../../tests/integration/telos-s5b/vitest.native-role-composition.config.ts':
     'c374e77ec8ab38eae6f3c1942f2afa350bc50c994660bc13516d98dfcaf9c830',
   '../../tests/integration/telos-s9/model-readiness/model-readiness.contract.ts':
