@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1120-claude-native-login';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1121-claude-recovery-controls';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -305,7 +306,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-library.css':
     '8c2f966cff8bb09147f1cd6f3d162c38689e1b89739d566d3c0a63dfa11d4086',
   '../../frontend/src/styles/workspace.css':
-    'b2dd47445221bc9b08c740ef1186f6c82a7bb942c4f28a7c2f4eb0968a38fa1c',
+    'b771e9b97b5c006092d67d592f765e0d5ac7659f13669ee0d109bfe8ac477d8f',
   '../../tests/offline/ui-response-stability.spec.ts':
     '544027d3c03ca45032b8b4202800c3663bba2670baca31da5f43bfaf5b3733fb',
   '../telos-authority-diagnostic.ts':
@@ -1044,7 +1045,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    'b970fb0ed79439b9523ba845d11efca3ef9d935284878668e9e7fa4a84e668ca',
+    '61663a81a328e1726f45dc6bedc085600b94a68948e62a22702625c9f9eb0ff9',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':

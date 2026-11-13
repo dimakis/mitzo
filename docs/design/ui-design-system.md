@@ -43,7 +43,7 @@ unsent Local Mac draft and leaves account defaults unchanged.
 
 Fresh Claude setup excludes saved accounts and their previous reconnect failures.
 Manage account offers an explicit Remove account confirmation using the shared
-Connections action group. Removal forgets the selected enrollment, preserves
+Connections action group with the shared `--control-height` touch target. Removal forgets the selected enrollment, preserves
 native files and chat history, and returns to fresh setup with a new native
 directory. Pending sign-in and unconfirmed cleanup block removal. Lost removal
 acknowledgements recover through status; repeated removal is idempotent. Mutations
