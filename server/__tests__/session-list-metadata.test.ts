@@ -102,6 +102,10 @@ describe('session list metadata', () => {
       expect(sessionConversationNavigation(f.events, 'old-worker', undefined, read)).toMatchObject({
         parentConversationId: 'feature',
         workRole: { level: 'slice', assignment: 'current' },
+        conversationAncestors: [
+          { id: 'feature', parentConversationId: 'outcome' },
+          { id: 'outcome' },
+        ],
       });
       assign(slice.id, 'worker', 'new-worker', 1);
       expect(sessionConversationNavigation(f.events, 'new-worker', undefined, read)).toMatchObject({

@@ -28,6 +28,7 @@ export function sessionConversationNavigation(
     | 'treeUnavailable'
     | 'workRole'
     | 'parentRelationship'
+    | 'conversationAncestors'
   >
 > {
   try {
@@ -48,6 +49,7 @@ export function sessionConversationNavigation(
     let parentId = role?.leadConversationId ?? origin?.();
     let parentRelationship: Session['parentRelationship'] = role ? 'retained_setup' : 'creation';
     let workRole: Session['workRole'];
+    const ancestors: NonNullable<Session['conversationAncestors']> = [];
     if (role && readWork) {
       const { work, item } = readWork(role.itemId);
       title = item.summary;
@@ -66,9 +68,32 @@ export function sessionConversationNavigation(
       // A retained source/lead reference is provenance, never current ownership.
       parentId = undefined;
       if (current && work.parentId) {
-        const parentWork = readWork(work.parentId).work;
-        parentId = parentWork.assignments.find((a) => a.role === 'lead')?.conversation
-          .conversationId;
+        const seen = new Set([role.itemId]);
+        const conversations = new Set([sessionId]);
+        let next: string | null = work.parentId;
+        while (next) {
+          if (seen.has(next) || seen.size >= 32) throw Error('Invalid retained work ancestry');
+          seen.add(next);
+          const parentWork = readWork(next);
+          const id = parentWork.work.assignments.find((a) => a.role === 'lead')?.conversation
+            .conversationId;
+          const parentMeta = id ? events.getSession(id) : undefined;
+          if (!id || !parentMeta || parentMeta.isHidden) break;
+          if (conversations.has(id)) throw Error('Ambiguous assigned conversation ancestry');
+          conversations.add(id);
+          ancestors.push({
+            id,
+            summary: parentMeta.manuallyRenamed
+              ? parentMeta.summary || 'Untitled conversation'
+              : parentWork.item.summary,
+          });
+          next = parentWork.work.parentId;
+        }
+        for (let i = 0; i < ancestors.length - 1; i++) {
+          ancestors[i].parentConversationId = ancestors[i + 1].id;
+          ancestors[i].parentConversationTitle = ancestors[i + 1].summary;
+        }
+        parentId = ancestors[0]?.id;
         parentRelationship = 'assignment';
       } else if (!assignment) {
         parentId = role.leadConversationId;
@@ -78,10 +103,12 @@ export function sessionConversationNavigation(
     return {
       ...(title && !meta.manuallyRenamed ? { summary: title } : {}),
       ...(workRole ? { workRole } : {}),
+      ...(ancestors.length ? { conversationAncestors: ancestors } : {}),
       ...(parent && !parent.isHidden
         ? {
             parentConversationId: parent.sessionId,
-            parentConversationTitle: parent.summary || 'Parent conversation',
+            parentConversationTitle:
+              ancestors[0]?.summary || parent.summary || 'Parent conversation',
             parentRelationship,
           }
         : {}),

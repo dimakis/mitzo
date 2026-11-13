@@ -140,12 +140,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/test-native-notification-boot.py':
     'aba93b03f0408a51b39c68ec1d9e9fdc008ccadd6aefe6d8c34fbd02125ca72b',
   '../__tests__/session-list-metadata.test.ts':
-    'f77189020fcb8fa85264d8f61eea8f916476e3ed286a0aede9e70077ba67ef0c',
+    '32f2d170e30c6fe19c1dcfb98db3a33b44b1f5b945a8fb8d7f283643d79e716c',
   '../../frontend/src/lib/__tests__/session-activity.test.ts':
     '9c3261d144afafe456a87ca3caaba062873fb044d3747ad4dfd32945253fef52',
   '../../frontend/src/pages/__tests__/SessionListModel.test.tsx':
     '87cd300cff072eb50705c26f7fda1dd5c744b9d7ae0f4b921fcfaceb3abec083',
-  '../session-list-metadata.ts': 'caff74843b19d4f1329cd99a18f49fab588b01046a9555e16750ab4fd41bda64',
+  '../session-list-metadata.ts': '0e8990b34944234f36d09bc57b674b7e504c5de5795bf130fc56d5c97a512407',
   '../sdk-query-retirement.ts': 'a4f82c8f91373d89da95cf52c7e107914118b0cc755116c9817365b71d9b1bc9',
   '../__tests__/sdk-query-retirement.test.ts':
     'a246e6d487e2a124872b6680c6b2f242fba438631468172c0177b26efd36304f',
@@ -2814,7 +2814,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-runtime-binding.ts':
     '2454d7f2dc89514b409551ab2bd2d8f9f28e89ce33749450ac7b312ac87ac7ff',
   '../../packages/protocol/src/types.ts':
-    '093b055651d6a09114620c5473c5c7986757fd3b90946eb3fb79d6f321345327',
+    'e7939afb5c7ec12fdb85463da5959bc505151115b8b8e417b2ab10cd483bfa48',
   '../repository-workspace-runtime.ts':
     '76a17102a6d06667635c00c2dd9244f8f8fe576c8827b13460f0ba28c50b5185',
   '../repository-workspace-router.ts':

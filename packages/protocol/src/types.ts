@@ -379,6 +379,10 @@ export interface Session {
   /** Navigation metadata only; never task, runtime or transcript authority. */
   parentConversationId?: string;
   parentConversationTitle?: string;
+  /** Authorized navigation stubs retain ancestry beyond the current list page. */
+  conversationAncestors?: Array<
+    Pick<Session, 'id' | 'summary' | 'parentConversationId' | 'parentConversationTitle'>
+  >;
   treeUnavailable?: boolean;
   parentRelationship?: 'assignment' | 'creation' | 'retained_setup';
   workRole?: {

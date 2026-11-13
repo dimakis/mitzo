@@ -10,6 +10,14 @@ export interface ConversationTreeNode {
 export function conversationTree(sessions: Session[]): ConversationTreeNode[] {
   const nodes = new Map<string, ConversationTreeNode>();
   for (const session of sessions) nodes.set(session.id, { session, children: [] });
+  for (const session of sessions)
+    for (const ancestor of session.conversationAncestors ?? [])
+      if (!nodes.has(ancestor.id))
+        nodes.set(ancestor.id, {
+          session: { ...ancestor, lastModified: session.lastModified },
+          children: [],
+          unloaded: true,
+        });
   const roots: ConversationTreeNode[] = [];
   for (const node of [...nodes.values()]) {
     const parentId = node.session.parentConversationId;

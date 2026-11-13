@@ -2,6 +2,58 @@
   "version": 1,
   "surfaces": [
     {
+      "id": "chat-tree",
+      "activeRevision": "outcome-feature-slice-2026-11-13",
+      "revisions": [
+        {
+          "id": "outcome-feature-slice-2026-11-13",
+          "approvedBy": "Dimitri (explicit implementation request after mock revision 2)",
+          "approvedOn": "2026-11-13",
+          "approval": {
+            "thread": "226f25b5-fdd8-8db0-905b-548b7b989cfd",
+            "quote": "lets abuild it",
+            "scope": "Tree navigation in the desktop sidebar and Conversations page; outcome orchestrator, feature lead and slice worker hierarchy, standalone features and each chat's own runtime details. Mock content and simulated messages do not replace the product's chat or composer."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-tree/navigation.html",
+              "sha256": "3b639d5d666743ef07e19cb45fa4ad5446bc85a4b9ea0ec39f93adaf729469cc"
+            }
+          ],
+          "invariants": [
+            "Tree is an additive view; preserve existing filters, pins, actions, composer drafts and navigation owners.",
+            "Use current canonical assignments for outcome to feature to slice navigation; preserve previous assignments and distinguish retained setup from current ownership.",
+            "Independent chats and standalone features remain roots. Missing pages, unknown runtime details and relationship failures must not hide known chats.",
+            "Each chat retains its own agent, model, engine, execution location and permissions. Navigation grants no execution or transcript authority.",
+            "Reuse ordinary rows, semantic appearance tokens, MotionDetails, UiIcon, SessionActivityStatus, keyboard focus and shared touch targets."
+          ],
+          "sources": [
+            "frontend/src/components/ConversationTree.tsx",
+            "frontend/src/components/ConversationTree.css",
+            "frontend/src/lib/conversation-tree.ts",
+            "frontend/src/components/SessionPanel.tsx",
+            "frontend/src/pages/SessionList.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/ConversationTree.test.tsx",
+            "server/__tests__/session-list-metadata.test.ts",
+            "tests/offline/session-library.spec.ts"
+          ],
+          "validation": "docs/features/telos-worker-start.md",
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/ConversationTree.test.tsx",
+              "sha256": "37e927b27268be2c4b3aa307772d545fbe854bad6db6d6afce4899c3037e9108"
+            },
+            {
+              "path": "tests/offline/session-library.spec.ts",
+              "sha256": "aa4076d6c3b61407007d8e722b7cf4a98cf65a580c399af46a91a05243c8c249"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "enmaas-account",
       "activeRevision": "automatic-models-2026-11-12",
       "revisions": [

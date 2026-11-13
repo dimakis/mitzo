@@ -37,6 +37,30 @@ it('retains every chat once if historical parent metadata contains a cycle', () 
     nodes.flatMap((node) => [node.session.id, ...ids(node.children)]);
   expect(ids(tree).sort()).toEqual(['lead', 'other', 'worker']);
 });
+it('retains the full outcome path when both lead chats are outside the loaded page', () => {
+  const tree = conversationTree([
+    {
+      id: 'slice',
+      summary: 'Architecture',
+      lastModified: 1,
+      parentConversationId: 'feature',
+      parentConversationTitle: 'Monitoring',
+      conversationAncestors: [
+        { id: 'outcome', summary: 'PR delivery' },
+        {
+          id: 'feature',
+          summary: 'Monitoring',
+          parentConversationId: 'outcome',
+          parentConversationTitle: 'PR delivery',
+        },
+      ],
+    },
+  ]);
+  expect(tree[0].session.id).toBe('outcome');
+  expect(tree[0].unloaded).toBe(true);
+  expect(tree[0].children[0].session.id).toBe('feature');
+  expect(tree[0].children[0].children[0].session.id).toBe('slice');
+});
 it('offers direct navigation, disclosure controls, current-chat indication and live status', () => {
   const select = vi.fn();
   render(<ConversationTree sessions={sessions} onSelect={select} selectedId="worker" />);
