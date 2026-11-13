@@ -315,6 +315,59 @@ it('reviews the exact work and context in the originating dialog and creates wit
   });
 });
 
+it('reviews the named existing chat with locked settings and an explicit adoption action', async () => {
+  const work = { ...proposal, ...telosSessionLaunchFixture() };
+  work.telos.adoption = {
+    conversationId: 'existing',
+    title: 'Retained design discussion',
+    workspaceId: 'a3eb433a-acf5-45a8-a629-3c6c6c3fb439',
+    expectedEpoch: 0,
+    custodyHash: 'd'.repeat(64),
+  };
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ ...work, state: 'assigned', childSessionId: 'existing' })),
+  );
+  const onUpdate = vi.fn();
+  render(<SessionLaunchCards requests={[work]} onUpdate={onUpdate} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review existing chat' }));
+  expect(
+    screen.getByRole('link', { name: 'Retained design discussion' }).getAttribute('href'),
+  ).toBe('/chat/existing');
+  expect(screen.queryByLabelText('Save configuration as default')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Approve & adopt' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Approve & create' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Approve & adopt' }));
+  await waitFor(() => expect(onUpdate).toHaveBeenCalled());
+  const body = JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string);
+  expect(body.configuration).toEqual(configuration);
+  expect(body.saveAsDefault).toBe(false);
+});
+
+it('reviews safe release and keeps a refusal visible without claiming cancellation', async () => {
+  const work = { ...proposal, ...telosSessionLaunchFixture(), state: 'uncertain' as const };
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ error: 'Original allocation exists; recover it.' }), {
+      status: 409,
+    }),
+  );
+  render(<SessionLaunchCards requests={[work]} onUpdate={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review release' }));
+  expect(screen.getByRole('dialog', { name: 'Release unfinished reservation' })).toBeTruthy();
+  expect(apiFetch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Approve release' }));
+  await waitFor(() =>
+    expect(
+      screen
+        .getAllByRole('alert')
+        .some((alert) => alert.textContent?.includes('Original allocation exists')),
+    ).toBe(true),
+  );
+  expect(vi.mocked(apiFetch).mock.calls[0][0]).toBe(
+    '/api/session-launch/requests/proposal/release',
+  );
+  expect(screen.getByRole('status').textContent).toContain('unconfirmed');
+});
+
 it('keeps assigned readiness distinct from execution and offers recovery for uncertain work', () => {
   const work = { ...proposal, ...telosSessionLaunchFixture() };
   const view = render(

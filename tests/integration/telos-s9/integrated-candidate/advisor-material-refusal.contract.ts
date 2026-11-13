@@ -167,12 +167,12 @@ it('refuses an actual UI-reviewed role material selection when retained r1 is pa
       if (!(error instanceof Error) || !('status' in error) || !('code' in error)) throw error;
       refusal = { status: error.status, code: error.code, message: error.message };
     }
-    // Existing role-review hash refusal maps the owner error to this generic
-    // unavailable response. This does not qualify the error taxonomy/UI copy.
+    // A stale retained artifact is an expected integrity conflict. Unexpected
+    // storage failures retain their separate unavailable response and logging.
     expect(refusal).toEqual({
-      status: 503,
-      code: 'unavailable',
-      message: 'Ordinary role setup unavailable',
+      status: 409,
+      code: 'conflict',
+      message: 'Selected retained artifact unavailable',
     });
     expect(JSON.stringify(refusal)).not.toContain(baseline.originalMaterialText);
     expect(JSON.stringify(refusal)).not.toContain(baseline.originalText);

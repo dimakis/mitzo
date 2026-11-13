@@ -9,12 +9,23 @@ import { TelosWorkDelegationInputSchema } from './telos-work-delegation.js';
 import { TelosWorkRolePresentationRefSchema } from './telos-work-role-presentation.js';
 
 /** Explicit V2 entry points. Existing repository/collaboration V1 stays strict. */
+export const TelosExistingChatAdoptionSchema = z.strictObject({
+  conversationId: TelosWorkIdSchema,
+  workspaceId: z.uuid(),
+  expectedEpoch: z.number().int().nonnegative().safe(),
+  custodyHash: z.string().regex(/^[a-f0-9]{64}$/),
+});
 export const TelosOrdinaryWorkRoleSetupInputSchema = z
   .strictObject({
     ...TelosWorkRoleSetupInputSchema.shape,
     version: z.literal(2),
     settings: OrdinaryWorkspaceSettingsSchema,
+    adoption: TelosExistingChatAdoptionSchema.optional(),
   })
+  .refine(
+    (value) => !value.adoption || value.createOnly === true,
+    'Existing-chat adoption requires an unassigned role reservation',
+  )
   .refine(
     (value) => ['lead', 'worker'].includes(value.role) || value.expectedAssignmentRevision === null,
     'Invalid role assignment selection',

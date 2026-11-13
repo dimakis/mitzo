@@ -28,6 +28,11 @@ import {
   type AccountBinding,
 } from '@mitzo/protocol';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+import {
+  assertCodexApiProviderConfiguration,
+  codexApiProvider,
+  type CodexApiProvider,
+} from './codex-api-provider.js';
 import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
 import { tracer } from './tracing.js';
@@ -476,6 +481,10 @@ export class CodexAppServerClient {
   private buffer = Buffer.alloc(0);
   private bufferedBytes = 0;
   private closed = false;
+  private readonly resourceCloses: Promise<void>[] = [];
+  private readonly hostSettlements = new Set<Promise<void>>();
+  private resourceDrain?: Promise<void>;
+  private closeFailure?: { cause: unknown };
   private checkingHostResponse = false;
   private ready = false;
   private initializing?: Promise<void>;
@@ -489,6 +498,8 @@ export class CodexAppServerClient {
   private readonly timeoutMs: number;
   private readonly loginOnly: boolean;
   private readonly observeTurnStartWrite?: TurnInputWriteObserver;
+  readonly modelProvider?: string;
+  private readonly apiProvider?: CodexApiProvider;
 
   constructor(
     private child: RpcProcess,
@@ -501,9 +512,14 @@ export class CodexAppServerClient {
       environmentLaunch?: { create: () => RpcProcess };
       /** Trusted opt-in metadata observer; prepared persistence must succeed before write. */
       observeTurnStartWrite?: TurnInputWriteObserver;
+      /** Trusted launcher selection; never read from provider notifications. */
+      modelProvider?: string;
+      apiProvider?: CodexApiProvider;
     } = {},
   ) {
     this.lifecycle = options.lifecycle;
+    this.modelProvider = options.modelProvider;
+    this.apiProvider = options.apiProvider;
     this.observeTurnStartWrite = options.observeTurnStartWrite;
     this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
@@ -513,6 +529,9 @@ export class CodexAppServerClient {
   }
 
   private bindChild(child: RpcProcess) {
+    // `exit` and registry removal do not prove stdio/resource retirement. Keep
+    // every process generation, including an environment-refresh predecessor.
+    this.resourceCloses.push(new Promise<void>((resolve) => child.once('close', resolve)));
     const current = () => child === this.child && !this.retiredChildren.has(child);
     child.stdout.on('data', (chunk: Buffer) => {
       if (current()) this.receive(chunk);
@@ -756,12 +775,7 @@ export class CodexAppServerClient {
     preflightExecutable?: string,
     connection?: ApiHarnessConnection,
   ) {
-    const selected =
-      authentication === 'api'
-        ? apiHarnessConnection(
-            connection ? ApiHarnessConnectionSchema.parse(connection) : undefined,
-          )
-        : undefined;
+    const provider = authentication === 'api' ? codexApiProvider(connection) : undefined;
     const env = codexEnvironment(credentialRef, base);
     const executablePath = executable?.path ?? preflightExecutable;
     observeLocalCodexSyncPhase('native_version_check', () =>
@@ -776,11 +790,9 @@ export class CodexAppServerClient {
           '--stdio',
           '-c',
           `forced_login_method="${authentication}"`,
-          '-c',
-          'model_provider="openai"',
-          ...(authentication === 'api'
-            ? ['-c', `openai_base_url=${JSON.stringify(selected!.endpoint)}`]
-            : []),
+          ...Object.entries(provider?.configuration ?? { model_provider: 'openai' }).flatMap(
+            ([key, value]) => ['-c', `${key}=${JSON.stringify(value)}`],
+          ),
           ...(isolated ? ['-c', 'cli_auth_credentials_store="file"'] : []),
           ...(lifecycle || authentication === 'api'
             ? Object.entries(codexRuntimeOverrides({})).flatMap(([key, value]) => [
@@ -791,7 +803,7 @@ export class CodexAppServerClient {
         ],
         { env, stdio: ['pipe', 'pipe', 'pipe'] },
       ),
-      { lifecycle },
+      { lifecycle, modelProvider: provider?.modelProvider ?? 'openai', apiProvider: provider },
     );
   }
 
@@ -817,6 +829,10 @@ export class CodexAppServerClient {
       lifecycle,
       ...(options.requiredProviderEnvironment?.length ? { environmentLaunch: { create } } : {}),
     });
+  }
+
+  validateConfiguration(configuration: unknown): void {
+    if (this.apiProvider) assertCodexApiProviderConfiguration(configuration, this.apiProvider);
   }
 
   initialize(): Promise<void> {
@@ -885,8 +901,43 @@ export class CodexAppServerClient {
     this.hostAbort.abort();
     this.hostRequests.clear();
     this.activeHostRequests.clear();
-    this.child.kill();
-    this.lifecycle?.onClose(error);
+    try {
+      this.child.kill();
+    } catch (cause) {
+      this.closeFailure = { cause };
+    }
+    try {
+      this.lifecycle?.onClose(error);
+    } catch (cause) {
+      this.closeFailure ??= { cause };
+    }
+    if (this.closeFailure) throw this.closeFailure.cause;
+  }
+
+  /** Host-only retirement proof. Never closes or interrupts an active owner.
+   * A timed-out/failed drain remains failed for this exact transport on replay. */
+  drain(timeoutMs = 5000): Promise<void> {
+    if (!this.closed) return Promise.reject(new Error('Transport must be closed before drain'));
+    if (this.resourceDrain) return this.resourceDrain;
+    this.resourceDrain = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Transport resource drain unconfirmed')),
+        timeoutMs,
+      );
+      Promise.all([...this.resourceCloses, ...this.hostSettlements]).then(
+        () => {
+          clearTimeout(timer);
+          if (this.closeFailure)
+            reject(new Error('Transport resource drain failed', this.closeFailure));
+          else resolve();
+        },
+        (cause: unknown) => {
+          clearTimeout(timer);
+          reject(new Error('Transport resource drain failed', { cause }));
+        },
+      );
+    });
+    return this.resourceDrain;
   }
 
   private sendRequest(method: string, params: JsonObject): Promise<unknown> {
@@ -1030,7 +1081,7 @@ export class CodexAppServerClient {
       }
       return !this.closed && !signal.aborted;
     };
-    Promise.resolve()
+    const settlement = Promise.resolve()
       .then(() => {
         signal.throwIfAborted();
         return this.lifecycle!.onRequest(method, params, signal, context);
@@ -1082,7 +1133,11 @@ export class CodexAppServerClient {
       .catch((cause: unknown) =>
         this.close(new CodexTransportError('connection', undefined, { cause })),
       )
-      .finally(() => this.activeHostRequests.delete(id));
+      .finally(() => {
+        this.activeHostRequests.delete(id);
+        this.hostSettlements.delete(settlement);
+      });
+    this.hostSettlements.add(settlement);
   }
 
   private receive(chunk: Buffer) {

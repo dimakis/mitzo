@@ -351,8 +351,15 @@ export class ApplicationCollaborationMessaging {
     });
   }
 
-  async send(auth: AuthSession, group: string, raw: unknown, signal: AbortSignal) {
+  async send(
+    auth: AuthSession,
+    group: string,
+    raw: unknown,
+    signal: AbortSignal,
+    originatingAuthority?: () => void,
+  ) {
     this.current(auth, signal);
+    originatingAuthority?.();
     const input = CollaborationMessageInputSchema.parse(raw);
     const retained = this.store.collaborationConversation.getMessageForRequest(group, input);
     if (retained) {
@@ -413,6 +420,7 @@ export class ApplicationCollaborationMessaging {
     }
     const assertCurrent = () => {
       this.current(auth, signal);
+      originatingAuthority?.();
       const membership = this.store.getSessionCollaboration(group);
       if (
         membership?.revision !== view.membershipRevision ||

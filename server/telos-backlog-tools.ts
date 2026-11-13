@@ -19,6 +19,8 @@ import {
 } from './telos-workflow-instructions.js';
 import { createLogger } from './logger.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
+import type { EventStore } from './event-store.js';
+import { telosWorkContext } from './telos-work-observation.js';
 
 export const telosBacklogSchemas = {
   TelosListItems: TelosListItemsInputSchema,
@@ -97,6 +99,8 @@ export async function executeTelosBacklogOperation(
     context: TelosBacklogContext;
     items: TelosItemStore;
     work: TelosWorkStore;
+    events?: EventStore;
+    isConversationLive?(id: string): boolean;
     approve(
       name: TelosBacklogToolName,
       input: Record<string, unknown>,
@@ -175,6 +179,16 @@ export async function executeTelosBacklogOperation(
           item: owners.items.readGuarded(input.itemId, current),
           lifecycle: owners.work.readBacklogGuarded(
             () => owners.work.readLifecycle(input.itemId, actor),
+            current,
+          ),
+          workContext: owners.work.readBacklogGuarded(
+            () =>
+              telosWorkContext(
+                owners.work.read(input.itemId, actor),
+                owners.events,
+                owners.isConversationLive,
+                owners.work.readCoordination(input.itemId, actor),
+              ),
             current,
           ),
         };

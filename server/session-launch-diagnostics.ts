@@ -10,7 +10,7 @@ export function sessionLaunchFailureCause(proposalId: string): Error | undefined
 }
 export function recordSessionLaunchFailure(
   record: RetainedSessionLaunch,
-  stage: 'preflight' | 'start' | 'resume' | 'create_assignment',
+  stage: 'preflight' | 'start' | 'resume' | 'create_assignment' | 'release_reservation',
   cause: unknown,
 ) {
   const code = `session_launch_${stage}_failed`;
@@ -23,6 +23,8 @@ export function recordSessionLaunchFailure(
     proposalId: record.proposalId,
     requestId: record.requestId,
     sourceSessionId: record.sourceSessionId,
+    operation: record.telos?.adoption ? 'adopt' : record.telos ? 'create' : 'launch',
+    targetSessionId: record.telos?.adoption?.conversationId ?? record.childSessionId,
     childSessionId: record.childSessionId,
     commandId: record.commandId,
   });

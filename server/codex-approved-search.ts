@@ -8,6 +8,7 @@ import { webSearchFailure } from './web-search-errors.js';
 
 const searchFailure = (detail: string) => webSearchFailure('native Codex', detail);
 interface Rpc {
+  validateConfiguration?(configuration: unknown): void;
   initialize(): Promise<void>;
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
   close(): void | Promise<void>;
@@ -98,6 +99,8 @@ export async function searchCodex(
     const configuration = z
       .object({ config: z.unknown() })
       .parse(await step(client.request('config/read', { cwd: options.cwd, includeLayers: false })));
+    phase = 'provider configuration rejected';
+    client.validateConfiguration?.(configuration.config);
     const config = {
       // Provider routing survives, but runtime-injected MCP definitions cannot enter
       // a thread approved only for search. Inherited servers are disabled below.

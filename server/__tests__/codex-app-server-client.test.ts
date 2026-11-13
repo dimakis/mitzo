@@ -45,6 +45,65 @@ function processStub() {
 }
 
 afterEach(() => vi.useRealTimers());
+describe('exact transport resource drain', () => {
+  it('awaits an admitted host callback after process closure without sending a late reply', async () => {
+    const { child, reply, sent } = processStub();
+    let finish!: () => void;
+    const callback = new Promise<Record<string, unknown>>((resolve) => {
+      finish = () => resolve({});
+    });
+    const client = new CodexAppServerClient(child, {
+      lifecycle: { onNotification: vi.fn(), onClose: vi.fn(), onRequest: () => callback },
+    });
+    reply({ id: 'host-drain', method: 'item/tool/call', params: {} });
+    await Promise.resolve();
+    client.close();
+    child.emit('close', 0);
+    let drained = false;
+    const pending = client.drain().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    finish();
+    await pending;
+    expect(sent).toEqual([]);
+  });
+  it('waits for stdio close after process exit and retains the same drain on replay', async () => {
+    const { child } = processStub();
+    const client = new CodexAppServerClient(child);
+    client.close();
+    let drained = false;
+    const pending = client.drain().then(() => {
+      drained = true;
+    });
+    child.emit('exit', 0);
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    child.emit('close', 0);
+    await pending;
+    await client.drain();
+    expect(child.kill).toHaveBeenCalledTimes(1);
+  });
+  it('refuses a drain while the transport can still admit requests', async () => {
+    const { child } = processStub();
+    const client = new CodexAppServerClient(child);
+    await expect(client.drain()).rejects.toThrow(/closed/i);
+    expect(child.kill).not.toHaveBeenCalled();
+    client.close();
+  });
+  it('keeps a missing process close uncertain on replay', async () => {
+    vi.useFakeTimers();
+    const { child } = processStub();
+    const client = new CodexAppServerClient(child);
+    client.close();
+    const pending = expect(client.drain(25)).rejects.toThrow(/drain/i);
+    await vi.advanceTimersByTimeAsync(25);
+    await pending;
+    child.emit('close', 0);
+    await expect(client.drain()).rejects.toThrow(/drain/i);
+  });
+});
 describe('Codex app-server transport', () => {
   it.each(['success', 'timeout', 'rejected', 'closed'] as const)(
     'ends a bounded RPC trace on %s without recording private frames or errors',

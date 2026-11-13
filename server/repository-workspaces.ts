@@ -682,6 +682,9 @@ export class RepositoryWorkspaces {
   getOrdinaryWorkspaceForOperation(operationId: string) {
     return this.ordinaryWorkspaceProvider().forOperation(operationId);
   }
+  releaseAbsentOrdinaryAllocation(operationId: string, assertAbsent: () => void): void {
+    this.ordinaryWorkspaceProvider().releaseAbsent(operationId, assertAbsent);
+  }
   validateRetainedOrdinaryWorkspace(conversationId: string) {
     return this.ordinaryWorkspaceProvider().validateRetained(conversationId);
   }
@@ -818,7 +821,10 @@ export class RepositoryWorkspaces {
       if (
         settings.repositoryWorkspaceId !== selected.id ||
         !selected.allocationOperationId ||
-        selected.agentProfile?.definition.contextRecipe !== undefined
+        (selected.agentProfile?.definition.contextRecipe !== undefined &&
+          (settings.binding.harness.implementation !== 'codex' ||
+            settings.binding.execution.location !== 'local' ||
+            selected.agentProfile.definition.contextRecipe.source === 'packs'))
       )
         throw Error('Silent ordinary preparation settings unavailable');
       const record = this.get(selected.id);

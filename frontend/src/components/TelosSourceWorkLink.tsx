@@ -11,6 +11,23 @@ import {
 import { apiFetch } from '../lib/api-fetch';
 import { TelosLinkedContext } from './TelosLinkedContext';
 import { readTelosRolePresentation } from '../lib/telos-role-presentation';
+import { z } from 'zod';
+import { eventBus } from '../lib/event-bus-singleton';
+
+const Coordination = z.object({
+  itemId: z.string(),
+  role: z.string(),
+  assignment: z.enum(['current', 'previous', 'unassigned']),
+  reportingTo: z
+    .object({
+      conversationId: z.string().min(1).max(200),
+      availability: z.string(),
+      executionPhase: z.string().nullable().optional(),
+      executionTerminalReason: z.string().nullable().optional(),
+    })
+    .nullable(),
+  diagnostic: z.string().nullable().optional(),
+});
 
 /** The compact item row is shared by the mobile and desktop ordinary chat. */
 export function TelosSourceWorkLink({
@@ -18,12 +35,34 @@ export function TelosSourceWorkLink({
   hideItemLink = false,
 }: { conversationId?: string; hideItemLink?: boolean } = {}) {
   const source = useTelosSourceNavigation();
+  const [generation, setGeneration] = useState(0);
   const [role, setRole] = useState<{
     conversationId: string;
+    generation: number;
     context?: TelosWorkRoleContextSelection;
     display?: Pick<TelosWorkRoleContextReview, 'presentation' | 'presentationRef'>;
+    leadConversationId?: string;
     error?: boolean;
   }>();
+  useEffect(() => {
+    if (source || !conversationId) return;
+    const refresh = () => setGeneration((value) => value + 1);
+    const resume = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    const offWork = eventBus.on('todo_update', refresh);
+    const offSessions = eventBus.on('sessions_changed', refresh);
+    const offConnection = eventBus.onConnectionChange((connected) => {
+      if (connected) refresh();
+    });
+    document.addEventListener('visibilitychange', resume);
+    return () => {
+      offWork();
+      offSessions();
+      offConnection();
+      document.removeEventListener('visibilitychange', resume);
+    };
+  }, [conversationId, source]);
   useEffect(() => {
     if (source || !conversationId) return;
     const controller = new AbortController();
@@ -52,13 +91,30 @@ export function TelosSourceWorkLink({
             presentationRef: TelosWorkRolePresentationRefSchema.parse(retained?.presentationRef),
           };
         }
-        if (!controller.signal.aborted) setRole({ conversationId, context, display });
+        const coordination = Coordination.safeParse(metadata.telosSessionCoordination);
+        const current = coordination.success ? coordination.data : undefined;
+        const leadConversationId =
+          context &&
+          current?.itemId === context.itemId &&
+          current.role === context.role &&
+          current.assignment === 'current' &&
+          !current.diagnostic &&
+          current.reportingTo?.availability === 'available' &&
+          current.reportingTo.executionPhase !== 'STOPPING' &&
+          !(
+            current.reportingTo.executionPhase === 'TERMINAL' &&
+            ['stopped', 'interrupted'].includes(current.reportingTo.executionTerminalReason ?? '')
+          )
+            ? current.reportingTo.conversationId
+            : undefined;
+        if (!controller.signal.aborted)
+          setRole({ conversationId, generation, context, display, leadConversationId });
       })
       .catch(() => {
-        if (!controller.signal.aborted) setRole({ conversationId, error: true });
+        if (!controller.signal.aborted) setRole({ conversationId, generation, error: true });
       });
     return () => controller.abort();
-  }, [conversationId, source]);
+  }, [conversationId, source, generation]);
   if (!source) {
     if (!conversationId || role?.conversationId !== conversationId) return null;
     if (role.error)
@@ -72,11 +128,13 @@ export function TelosSourceWorkLink({
     return (
       <div className="telos-chat-context">
         {!hideItemLink && <SessionWorkLink taskId={context.itemId} />}
-        {context.leadConversationId && (
-          <Link to={`/chat/${encodeURIComponent(context.leadConversationId)}`}>
+        {role.generation === generation && role.leadConversationId ? (
+          <Link to={`/chat/${encodeURIComponent(role.leadConversationId)}`}>
             Return to lead chat
           </Link>
-        )}
+        ) : context.role === 'worker' ? (
+          <span role="status">Current lead unavailable. Review the assignment in linked work.</span>
+        ) : null}
         <TelosLinkedContext context={context} {...role.display} />
       </div>
     );
