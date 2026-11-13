@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1138-telos-report-compatibility';
+  'v1.0.1139-telos-chooser-disambiguation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3737,7 +3737,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/run-ux-composition.mjs':
     '6aad5d14bf17409ccba6d37c7ba2bf1954eb183dd7295f95eee51c5bfc3e389b',
   '../../tests/integration/telos-s9/integrated-candidate/s8-chooser-browser.contract.ts':
-    '871f14d06ddd6ce94cfc21ee7b4ca8d2b5936ebc78071589fcd36ca04df82d64',
+    '95e368d6c413d0207a204275a2af7c1dcbda599033891f0d3f1e164558c5bedc',
   '../../tests/integration/telos-s9/integrated-candidate/source-only-outcome-browser.contract.ts':
     '5d994f5fa86fd67c122abd7ce0614ea673192acfa5af3f3753bfc683d79df09e',
   '../../tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts':

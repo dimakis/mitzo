@@ -114,10 +114,12 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
         ]);
       // Multiple chats can share the canonical item title. Their current
       // assignment labels distinguish the intended conversation in this UI.
-      const row = page.getByRole('button', {
+      let row = page.getByRole('button', {
         name: 'Open ' + entry.expectedLabel + (title ? ': ' + title : ''),
         exact: true,
       });
+      if (entry.expectedLabel === 'Additional lead conversation')
+        row = row.filter({ hasText: 'Independent reviewer' });
       await browserExpect(row).toHaveCount(1);
       assignmentLabels.push({
         stage,
@@ -327,7 +329,9 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
       targetId: f.first.request.runtime.targetId,
     },
   });
-  const previousSettings = additional.submitted.input.settings;
+  // The other device adds an ordinary collaborator. Keep the independent
+  // reviewer's visible profile distinct even when both chats share a title.
+  const previousSettings = first.submitted.input.settings;
   expect(previousSettings).toHaveProperty('version', 2);
   const reviewed = await api.reviewRoleContext({
     itemId: 'studio',
@@ -381,6 +385,7 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
         name: 'Open Additional lead conversation: ' + titleFor(additional.id),
         exact: true,
       })
+      .filter({ hasText: 'Independent reviewer' })
       .click(),
   );
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + additional.id));
