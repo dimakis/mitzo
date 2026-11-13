@@ -916,7 +916,7 @@
             },
             {
               "path": "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
-              "sha256": "d76b4d5459f08edc00cf08745d6e4485fe41be31b733baa603b526d4a8293af6"
+              "sha256": "89a9dfe1313888c6696de8431c09611411bcc44526c0afaef220c44e15391387"
             }
           ],
           "validation": "docs/features/chat-lifecycle-and-ordering.md"
