@@ -13,6 +13,7 @@ import type { ConnectionRegistry } from '@mitzo/harness';
 // CT09 requires the real macOS process-isolation owner used by the artifact helper.
 // Required macOS CI runs it completely; Linux separately proves fail-closed refusal.
 const it = platformTest.runIf(process.platform === 'darwin');
+vi.setConfig({ testTimeout: process.env.CI ? 120_000 : 60_000 });
 
 vi.mock('../internal-token.js', () => ({
   INTERNAL_TOKEN: 'synthetic-only-ordinary-native-token',

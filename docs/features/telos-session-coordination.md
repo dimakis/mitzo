@@ -24,6 +24,12 @@ The final landing integration also includes accepted main
 `23816770cc1d80b16c557dd88f7078c7cf53f163` (#1332 custom Codex API routing).
 The registry again retains both key sets. Its provider identity/configuration
 changes are qualified alongside native message and submission authority fences.
+Accepted main subsequently advanced to
+`778c55bccd17c234c4380db9545962afcc5f651c` (#1341 specialist consultations).
+Targeted integration review found no authority or startup-context conflict. Both
+manual and lead CT09 cases, their command-submission fences, and both source
+registry key sets are preserved. The combined chat, native startup, coordination
+and specialist-owner group passed 256 focused tests in five files.
 
 The supported `TelosManageItem` read confirmed the capability item is a feature
 with five direct slices. Its current brief explicitly distinguishes canonical

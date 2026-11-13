@@ -217,6 +217,7 @@ import {
   WEB_ACCESS_INSTRUCTIONS,
 } from './request-web-access.js';
 import { sessionProfileTools, profileToolDefinitions } from './session-profile-tools.js';
+import { SPECIALIST_INSTRUCTIONS } from './specialist-consultation-contract.js';
 import { sessionHistoryTools, sessionHistoryToolDefinitions } from './session-history-tools.js';
 import { captureSessionHistoryAuthorization } from './session-history-authorization.js';
 import { createWebAccessTool } from './web-access-tool.js';
@@ -2389,6 +2390,7 @@ async function openCodexChatBound(
       '\nThis scoped adviser task runs on the selected Local Mac in a fresh read-only task directory. Only the explicitly reviewed conversation is task context. Terminal access, product tools, network access and permission escalation are unavailable. Suggested commands require the user to review and run them.'
     : options.ownedLocal
       ? options.systemPrompt +
+        SPECIALIST_INSTRUCTIONS +
         (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
         (localServiceTools?.instructions ?? '') +
         (googleWorkspaceTools?.definitions.length

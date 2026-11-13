@@ -112,6 +112,7 @@ export async function fixture(options: { runOn?: 'local' | 'openshell' } = {}) {
     MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE: targetPath,
     MITZO_INTERNAL_TOKEN_PATH: join(root, 'internal-token'),
     MITZO_CODEX_PRIVATE_DIR: join(root, 'private'),
+    MITZO_CLAUDE_ACCOUNTS_DIR: join(root, 'claude-accounts'),
   }))
     vi.stubEnv(key, value);
   await mkdir(join(root, '.mitzo'), { mode: 0o700 });
