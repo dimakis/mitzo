@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ClaudeAccountStore, readManagedClaudeProfiles } from '../claude-account-store.js';
@@ -159,6 +159,43 @@ it('retains unconfirmed cleanup across host recovery and deduplicates concurrent
 });
 const auth = () => ({ id: 'browser-one', expiresAt: Date.now() + 60_000 });
 const input = () => ({ requestId: crypto.randomUUID(), label: 'Personal Claude' });
+it('removes a saved connection idempotently, keeps history and starts fresh in a new directory', async () => {
+  const f = fixture(),
+    session = auth(),
+    request = input();
+  const first = await f.host.start(session, request);
+  f.complete();
+  await vi.waitFor(() => expect(f.host.status(session, request.requestId).state).toBe('connected'));
+  const previousConfig = f.store.config(first.accountId);
+  expect(f.host.remove(session, first.accountId).accounts).toEqual([]);
+  expect(f.host.remove(session, first.accountId).accounts).toEqual([]);
+  expect(readManagedClaudeProfiles(f.root)).toEqual([]);
+  expect(existsSync(previousConfig)).toBe(true);
+  expect(f.store.attempt(request.requestId)?.state).toBe('connected');
+  expect(f.host.list(session).attempts).toEqual([]);
+  expect(() => f.store.connected(f.store.attempt(request.requestId)!, f.identity)).toThrow(
+    'removed',
+  );
+  await expect(f.host.start(session, { ...input(), accountId: first.accountId })).rejects.toThrow(
+    'Unknown Claude account',
+  );
+  const fresh = await f.host.start(session, input());
+  expect(fresh.accountId).not.toBe(first.accountId);
+  expect(f.createLogin.mock.calls.at(-1)?.[0]).not.toBe(previousConfig);
+  await f.host.cancel(session, fresh.requestId);
+});
+it('refuses removal during sign-in or after authorization loss', async () => {
+  const f = fixture(),
+    session = auth(),
+    request = input();
+  const first = await f.host.start(session, request);
+  expect(() => f.host.remove(session, first.accountId)).toThrow('Finish or cancel');
+  f.complete();
+  await vi.waitFor(() => expect(f.store.accounts()).toHaveLength(1));
+  f.revoke();
+  expect(() => f.host.remove(session, first.accountId)).toThrow('authorization');
+  expect(f.store.accounts()).toHaveLength(1);
+});
 function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-login-')));
   roots.push(root);

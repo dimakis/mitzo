@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import {
   changeClaudeLogin,
+  ClaudeAccountChangeError,
   readClaudeAccounts,
   readClaudeChatIntent,
+  removeClaudeAccount,
   type ClaudeAccountSnapshot,
   type ClaudeLoginAttempt,
 } from '../lib/claude-account-api';
@@ -28,7 +30,7 @@ const labels: Record<ClaudeLoginAttempt['state'], string> = {
 };
 
 /** Uses the shared Connections form/row pattern. Private codes live only in this mounted form. */
-export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
+export function ClaudeAccountConnection({ accountId: selectedAccountId }: { accountId?: string }) {
   const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<ClaudeAccountSnapshot | null>(null);
   const [label, setLabel] = useState('Personal Claude');
@@ -38,17 +40,33 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
   const [checking, setChecking] = useState(false);
   const [checkResults, setCheckResults] = useState<Array<{ text: string; failed: boolean }>>([]);
   const [authority, setAuthority] = useState(true);
+  const [statusConfirmed, setStatusConfirmed] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [removedAccountId, setRemovedAccountId] = useState<string | null>(null);
+  const accountId = selectedAccountId === removedAccountId ? undefined : selectedAccountId;
+  const [observedAttemptId, setObservedAttemptId] = useState<string | null>(null);
   const codeField = useRef<HTMLInputElement>(null);
   const mounted = useRef(false),
     mutation = useRef(false),
     version = useRef(0);
   const requestId = useRef<string | null>(null),
     notified = useRef(new Set<string>());
+  const startPayload = useRef<{ requestId: string; label: string; accountId?: string } | null>(
+    null,
+  );
   const checkController = useRef<AbortController | null>(null);
+  const mutationController = useRef<AbortController | null>(null);
   const attempt = [...(snapshot?.attempts ?? [])]
     .reverse()
-    .find((row) => !accountId || row.accountId === accountId);
-  const accounts = snapshot?.accounts.filter((row) => !accountId || row.id === accountId) ?? [];
+    .find((row) =>
+      accountId
+        ? row.accountId === accountId
+        : row.requestId === observedAttemptId ||
+          pending(row) ||
+          !snapshot?.accounts.some((account) => account.id === row.accountId),
+    );
+  const accounts =
+    snapshot?.accounts.filter((row) => row.id === (accountId ?? attempt?.accountId)) ?? [];
   const currentAccount =
     accounts.find((row) => row.id === attempt?.accountId) ?? (accountId ? accounts[0] : undefined);
   const busyAttempt = snapshot?.attempts.some(pending) ?? false;
@@ -72,6 +90,9 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
       const value = await readClaudeAccounts();
       if (!mounted.current || generation !== version.current) return;
       setSnapshot(value);
+      setStatusConfirmed(true);
+      const inProgress = [...value.attempts].reverse().find(pending);
+      if (inProgress) setObservedAttemptId(inProgress.requestId);
       setError('');
       setAuthority(true);
       notify(value);
@@ -86,10 +107,13 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     const lost = () => {
       version.current++;
       checkController.current?.abort();
+      mutationController.current?.abort();
+      setRemoving(null);
       setCheckResults([]);
       if (codeField.current) codeField.current.value = '';
       setCode('');
       setAuthority(false);
+      setStatusConfirmed(false);
       setError('Sign in to Mitzo again to continue.');
     };
     const restored = () => {
@@ -102,6 +126,7 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
       mounted.current = false;
       version.current++;
       checkController.current?.abort();
+      mutationController.current?.abort();
       if (codeField.current) codeField.current.value = '';
       window.removeEventListener(AUTH_LOST_EVENT, lost);
       window.removeEventListener(AUTH_RESTORED_EVENT, restored);
@@ -138,11 +163,26 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
       const value = await Promise.race([readClaudeAccounts(controller.signal), cancelled]);
       if (!current()) return;
       setSnapshot(value);
+      setStatusConfirmed(true);
       notify(value);
-      const selected = value.accounts.filter((row) => !accountId || row.id === accountId);
+      if (removing && !value.accounts.some((row) => row.id === removing)) {
+        setRemovedAccountId(removing);
+        setRemoving(null);
+        setObservedAttemptId(null);
+        requestId.current = null;
+        invalidateSymposiumAccountCatalog();
+        navigate('/connections?manage=claude', { replace: true });
+      }
+      const selected = value.accounts.filter((row) => row.id === (accountId ?? attempt?.accountId));
       const latest = [...value.attempts]
         .reverse()
-        .find((row) => !accountId || row.accountId === accountId);
+        .find((row) =>
+          accountId
+            ? row.accountId === accountId
+            : row.requestId === observedAttemptId ||
+              pending(row) ||
+              !value.accounts.some((account) => account.id === row.accountId),
+        );
       if (!selected.length || pending(latest)) {
         setCheckResults([
           {
@@ -208,12 +248,18 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     if (mutation.current || !authority) return;
     mutation.current = true;
     setBusy(true);
+    setCode('');
+    setStatusConfirmed(false);
     setError('');
     setCheckResults([]);
     const generation = ++version.current;
+    const controller = new AbortController();
+    mutationController.current = controller;
     try {
-      const row = await changeClaudeLogin(path, body);
+      const row = await changeClaudeLogin(path, body, controller.signal);
       if (!mounted.current || generation !== version.current) return;
+      setObservedAttemptId(row.requestId);
+      setStatusConfirmed(true);
       setSnapshot((current) =>
         current
           ? {
@@ -223,10 +269,63 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
           : current,
       );
       if (row.state === 'connected') await refresh();
-    } catch {
-      if (mounted.current && generation === version.current)
-        setError('Claude sign-in could not be confirmed. Check status before continuing.');
+    } catch (cause) {
+      if (mounted.current && generation === version.current) {
+        const diagnosticId =
+          (cause instanceof ClaudeAccountChangeError && cause.diagnosticId) || createBrowserId();
+        console.warn('Claude sign-in request failed', {
+          code: 'claude_sign_in_change_unconfirmed',
+          stage: 'claude_sign_in_change',
+          diagnosticId,
+          errorType: cause instanceof Error ? cause.name : 'unknown',
+        });
+        setError(
+          `Claude sign-in could not be confirmed. Check status before continuing. Reference: ${diagnosticId}`,
+        );
+      }
     } finally {
+      if (mutationController.current === controller) mutationController.current = null;
+      mutation.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  };
+  const remove = async (id: string) => {
+    if (mutation.current || !authority) return;
+    mutation.current = true;
+    setBusy(true);
+    setStatusConfirmed(false);
+    setError('');
+    const generation = ++version.current;
+    const controller = new AbortController();
+    mutationController.current = controller;
+    try {
+      const value = await removeClaudeAccount(id, controller.signal);
+      if (!mounted.current || generation !== version.current) return;
+      setSnapshot(value);
+      setStatusConfirmed(true);
+      setRemoving(null);
+      setRemovedAccountId(id);
+      setObservedAttemptId(null);
+      requestId.current = null;
+      setCheckResults([]);
+      invalidateSymposiumAccountCatalog();
+      navigate('/connections?manage=claude', { replace: true });
+    } catch (cause) {
+      if (mounted.current && generation === version.current) {
+        const diagnosticId =
+          (cause instanceof ClaudeAccountChangeError && cause.diagnosticId) || createBrowserId();
+        console.warn('Claude account removal unconfirmed', {
+          code: 'claude_account_removal_unconfirmed',
+          stage: 'claude_account_removal',
+          diagnosticId,
+          errorType: cause instanceof Error ? cause.name : 'unknown',
+        });
+        setError(
+          `Account removal could not be confirmed. Check status before continuing. Reference: ${diagnosticId}`,
+        );
+      }
+    } finally {
+      if (mutationController.current === controller) mutationController.current = null;
       mutation.current = false;
       if (mounted.current) setBusy(false);
     }
@@ -235,13 +334,15 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     if (
       !requestId.current ||
       snapshot?.attempts.some((row) => row.requestId === requestId.current && !pending(row))
-    )
+    ) {
       requestId.current = createBrowserId();
-    return change('/start', {
-      requestId: requestId.current,
-      label: accountId ? (currentAccount?.label ?? label) : label,
-      ...(accountId ? { accountId } : {}),
-    });
+      startPayload.current = {
+        requestId: requestId.current,
+        label: accountId ? (currentAccount?.label ?? label) : label,
+        ...(accountId ? { accountId } : {}),
+      };
+    }
+    return change('/start', startPayload.current);
   };
   const startChat = async (id: string) => {
     if (mutation.current || !authority) return;
@@ -273,7 +374,11 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
       if (mounted.current) setBusy(false);
     }
   };
-  const controlsDisabled = busy || !authority || !!error || recoveryRequired;
+  const controlsDisabled = busy || !authority || !statusConfirmed || recoveryRequired;
+  const signInFailed =
+    attempt?.state === 'failed' ||
+    attempt?.state === 'interrupted' ||
+    checkResults.some((row) => row.failed);
   return (
     <section className="connections-setup" aria-labelledby="claude-connect-heading">
       <h2 id="claude-connect-heading">Claude subscription</h2>
@@ -291,17 +396,47 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
               <p className="workspace-muted">
                 Last connected {new Date(account.verifiedAt).toLocaleString()}
               </p>
+              <div className="connections-wizard-actions">
+                <button
+                  type="button"
+                  className="access-row-action"
+                  disabled={controlsDisabled || busyAttempt || signInFailed}
+                  onClick={() => void startChat(account.id)}
+                >
+                  Start chat
+                </button>
+                <button
+                  type="button"
+                  className="access-row-action"
+                  disabled={busy || !authority || busyAttempt || recoveryRequired}
+                  onClick={() => setRemoving(account.id)}
+                >
+                  Remove account
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              className="access-row-action"
-              disabled={controlsDisabled || busyAttempt}
-              onClick={() => void startChat(account.id)}
-            >
-              Start chat
-            </button>
           </article>
         ))}
+      {authority && removing && (
+        <div role="group" aria-label="Remove Claude account">
+          <p>
+            Remove this Claude account from Mitzo? Your chat history is kept. You can then set up a
+            fresh connection. Existing chats will need an available account before continuing.
+          </p>
+          <div className="connections-wizard-actions">
+            <button
+              type="button"
+              disabled={busy || !authority || busyAttempt || recoveryRequired}
+              onClick={() => void remove(removing)}
+            >
+              Confirm removal
+            </button>
+            <button type="button" disabled={busy} onClick={() => setRemoving(null)}>
+              Keep account
+            </button>
+          </div>
+        </div>
+      )}
       {authority && attempt && (
         <div>
           <p
@@ -406,6 +541,7 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
         <p>Finish or cancel the pending Claude sign-in before connecting another account.</p>
       )}
       {error && <p role="alert">{error}</p>}
+      {busy && !checking && authority && <p role="status">Updating Claude connection…</p>}
       {recoveryRequired && (
         <p role="alert">
           Claude sign-in needs recovery on the Mac. Check status and use the diagnostic reference

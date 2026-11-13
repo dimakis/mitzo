@@ -2,13 +2,27 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createClaudeLoginProcess } from '../claude-login-process.js';
+import { claudeLoginFailureReason, createClaudeLoginProcess } from '../claude-login-process.js';
 import { spawn } from 'node:child_process';
 const boundarySpawn = vi.hoisted(() => vi.fn());
 vi.mock('../credential-sdk-boundary.js', () => ({
   credentialSdkBoundary: () => ({ spawnClaudeCodeProcess: boundarySpawn }),
 }));
 const roots: string[] = [];
+it('classifies nested startup failures without returning provider text or secrets', () => {
+  expect(
+    claudeLoginFailureReason(
+      new Error('wrapper', { cause: new Error('Native login did not provide a sign-in link') }),
+    ),
+  ).toBe('native_link_timeout');
+  expect(
+    claudeLoginFailureReason(Object.assign(new Error('private/path'), { code: 'ENOENT' })),
+  ).toBe('native_file_missing');
+  expect(claudeLoginFailureReason(new Error('Native login exited (1)'))).toBe('native_exit_1');
+  expect(claudeLoginFailureReason(new Error('private-token-provider-response'))).toBe(
+    'unclassified_native_failure',
+  );
+});
 afterEach(() => {
   vi.unstubAllEnvs();
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));

@@ -41,6 +41,15 @@ failed and host-recovery states retain their original operation and diagnostic.
 Check status never starts another login or resubmits a code. Start chat saves an
 unsent Local Mac draft and leaves account defaults unchanged.
 
+Fresh Claude setup excludes saved accounts and their previous reconnect failures.
+Manage account offers an explicit Remove account confirmation using the shared
+Connections action group. Removal forgets the selected enrollment, preserves
+native files and chat history, and returns to fresh setup with a new native
+directory. Pending sign-in and unconfirmed cleanup block removal. Lost removal
+acknowledgements recover through status; repeated removal is idempotent. Mutations
+have a 20-second browser deadline and retain uncertain operation identity. Failed
+sign-in disables Start chat while retry and removal remain available when safe.
+
 An explicit Claude status check uses the existing button and status/alert text to
 show progress and its result. Connected accounts reuse the native Connections
 sign-in inventory; pending setup recovers the original operation. Reads have a

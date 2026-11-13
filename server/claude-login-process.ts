@@ -8,6 +8,36 @@ import type { ClaudeIdentity } from './claude-account-store.js';
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import { discoverClaudeModels } from './claude-model-discovery.js';
 
+/** Only fixed classifications enter logs; native output and filesystem paths stay private. */
+export function claudeLoginFailureReason(cause: unknown): string {
+  const reasons: Record<string, string> = {
+    'Native login did not provide a sign-in link': 'native_link_timeout',
+    'Native login expired': 'native_login_expired',
+    'Native login custody unavailable': 'native_custody_unavailable',
+    'Native login custody changed': 'native_custody_changed',
+    'Native login URL unsupported': 'native_url_unsupported',
+    'Native login output exceeded its bound': 'native_output_limit',
+    'Protected Claude SDK requires complete OS sandbox dependencies; install them before retrying':
+      'native_sandbox_dependencies',
+    'Keychain SDK sandbox requires a hostname provider endpoint outside local controller addresses':
+      'native_provider_endpoint',
+  };
+  const system: Record<string, string> = {
+    ENOENT: 'native_file_missing',
+    EACCES: 'native_access_denied',
+    EPERM: 'native_permission_denied',
+    ENOSPC: 'native_storage_full',
+  };
+  for (let depth = 0; depth < 5 && cause instanceof Error; depth++, cause = cause.cause) {
+    const code = (cause as NodeJS.ErrnoException).code;
+    if (code && Object.hasOwn(system, code)) return system[code];
+    if (Object.hasOwn(reasons, cause.message)) return reasons[cause.message];
+    const exit = /^Native login exited \((\d{1,3}|SIGTERM|SIGKILL)\)$/.exec(cause.message);
+    if (exit) return `native_exit_${exit[1]}`;
+  }
+  return 'unclassified_native_failure';
+}
+
 export class ClaudeLoginProcessError extends Error {
   readonly code = 'CLAUDE_LOGIN_PROCESS_FAILED';
   constructor(cause: unknown) {
