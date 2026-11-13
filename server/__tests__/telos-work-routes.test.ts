@@ -14,10 +14,21 @@ import { createTelosWorkFixtures } from './fixtures/telos-work-fixtures.js';
 import { TelosWorkError, TelosWorkStore } from '../telos-work-store.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 
+const diagnostics = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', async (original) => {
+  const actual = await original<typeof import('../logger.js')>();
+  return {
+    ...actual,
+    createLogger: (module: string) =>
+      module === 'telos-work' ? diagnostics : actual.createLogger(module),
+  };
+});
 const roots: string[] = [];
 const servers: Server[] = [];
 afterEach(async () => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  diagnostics.warn.mockReset();
   for (const server of servers.splice(0)) await closeTestServer(server);
   roots.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true }));
 });
@@ -63,6 +74,71 @@ async function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>
   return { app: server, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  it.each([false, true])(
+    'preserves the operation response when closing fails (operation failed: %s)',
+    async (failOperation) => {
+      const f = await setup();
+      const close = TelosWorkStore.prototype.close;
+      vi.spyOn(TelosWorkStore.prototype, 'close').mockImplementationOnce(function (
+        this: TelosWorkStore,
+      ) {
+        close.call(this);
+        throw Object.assign(new Error('private cleanup details'), { code: 'SQLITE_IOERR' });
+      });
+      if (failOperation)
+        vi.spyOn(TelosWorkStore.prototype, 'read').mockImplementationOnce(() => {
+          throw Object.assign(new Error('private query details'), { code: 'SQLITE_BUSY' });
+        });
+      const response = await f.read();
+      expect(response.status).toBe(failOperation ? 503 : 200);
+      if (failOperation) {
+        expect(response.body).toEqual({
+          code: 'unavailable',
+          error: 'Telos work service unavailable',
+        });
+        expect(diagnostics.warn).toHaveBeenCalledWith(
+          'Telos work operation failed',
+          expect.objectContaining({ phase: 'execute_operation', errorCode: 'SQLITE_BUSY' }),
+        );
+      }
+      expect(diagnostics.warn).toHaveBeenCalledWith(
+        'Telos work operation failed',
+        expect.objectContaining({
+          phase: 'close_storage',
+          reason: 'unexpected',
+          errorKind: 'error',
+        }),
+      );
+      expect(JSON.stringify(diagnostics.warn.mock.calls)).not.toMatch(
+        /private cleanup|private query/,
+      );
+    },
+  );
+
+  it('reports an operator host failure without exposing operator identity or exception details', async () => {
+    const f = await setup({
+      roleReview: async () => {
+        throw Object.assign(new Error('private host details'), { code: 'SQLITE_BUSY' });
+      },
+    });
+    const response = await request(f.app)
+      .post('/api/telos/work/roles/review')
+      .set('x-operator', 'authenticated')
+      .send({});
+    expect(response.status).toBe(503);
+    expect(diagnostics.warn).toHaveBeenCalledWith(
+      'Telos work operation failed',
+      expect.objectContaining({
+        phase: 'execute_host',
+        operation: 'roles/review',
+        errorCode: 'SQLITE_BUSY',
+      }),
+    );
+    expect(JSON.stringify(diagnostics.warn.mock.calls)).not.toMatch(
+      /verified-operator|private host/,
+    );
+  });
+
   it('refuses snooze effects when authority expires after writer-lock admission', async () => {
     const canonical = createTelosCanonicalData();
     const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };

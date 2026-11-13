@@ -243,13 +243,17 @@ export class RetainedLocalCodexRecovery {
   }
   prepareQueue(): void {
     this.assertCurrentSync();
-    this.native.requeueUndispatchedCommand(this.sessionId, this.account, this.commandId, () => {
-      this.assertCurrentSync();
-      this.events.append(this.sessionId, 'command_preparation_recovered', {
-        commandId: this.commandId,
-        attempt: 1,
-        previousStatus: 'failed',
-        reason: 'no_native_dispatch',
+    this.events.contextTransitions.withAdmissionLock(() => {
+      this.events.assertOrdinaryContextCommand(this.sessionId, this.commandId);
+      this.native.requeueUndispatchedCommand(this.sessionId, this.account, this.commandId, () => {
+        this.assertCurrentSync();
+        this.events.assertOrdinaryContextCommand(this.sessionId, this.commandId);
+        this.events.append(this.sessionId, 'command_preparation_recovered', {
+          commandId: this.commandId,
+          attempt: 1,
+          previousStatus: 'failed',
+          reason: 'no_native_dispatch',
+        });
       });
     });
   }
