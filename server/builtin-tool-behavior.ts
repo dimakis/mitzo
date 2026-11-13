@@ -24,6 +24,7 @@ const reads = new Set([
   'ReadPastSession',
 ]);
 const mixed = new Set([
+  'SymposiumConsult',
   'TaskExecution',
   'TelosManageItem',
   'Bash',
@@ -53,6 +54,7 @@ export function isReadOnlyBuiltinToolCall(name: string, input: Record<string, un
   )
     return true;
   if (name === 'RequestWebAccess') return input.operation === 'fetch';
+  if (name === 'SymposiumConsult') return ['catalog', 'read'].includes(String(input.operation));
   if (name === 'SessionTimers')
     return ['list', 'sessions', 'read', 'delivery'].includes(String(input.operation));
   if (name === 'TaskExecution')
