@@ -1,3 +1,19 @@
+## EnMaaS account setup and model visibility
+
+EnMaaS uses Connections labelled controls and quiet sections: account name,
+runtime, key and Connect. Discover models automatically; keep manual IDs in
+MotionDetails under Advanced settings. Messages uses x-api-key authentication.
+Show catalog failure with an explicit hosted-model fallback, retain uncertain
+save status, and distinguish saved configuration from successful inference.
+
+Model picker settings reuse HomeDialog and labelled checkbox rows. All models
+are shown initially; hidden IDs are account-scoped browser preferences retained
+across refresh. New models appear automatically. Existing selections stay bound.
+Show all, Hide all and Done retain focus and 44px touch targets. Keep the approved
+Chat settings hierarchy; place the utility in the existing model editor.
+The [approved reference and validation](approved/enmaas-account/VALIDATION.md)
+record Dimitri's explicit implementation approval on 12 November 2026.
+
 ## Account-scoped model and thinking choices
 
 Account switching and model refresh reuse `AccountModelPicker`, the approved

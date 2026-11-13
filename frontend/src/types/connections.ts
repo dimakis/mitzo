@@ -131,6 +131,8 @@ export interface EnrolledOpenAIAccount {
   state: string;
   endpoint?: string;
   errorCode?: string;
+  protocol?: 'responses' | 'messages';
+  models?: { id: string; label: string }[];
 }
 
 export interface OpenAIKeyHealth {

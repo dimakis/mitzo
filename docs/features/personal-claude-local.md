@@ -208,6 +208,32 @@ global `CLAUDE_CONFIG_DIR`. Transcript parsing remains SDK-owned.
 
 ## Verification status
 
+### Protected sign-in qualification, 12 November 2026
+
+The model-refresh incident on release `9c087d0da76c` reported native CLI success
+followed by SDK account verification failure (`sdk_account`, `email` and `plan`).
+The logs do not distinguish missing SDK fields from changed identity values.
+The installed SDK's tool-free metadata query succeeded with synthetic file-backed
+account data. No production credential was read or copied and no model prompt was sent.
+
+Login previously ran outside the outer SDK boundary, while discovery/chat ran
+inside it. Login now uses that same boundary, with native stderr captured privately.
+Claude retains ownership of credential storage and fallback. Onboarding completion
+and Connections **Check sign-in** now require the tool-free SDK metadata query;
+a passing native status alone cannot claim the account is usable for chat.
+The picker retains a sanitized sign-in failure reference and directs recovery to
+Connections rather than presenting every failure as a generic refresh problem.
+Existing saved credentials are not migrated or rewritten by this change.
+
+Regression tests cover native-status success followed by SDK failure, protected
+login dispatch, cancellation, diagnostic propagation through both account catalogs,
+route validation and picker rendering, and clearing diagnostics after recovery.
+The intercepted browser journey includes the failure notice and refresh recovery.
+Local unit/design checks pass; browser execution, CI and real-account recovery
+remain separate verification. The current task sandbox cannot admit a nested
+macOS sandbox, so production storage-access causality and a real reconnect are
+not claimed as reproduced or resolved by the offline fixtures.
+
 ### Model controls, 11 November 2026
 
 The account picker, account preferences and native metadata tests reuse existing

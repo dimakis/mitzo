@@ -72,6 +72,16 @@ describe('chat runtime selection preservation', () => {
     expect(result.issues.map((issue) => issue.code)).toContain('model_unavailable');
   });
 
+  it('keeps a model-less account as editable intent without permitting a send snapshot', () => {
+    const choice = selected();
+    choice.account = { accountId: 'personal', model: '' };
+    const result = evaluateChatRuntimeSelection(choice, inventory());
+    expect(result.selection.account).toEqual(choice.account);
+    expect(result.ready).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain('model_unavailable');
+    expect(snapshotChatRuntimeSelection(choice, inventory())).toBeNull();
+  });
+
   it('keeps an invalid thinking value without adopting a model default', () => {
     const choice = selected();
     choice.account!.reasoningEffort = 'ultra';

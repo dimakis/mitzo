@@ -66,23 +66,30 @@ export async function changeClaudeLogin(path: string, body: unknown) {
 }
 
 /** Fresh public route identity for an unsent draft; this does not admit or execute a command. */
-export async function readClaudeChatIntent(accountId: string): Promise<ChatRuntimeSelection> {
+export async function readLocalAccountChatIntent(
+  accountId: string,
+  provider: 'anthropic-claude' | 'anthropic-api' | 'openai',
+  modelId?: string,
+): Promise<ChatRuntimeSelection> {
   const response = await apiFetch('/api/chat/runtime/capabilities?workspaceDefaults=1');
   if (!response.ok) throw Error('Local Mac choices unavailable');
   const inventory = ExplicitLocalInventorySchema.parse(await response.json());
   const account = inventory.accounts.find(
-    (row) => row.account.accountId === accountId && row.account.provider === 'anthropic-claude',
+    (row) => row.account.accountId === accountId && row.account.provider === provider,
   );
   if (
     !account ||
     !inventory.locations.some((row) => row.location === 'local' && row.status === 'configured')
   )
-    throw Error('The connected Claude account has no Local Mac route');
+    throw Error('The connected account has no Local Mac route');
+  if (modelId && !account.models.some((model) => model.id === modelId))
+    throw Error('Selected model is unavailable');
   const intent: ChatRuntimeSelection = {
     ...createChatRuntimeSelection(),
     account: {
       accountId,
-      model: account.models.find((row) => row.id === 'sonnet')?.id ?? account.models[0].id,
+      model:
+        modelId ?? account.models.find((row) => row.id === 'sonnet')?.id ?? account.models[0].id,
       reasoningEffort: null,
     },
     accountReference: account.account,
@@ -96,4 +103,7 @@ export async function readClaudeChatIntent(accountId: string): Promise<ChatRunti
   };
   intent.execution.targetId = resolveRuntimeTarget(intent, inventory);
   return intent;
+}
+export function readClaudeChatIntent(accountId: string): Promise<ChatRuntimeSelection> {
+  return readLocalAccountChatIntent(accountId, 'anthropic-claude');
 }

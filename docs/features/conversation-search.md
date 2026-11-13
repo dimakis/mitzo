@@ -123,3 +123,16 @@ readiness wait before its composer appeared in the failure capture. That cold
 page-readiness assertion now allows 15 seconds only in CI and retains five
 seconds locally; every operation, approval and authorization deadline is unchanged.
 The final candidate also integrates the accepted Symposium picker fix `9147f18f`.
+
+Candidate `65aeab5d` subsequently passed the complete combined-result CI run
+`43397932958` and Centaur final review `PRR_kwDOR2Rn9s8AAAABXwMurQ` with LGTM,
+recommendation `merge` and zero blocking findings. Landing was held for Dimitri's
+explicit merge order: CC, EnMaaS, then conversation search.
+
+The final integration includes accepted CC `f08f0173` and EnMaaS `cfa324ca`,
+preserving their account enrollment, model visibility, learning and permission
+behavior. Their source registrations are retained alongside search's inventory
+and regenerated against the combined tree. The accepted Telos source-review
+readiness helper and search's finite cold composer-readiness allowance both remain
+in the composition fixture. This integration requires fresh combined-result CI
+and targeted Centaur verification while retaining the approved search baseline.

@@ -21,12 +21,17 @@ import {
   QuickSettingsSupplement,
 } from './QuickChatSettings';
 import { ModelBrandMark } from './SettingsBrandMark';
+import { pickerModels, useModelVisibility } from '../lib/model-visibility';
+import { ModelVisibilitySettings } from './ModelVisibilitySettings';
 import type { AccountSelection } from '../types/account-selection';
 export type { AccountSelection } from '../types/account-selection';
 export interface Account {
   id: string;
   label: string;
-  modelDiscovery?: { stale: boolean };
+  modelDiscovery?: {
+    stale: boolean;
+    failure?: { code: 'claude_sign_in_unavailable'; diagnosticId: string };
+  };
   /** Account defaults remain visible intent even when this environment has no route. */
   configuredModels?: Account['models'];
   models: {
@@ -50,10 +55,28 @@ const catalogSchema = z.array(
   z.object({
     id: z.string().min(1),
     label: z.string().min(1),
-    modelDiscovery: z.object({ stale: z.boolean() }).optional(),
+    modelDiscovery: z
+      .object({
+        stale: z.boolean(),
+        failure: z
+          .object({ code: z.literal('claude_sign_in_unavailable'), diagnosticId: z.uuid() })
+          .optional(),
+      })
+      .optional(),
     models: modelsSchema,
   }),
 );
+
+function ModelRefreshFailure({ account }: { account: Account }) {
+  const failure = account.modelDiscovery?.failure;
+  return (
+    <span role="status">
+      {failure
+        ? `Claude sign-in could not be verified for chat. Check sign-in in Connections, then refresh models. Reference: ${failure.diagnosticId}. Showing the last available list.`
+        : 'Model refresh failed. Showing the last available list. Refresh models to retry.'}
+    </span>
+  );
+}
 
 /** Visible form labels belong to staged dialogs; inline chat controls keep their geometry. */
 function PickerField({
@@ -243,6 +266,7 @@ function SessionAccountModelPicker({
   onSummaryChange?: (summary: WorkspaceSummary | null) => void;
 }) {
   const quick = useQuickSettings();
+  useModelVisibility();
   const status = (value: string, children: ReactNode) => {
     // Keep inline subscription owners at the same React depth during catalog refreshes.
     if (scope !== 'chat')
@@ -518,8 +542,10 @@ function SessionAccountModelPicker({
             !allowedAccountIds || allowedAccountIds.includes(deviceDefault?.accountId ?? '')
               ? deviceDefault
               : null;
-          const previous =
-            (attempt ? selectionRef.current : null) ?? initialSelection ?? eligibleDefault;
+          const retained =
+            (attempt && selectionRef.current?.model ? selectionRef.current : null) ??
+            initialSelection;
+          const previous = retained ?? eligibleDefault;
           if (
             !legacy &&
             previous &&
@@ -538,11 +564,12 @@ function SessionAccountModelPicker({
               ? catalog.find((a) => /\bwork\b/i.test(a.label) && /openai/i.test(a.label))
               : undefined) ??
             catalog[0];
+          const choices = pickerModels(first.id, first.models, retained?.model);
           const next = {
             ...(!legacy ? { accountId: first.id } : {}),
-            model: first.models.some((m) => m.id === (previous?.model ?? preferredModel))
+            model: choices.some((m) => m.id === (previous?.model ?? preferredModel))
               ? (previous?.model ?? preferredModel)
-              : first.models[0].id,
+              : (choices[0]?.id ?? ''),
           };
           const selected = withThinking(
             { ...next, reasoningEffort: previous?.reasoningEffort },
@@ -553,7 +580,9 @@ function SessionAccountModelPicker({
           setNeedsConfirmation(confirm);
           setDraftUnavailable(false);
           setSelection(selected);
-          callbacks.current.onChange(explicitSelection || confirm ? null : selected);
+          callbacks.current.onChange(
+            !selected.model || explicitSelection || confirm ? null : selected,
+          );
         }
       })
       .catch((err: unknown) => {
@@ -671,11 +700,17 @@ function SessionAccountModelPicker({
     const next =
       scope === 'chat' && !draftOnly
         ? accountModelPreference(nextAccount)
-        : withThinking({ accountId: nextAccount.id, model: nextAccount.models[0].id }, nextAccount);
+        : withThinking(
+            {
+              accountId: nextAccount.id,
+              model: pickerModels(nextAccount.id, nextAccount.models)[0]?.id ?? '',
+            },
+            nextAccount,
+          );
     setDraftUnavailable(false);
     setNeedsConfirmation(false);
     setSelection(next);
-    onChange(explicitSelection ? null : next);
+    onChange(!next.model || explicitSelection ? null : next);
   };
   const changeModel = (id: string) => {
     if (disabled || requiredSelection || lockAccountModel) return;
@@ -692,6 +727,7 @@ function SessionAccountModelPicker({
     setSelection(next);
     onChange(explicitSelection || needsConfirmation ? null : next);
   };
+  const visibleModels = pickerModels(account.id, account.models, selection.model);
   const fieldModel = account.models.find((m) => m.id === selection.model);
   const fields = (
     <>
@@ -825,18 +861,22 @@ function SessionAccountModelPicker({
           presentation === 'settings'
             ? {
                 page: 'model',
-                value: fieldModel?.label ?? `${selection.model} (unavailable)`,
+                value:
+                  fieldModel?.label ??
+                  (selection.model ? `${selection.model} (unavailable)` : 'Choose a model'),
                 selected: selection.model,
                 choices: fieldModel
-                  ? account.models
-                  : [
-                      {
-                        id: selection.model,
-                        label: `${selection.model} (unavailable)`,
-                        disabled: true,
-                      },
-                      ...account.models,
-                    ],
+                  ? visibleModels
+                  : selection.model
+                    ? [
+                        {
+                          id: selection.model,
+                          label: `${selection.model} (unavailable)`,
+                          disabled: true,
+                        },
+                        ...visibleModels,
+                      ]
+                    : visibleModels,
                 disabled: disabled || !!requiredSelection || lockAccountModel,
                 disabledReason:
                   disabledReason ??
@@ -857,16 +897,25 @@ function SessionAccountModelPicker({
         >
           {!account.models.some((m) => m.id === selection.model) && (
             <option value={selection.model} disabled>
-              {selection.model} (unavailable)
+              {selection.model
+                ? `${selection.model} (unavailable)`
+                : visibleModels.length
+                  ? 'Choose a model'
+                  : 'No models shown'}
             </option>
           )}
-          {account.models.map((m) => (
+          {visibleModels.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label}
             </option>
           ))}
         </select>
       </PickerField>
+      {!selection.model && !visibleModels.length && (
+        <span role="status">
+          No models are shown for this account. Open Model picker settings to show one.
+        </span>
+      )}
       {!!account.models.find((m) => m.id === selection.model)?.reasoningEfforts?.length && (
         <PickerField
           label={presentation === 'settings' ? 'Thinking level' : 'Thinking'}
@@ -909,9 +958,7 @@ function SessionAccountModelPicker({
         </PickerField>
       )}
 
-      {account.modelDiscovery?.stale && (
-        <span role="status">Model refresh failed. Showing the last available list.</span>
-      )}
+      {account.modelDiscovery?.stale && <ModelRefreshFailure account={account} />}
       <QuickSettingsSupplement page="account">
         {(explicitSelection || needsConfirmation) && (
           <button
@@ -936,6 +983,16 @@ function SessionAccountModelPicker({
           </button>
         )}
       </QuickSettingsSupplement>
+      {presentation === 'settings' && (
+        <QuickSettingsSupplement page="model">
+          <ModelVisibilitySettings
+            accountId={account.id}
+            accountLabel={account.label}
+            models={account.models}
+            disabled={disabled}
+          />
+        </QuickSettingsSupplement>
+      )}
       {quick && scope === 'chat' && !legacy && (
         <QuickSettingsSupplement page="model">
           <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
@@ -956,7 +1013,7 @@ function SessionAccountModelPicker({
               {!sessionId && !requiredSelection && !lockAccountModel && !draftOnly && (
                 <>
                   <button
-                    disabled={disabled || draftUnavailable}
+                    disabled={disabled || draftUnavailable || !selection.model}
                     onClick={() => {
                       setDefaultAccountModel(selection);
                       setSavedDefault(selection);
@@ -1052,6 +1109,7 @@ function ControlledAccountModelPicker({
   lockAccount?: boolean;
 }) {
   const quick = useQuickSettings();
+  useModelVisibility();
   const [savedDefault, setSavedDefault] = useState(getDefaultAccountModel);
   const account = accounts.find((a) => a.id === selection?.accountId);
   const model = account?.models.find((m) => m.id === selection?.model);
@@ -1164,13 +1222,28 @@ function ControlledAccountModelPicker({
         },
         pendingAccount ? `Confirm account: ${account!.label}` : undefined,
       )}
-      {field('Model', selection?.model ?? '', account?.models ?? [], (id) => {
-        if (selection && id && account) {
-          const next = withThinking({ ...selection, model: id }, account);
-          if (canSaveDefault) rememberAccountModel(next, account);
-          onChange(next);
-        }
-      })}
+      {field(
+        'Model',
+        selection?.model ?? '',
+        account ? pickerModels(account.id, account.models, selection?.model) : [],
+        (id) => {
+          if (selection && id && account) {
+            const next = withThinking({ ...selection, model: id }, account);
+            if (canSaveDefault) rememberAccountModel(next, account);
+            onChange(next);
+          }
+        },
+      )}
+      {presentation === 'settings' && account && (
+        <QuickSettingsSupplement page="model">
+          <ModelVisibilitySettings
+            accountId={account.id}
+            accountLabel={account.label}
+            models={account.models}
+            disabled={disabled}
+          />
+        </QuickSettingsSupplement>
+      )}
       {field(
         'Thinking',
         selection?.reasoningEffort ?? '',
@@ -1234,9 +1307,7 @@ function ControlledAccountModelPicker({
           )}
       {account?.modelDiscovery?.stale && (
         <QuickSettingsSupplement page="model">
-          <span role="status">
-            Model refresh failed. Showing the last available list. Refresh models to retry.
-          </span>
+          <ModelRefreshFailure account={account} />
         </QuickSettingsSupplement>
       )}
       {quick && onRefresh && (

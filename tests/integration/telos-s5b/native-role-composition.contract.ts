@@ -7,6 +7,7 @@ import {
   TelosWorkDelegationReceiptSchema,
 } from '@mitzo/protocol';
 import { createJoinedOrdinaryApplication } from '../telos-s9/integrated-candidate/joined-ordinary-application';
+import { actToSourcePermissionReview } from '../telos-s9/integrated-candidate/joined-role-setup-ready';
 import { prepareNativeProviderToolCall } from '../../../server/__tests__/fixtures/native-provider-tool-call.js';
 
 // Requires the reviewed PR1117 fixture dependency on the final combined base.
@@ -384,6 +385,38 @@ it('composes native worker evidence, explicit source review and Read Once with c
     { itemId: 'role-slice' },
     'review-source',
     async () => {
+      const permission = streamMessages.find(
+        (entry) =>
+          entry.type === 'permission_request' &&
+          entry.sessionId === leadId &&
+          entry.toolName === 'TelosAdoptSource',
+      );
+      expect(permission?.permId).toBeTypeOf('string');
+      const resizeSourceReview = async (
+        width: number,
+        height: number,
+        colorScheme: 'light' | 'dark',
+      ) => {
+        const remounts = h.page.viewportSize()!.width >= 768 !== width >= 768;
+        // A responsive shell remount fetches this permission again. Observe its
+        // actual read before resizing; the five-second DOM assertion follows it.
+        const resize = async () => {
+          await h.page.setViewportSize({ width, height });
+          await h.page.emulateMedia({ colorScheme });
+        };
+        if (remounts)
+          await actToSourcePermissionReview(
+            h.page,
+            {
+              origin: h.front.origin,
+              permId: permission!.permId as string,
+              sessionId: leadId,
+              artifact: { artifactId: output.id, revision: output.revision, sha256: output.sha256 },
+            },
+            resize,
+          );
+        else await resize();
+      };
       await browserExpect(sourcePanel).toBeVisible();
       const material = sourcePanel.getByRole('checkbox', { name: /Role report/ });
       await browserExpect(material).not.toBeChecked();
@@ -401,8 +434,7 @@ it('composes native worker evidence, explicit source review and Read Once with c
           ['desktop-light', 1280, 900, 'light', 'lavender', 'system'],
           ['mobile-dark', 390, 844, 'dark', 'teal', 'georgia'],
         ] as const) {
-          await h.page.setViewportSize({ width, height });
-          await h.page.emulateMedia({ colorScheme });
+          await resizeSourceReview(width, height, colorScheme);
           await browserExpect(material).toBeVisible();
           await h.page.evaluate(
             ({ colorScheme, accent, font }) => {
@@ -418,8 +450,7 @@ it('composes native worker evidence, explicit source review and Read Once with c
           await h.page.screenshot({ path, fullPage: true });
           sourceScreenshots.push(path);
         }
-        await h.page.setViewportSize({ width: 1280, height: 900 });
-        await h.page.emulateMedia({ colorScheme: 'light' });
+        await resizeSourceReview(1280, 900, 'light');
         await browserExpect(material).toBeVisible();
       }
       // Responsive shells remount the card. Review explicitly on this final
