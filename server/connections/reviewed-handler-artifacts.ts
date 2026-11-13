@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1129-telos-tree-visual-evidence';
+  'v1.0.1130-telos-tree-browser-fixture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4282,7 +4282,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/TodoWorkspace.test.tsx':
     '6da5dfa21630d242bb7d070c6487772106a81b31eccfb015f5ea999025d89427',
   '../../tests/offline/session-library.spec.ts':
-    '584801618ad4886a86044a7514e1a2a72bac2eab8b2cf869077f7fe532f92128',
+    '4ecdc4ffa1e62dd21d7ef4f061e21c2776709ccb770e0fbd48b6cb9168856ff5',
   '../../frontend/src/hooks/__tests__/useAttentionFeed.canonical.test.tsx':
     'cac18f7dcd86924d644f88afcaaf886f0a01e39ca090d9dd9c882b4e70e9c6af',
   '../../frontend/src/components/__tests__/TelosTreeConversationEntry.refresh.test.tsx':
