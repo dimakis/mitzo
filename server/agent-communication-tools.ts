@@ -18,6 +18,7 @@ import type { ProfileToolCall } from './session-profile-tools.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 import { sessionConversationNavigation } from './session-list-metadata.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import {
   agentMessageRuntime,
   hasAgentMessageRuntime,
@@ -64,7 +65,7 @@ export function recordAgentMessageCommandOutcome(
   if (
     !peer ||
     peer.message.recipientConversationId !== conversationId ||
-    peer.operatorAuthSessionId !== authSessionId
+    !ordinaryOperatorOwnsConversation(peer.operatorAuthSessionId, authSessionId)
   )
     return false;
   let reason: 'cancelled' | 'before_provider_submission';
@@ -104,7 +105,7 @@ export function recordAgentMessageAcceptance(
   );
   if (
     peer.message.recipientConversationId !== conversationId ||
-    peer.operatorAuthSessionId !== authSessionId ||
+    !ordinaryOperatorOwnsConversation(peer.operatorAuthSessionId, authSessionId) ||
     ack?.threadId !== threadId ||
     ack.turnId !== turnId
   )
@@ -282,10 +283,15 @@ export function sessionAgentCommunicationTools(owners: Owners) {
           binding?.version !== 2 ||
           (binding.harness.implementation === 'codex' && binding.execution.location === 'local'
             ? !owners.native?.hasConversation(conversationId) ||
-              owners.native.readHostCustody(conversationId, meta.accountBinding)?.authSessionId !==
-                captured.auth.id
-            : owners.registry.findBySessionId(conversationId)?.session.ordinaryRuntimeOwner
-                ?.authSessionId !== captured.auth.id)
+              !ordinaryOperatorOwnsConversation(
+                owners.native.readHostCustody(conversationId, meta.accountBinding)?.authSessionId,
+                captured.auth.id,
+              )
+            : !ordinaryOperatorOwnsConversation(
+                owners.registry.findBySessionId(conversationId)?.session.ordinaryRuntimeOwner
+                  ?.authSessionId,
+                captured.auth.id,
+              ))
         )
           throw new AgentCommunicationError(
             'recipient_unavailable',
@@ -303,7 +309,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         return target &&
           driver &&
           (!native || driver.admitAgentMessage || hasAgentMessageRuntime(target.session)) &&
-          driver.authSessionId === captured.auth.id &&
+          ordinaryOperatorOwnsConversation(driver.authSessionId, captured.auth.id) &&
           !target.session.abortController.signal.aborted &&
           !owners.registry.isClosingOut(target.clientId) &&
           !owners.registry.isUserClose(target.clientId)
@@ -362,7 +368,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         // This path can update an existing delivery receipt.
         effectsStarted = true;
         const retained = owners.events.agentCommunication.forHost(message.messageId);
-        if (retained.operatorAuthSessionId !== captured.auth.id)
+        if (!ordinaryOperatorOwnsConversation(retained.operatorAuthSessionId, captured.auth.id))
           throw Error('Original signed operator required');
         // Current sender/participant/operator authority protects retained facts.
         // Losing a recipient's new-send eligibility cannot erase that history.
@@ -536,10 +542,17 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         // not ask again, re-admit, or require the recipient to remain live.
         if (owners.events.agentCommunication.findRequest(owners.conversationId, input.requestId)) {
           effectsStarted = true;
+          const previous = owners.events.agentCommunication.byRequest(
+            owners.conversationId,
+            input.requestId,
+          );
+          const retained = owners.events.agentCommunication.forHost(previous.messageId);
+          if (!ordinaryOperatorOwnsConversation(retained.operatorAuthSessionId, captured.auth.id))
+            throw Error('Original signed operator required');
           return reconcile(
             owners.events.agentCommunication.reserve(
               owners.conversationId,
-              captured.auth.id,
+              retained.operatorAuthSessionId,
               call,
               send,
             ),
@@ -585,7 +598,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         if (
           !target ||
           !driver ||
-          driver.authSessionId !== captured.auth.id ||
+          !ordinaryOperatorOwnsConversation(driver.authSessionId, captured.auth.id) ||
           target.session.abortController.signal.aborted ||
           owners.registry.isClosingOut(target.clientId) ||
           owners.registry.isUserClose(target.clientId)

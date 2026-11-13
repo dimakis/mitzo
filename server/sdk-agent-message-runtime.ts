@@ -1,4 +1,5 @@
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import type { ManagedSession } from '@mitzo/harness';
 import { agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
@@ -78,8 +79,8 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
   assertCurrent(operator: string) {
     const owner = this.owners.session.ordinaryRuntimeOwner;
     if (
-      operator !== this.owners.operatorAuthSessionId ||
-      owner?.authSessionId !== operator ||
+      !ordinaryOperatorOwnsConversation(this.owners.operatorAuthSessionId, operator) ||
+      owner?.authSessionId !== this.owners.operatorAuthSessionId ||
       owner.identity !== this.identity ||
       this.owners.session.abortController.signal.aborted
     )
@@ -119,7 +120,10 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     if (this.state() !== 'busy' || !target) return 'inactive' as const;
     const retained = this.owners.events.agentCommunication.forHost(message.messageId);
     if (
-      retained.operatorAuthSessionId !== this.owners.operatorAuthSessionId ||
+      !ordinaryOperatorOwnsConversation(
+        retained.operatorAuthSessionId,
+        this.owners.operatorAuthSessionId,
+      ) ||
       retained.message.recipientConversationId !== this.sessionId ||
       retained.message.commandId !== message.commandId ||
       retained.message.text !== message.text
@@ -158,7 +162,10 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
         if (
           !guard ||
           !queryAvailable ||
-          retained.operatorAuthSessionId !== this.owners.operatorAuthSessionId ||
+          !ordinaryOperatorOwnsConversation(
+            retained.operatorAuthSessionId,
+            this.owners.operatorAuthSessionId,
+          ) ||
           retained.message.recipientConversationId !== this.sessionId
         )
           throw Error('Original idle peer permission unavailable');
@@ -269,7 +276,10 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     const separatePeer =
       retained &&
       retained.message.commandId !== active &&
-      retained.operatorAuthSessionId === this.owners.operatorAuthSessionId &&
+      ordinaryOperatorOwnsConversation(
+        retained.operatorAuthSessionId,
+        this.owners.operatorAuthSessionId,
+      ) &&
       retained.message.recipientConversationId === this.sessionId;
     if (ordinary && !separatePeer) {
       const expected = this.#ordinaryAck;
@@ -295,7 +305,10 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     }
     if (
       !retained ||
-      retained.operatorAuthSessionId !== this.owners.operatorAuthSessionId ||
+      !ordinaryOperatorOwnsConversation(
+        retained.operatorAuthSessionId,
+        this.owners.operatorAuthSessionId,
+      ) ||
       retained.message.recipientConversationId !== this.sessionId
     )
       return false;
