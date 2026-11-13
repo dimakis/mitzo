@@ -3,6 +3,7 @@ import {
   agentMessageTranscriptRow,
   MessageReplyContextSchema,
   type MessageReplyContext,
+  type TranscriptCommandState,
 } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -175,6 +176,7 @@ function attributeCommands(
   for (const message of currents)
     if (!message.symposiumProvenance && replies.has(message.messageId))
       message.replyToMessageId = replies.get(message.messageId);
+  return [...states].map(([messageId, { state, seq }]) => ({ messageId, state, seq }));
 }
 
 /** Finished messages are append-only during replay. Results/subagents have
@@ -663,6 +665,7 @@ export function replayEventsToTranscript(
   messages: RestoredMessage[];
   current: RestoredCurrentMessage | null;
   currents: RestoredCurrentMessage[];
+  commandStates: TranscriptCommandState[];
 } {
   const ordinary: typeof events = [];
   const bySnapshot = new Map<string, { events: typeof events; provenance: SymposiumProvenance }>();
@@ -788,9 +791,9 @@ export function replayEventsToTranscript(
       throw new Error('Ambiguous duplicate Symposium message identity in stored transcript');
     ids.add(id);
   }
-  attributeCommands(ordinary, messages, base.current ? [base.current] : []);
+  const commandStates = attributeCommands(ordinary, messages, base.current ? [base.current] : []);
   includeAgentMessages(ordinary, messages);
-  return { messages, current: base.current, currents };
+  return { messages, current: base.current, currents, commandStates };
 }
 
 /**

@@ -1199,7 +1199,17 @@ it.each(
       return;
     }
     if (unknownWrite) {
-      await expect(runtime.resumeAfterExplicitSend()).rejects.toThrow('matching settled receipts');
+      await expect(runtime.resumeAfterExplicitSend()).rejects.toMatchObject({
+        code: 'recovery_effects_unverified',
+        diagnostic: {
+          stage: 'native_host_effects',
+          reason: 'effects_unsettled',
+          commandId: original.commandId,
+          callId: 'finished-read',
+          nativeCallCount: 1,
+          receiptCount: 1,
+        },
+      });
       expect(store.commandStatus(id, binding, original.commandId)).toBe('failed');
       expect(store.commandStatus(id, binding, 'saved-capacity-follow-up')).toBe('queued');
       expect(store.read(id, binding).recovery).toBe(1);

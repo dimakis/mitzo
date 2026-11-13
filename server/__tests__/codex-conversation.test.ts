@@ -10556,6 +10556,38 @@ it.each(
   },
 );
 
+it('reports the exact receipt mismatch after Stop while preserving the original effects fence', async () => {
+  const { restored: f, request } = await nativeRecoveryFixture('stop', true);
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list' || method === 'thread/items/list'
+      ? recoveryPage(method, params, {
+          id: 'turn-1',
+          status: 'interrupted',
+          error: null,
+          itemsView: 'full',
+          items: [],
+        })
+      : request(method, params),
+  );
+  const failure = await f.c.acknowledgeRecovery().catch((error: unknown) => error);
+  expect(failure).toMatchObject({
+    code: 'recovery_effects_unverified',
+    diagnostic: {
+      stage: 'native_host_effects',
+      reason: 'receipt_count_mismatch',
+      commandId: 'uncertain-native',
+      nativeCallCount: 0,
+      receiptCount: 1,
+    },
+  });
+  expect(runtimeDiagnostics.codexRuntimeErrorTelemetry(failure as Error)).toMatchObject({
+    recoveryDiagnostic: { reason: 'receipt_count_mismatch', commandId: 'uncertain-native' },
+  });
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
 it('keeps interrupted effects fenced for incomplete snapshots and unmatched durable host receipts', async () => {
   const { restored: f, request } = await nativeRecoveryFixture('transport', true);
   const tool = {

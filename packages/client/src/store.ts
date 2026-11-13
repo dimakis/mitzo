@@ -34,6 +34,7 @@ import {
   mergeAgentMessageReceipt,
 } from './slices/messages.js';
 import type { MessagesState, MessagesAction } from './slices/messages.js';
+import { restoreTranscriptCommandStates } from './command-attribution.js';
 import { INITIAL_SESSIONS_STATE } from './slices/sessions.js';
 import type { SessionsState } from './slices/sessions.js';
 import { INITIAL_CONNECTION_STATE } from './slices/connection.js';
@@ -1021,7 +1022,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         ? api.getSessionTranscript(sessionId)
         : api.getReconnectTranscript(sessionId, throughSeq));
     transcript
-      .then(({ messages: msgs, current, currents = [], cursor }) => {
+      .then(({ messages: msgs, current, currents = [], cursor, commandStates }) => {
         if (Array.isArray(msgs)) confirmPersistedDelivery(sessionId, msgs);
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
@@ -1085,7 +1086,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             const liveActions = currentBoundedRestore.liveActions
               .filter((item) => appliedCursor === undefined || item.seq > appliedCursor)
               .map((item) => item.action);
-            if (appliedCursor === undefined) return { messages: restored };
+            if (appliedCursor === undefined)
+              return { messages: restoreTranscriptCommandStates(restored, commandStates) };
             const preserveLiveCurrent =
               s.messages.current !== initialCurrent && liveActions.length === 0;
             // Rebuild live completed turns from the captured suffix so their
@@ -1144,7 +1146,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 }),
               withSnapshot,
             );
-            const replayed = liveActions.reduce(messagesReducer, withSeatSnapshots);
+            const replayed = liveActions.reduce(
+              messagesReducer,
+              restoreTranscriptCommandStates(withSeatSnapshots, commandStates),
+            );
             if (replayed.resyncRequired) throw new Error('Unsafe reconnect seat transcript');
             return { messages: replayed };
           });
@@ -1382,6 +1387,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           current,
           currents = [],
           cursor,
+          commandStates,
         } = await api.getSessionTranscript(id, abort.signal);
         if (request !== historyRequest || get().sessions.active !== id) return;
         if (cursor === undefined) {
@@ -1432,7 +1438,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               blocks: seat.blocks,
               symposiumProvenance: seat.symposiumProvenance,
             });
-          restored = liveActions.reduce(messagesReducer, restored);
+          restored = liveActions.reduce(
+            messagesReducer,
+            restoreTranscriptCommandStates(restored, commandStates),
+          );
           if (restored.resyncRequired) throw new Error('Unsafe session-open transcript');
           // Transcript cursors describe message history, not pending approvals.
           // Keep the latest live requests/decisions, including unsequenced replay

@@ -36,6 +36,7 @@ export type {
   SectionMeta,
 } from './slices/messages.js';
 export { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
+export { activeSteeringCommandId } from './command-attribution.js';
 export type { SessionsState } from './slices/sessions.js';
 export type { ConnectionState, ConnectionStatus } from './slices/connection.js';
 export type { PermissionsState } from './slices/permissions.js';

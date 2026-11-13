@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import { createMitzoStore } from '@mitzo/client';
+import { activeSteeringCommandId, createMitzoStore } from '@mitzo/client';
 import { MitzoStoreProvider, useMitzoStore } from '@mitzo/client/hooks';
 import type { WebSocketLike } from '../../packages/client/src/ws-connection';
 import { ChatArea } from '../../frontend/src/components/ChatArea';
@@ -43,6 +43,10 @@ emit({
   text: 'Review Akram’s accomplishments and current priorities.',
 });
 emit({ type: 'ordinary_provider_dispatch_started', messageId: 'first' });
+if (new URLSearchParams(location.search).has('prepared')) {
+  emit({ type: 'ordinary_command_completed', messageId: 'first', status: 'completed' });
+  emit({ type: 'ordinary_provider_dispatch_started', messageId: 'prepared-repository-fixture' });
+}
 emit({ type: 'session_state_changed', state: 'running' });
 let sent = 0;
 let setFeedback: (value: { status?: string; error?: string }) => void = () => {};
@@ -74,7 +78,7 @@ function Fixture() {
   const [feedback, updateFeedback] = useState<{ status?: string; error?: string }>({});
   setFeedback = updateFeedback;
   const messages = useMitzoStore((s) => s.messages);
-  const target = messages.messages.filter((m) => m.commandState === 'running').at(-1)?.messageId;
+  const target = activeSteeringCommandId(messages);
   const steering = useTurnSteering('queue-fixture', target, true);
   return (
     <main className="queue-steering-fixture">

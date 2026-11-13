@@ -19,6 +19,7 @@ import {
 } from './codex-steering.js';
 import { codexNativeProfileRevision } from './codex-native-execution-policy.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
+import { NativeHostEffectsRecoveryError } from './native-host-effects-recovery-error.js';
 import { CallbackIncidentStore } from './callback-incident-store.js';
 import {
   CHAT_MAX_PREPARED_PROMPT_CHARS,
@@ -3728,54 +3729,64 @@ export class CodexConversationStore {
     }
     if (childCalls.some((call) => !ownedExecution || !call.intrinsicRead))
       throw Error('Terminal child host effects require original owned read authority');
-    if (
-      calls.length !== receipts.length ||
-      calls.some((call) => {
-        const receipt = byId.get(call.callId);
-        const evidence = (): RetainedNativeEffectEvidence => ({
-          target,
-          execution: originalExecution!,
-          custody: originalCustody!,
-          diagnostic: this.commandLifecycle(id, binding, target.commandId).diagnostic,
-          callId: call.callId,
-          requestHash: call.requestHash,
-          effectOutcome: receipt!.result_effect_outcome,
-          contentItems: receipt!.result_content_items,
-        });
-        return (
-          !receipt ||
-          receipt.turn_id !== target.turnId ||
-          receipt.tool_name !== call.toolName ||
-          receipt.request_hash !== call.requestHash ||
-          receipt.result_content === null ||
-          receipt.result_is_error !== Number(call.isError) ||
-          !(
-            receipt.result_effect_outcome === 'settled' ||
-            (receipt.result_effect_outcome === null && !call.isError) ||
-            (call.readOnly &&
-              ownedExecution &&
-              (receipt.result_effect_outcome === null || call.intrinsicRead)) ||
-            (call.toolName === 'TaskExecution' &&
-              ownedExecution &&
-              hasRetainedTaskExecutionResult(
-                id,
-                binding,
-                this.read(id, binding).cwd,
-                call.arguments,
-                { content: receipt.result_content, isError: call.isError },
-                evidence,
-              )) ||
-            (ownedExecution &&
-              observeHostResult?.(
-                call,
-                { content: receipt.result_content, isError: call.isError },
-                evidence,
-              ) === true)
-          )
-        );
-      })
-    )
-      throw Error('Native terminal host effects lack matching settled receipts');
+    const mismatch = (
+      reason: NativeHostEffectsRecoveryError['diagnostic']['reason'],
+      callId?: string,
+    ) =>
+      new NativeHostEffectsRecoveryError({
+        stage: 'native_host_effects',
+        reason,
+        commandId: target.commandId,
+        ...(callId ? { callId } : {}),
+        nativeCallCount: calls.length,
+        receiptCount: receipts.length,
+      });
+    if (calls.length !== receipts.length) throw mismatch('receipt_count_mismatch');
+    for (const call of calls) {
+      const receipt = byId.get(call.callId);
+      if (!receipt) throw mismatch('receipt_missing', call.callId);
+      if (receipt.turn_id !== target.turnId) throw mismatch('turn_mismatch', call.callId);
+      if (receipt.tool_name !== call.toolName) throw mismatch('tool_mismatch', call.callId);
+      if (receipt.request_hash !== call.requestHash)
+        throw mismatch('request_mismatch', call.callId);
+      if (receipt.result_content === null) throw mismatch('result_missing', call.callId);
+      if (receipt.result_is_error !== Number(call.isError))
+        throw mismatch('result_outcome_mismatch', call.callId);
+      const evidence = (): RetainedNativeEffectEvidence => ({
+        target,
+        execution: originalExecution!,
+        custody: originalCustody!,
+        diagnostic: this.commandLifecycle(id, binding, target.commandId).diagnostic,
+        callId: call.callId,
+        requestHash: call.requestHash,
+        effectOutcome: receipt!.result_effect_outcome,
+        contentItems: receipt!.result_content_items,
+      });
+      if (!(
+        receipt.result_effect_outcome === 'settled' ||
+        (receipt.result_effect_outcome === null && !call.isError) ||
+        (call.readOnly &&
+          ownedExecution &&
+          (receipt.result_effect_outcome === null || call.intrinsicRead)) ||
+        (call.toolName === 'TaskExecution' &&
+          ownedExecution &&
+          hasRetainedTaskExecutionResult(
+            id,
+            binding,
+            this.read(id, binding).cwd,
+            call.arguments,
+            { content: receipt.result_content, isError: call.isError },
+            evidence,
+          )) ||
+        (ownedExecution &&
+          observeHostResult?.(
+            call,
+            { content: receipt.result_content, isError: call.isError },
+            evidence,
+          ) === true)
+      ))
+        throw mismatch('effects_unsettled', call.callId);
+    }
     return createHash('sha256').update(JSON.stringify(receipts)).digest('hex');
   }
 
