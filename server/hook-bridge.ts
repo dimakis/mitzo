@@ -1,6 +1,8 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { execFile } from 'child_process';
+import { HOOK_EVENTS } from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
 import { createLogger } from './logger.js';
 import type {
   HookEvent,
@@ -29,20 +31,27 @@ function hookEnvironment(base: NodeJS.ProcessEnv): Record<string, string> {
 }
 
 /** Shape of a single hook entry in settings.json */
-interface SettingsHookCommand {
-  type: 'command';
-  command: string;
-}
-
-/** Shape of a matcher group in settings.json */
-interface SettingsHookMatcher {
-  matcher?: string;
-  hooks: SettingsHookCommand[];
-  timeout?: number;
-}
-
-/** Shape of the hooks section in settings.json */
-type SettingsHooks = Partial<Record<string, SettingsHookMatcher[]>>;
+const settingsHooks = z.record(
+  z.string().refine((event) => HOOK_EVENTS.includes(event as HookEvent)),
+  z.array(
+    z.strictObject({
+      matcher: z
+        .string()
+        .refine((value) => {
+          try {
+            if (value !== '*') new RegExp(value);
+            return true;
+          } catch {
+            return false;
+          }
+        })
+        .optional(),
+      hooks: z.array(z.strictObject({ type: z.literal('command'), command: z.string().min(1) })),
+      timeout: z.number().positive().max(300).optional(),
+    }),
+  ),
+);
+type SettingsHooks = z.infer<typeof settingsHooks>;
 
 // Top-level fields in SyncHookJSONOutput (everything else is hook-specific)
 const SDK_TOP_LEVEL_KEYS = new Set([
@@ -53,6 +62,25 @@ const SDK_TOP_LEVEL_KEYS = new Set([
   'systemMessage',
   'reason',
 ]);
+const commonOutput = z
+  .object({
+    continue: z.boolean().optional(),
+    suppressOutput: z.boolean().optional(),
+    stopReason: z.string().optional(),
+    decision: z.enum(['approve', 'block']).optional(),
+    systemMessage: z.string().optional(),
+    reason: z.string().optional(),
+  })
+  .catchall(z.unknown());
+const specificOutput = z
+  .object({
+    hookEventName: z.string().optional(),
+    permissionDecision: z.enum(['allow', 'ask', 'deny']).optional(),
+    permissionDecisionReason: z.string().optional(),
+    updatedInput: z.record(z.string(), z.unknown()).optional(),
+    additionalContext: z.string().optional(),
+  })
+  .catchall(z.unknown());
 
 /**
  * Read and parse the hooks section from a settings.json file.
@@ -62,12 +90,19 @@ export function parseSettingsHooks(settingsPath: string): SettingsHooks | null {
     if (!existsSync(settingsPath)) return null;
     const raw = readFileSync(settingsPath, 'utf-8');
     const parsed = JSON.parse(raw);
-    if (!parsed.hooks || typeof parsed.hooks !== 'object') return null;
-    return parsed.hooks as SettingsHooks;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !('hooks' in parsed))
+      return null;
+    return settingsHooks.parse(parsed?.hooks);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.warn(`failed to parse hooks from ${settingsPath}: ${message}`);
-    return null;
+    log.warn('Project hook configuration rejected', {
+      code: 'project_hook_configuration_invalid',
+      stage: 'configuration',
+      cause: err instanceof SyntaxError ? 'invalid_json' : 'invalid_or_unsupported_configuration',
+    });
+    throw new Error(
+      'Project hook configuration is invalid or unsupported. Check event names, command types, matchers and timeouts.',
+      { cause: err },
+    );
   }
 }
 
@@ -89,23 +124,27 @@ export function expandEnvVars(command: string, env: Record<string, string>): str
  * Map raw JSON output from a hook script to SDK SyncHookJSONOutput.
  * Top-level SDK fields pass through; everything else goes into hookSpecificOutput.
  */
-export function mapHookOutput(
-  raw: Record<string, unknown>,
-  hookEventName: string,
-): SyncHookJSONOutput {
+export function mapHookOutput(raw: unknown, hookEventName: string): SyncHookJSONOutput {
+  const parsed = commonOutput.parse(raw);
+  if ('async' in parsed) throw new Error('Asynchronous project hooks are unsupported');
   const result: Record<string, unknown> = {};
-  const specific: Record<string, unknown> = {};
+  const specific =
+    parsed.hookSpecificOutput === undefined ? {} : specificOutput.parse(parsed.hookSpecificOutput);
+  if ('hookEventName' in specific && specific.hookEventName !== hookEventName)
+    throw new Error('Project hook event does not match');
 
-  for (const [key, value] of Object.entries(raw)) {
+  for (const [key, value] of Object.entries(parsed)) {
+    if (key === 'hookSpecificOutput') continue;
     if (SDK_TOP_LEVEL_KEYS.has(key)) {
       result[key] = value;
     } else {
+      if (key in specific) throw new Error('Conflicting project hook output');
       specific[key] = value;
     }
   }
 
   if (Object.keys(specific).length > 0) {
-    result.hookSpecificOutput = { hookEventName, ...specific };
+    result.hookSpecificOutput = { ...specificOutput.parse(specific), hookEventName };
   }
 
   return result as SyncHookJSONOutput;
@@ -134,68 +173,54 @@ export function createCommandCallback(
         ? String((input as Record<string, unknown>).hook_event_name)
         : 'unknown';
 
-    // Fast-path: already aborted before we even spawn
-    if (options.signal.aborted) return {};
-
-    if (runner) {
-      try {
-        const { stdout } = await runner('/bin/sh', ['-c', command], {
-          cwd,
-          env,
-          timeout: timeoutMs,
-          signal: options.signal,
-          input: JSON.stringify(input),
-        });
-        if (!stdout.trim()) return {};
-        return mapHookOutput(JSON.parse(stdout.trim()), hookEventName);
-      } catch (error) {
-        log.warn(`hook command failed: ${command}`, {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return {};
-      }
+    let stage = 'command';
+    try {
+      options.signal.throwIfAborted();
+      const commandOptions = {
+        cwd,
+        env,
+        timeout: timeoutMs,
+        signal: options.signal,
+        maxBuffer: 256 * 1024,
+      };
+      const stdout = runner
+        ? (
+            await runner('/bin/sh', ['-c', command], {
+              ...commandOptions,
+              input: JSON.stringify(input),
+            })
+          ).stdout
+        : await new Promise<string>((resolve, reject) => {
+            const child = execFile('/bin/sh', ['-c', command], commandOptions, (error, stdout) =>
+              error ? reject(error) : resolve(stdout),
+            );
+            // EPIPE after cancellation is settled by the command callback.
+            child.stdin?.on('error', () => {});
+            child.stdin?.end(JSON.stringify(input));
+          });
+      options.signal.throwIfAborted();
+      stage = 'output';
+      return stdout.trim() ? mapHookOutput(JSON.parse(stdout.trim()), hookEventName) : {};
+    } catch (error) {
+      const cause = options.signal.aborted
+        ? 'cancelled'
+        : error instanceof Error && 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : stage === 'output'
+            ? 'invalid_output'
+            : 'command_failed';
+      log.warn('Project hook failed', {
+        code: 'project_hook_failed',
+        stage,
+        cause,
+        event: hookEventName,
+        sessionId: 'session_id' in input ? input.session_id : undefined,
+      });
+      return {
+        continue: false,
+        stopReason: `Project ${hookEventName} hook failed at ${stage}. Inspect current state before retrying; hook commands${hookEventName.startsWith('PostTool') ? ' and the tool' : ''} may already have run.`,
+      };
     }
-
-    return new Promise<HookJSONOutput>((resolve) => {
-      const child = execFile(
-        '/bin/sh',
-        ['-c', command],
-        { cwd, timeout: timeoutMs, env },
-        (err, stdout) => {
-          if (err) {
-            log.warn(`hook command failed: ${command}`, { error: err.message });
-            resolve({});
-            return;
-          }
-
-          const trimmed = stdout.trim();
-          if (!trimmed) {
-            resolve({});
-            return;
-          }
-
-          try {
-            const parsed = JSON.parse(trimmed);
-            resolve(mapHookOutput(parsed, hookEventName));
-          } catch {
-            log.warn(`hook output is not valid JSON: ${command}`);
-            resolve({});
-          }
-        },
-      );
-
-      // Kill child if the session is aborted
-      options.signal.addEventListener('abort', () => child.kill(), { once: true });
-
-      // Pipe hook input to stdin (skip if already aborted)
-      if (!options.signal.aborted && child.stdin) {
-        const stdinPayload = JSON.stringify(input);
-        child.stdin.on('error', () => {}); // Ignore EPIPE from killed process
-        child.stdin.write(stdinPayload, () => {
-          child.stdin?.end();
-        });
-      }
-    });
   };
 }
 
@@ -221,20 +246,14 @@ export function loadProjectHooks(
   let hasHooks = false;
 
   for (const [eventName, matchers] of Object.entries(raw)) {
-    if (!Array.isArray(matchers)) continue;
-
     const sdkMatchers: HookCallbackMatcher[] = [];
 
     for (const matcher of matchers) {
-      if (!Array.isArray(matcher.hooks)) continue;
-
-      const callbacks = matcher.hooks
-        .filter((h) => h.type === 'command' && h.command)
-        .map((h) => {
-          const expanded = expandEnvVars(h.command, env);
-          const timeoutMs = (matcher.timeout ?? 60) * 1000;
-          return createCommandCallback(expanded, cwd, timeoutMs, env, runner);
-        });
+      const callbacks = matcher.hooks.map((h) => {
+        const expanded = expandEnvVars(h.command, env);
+        const timeoutMs = (matcher.timeout ?? 60) * 1000;
+        return createCommandCallback(expanded, cwd, timeoutMs, env, runner);
+      });
 
       if (callbacks.length === 0) continue;
 
