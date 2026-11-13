@@ -137,6 +137,7 @@ export function ConversationJoiningReview({
           <summary>Technical details</summary>
           <p>Stage: {flow.diagnostic.stage}</p>
           <p>Code: {flow.diagnostic.code}</p>
+          {flow.diagnostic.status && <p>HTTP: {flow.diagnostic.status}</p>}
           <p>Request: {flow.diagnostic.requestId}</p>
         </details>
       )}

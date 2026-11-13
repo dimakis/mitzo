@@ -92,7 +92,7 @@ export function ConversationRepositoryPicker({
           onChange={(value) =>
             onChange({
               repositoryWorkspaceId: value?.repositoryWorkspaceId,
-              permissionMode: 'agent',
+              repositoryBlocked: value?.blocked ?? true,
             })
           }
         />

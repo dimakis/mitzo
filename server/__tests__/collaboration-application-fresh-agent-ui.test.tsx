@@ -80,11 +80,9 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Purpose' }), {
       target: { value: 'Review the selected design' },
     });
-    fireEvent.click(await within(dialog).findByRole('button', { name: /^Agent,/ }));
-    const reviewer = await within(dialog).findByRole('button', { name: /^Reviewer ·/ });
-    await waitFor(() => expect((reviewer as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(reviewer);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    // Exercise the default actually shown on first opening; selecting a custom
+    // profile here previously bypassed the broken Default Mitzo path.
+    await within(dialog).findByRole('button', { name: /^Agent, Default Mitzo/ });
     fireEvent.click(await within(dialog).findByRole('button', { name: /^Thinking,/ }));
     fireEvent.click(await within(dialog).findByRole('button', { name: 'low' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
@@ -114,6 +112,9 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       { timeout: 10000 },
     );
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Permissions,/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Auto', exact: true }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     const review = within(dialog).getByRole('button', { name: 'Review joining brief' });
     await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(review);
@@ -138,6 +139,13 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       (p) => p.name === 'FreshReviewer',
     )!;
     expect(h.events.getOrdinaryInitialCommandId(joined.sessionId)).toBeUndefined();
+    const prepared = h.events.getOrdinaryConversationSettings(joined.sessionId)!;
+    expect(prepared.selection.agent).toEqual({
+      kind: 'builtin',
+      profileId: 'default-mitzo',
+      revision: 1,
+    });
+    expect(prepared.selection.permission.mode).toBe('auto');
     expect(runtime.requests).toEqual([]);
     // The source fixture is observational, so it cannot be a future-discussion reader.
     const view = await h.api.view(h.group);

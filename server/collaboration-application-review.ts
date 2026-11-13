@@ -35,8 +35,10 @@ import { nativeStartupSessionId } from './ordinary-repository-startup.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import { contextDigest } from './agent-context-compiler.js';
 import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
+import { createLogger } from './logger.js';
 
 const unavailable = () => new CollaborationContractError('execution_unavailable');
+const log = createLogger('collaboration-review');
 
 /** Observational application composition. The actual ordinary owners resolve all
  * settings and source access; this owner cannot allocate, enqueue or dispatch.
@@ -346,11 +348,30 @@ export class CollaborationApplicationReview {
       throw new CollaborationContractError('snapshot_changed');
 
     let resolved: Awaited<ReturnType<CollaborationApplicationReview['resolveSettings']>>;
+    let settingsStage = 'repository';
     try {
-      resolved = await this.resolveSettings(input.target, operatorConnectionId, signal);
-    } catch {
+      resolved = await this.resolveSettings(
+        input.target,
+        operatorConnectionId,
+        signal,
+        undefined,
+        (stage) => {
+          settingsStage = stage;
+        },
+      );
+    } catch (cause) {
       // Account/credential/provider diagnostics may contain private paths or text.
-      throw unavailable();
+      // Retain the original cause for trusted callers without logging its payload.
+      const failure = unavailable();
+      failure.cause = cause;
+      log.warn('Joining settings could not be resolved', {
+        code: 'joining_settings_failed',
+        stage: `joining_${settingsStage}`,
+        requestId: input.selection.requestId,
+        sourceConversationId: input.selection.sourceConversationId,
+        errorType: cause instanceof Error ? 'Error' : typeof cause,
+      });
+      throw failure;
     }
     assertObservation();
     const afterResolution = retained();
@@ -421,7 +442,9 @@ export class CollaborationApplicationReview {
     connectionId: string | undefined,
     signal: AbortSignal,
     join?: CollaborationJoin,
+    reportStage?: (stage: 'repository' | 'account' | 'runtime' | 'profile' | 'preparation') => void,
   ) {
+    reportStage?.('repository');
     signal.throwIfAborted();
     if (!target.agent) throw unavailable(); // The ordinary profile resolver has no implicit default.
     const record = this.owners.workspaces.get(target.repositoryWorkspaceId);
@@ -449,11 +472,13 @@ export class CollaborationApplicationReview {
       !isOrdinaryRepositoryParticipantBinding(proof.runtimeBinding)
     )
       throw unavailable();
+    reportStage?.('account');
     const profiles = loadAccountProfiles();
     const binding = profiles.resolve(target.accountId, target.model);
     profiles.validateModelSelection(binding, target.model, target.reasoningEffort);
     const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
     const resolveBinding = () => {
+      reportStage?.('runtime');
       const inventory = ordinaryRepositoryRuntimeInventory(
         target.runOn,
         proof.runtimeBinding.harness.implementation,
@@ -479,6 +504,7 @@ export class CollaborationApplicationReview {
       return result.binding;
     };
     const runtime = resolveBinding();
+    reportStage?.('profile');
     const agent = await resolveOrdinaryCodexAgentProfile({
       requested: target.agent,
       provider: binding.provider,
@@ -514,6 +540,7 @@ export class CollaborationApplicationReview {
       repositoryWorkspaceId: target.repositoryWorkspaceId,
     };
     assertOrdinaryCodexContextIdentity(agent, settings.selection, undefined, binding.provider);
+    reportStage?.('preparation');
     await this.owners.workspaces.qualifiedStatus(record.id, binding);
     if (originalReservation && join.state !== 'linked')
       await this.owners.workspaces.qualifyOrdinarySessionReservation({

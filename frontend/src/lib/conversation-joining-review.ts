@@ -21,6 +21,8 @@ export interface ConversationAgentSetup {
   agent: AgentProfileSelection | null;
   /** Explicit fresh-target intent only; the server revalidates preparation custody. */
   repositoryWorkspaceId?: string;
+  /** Retained preparation identity is not evidence that its checkout is ready. */
+  repositoryBlocked?: boolean;
   permissionMode?: CollaborationApplicationReviewInput['target']['permissionMode'];
 }
 export interface ConversationArtifactOption {

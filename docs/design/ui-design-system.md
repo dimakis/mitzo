@@ -1762,6 +1762,13 @@ confirmation, failure preservation and replacement. Captures show
 
 ### Phone setup and deliberate sharing — 13 November 2026
 
+The later phone-test correction keeps the approved 520px dialog geometry and
+reserves shared spacing plus top/bottom safe-area insets around it; only the body
+scrolls. Ask/Agent/Auto is an explicit compact Permissions row using the ordinary
+picker. Repository preparation must preserve its pending/blocked state and the
+user's permission choice. A preparation ID alone cannot enable review. Physical
+phone acceptance remains separate from source checks and intercepted renders.
+
 Dimitri's phone test rejected the long Add agent form and its unexplained disabled
 review button. The ordinary application setup now reuses the compact settings rows
 and `QuickSettingsChoices` within its own navigation scope. Name and purpose appear

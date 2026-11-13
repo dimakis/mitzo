@@ -7,6 +7,7 @@ export type SettingsPage =
   | 'agent'
   | 'execution'
   | 'repository'
+  | 'permissions'
   | 'more'
   | 'defaults'
   | 'details';
