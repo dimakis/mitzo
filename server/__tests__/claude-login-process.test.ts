@@ -49,8 +49,10 @@ function fixture(body: string) {
   writeFileSync(executable, `#!${process.execPath}\n${body}`, { mode: 0o700 });
   return { root, executable };
 }
+// Mirrors Claude Code 2.1.322's real link shape. The `+`-joined scope matters: Node's
+// stripVTControlCharacters cannot parse an OSC 8 hyperlink whose target contains `+`.
 const url =
-  'https://claude.com/cai/oauth/authorize?redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&state=state&code_challenge=challenge&code_challenge_method=S256';
+  'https://claude.com/cai/oauth/authorize?code=true&client_id=synthetic-client&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference&code_challenge=challenge&code_challenge_method=S256&state=state';
 it('uses clean routing, receives chunked manual URL, and hands codes to the native process without logging them', async () => {
   vi.stubEnv('ANTHROPIC_API_KEY', 'synthetic-enmaas-key');
   vi.stubEnv('CLAUDE_CODE_USE_VERTEX', '1');
