@@ -55,7 +55,12 @@ it.each(['mitzo_api', 'openai', undefined])(
         conversationId: 'custom-api',
         cwd: root,
         store,
-        profile: { ...binding, credentialRef: '/synthetic/private-home', planType: 'api' },
+        profile: {
+          ...binding,
+          credentialRef: '/synthetic/private-home',
+          planType: 'api',
+          email: 'synthetic@example.test',
+        },
         storedBinding: binding,
         verifyBinding: async () => binding,
         systemPrompt: 'Synthetic offline provider fixture.',

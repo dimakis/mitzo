@@ -27,7 +27,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-api-provider.test.ts':
     '6185a705b39ac246aec4ca20f2456c1529a2cf684946edafc27b00e168f0df3c',
   '../__tests__/codex-custom-provider-conversation.test.ts':
-    '2ecab882c1c8e60e398d62e115f555b599aa2ea865f21303600cdfbf749d28cb',
+    '4816ec02cfb7261eeac91a312ac2947f4ca471517a85daadf6310cb36fa6fdf3',
   '../__tests__/codex-isolated-host-launch.test.ts':
     '1eccf2ce767964025468ee6ba379cddcb6682ca30e63643a5c113501e333e0c1',
   '../__tests__/claude-login-verification.test.ts':
