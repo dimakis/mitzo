@@ -157,6 +157,7 @@ it('reaches the ordinary worker owner from an exact bound lead without sibling c
     target: 'This Mac',
   });
   expect(receipt.execution).toBe('not_started');
+  expect(f.ordinary.store.getSession(receipt.workerConversationId)?.summary).toBe('Slice one');
   expect(receipt.workerConversationId).not.toBe(f.leadId);
   expect(f.work.read('sibling', f.actor).attempts).toHaveLength(0);
   expect(f.work.read('slice', f.actor).assignments).toEqual([]);
@@ -168,6 +169,17 @@ it('reaches the ordinary worker owner from an exact bound lead without sibling c
   expect(recovered).toEqual(receipt);
   const alias = await f.host().delegate(f.request({ ...f.input, requestId: 'another-start' }));
   expect(alias).toEqual(receipt);
+});
+
+it('repairs an unnamed allocated worker on recovery and preserves a chosen chat name', async () => {
+  const f = await fixture();
+  const receipt = await f.host().delegate(f.request());
+  f.ordinary.store.upsertSession({ sessionId: receipt.workerConversationId, summary: '' });
+  await f.host().delegate(f.request());
+  expect(f.ordinary.store.getSession(receipt.workerConversationId)?.summary).toBe('Slice one');
+  f.ordinary.store.upsertSession({ sessionId: receipt.workerConversationId, summary: 'My worker' });
+  await f.host().delegate(f.request());
+  expect(f.ordinary.store.getSession(receipt.workerConversationId)?.summary).toBe('My worker');
 });
 it('refuses ambiguous or forged scope before allocating another conversation', async () => {
   const f = await fixture();

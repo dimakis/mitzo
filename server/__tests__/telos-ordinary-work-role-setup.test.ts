@@ -447,10 +447,13 @@ it.each([
       title: 'Panel placement worker',
       prompt: 'Review the selected slice.',
       itemId: child.item.id,
-      expectedRevision: f.work.read(child.item.id, f.actor).revision,
+      expectedRevision: items.read(child.item.id).revision,
       sourceSnapshotIds: [],
       artifactRefs: [],
     };
+    await expect(
+      host.propose(sourceSessionId, { ...input, expectedRevision: '0'.repeat(64) }, authority),
+    ).rejects.toThrow(/revision/i);
     const proposal = await host.propose(sourceSessionId, input, authority);
     const edits = { title: input.title, prompt: input.prompt, configuration };
     const record = store.propose({

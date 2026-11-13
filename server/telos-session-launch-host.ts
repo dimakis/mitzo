@@ -12,6 +12,7 @@ import {
   telosAdoptionTransition,
 } from './telos-existing-chat-adoption.js';
 import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
+import { TelosItemStore } from './telos-item-store.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import type { createTelosWorkRoleHost } from './telos-work-role-host.js';
 import {
@@ -427,14 +428,31 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
           extraTools: [],
         };
       }
+      const canonicalRevision = () => {
+        const items = new TelosItemStore(deps.dbPath(), { readOnly: true });
+        try {
+          return items.readGuarded(input.itemId, () => current(authority)).revision;
+        } finally {
+          items.close();
+        }
+      };
+      const itemRevision = canonicalRevision();
       const scope = sourceScope(sourceSessionId, input.itemId);
-      if (scope.expectedRevision !== input.expectedRevision)
+      // TelosManageItem returns the canonical brief token. Retain the separate
+      // relationship token internally; older scoped callers remain valid.
+      if (
+        itemRevision !== input.expectedRevision &&
+        scope.expectedRevision !== input.expectedRevision
+      )
         throw new SessionLaunchError(
           'Work revision changed. Read the selected work before proposing its session.',
         );
       const assertAuthorized = () => {
         current(authority);
-        if (!isDeepStrictEqual(sourceScope(sourceSessionId, input.itemId), scope))
+        if (
+          canonicalRevision() !== itemRevision ||
+          !isDeepStrictEqual(sourceScope(sourceSessionId, input.itemId), scope)
+        )
           throw new SessionLaunchError(
             'The selected work or its assigned lead changed during review.',
           );
