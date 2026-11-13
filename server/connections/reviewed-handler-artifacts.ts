@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/prepared-continuation-steering.spec.ts':
-    '15b0f487e1ea6795e67331e39beb3b38c8682f2b370103f05751bb3afc9337fa',
+    'bf880b405a0b19e92f3285fced20f379c1b1b6813d32b55ecf4f963876c17a65',
   '../native-host-effects-recovery-error.ts':
     'a94314a395bdcb7a204aba26414ea19dda89b94ebf79d249a1f5c5407d79c478',
   '../../packages/client/src/command-attribution.ts':

@@ -61,7 +61,7 @@ for (const theme of ['dark', 'light'])
     await input.fill('Pause at a safe point for the server update.');
     await expect(page.getByRole('button', { name: 'Steer current turn' })).toBeEnabled();
     await page.screenshot({
-      path: info.outputPath(`prepared-continuation-${theme}.png`),
+      path: info.outputPath(`chat-queue-prepared-continuation-${theme}.png`),
       fullPage: true,
     });
     await page.getByRole('button', { name: 'Steer current turn' }).click();
