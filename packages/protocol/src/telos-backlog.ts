@@ -78,6 +78,12 @@ export const TelosManageItemInputSchema = z.discriminatedUnion('operation', [
   z.strictObject({
     operation: z.literal('read'),
     itemId: id,
+    view: z
+      .enum(['overview', 'full'])
+      .optional()
+      .describe(
+        'Prefer overview for current status, responsibility, children and revision without historical payloads. Full preserves the complete legacy read and fragment paging.',
+      ),
     offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
   }),
   TelosEditItemInputSchema.safeExtend({ operation: z.literal('edit') }),
