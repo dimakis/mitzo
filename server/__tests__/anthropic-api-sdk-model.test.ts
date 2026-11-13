@@ -299,6 +299,9 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
     });
     expect.soft(calls[0].model).toBe(models[0]);
     expect.soft(calls[0].effort).toBe('low');
+    const learningPrompt = (index: number) =>
+      (calls[index].systemPrompt as { append: string }).append;
+    expect(learningPrompt(0)).toContain('<session_learning mode="auto">');
     await checkProposalPermission(calls[0]);
     await searches.at(-1)!('Synthetic search', new AbortController().signal, {
       parentSessionId: f.reservation.conversationId,
@@ -306,6 +309,12 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
     });
     expect.soft(search.mock.calls.at(-1)![2].model).toBe(models[0]);
     owner.commandTerminal(f.request.clientMsgId);
+    const sessionId = f.reservation.conversationId;
+    const off = chat.eventStore.setSessionLearningMode(
+      sessionId,
+      'off',
+      chat.eventStore.getSessionLearningPolicy(sessionId).revision,
+    );
     await owner.admitContinuation({
       ...f.request,
       clientMsgId: 'exact-next',
@@ -313,12 +322,24 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
     });
     expect.soft(calls[1].model).toBe(models[1]);
     expect.soft(calls[1].effort).toBe('high');
+    expect(learningPrompt(1)).not.toContain('<session_learning ');
     await checkProposalPermission(calls[1]);
     await searches.at(-1)!('Synthetic search', new AbortController().signal, {
       parentSessionId: f.reservation.conversationId,
       operationId: 'search-next',
     });
     expect.soft(search.mock.calls.at(-1)![2].model).toBe(models[1]);
+    owner.commandTerminal('exact-next');
+    chat.eventStore.setSessionLearningMode(sessionId, 'deep', off.revision);
+    await owner.admitContinuation({
+      ...f.request,
+      clientMsgId: 'exact-third',
+      selection: { ...f.request.selection, model: models[1], thinking: 'high' },
+    });
+    expect(learningPrompt(2)).toContain('<session_learning mode="deep">');
+    await checkProposalPermission(calls[2]);
+    expect(learningPrompt(2).match(/<session_learning /g)).toHaveLength(1);
+    expect(learningPrompt(0)).toContain('<session_learning mode="auto">');
   } finally {
     chat.registry.dispose();
     owner.close();

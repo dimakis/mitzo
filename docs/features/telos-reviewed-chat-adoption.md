@@ -135,6 +135,20 @@ preserved its checkout; this takeover uses a separate clone. Deployment and
 live-model qualification remain outside this request. No landing request may
 allow #1330 to overtake #1329.
 
+GitHub confirmed #1329 merged at 10:30:55 UTC on 13 November as accepted
+`cfa324ca72d72acee34dab816631b0c6e26df673`. The final integration retains its
+approved EnMaaS setup, model visibility and model-less editable drafts, plus
+current learning guidance on SDK query replacement. Only the shared source
+registry conflicted; both source sets remain registered with combined hashes.
+Both independent integration follow-ups found no blocker: Codex retirement and
+provider-context fences remain intact, dispatch still requires a model, and
+adoption retains the target's settings. Combined local checks passed 202 tests
+across 14 files with one existing conditional design skip, including SDK query
+replacement, adoption/role/delegation owners, hidden-model consumers and design
+guards. All 2,395 source pins verify and a parent-union check finds no missing
+registration. Current-base CI and the final Centaur report must cover this
+combined candidate before merge.
+
 CI `43397518370` failed server test compilation: the host callback fixture
 returned `Promise<void>` instead of a JSON reply, and spread adoption inputs
 widened `createOnly` from literal `true` to `boolean`. Commit `8811cc5e` fixes

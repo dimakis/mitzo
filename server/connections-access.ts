@@ -31,6 +31,7 @@ export interface ConnectionsAccessSources {
   ) => AccountAccessProfile[] | Promise<AccountAccessProfile[]>;
   /** Server-owned enrollment only; presence is not proof of credential health. */
   canManageOpenAIKey?: (accountId: string) => boolean;
+  canManageApiAccount?: (accountId: string) => boolean;
   managed?: () => ManagedAccessConnection[];
   keychain?: () => PublicCredentialConnection[];
   personal?: (signal: AbortSignal) => PersonalConnection[] | Promise<PersonalConnection[]>;
@@ -219,6 +220,14 @@ export async function readConnectionsAccess(
             id: 'openai-key-controls',
             label: 'Manage API key',
             href: `/connections?manage=openai&connection=${encodeURIComponent(account.id)}`,
+          },
+        ];
+      if (source === 'accounts' && input.canManageApiAccount?.(account.id))
+        row.actions = [
+          {
+            id: 'api-account-controls',
+            label: 'Manage API account',
+            href: `/connections?manage=openai-add&connection=${encodeURIComponent(account.id)}`,
           },
         ];
       if (

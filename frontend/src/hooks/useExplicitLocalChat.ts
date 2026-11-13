@@ -2,6 +2,7 @@ import { resolveRuntimeTarget } from '../lib/chat-runtime-route';
 import { z } from 'zod';
 import {
   getDefaultAccountModel,
+  visibleAccountModelSelection,
   getDefaultAccountReference,
   rememberDefaultAccountReference,
 } from '../lib/account-preference';
@@ -76,7 +77,7 @@ export function useExplicitLocalChat(
       account: sessionId
         ? null
         : savedAccount === undefined
-          ? getDefaultAccountModel()
+          ? visibleAccountModelSelection(getDefaultAccountModel())
           : savedAccount,
     });
     const reference = sessionId || savedAccount !== undefined ? null : getDefaultAccountReference();

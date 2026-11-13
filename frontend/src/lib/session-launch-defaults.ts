@@ -6,6 +6,7 @@ import {
 import { apiFetch } from './api-fetch';
 import { createChatDraft, type ChatDraft } from './chat-drafts';
 import type { ChatRuntimeSelection } from './chat-runtime-selection';
+import { visibleAccountModelSelection } from './account-preference';
 
 export { SessionLaunchDefaultsSchema, type SessionLaunchDefaults };
 
@@ -47,9 +48,10 @@ export function sessionLaunchRuntime(
 ): SessionLaunchConfig['runtime'] {
   return {
     version: 1,
-    account: selection.account?.accountId
-      ? { ...selection.account, accountId: selection.account.accountId }
-      : null,
+    account:
+      selection.account?.accountId && selection.account.model
+        ? { ...selection.account, accountId: selection.account.accountId }
+        : null,
     accountReference: selection.accountReference,
     agentProfile: selection.agentProfile,
     execution: { ...selection.execution },
@@ -87,6 +89,7 @@ export async function saveSessionLaunchDefaults(
 /** Preferences retain intent, never a runtime admission or a provider checkpoint. */
 export function sessionLaunchConfigurationDraft(configuration: SessionLaunchConfig): ChatDraft {
   const draft = createChatDraft();
+  const account = visibleAccountModelSelection(configuration.runtime.account);
   const search = new URLSearchParams();
   const profile = configuration.runtime.agentProfile;
   if (profile) {
@@ -100,8 +103,12 @@ export function sessionLaunchConfigurationDraft(configuration: SessionLaunchConf
     contextBlocks: [...configuration.contextBlocks],
     settings: {
       ...draft.settings,
-      selection: configuration.runtime.account,
-      runtimeSelection: { ...structuredClone(configuration.runtime), capabilityRevision: null },
+      selection: account,
+      runtimeSelection: {
+        ...structuredClone(configuration.runtime),
+        account,
+        capabilityRevision: null,
+      },
       mode: configuration.mode,
       isolation: configuration.isolation,
       repositoryWorkspaceId: null,

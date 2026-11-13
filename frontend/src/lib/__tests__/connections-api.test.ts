@@ -1,6 +1,12 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { apiFetch } from '../api-fetch';
-import { createConnection, enrollOpenAIAccount, getOpenAIAccounts } from '../connections-api';
+import {
+  createConnection,
+  enrollOpenAIAccount,
+  getOpenAIAccounts,
+  discoverApiModels,
+  refreshEnrolledApiModels,
+} from '../connections-api';
 vi.mock('../api-fetch', () => ({ apiFetch: vi.fn() }));
 const input = {
   templateId: 'jira-readonly',
@@ -12,6 +18,33 @@ const input = {
   csrf: 'proof',
 };
 beforeEach(() => vi.resetAllMocks());
+it.each([401, 403, 422])(
+  'classifies catalog authentication failure (%s) without leaking provider text',
+  async (status) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      Response.json({ code: 'credential_rejected', error: 'PRIVATE_KEY raw response' }, { status }),
+    );
+    const result = discoverApiModels({
+      csrf: 'proof',
+      endpoint: 'https://api.enmaas.devshift.net',
+      apiKey: 'synthetic-key',
+      protocol: 'messages',
+      authentication: 'api-key',
+    });
+    await expect(result).rejects.toMatchObject({
+      code: status === 422 ? 'credential_rejected' : 'AUTHORIZATION_REQUIRED',
+    });
+    await expect(result).rejects.not.toThrow('PRIVATE_KEY');
+  },
+);
+it('requires a confirmed account-specific model refresh receipt', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    Response.json({ account: { id: 'other', state: 'ready', models: [] } }),
+  );
+  await expect(refreshEnrolledApiModels('work', 'proof')).rejects.toThrow(
+    'Could not confirm model refresh',
+  );
+});
 it.each([
   [400, { code: 'ENROLLMENT_INPUT_INVALID', effectStatus: 'not_started' }, true],
   [400, {}, false],

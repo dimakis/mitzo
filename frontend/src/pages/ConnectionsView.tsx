@@ -708,6 +708,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
             mode === 'openai-add' &&
             (data.openAIAccountsManaged && !loadError ? (
               <OpenAIAccountEnrollment
+                accountId={connectionId}
                 csrf={csrf}
                 expiresAt={csrfExpiresAt}
                 authorized={!!csrf && csrfExpiresAt > Date.now() && !connectionsRefreshing}
