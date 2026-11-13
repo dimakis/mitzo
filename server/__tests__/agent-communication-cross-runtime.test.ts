@@ -4,7 +4,13 @@ import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { createAgentMessageApprover } from '../agent-communication-permission.js';
 import { EventStore } from '../event-store.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
-import { setAuthRevocationStore } from '../auth.js';
+import {
+  setAuthRevocationStore,
+  login,
+  authenticateToken,
+  revokeAuthSession,
+  type AuthSession,
+} from '../auth.js';
 import { sessionAgentCommunicationTools } from '../agent-communication-tools.js';
 import type { CodexConversationStore } from '../codex-conversation-store.js';
 import { registerAgentMessageRuntime, type AgentMessageRuntime } from '../agent-message-runtime.js';
@@ -14,6 +20,7 @@ import { createCredentialSdkServer, credentialSdkPermission } from '../credentia
 import { assertAgentToolRoute, bindAgentToolSelection } from '../agent-tool-selection.js';
 import { SdkAgentMessageRuntime } from '../sdk-agent-message-runtime.js';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { createInteractiveAuth } from '../interactive-auth-core.js';
 
 const cleanups: Array<() => void> = [];
 const revocations = new EventStore(':memory:');
@@ -26,12 +33,15 @@ afterEach(() => {
 /** Real operator, session, binding and receipt owners; no SDK/model/host credentials.
  * Native custody is synthetic and deliberately does not exist for the Claude peer.
  */
-function fixture(sourceRuntime: 'codex' | 'claude-sdk' = 'codex') {
+function fixture(
+  sourceRuntime: 'codex' | 'claude-sdk' = 'codex',
+  auth: AuthSession = { id: randomUUID(), expiresAt: Date.now() + 60_000 },
+  peerAuth: AuthSession = auth,
+) {
   const events = new EventStore(':memory:');
   cleanups.push(() => events.close());
   const registry = new SessionRegistry();
   cleanups.push(() => registry.dispose());
-  const auth = { id: randomUUID(), expiresAt: Date.now() + 60_000 };
   cleanups.push(bindAgentLibraryTransport('operator', auth));
   const bindings = [
     {
@@ -69,7 +79,7 @@ function fixture(sourceRuntime: 'codex' | 'claude-sdk' = 'codex') {
       sessionAllowList: new Set(),
       ordinaryRuntimeOwner: {
         location: 'local',
-        authSessionId: auth.id,
+        authSessionId: id === 'orchestrator' ? auth.id : peerAuth.id,
         identity: {},
         initialCommandId: `${id}-initial`,
         admit: vi.fn(async () => ({ dispatched: true })),
@@ -82,7 +92,9 @@ function fixture(sourceRuntime: 'codex' | 'claude-sdk' = 'codex') {
     hasConversation: vi.fn((id: string) =>
       bindings.some((entry) => entry.id === id && entry.harness === 'codex'),
     ),
-    readHostCustody: vi.fn(() => ({ authSessionId: auth.id })),
+    readHostCustody: vi.fn((id: string) => ({
+      authSessionId: id === 'orchestrator' ? auth.id : peerAuth.id,
+    })),
     acceptedProviderTurnForCommand: vi.fn(() => undefined),
     steeringReceiptForRequest: vi.fn(() => undefined),
     commandStatus: vi.fn(() => undefined),
@@ -134,6 +146,7 @@ function fixture(sourceRuntime: 'codex' | 'claude-sdk' = 'codex') {
     events,
     registry,
     auth,
+    native,
     approve,
     execute,
     tools,
@@ -142,6 +155,182 @@ function fixture(sourceRuntime: 'codex' | 'claude-sdk' = 'codex') {
       install('claude-worker', 'claude-sdk', state),
   };
 }
+
+async function signedOperator() {
+  const token = await login(process.env.AUTH_PASSPHRASE!);
+  const auth = (await authenticateToken(token!))!;
+  cleanups.push(() => revokeAuthSession(auth));
+  return auth;
+}
+
+it('identifies unavailable sender custody separately from an inaccessible recipient', async () => {
+  const f = fixture();
+  vi.mocked(f.native.readHostCustody).mockReturnValue(null);
+  await expect(f.execute({ operation: 'inbox', after: 0 })).rejects.toMatchObject({
+    code: 'sender_custody_unavailable',
+    stage: 'ownership',
+  });
+  expect(f.approve).not.toHaveBeenCalled();
+});
+
+it('does not mistake a live isolated-realm owner for primary-operator login provenance', async () => {
+  const source = await signedOperator();
+  const isolated = createInteractiveAuth({
+    passphrase: process.env.AUTH_PASSPHRASE!,
+    secret: process.env.AUTH_SECRET!,
+    maxAgeHours: 1,
+    cookieName: 'isolated_auth',
+    realm: { issuer: 'separate-operator', audience: 'separate-operator' },
+  });
+  const token = await isolated.login(process.env.AUTH_PASSPHRASE!);
+  const peer = (await isolated.authenticateToken(token!))!;
+  cleanups.push(() => isolated.revokeAuthSession(peer));
+  const f = fixture('codex', source, peer);
+  const target = f.install('codex-worker', 'codex');
+  expect(await f.execute({ operation: 'list', offset: 0 })).toMatchObject({ chats: [] });
+  await expect(
+    f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'codex-worker',
+      text: 'Must remain isolated.',
+    }),
+  ).rejects.toMatchObject({ code: 'recipient_unavailable', stage: 'ownership' });
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(target.steer).not.toHaveBeenCalled();
+});
+
+it('reuses only the original peer grant for a correlated reply across verified logins', async () => {
+  const auth = await signedOperator(),
+    peer = await signedOperator();
+  const f = fixture('codex', auth, peer);
+  const origin = f.registry.get('operator:orchestrator')!;
+  origin.sessionAllowList.add(`agent-communication:adapters-v1:${auth.id}:orchestrator`);
+  const message = f.events.agentCommunication.reserve(
+    'orchestrator',
+    auth.id,
+    { turnId: 'origin', callId: 'send' },
+    {
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Report milestones.',
+    },
+  );
+  const recipient = f.registry.get('operator:claude-worker')!;
+  const prompt = vi.fn();
+  recipient.transport.send = prompt;
+  const approve = createAgentMessageApprover({
+    events: f.events,
+    registry: f.registry,
+    conversationId: 'claude-worker',
+    assertCurrent() {},
+  });
+  const decision = await approve(
+    {
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'orchestrator',
+      replyTo: message.messageId,
+      text: 'Milestone evidence.',
+    },
+    new AbortController().signal,
+  );
+  expect(decision.behavior).toBe('allow');
+  expect(prompt).not.toHaveBeenCalled();
+  origin.sessionAllowList.clear();
+  expect(() => decision.assertCurrent()).toThrow(/permission changed/);
+});
+
+it.each(['codex', 'claude-sdk'] as const)(
+  'discovers and messages owned peers across verified logins from %s without changing custody',
+  async (engine) => {
+    const source = await signedOperator();
+    const peer = await signedOperator();
+    const f = fixture(engine, source, peer);
+    const adapter = f.install('codex-worker', 'codex');
+    const before = f.native.readHostCustody(
+      'codex-worker',
+      f.events.getSession('codex-worker')!.accountBinding!,
+    );
+    expect(await f.execute({ operation: 'list', offset: 0 })).toMatchObject({
+      chats: expect.arrayContaining([expect.objectContaining({ conversationId: 'codex-worker' })]),
+    });
+    const sent = await f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'codex-worker',
+      text: 'Report the current milestone.',
+    });
+    expect(sent).toMatchObject({ status: 'delivered' });
+    expect(adapter.steer).toHaveBeenCalledTimes(1);
+    expect(
+      f.native.readHostCustody(
+        'codex-worker',
+        f.events.getSession('codex-worker')!.accountBinding!,
+      ),
+    ).toEqual(before);
+  },
+);
+
+it('recognizes its own retained custody after an authorized login change, but denies an unverified operator', async () => {
+  const auth = await signedOperator();
+  const f = fixture('codex', auth);
+  vi.mocked(f.native.readHostCustody).mockReturnValue({
+    authSessionId: 'original-creating-login',
+  } as never);
+  expect(await f.execute({ operation: 'inbox', after: 0 })).toMatchObject({ messages: [] });
+  const foreign = fixture(
+    'codex',
+    { id: 'unverified-other-operator', expiresAt: Date.now() + 60_000 },
+    auth,
+  );
+  foreign.install('codex-worker', 'codex');
+  await expect(
+    foreign.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'codex-worker',
+      text: 'Denied.',
+    }),
+  ).rejects.toMatchObject({ code: 'recipient_unavailable', stage: 'ownership' });
+  expect(foreign.approve).not.toHaveBeenCalled();
+});
+
+it('keeps SDK input and ACK receipts correlated across separately authenticated operator logins', async () => {
+  const auth = await signedOperator();
+  const peer = await signedOperator();
+  const f = fixture('codex', auth, peer);
+  const session = f.registry.get('operator:claude-worker')!;
+  let input: SDKUserMessage | undefined;
+  const sdk = new SdkAgentMessageRuntime({
+    events: f.events,
+    session,
+    identity: session.ordinaryRuntimeOwner!.identity,
+    operatorAuthSessionId: peer.id,
+    assertCurrent() {},
+    activeCommandId: () => 'active',
+    stopped: () => false,
+    push: (value) => {
+      input = value;
+    },
+    enqueue: async () => {},
+  });
+  cleanups.push(registerAgentMessageRuntime(session, sdk));
+  const sent = (await f.execute({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'claude-worker',
+    text: 'Milestone report.',
+  })) as { messageId: string };
+  expect(input).toBeDefined();
+  expect(sdk.beforeInput(input!)).toBe(true);
+  expect(sdk.observe({ type: 'user', uuid: sent.messageId, message: input!.message })).toBe(true);
+  expect(f.events.agentCommunication.read('orchestrator', sent.messageId)).toMatchObject({
+    status: 'delivered',
+  });
+  revokeAuthSession(auth);
+  await expect(f.execute({ operation: 'list', offset: 0 })).rejects.toThrow();
+});
 
 it('shows an owned live Claude worker with an explicit delivery capability instead of silently omitting it', async () => {
   const f = fixture();

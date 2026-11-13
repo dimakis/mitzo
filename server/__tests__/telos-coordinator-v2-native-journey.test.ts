@@ -1,17 +1,20 @@
 import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
-import { access } from 'node:fs/promises';
+import { access, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Response } from 'express';
 import type { ownedOrdinaryRuntimeFixture } from './fixtures/owned-ordinary-workspace-runtime.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { SessionSseRegistry } from '../session-sse-registry.js';
 import type { ConnectionRegistry } from '@mitzo/harness';
+import { prepareNativeProviderToolCall } from './fixtures/native-provider-tool-call.js';
+import { reviewArtifactThenCompleteMilestoneAndOutcome } from './fixtures/canonical-review-completion.js';
 
 // CT12 uses the qualified macOS native runtime owner.
 // Required macOS CI runs it completely; Linux separately proves fail-closed refusal.
 const it = platformTest.runIf(process.platform === 'darwin');
+vi.setConfig({ testTimeout: process.env.CI ? 120_000 : 60_000 });
 
 const hostFetch = globalThis.fetch;
 const services = vi.hoisted(() => ({ workspace: undefined as unknown }));
@@ -137,6 +140,16 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
   f = await ownedOrdinaryRuntimeFixture(cleanup, {
     chatRoute: true,
     separateConfiguredWorkspace: true,
+    // Canonical progress tools require an explicit published selection. Keep
+    // the same reviewed selection through lead handover and worker allocation.
+    tools: [
+      'TelosWorkControl',
+      'TelosStartSlice',
+      'TelosGetItem',
+      'TelosUpdateItem',
+      'TaskArtifact',
+      'TaskComplete',
+    ].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
   });
   services.workspace = f.workspaces;
   const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
@@ -234,10 +247,15 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
     if (init?.body) call.send(JSON.parse(String(init.body)));
     const response = await call;
     expect(response.status, JSON.stringify(response.body)).toBeLessThan(400);
-    return new Response(JSON.stringify(response.body), {
-      status: response.status,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      Buffer.isBuffer(response.body)
+        ? new Uint8Array(response.body)
+        : JSON.stringify(response.body),
+      {
+        status: response.status,
+        headers: { 'Content-Type': response.headers['content-type'] ?? 'application/json' },
+      },
+    );
   };
   const { OrdinaryWorkspaceApiClient, TelosWorkApiClient } = await import('@mitzo/client');
   const ordinary = new OrdinaryWorkspaceApiClient(http),
@@ -264,7 +282,11 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
     selection: f.first.request.selection,
     workspace: { kind: 'ordinary' as const, preparationId: prepared.preparationId },
   };
-  const classify = (itemId: string, kind: 'coordinator' | 'outcome') =>
+  chat.eventStore.upsertSession({
+    ...canonical.events.getSession('planning')!,
+    accountBinding: f.binding,
+  });
+  const classify = (itemId: string, kind: 'coordinator' | 'outcome' | 'work_item') =>
     canonical.work.execute(
       {
         operation: 'classify',
@@ -294,13 +316,44 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
       );
     classify(id, 'outcome');
   }
+  const plans = new Map(
+    ['priority', 'target'].map((id) => {
+      const artifact = canonical.artifacts.save({
+        itemId: id,
+        filename: `${id}-plan.md`,
+        title: `${id} reviewed plan`,
+        bytes: Buffer.from(`Deliver only the ${id} feature's reviewed result.`),
+        sessionId: 'planning',
+      });
+      canonical.db
+        .prepare(
+          `INSERT INTO items
+      (id,summary,profile,parent_id,first_seen,last_seen,created_at,updated_at)
+      VALUES(?,?,'manual',?,?,?,?,?)`,
+        )
+        .run(
+          `${id}-slice`,
+          `${id} delivery slice`,
+          id,
+          canonical.stamp,
+          canonical.stamp,
+          canonical.stamp,
+          canonical.stamp,
+        );
+      classify(`${id}-slice`, 'work_item');
+      return [
+        id,
+        { artifactId: artifact.id, revision: artifact.revision, sha256: artifact.sha256 },
+      ] as const;
+    }),
+  );
   const role = async (itemId: string, expectedAssignmentRevision: number | null) => {
     const previous = await api.read(itemId);
     const reviewed = await api.reviewRoleContext({
       itemId,
       role: 'lead',
       sourceSnapshotIds: [],
-      artifactRefs: [],
+      artifactRefs: plans.has(itemId) ? [plans.get(itemId)!] : [],
     });
     const body = {
       version: 2 as const,
@@ -346,7 +399,7 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
       intent: 'Explicit coordinator command',
     },
   });
-  const start = async (sessionId: string) => {
+  const start = async (sessionId: string, expectedTool = 'TelosWorkControl') => {
     const before = nativeSessions.length;
     expect(await ordinary.firstCommand(command(sessionId))).toMatchObject({
       state: 'consumed',
@@ -357,26 +410,22 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
     expect(
       current.rpc.request.mock.calls.filter(([method]) => method === 'turn/start'),
     ).toHaveLength(1);
-    expect(current.tools.some((tool) => tool.name === 'TelosWorkControl')).toBe(true);
+    expect(current.tools.some((tool) => tool.name === expectedTool)).toBe(true);
     return current;
   };
-  const nativeTool = async (
+  const invokeNative = async (
     native: (typeof nativeSessions)[number],
     sessionId: string,
-    command: object,
+    name: string,
+    input: Record<string, unknown>,
   ) => {
+    const prepared = await prepareNativeProviderToolCall(native, name, input);
     const before = streamMessages.length;
     const pending = native.lifecycle.onRequest(
       'item/tool/call',
-      {
-        threadId: native.threadId,
-        turnId: native.turnId,
-        callId: randomUUID(),
-        tool: 'TelosWorkControl',
-        arguments: { command },
-      },
+      prepared.request,
       new AbortController().signal,
-    ) as Promise<{ success: boolean; contentItems: Array<{ text: string }> }>;
+    ) as Promise<{ success: boolean; contentItems: Array<{ type: string; text: string }> }>;
     await vi.waitFor(() =>
       expect(
         streamMessages
@@ -389,11 +438,22 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
       .find((m) => m.type === 'permission_request' && m.sessionId === sessionId)!;
     const { resolvePending } = await import('@mitzo/harness');
     expect(resolvePending(permission.permId as string, 'once', undefined, sessionId)).toBe(true);
-    return pending;
+    return {
+      conversationId: sessionId,
+      threadId: native.threadId,
+      turnId: native.turnId,
+      callId: prepared.request.callId,
+      result: await pending,
+    };
   };
+  const nativeTool = async (
+    native: (typeof nativeSessions)[number],
+    sessionId: string,
+    command: object,
+  ) => (await invokeNative(native, sessionId, 'TelosWorkControl', { command })).result;
   const first = await role('studio', 0);
   const target = await role('target', 0);
-  await role('priority', 0);
+  const priority = await role('priority', 0);
   expect(nativeSessions).toHaveLength(0);
   expect(first.receipt.work.assignments[0]).toMatchObject({ role: 'lead', revision: 1 });
   const { resolveTelosWorkRoleContext } = await import('../telos-work-role-context.js');
@@ -405,6 +465,126 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
   const additional = await role('studio', null);
   expect(additional.receipt.work.assignments).toEqual(first.receipt.work.assignments);
   const additionalNative = await start(additional.id);
+  const targetNative = await start(target.id);
+  const priorityNative = await start(priority.id);
+  const { TaskOrchestrator } = await import('../task-orchestrator.js');
+  application.setOrchestrator(
+    new TaskOrchestrator({
+      store: application.taskStore,
+      getClientId: () => {
+        throw Error('Legacy scheduler must not select a worker');
+      },
+      setTaskContext: () => {
+        throw Error('Legacy scheduler must not supply task authority');
+      },
+      clearTaskContext: vi.fn(),
+      broadcastStatus: vi.fn(),
+      broadcastTasks: vi.fn(),
+    }),
+  );
+  const { adoptReviewedSource } = await import('./fixtures/reviewed-source-adoption.js');
+  const deliveries = [];
+  for (const [featureId, lead, leadNative] of [
+    ['priority', priority, priorityNative],
+    ['target', target, targetNative],
+  ] as const) {
+    const source = await adoptReviewedSource({
+      api,
+      events: chat.eventStore,
+      registry: chat.registry,
+      app: application.app,
+      operatorId: f.auth.id,
+      assertOperatorCurrent() {
+        if (!auth.isAuthSessionCurrent(f.auth)) throw Error('Planning operator retired');
+      },
+      itemId: `${featureId}-slice`,
+      sourceSessionId: 'planning',
+      messageId: `${featureId}-discussion`,
+      text: `Retain the reviewed ${featureId} plan for only its dedicated worker.`,
+      artifacts: [plans.get(featureId)!],
+    });
+    const input = {
+      requestId: randomUUID(),
+      childItemId: `${featureId}-slice`,
+      mode: 'start',
+      predecessorAttemptId: null,
+      sourceSnapshotIds: [source.featureSource.sourceSnapshotId],
+      artifactRefs: [plans.get(featureId)!],
+    };
+    const allocated = await invokeNative(leadNative, lead.id, 'TelosStartSlice', input);
+    expect(allocated.result.success, JSON.stringify(allocated.result)).toBe(true);
+    const receipt = JSON.parse(allocated.result.contentItems.map((part) => part.text).join(''));
+    expect(receipt).toMatchObject({
+      execution: 'not_started',
+      attempt: { state: 'chat_ready', childItemId: input.childItemId, leadConversationId: lead.id },
+    });
+    const workerId: string = receipt.workerConversationId;
+    const taskId: string = receipt.attempt.executionTaskId;
+    expect(chat.eventStore.getOrdinaryInitialCommandId(workerId)).toBeUndefined();
+    const before = nativeSessions.length;
+    const replay = await invokeNative(leadNative, lead.id, 'TelosStartSlice', input);
+    expect(JSON.parse(replay.result.contentItems.map((part) => part.text).join(''))).toEqual(
+      receipt,
+    );
+    expect(nativeSessions).toHaveLength(before);
+    const workerNative = await start(workerId, 'InvokeIntegrationTool');
+    const workerContext = resolveTelosWorkRoleContext(
+      chat.eventStore,
+      workerId,
+      chat.eventStore.getSession(workerId)!.accountBinding!,
+    );
+    const reviewedSource = await api.readSource(
+      input.childItemId,
+      source.featureSource.sourceSnapshotId,
+    );
+    expect(workerContext).toMatchObject({
+      role: 'worker',
+      itemId: input.childItemId,
+      leadConversationId: lead.id,
+      artifacts: [plans.get(featureId)!],
+      sources: [reviewedSource.snapshot],
+    });
+    expect(reviewedSource.packet).toEqual(source.sourcePreview.preview.packet);
+    const executionBinding = application.taskStore.getTelosExecutionBinding(taskId);
+    expect(executionBinding).toMatchObject({
+      childItemId: input.childItemId,
+      leadConversationId: lead.id,
+      workerConversationId: workerId,
+      attemptId: receipt.attempt.attemptId,
+    });
+    deliveries.push({
+      featureId,
+      lead,
+      leadNative,
+      workerId,
+      workerNative,
+      taskId,
+      input,
+      receipt,
+      source,
+      reviewedSource,
+      workerContext,
+      executionBinding,
+    });
+  }
+  // Both separately admitted workers remain in flight when coordination changes.
+  // A dispatch hold does not turn already-running work into a completed result.
+  expect(new Set(deliveries.map((delivery) => delivery.workerId)).size).toBe(2);
+  expect(new Set(deliveries.map((delivery) => delivery.taskId)).size).toBe(2);
+  expect(
+    new Set([priority.id, target.id, ...deliveries.map((delivery) => delivery.workerId)]).size,
+  ).toBe(4);
+  expect(
+    new Set(
+      [priority.id, target.id, ...deliveries.map((delivery) => delivery.workerId)].map(
+        (id) => chat.eventStore.getSession(id)!.cwd,
+      ),
+    ).size,
+  ).toBe(4);
+  for (const delivery of deliveries) {
+    expect(application.taskStore.get(delivery.taskId)?.status).not.toBe('pending_review');
+    expect(application.taskStore.get(delivery.taskId)?.status).not.toBe('done');
+  }
   const hold = {
     operation: 'request',
     requestId: randomUUID(),
@@ -431,7 +611,6 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
     canonical.work.assertControlAction('unrelated', 'new_worker_dispatch'),
   ).not.toThrow();
 
-  const targetNative = await start(target.id);
   const acknowledge = {
     operation: 'acknowledge',
     requestId: randomUUID(),
@@ -536,6 +715,146 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
   expect(released.success, JSON.stringify(released)).toBe(true);
   expect(JSON.parse(released.contentItems[0].text).stage).toBe('released');
   expect(() => canonical.work.assertControlAction('target', 'new_worker_dispatch')).not.toThrow();
+  const reports = [];
+  for (const delivery of deliveries) {
+    const { workerId, workerNative, taskId, featureId } = delivery;
+    const report = `Reviewed result from only the ${featureId} worker.`;
+    const worker = chat.registry.findBySessionId(workerId)!;
+    await writeFile(join(chat.eventStore.getSession(workerId)!.cwd!, 'report.md'), report);
+    const saved = await http('/api/internal/telos/artifacts/save', {
+      method: 'POST',
+      headers: {
+        'x-internal-token': 'synthetic-only-ordinary-native-token',
+        'x-client-id': worker.clientId,
+      },
+      body: JSON.stringify({
+        requestId: `${featureId}-worker-output`,
+        itemId: delivery.input.childItemId,
+        filename: 'report.md',
+        title: `${featureId} retained result`,
+        path: 'report.md',
+      }),
+    });
+    const artifact = (await saved.json()).artifact;
+    expect(canonical.artifacts.read(artifact.id, artifact.revision).bytes.toString()).toBe(report);
+    const referenced = await invokeNative(workerNative, workerId, 'mcp__task-board__TaskArtifact', {
+      key: 'report',
+      value: `artifact:${artifact.id}@${artifact.revision}`,
+    });
+    expect(referenced.result.success, JSON.stringify(referenced.result)).toBe(true);
+    const completed = await invokeNative(workerNative, workerId, 'mcp__task-board__TaskComplete', {
+      summary: `${featureId} result retained; awaiting explicit review.`,
+    });
+    expect(completed.result.success, JSON.stringify(completed.result)).toBe(true);
+    expect(application.taskStore.get(taskId)?.status).toBe('pending_review');
+    expect((await api.readRecord(featureId)).status).toBe('active');
+    reports.push({ delivery, artifact, bytes: Buffer.from(report) });
+  }
+  expect(new Set(reports.map(({ artifact }) => artifact.id)).size).toBe(2);
+  const evidence: Array<{ stage: string; facts: Record<string, unknown> }> = [];
+  for (const [index, { delivery, artifact, bytes }] of reports.entries()) {
+    const currentLead = delivery.featureId === 'target' ? targetReplacement : priority;
+    const currentNative =
+      delivery.featureId === 'target' ? targetReplacementNative : priorityNative;
+    await reviewArtifactThenCompleteMilestoneAndOutcome(
+      {
+        http,
+        native: (name, input) =>
+          invokeNative(currentNative, currentLead.id, name, input as Record<string, unknown>),
+        reload: async () => {
+          canonical.restartOwners();
+        },
+        recoveryKind: 'canonical-fixture-owner-reopen',
+        record: async (stage, facts) => {
+          evidence.push({ stage, facts });
+        },
+      },
+      {
+        leadConversationId: currentLead.id,
+        taskId: delivery.taskId,
+        milestoneId: delivery.input.childItemId,
+        outcomeId: delivery.featureId,
+        artifact: { ...artifact, bytes },
+        criteriaEvidence: `Verified the separate ${delivery.featureId} worker result through the retained byte reader`,
+      },
+    );
+    expect((await api.readRecord('studio')).status).toBe('active');
+    if (index === 0) {
+      expect((await api.readRecord('priority')).status).toBe('completed');
+      expect((await api.readRecord('target')).status).toBe('active');
+      expect(application.taskStore.get(deliveries[1].taskId)?.status).toBe('pending_review');
+    }
+  }
+  const coordinatorRead = await invokeNative(replacementNative, replacement.id, 'TelosGetItem', {
+    itemId: 'studio',
+  });
+  expect(coordinatorRead.result.success, JSON.stringify(coordinatorRead.result)).toBe(true);
+  const coordinatorRecord = JSON.parse(
+    coordinatorRead.result.contentItems.map((part) => part.text).join(''),
+  ).item;
+  expect(coordinatorRecord.children).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: 'priority', status: 'completed' }),
+      expect.objectContaining({ id: 'target', status: 'completed' }),
+    ]),
+  );
+  const finish = {
+    itemId: 'studio',
+    requestId: randomUUID(),
+    expectedRevision: coordinatorRecord.revision,
+    status: 'completed',
+    note: 'Verified both separately reviewed feature deliveries and retained coordination/handover evidence. This offline fixture does not represent publication or deployment.',
+  };
+  const finished = await invokeNative(replacementNative, replacement.id, 'TelosUpdateItem', finish);
+  expect(finished.result.success, JSON.stringify(finished.result)).toBe(true);
+  canonical.restartOwners();
+  const finishReplay = await invokeNative(
+    replacementNative,
+    replacement.id,
+    'TelosUpdateItem',
+    finish,
+  );
+  expect(finishReplay.result).toEqual(finished.result);
+  expect((await api.readRecord('studio')).status).toBe('completed');
+  expect(
+    evidence.filter(
+      (entry) =>
+        entry.stage === 'explicit-operator-retained-artifact-byte-read-before-task-approval',
+    ),
+  ).toHaveLength(2);
+  for (const { delivery, artifact, bytes } of reports) {
+    expect(canonical.artifacts.read(artifact.id, artifact.revision).bytes).toEqual(bytes);
+    const work = await api.read(delivery.input.childItemId);
+    expect(work.attempts).toHaveLength(1);
+    expect(work.attempts[0]).toMatchObject(delivery.receipt.attempt);
+    expect(
+      resolveTelosWorkRoleContext(
+        chat.eventStore,
+        delivery.workerId,
+        chat.eventStore.getSession(delivery.workerId)!.accountBinding!,
+      ),
+    ).toEqual(delivery.workerContext);
+    expect(application.taskStore.getTelosExecutionBinding(delivery.taskId)).toEqual(
+      delivery.executionBinding,
+    );
+    expect(
+      await api.readSource(
+        delivery.input.childItemId,
+        delivery.source.featureSource.sourceSnapshotId,
+      ),
+    ).toEqual(delivery.reviewedSource);
+    expect(
+      await api.approveSourcePermission(
+        delivery.source.sourcePermissionId,
+        delivery.source.sourceApprovalInput,
+      ),
+    ).toEqual(delivery.source.featureSource);
+    expect(application.taskStore.get(delivery.taskId)?.status).toBe('done');
+    expect(
+      delivery.workerNative.rpc.request.mock.calls.filter(([method]) => method === 'turn/start'),
+    ).toHaveLength(1);
+  }
+  expect((await readControl()).stage).toBe('released');
   expect(chat.eventStore.getSession(first.id)).toMatchObject({
     sessionId: firstSession.sessionId,
     accountBinding: firstSession.accountBinding,
@@ -554,4 +873,4 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
   }
   expect(f.forbidden).not.toHaveBeenCalled();
   expect(f.legacyLookup).not.toHaveBeenCalled();
-}, 60_000);
+}, 120_000);

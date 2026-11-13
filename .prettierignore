@@ -24,6 +24,8 @@ docs/design/approved/codex-subagents/floating-v003.html
 docs/design/approved/codex-subagents/floating-v004.html
 docs/design/approved/codex-subagents/parent-child-robot-icon.html
 docs/design/approved/enmaas-account/setup.html
+# Immutable approved chat-tree reference; the ledger verifies its original bytes.
+docs/design/approved/chat-tree/navigation.html
 
 # Frozen Telos acceptance provenance; preserve recorded evidence byte hashes.
 docs/evidence/telos-s9/integrated-candidate/

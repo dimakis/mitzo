@@ -42,6 +42,11 @@ const states = {
 
 function launchState(request: SessionLaunchRecord) {
   if (request.telos) {
+    if (request.telos.adoption) {
+      if (request.state === 'assigned') return 'Adopted & assigned';
+      if (request.state === 'starting') return 'Adopting existing chat…';
+      if (request.state === 'failed') return 'Could not adopt existing chat';
+    }
     if (request.state === 'starting') return 'Creating work chat…';
     if (request.state === 'uncertain') return 'Assignment unconfirmed · check this request';
     if (request.state === 'failed') return 'Could not create work chat';
@@ -275,19 +280,35 @@ export function LaunchReview({
     );
   return (
     <HomeDialog
-      title={pending ? 'Review new session' : 'Session configuration'}
+      title={
+        pending
+          ? request.telos?.adoption
+            ? 'Review existing chat'
+            : 'Review new session'
+          : 'Session configuration'
+      }
       onClose={onClose}
       className="session-launch-dialog"
     >
       <div className="session-launch-form">
         <p>
-          {request.telos
-            ? 'Review the work and settings before creating its assigned chat. Creation does not start work.'
-            : 'Review the handoff before starting.'}
+          {request.telos?.adoption
+            ? 'Review this existing chat and the selected work. Adoption preserves its history, workspace, drafts and settings. It starts no command.'
+            : request.telos
+              ? 'Review the work and settings before creating its assigned chat. Creation does not start work.'
+              : 'Review the handoff before starting.'}
         </p>
         <div className="session-launch-fields">
           <fieldset disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}>
             <WorkReview request={request} />
+            {request.telos?.adoption && (
+              <p>
+                Existing chat:{' '}
+                <Link to={`/chat/${encodeURIComponent(request.telos.adoption.conversationId)}`}>
+                  {request.telos.adoption.title}
+                </Link>
+              </p>
+            )}
             <label>
               Title
               <input
@@ -312,11 +333,18 @@ export function LaunchReview({
               <SessionLaunchConfigEditor
                 configuration={frozen.current?.configuration ?? configuration}
                 onChange={updateConfiguration}
-                disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}
+                disabled={
+                  Boolean(request.telos?.adoption) ||
+                  busy ||
+                  attempted ||
+                  Boolean(frozen.current) ||
+                  disabled ||
+                  !pending
+                }
                 onValidityChange={setInvalid}
               />
             </details>
-            {pending && (
+            {pending && !request.telos?.adoption && (
               <label className="session-launch-check">
                 <input
                   type="checkbox"
@@ -361,11 +389,13 @@ export function LaunchReview({
                   }
                   onClick={() => void submit('approve')}
                 >
-                  {request.telos
-                    ? 'Approve & create'
-                    : frozen.current
-                      ? 'Retry start'
-                      : 'Approve & start'}
+                  {request.telos?.adoption
+                    ? 'Approve & adopt'
+                    : request.telos
+                      ? 'Approve & create'
+                      : frozen.current
+                        ? 'Retry start'
+                        : 'Approve & start'}
                 </button>
                 <button
                   type="button"
@@ -394,15 +424,19 @@ export function SessionLaunchCards({
   disabled?: boolean;
 }) {
   const [review, setReview] = useState<string | null>(null);
+  const [releaseReview, setReleaseReview] = useState<SessionLaunchRecord | null>(null);
   const [resuming, setResuming] = useState<string | null>(null);
   const [resumeError, setResumeError] = useState<{ id: string; message: string } | null>(null);
-  const resume = async (request: SessionLaunchRecord) => {
+  const resume = async (
+    request: SessionLaunchRecord,
+    operation: 'resume' | 'release' = 'resume',
+  ) => {
     if (disabled || resuming) return;
     setResuming(request.proposalId);
     setResumeError(null);
     try {
       const response = await apiFetch(
-        `/api/session-launch/requests/${encodeURIComponent(request.proposalId)}/resume`,
+        `/api/session-launch/requests/${encodeURIComponent(request.proposalId)}/${operation}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -415,6 +449,7 @@ export function SessionLaunchCards({
           result.error ||
             'Startup could not be resumed. Open its chat to inspect the retained request.',
         );
+      if (operation === 'release') setReleaseReview(null);
       onUpdate();
     } catch (cause) {
       setResumeError({
@@ -441,10 +476,14 @@ export function SessionLaunchCards({
             <UiIcon name="chats" size={16} />
             <span>
               {request.state === 'assigned'
-                ? 'Created a work chat'
+                ? request.telos?.adoption
+                  ? 'Adopted an existing work chat'
+                  : 'Created a work chat'
                 : request.state === 'running'
                   ? 'Started a chat'
-                  : 'New chat request'}
+                  : request.telos?.adoption
+                    ? 'Existing chat adoption request'
+                    : 'New chat request'}
             </span>
             <time dateTime={new Date(request.createdAt).toISOString()}>
               {new Date(request.createdAt).toLocaleTimeString([], {
@@ -472,7 +511,11 @@ export function SessionLaunchCards({
                 className="home-secondary"
                 onClick={() => setReview(request.proposalId)}
               >
-                {request.state === 'pending' ? 'Review new session' : 'View configuration'}
+                {request.state === 'pending'
+                  ? request.telos?.adoption
+                    ? 'Review existing chat'
+                    : 'Review new session'
+                  : 'View configuration'}
               </button>
             )}
             {(request.state === 'uncertain' || request.state === 'starting') && (
@@ -489,9 +532,21 @@ export function SessionLaunchCards({
               >
                 {resuming === request.proposalId
                   ? 'Recovering…'
-                  : request.telos
-                    ? 'Recover creation'
-                    : 'Resume startup'}
+                  : request.telos?.adoption
+                    ? 'Recover adoption'
+                    : request.telos
+                      ? 'Recover creation'
+                      : 'Resume startup'}
+              </button>
+            )}
+            {request.state === 'uncertain' && request.telos && (
+              <button
+                type="button"
+                className="home-secondary"
+                disabled={disabled || resuming !== null}
+                onClick={() => setReleaseReview(request)}
+              >
+                Review release
               </button>
             )}
           </div>
@@ -507,6 +562,38 @@ export function SessionLaunchCards({
           onUpdate={onUpdate}
           disabled={disabled}
         />
+      )}
+      {releaseReview && (
+        <HomeDialog title="Release unfinished reservation" onClose={() => setReleaseReview(null)}>
+          <p>{releaseReview.title}</p>
+          <p>
+            {releaseReview.telos?.adoption
+              ? 'Release this adoption only after the original owner has drained and no role context or assignment was applied. Unconfirmed cleanup requires recovery. The existing chat, original journal and history remain retained.'
+              : 'Release this original create-only reservation only if the workspace and command owners prove that no chat was allocated. Existing allocations require recovery. The original journal and history remain retained.'}
+          </p>
+          <WorkReview request={releaseReview} />
+          {resumeError?.id === releaseReview.proposalId && (
+            <p role="alert">{resumeError.message}</p>
+          )}
+          <footer className="home-inline-actions">
+            <button
+              type="button"
+              className="home-secondary"
+              disabled={disabled || resuming !== null}
+              onClick={() => void resume(releaseReview, 'release')}
+            >
+              Approve release
+            </button>
+            <button
+              type="button"
+              className="home-secondary"
+              disabled={resuming !== null}
+              onClick={() => setReleaseReview(null)}
+            >
+              Keep reservation
+            </button>
+          </footer>
+        </HomeDialog>
       )}
     </aside>
   );

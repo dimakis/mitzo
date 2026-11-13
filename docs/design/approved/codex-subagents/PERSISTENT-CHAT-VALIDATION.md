@@ -148,3 +148,23 @@ blocking finding. The final focused batch passes225 tests across18files,
 including actual MessageActions touch/pen/context-menu regression coverage.
 Browser coverage now also checks just-sent images, meaningful contained image
 dimensions, modal keyboard focus, draft preservation and retry recovery.
+
+## Final accepted-base integration
+
+Integrated accepted main9deeb2f (Codex custom-account HTTP routing, ordinary
+specialist consultation and Telos adoption/coordination). The source-registry
+conflict retains the union of both registrations and advances the runtime
+revision. The control-dispatch conflict preserves upstream source-command
+admission, actual invocation via onSubmitted and its rejection/uncertainty
+boundary. Completion-before-steer recovery remains limited to the undispatched
+same-source transition; a changed source command cannot use that retry.
+Admission failures also retain the visible child diagnostic.
+
+Two focused read-only integration reviews found no remaining runtime/UI blocker.
+Their test-contract corrections now forward actual submission evidence through
+the race fixture and mark simulated transport invocation explicitly. Added
+regressions verify changed-source rejection even alongside completion, rejection
+before invocation and exactly one replacement start under the original command.
+The combined local batch passes223 tests across17files; eight real-conversation
+adapter cases also pass, with unselected cases explicitly skipped by name.
+Hosted checks and current-head trusted final review remain required before merge.

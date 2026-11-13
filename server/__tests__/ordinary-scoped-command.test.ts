@@ -86,6 +86,16 @@ function input(
 }
 
 describe('ordinary feature dispatch shares the ordinary owner', () => {
+  it('retains the exact first-command authority through Local Codex startup', async () => {
+    const selected = input('openai-codex');
+    const firstCommandAuthority = { commandId: selected.commandId, assertCurrent: vi.fn() };
+    await dispatchOwnedOrdinaryCommand({ ...selected, firstCommandAuthority });
+    expect(calls.startCodex).toHaveBeenLastCalledWith(
+      selected.transport,
+      selected.clientId,
+      expect.objectContaining({ firstCommandAuthority }),
+    );
+  });
   it.each(['anthropic-claude', 'anthropic-vertex'] as const)(
     'keeps %s prepared first dispatch and later lifecycle callbacks with the existing SDK owner',
     async (provider) => {

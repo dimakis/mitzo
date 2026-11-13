@@ -22,6 +22,8 @@ import {
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { EventStore } from '../event-store.js';
+import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
+import { observeWorkConversation } from '../telos-work-observation.js';
 import { CodexConversation, type CodexConversationOptions } from '../codex-conversation.js';
 import { composeOwnedLocalNativeExecutionPolicy } from '../owned-local-codex-native-policy.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
@@ -94,6 +96,32 @@ it('keeps native peer discovery available after viewer replacement, until operat
   );
   revokeAuthSession(f.auth);
   expect((await f.a.call({ operation: 'list' })).response.success).toBe(false);
+});
+it('names a saved Telos peer from retained setup without inspecting messages or starting it', async () => {
+  const f = await fixture();
+  const text = JSON.stringify({ summary: 'PR monitor architecture' });
+  retainTelosWorkRoleContext(f.f.events, f.b.sessionId, f.b.initial.lease.binding, {
+    version: 1,
+    itemId: 'architecture-slice',
+    role: 'worker',
+    leadConversationId: f.a.sessionId,
+    brief: { revision: 'r1', text, sha256: createHash('sha256').update(text).digest('hex') },
+    parentCriteria: [],
+    overallGoal: { itemId: 'monitor', revision: 'r1', text: 'PR monitoring' },
+    sources: [],
+    artifacts: [],
+  });
+  const result = await f.a.call({ operation: 'list' });
+  expect(observeWorkConversation(f.f.events, f.b.sessionId).name).toBe('PR monitor architecture');
+  expect(result.response.success).toBe(true);
+  expect(result.value.chats).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        conversationId: f.b.sessionId,
+        summary: 'PR monitor architecture',
+      }),
+    ]),
+  );
 });
 
 it('retains the original combined read owner and refuses borrowed context or scope', async () => {
@@ -1987,7 +2015,7 @@ it('reports uncertain native dispatch failure without treating it as queued or r
   expect(f.native.commands(f.b.sessionId, f.b.initial.lease.binding)).toHaveLength(2);
 }, 20000);
 
-it.each(['user-closing', 'aborted', 'missing-owner', 'unsupported', 'foreign-login'] as const)(
+it.each(['user-closing', 'aborted', 'missing-owner', 'unsupported', 'unverified-owner'] as const)(
   'does not advertise or prompt a fresh message to a known %s recipient and retains queued history',
   async (failure) => {
     const f = await fixture();
@@ -2008,19 +2036,19 @@ it.each(['user-closing', 'aborted', 'missing-owner', 'unsupported', 'foreign-log
         ...f.b.session.ordinaryRuntimeOwner!,
         admitAgentMessage: undefined,
       };
-    if (failure === 'foreign-login')
+    if (failure === 'unverified-owner')
       f.b.session.ordinaryRuntimeOwner = {
         ...f.b.session.ordinaryRuntimeOwner!,
         authSessionId: 'different-login',
       };
     const list = await f.a.call({ operation: 'list' });
-    expect
-      .soft(
-        list.value.chats.find(
-          (row: { conversationId: string }) => row.conversationId === f.b.sessionId,
-        )?.availability,
-      )
-      .toBe('unavailable');
+    const peer = list.value.chats.find(
+      (row: { conversationId: string }) => row.conversationId === f.b.sessionId,
+    );
+    // Historical custody does not reveal an unverified live owner. Our original
+    // queued receipt remains readable below without granting new peer access.
+    if (failure === 'unverified-owner') expect.soft(peer).toBeUndefined();
+    else expect.soft(peer?.availability).toBe('unavailable');
     const requestId = randomUUID();
     const result = await f.a.call({
       operation: 'send',

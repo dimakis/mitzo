@@ -28,6 +28,36 @@ on phone/desktop, both themes and alternate appearance; see
 
 # Mitzo UI design contract
 
+## Conversation tree navigation
+
+The existing Return to lead chat link resolves the current canonical reporting
+assignment from session metadata. Preserve the reviewed linked-context disclosure
+and compact `telos-chat-context` row. Unknown, superseded or unavailable assignments
+use the existing inline status treatment without a fallback to the retained former
+lead. This data/link repair introduces no new layout, token, control or motion pattern.
+
+The Conversations page and desktop conversation sidebar offer a compact **Tree**
+view beside the existing filters. Reuse ordinary navigation rows, `MotionDetails`,
+`SessionActivityStatus`, `UiIcon` and semantic appearance tokens. Branches disclose
+outcome orchestrator → feature lead → slice worker relationships; selecting a named
+row opens that chat immediately. Display each chat's recorded agent, engine,
+execution location and model without inheriting a parent's settings. Breadcrumbs
+link loaded ancestors. Current canonical assignments determine work hierarchy;
+retained setup and creation provenance remain distinct from current ownership.
+Previous assignments stay visible, and unknown runtime or relationship reads are
+labelled. Standalone features and independent chats remain roots. Preserve each
+row's actions. A parent outside the loaded
+page is labelled explicitly, and pagination retains Load more. A missing or cyclic
+relationship must not hide a known chat. Relationship metadata grants no execution
+or transcript authority. Preserve chosen chat names, active-chat indication, the
+composer, existing filters, pins and action menus.
+
+Requested and mock revision 2 approved for implementation by Dimitri on 13 November
+2026 in this implementation conversation.
+The existing intercepted `session-library` fixture covers nesting, disclosure and
+direct navigation on phone/desktop and both themes/alternate appearance. Record
+actual browser execution separately from fixture availability.
+
 ## Claude subscription onboarding
 
 Claude uses the existing Connections grouped account rows and labelled form

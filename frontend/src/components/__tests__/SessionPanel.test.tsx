@@ -62,6 +62,27 @@ afterEach(() => {
 });
 
 describe('SessionPanel', () => {
+  it('opens the conversation tree and navigates directly to a named worker', () => {
+    mockUseSessionList.mockReturnValue(
+      makeDefaultReturn({
+        sessions: [
+          { id: 'lead', summary: 'PR monitoring', lastModified: 1 },
+          {
+            id: 'worker',
+            summary: 'Monitoring architecture',
+            parentConversationId: 'lead',
+            lastModified: 1,
+          },
+        ],
+      }),
+    );
+    const select = vi.fn();
+    render(<SessionPanel activeSessionId="worker" onSelectSession={select} onNewChat={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
+    expect(screen.getByRole('navigation', { name: 'Conversation tree' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Monitoring architecture/ }));
+    expect(select).toHaveBeenCalledWith('worker');
+  });
   it('renders new chat button', () => {
     render(
       <SessionPanel activeSessionId={undefined} onSelectSession={vi.fn()} onNewChat={vi.fn()} />,

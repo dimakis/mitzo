@@ -91,8 +91,16 @@ export async function configureApplicationReviewTarget(root: string, fresh: bool
     await mkdir(source, { mode: 0o700 });
     git(source, 'init', '-q', '-b', 'main');
     await writeFile(join(source, 'design.txt'), 'Synthetic repository context\n');
+    await writeFile(
+      join(source, 'context.md'),
+      '# Project\nSynthetic project context for specialists.\n',
+    );
+    await writeFile(
+      join(source, 'AGENTS.md'),
+      '# Instructions\nUse the selected synthetic project context.\n',
+    );
     await writeFile(join(root, '.mitzo.json'), JSON.stringify({ repos: { acceptance: source } }));
-    git(source, 'add', 'design.txt');
+    git(source, 'add', 'design.txt', 'context.md', 'AGENTS.md');
     git(
       source,
       '-c',

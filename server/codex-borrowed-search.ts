@@ -3,6 +3,7 @@ import type { CodexLifecycleTransport } from './codex-app-server-client.js';
 
 type Params = Record<string, unknown>;
 interface Rpc {
+  validateConfiguration?(configuration: unknown): void;
   request(method: string, params: Params): Promise<unknown>;
 }
 const identity = z.object({ id: z.string().min(1) });
@@ -32,6 +33,10 @@ export class BorrowedCodexSearch {
     this.callbacks = callbacks;
     return {
       initialize: () => this.assertCurrent(),
+      validateConfiguration: (configuration: unknown) => {
+        if (this.closed) throw Error('Search transport closed');
+        this.client.validateConfiguration?.(configuration);
+      },
       request: (method: string, params: Params) => {
         if (this.closed) return Promise.reject(Error('Search transport closed'));
         const work = this.request(method, params);

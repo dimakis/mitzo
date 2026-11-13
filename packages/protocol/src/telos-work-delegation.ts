@@ -13,6 +13,8 @@ export const TelosStartSliceInputSchema = z
     predecessorAttemptId: id.nullable(),
     sourceSnapshotIds: z.array(id).max(100).optional(),
     artifactRefs: z.array(TelosWorkArtifactReferenceSchema).max(100).optional(),
+    /** Explicit first-command admission; omission remains allocation-only. */
+    execute: z.literal(true).optional(),
   })
   .superRefine((value, ctx) => {
     if ((value.mode === 'start') !== (value.predecessorAttemptId === null))
@@ -94,3 +96,14 @@ export const TelosWorkDelegationReceiptSchema = z
       });
   });
 export type TelosWorkDelegationReceipt = z.infer<typeof TelosWorkDelegationReceiptSchema>;
+
+/** Allocation is historical; execution is observed from the ordinary command owner. */
+export const TelosSliceExecutionReceiptSchema = z.strictObject({
+  allocation: TelosWorkDelegationReceiptSchema,
+  execution: z.strictObject({
+    commandId: id,
+    state: z.enum(['admitted', 'started', 'failed', 'uncertain']),
+    code: z.string().optional(),
+  }),
+});
+export type TelosSliceExecutionReceipt = z.infer<typeof TelosSliceExecutionReceiptSchema>;

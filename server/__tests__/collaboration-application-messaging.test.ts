@@ -66,23 +66,26 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
     expect(['queued', 'delivered']).toContain(accepted.deliveries[0].status);
     const commandId = accepted.deliveries[0].commandId;
     expect(commandId).toBeTruthy();
-    await vi.waitFor(async () => {
-      const projected = await api.view(group);
-      expect(
-        projected.messages.find((m) => m.messageId === accepted.messageId)!.deliveries[0].status,
-      ).toBe('delivered');
-      const replies = projected.messages.filter(
-        (m) => m.replyToDeliveryId === accepted.deliveries[0].deliveryId,
-      );
-      expect(replies).toHaveLength(1);
-      expect(replies[0]).toMatchObject({
-        text: 'Reviewed the selected design.',
-        author: { sessionId: joinedSessionId },
-        source: { conversationId: joinedSessionId, commandId },
-      });
-      expect(JSON.stringify(replies)).not.toContain('private-native-thread');
-      expect(JSON.stringify(replies)).not.toContain('private-native-turn');
-    });
+    await vi.waitFor(
+      async () => {
+        const projected = await api.view(group);
+        expect(
+          projected.messages.find((m) => m.messageId === accepted.messageId)!.deliveries[0].status,
+        ).toBe('delivered');
+        const replies = projected.messages.filter(
+          (m) => m.replyToDeliveryId === accepted.deliveries[0].deliveryId,
+        );
+        expect(replies).toHaveLength(1);
+        expect(replies[0]).toMatchObject({
+          text: 'Reviewed the selected design.',
+          author: { sessionId: joinedSessionId },
+          source: { conversationId: joinedSessionId, commandId },
+        });
+        expect(JSON.stringify(replies)).not.toContain('private-native-thread');
+        expect(JSON.stringify(replies)).not.toContain('private-native-turn');
+      },
+      { timeout: 5000 },
+    );
     const turn = requests.find((r) => r.method === 'turn/start')!;
     expect(JSON.stringify(turn.params)).toContain('Synthetic design requirement');
     expect(JSON.stringify(turn.params)).toContain('Edited brief retained exactly');

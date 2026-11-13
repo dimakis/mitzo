@@ -57,6 +57,7 @@ it('launches an isolated file-backed ChatGPT connection without inherited API cr
   expect(argv).toContain('cli_auth_credentials_store="file"');
   expect(argv).toContain('forced_login_method="chatgpt"');
   expect(argv).toContain('model_provider="openai"');
+  expect(client.modelProvider).toBe('openai');
   expect(options.env).toEqual({
     PATH: '/fixture/bin',
     HOME: '/fixture/home',
@@ -71,6 +72,55 @@ it('rejects unsupported executable versions before launching the private connect
   );
   expect(processCalls.spawn).not.toHaveBeenCalled();
 });
+it.each([
+  ['official API', undefined, 'openai'],
+  [
+    'custom Responses API',
+    {
+      endpoint: 'https://gateway.example/v1',
+      protocol: 'responses' as const,
+      qualification: {
+        source: 'operator' as const,
+        streaming: true,
+        toolCalls: true,
+        continuation: true,
+        cancellation: true,
+      },
+    },
+    'mitzo_api',
+  ],
+] as const)(
+  'retains the selected %s provider on a cold API launch',
+  (_label, connection, provider) => {
+    const client = CodexAppServerClient.launchIsolatedApiResume(
+      privateHome,
+      { PATH: '/fixture/bin', OPENAI_API_KEY: 'ambient-key' },
+      undefined,
+      executable,
+      connection,
+    );
+    const [, argv, options] = processCalls.spawn.mock.calls[0];
+    expect(argv).toContain(`model_provider="${provider}"`);
+    expect(argv).toContain('forced_login_method="api"');
+    expect(argv).toContain('cli_auth_credentials_store="file"');
+    expect(client.modelProvider).toBe(provider);
+    expect(options.env.OPENAI_API_KEY).toBeUndefined();
+    if (connection) {
+      expect(() => client.validateConfiguration({})).toThrow(
+        'Custom Codex provider configuration does not match the selected API connection',
+      );
+      expect(argv).toContain('model_providers.mitzo_api.supports_websockets=false');
+      expect(argv).toContain('model_providers.mitzo_api.requires_openai_auth=true');
+      expect(argv).toContain(`model_providers.mitzo_api.base_url="${connection.endpoint}"`);
+      expect(argv.some((arg: string) => arg.startsWith('openai_base_url='))).toBe(false);
+    } else {
+      expect(() => client.validateConfiguration({})).not.toThrow();
+      expect(argv).toContain('openai_base_url="https://api.openai.com/v1"');
+      expect(argv.some((arg: string) => arg.includes('supports_websockets'))).toBe(false);
+    }
+    client.close();
+  },
+);
 it('requires a captured native executable and never falls back to PATH', () => {
   expect(() => CodexAppServerClient.launchIsolated(privateHome, {})).toThrow(
     'Host Codex runtime unavailable',

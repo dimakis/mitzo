@@ -40,7 +40,10 @@ export type OrdinaryRepositoryPreparation = z.infer<typeof OrdinaryRepositoryPre
 export const OrdinarySilentPreparationSelectionSchema = CollaborationSettingsSchema.refine(
   (value) =>
     isOrdinaryRepositoryParticipantBinding(value.binding) &&
-    value.selection.context.source === 'none',
+    (value.selection.context.source === 'none' ||
+      (value.binding.execution.location === 'local' &&
+        value.binding.harness.implementation === 'codex' &&
+        ['workspace', 'contexgin'].includes(value.selection.context.source))),
   'Silent ordinary preparation is unavailable for this route or context recipe',
 );
 export function ordinaryPreparationFingerprint(value: unknown): string {

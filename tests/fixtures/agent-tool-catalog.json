@@ -319,6 +319,17 @@
     "requirement": "Requires a Local Mac Codex chat with native command and file tools (Bash, Read, Write and Edit) selected. Approve the displayed repository and task changes each time, in every mode. Selecting this tool grants no access. The prepared task becomes active after the current turn finishes."
   },
   {
+    "id": "mitzo:SymposiumConsult",
+    "version": 1,
+    "name": "SymposiumConsult",
+    "description": "Consult saved specialists in ordinary shared conversations. Catalog profiles/routes, then authorize a bounded policy for operator review. Consult by role with an assignment and selected public context. reviewOf requests independent review of a completed contribution. Read returns attributed results without model work. Stop targets original work; revoke prevents future work. Retain policyId/requestId after interruption. No tools, merge or deployment authority is inherited.",
+    "source": "Agent Library",
+    "required": false,
+    "behavior": "mixed",
+    "routes": ["local-api", "codex-owned-local", "claude-sdk"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
     "id": "mitzo:SymposiumProposeProfile",
     "version": 1,
     "name": "SymposiumProposeProfile",
@@ -443,7 +454,7 @@
     "id": "mitzo:TelosCreateSession",
     "version": 1,
     "name": "TelosCreateSession",
-    "description": "Propose a distinct ordinary session already assigned to one exact authorized Telos child. An outcome orchestrator creates its feature lead; a feature lead creates its slice worker. Supply itemId and its current revision. Review child account/model/agent/runtime/permissions and explicit work sources in this originating chat, then Approve & create. Creation admits no model command. Child settings are independent of the caller; supported child route is currently an independent Local Mac Codex workspace. Reuse the same requestId after uncertainty. Never substitute plain StartSession or manually link an unrelated chat.",
+    "description": "Propose a distinct ordinary session already assigned to one exact authorized Telos child. An outcome orchestrator creates its feature lead; a feature lead creates its slice worker. Supply itemId and its current revision. For reviewed adoption, also supply exact existingConversationId without overrides: the compatible idle Local Mac Codex chat keeps its settings, workspace and history; Approve & adopt never allocates a replacement. Otherwise review independent child settings and explicit sources, then Approve & create. Both operations admit no model command and confer no credentials or grants. Review occurs in this originating chat. Reuse the same requestId after uncertainty; do not substitute StartSession or manually link an unrelated chat.",
     "source": "Session creation",
     "required": false,
     "behavior": "write",
@@ -663,12 +674,12 @@
     "id": "mitzo:TelosStartSlice",
     "version": 1,
     "name": "TelosStartSlice",
-    "description": "Allocate or recover one dedicated ordinary worker chat for the exact eligible child of this assigned lead. Returns the retained link while staying in the lead; does not start a model turn or complete work. Runtime eligibility does not establish semantic feature-lead nesting. Use start to recover existing work; retry requires an explicit user request and the exact predecessor attempt. Reuse requestId after uncertainty. Never guess an ambiguous child, treat the originating chat as its worker, or start siblings.",
+    "description": "Allocate or recover one dedicated ordinary worker chat for the exact eligible child of this assigned lead. Omission of execute does not start a model turn. After the user authorizes work, supply execute: true to admit the original worker’s first ordinary command; no manual chat initialization is needed. Execution has its own receipt: admitted is not provider acknowledgement or completion. Use start to recover existing work; retry requires an explicit user request and the exact predecessor attempt. Reuse requestId after uncertainty. Never guess an ambiguous child, treat the originating chat as its worker, start siblings, or use a new request to replay an uncertain command.",
     "source": "Telos",
     "required": false,
     "behavior": "write",
     "routes": ["codex-owned-local"],
-    "requirement": "Requires explicit native tool selection, this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child; selection grants no lead role or model execution."
+    "requirement": "Requires explicit native tool selection, this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child. Explicit execute requests use one-use approval and the original worker’s ordinary command owner; selection alone grants no lead role or execution."
   },
   {
     "id": "mitzo:TelosWorkControl",

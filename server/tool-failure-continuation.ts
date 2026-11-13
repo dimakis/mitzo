@@ -10,7 +10,7 @@ type AdmissionInput = Parameters<EventStore['admitOrdinaryLocalContinuation']>[2
  * authorization. The existing operator/runtime owner revalidates before every
  * local receipt mutation, registration and subsequent provider dispatch.
  */
-export function admitToolFailureContinuation(options: {
+type RecoveryOptions = {
   events: EventStore;
   native: CodexConversationStore;
   sessionId: string;
@@ -24,7 +24,26 @@ export function admitToolFailureContinuation(options: {
   input: CodexCommandInput;
   assertCurrent(): void;
   register(): void;
-}): void {
+};
+export function admitToolFailureContinuation(options: RecoveryOptions): void {
+  const captured = { ...options, input: structuredClone(options.input) };
+  if (captured.location !== 'local') return admitToolFailureContinuationNow(captured);
+  const sourceId = captured.input.toolFailureContinuation?.sourceCommandId;
+  if (!sourceId) throw Error('Original tool recovery source required');
+  return captured.events.withOrdinaryDerivedCommandContext(
+    captured.sessionId,
+    sourceId,
+    (assertSourceCurrent) =>
+      admitToolFailureContinuationNow({
+        ...captured,
+        assertCurrent: () => {
+          captured.assertCurrent();
+          assertSourceCurrent();
+        },
+      }),
+  );
+}
+function admitToolFailureContinuationNow(options: RecoveryOptions): void {
   const { events, native, sessionId, account, expected, input } = options;
   const check = () => {
     options.assertCurrent();

@@ -15,6 +15,7 @@ import type { CodexServerRequestContext } from './codex-app-server-client.js';
 import { CodexRequestError, CodexHostToolRequestError } from './codex-app-server-client.js';
 import { CodexNativeFileChange } from './codex-native-file-change.js';
 import { createLogger } from './logger.js';
+import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import {
   codexNativeExecutionParams,
   type CodexNativeExecutionPolicy,
@@ -80,6 +81,11 @@ export interface SubagentRoot {
   modelProvider: string;
   policy: CodexNativeExecutionPolicy;
 }
+export interface SubagentControlSubmission {
+  readonly sourceCommandId: string;
+  /** Called only after all final admission checks, at actual invocation. */
+  onSubmitted(): void;
+}
 interface Options {
   scope: SubagentScope;
   store: CodexSubagentStore;
@@ -89,7 +95,13 @@ interface Options {
     child: RetainedSubagent,
     cancelling?: boolean,
   ): Pick<CodexNativeTurnTarget, 'commandId' | 'attempt' | 'generation'>;
-  request(method: string, params: ObjectValue, beforeDispatch?: () => void): Promise<unknown>;
+  withControlAdmission?<T>(sourceCommandId: string, operation: () => T): T;
+  request(
+    method: string,
+    params: ObjectValue,
+    beforeDispatch?: () => void,
+    submission?: SubagentControlSubmission,
+  ): Promise<unknown>;
   tools: ToolDefinition[];
   executeTool(
     name: string,
@@ -1258,7 +1270,19 @@ export class CodexSubagents {
       this.controlFailed(live, input, 'rejected', 'admission', error);
       return 'rejected';
     }
-    const previous = this.opts.store.claimControl(this.opts.scope, input);
+    const sourceCommandId = live.child.commandId;
+    const claim = () => this.opts.store.claimControl(this.opts.scope, input);
+    let previous: NativeSubagentControlStatus | undefined;
+    try {
+      previous =
+        input.action === 'message' && this.opts.withControlAdmission
+          ? this.opts.withControlAdmission(sourceCommandId, claim)
+          : claim();
+    } catch (error) {
+      this.reportControlFailure(sourceCommandId, input, 'admission', error);
+      this.controlFailed(live, input, 'rejected', 'admission', error);
+      return 'rejected';
+    }
     if (previous) return previous;
     let attempted = false;
     let previousState = live.child.state;
@@ -1280,18 +1304,29 @@ export class CodexSubagents {
       state: RetainedSubagent['state'],
     ) => {
       const turnId = live.child.turnId;
-      return this.opts.request(method, params, () => {
-        authorize();
-        if (
-          (this.parentStopping || parentEpoch !== this.parentCancellationEpoch) &&
-          !(parentStop && input.action === 'stop')
-        )
-          throw Error('Parent cancellation preceded control dispatch');
-        this.current(live);
-        if (live.child.state !== state || live.child.turnId !== turnId)
-          throw new ChildControlTransitionError('Child changed before control dispatch');
-        attempted = true;
-      });
+      return this.opts.request(
+        method,
+        params,
+        () => {
+          authorize();
+          if (
+            (this.parentStopping || parentEpoch !== this.parentCancellationEpoch) &&
+            !(parentStop && input.action === 'stop')
+          )
+            throw Error('Parent cancellation preceded control dispatch');
+          this.current(live);
+          if (live.child.commandId !== sourceCommandId)
+            throw Error('Child command changed before control dispatch');
+          if (live.child.state !== state || live.child.turnId !== turnId)
+            throw new ChildControlTransitionError('Child changed before control dispatch');
+        },
+        {
+          sourceCommandId,
+          onSubmitted: () => {
+            attempted = true;
+          },
+        },
+      );
     };
     let status: NativeSubagentControlStatus;
     try {
@@ -1394,6 +1429,7 @@ export class CodexSubagents {
       }
     } catch (error) {
       status = attempted && !(error instanceof CodexRequestError) ? 'uncertain' : 'rejected';
+      this.reportControlFailure(sourceCommandId, input, 'submission', error);
       if (
         status === 'rejected' &&
         optimistic &&
@@ -1409,6 +1445,26 @@ export class CodexSubagents {
     }
     this.opts.store.finishControl(this.opts.scope, input, status);
     return status;
+  }
+  private reportControlFailure(
+    sourceCommandId: string,
+    input: NativeSubagentControl,
+    stage: 'admission' | 'submission',
+    error: unknown,
+  ): void {
+    try {
+      createLogger('codex-subagents').warn('Native subagent control requires attention', {
+        conversationId: this.opts.scope.conversationId,
+        commandId: sourceCommandId,
+        threadId: input.threadId,
+        requestId: input.requestId,
+        stage,
+        code: `child_control_${stage}_failed`,
+        ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
+      });
+    } catch {
+      // A failed diagnostic sink cannot alter the retained control outcome.
+    }
   }
   hasPendingActivity(): boolean {
     return this.pending.size > 0 || this.parentStops.size > 0;

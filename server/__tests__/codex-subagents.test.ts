@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { afterEach, expect, it, vi } from 'vitest';
-import { CodexSubagents } from '../codex-subagents.js';
+import { CodexSubagents, type SubagentControlSubmission } from '../codex-subagents.js';
 import { CodexSubagentStore } from '../codex-subagent-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import { CodexRequestError } from '../codex-app-server-client.js';
@@ -49,8 +49,10 @@ function fixture(extra: Partial<ConstructorParameters<typeof CodexSubagents>[0]>
       method: string,
       params: Record<string, unknown>,
       beforeDispatch?: () => void,
+      submission?: SubagentControlSubmission,
     ): Promise<unknown> => {
       beforeDispatch?.();
+      submission?.onSubmitted();
       if (method === 'thread/read')
         return {
           thread: {
@@ -947,11 +949,56 @@ it('starts an ordinary idle-child turn and never steers the completed turn', asy
   expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(0);
   expect(f.owner.list()[0]).toMatchObject({ state: 'working', turnId: 'new-turn' });
 });
+it.each(['admission', 'submission'] as const)(
+  'preserves child control failure at %s even when sanitized diagnostic delivery throws',
+  async (phase) => {
+    const f = fixture();
+    await f.admit();
+    const failure = Error('private command text Bearer credential');
+    if (phase === 'admission')
+      f.options.withControlAdmission = () => {
+        throw failure;
+      };
+    else
+      f.request.mockImplementationOnce(async (_method, _params, beforeDispatch, submission) => {
+        beforeDispatch?.();
+        submission?.onSubmitted();
+        throw failure;
+      });
+    diagnostic.mockImplementationOnce(() => {
+      throw Error('Diagnostic sink unavailable');
+    });
+    const input = {
+      requestId: 'failed-control',
+      threadId: 'child',
+      action: 'message' as const,
+      text: 'Check',
+    };
+    const expected = phase === 'admission' ? 'rejected' : 'uncertain';
+    expect(await f.owner.control(input)).toBe(expected);
+    expect(diagnostic).toHaveBeenCalledWith(
+      'Native subagent control requires attention',
+      expect.objectContaining({
+        commandId: 'command',
+        requestId: input.requestId,
+        stage: phase,
+        code: `child_control_${phase}_failed`,
+      }),
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(failure.message);
+    expect(await f.owner.control(input)).toBe(expected);
+    expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(
+      phase === 'admission' ? 0 : 1,
+    );
+  },
+);
+
 it('retains uncertainty after a lost control reply and never resends it', async () => {
   const f = fixture();
   await f.admit();
-  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch) => {
+  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch, submission) => {
     beforeDispatch?.();
+    submission?.onSubmitted();
     throw Error('Disconnected after write');
   });
   const input = {
@@ -994,7 +1041,8 @@ it('delivers a message when the child finishes before the steering dispatch fenc
   await f.admit();
   const original = f.request.getMockImplementation()!;
   let steeringDispatched = false;
-  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+  const submitted = vi.fn();
+  f.request.mockImplementation(async (method, params, beforeDispatch, submission) => {
     if (method === 'turn/steer') {
       f.notify('turn/completed', {
         threadId: 'child',
@@ -1003,7 +1051,18 @@ it('delivers a message when the child finishes before the steering dispatch fenc
       beforeDispatch?.();
       steeringDispatched = true;
     }
-    return original(method, params, beforeDispatch);
+    return original(
+      method,
+      params,
+      beforeDispatch,
+      submission && {
+        ...submission,
+        onSubmitted: () => {
+          submitted(method, submission.sourceCommandId);
+          submission.onSubmitted();
+        },
+      },
+    );
   });
   const input = {
     requestId: 'finish-race',
@@ -1016,14 +1075,80 @@ it('delivers a message when the child finishes before the steering dispatch fenc
   expect(f.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
   expect(await f.owner.control(input)).toBe('accepted');
   expect(f.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+  expect(submitted.mock.calls).toEqual([['turn/start', 'command']]);
+});
+it.each([false, true])(
+  'never retries a changed source command at dispatch, including completion=%s',
+  async (completed) => {
+    const f = fixture();
+    await f.admit();
+    let replaced = false;
+    let restoreSource: (() => void) | undefined;
+    f.assertCurrent.mockImplementation((child) => {
+      if (replaced) {
+        restoreSource ??= () => {
+          child.commandId = 'command';
+        };
+        child.commandId = 'replacement-command';
+      }
+    });
+    const submitted = vi.fn();
+    f.request.mockImplementationOnce(async (_method, _params, beforeDispatch, submission) => {
+      if (completed)
+        f.notify('turn/completed', {
+          threadId: 'child',
+          turn: { id: 'child-turn', status: 'completed' },
+        });
+      replaced = true;
+      beforeDispatch?.();
+      submitted();
+      submission?.onSubmitted();
+      throw Error('Must not submit');
+    });
+    try {
+      expect(
+        await f.owner.control({
+          requestId: 'replaced-source',
+          threadId: 'child',
+          action: 'message',
+          text: 'Check',
+        }),
+      ).toBe('rejected');
+      expect(submitted).not.toHaveBeenCalled();
+      expect(f.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(0);
+    } finally {
+      // The deliberate identity fault must not leak into fixture teardown.
+      replaced = false;
+      restoreSource?.();
+    }
+  },
+);
+it('keeps a final transport refusal before actual submission rejected', async () => {
+  const f = fixture();
+  await f.admit();
+  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch) => {
+    beforeDispatch?.();
+    throw Error('Transport retired before invocation');
+  });
+  const input = {
+    requestId: 'transport-before-submit',
+    threadId: 'child',
+    action: 'message' as const,
+    text: 'Check',
+  };
+  expect(await f.owner.control(input)).toBe('rejected');
+  expect(await f.owner.control(input)).toBe('rejected');
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
+  expect(f.owner.list()[0].controlFailure).toMatchObject({ status: 'rejected', stage: 'dispatch' });
 });
 it.each(['rejected', 'uncertain'] as const)(
   'retains a correlated, sanitized %s control diagnostic',
   async (status) => {
     const f = fixture();
     await f.admit();
-    f.request.mockImplementationOnce(async (method, _params, beforeDispatch) => {
+    f.request.mockImplementationOnce(async (method, _params, beforeDispatch, submission) => {
       beforeDispatch?.();
+      submission?.onSubmitted();
       throw status === 'rejected'
         ? new CodexRequestError(method, 'invalid_request', -32602)
         : Error('private provider payload');

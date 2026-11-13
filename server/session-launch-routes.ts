@@ -292,5 +292,19 @@ export function createSessionLaunchRouter(deps: {
       return publicSessionLaunchRecord(result);
     }),
   );
+  router.post('/requests/:proposalId/release', requireSameOriginJson, (req, res) =>
+    act(req, res, async (auth, signal) => {
+      const id = z.uuid().parse(req.params.proposalId),
+        record = source(id);
+      const { expectedRevision } = z
+        .strictObject({ expectedRevision: z.number().int().positive() })
+        .parse(req.body);
+      const released = await withAuthority(auth, signal, (authority) =>
+        launches.release(id, owner, expectedRevision, authority),
+      );
+      deps.controller.changed(record.sourceSessionId);
+      return publicSessionLaunchRecord(released);
+    }),
+  );
   return router;
 }
