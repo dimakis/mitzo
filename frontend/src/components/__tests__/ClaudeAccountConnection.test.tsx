@@ -57,13 +57,97 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function show() {
+function show(selectedAccountId?: string) {
   return render(
     <MemoryRouter>
-      <ClaudeAccountConnection />
+      <ClaudeAccountConnection accountId={selectedAccountId} />
     </MemoryRouter>,
   );
 }
+const savedAccount = {
+  id: accountId,
+  label: 'Personal Claude',
+  email: 'person@example.test',
+  planType: 'max',
+  verifiedAt: Date.now(),
+};
+it('keeps fresh setup separate from an old account and failed reconnect', async () => {
+  mocks.fetch.mockImplementation(async () =>
+    response(snapshot([{ ...pending, state: 'failed', url: undefined }], [savedAccount])),
+  );
+  show();
+  await screen.findByRole('button', { name: 'Sign in with Claude' });
+  expect(screen.queryByText('person@example.test · Max')).toBeNull();
+  expect(screen.queryByText(/Claude sign-in failed/)).toBeNull();
+});
+it('offers confirmed removal after a failed reconnect and leaves fresh setup available', async () => {
+  mocks.fetch.mockImplementation(async (url: string) =>
+    response(
+      url.endsWith('/remove')
+        ? snapshot()
+        : snapshot([{ ...pending, state: 'failed', url: undefined }], [savedAccount]),
+    ),
+  );
+  show(accountId);
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove account' }));
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/remove'))).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }));
+  await screen.findByRole('button', { name: 'Sign in with Claude' });
+  expect(screen.queryByText('person@example.test · Max')).toBeNull();
+  expect(mocks.changed).toHaveBeenCalled();
+});
+it('recovers a lost removal acknowledgement by reading status, without removing again', async () => {
+  let removed = false;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/remove')) {
+      removed = true;
+      throw Error('response lost');
+    }
+    return response(snapshot([], removed ? [] : [savedAccount]));
+  });
+  show(accountId);
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove account' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }));
+  await screen.findByText(/Account removal could not be confirmed/);
+  expect((screen.getByRole('button', { name: 'Keep account' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Keep account' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check sign-in status' }));
+  await screen.findByRole('button', { name: 'Sign in with Claude' });
+  expect(screen.queryByRole('button', { name: 'Confirm removal' })).toBeNull();
+  expect(mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/remove'))).toHaveLength(1);
+});
+it('bounds a hung sign-in request and recovers the original request without duplicating it', async () => {
+  mocks.fetch.mockImplementation(async () => response(snapshot()));
+  show();
+  await screen.findByRole('button', { name: 'Sign in with Claude' });
+  mocks.fetch.mockImplementation(() => new Promise(() => {}));
+  vi.useFakeTimers();
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Claude' }));
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    expect(screen.getByRole('alert').textContent).toContain('Check status');
+    expect(
+      (screen.getByRole('button', { name: 'Check sign-in status' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+  mocks.fetch.mockImplementation(async () => response(snapshot()));
+  fireEvent.click(screen.getByRole('button', { name: 'Check sign-in status' }));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Sign in with Claude' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  mocks.fetch.mockImplementation(async () => response(pending));
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in with Claude' }));
+  await screen.findByLabelText('Sign-in code');
+  const starts = mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/start'));
+  expect(starts).toHaveLength(2);
+  expect(starts[1][1].body).toBe(starts[0][1].body);
+});
 it.each(['secure', 'http'] as const)(
   'starts explicitly on %s hosts and sends the code only through the private POST',
   async (host) => {
@@ -149,7 +233,7 @@ it.each(['verified', 'failed', 'unavailable', 'revoked'] as const)(
         });
       return response(snapshot([], [account]));
     });
-    show();
+    show(accountId);
     await screen.findByText('person@example.test · Max');
     expect(mocks.fetch.mock.calls.some(([url]) => url === '/api/connections-access')).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Check sign-in status' }));
@@ -197,6 +281,12 @@ it.each(['verified', 'failed', 'unavailable', 'revoked'] as const)(
       );
     } else {
       expect((await screen.findByRole('alert')).textContent).toContain('could not be checked');
+      expect(
+        (screen.getByRole('button', { name: 'Start chat' }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      expect(
+        (screen.getByRole('button', { name: 'Sign in again' }) as HTMLButtonElement).disabled,
+      ).toBe(false);
     }
     await waitFor(() => expect(screen.queryByText('Checking native Claude sign-in…')).toBeNull());
     expect(
@@ -334,7 +424,7 @@ it.each([false, true])(
           : snapshot([{ ...pending, state: 'connected', url: undefined }], [account]),
       );
     });
-    show();
+    show(accountId);
     fireEvent.click(await screen.findByRole('button', { name: 'Start chat' }));
     if (revoked) {
       await screen.findByText('Sign in to Mitzo again to continue.');

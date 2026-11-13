@@ -431,7 +431,7 @@
   margin-top: 18px;
 }
 .connections-wizard-actions button {
-  min-height: 42px;
+  min-height: var(--control-height);
   padding: 8px 12px;
   border: 1px solid var(--workspace-line);
   border-radius: 8px;

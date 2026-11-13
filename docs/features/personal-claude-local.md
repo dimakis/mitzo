@@ -208,6 +208,33 @@ global `CLAUDE_CONFIG_DIR`. Transcript parsing remains SDK-owned.
 
 ## Verification status
 
+### Native startup and recovery, 13 November 2026
+
+Fresh attempts on release `cfa324ca72d7` failed before returning a sign-in link;
+the live diagnostic recorded `CLAUDE_LOGIN_START_FAILED` without its cause.
+An empty-account probe with bundled Claude 2.1.322 produced a link and opened a
+loopback callback listener. Inspection of that pinned CLI confirms that denied
+callback binding aborts piped-input login, while terminal input enables its manual
+code fallback. The protected SDK policy deliberately denies callback binding.
+
+The fixed native auth supervisor now provides a private terminal so Claude can
+use its own manual fallback. The login-only boundary permits terminal allocation;
+local binding, loopback egress and private storage restrictions remain unchanged.
+The parser accepts the native manual-link label and removes terminal formatting.
+Submitted codes reject terminal controls, and supervisor EOF or termination closes
+the native process. No token exchange is implemented in Mitzo.
+
+macOS CI checks the old piped-input failure, native link creation with an empty
+account, ordinary-session listener denial and login-session loopback egress denial.
+These startup checks submit no authorization code and make no model request.
+Successful account authorization and SDK verification still require a real user
+sign-in after activation; this source change alone does not prove live recovery.
+
+Account removal preserves history and native files while removing enrollment.
+Uncertain removal retains its identity separately from confirmation visibility
+until a status read resolves the outcome. Fresh setup hides old saved accounts
+and their previous reconnect failures.
+
 ### Protected sign-in qualification, 12 November 2026
 
 The model-refresh incident on release `9c087d0da76c` reported native CLI success

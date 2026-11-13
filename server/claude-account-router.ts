@@ -82,6 +82,17 @@ export function createClaudeAccountRouter(
     route((_req, res, service) => res.json(service.list(res.locals.authSession))),
   );
   router.post(
+    '/accounts/:accountId/remove',
+    route((req, res, service) => {
+      z.strictObject({}).parse(req.body);
+      const accountId = z
+        .string()
+        .regex(/^claude-[0-9a-f-]{36}$/)
+        .parse(req.params.accountId);
+      return res.json(service.remove(res.locals.authSession, accountId));
+    }),
+  );
+  router.post(
     '/start',
     route(async (req, res, service) =>
       res.json(await service.start(res.locals.authSession, ClaudeLoginInput.parse(req.body))),
