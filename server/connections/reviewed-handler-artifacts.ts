@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1116-enmaas-account-settings';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1117-enmaas-account-settings';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1405,7 +1405,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/indexed-chat-disk.ts':
     '8033c3340ecce06f0fea6b5efb045f75bcb3bb97c2e12e281d68744d14dd1bf8',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':
-    'a6eadeddc0900a46aa634afe41f51d78bef31b997583cc798f18b23a969e320c',
+    '3ab82b4078860c4d280dc4ce6ccec5dc95a44948bce1718ab32387b751405c3d',
   '../../scripts/ci-prepared-consumers.mjs':
     'fe9b75e61c01cb9a0db8dcc23a20a35741b365416ae4f93cf5bb277a5d1db2e0',
   '../../scripts/__tests__/ci-prepared-consumers.test.ts':
@@ -1517,7 +1517,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-runtime-authority.test.ts':
     'fcb41461d1b95801d571f9228873628899e9f6a2fd648079f275c9d8d3a0362c',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.ts':
-    'ee4b7de7cd577743c9e5ec6199a25e208024fb200cd499d3a461837786ffe01d',
+    '2c4de3f897f7eea77aff0e4f686ac6c78b532a43bb6a027f3abd9b508f14e02c',
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.ts':
     'ce38a1dbd5f20acdb7d799ba4332206e5a277d33fffad9e60cb4d832e3abe79c',
   '../__tests__/legacy-native-source-composition.test.ts':
@@ -3827,7 +3827,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-source-current-auth.test.ts':
     'a8a7077e148616c7f7d2580f7cb6cf9816105eeff05fc8758457a610bfab74de',
   '../../tests/integration/telos-s5b/native-role-composition.contract.ts':
-    '4d09a3574a9e98c1e955f6fa9bf6ea57884ee3c51c8723d81ce94ae2de35afa3',
+    'f5c3534011f74a36d26701029c0f0f8be2425a9356cd1fc7d670d25e37c64807',
   '../../tests/integration/telos-s5b/vitest.native-role-composition.config.ts':
     'c374e77ec8ab38eae6f3c1942f2afa350bc50c994660bc13516d98dfcaf9c830',
   '../../tests/integration/telos-s9/model-readiness/model-readiness.contract.ts':
