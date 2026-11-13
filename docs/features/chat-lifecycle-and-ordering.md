@@ -82,3 +82,20 @@ focused chat, prompt-context, receipt, hidden-history and design checks, with on
 existing skip. Runtime source inventory advanced to
 `v1.0.1126-chat-lifecycle-integration`. Full CI and exact-head Centaur review remain
 separate delivery evidence.
+
+## Landing verification
+
+Dimitri authorized merging #1340 only after Claude sign-in fix #1336 is accepted.
+The first CI candidate passed compile/source preflight and frontend builds, then
+exposed a desktop menu regression: asynchronous read/pin diagnostics increased
+its height after the one-time viewport placement, hiding the final action. The
+retained browser trace confirms the failure. The menu now observes its rendered
+size and repositions on changes; a regression covers the actual read-failure and
+retry path, geometry correction and observer cleanup. All 31 related menu,
+preview, library and sidebar unit checks pass. Full browser verification remains
+required on the final combined candidate.
+
+CI now retains the hidden-history and guarded-cleanup screenshots in its existing
+responsiveness artifact; previously their filenames were omitted from the upload
+patterns. All 30 focused workflow/gate checks pass. The reviewed source inventory
+includes these changes at `v1.0.1128-chat-menu-resize`.

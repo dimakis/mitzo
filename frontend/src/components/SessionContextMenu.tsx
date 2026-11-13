@@ -34,11 +34,18 @@ export function SessionContextMenu({
   useLayoutEffect(() => {
     if (!state || !menuRef.current) return;
     const element = menuRef.current;
-    const bounds = state.trigger.getBoundingClientRect();
-    const x = state.point?.x ?? bounds.right;
-    const y = state.point?.y ?? bounds.bottom;
-    element.style.left = `${Math.max(8, Math.min(x, window.innerWidth - element.offsetWidth - 8))}px`;
-    element.style.top = `${Math.max(8, Math.min(y, window.innerHeight - element.offsetHeight - 8))}px`;
+    const position = () => {
+      const bounds = state.trigger.getBoundingClientRect();
+      const x = state.point?.x ?? bounds.right;
+      const y = state.point?.y ?? bounds.bottom;
+      element.style.left = `${Math.max(8, Math.min(x, window.innerWidth - element.offsetWidth - 8))}px`;
+      element.style.top = `${Math.max(8, Math.min(y, window.innerHeight - element.offsetHeight - 8))}px`;
+    };
+    position();
+    // Read status, pin failures and copy feedback can grow an already open menu.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
+    observer?.observe(element);
+    return () => observer?.disconnect();
   }, [state]);
   useEffect(() => {
     if (!state) return;

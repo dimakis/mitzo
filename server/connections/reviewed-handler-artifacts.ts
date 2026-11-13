@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1127-chat-lifecycle-visuals';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1128-chat-menu-resize';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,7 +27,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SavedSessionHistory.tsx':
     'cf3b571a9b8cd2a20fa8d97d41baebc0a6d161ae070df7313fea1c567bd8beb3',
   '../../frontend/src/components/SessionContextMenu.tsx':
-    '4043ec9e7280a9e3d940a81713094cf9757fff832ded84ddba55c024403ada9f',
+    '8dcf0981cd0f0aaac200b1fbae394b951e318d57a1d453a05c0bca3c5fc0c7bf',
+  '../../frontend/src/components/__tests__/SessionContextMenu.test.tsx':
+    'd104c1bb84e6155da2c62be71354f8cddebc880ccd12bd5f5480e83d81d29cf0',
   '../../frontend/src/components/__tests__/ActiveSessionsOrdering.test.tsx':
     '33094032b5c6f30c8559c2bdf8185367560e62dbc241b1a6fab971457e585735',
   '../../frontend/src/components/__tests__/ChatAreaReadReceipt.test.tsx':
