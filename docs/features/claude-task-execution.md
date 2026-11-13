@@ -47,3 +47,15 @@ The focused local run passed 127 checks; one existing Access HTTP endpoint case 
 blocked by `listen EPERM` under the task grant's `network: none` scope. This is a
 test-runner authority limit, not a passing endpoint acceptance result. No grant was
 widened and no hosted CI was started for this checkpoint.
+
+Detached successful SDK turns now defer completion delivery to the same installed
+notification owner. They still record the completion once, but do not independently
+send ntfy and Pushover messages around the central preferences, quiet hours or
+privacy policy. Standalone consumers without that owner retain legacy sends;
+unexpected sender rejections produce a correlated diagnostic instead of an empty
+catch. The center's existing legacy fallback remains specific to permission notices;
+this change does not invent a second completion delivery system.
+
+Real query-loop consumer regressions demonstrate the duplicate send before the fix
+and cover both central and standalone ownership. All 141 query-loop/notification
+checks passed with synthetic transports; no device delivery is claimed.

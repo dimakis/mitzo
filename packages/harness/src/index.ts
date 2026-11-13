@@ -81,7 +81,10 @@ export {
 export type { OnDemandCreateFn, CheckWorktreePolicyOptions } from './worktree-guard.js';
 
 // Notifications
-export { registerPermissionNotificationOwner } from './permission-notification-owner.js';
+export {
+  registerPermissionNotificationOwner,
+  hasPermissionNotificationOwner,
+} from './permission-notification-owner.js';
 export * as ntfy from './notify.js';
 export * as pushover from './pushover.js';
 

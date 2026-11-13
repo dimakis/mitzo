@@ -4,6 +4,9 @@ import { ConnectionRegistry } from '../../packages/harness/src/connection-regist
 import { runQueryLoop } from '../query-loop.js';
 import { classifyProviderFailure } from '../provider-failure.js';
 import * as notificationCenter from '../notification-center.js';
+import * as ntfyTransport from '../notify.js';
+import * as pushoverTransport from '../pushover.js';
+import { registerPermissionNotificationOwner } from '@mitzo/harness';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
@@ -470,6 +473,67 @@ describe('runQueryLoop', () => {
         );
       } finally {
         record.mockRestore();
+      }
+    },
+  );
+
+  it.each([true, false])(
+    'uses one completion delivery owner for detached SDK turns (central: %s)',
+    async (central) => {
+      const record = vi
+        .spyOn(notificationCenter, 'recordTurnNotification')
+        .mockImplementation(() => {});
+      const ntfy = vi.spyOn(ntfyTransport, 'sendTurnCompleteNotification').mockResolvedValue();
+      const pushover = vi
+        .spyOn(pushoverTransport, 'sendTurnCompleteNotification')
+        .mockResolvedValue();
+      const release = central ? registerPermissionNotificationOwner() : () => {};
+      try {
+        registry = fakeRegistry(transport, { attached: false });
+        await runQueryLoop(
+          eventStream([
+            {
+              type: 'stream_event',
+              event: { type: 'message_start', message: { id: 'completion-text' } },
+            },
+            {
+              type: 'stream_event',
+              event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+            },
+            {
+              type: 'stream_event',
+              event: {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'text_delta', text: 'Private completion text' },
+              },
+            },
+            { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+            {
+              type: 'assistant',
+              message: { content: [{ type: 'text', text: 'Private completion text' }] },
+              session_id: 'completion-owner',
+            },
+            { type: 'result', session_id: 'completion-owner' },
+          ]),
+          clientId,
+          registry,
+          abortController,
+        );
+        expect(record).toHaveBeenCalledExactlyOnceWith(
+          'completion-owner',
+          expect.any(Number),
+          'Private completion text',
+          undefined,
+          true,
+        );
+        expect(ntfy).toHaveBeenCalledTimes(central ? 0 : 1);
+        expect(pushover).toHaveBeenCalledTimes(central ? 0 : 1);
+      } finally {
+        release();
+        record.mockRestore();
+        ntfy.mockRestore();
+        pushover.mockRestore();
       }
     },
   );

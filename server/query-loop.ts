@@ -7,6 +7,7 @@ import { observeSessionActivity } from './session-activity-events.js';
 import { randomUUID } from 'node:crypto';
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
+import { hasPermissionNotificationOwner } from '@mitzo/harness';
 import { extractToolResultText, extractToolResultImages } from './content-blocks.js';
 import { storeImage } from './image-store.js';
 import {
@@ -1152,11 +1153,28 @@ async function _runQueryLoopInner(
               }
             }
           }
-          if (!isError && snippet && !registry.isAttached(clientId)) {
+          if (
+            !isError &&
+            snippet &&
+            !registry.isAttached(clientId) &&
+            !hasPermissionNotificationOwner()
+          ) {
             const sid = (msg.session_id as string) || currentSession.sessionId;
             const sessionTitle = sid ? (store?.getSession(sid)?.summary ?? undefined) : undefined;
-            ntfyTurnComplete(sid, snippet, sessionTitle).catch(() => {});
-            pushoverTurnComplete(sid, snippet, sessionTitle).catch(() => {});
+            for (const [channel, send] of [
+              ['ntfy', ntfyTurnComplete],
+              ['pushover', pushoverTurnComplete],
+            ] as const) {
+              void send(sid, snippet, sessionTitle).catch((err: unknown) => {
+                log.warn('Legacy SDK completion notification failed', {
+                  stage: 'notification_delivery',
+                  code: 'legacy_completion_transport_failed',
+                  sessionId: sid,
+                  channel,
+                  err,
+                });
+              });
+            }
           }
           options?.onTurnEnd?.(clientId);
           options?.onResult?.(
