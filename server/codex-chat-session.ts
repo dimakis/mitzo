@@ -322,6 +322,26 @@ export function ordinaryRuntimeServiceProviders(
 }
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
+const runtimeOwners = new WeakMap<ManagedSession, CodexConversation>();
+const finalizerDrains = new WeakMap<ManagedSession, () => Promise<void>>();
+/** Exact owner proof survives removal from the live runtime map. Absence is not
+ * success; callers must independently qualify cold durable/runtime custody. */
+export async function drainCodexChatFinalizers(session: ManagedSession): Promise<void> {
+  const drain = finalizerDrains.get(session);
+  if (!drain) throw Error('Original Codex finalizer owner unavailable');
+  await drain();
+}
+export async function retireIdleCodexChat(
+  session: ManagedSession,
+  assertCurrent: () => void,
+): Promise<void> {
+  assertCurrent();
+  const owner = runtimeOwners.get(session);
+  if (!owner) throw Error('Original Codex runtime owner unavailable');
+  await owner.retireIdle(assertCurrent);
+  await drainCodexChatFinalizers(session);
+  assertCurrent();
+}
 interface PendingProviderAdmission {
   admission: ProviderDispatchAdmission;
   eventStore: EventStore;
@@ -2216,40 +2236,80 @@ async function openCodexChatBound(
   const events = new AsyncQueue<Record<string, unknown>>();
   let unwatchAgentMessages: (() => void) | undefined;
   let closed = false;
+  let finalization: Promise<Error | undefined> | undefined;
+  finalizerDrains.set(options.session, async () => {
+    if (!closed || !finalization) throw Error('Codex owner must be closed before finalizer drain');
+    const failure = await finalization;
+    if (failure) throw failure;
+  });
   function finish() {
     if (closed) return;
     closed = true;
-    unwatchAgentMessages?.();
-    options.ownedLocal?.close();
-    githubPublishing.close();
-    cancelTrackedProviderAdmissions(options.session);
-    if (hooks)
-      void hooks
-        .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
-        .catch(() => {})
-        .finally(dispose);
-    else dispose();
-    signal.removeEventListener('abort', close);
-    events.close();
-    void mcp.close().catch(() => {
-      log.warn('Session MCP cleanup failed', {
-        code: 'mcp_cleanup_failed',
-        stage: 'session_close',
-        conversationId: options.conversationId,
+    const failures: Error[] = [];
+    const pending: Promise<void>[] = [];
+    const attempt = (stage: string, action: () => unknown) => {
+      const failed = (cause: unknown) => {
+        failures.push(new Error(`Codex finalizer failed during ${stage}`, { cause }));
+        log.warn('Codex finalizer failed', {
+          code: 'codex_finalizer_failed',
+          stage,
+          conversationId: options.conversationId,
+        });
+      };
+      try {
+        const completion = Promise.resolve(action()).then(() => undefined, failed);
+        pending.push(completion);
+        return completion;
+      } catch (cause) {
+        failed(cause);
+        return Promise.resolve();
+      }
+    };
+    attempt('message_subscription', () => unwatchAgentMessages?.());
+    attempt('local_owner', () => options.ownedLocal?.close());
+    attempt('publishing_owner', () => githubPublishing.close());
+    attempt('provider_admission', () => cancelTrackedProviderAdmissions(options.session));
+    attempt('session_hooks', async () => {
+      try {
+        await hooks?.run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000));
+      } finally {
+        await attempt('hook_disposal', dispose);
+      }
+    });
+    attempt('event_stream', () => {
+      signal.removeEventListener('abort', close);
+      events.close();
+      runtimes.delete(options.session);
+    });
+    attempt('mcp_cleanup', () => mcp.close());
+    attempt('capability_binding', () => {
+      const livePublishingOwner = getLiveCapabilityConversationBinding(
+        options.conversationId,
+      )?.runtimeOwnerId;
+      if (
+        managedCapabilityConnection &&
+        (!livePublishingOwner || livePublishingOwner === githubPublishing.runtimeOwnerId)
+      )
+        clearLiveCapabilityConversationBinding(options.conversationId, {
+          connectionId: managedCapabilityConnection.id,
+          connectionRevision: managedCapabilityConnection.revision,
+        });
+    });
+    finalization = new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        const failure = new Error('Codex finalizer drain is unconfirmed');
+        log.warn('Codex finalizer drain is unconfirmed', {
+          code: 'codex_finalizer_timeout',
+          stage: 'resource_drain',
+          conversationId: options.conversationId,
+        });
+        resolve(failures[0] ?? failure);
+      }, 6000);
+      void Promise.all(pending).then(() => {
+        clearTimeout(timer);
+        resolve(failures[0]);
       });
     });
-    runtimes.delete(options.session);
-    const livePublishingOwner = getLiveCapabilityConversationBinding(
-      options.conversationId,
-    )?.runtimeOwnerId;
-    if (
-      managedCapabilityConnection &&
-      (!livePublishingOwner || livePublishingOwner === githubPublishing.runtimeOwnerId)
-    )
-      clearLiveCapabilityConversationBinding(options.conversationId, {
-        connectionId: managedCapabilityConnection.id,
-        connectionRevision: managedCapabilityConnection.revision,
-      });
   }
   let nativeExecution: CodexNativeExecutionPolicy | undefined;
   const selectedNativePolicy = () => {
@@ -4600,8 +4660,11 @@ async function openCodexChatBound(
   const runtime: CodexConversation = new CodexConversation(runtimeOptions);
   function close() {
     if (closed) return;
-    runtime.close();
-    finish();
+    try {
+      runtime.close();
+    } finally {
+      finish();
+    }
   }
   signal.addEventListener('abort', close, { once: true });
   try {
@@ -4643,6 +4706,7 @@ async function openCodexChatBound(
         );
     }
     signal.throwIfAborted();
+    runtimeOwners.set(options.session, runtime);
     runtimes.set(options.session, runtime);
     if (options.ownedLocal)
       unwatchAgentMessages = watchAgentMessageTranscript(

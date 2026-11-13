@@ -180,6 +180,7 @@ interface Rpc {
   initialize(): Promise<void>;
   request(method: string, params: ObjectValue): Promise<unknown>;
   close(): void;
+  drain?(): Promise<void>;
 }
 export interface CodexStartupConfigObservation {
   readonly cwd: string;
@@ -547,6 +548,8 @@ export class CodexConversation {
   private lastSubagentCommandId?: string;
   private subagentAnchors = new Set<string>();
   private client: Rpc;
+  private readonly ownedTransports = new Set<Rpc>();
+  private idleRetirement?: Promise<void>;
   private transportGeneration = 0;
   private replaySavedSources = false;
   private capacityTimer?: ReturnType<typeof setTimeout>;
@@ -640,7 +643,7 @@ export class CodexConversation {
     this.subagentOwner?.close();
     this.subagentOwner = undefined;
     const generation = ++this.transportGeneration;
-    return this.opts.createClient({
+    const client = this.opts.createClient({
       onNotification: (m, p) => {
         if (!this.closed && generation === this.transportGeneration) {
           if (!this.borrowedSearch?.notification(m, p)) this.notification(m, p);
@@ -679,6 +682,8 @@ export class CodexConversation {
       },
       onClose: (error) => this.transportClosed(generation, error),
     });
+    this.ownedTransports.add(client);
+    return client;
   }
   getSubagents(): CodexSubagents | undefined {
     if (
@@ -5205,6 +5210,42 @@ export class CodexConversation {
     };
     const parent = interruptParent();
     await Promise.all([parent, this.subagentOwner?.interruptAll()]);
+  }
+  /** The caller holds the durable context fence. This operation never interrupts
+   * active work; all native queues/effects and every transport must prove idle. */
+  async retireIdle(assertCurrent: () => void): Promise<void> {
+    assertCurrent();
+    if (this.idleRetirement) {
+      await this.idleRetirement;
+      assertCurrent();
+      return;
+    }
+    if (!this.binding || !this.ready || this.peerMessageState() !== 'idle')
+      throw Error('Exact idle native owner required');
+    if ([...this.ownedTransports].some((client) => !client.drain))
+      throw Error('Native transport drain is unavailable');
+    this.opts.store.assertContextTransitionQuiescent(
+      this.opts.conversationId,
+      this.binding,
+      this.opts.cwd,
+    );
+    assertCurrent();
+    this.idleRetirement = (async () => {
+      let failed: { cause: unknown } | undefined;
+      try {
+        this.close();
+      } catch (cause) {
+        failed = { cause };
+      }
+      const drained = await Promise.allSettled(
+        [...this.ownedTransports].map((client) => client.drain!()),
+      );
+      if (failed) throw failed.cause;
+      const failure = drained.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
+    })();
+    await this.idleRetirement;
+    assertCurrent();
   }
   close() {
     this.subagentOwner?.close();

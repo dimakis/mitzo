@@ -738,6 +738,43 @@ it('cancels reconnect polling when the request is aborted', async () => {
   expect(registry.findBySessionId).toHaveBeenCalledTimes(1);
 });
 
+it('retains finalizer proof after runtime removal and delivers cleanup failure on replay', async () => {
+  const { drainCodexChatFinalizers, getCodexRuntime } = await import('../codex-chat-session.js');
+  vi.clearAllMocks();
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  mocks.connect.mockResolvedValue({ definitions: [], close: () => pending });
+  const selected = options(new AbortController());
+  const chat = await openCodexChat(selected);
+  await expect(drainCodexChatFinalizers(selected.session)).rejects.toThrow(/closed/i);
+  chat.close();
+  expect(getCodexRuntime(selected.session)).toBeUndefined();
+  let settled = false;
+  const drain = drainCodexChatFinalizers(selected.session).then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  finish();
+  await drain;
+  await drainCodexChatFinalizers(selected.session);
+
+  const cause = new Error('private MCP cleanup detail');
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: async () => {
+      throw cause;
+    },
+  });
+  const second = options(new AbortController());
+  const secondChat = await openCodexChat(second);
+  secondChat.close();
+  await expect(drainCodexChatFinalizers(second.session)).rejects.toMatchObject({ cause });
+  await expect(drainCodexChatFinalizers(second.session)).rejects.toMatchObject({ cause });
+});
+
 it('cleans each resource once across explicit close, runtime close and abort', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });

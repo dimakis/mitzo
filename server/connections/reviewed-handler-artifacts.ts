@@ -1796,9 +1796,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    'b11aea8dd63799419caed3f72722e60b1b1db6d29c72e5fe64c970c02a6a8e1b',
+    'aa121f40e639c3d1e3aec91b5e3670153f3028c50c3e91f04e12f1a058ac7c2a',
   '../__tests__/codex-conversation.test.ts':
-    'abfdcc9b84d984c2357f55bbbc6f7077e59d8fffa2510b732447dbcbe49d5224',
+    '8e27ec41905692b3ea35747ac2de091918c54e374ac920e67060e52e29ac75dc',
   '../__tests__/codex-native-approvals.test.ts':
     '795e09d27b34bb573c33e7c1537971e9f77d24f1def54ff82755e66b277daa9a',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -2631,7 +2631,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '428484110b89476c6296ca939aca33e82d382ef718d5288e811db1e7d1c6c54a',
+  '../codex-conversation.ts': 'dcecb85aed865260bacf09113965abbe406e67731685437cf3104fe1506d2546',
   '../codex-conversation-store.ts':
     '5bd2d75dbf12ea377f86db0ef5360004bc1da27493fa3c38cd772c445b798ff6',
   '../symposium-custodian-ipc.ts':
@@ -2808,7 +2808,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '4289834fb795911bc8952a141dd592ad695621e3e43fa590de1395094a5a1c95',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '951a10cd4ddfac0ea6755ab0d66a4475744f619061ec64026fc3d2a1d66b8843',
+  '../codex-chat-session.ts': '7f3c4163f8fa4db7a0154a8801bc4da41605df52543287ed8fe6db8bbaa8f2fd',
   '../connections-runtime.ts': 'c5c0da8aa548c029b1dbe7c1eb880311f35c6dfab26ff0e437db6134455089ef',
   'capabilities/operation-store.ts':
     '60c15c84c9cfddbbf30b01b215b1d7551271715f5cce5b3b4fd85092f7e575eb',

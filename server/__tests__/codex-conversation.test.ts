@@ -61,6 +61,56 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it('retires only an idle exact owner and awaits its transport drain', async () => {
+  const f = await setup();
+  let release!: () => void;
+  const drained = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const drain = vi.fn(() => drained);
+  Object.assign(f.rpc, { drain });
+  const assertCurrent = vi.fn();
+  let complete = false;
+  const pending = f.c.retireIdle(assertCurrent).then(() => {
+    complete = true;
+  });
+  await Promise.resolve();
+  expect(complete).toBe(false);
+  expect(f.rpc.close).toHaveBeenCalledOnce();
+  release();
+  await pending;
+  await f.c.retireIdle(assertCurrent);
+  expect(drain).toHaveBeenCalledOnce();
+  expect(f.requests.filter((request) => request.method === 'turn/interrupt')).toEqual([]);
+});
+
+it('refuses active or unqualified idle retirement without closing the owner', async () => {
+  const f = await setup();
+  await expect(f.c.retireIdle(() => undefined)).rejects.toThrow(/drain/i);
+  expect(f.rpc.close).not.toHaveBeenCalled();
+  Object.assign(f.rpc, { drain: vi.fn(async () => {}) });
+  await f.c.send({ id: 'active-retirement', prompt: 'Keep working' });
+  await expect(f.c.retireIdle(() => undefined)).rejects.toThrow(/idle/i);
+  expect(f.rpc.close).not.toHaveBeenCalled();
+});
+
+it('keeps the original retirement failure and rechecks authority on replay', async () => {
+  const f = await setup();
+  const failure = new Error('private cleanup diagnostic');
+  Object.assign(f.rpc, {
+    drain: vi.fn(async () => {
+      throw failure;
+    }),
+  });
+  await expect(f.c.retireIdle(() => undefined)).rejects.toBe(failure);
+  await expect(f.c.retireIdle(() => undefined)).rejects.toBe(failure);
+  await expect(
+    f.c.retireIdle(() => {
+      throw Error('revoked');
+    }),
+  ).rejects.toThrow('revoked');
+});
+
 it('bounds a noncooperative host tool, fences its late callback and retains unknown effects', async () => {
   const f = await setup();
   f.conversationOptions.toolGuardPolicy = { executionMs: 20, approvalMs: 100, cleanupMs: 20 };
