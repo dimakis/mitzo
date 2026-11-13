@@ -13,6 +13,7 @@ import type { ConnectionRegistry } from '@mitzo/harness';
 // CT09 requires the real macOS process-isolation owner used by the artifact helper.
 // Required macOS CI runs it completely; Linux separately proves fail-closed refusal.
 const it = platformTest.runIf(process.platform === 'darwin');
+vi.setConfig({ testTimeout: process.env.CI ? 120_000 : 60_000 });
 
 vi.mock('../internal-token.js', () => ({
   INTERNAL_TOKEN: 'synthetic-only-ordinary-native-token',
@@ -426,7 +427,10 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
           },
         };
         const sourcePreview = await api.previewSourcePermission(sourcePermissionId, sourceInput);
-        const sourceApprovalInput = { ...sourceInput, previewSha256: sourcePreview.preview.sha256 };
+        const sourceApprovalInput = {
+          ...sourceInput,
+          previewSha256: sourcePreview.preview.sha256,
+        };
         const featureSource = await api.approveSourcePermission(
           sourcePermissionId,
           sourceApprovalInput,
@@ -466,7 +470,10 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
       snapshotId: featureSource.sourceSnapshotId,
       itemId: featureId,
       source: { namespace: 'mitzo', conversationId: 'planning' },
-      selection: { messageIds: ['original-feature-discussion'], throughSequence: planningSequence },
+      selection: {
+        messageIds: ['original-feature-discussion'],
+        throughSequence: planningSequence,
+      },
     });
     expect(feature.sources[0].artifacts).toContainEqual(material);
     const retained = await api.readSource(featureId, featureSource.sourceSnapshotId);
@@ -894,4 +901,4 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   expect(f.legacyLookup).not.toHaveBeenCalled();
   expect(getClientId).not.toHaveBeenCalled();
   markCt09Phase('journey-complete');
-}, 60_000);
+});

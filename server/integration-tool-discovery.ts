@@ -122,7 +122,7 @@ Call tools with full argument schemas directly; use DescribeIntegrationTool only
         return { ...fullDefinition, input_schema: structuredClone(tool.inputSchema) };
       return {
         name: tool.name,
-        description: `${tool.description.replace(/\s+/g, ' ').slice(0, 160)} Call DescribeIntegrationTool with toolId "${tool.name}" for the full arguments, then call ${tool.name} directly.`,
+        description: `${tool.description.replace(/\s+/g, ' ').slice(0, 160)} Call DescribeIntegrationTool with toolId "${tool.name}" for full schema.`,
         input_schema: { type: 'object', additionalProperties: true },
       };
     });

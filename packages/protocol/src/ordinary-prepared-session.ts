@@ -25,8 +25,11 @@ export const OrdinarySessionPreparationReceiptSchema = z
       receipt.sessionId !== receipt.workspaceId &&
       receipt.workspaceId === receipt.settings.repositoryWorkspaceId &&
       isOrdinaryRepositoryParticipantBinding(receipt.settings.binding) &&
-      receipt.settings.selection.context.source === 'none',
-    'Silent preparation requires distinct identities and a supported ordinary repository route without a context recipe',
+      (receipt.settings.selection.context.source === 'none' ||
+        (receipt.settings.binding.execution.location === 'local' &&
+          receipt.settings.binding.harness.implementation === 'codex' &&
+          ['workspace', 'contexgin'].includes(receipt.settings.selection.context.source))),
+    'Silent preparation requires distinct identities and a supported ordinary repository route and context',
   );
 export type OrdinarySessionPreparationReceipt = z.infer<
   typeof OrdinarySessionPreparationReceiptSchema

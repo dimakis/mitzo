@@ -20,6 +20,7 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
       ),
     );
   const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const closeClients = new Set<() => void>();
   const heldTurns = new Set<number>();
   const streamTurns = new Map<number, (text: string) => void>();
   const pendingTurns = new Map<
@@ -63,6 +64,15 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
     api = false,
   ) => {
     const threadId = `private-native-thread-${++nativeThreads}`;
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    let closed = false;
+    const close = () => {
+      closed = true;
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+      closeClients.delete(close);
+    };
+    closeClients.add(close);
     let retainedTurn:
       | {
           id: string;
@@ -72,8 +82,9 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
       | undefined;
     return {
       initialize: async () => {},
-      close: () => {},
+      close,
       request: async (method: string, params: Record<string, unknown>) => {
+        if (closed) throw Error('Synthetic native client closed');
         requests.push({ method, params });
         if (method === 'account/read')
           return api
@@ -128,7 +139,8 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
               delta: text,
             }),
           );
-          setTimeout(() => {
+          const timer = setTimeout(() => {
+            timers.delete(timer);
             lifecycle!.onNotification('turn/started', {
               threadId,
               turn: { id: turnId, status: 'inProgress' },
@@ -156,6 +168,7 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
             if (heldTurns.has(turnNumber)) pendingTurns.set(turnNumber, finish);
             else finish('completed');
           }, 10);
+          timers.add(timer);
           return { turn: { id: turnId } };
         }
         throw Error(`Unexpected offline native method: ${method}`);
@@ -196,6 +209,7 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
       revokeSourceOnQualification = true;
     },
     restore: () => {
+      for (const close of closeClients) close();
       launch.mockRestore();
       launchApi.mockRestore();
       discovery.mockRestore();

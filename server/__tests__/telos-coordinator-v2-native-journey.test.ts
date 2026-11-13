@@ -12,6 +12,7 @@ import type { ConnectionRegistry } from '@mitzo/harness';
 // CT12 uses the qualified macOS native runtime owner.
 // Required macOS CI runs it completely; Linux separately proves fail-closed refusal.
 const it = platformTest.runIf(process.platform === 'darwin');
+vi.setConfig({ testTimeout: process.env.CI ? 120_000 : 60_000 });
 
 const hostFetch = globalThis.fetch;
 const services = vi.hoisted(() => ({ workspace: undefined as unknown }));
@@ -554,4 +555,4 @@ it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledg
   }
   expect(f.forbidden).not.toHaveBeenCalled();
   expect(f.legacyLookup).not.toHaveBeenCalled();
-}, 60_000);
+});

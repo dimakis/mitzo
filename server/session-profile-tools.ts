@@ -12,8 +12,15 @@ import { SymposiumProfileStore } from './symposium-profiles.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
+import {
+  specialistToolSchema,
+  specialistToolDefinition,
+  SPECIALIST_INSTRUCTIONS,
+} from './specialist-consultation-contract.js';
+import { sessionSpecialistTools } from './session-specialist-tools.js';
 
 export const profileToolSchemas = {
+  SymposiumConsult: specialistToolSchema,
   SymposiumProposeProfile: ProfileProposalInputSchema,
   SymposiumReadProfiles: z.strictObject({
     action: z.enum(['list', 'get']),
@@ -23,6 +30,7 @@ export const profileToolSchemas = {
   }),
 };
 export const profileToolDefinitions = [
+  specialistToolDefinition,
   symposiumProposeProfileDefinition,
   {
     name: 'SymposiumReadProfiles',
@@ -32,7 +40,8 @@ export const profileToolDefinitions = [
   },
 ];
 export const PROFILE_TOOL_INSTRUCTIONS =
-  '\nUse SymposiumReadProfiles to inspect saved agents. Use SymposiumProposeProfile to create editable agent draft cards in this conversation, including one call per agent when proposing several. The user can edit and Save each card into the Agent Library. Tool success means draft created, not saved. Never claim a profile was saved without confirmation.\n';
+  '\nUse SymposiumReadProfiles to inspect saved agents. Use SymposiumProposeProfile to create editable agent draft cards in this conversation, including one call per agent when proposing several. The user can edit and Save each card into the Agent Library. Tool success means draft created, not saved. Never claim a profile was saved without confirmation.\n' +
+  SPECIALIST_INSTRUCTIONS;
 export type ProfileToolCall = { turnId: string; callId: string };
 export function sessionProfileTools(
   sessionId: string,
@@ -42,6 +51,14 @@ export function sessionProfileTools(
   assertRuntimeCurrent?: () => Promise<void>,
   assertRuntimeCurrentSync?: () => void,
 ) {
+  const specialists = sessionSpecialistTools(
+    sessionId,
+    session,
+    registry,
+    prefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  );
   const current = (name: string) => {
     assertRuntimeCurrentSync?.();
     const owner = registry.findBySessionId(sessionId);
@@ -61,6 +78,7 @@ export function sessionProfileTools(
       signal: AbortSignal,
       call?: ProfileToolCall,
     ) {
+      if (name === 'SymposiumConsult') return specialists.execute(input, signal, call);
       if (!Object.hasOwn(profileToolSchemas, name)) return undefined;
       try {
         signal = AbortSignal.any([signal, session.abortController.signal]);

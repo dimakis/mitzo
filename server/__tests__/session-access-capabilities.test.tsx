@@ -61,6 +61,7 @@ describe('Session Access configured helper support', () => {
       if (value.helperSupport.state !== 'configured') throw Error('Missing support');
       const tools = value.helperSupport.tools;
       expect(tools.find((t) => t.name === 'ListConnections')?.state).toBe('supported');
+      expect(tools.find((t) => t.name === 'SymposiumConsult')?.state).toBe('supported');
       expect(tools.find((t) => t.name === 'ConnectionRequest')?.state).toBe(
         provider.startsWith('anthropic') ? 'unsupported' : 'supported',
       );
@@ -117,6 +118,12 @@ describe('Session Access configured helper support', () => {
       'TelosCreateSession',
       'mcp__mitzo-connections__TelosCreateSession',
       'TelosCreateSession',
+    ],
+    [
+      'anthropic-claude',
+      'SymposiumConsult',
+      'mcp__mitzo-connections__SymposiumConsult',
+      'SymposiumConsult',
     ],
     [
       'anthropic-claude',

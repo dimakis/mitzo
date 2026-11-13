@@ -171,6 +171,7 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'ListRepositories',
     'PrepareRepositoryChat',
     'GetRepositoryChatPreparation',
+    'SymposiumConsult',
     'SymposiumProposeProfile',
     'SymposiumReadProfiles',
     'ReadKnowledge',

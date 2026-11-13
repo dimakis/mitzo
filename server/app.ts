@@ -250,6 +250,11 @@ import { createOutputContributors } from './output-contributors.js';
 import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
 import { CollaborationApplicationReview } from './collaboration-application-review.js';
+import { SpecialistConsultations } from './specialist-consultations.js';
+import {
+  setSpecialistConsultations,
+  closeSpecialistConsultations,
+} from './specialist-consultation-runtime.js';
 import { CollaborationApplicationForwarding } from './collaboration-application-forwarding.js';
 import { createCollaborationRetainedArtifactPort } from './collaboration-retained-artifact-port.js';
 import { createApplicationCollaborationJoining } from './collaboration-application-joining.js';
@@ -3595,6 +3600,14 @@ const collaborationMessaging = new ApplicationCollaborationMessaging(
   }),
   collaborationForwarding,
 );
+setSpecialistConsultations(
+  new SpecialistConsultations({
+    events: eventStore,
+    workspaces: () => getRepositoryWorkspaces(true),
+    messaging: collaborationMessaging,
+    databasePath: join(process.env.REPO_PATH || '.', '.mitzo', 'events.db'),
+  }),
+);
 
 mountObservedRouter(
   app,
@@ -5871,6 +5884,7 @@ export function closeIdleApplicationResources(): Promise<void> {
     return Promise.reject(new Error('Application resource owners are active'));
   idleApplicationClosing = true;
   idleApplicationClose = (async () => {
+    closeSpecialistConsultations();
     collaborationMessaging.close();
     await terminalService.closeIdle();
     notificationCenter.closeIdle();

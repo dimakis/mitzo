@@ -490,7 +490,9 @@ export function createSessionPromptPort(
         .get(prompt.settings!.repositoryWorkspaceId);
       if (
         !profile ||
-        profile.definition?.contextRecipe !== undefined ||
+        (profile.definition?.contextRecipe !== undefined &&
+          (binding.harness.implementation !== 'codex' ||
+            profile.definition.contextRecipe.source === 'packs')) ||
         !workspace ||
         workspace.conversationId !== meta.sessionId ||
         workspace.directory !== meta.cwd ||
