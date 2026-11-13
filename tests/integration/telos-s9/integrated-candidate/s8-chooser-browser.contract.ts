@@ -112,9 +112,12 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
         expect(work.assignments).toMatchObject([
           { role: 'lead', conversation: { conversationId: entry.id } },
         ]);
-      const row = title
-        ? page.locator('.telos-chat-row').filter({ hasText: title })
-        : page.getByRole('button', { name: 'Open ' + entry.expectedLabel, exact: true });
+      // Multiple chats can share the canonical item title. Their current
+      // assignment labels distinguish the intended conversation in this UI.
+      const row = page.getByRole('button', {
+        name: 'Open ' + entry.expectedLabel + (title ? ': ' + title : ''),
+        exact: true,
+      });
       await browserExpect(row).toHaveCount(1);
       assignmentLabels.push({
         stage,
@@ -363,8 +366,10 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   const titleFor = await catalogTitles();
   await openRetainedChat(first.id, () =>
     page
-      .locator('.telos-chat-row')
-      .filter({ hasText: titleFor(first.id) })
+      .getByRole('button', {
+        name: 'Open Previous conversation: ' + titleFor(first.id),
+        exact: true,
+      })
       .click(),
   );
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + first.id));
@@ -372,8 +377,10 @@ it('CT15/16 actual App: chooser and explicit replacement preserve independent st
   await page.getByRole('button', { name: 'Chats for this item: 5', exact: true }).click();
   await openRetainedChat(additional.id, () =>
     page
-      .locator('.telos-chat-row')
-      .filter({ hasText: titleFor(additional.id) })
+      .getByRole('button', {
+        name: 'Open Additional lead conversation: ' + titleFor(additional.id),
+        exact: true,
+      })
       .click(),
   );
   await browserExpect(page).toHaveURL(new RegExp('/chat/' + additional.id));

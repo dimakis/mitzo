@@ -87,9 +87,9 @@ for (const theme of ['dark', 'light'])
         await expect(link).toBeFocused();
         await link.press('Enter');
       } else {
-        await expect(page.getByRole('status')).toHaveText(
-          'Current lead unavailable. Review the assignment in linked work.',
-        );
+        await expect(
+          page.getByRole('status').filter({ hasText: 'Current lead unavailable.' }),
+        ).toHaveText('Current lead unavailable. Review the assignment in linked work.');
         await expect(link).toHaveCount(0);
       }
       await expect(composer).toHaveValue('Preserve the current draft.');
