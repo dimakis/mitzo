@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1137-telos-custom-api-integration';
+  'v1.0.1138-telos-report-compatibility';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4255,7 +4255,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-native-recovery.test.ts':
     'b603ee7ad71f1f5f9eb18cb50eabe762e81b18f81c216e42f172aa8a04ffab41',
   '../../tests/integration/telos-s9/integrated-candidate/joined-shards.mjs':
-    'b0224a903400db3f56a9f41d13fd9581be4e76520350b06edf54629feaa92a7a',
+    '9d18bdf9b55095a3253ef095a6501bda98ba40431686c5fe9b91eb0c9b16b240',
   '../../vitest.config.ts': '699431252067bfb2918bb97baf3ef2accd06c59de426e7508e8f5b8d3c2cf034',
   '../__tests__/codex-diagnostic-release.test.ts':
     '55ff5b03c35602da030efa21c7f8b75c2074d36eba35d26466909bd717c520ea',

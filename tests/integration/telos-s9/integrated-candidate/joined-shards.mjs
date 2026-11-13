@@ -107,12 +107,12 @@ export function parseJoinedShardArgs(args) {
 }
 export function requireJoinedReport(observed, selected) {
   const expectedTests = selected.files.reduce(
-    (total, path) => total + (selected.assertions[path]?.length ?? 1),
+    (total, path) => total + (selected.assertions?.[path]?.length ?? 1),
     0,
   );
   const completeFiles = selected.files.every((path) => {
     const matches = observed.testResults.filter((r) => r.name.endsWith('/' + path));
-    const expectedNames = selected.assertions[path];
+    const expectedNames = selected.assertions?.[path];
     return (
       matches.length === 1 &&
       matches[0].status === 'passed' &&
