@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1115-enmaas-account-settings';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1116-enmaas-account-settings';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2587,7 +2587,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': 'eb2dd4e32cdc873cbeb26ed8ecc94e28e62ac4182a6a8b18eb8732d7f15795ef',
+  '../chat.ts': '3c8a587ff8daa6dc9e0ed2be4077be6370653cd8040cb2b7f4bc71a4851a6864',
   '../../packages/harness/src/session-registry.ts':
     '920286cff62bab7712d9e8648166e74e2c1e084f11e0fe8978d2435c4a58da74',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -4452,7 +4452,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/model-spec.test.ts':
     'c6990b6483e9acdffcb63fb63efa5551c74960b481d4e21c623978555c92e3b8',
   '../__tests__/anthropic-api-sdk-model.test.ts':
-    '2e7320abaae8735cbf0a8052cb524fa444179f35e6621af4400d0227c1dea40c',
+    '955df33d8b6ad66159968d941c410c8b2e195451111fba217c2cfc6c51e1c55b',
   '../anthropic-api-connection.ts':
     '0d28e1cccf86680c56196be272422a35be34ee809e83dcb57713dc41a14da731',
   '../__tests__/anthropic-api-child-env.test.ts':
@@ -4496,4 +4496,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '31331fa4a056600c2e3bba9a7c0ee28f8b1c0616eb81f0954de68424741033e0',
   '../../frontend/src/lib/__tests__/chat-runtime-selection.test.ts':
     '30add7514001a644f944dab2472b23054e4586242ef8b87b4736a331ae324262',
+  '../../scripts/__tests__/check-knowledge-enrollment.test.mjs':
+    '46efd58f8a53cb9d1d728af3dd94600cf60b4550b63afb6563a175e529be0b49',
+  '../../scripts/check-knowledge-enrollment.mjs':
+    '49544a335a1617ea86c7d93cf2c8fed979c4cddd1becddfd28002aa9807698a2',
 });
