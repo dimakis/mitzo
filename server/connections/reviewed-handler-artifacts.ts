@@ -911,12 +911,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/skill-registry-runtime.test.ts':
     '3aafb0d67a40784fb5d47a4447db9dcd47cf33340c35403909638592482d37e1',
   '../ordinary-composer-skills.ts':
-    'b89a2881606c1ca8447177d548f27adbb57fbefe88afd7783237f0042df579e3',
+    '55c51322c5f461239a72d18c1837204c53ec0045ac7fa90f6774424948e5c3bf',
   '../skill-registry-runtime.ts':
     'e117a1a9a4ae2215836e886bc1be9af5e2c6b9e5bb85daeb86b176adea69d538',
   '../skills.ts': 'eca19df04fb3b331fe8fc0cf4482b00000b49003ecc7f4e16f20a0f7b9497877',
   '../__tests__/ordinary-composer-skills.test.ts':
-    '5218940a81bc4f28f2f0650923e7077dcbe8323324d4ae1ebbf2777eb4f1af7c',
+    'aed45ff88f849fe78984a4f027e64cc1731cfe71b2a6b6e142173d4806321f50',
   '../../frontend/src/lib/chat-composer-capabilities.ts':
     '103913d70dcdc129d38bbc3373d3e5492460327043873c0fddc19d3e207bbd00',
   '../../frontend/src/lib/__tests__/chat-composer-capabilities.test.ts':

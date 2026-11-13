@@ -52,6 +52,39 @@ it('freezes a ceiling with its prompt and rolls back a changed ceiling on retry'
   });
   expect(() => store.getOrdinarySkillContext('chat', 'command')).toThrow('Skill command changed');
 });
+it('replays the retained command ceiling without consulting a changed skill catalogue', () => {
+  const { registry } = fixture();
+  vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(registry);
+  const store = new EventStore(':memory:');
+  cleanups.push(() => store.close());
+  const context = {
+    text: '/restricted',
+    prompt: 'Previously frozen instructions',
+    allowedTools: ['Read'],
+  };
+  store.admitWithOrdinarySkillContext('chat', 'command', context, () =>
+    store.upsertSession({ sessionId: 'chat', cwd: '/task' }),
+  );
+  const admit = vi.fn();
+  freezeOrdinarySkillCommand(
+    store,
+    { sessionId: 'chat', cwd: '/task' },
+    'command',
+    { text: '/restricted' },
+    admit,
+  );
+  expect(admit).toHaveBeenCalledOnce();
+  expect(store.getOrdinarySkillContext('chat', 'command')).toEqual(context);
+  expect(() =>
+    freezeOrdinarySkillCommand(
+      store,
+      { sessionId: 'chat', cwd: '/task' },
+      'command',
+      { text: '/different' },
+      admit,
+    ),
+  ).toThrow('Skill command changed');
+});
 it.each([null, 'Read', ['Read', 42], ['Bash(*)']])(
   'refuses invalid frozen ceiling %j before admission',
   (allowedTools) => {

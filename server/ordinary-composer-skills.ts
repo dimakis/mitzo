@@ -87,8 +87,8 @@ export function freezeOrdinarySkillCommand(
   if (!meta.cwd || typeof payload.text !== 'string' || !parseSlashCommand(payload.text))
     return admit();
   if (prepared && prepared.text !== payload.text) throw Error('Skill command changed');
-  const retained =
-    store.getOrdinarySkillContext(meta.sessionId, commandId) || store.getSendCommand(commandId);
+  const context = store.getOrdinarySkillContext(meta.sessionId, commandId);
+  const retained = context || store.getSendCommand(commandId);
   const prompt =
     !retained && prepared
       ? prepared.prompt
@@ -102,7 +102,7 @@ export function freezeOrdinarySkillCommand(
   store.admitWithOrdinarySkillContext(
     meta.sessionId,
     commandId,
-    { text: payload.text, prompt },
+    context ?? { text: payload.text, prompt },
     admit,
   );
 }
