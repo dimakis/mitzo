@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { buildSessionPermissionHooks } from '../session-permission-policy.js';
 import {
   parseSettingsHooks,
   expandEnvVars,
@@ -11,8 +12,11 @@ import {
 } from '../hook-bridge.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-hooks-test-${Date.now()}`);
+const log = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('../logger.js', () => ({ createLogger: () => log }));
 
 beforeEach(() => {
+  vi.clearAllMocks();
   mkdirSync(join(TEST_DIR, '.claude'), { recursive: true });
 });
 
@@ -53,10 +57,10 @@ describe('parseSettingsHooks', () => {
     expect(parseSettingsHooks('/nonexistent/settings.json')).toBeNull();
   });
 
-  it('returns null for malformed JSON', () => {
+  it('rejects malformed configuration visibly', () => {
     const path = join(TEST_DIR, '.claude', 'settings.json');
     writeFileSync(path, '{ not valid');
-    expect(parseSettingsHooks(path)).toBeNull();
+    expect(() => parseSettingsHooks(path)).toThrow('Project hook configuration is invalid');
   });
 
   it('returns null for settings without hooks key', () => {
@@ -175,16 +179,22 @@ describe('createCommandCallback', () => {
     });
   });
 
-  it('returns empty object when command exits non-zero', async () => {
+  it('stops visibly when command exits non-zero', async () => {
     const cb = createCommandCallback('exit 1', TEST_DIR, 5000);
     const result = await cb({} as never, undefined, { signal: AbortSignal.timeout(5000) });
-    expect(result).toEqual({});
+    expect(result).toMatchObject({
+      continue: false,
+      stopReason: expect.stringContaining('failed'),
+    });
   });
 
-  it('returns empty object when command outputs invalid JSON', async () => {
+  it('stops visibly when command outputs invalid JSON', async () => {
     const cb = createCommandCallback('echo "not json"', TEST_DIR, 5000);
     const result = await cb({} as never, undefined, { signal: AbortSignal.timeout(5000) });
-    expect(result).toEqual({});
+    expect(result).toMatchObject({
+      continue: false,
+      stopReason: expect.stringContaining('output'),
+    });
   });
 
   it('returns empty object when command outputs nothing', async () => {
@@ -205,14 +215,14 @@ describe('createCommandCallback', () => {
     });
   });
 
-  it('returns empty object when aborted', { timeout: 3000 }, async () => {
+  it('stops when aborted', { timeout: 3000 }, async () => {
     const controller = new AbortController();
     // Replace the shell so cancellation closes the child output pipes immediately.
     const cb = createCommandCallback('exec sleep 10', TEST_DIR, 10000);
     const promise = cb({} as never, undefined, { signal: controller.signal });
     controller.abort();
     const result = await promise;
-    expect(result).toEqual({});
+    expect(result).toMatchObject({ continue: false });
   });
 });
 
@@ -237,6 +247,7 @@ describe('loadProjectHooks', () => {
     expect(hooks!.SessionStart![0].matcher).toBe('startup');
     expect(hooks!.SessionStart![0].hooks).toHaveLength(1);
     expect(typeof hooks!.SessionStart![0].hooks[0]).toBe('function');
+    expect(hooks!.SessionStart![0].onFailure).toBe('block');
   });
 
   it('returns undefined when no settings.json exists', () => {
@@ -333,15 +344,173 @@ it('routes project hook commands through the optional protected runner, preservi
     }),
   );
 });
-it('preserves empty hook output on protected command failure or invalid JSON and skips aborted callbacks', async () => {
+it('stops on protected command failure, invalid output and already aborted callbacks', async () => {
   const runner = vi.fn().mockRejectedValue(new Error('synthetic protected failure'));
   const callback = createCommandCallback('synthetic', TEST_DIR, 1000, {}, runner);
   const signal = new AbortController().signal;
-  expect(await callback({} as never, undefined, { signal })).toEqual({});
+  expect(await callback({} as never, undefined, { signal })).toMatchObject({ continue: false });
   runner.mockResolvedValue({ stdout: 'invalid JSON', stderr: '' } as never);
-  expect(await callback({} as never, undefined, { signal })).toEqual({});
+  expect(await callback({} as never, undefined, { signal })).toMatchObject({ continue: false });
   const controller = new AbortController();
   controller.abort();
-  expect(await callback({} as never, undefined, { signal: controller.signal })).toEqual({});
+  expect(await callback({} as never, undefined, { signal: controller.signal })).toMatchObject({
+    continue: false,
+  });
   expect(runner).toHaveBeenCalledTimes(2);
+});
+
+it.each([
+  { UnknownEvent: [{ hooks: [{ type: 'command', command: 'true' }] }] },
+  { PreToolUse: [{ hooks: [{ type: 'prompt', prompt: 'approve' }] }] },
+  { PreToolUse: [{ matcher: '[', hooks: [{ type: 'command', command: 'true' }] }] },
+  { PreToolUse: [{ timeout: -1, hooks: [{ type: 'command', command: 'true' }] }] },
+  { PreToolUse: [{ hooks: [{ type: 'command', command: 'true', async: true }] }] },
+])('rejects unsupported project hook configuration before callbacks can run: %j', (hooks) => {
+  writeSettings({ hooks });
+  expect(() => loadProjectHooks(TEST_DIR)).toThrow('Project hook configuration is invalid');
+});
+
+it.each(['deny', 'ask', 'allow'] as const)(
+  'delivers canonical %s and rewritten input through the real permission consumer',
+  async (permissionDecision) => {
+    const updatedInput = { file_path: '/repo/checked', content: 'checked' };
+    const runner = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision,
+          permissionDecisionReason: 'Project policy',
+          updatedInput,
+        },
+      }),
+      stderr: '',
+    });
+    writeSettings({
+      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'synthetic' }] }] },
+    });
+    const decide = vi
+      .fn()
+      .mockResolvedValue({ behavior: 'deny', message: 'Ask mode is read-only' });
+    const hook = buildSessionPermissionHooks(decide, loadProjectHooks(TEST_DIR, {}, runner))
+      .PreToolUse![0].hooks[0];
+    const result = await hook(
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '',
+        cwd: TEST_DIR,
+        tool_name: 'Write',
+        tool_use_id: 't',
+        tool_input: { file_path: '/repo/original' },
+      },
+      't',
+      { signal: new AbortController().signal },
+    );
+    expect(result).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+    if (permissionDecision === 'deny') expect(decide).not.toHaveBeenCalled();
+    else
+      expect(decide).toHaveBeenCalledWith(
+        'Write',
+        updatedInput,
+        expect.objectContaining({ ...(permissionDecision === 'ask' ? { forcePrompt: true } : {}) }),
+      );
+  },
+);
+
+it.each(
+  [
+    null,
+    [],
+    'text',
+    { async: true },
+    { terminalSequence: '\u0007' },
+    { continue: 'false' },
+    { hookSpecificOutput: { permissionDecision: 'unknown' } },
+    { hookSpecificOutput: { updatedInput: [] } },
+    { permissionDecision: 'allow', hookSpecificOutput: { permissionDecision: 'deny' } },
+    { hookSpecificOutput: { hookEventName: 'Stop', permissionDecision: 'allow' } },
+    { hookEventName: 'PostToolUse', updatedInput: { command: 'changed' } },
+  ].map((output) => ({ output })),
+)(
+  'blocks invalid or unsupported output through the permission consumer: %j',
+  async ({ output }) => {
+    const runner = vi.fn().mockResolvedValue({ stdout: JSON.stringify(output), stderr: '' });
+    const decide = vi.fn();
+    const hook = buildSessionPermissionHooks(decide, {
+      PreToolUse: [{ hooks: [createCommandCallback('synthetic', TEST_DIR, 1000, {}, runner)] }],
+    }).PreToolUse![0].hooks[0];
+    const result = await hook(
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '',
+        cwd: TEST_DIR,
+        tool_name: 'Write',
+        tool_use_id: 't',
+        tool_input: {},
+      },
+      't',
+      { signal: new AbortController().signal },
+    );
+    expect(result).toMatchObject({
+      continue: false,
+      hookSpecificOutput: { permissionDecision: 'deny' },
+    });
+    expect(decide).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['Stop', 'SubagentStop', 'TaskCompleted', 'TeammateIdle'] as const)(
+  'stops on invalid event output where SDK onFailure is ignored: %s',
+  async (event) => {
+    const runner = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({
+        hookSpecificOutput: { hookEventName: event, decision: { behavior: 'bogus' } },
+      }),
+      stderr: '',
+    });
+    const callback = createCommandCallback('synthetic', TEST_DIR, 1000, {}, runner);
+    expect(
+      await callback({ hook_event_name: event } as never, 'tool-ignored', {
+        signal: new AbortController().signal,
+      }),
+    ).toMatchObject({ continue: false });
+  },
+);
+
+it.each(['Stop', 'SubagentStop'] as const)('preserves supported %s context', (event) => {
+  expect(mapHookOutput({ additionalContext: 'continue with feedback' }, event)).toEqual({
+    hookSpecificOutput: { hookEventName: event, additionalContext: 'continue with feedback' },
+  });
+});
+
+it.each([
+  { code: 127, signal: null, killed: false },
+  { code: null, signal: 'SIGTERM', killed: true },
+  { code: 'ETIMEDOUT', killed: true },
+])('retains safe command failure diagnostics: %j', async (details) => {
+  const runner = vi
+    .fn()
+    .mockRejectedValue(Object.assign(new Error('private-command-output'), details));
+  const callback = createCommandCallback('private-command', TEST_DIR, 10, {}, runner);
+  const result = await callback(
+    { hook_event_name: 'PreToolUse', session_id: 'session' } as never,
+    'invocation',
+    { signal: new AbortController().signal },
+  );
+  expect(result).toMatchObject({ continue: false });
+  expect(log.warn).toHaveBeenLastCalledWith(
+    'Project hook failed',
+    expect.objectContaining({
+      code: 'project_hook_failed',
+      stage: 'command',
+      sessionId: 'session',
+      toolUseId: 'invocation',
+      ...(typeof details.code === 'number' ? { exitCode: details.code } : {}),
+      ...(details.signal ? { signal: details.signal } : {}),
+      killed: details.killed,
+      ...(details.code === 'ETIMEDOUT' ? { cause: 'ETIMEDOUT' } : {}),
+    }),
+  );
+  expect(JSON.stringify(log.warn.mock.calls)).not.toContain('private-command');
 });
