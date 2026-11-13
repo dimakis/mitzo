@@ -85,11 +85,16 @@ export function EnmaasAccountSetup({
       }
     }
   }, [authorized, enabled, unresolved]);
+  const confirmedAccount = accounts.find((row) =>
+    accountId
+      ? row.id === accountId
+      : row.id === saved?.id || (!!requestId && row.requestId === requestId),
+  );
+  useEffect(() => {
+    if (enabled === true && confirmedAccount) setSaved(confirmedAccount);
+  }, [enabled, confirmedAccount]);
   const account =
-    saved ??
-    accounts.find((row) =>
-      accountId ? row.id === accountId : !!requestId && row.requestId === requestId,
-    );
+    (saved && (!accountId || saved.id === accountId) ? saved : null) ?? confirmedAccount;
   const models = account?.models ?? [];
   const visible = account ? pickerModels(account.id, models) : [];
   const endpointValid = (() => {

@@ -315,7 +315,7 @@ function SessionAccountModelPicker({
     onDraftSelectionChange,
   };
   useEffect(() => {
-    if (selection) callbacks.current.onDraftSelectionChange?.(selection);
+    if (selection?.model) callbacks.current.onDraftSelectionChange?.(selection);
   }, [selection]);
   const summaryAccount = accounts.find((a) => a.id === (selection?.accountId ?? ''));
   const selectedModel = summaryAccount?.models.find((m) => m.id === selection?.model);
@@ -521,8 +521,10 @@ function SessionAccountModelPicker({
             !allowedAccountIds || allowedAccountIds.includes(deviceDefault?.accountId ?? '')
               ? deviceDefault
               : null;
-          const previous =
-            (attempt ? selectionRef.current : null) ?? initialSelection ?? eligibleDefault;
+          const retained =
+            (attempt && selectionRef.current?.model ? selectionRef.current : null) ??
+            initialSelection;
+          const previous = retained ?? eligibleDefault;
           if (
             !legacy &&
             previous &&
@@ -541,11 +543,12 @@ function SessionAccountModelPicker({
               ? catalog.find((a) => /\bwork\b/i.test(a.label) && /openai/i.test(a.label))
               : undefined) ??
             catalog[0];
+          const choices = pickerModels(first.id, first.models, retained?.model);
           const next = {
             ...(!legacy ? { accountId: first.id } : {}),
-            model: first.models.some((m) => m.id === (previous?.model ?? preferredModel))
+            model: choices.some((m) => m.id === (previous?.model ?? preferredModel))
               ? (previous?.model ?? preferredModel)
-              : first.models[0].id,
+              : (choices[0]?.id ?? ''),
           };
           const selected = withThinking(
             { ...next, reasoningEffort: previous?.reasoningEffort },
@@ -556,7 +559,9 @@ function SessionAccountModelPicker({
           setNeedsConfirmation(confirm);
           setDraftUnavailable(false);
           setSelection(selected);
-          callbacks.current.onChange(explicitSelection || confirm ? null : selected);
+          callbacks.current.onChange(
+            !selected.model || explicitSelection || confirm ? null : selected,
+          );
         }
       })
       .catch((err: unknown) => {
@@ -674,11 +679,17 @@ function SessionAccountModelPicker({
     const next =
       scope === 'chat' && !draftOnly
         ? accountModelPreference(nextAccount)
-        : withThinking({ accountId: nextAccount.id, model: nextAccount.models[0].id }, nextAccount);
+        : withThinking(
+            {
+              accountId: nextAccount.id,
+              model: pickerModels(nextAccount.id, nextAccount.models)[0]?.id ?? '',
+            },
+            nextAccount,
+          );
     setDraftUnavailable(false);
     setNeedsConfirmation(false);
     setSelection(next);
-    onChange(explicitSelection ? null : next);
+    onChange(!next.model || explicitSelection ? null : next);
   };
   const changeModel = (id: string) => {
     if (disabled || requiredSelection || lockAccountModel) return;
@@ -829,18 +840,22 @@ function SessionAccountModelPicker({
           presentation === 'settings'
             ? {
                 page: 'model',
-                value: fieldModel?.label ?? `${selection.model} (unavailable)`,
+                value:
+                  fieldModel?.label ??
+                  (selection.model ? `${selection.model} (unavailable)` : 'Choose a model'),
                 selected: selection.model,
                 choices: fieldModel
                   ? visibleModels
-                  : [
-                      {
-                        id: selection.model,
-                        label: `${selection.model} (unavailable)`,
-                        disabled: true,
-                      },
-                      ...visibleModels,
-                    ],
+                  : selection.model
+                    ? [
+                        {
+                          id: selection.model,
+                          label: `${selection.model} (unavailable)`,
+                          disabled: true,
+                        },
+                        ...visibleModels,
+                      ]
+                    : visibleModels,
                 disabled: disabled || !!requiredSelection || lockAccountModel,
                 disabledReason:
                   disabledReason ??
@@ -861,7 +876,11 @@ function SessionAccountModelPicker({
         >
           {!account.models.some((m) => m.id === selection.model) && (
             <option value={selection.model} disabled>
-              {selection.model} (unavailable)
+              {selection.model
+                ? `${selection.model} (unavailable)`
+                : visibleModels.length
+                  ? 'Choose a model'
+                  : 'No models shown'}
             </option>
           )}
           {visibleModels.map((m) => (
@@ -871,6 +890,11 @@ function SessionAccountModelPicker({
           ))}
         </select>
       </PickerField>
+      {!selection.model && !visibleModels.length && (
+        <span role="status">
+          No models are shown for this account. Open Model picker settings to show one.
+        </span>
+      )}
       {!!account.models.find((m) => m.id === selection.model)?.reasoningEfforts?.length && (
         <PickerField
           label={presentation === 'settings' ? 'Thinking level' : 'Thinking'}
@@ -970,7 +994,7 @@ function SessionAccountModelPicker({
               {!sessionId && !requiredSelection && !lockAccountModel && !draftOnly && (
                 <>
                   <button
-                    disabled={disabled || draftUnavailable}
+                    disabled={disabled || draftUnavailable || !selection.model}
                     onClick={() => {
                       setDefaultAccountModel(selection);
                       setSavedDefault(selection);

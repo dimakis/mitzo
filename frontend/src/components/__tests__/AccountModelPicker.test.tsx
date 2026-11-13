@@ -5,6 +5,107 @@ import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testi
 import { AccountModelPicker } from '../AccountModelPicker';
 import { setHiddenPickerModels } from '../../lib/model-visibility';
 
+it.each(['preferred', 'first', 'default'])(
+  'uses a visible model for a fresh picker when the hidden model is the %s choice',
+  async (source) => {
+    const accounts = [
+      {
+        id: 'work',
+        label: 'Work',
+        models: [
+          { id: 'sonnet', label: 'Sonnet' },
+          { id: 'haiku', label: 'Haiku' },
+        ],
+      },
+    ];
+    vi.mocked(apiFetch).mockImplementation(async () => Response.json(accounts));
+    setHiddenPickerModels('work', ['sonnet']);
+    if (source === 'default')
+      localStorage.setItem(
+        'mitzo-default-account-model',
+        JSON.stringify({ accountId: 'work', model: 'sonnet' }),
+      );
+    const onChange = vi.fn();
+    render(
+      <AccountModelPicker
+        sessionId={null}
+        preferredModel={source === 'preferred' ? 'sonnet' : 'missing'}
+        draftOnly
+        onChange={onChange}
+      />,
+    );
+    const select = await screen.findByRole('combobox', { name: 'Model' });
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe('haiku'));
+    expect(within(select).queryByRole('option', { name: 'Sonnet' })).toBeNull();
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'haiku' });
+  },
+);
+it('does not select or emit a hidden model when a fresh picker has Hide all set', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => Response.json(profiles));
+  setHiddenPickerModels('work', ['sonnet']);
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker sessionId={null} preferredModel="sonnet" draftOnly onChange={onChange} />,
+  );
+  const select = await screen.findByRole('combobox', { name: 'Model' });
+  expect((select as HTMLSelectElement).value).toBe('');
+  expect(within(select).queryByRole('option', { name: 'Sonnet' })).toBeNull();
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+  expect(screen.getByText(/No models are shown for this account/)).toBeTruthy();
+});
+it('preserves an explicitly retained draft model even when hidden from fresh choices', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => Response.json(profiles));
+  setHiddenPickerModels('work', ['sonnet']);
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="haiku"
+      draftOnly
+      initialSelection={{ accountId: 'work', model: 'sonnet' }}
+      onChange={onChange}
+    />,
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' }),
+  );
+  expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(
+    'sonnet',
+  );
+});
+it.each([false, true])(
+  'filters automatic account-switch choices when all models are hidden=%s',
+  async (allHidden) => {
+    const accounts = [
+      profiles[0],
+      {
+        id: 'other',
+        label: 'Other',
+        models: [
+          { id: 'haiku', label: 'Haiku' },
+          { id: 'visible', label: 'Visible' },
+        ],
+      },
+    ];
+    vi.mocked(apiFetch).mockImplementation(async () => Response.json(accounts));
+    setHiddenPickerModels('other', allHidden ? ['haiku', 'visible'] : ['haiku']);
+    const onChange = vi.fn();
+    render(
+      <AccountModelPicker sessionId={null} preferredModel="sonnet" draftOnly onChange={onChange} />,
+    );
+    await screen.findByRole('combobox', { name: 'Account' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+      target: { value: 'other' },
+    });
+    const select = screen.getByRole('combobox', { name: 'Model' });
+    expect((select as HTMLSelectElement).value).toBe(allHidden ? '' : 'visible');
+    expect(within(select).queryByRole('option', { name: 'Haiku' })).toBeNull();
+    expect(onChange).toHaveBeenLastCalledWith(
+      allHidden ? null : { accountId: 'other', model: 'visible' },
+    );
+  },
+);
+
 it.each([false, true])(
   'filters picker choices without changing a selected binding (controlled=%s)',
   async (controlled) => {

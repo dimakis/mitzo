@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1110-enmaas-account-settings';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1111-enmaas-account-settings';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -670,7 +670,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatExecutionPicker.multi-runtime.test.tsx':
     '0ed9568c63b1877f4d7a35f14b0d6f030908b931c2ee2617f20eac10a9b569ab',
   '../../frontend/src/components/__tests__/AccountModelPicker.test.tsx':
-    'd6c542fdc59035b62c87539bd840ff24d6b117ff322dd867f9b9971137875189',
+    '3c5963027e840af7774c91db1447823a984fc9a657598834409f00640534ef45',
   '../../frontend/src/test-utils/no-session-launch-defaults.ts':
     '8279916af46684d897f10d5d7d1796b3a4396d060f37f0f6329370e46dd94925',
   '../../docs/features/agent-session-launch.md':
@@ -2377,7 +2377,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/client-store.ts':
     '9353d2adffa430e30aca1910ba4c580efe40b8c8b8741c8a252558674330af24',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    '6eace54d67b37468aa58b4b515a55f588fb4830ad83b1fc62c39c55d6e69ed8f',
+    '752342d5f0f8cef872539f407bc4560c22301ece50278adf79ebf3383c4d51bc',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
     '7efa0466b67598cf458c3e91b12042f56189747914a85d1040146b2bf6ae7155',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
@@ -4120,7 +4120,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '0e8ece27047e42d18497925d08f9585c359d9efef622ec5af05d6a6f0af7a885',
+    '3b3f207865a36c619224e8dc3e8e9673178e2c1bc9d004ca001888cb3e9ad425',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -4439,7 +4439,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/anthropic-api-account.test.ts':
     'bd157dabe293a7b45adf5ec6f69a3861d1b120b43d3ad87abfccc4ffad4bfe57',
   '../../frontend/src/components/EnmaasAccountSetup.tsx':
-    'c420798fd48c47e198d5d5ed7bdb1d3f03ebe0f2bf9fa36241988a4ca9750157',
+    '6226e46cac14c17001573104692aef67663721a8b33d99a2a87c9ea0f05adfbf',
   '../../frontend/src/components/ModelVisibilitySettings.tsx':
     'f7e3bdc950a57fea31483de5e731b8eab45de020e988e4dfb306265a33bd05bd',
   '../../frontend/src/components/OpenAIAccountEnrollment.tsx':
@@ -4451,7 +4451,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/connections-setup.css':
     '2ce9cd6a7c90d2a181608f9d65ccc1d34cab784f99354d2ab7bd954f51202724',
   '../../frontend/src/components/__tests__/EnmaasAccountSetup.test.tsx':
-    '364afe6c0c4fca2c5ed43ad96b16f0f0412caa01ec7af6528f48437dd9325a9e',
+    '19105741eae1938b88326aec7ecee8b16b540d1dd7bdd184babe84e433600fe6',
   '../../frontend/src/components/__tests__/OpenAIAccountEnrollment.test.tsx':
     '27109f9f68f9e9ed93e3d6688d86aaca5ffdf6c77b4a4bdae5a5a30563cc3a29',
   '../../frontend/src/lib/__tests__/model-visibility.test.ts':

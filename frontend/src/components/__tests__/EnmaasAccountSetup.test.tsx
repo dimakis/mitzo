@@ -20,6 +20,53 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 const render = (children: ReactNode) => renderView(<MemoryRouter>{children}</MemoryRouter>);
+it('reconciles a newer confirmed model list after a lost refresh acknowledgement and retains it through a status outage', async () => {
+  const model = (id: string) => ({ id, label: id });
+  const account = {
+    id: 'saved',
+    label: 'EnMaaS',
+    projectLabel: 'EnMaaS',
+    state: 'ready' as const,
+    protocol: 'responses' as const,
+    models: [model('one')],
+  };
+  const props = {
+    csrf: 'csrf',
+    authorized: true,
+    enabled: true,
+    accountId: account.id,
+    accounts: [account],
+    onRefresh: vi.fn(),
+    onReauthorizationNeeded: vi.fn(),
+  };
+  const view = render(<EnmaasAccountSetup {...props} />);
+  vi.mocked(api.refreshEnrolledApiModels).mockResolvedValueOnce({
+    ...account,
+    models: [model('one'), model('two')],
+  });
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Refresh models' })));
+  expect(screen.getByText('2 available · 2 shown')).toBeTruthy();
+  vi.mocked(api.refreshEnrolledApiModels).mockRejectedValueOnce(Error('acknowledgement lost'));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Refresh models' })));
+  expect(screen.getByText('2 available · 2 shown')).toBeTruthy();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Check account status' })),
+  );
+  expect(props.onRefresh).toHaveBeenCalledTimes(2);
+  const latest = { ...account, models: [model('one'), model('two'), model('three')] };
+  view.rerender(
+    <MemoryRouter>
+      <EnmaasAccountSetup {...props} accounts={[latest]} />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('3 available · 3 shown')).toBeTruthy();
+  view.rerender(
+    <MemoryRouter>
+      <EnmaasAccountSetup {...props} enabled={false} accounts={[]} />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('3 available · 3 shown')).toBeTruthy();
+});
 it('retains a saved account when its follow-up status read becomes unavailable', async () => {
   vi.mocked(api.enrollOpenAIAccount).mockResolvedValue({
     id: 'saved',
