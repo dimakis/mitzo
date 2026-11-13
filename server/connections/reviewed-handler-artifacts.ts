@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1126-patch-contrast';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1127-patch-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -254,7 +254,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-account-store.test.ts':
     '5d3f79a78607600f8d116bfd3e6f2259ebf3570ca1230b6fb301d96cdcb99499',
   '../__tests__/claude-login-process.test.ts':
-    'f4e4f9f40779b0f3b4cbb2590433db78a8180c4f4e7732fa590bc8e0ff365aca',
+    '8491548c1254c90f448098979f1494473278433ab0f77558ca7a41b0a998a150',
   '../__tests__/claude-login-supervisor.test.ts':
     'b5bff226051d8e7ff843e301aaec27868146745622993cc625d46adc72ba05e9',
   '../__tests__/claude-managed-profiles.test.ts':
@@ -262,7 +262,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-account-login.ts': '3857b02e3b4db1d5f869475721d72504348f72c3fe66dfe86f71f0d539061934',
   '../claude-account-router.ts': 'd2fb76fc573f246ddbfc57a8ef3c3ab3450737c16a9ae3364326b9865e01f04d',
   '../claude-account-store.ts': '99d6054f487411d9a208613a0c5d0733bd29669151dffe5cb15fb5aa6da9cbd6',
-  '../claude-login-process.ts': '1fc8e418a8fdfbab7db9894fadf0f69f9168e10acbe8d1943c68e18a847f7299',
+  '../claude-login-process.ts': '1725836e78f7d6bdce955c40f559c07f3ca5f20ad973527ee3819562580a07be',
   '../claude-login-supervisor.cjs':
     '14b9ae4e9f2fbbf279140e4024e0d15a473b74e2eaf9cd89148d301c13c858c9',
   '../connections-access.ts': 'd8b5053d8b0c76cdbca40cb7b664e2eaefbbc3b9736c650018c8b2d014e55bf0',
@@ -4428,7 +4428,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     'f54b300c69668515af4ee5a8c2d43834f4f8e40341be9a078e97ab9b1c7f9e45',
   '../../docs/features/personal-claude-local.md':
-    'e54e35cce8133257b4bfb4008d55df1856cea7977d0e64041dc035e15336f67e',
+    '9556692d4823d54cb7fc7be37dd9bbfb8961234939fcf79c16a64b2b07819bda',
   '../../docs/features/telos-workflow.md':
     'e0f88cdcd71cb14c571df3d9217c40c51b14c5cd97c382a9c34ee1aeec745fb6',
   '../../frontend/src/test-utils/telos-session-launch-fixture.ts':

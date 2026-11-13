@@ -208,6 +208,20 @@ global `CLAUDE_CONFIG_DIR`. Transcript parsing remains SDK-owned.
 
 ## Verification status
 
+### Hyperlinked sign-in link, 13 November 2026
+
+Release `8ea17fe9bc9c` still failed every attempt with `native_link_timeout`.
+Under the new private terminal, Claude 2.1.322 prints its link as an OSC 8
+hyperlink. Node's `stripVTControlCharacters` cannot parse an OSC payload containing
+`+` (present in the OAuth `scope`), so it consumed the `h` of `https://` and the
+link pattern never matched. The earlier fixture URL had no `+` and so passed.
+Mitzo now removes complete OSC sequences before the generic strip, and the fixture
+mirrors the real link shape. With the real bundled CLI under the real login
+sandbox and an empty account, the old parser timed out at 15 s and the fixed one
+returned a valid link in about 1 s. An invalid synthetic code was rejected by
+Claude with either line ending, confirming the code-submission path. A real
+account sign-in after deployment remains the final check.
+
 ### Native startup and recovery, 13 November 2026
 
 Fresh attempts on release `cfa324ca72d7` failed before returning a sign-in link;
