@@ -346,4 +346,6 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
     await Promise.allSettled(tasks);
     chat.eventStore.close();
   }
-});
+  // This composite fixture performs three real admissions, SDK/MCP startup and
+  // cleanup. Its complete assertions take over five seconds on CI-sized hosts.
+}, 15_000);

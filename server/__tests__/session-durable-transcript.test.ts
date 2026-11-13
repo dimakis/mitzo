@@ -101,11 +101,32 @@ it.each(['throughSeq=1', 'transcript=1', 'transcript=durable', 'transcript[x]=du
   },
 );
 
-it.each(['absent', 'partial', 'hidden', 'private-error'])(
+it('returns the verified completed prefix through authenticated HTTP while the next reply streams', async () => {
+  const h = await fixture();
+  store.append('one', 'message_start', { messageId: 'active' });
+  store.append('one', 'block_start', { messageId: 'active', blockId: 'text', blockType: 'text' });
+  store.append('one', 'block_delta', {
+    messageId: 'active',
+    blockId: 'text',
+    delta: 'PRIVATE unfinished',
+  });
+  const result = await h.api.getDurableSessionTranscript('one');
+  expect(result.boundary).toEqual({ sequence: 1, messageId: 'original' });
+  expect(result.messages.map((message) => message.messageId)).toEqual(['original']);
+  expect(JSON.stringify(result)).not.toContain('PRIVATE');
+  for (const owner of Object.values(h.legacy)) expect(owner).not.toHaveBeenCalled();
+});
+
+it.each(['absent', 'empty-prefix', 'hidden', 'private-error'])(
   'contains %s source failure without private content or restore fallback',
   async (kind) => {
     const h = await fixture();
-    if (kind === 'partial') store.append('one', 'message_start', { messageId: 'partial' });
+    if (kind === 'empty-prefix') {
+      store.close();
+      store = new EventStore(':memory:');
+      store.upsertSession({ sessionId: 'one', conversationSource: 'mitzo' });
+      store.append('one', 'message_start', { messageId: 'partial' });
+    }
     if (kind === 'hidden') store.hideSession('one');
     if (kind === 'private-error')
       h.read.mockImplementation(() => {

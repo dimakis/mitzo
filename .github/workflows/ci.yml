@@ -557,6 +557,19 @@ jobs:
             throw new Error('All thirteen standalone proof regressions must execute; skips are not qualification');
           }
           NODE
+      - name: Verify protected Claude sign-in startup
+        if: ${{ !cancelled() }}
+        env:
+          MITZO_TEST_CLAUDE_LOGIN_SANDBOX: '1'
+        run: |
+          npx vitest run server/__tests__/claude-login-sandbox.native.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/claude-login-sandbox.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync('test-results/claude-login-sandbox.json', 'utf8'));
+          if (!result.success || result.numPassedTests !== 4 || result.numPendingTests !== 0) {
+            throw new Error('All four native Claude login sandbox checks must execute and pass');
+          }
+          NODE
       - name: Verify complete native repository workflows on both owned account routes
         if: ${{ !cancelled() }}
         env:
