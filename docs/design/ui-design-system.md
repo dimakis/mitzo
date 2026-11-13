@@ -30,6 +30,12 @@ on phone/desktop, both themes and alternate appearance; see
 
 ## Conversation tree navigation
 
+The existing Return to lead chat link resolves the current canonical reporting
+assignment from session metadata. Preserve the reviewed linked-context disclosure
+and compact `telos-chat-context` row. Unknown, superseded or unavailable assignments
+use the existing inline status treatment without a fallback to the retained former
+lead. This data/link repair introduces no new layout, token, control or motion pattern.
+
 The Conversations page and desktop conversation sidebar offer a compact **Tree**
 view beside the existing filters. Reuse ordinary navigation rows, `MotionDetails`,
 `SessionActivityStatus`, `UiIcon` and semantic appearance tokens. Branches disclose

@@ -1071,7 +1071,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '2c2908ac282ccf83fc63bcb15023be67fb8f7f9c17a250cc9a39136b67cea08f',
+    '0a2455b9673d86fb4ae2fdef55e2fb8d7630d7985dee44200f64ac2a0651d517',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
