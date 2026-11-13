@@ -48,23 +48,55 @@ function ReviewedContextContents({
   );
 }
 
+export function ConversationPromptContextButton({
+  flow,
+  disabled,
+}: {
+  flow: ReturnType<typeof useConversationPromptContext>;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="chat-input-btn"
+      aria-label="Review prompt context"
+      title={flow.attached ? 'Reviewed context attached' : 'Review context for this prompt'}
+      disabled={disabled || flow.unavailable}
+      onClick={(event) => {
+        event.currentTarget.focus();
+        flow.show();
+      }}
+    >
+      <UiIcon name="layers" />
+    </button>
+  );
+}
+
 export function ConversationPromptContext({
   flow,
   names,
   disabled,
   forwarding,
   shareTargets = [],
+  showTrigger = true,
 }: {
   flow: ReturnType<typeof useConversationPromptContext>;
   names: Readonly<Record<string, string>>;
   disabled: boolean;
   forwarding?: ReturnType<typeof useConversationForwarding>;
   shareTargets?: { id: string; name: string; unavailable?: boolean }[];
+  showTrigger?: boolean;
 }) {
   const { ref, present } = useMotionPresence(flow.open, 'fade');
   const reviewed = flow.review;
   const snapshot = reviewed?.snapshot;
   const sharing = flow.form.shareRecipientIds !== undefined;
+  const targets = [
+    ...shareTargets,
+    ...(flow.form.shareRecipientIds ?? [])
+      .filter((id) => !shareTargets.some((target) => target.id === id))
+      .map((id) => ({ id, name: names[id] ?? 'Previously selected agent', unavailable: true })),
+  ];
   const selectedArtifacts = flow.form.artifacts ?? [];
   const matches = (a: (typeof selectedArtifacts)[number], b: (typeof selectedArtifacts)[number]) =>
     a.artifactId === b.artifactId && a.revision === b.revision && a.sha256 === b.sha256;
@@ -76,19 +108,7 @@ export function ConversationPromptContext({
   ];
   return (
     <>
-      <button
-        type="button"
-        className="chat-input-btn"
-        aria-label="Review prompt context"
-        title={flow.attached ? 'Reviewed context attached' : 'Review context for this prompt'}
-        disabled={disabled || flow.unavailable}
-        onClick={(event) => {
-          event.currentTarget.focus();
-          flow.show();
-        }}
-      >
-        <UiIcon name="layers" />
-      </button>
+      {showTrigger && <ConversationPromptContextButton flow={flow} disabled={disabled} />}
       {present && (
         <HomeDialog
           title={sharing ? 'Send selected messages' : 'Context for this prompt'}
@@ -113,11 +133,13 @@ export function ConversationPromptContext({
                   disabled={disabled || flow.busy || !!forwarding?.retained}
                 >
                   <legend>Send to</legend>
-                  {shareTargets.map((target) => (
+                  {targets.map((target) => (
                     <label key={target.id}>
                       <input
                         type="checkbox"
-                        disabled={target.unavailable}
+                        disabled={
+                          target.unavailable && !flow.form.shareRecipientIds!.includes(target.id)
+                        }
                         checked={flow.form.shareRecipientIds!.includes(target.id)}
                         onChange={(event) =>
                           flow.edit({
@@ -303,7 +325,7 @@ export function ConversationPromptContext({
               </>
             )}
             {flow.error && <p role="alert">{flow.error}</p>}
-            {forwarding && (!sharing || reviewed) && (
+            {forwarding && (!sharing || reviewed || forwarding.retained) && (
               <section
                 className="conversation-joining-context"
                 aria-label="Forward reviewed context"

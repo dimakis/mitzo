@@ -95,7 +95,7 @@ it('represents unknown sharing as unknown instead of two apparently off checkbox
 it('explains missing setup and submits the pinned Default Mitzo after repository preparation', async () => {
   const captureReview = mount();
   const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
   const dialog = screen.getByRole('dialog', { name: 'Add agent' });
   fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name in this chat' }), {
     target: { value: 'Bob' },
@@ -116,7 +116,7 @@ it('explains missing setup and submits the pinned Default Mitzo after repository
   ).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: /Where it runs,/ }));
   fireEvent.click(within(dialog).getByRole('button', { name: 'Use current repository' }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Done', exact: true }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   expect(
     (within(dialog).getByRole('button', { name: 'Review joining brief' }) as HTMLButtonElement)
       .disabled,

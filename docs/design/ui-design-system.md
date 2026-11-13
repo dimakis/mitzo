@@ -1739,6 +1739,9 @@ later deliberate share of earlier messages. The ordinary transcript's Share exce
 action opens Send selected messages with explicit recipients. This uses the existing
 context-review and forwarding owners, excludes automatic readers from that deliberate
 audience, preserves the prompt draft and cannot attach the forwarding review to a prompt.
+The dialog stays mounted independently of the active composer. Previously selected
+unavailable agents remain removable, and a retained uncertain send exposes its recovery
+controls after reload even without a fresh source review.
 Review failures retain a readable error and collapsed Technical details with stage,
 stable code and original request reference. Private exception payloads are not rendered
 or logged. Earlier approval references and protected checks remain intact; source checks

@@ -26,7 +26,10 @@ import { useConversationSending } from '../hooks/useConversationSending';
 import { useConversationProgress } from '../hooks/useConversationProgress';
 import { useConversationPromptContext } from '../hooks/useConversationPromptContext';
 import { useConversationForwarding } from '../hooks/useConversationForwarding';
-import { ConversationPromptContext } from './ConversationPromptContext';
+import {
+  ConversationPromptContext,
+  ConversationPromptContextButton,
+} from './ConversationPromptContext';
 import { ConversationAgents } from './ConversationAgents';
 import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
@@ -405,6 +408,18 @@ export function SharedConversationBody({
           onRefresh={() => void presentation.refresh()}
         />
       )}
+      <ConversationPromptContext
+        flow={promptContext}
+        forwarding={forwarding}
+        names={names}
+        disabled={!!sending.pending}
+        showTrigger={false}
+        shareTargets={projection?.view.participantSessionIds.map((id) => ({
+          id,
+          name: names[id] ?? id,
+          unavailable: projection.view.unavailableParticipantSessionIds.includes(id),
+        }))}
+      />
       {chat.running && ordinaryComposer
         ? ordinaryComposer
         : draft && (
@@ -430,16 +445,9 @@ export function SharedConversationBody({
                 running={!!sending.pending}
                 onStop={() => void sending.stop()}
                 collaboration={
-                  <ConversationPromptContext
+                  <ConversationPromptContextButton
                     flow={promptContext}
-                    forwarding={forwarding}
-                    names={names}
                     disabled={!!sending.pending}
-                    shareTargets={projection?.view.participantSessionIds.map((id) => ({
-                      id,
-                      name: names[id] ?? id,
-                      unavailable: projection.view.unavailableParticipantSessionIds.includes(id),
-                    }))}
                   />
                 }
                 responders={

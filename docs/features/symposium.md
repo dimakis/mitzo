@@ -22,6 +22,12 @@ source identity are not made forwardable by inventing a source selector; broader
 cross-source message selection remains a separate gap. Forwarding retains the existing
 review, preparation, confirmation and uncertain-delivery controls.
 
+The selection dialog remains available while the original agent is running. Selected
+agents that become unavailable or leave the conversation remain visible and can be
+removed. After reload, a retained uncertain forward keeps its recovery controls even
+when the original source can no longer be read; checking the original receipt does
+not prepare another forward or start a model reply.
+
 Regression evidence includes the real authenticated application review accepting the
 pinned built-in default, setup gating, indeterminate policy state, isolated picker
 choices, exact targeted audience across restoration, and message-action composition.

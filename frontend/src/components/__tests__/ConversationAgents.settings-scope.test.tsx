@@ -127,13 +127,12 @@ it('keeps the selected profile when its catalog refresh fails instead of falling
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
   const dialog = screen.getByRole('dialog', { name: 'Add agent' });
   await within(dialog).findByRole('button', { name: /^Account, Offline account$/ });
   fireEvent.click(within(dialog).getByRole('button', { name: /^Agent,/ }));
   const reviewer = await within(dialog).findByRole('button', {
     name: 'Reviewer · Independent review · r1',
-    exact: true,
   });
   vi.mocked(apiFetch).mockRejectedValueOnce(Error('Selected profile could not be read.'));
   fireEvent.click(reviewer);
@@ -186,23 +185,20 @@ it('keeps real Add agent pickers inside the dialog when opened from compact chat
   const account = await within(dialog).findByRole('button', { name: /^Account, Offline account$/ });
   fireEvent.click(account);
   expect(
-    within(dialog)
-      .getByRole('button', { name: 'Offline account', exact: true })
-      .getAttribute('aria-pressed'),
+    within(dialog).getByRole('button', { name: 'Offline account' }).getAttribute('aria-pressed'),
   ).toBe('true');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Done', exact: true }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   fireEvent.click(within(dialog).getByRole('button', { name: /^Model, Offline model$/ }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Offline model', exact: true }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Done', exact: true }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Offline model' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   expect(within(dialog).getByRole('button', { name: /^Thinking,/ })).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: /^Agent,/ }));
   fireEvent.click(
     await within(dialog).findByRole('button', {
       name: 'Reviewer · Independent review · r1',
-      exact: true,
     }),
   );
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Done', exact: true }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name in this chat' }), {
     target: { value: 'Bob' },
   });
@@ -210,8 +206,8 @@ it('keeps real Add agent pickers inside the dialog when opened from compact chat
   fireEvent.click(within(dialog).getByRole('radio', { name: 'Mac host' }));
   fireEvent.click(await within(dialog).findByRole('button', { name: /^Add repository$/ }));
   expect(await within(dialog).findByRole('combobox', { name: 'Local repository' })).toBeTruthy();
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Done', exact: true }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel', exact: true }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
   fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
   expect(
     (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
