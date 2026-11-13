@@ -84,6 +84,32 @@ function defer<T>() {
   return { promise, resolve };
 }
 
+it('retains the failed review and reports its stage and request reference without leaking the cause', async () => {
+  const p = port();
+  const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
+  p.captureReview.mockRejectedValueOnce(new Error('private-provider-payload'));
+  const hook = renderHook(() => useConversationJoiningReview(p));
+  await act(() => hook.result.current.prepare(joiningSetupFixture()));
+  const requestId = p.captureReview.mock.calls[0][0].requestId;
+  expect(hook.result.current.diagnostic).toEqual({
+    requestId,
+    code: 'joining_capture_failed',
+    stage: 'capture',
+  });
+  expect(hook.result.current.error).not.toContain('private-provider-payload');
+  expect(hook.result.current.setup).toEqual(joiningSetupFixture());
+  expect(diagnostic).toHaveBeenCalledWith(
+    'Symposium joining failed',
+    expect.objectContaining({
+      code: 'joining_capture_failed',
+      stage: 'capture',
+      requestId,
+      sourceConversationId: 'source-chat',
+    }),
+  );
+  expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private-provider-payload');
+});
+
 it('saves capture_pending before reading and captured before POST, and retries the exact cloned DTO after reload', async () => {
   const p = port();
   p.captureReview.mockImplementationOnce(async (input, signal) => {
