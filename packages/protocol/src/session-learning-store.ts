@@ -22,6 +22,18 @@ type Source = {
   scope: 'unclassified';
 };
 type Candidate = ReturnType<typeof MemoryCandidateInputSchema.parse> & { source: Source };
+type SourceRow = { seq: number; created_at: number; type: string; messageId: string };
+const messageEventTypes =
+  "'user_message','message_start','block_start','block_delta','block_end','message_end'";
+// Both listing and capture must recognize the same completed public messages.
+const publicSourceEligibility = `seat_id IS NULL AND symposium_provenance IS NULL
+  AND json_extract(payload,'$.seatId') IS NULL AND json_extract(payload,'$.symposiumProvenance') IS NULL
+  AND ((type='user_message' AND json_type(payload,'$.text')='text') OR
+    (type='message_end' AND EXISTS (SELECT 1 FROM events text WHERE text.session_id=events.session_id
+      AND text.seq<events.seq AND text.type='block_delta' AND text.seat_id IS NULL AND text.symposium_provenance IS NULL
+      AND json_extract(text.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
+      AND json_extract(text.payload,'$.blockType')='text' AND json_type(text.payload,'$.delta')='text'
+      AND json_extract(text.payload,'$.seatId') IS NULL AND json_extract(text.payload,'$.symposiumProvenance') IS NULL)))`;
 
 /** Borrows the controller event DB; never selects an external source or model. */
 export class SessionLearningStore {
@@ -123,24 +135,16 @@ export class SessionLearningStore {
     return this.db
       .prepare(
         `SELECT seq,created_at,type,json_extract(payload,'$.messageId') messageId FROM events
-      WHERE session_id=? AND seq=? AND seat_id IS NULL AND symposium_provenance IS NULL
-      AND json_extract(payload,'$.seatId') IS NULL AND json_extract(payload,'$.symposiumProvenance') IS NULL
-      AND ((type='user_message' AND json_type(payload,'$.text')='text') OR
-        (type='message_end' AND EXISTS (SELECT 1 FROM events text WHERE text.session_id=events.session_id
-          AND text.seq<events.seq AND text.type='block_delta' AND text.seat_id IS NULL AND text.symposium_provenance IS NULL
-          AND json_extract(text.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
-          AND json_extract(text.payload,'$.blockType')='text' AND json_type(text.payload,'$.delta')='text'
-          AND json_extract(text.payload,'$.seatId') IS NULL AND json_extract(text.payload,'$.symposiumProvenance') IS NULL)))`,
+      WHERE session_id=? AND seq=? AND ${publicSourceEligibility}`,
       )
-      .get(id, seq) as
-      { seq: number; created_at: number; type: string; messageId: string } | undefined;
+      .get(id, seq) as SourceRow | undefined;
   }
   private messageExcluded(id: string, messageId: string, throughSeq: number): boolean {
     return Boolean(
       this.db
         .prepare(
           `SELECT 1 FROM events WHERE session_id=? AND seq<=?
-      AND type IN ('user_message','message_start','block_start','block_delta','block_end','message_end')
+      AND type IN (${messageEventTypes})
       AND json_extract(payload,'$.messageId')=? LIMIT 1`,
         )
         .get(id, throughSeq, messageId),
@@ -151,27 +155,26 @@ export class SessionLearningStore {
     if (policy.mode === 'off') return [];
     const rows = this.db
       .prepare(
-        `SELECT seq FROM events WHERE session_id=? AND seq>? AND seq<?
-      AND type IN ('user_message','message_end') ORDER BY seq DESC LIMIT 100`,
+        `SELECT seq,created_at,type,json_extract(payload,'$.messageId') messageId FROM events
+      WHERE session_id=? AND seq>? AND seq<? AND ${publicSourceEligibility}
+      AND json_type(payload,'$.messageId')='text'
+      AND NOT EXISTS (SELECT 1 FROM events excluded WHERE excluded.session_id=events.session_id
+        AND excluded.seq<=? AND excluded.type IN (${messageEventTypes})
+        AND json_extract(excluded.payload,'$.messageId')=json_extract(events.payload,'$.messageId'))
+      ORDER BY seq DESC LIMIT 100`,
       )
-      .all(id, policy.excludedThroughSeq, beforeSeq ?? Number.MAX_SAFE_INTEGER) as {
-      seq: number;
-    }[];
-    return rows.flatMap(({ seq }) => {
-      const row = this.sourceRow(id, seq);
-      return row &&
-        typeof row.messageId === 'string' &&
-        !this.messageExcluded(id, row.messageId, policy.excludedThroughSeq)
-        ? [
-            {
-              messageId: row.messageId,
-              eventSeq: seq,
-              observedAt: row.created_at,
-              role: row.type === 'user_message' ? 'user' : 'assistant',
-            },
-          ]
-        : [];
-    });
+      .all(
+        id,
+        policy.excludedThroughSeq,
+        beforeSeq ?? Number.MAX_SAFE_INTEGER,
+        policy.excludedThroughSeq,
+      ) as SourceRow[];
+    return rows.map((row) => ({
+      messageId: row.messageId,
+      eventSeq: row.seq,
+      observedAt: row.created_at,
+      role: row.type === 'user_message' ? 'user' : 'assistant',
+    }));
   }
   private eligible(id: string, candidate: Candidate) {
     const policy = this.policy(id);

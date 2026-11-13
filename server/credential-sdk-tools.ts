@@ -86,6 +86,7 @@ export function credentialSdkPermission(
       short === 'ConnectionWebSocket' ||
       short === 'ApplySecretRelay' ||
       short === 'PrepareRepositoryChat' ||
+      (short === 'CaptureMemoryCandidate' && input.action === 'capture') ||
       short === 'SaveKnowledgeDraft')
   )
     return { behavior: 'deny' as const, message: 'Ask mode only permits connection reads' };

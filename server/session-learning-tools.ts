@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { MemoryCandidateInputSchema } from '@mitzo/protocol';
-import { checkSkillPolicy, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
+import {
+  checkSkillPolicy,
+  effectivePermissionMode,
+  type ManagedSession,
+  type SessionRegistry,
+} from '@mitzo/harness';
 import type { EventStore } from './event-store.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
@@ -41,6 +46,7 @@ const knownFailures = new Set([
   'learning_session_unavailable',
   'learning_authority_unavailable',
   'learning_runtime_unavailable',
+  'learning_read_only',
   'invalid_candidate',
 ]);
 export function sessionLearningTools(
@@ -61,7 +67,7 @@ export function sessionLearningTools(
         const connection = sessionToolOperatorConnection(session, owner.clientId);
         const authority = captureAgentLibraryAuthorization(connection);
         const account = JSON.stringify(session.accountBinding);
-        const assert = () => {
+        const assert = (capture = false) => {
           signal.throwIfAborted();
           session.abortController.signal.throwIfAborted();
           assertRuntimeCurrentSync?.();
@@ -79,6 +85,8 @@ export function sessionLearningTools(
           )
             throw Error('learning_authority_unavailable');
           if (!selected) throw Error('learning_runtime_unavailable');
+          if (capture && effectivePermissionMode(session) === 'ask')
+            throw Error('learning_read_only');
           const persisted = selected.getSession(sessionId);
           if (
             !persisted ||
@@ -99,6 +107,7 @@ export function sessionLearningTools(
         )
           throw Error('invalid_candidate');
         const request = parsed.data;
+        assert(request.action === 'capture');
         const result =
           request.action === 'sources'
             ? {
@@ -108,7 +117,7 @@ export function sessionLearningTools(
                 processingEnrollment: 'unchanged',
               }
             : selected!.captureMemoryCandidate(sessionId, request.candidate);
-        assert();
+        assert(request.action === 'capture');
         return { content: JSON.stringify(result), isError: false };
       } catch (error) {
         const code =
@@ -126,7 +135,7 @@ export function sessionLearningTools(
             status: 'failed',
             code,
             message:
-              'No capture was confirmed. Check learning mode and current access; retry the exact payload with the same requestId after recovery. Off requires an explicit user setting change.',
+              'No capture was confirmed. Check learning mode and current access; retry the exact payload with the same requestId after recovery. Ask is read-only. Off requires an explicit user setting change.',
           }),
           isError: true,
         };

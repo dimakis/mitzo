@@ -55,6 +55,57 @@ const tools = () => sessionCredentialTools('chat', session, registry);
 const call = (args = input) =>
   tools().execute('CaptureMemoryCandidate', args, session.abortController.signal);
 
+it.each(['ask', 'pending ask'] as const)(
+  'keeps %s read-only at both SDK admission and the shared capture boundary',
+  async (mode) => {
+    if (mode === 'ask') session.mode = 'ask';
+    else session.pendingPermissionModes = new Map([[Symbol(), 'ask']]);
+    const permission = (args: Record<string, unknown>) =>
+      credentialSdkPermission(
+        'mcp__mitzo-connections__CaptureMemoryCandidate',
+        args,
+        'client',
+        registry,
+        session,
+      );
+    expect(permission(input)?.behavior).toBe('deny');
+    expect(permission({ action: 'sources' })?.behavior).toBe('allow');
+    expect((await call({ action: 'sources' }))?.isError).toBe(false);
+    const result = await call();
+    expect(result?.isError).toBe(true);
+    expect(result?.content).toMatch(/learning_read_only/);
+    expect(events.getSessionEvents('chat').filter((e) => e.type === 'memory_candidate')).toEqual(
+      [],
+    );
+    session.mode = 'auto';
+    session.pendingPermissionModes?.clear();
+    expect((await call())?.isError).toBe(false);
+  },
+);
+
+it('rechecks Ask mode after asynchronous local-service preparation before committing capture', async () => {
+  const local = sessionLocalServiceTools({
+    sessionId: 'chat',
+    session,
+    registry,
+    assertCurrent: async () => {
+      session.mode = 'ask';
+    },
+    assertCurrentSync: () => {},
+  });
+  const result = await local.execute(
+    'CaptureMemoryCandidate',
+    input,
+    session.abortController.signal,
+    {
+      assertCurrentSync: () => {},
+    },
+  );
+  expect(result.isError).toBe(true);
+  expect(result.content).toMatch(/learning_read_only/);
+  expect(events.getSessionEvents('chat').filter((e) => e.type === 'memory_candidate')).toEqual([]);
+});
+
 it('delivers durable receipt through the shared API/OpenShell tool composition and respects Off', async () => {
   expect(tools().definitions).toContainEqual(
     expect.objectContaining({ name: 'CaptureMemoryCandidate' }),
