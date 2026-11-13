@@ -10,6 +10,7 @@
 import type { SessionRegistry, ActiveSessionInfo } from '@mitzo/harness';
 import type { SseRegistry } from '@mitzo/harness';
 import { getPendingCountBySession, onPermissionLifecycle } from '@mitzo/harness';
+import { repositoryNameFromCwd } from '@mitzo/protocol';
 import type {
   SessionActivity,
   SessionActivityState,
@@ -335,7 +336,7 @@ export class SessionOverviewEmitter {
     const title = this.deps.getSessionTitle(sessionId) || sessionId.slice(-8);
 
     // Derive repo from cwd
-    const repo = session.cwd ? extractRepoName(session.cwd) : undefined;
+    const repo = session.cwd ? repositoryNameFromCwd(session.cwd) : undefined;
 
     // Check uncommitted work for live sessions (from background cache)
     const uncommittedWork = session.cwd ? this.checkUncommittedCached(session.cwd) : false;
@@ -388,7 +389,7 @@ export class SessionOverviewEmitter {
    */
   private persistentToActivity(meta: SessionMeta, now: number): SessionActivity {
     const title = meta.summary || meta.sessionId.slice(-8);
-    const repo = meta.cwd ? extractRepoName(meta.cwd) : undefined;
+    const repo = meta.cwd ? repositoryNameFromCwd(meta.cwd) : undefined;
     const lastEventAt = meta.lastSpeakerAt ?? meta.updatedAt;
     const elapsed = now - lastEventAt;
     const idleMinutes = Math.max(0, Math.round(elapsed / 60_000));
@@ -595,19 +596,4 @@ export class SessionOverviewEmitter {
     this.uncommittedCache.clear();
     this.speakerCache.clear();
   }
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Extract a short repo name from a cwd path.
- * e.g. "/Users/foo/tools/mitzo" → "mitzo"
- *      "/Users/foo/redhat/mgmt/.claude/worktrees/abc123" → "mgmt"
- */
-function extractRepoName(cwd: string): string {
-  // Strip worktree suffix: .claude/worktrees/<id> or .cursor/worktrees/<id>
-  const worktreeMatch = cwd.match(/^(.+)\/\.(claude|cursor)\/worktrees\//);
-  const base = worktreeMatch ? worktreeMatch[1] : cwd;
-  const parts = base.split('/').filter(Boolean);
-  return parts[parts.length - 1] || 'unknown';
 }

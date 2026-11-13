@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { SessionSearchResult } from '../types/chat';
+import { sessionSearchDiagnostic } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 
@@ -16,13 +17,15 @@ export interface UseSessionSearchReturn {
 
 const DEBOUNCE_MS = 300;
 
-export function useSessionSearch(): UseSessionSearchReturn {
-  const [query, setQueryState] = useState('');
+export function useSessionSearch(initialQuery = ''): UseSessionSearchReturn {
+  const initial = useRef(initialQuery);
+  const [query, setQueryState] = useState(initialQuery);
   const [results, setResults] = useState<SessionSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState(Boolean(initialQuery.trim()));
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const abortRef = useRef<AbortController>(undefined);
+  const requestRef = useRef(0);
 
   const doSearch = useCallback((q: string) => {
     abortRef.current?.abort();
@@ -34,6 +37,7 @@ export function useSessionSearch(): UseSessionSearchReturn {
     }
     setSearching(true);
     const controller = new AbortController();
+    const requestId = ++requestRef.current;
     abortRef.current = controller;
     apiFetch(`/api/sessions/search?q=${encodeURIComponent(q)}`, {
       signal: controller.signal,
@@ -49,8 +53,12 @@ export function useSessionSearch(): UseSessionSearchReturn {
           setSearching(false);
         }
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         if (!controller.signal.aborted) {
+          console.warn(
+            'Conversation search failed',
+            sessionSearchDiagnostic(cause, 'search', requestId),
+          );
           setResults([]);
           setError('Couldn’t search sessions. Try again.');
           setSearching(false);
@@ -70,6 +78,16 @@ export function useSessionSearch(): UseSessionSearchReturn {
     },
     [doSearch],
   );
+
+  useEffect(() => {
+    if (initial.current.trim()) doSearch(initial.current);
+  }, [doSearch]);
+
+  useEffect(() => {
+    if (initial.current === initialQuery) return;
+    initial.current = initialQuery;
+    setQuery(initialQuery);
+  }, [initialQuery, setQuery]);
 
   useEffect(() => {
     return () => {

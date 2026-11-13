@@ -371,7 +371,11 @@ it('composes native worker evidence, explicit source review and Read Once with c
   expect(unread.success).toBe(false);
   const { expect: browserExpect } = await import('@playwright/test');
   await h.page.goto(h.front.origin + '/chat/' + leadId);
-  await browserExpect(h.page.getByRole('textbox', { name: /message/i })).toBeVisible();
+  // This is a cold app-readiness check, not an operation/authorization deadline.
+  // Hosted runs can finish rendering just after Playwright's default five seconds.
+  await browserExpect(h.page.getByRole('textbox', { name: /message/i })).toBeVisible({
+    timeout: process.env.CI ? 15000 : 5000,
+  });
   const sourcePanel = h.page.getByRole('region', { name: 'Telos source review' });
   const sourceScreenshots: string[] = [];
   const adopted = await call(

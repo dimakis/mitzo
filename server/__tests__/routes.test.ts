@@ -1029,6 +1029,17 @@ describe('session search routes', () => {
     vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(tmpdir(), `mitzo-search-route-${process.pid}`)),
   );
   afterEach(() => vi.unstubAllEnvs());
+  it('returns an explicit search failure without exposing worker causes or an empty result', async () => {
+    const { SessionSearchError } =
+      await import('../../packages/protocol/src/session-search-diagnostic.js');
+    vi.mocked(eventStore.searchSessionsAsync).mockRejectedValueOnce(
+      new SessionSearchError('append', 7, new SyntaxError('private-transcript-marker')),
+    );
+    const res = await request(app).get('/api/sessions/search?q=needle').set('Cookie', authCookie);
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Search failed' });
+    expect(JSON.stringify(res.body)).not.toContain('private-transcript-marker');
+  });
   it('returns saved model and aliased account for inactive search hits outside the recent page', async () => {
     const original = vi.mocked(eventStore.getSession).getMockImplementation()!;
     const aliases = new AccountAliases(join(TEST_REPO, '.mitzo', 'account-aliases.json'));
@@ -1090,6 +1101,7 @@ describe('session search routes', () => {
       20,
       expect.any(AbortSignal),
       codexPrivateDirectory(),
+      expect.any(Function),
     );
   });
 
@@ -1112,12 +1124,25 @@ describe('session search routes', () => {
       50,
       expect.any(AbortSignal),
       codexPrivateDirectory(),
+      expect.any(Function),
     );
   });
 
   it('GET /api/sessions/search — unauthenticated returns 401', async () => {
     const res = await request(app).get('/api/sessions/search?q=test');
     expect(res.status).toBe(401);
+  });
+
+  it('GET /api/sessions/search — rejects oversized queries before indexing', async () => {
+    for (const q of ['x'.repeat(513), Array.from({ length: 33 }, (_, i) => 'word' + i).join(' ')]) {
+      vi.mocked(eventStore.searchSessionsAsync).mockClear();
+      const res = await request(app)
+        .get('/api/sessions/search')
+        .query({ q })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(400);
+      expect(eventStore.searchSessionsAsync).not.toHaveBeenCalled();
+    }
   });
 });
 

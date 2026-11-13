@@ -28,6 +28,23 @@ on phone/desktop, both themes and alternate appearance; see
 
 # Mitzo UI design contract
 
+## Conversation search
+
+Active library search reuses conversation rows, identity, activity, preview and
+actions. Pinned and Drafts return on clearing; search/help stick inside the results
+scroller, and query/scroll restore on history back and the phone's Back to chats.
+Same-route navigation keeps URL and results synchronized. Approved settings, composer and
+activity controls retain their owners.
+
+Shared `SearchMatchText` renders inert text with native marks using semantic
+text/active colors. Parsing is shared with the backend. Matching fields use muted
+typography; empty search offers an explicit broader query and failure retains
+alert/Retry. New spacing/radii/control geometry use shared tokens and preserve
+phone wrapping, focus, accent and font preferences. The offline search fixture
+covers phone/desktop, both themes and alternate appearance without a backend or
+model. See [scope and validation](../features/conversation-search.md); rendered
+evidence remains pending CI after the host guard refused local execution.
+
 ## Claude subscription onboarding
 
 Claude uses the existing Connections grouped account rows and labelled form

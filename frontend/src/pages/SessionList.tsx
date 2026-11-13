@@ -19,7 +19,9 @@ import {
   type ModelObservation,
 } from '../lib/session-activity';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { sessionSearchTerms, type SessionSearchResult } from '@mitzo/protocol';
+import { SearchMatchText } from '../components/SearchMatchText';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
 import { chatDraftUrl } from '../lib/chat-drafts';
 import { formatRelativeTime } from '../lib/formatTime';
@@ -43,6 +45,8 @@ import { MotionDetails } from '../components/MotionDetails';
 function SwipeableSession({
   session,
   snippet,
+  searchQuery = '',
+  matchedFields,
   activity,
   connected,
   onDismiss,
@@ -61,6 +65,8 @@ function SwipeableSession({
   onActions?: (session: Session, trigger: HTMLElement, point?: SessionActionPoint) => void;
   onInteractionChange?: (id: string, busy: boolean) => void;
   snippet?: string;
+  searchQuery?: string;
+  matchedFields?: SessionSearchResult['matchedFields'];
   activity?: SessionActivity;
   connected?: boolean;
   onDismiss: (id: string) => void;
@@ -297,17 +303,31 @@ function SwipeableSession({
               }}
             >
               <div className="session-item-summary">
-                {session.summary || 'Untitled conversation'}
+                <SearchMatchText
+                  text={session.summary || 'Untitled conversation'}
+                  query={searchQuery}
+                />
               </div>
-              {snippet && <div className="conversation-result-snippet">{snippet}</div>}
+              {snippet && (
+                <div className="conversation-result-snippet">
+                  <SearchMatchText text={snippet} query={searchQuery} />
+                </div>
+              )}
+              {!!matchedFields?.length && (
+                <div className="conversation-search-evidence">
+                  Matches {matchedFields.join(' · ')}
+                </div>
+              )}
               <div className="session-item-meta">
                 {session.model && (
                   <span className="conversation-model" aria-label={`Model: ${session.model}`}>
-                    {session.model}
+                    <SearchMatchText text={session.model} query={searchQuery} />
                   </span>
                 )}
                 {session.accountLabel && (
-                  <span className="conversation-account">{session.accountLabel}</span>
+                  <span className="conversation-account">
+                    <SearchMatchText text={session.accountLabel} query={searchQuery} />
+                  </span>
                 )}
               </div>
               <SessionActivityStatus
@@ -369,6 +389,8 @@ export function SessionList() {
   const [timersOpen, setTimersOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const desktop = useMediaQuery('(min-width: 768px)');
   const [mobilePinPreview, setMobilePinPreview] = useState<Session | null>(null);
   const [preview, setPreview] = useState<Session | null>(null);
@@ -398,8 +420,28 @@ export function SessionList() {
     loadMore,
     retry,
   } = useSessionList();
-  const search = useSessionSearch();
-  const location = useLocation();
+  const search = useSessionSearch(searchParams.get('q') ?? '');
+  function setSearchQuery(query: string) {
+    search.setQuery(query);
+    const params = new URLSearchParams(searchParams);
+    if (query) params.set('q', query);
+    else params.delete('q');
+    setSearchParams(params, { replace: true, state: null });
+  }
+  function clearSearch() {
+    search.clear();
+    const params = new URLSearchParams(searchParams);
+    params.delete('q');
+    setSearchParams(params, { replace: true, state: null });
+  }
+  let broaderQuery = '';
+  try {
+    const terms = sessionSearchTerms(search.query);
+    if (search.query.includes('"')) broaderQuery = search.query.replaceAll('"', '');
+    else if (terms.length > 1) broaderQuery = terms[0];
+  } catch {
+    /* Invalid queries retain the search error and editable input. */
+  }
   const focusSearch = useCallback(
     (input: HTMLInputElement | null) => {
       if (input && location.hash === '#conversation-search') {
@@ -412,6 +454,13 @@ export function SessionList() {
   const [importOpen, setImportOpen] = useState(false);
   const conversationOptions = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const restoredSearchScroll = useRef(false);
+  useEffect(() => {
+    if (!search.active || search.searching || restoredSearchScroll.current) return;
+    restoredSearchScroll.current = true;
+    const top = location.state?.conversationSearchScroll;
+    if (typeof top === 'number' && scroller.current) scroller.current.scrollTop = top;
+  }, [search.active, search.searching, search.results, location.state]);
   const [busyRows, setBusyRows] = useState(() => new Set<string>());
   const onInteractionChange = useCallback((id: string, busy: boolean) => {
     setBusyRows((previous) => {
@@ -477,6 +526,7 @@ export function SessionList() {
       ),
       accountLabel: result.accountLabel ?? existing?.accountLabel,
       snippet: result.snippet,
+      matchedFields: result.matchedFields,
     };
   });
   const currentPreview = preview
@@ -499,7 +549,21 @@ export function SessionList() {
   const previewSession = useCallback((session: Session) => setPreview(session), []);
   function openSession(id: string) {
     selectionChanged();
-    navigate(`/chat/${id}`);
+    if (search.active)
+      navigate(location.pathname + location.search, {
+        replace: true,
+        state: { ...location.state, conversationSearchScroll: scroller.current?.scrollTop ?? 0 },
+      });
+    navigate(`/chat/${id}`, {
+      state: search.active
+        ? {
+            conversationLibraryReturn: {
+              query: search.query,
+              scrollTop: scroller.current?.scrollTop ?? 0,
+            },
+          }
+        : undefined,
+    });
   }
   function dismiss(id: string) {
     setRemoving(id);
@@ -576,7 +640,7 @@ export function SessionList() {
               <button
                 onClick={async () => {
                   if (await clearAll()) {
-                    search.clear();
+                    clearSearch();
                     setPreview(null);
                     setMobilePinPreview(null);
                   }
@@ -610,17 +674,27 @@ export function SessionList() {
         }
       >
         <div className="session-list-scroll" ref={scroller}>
-          <div className="conversation-search">
-            <input
-              id="conversation-search"
-              ref={focusSearch}
-              type="search"
-              aria-label="Search conversations"
-              placeholder="Search conversations…"
-              value={search.query}
-              onChange={(e) => search.setQuery(e.target.value)}
-            />
-            {search.active && <button onClick={search.clear}>Clear search</button>}
+          <div className={search.active ? 'conversation-search-header' : undefined}>
+            <div className="conversation-search">
+              <input
+                id="conversation-search"
+                ref={focusSearch}
+                type="search"
+                aria-label="Search conversations"
+                placeholder="Search conversations…"
+                maxLength={512}
+                aria-describedby={search.active ? 'conversation-search-help' : undefined}
+                value={search.query}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {search.active && <button onClick={clearSearch}>Clear search</button>}
+            </div>
+            {search.active && (
+              <p id="conversation-search-help" className="conversation-search-help">
+                Search titles, messages, models, accounts and projects. Use quotes for an exact
+                phrase.
+              </p>
+            )}
           </div>
           {!search.active && (
             <div className="conversation-filters" aria-label="Conversation filters">
@@ -635,23 +709,25 @@ export function SessionList() {
               </button>
             </div>
           )}
-          <ConversationPins
-            sessions={all}
-            activities={displayById}
-            connected={connected}
-            selectedId={desktop ? selectedPreview?.id : undefined}
-            onSelect={(id, session) => {
-              if (desktop) setPreview(session);
-              else openSession(id);
-            }}
-            onPreview={desktop ? previewSession : undefined}
-            onOpen={desktop ? openSession : undefined}
-            onActions={(session, trigger, point) => {
-              if (desktop) showActions(session, trigger, point);
-              else setMobilePinPreview(session);
-            }}
-          />
-          {drafts.length > 0 && (
+          {!search.active && (
+            <ConversationPins
+              sessions={all}
+              activities={displayById}
+              connected={connected}
+              selectedId={desktop ? selectedPreview?.id : undefined}
+              onSelect={(id, session) => {
+                if (desktop) setPreview(session);
+                else openSession(id);
+              }}
+              onPreview={desktop ? previewSession : undefined}
+              onOpen={desktop ? openSession : undefined}
+              onActions={(session, trigger, point) => {
+                if (desktop) showActions(session, trigger, point);
+                else setMobilePinPreview(session);
+              }}
+            />
+          )}
+          {!search.active && drafts.length > 0 && (
             <MotionDetails
               className="conversation-drafts-section"
               summaryClassName="collection-section-toggle"
@@ -696,7 +772,11 @@ export function SessionList() {
             <div className="conversation-results" aria-live="polite">
               {!search.error && (
                 <p className="conversation-list-caption">
-                  {search.searching ? 'Searching…' : `${search.results.length} results`}
+                  {search.searching
+                    ? 'Searching…'
+                    : search.results.length >= 20
+                      ? '20 best matches · refine your search to narrow results'
+                      : `${search.results.length} results`}
                 </p>
               )}
               {search.error && (
@@ -708,13 +788,25 @@ export function SessionList() {
                 </div>
               )}
               {!search.searching && !search.error && search.results.length === 0 && (
-                <p className="session-list-empty">No matching conversations</p>
+                <div className="conversation-search-empty">
+                  <p className="session-list-empty">No matching conversations</p>
+                  <p className="conversation-search-help">
+                    Try fewer words, an account name or a project.
+                  </p>
+                  {broaderQuery && (
+                    <button type="button" onClick={() => setSearchQuery(broaderQuery)}>
+                      Search for “{broaderQuery}”
+                    </button>
+                  )}
+                </div>
               )}
               {searchSessions.map((session) => (
                 <SwipeableSession
                   key={session.id}
                   session={session}
                   snippet={session.snippet}
+                  searchQuery={search.query}
+                  matchedFields={session.matchedFields}
                   activity={displayById.get(session.id)}
                   connected={connected}
                   onDismiss={dismiss}

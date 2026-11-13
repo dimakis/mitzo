@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { lstat, readFile, readdir, rm } from 'node:fs/promises';
+import { SessionSearchError, type SearchFailureStage } from './session-search-diagnostic.js';
 
 async function recoverAbandonedCaches(root: string): Promise<void> {
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -45,10 +46,16 @@ export interface SearchSession {
   session_id: string;
   summary: string | null;
   updated_at: number;
+  model?: string;
+  provider?: string;
+  account?: string;
+  project?: string;
 }
 export interface SearchHit extends SearchSession {
   payload: string;
   matched_at: number;
+  matched_fields: NonNullable<import('./types.js').SessionSearchResult['matchedFields']>;
+  message_id?: string;
 }
 
 /** The worker owns only a disposable derived index, never a retained database
@@ -58,12 +65,13 @@ export class SessionSearchIndex {
   private directory?: string;
   private pending = new Map<
     number,
-    { resolve(value: SearchHit[]): void; reject(error: Error): void }
+    { resolve(value: SearchHit[]): void; reject(error: Error): void; stage: SearchFailureStage }
   >();
   private nextId = 0;
   private cursor = 0;
   private closed = false;
   private closing?: Promise<void>;
+  private failure?: SessionSearchError;
   private tail: Promise<unknown> = Promise.resolve();
   constructor(
     private source: {
@@ -74,8 +82,11 @@ export class SessionSearchIndex {
     private cacheDirectory?: string,
   ) {}
 
-  private async rpc(message: object): Promise<SearchHit[]> {
-    if (this.closed) return Promise.reject(Error('Search owner closed'));
+  private async rpc(message: {
+    type: 'append' | 'search';
+    [key: string]: unknown;
+  }): Promise<SearchHit[]> {
+    if (this.closed) return Promise.reject(this.failure ?? Error('Search owner closed'));
     if (!this.worker) {
       const source = import.meta.url.endsWith('.ts');
       let database = ':memory:';
@@ -109,26 +120,46 @@ export class SessionSearchIndex {
           },
         },
       );
-      this.worker.on('message', (reply: { id: number; result?: SearchHit[]; failed?: boolean }) => {
-        const pending = this.pending.get(reply.id);
-        this.pending.delete(reply.id);
-        if (reply.failed) pending?.reject(Error('Search index unavailable'));
-        else pending?.resolve(reply.result ?? []);
+      this.worker.on(
+        'message',
+        (reply: { id: number; result?: SearchHit[]; failed?: boolean; cause?: unknown }) => {
+          const pending = this.pending.get(reply.id);
+          this.pending.delete(reply.id);
+          if (reply.failed)
+            pending?.reject(new SessionSearchError(pending.stage, reply.id, reply.cause));
+          else pending?.resolve(reply.result ?? []);
+        },
+      );
+      this.worker.on('error', (cause: Error) => {
+        this.failure = new SessionSearchError('worker', undefined, cause);
+        void this.close();
       });
-      this.worker.on('error', () => this.close());
-      this.worker.on('exit', () => this.close());
+      this.worker.on('exit', (code: number) => {
+        if (!this.closed)
+          this.failure ??= new SessionSearchError(
+            'worker',
+            undefined,
+            Error(`Search worker exited (${code})`),
+          );
+        void this.close();
+      });
     }
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { resolve, reject, stage: message.type });
       this.worker!.postMessage({ ...message, id });
     });
   }
 
-  search(query: string, limit: number, signal?: AbortSignal): Promise<SearchHit[]> {
+  search(
+    query: string,
+    limit: number,
+    signal?: AbortSignal,
+    sessions: () => SearchSession[] = this.source.sessions,
+  ): Promise<SearchHit[]> {
     const run = async () => {
       signal?.throwIfAborted();
-      if (this.closed) throw Error('Search owner closed');
+      if (this.closed) throw this.failure ?? Error('Search owner closed');
       const through = this.source.highWater();
       while (this.cursor < through) {
         signal?.throwIfAborted();
@@ -142,7 +173,7 @@ export class SessionSearchIndex {
         type: 'search',
         query,
         limit,
-        sessions: this.source.sessions(),
+        sessions: sessions(),
       });
       signal?.throwIfAborted();
       return result;
@@ -163,18 +194,28 @@ export class SessionSearchIndex {
   close(): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;
-    for (const pending of this.pending.values()) pending.reject(Error('Search owner closed'));
+    for (const pending of this.pending.values())
+      pending.reject(this.failure ?? Error('Search owner closed'));
     this.pending.clear();
     const directory = this.directory;
     // Remove only this newly-created disposable cache after its worker stops.
     const cleanup = async () => {
       try {
         if (directory) await rm(directory, { recursive: true, force: true });
-      } catch {
-        /* A disposable private cache never warrants unhandled rejection. */
+      } catch (cause: unknown) {
+        const failure = new SessionSearchError('cleanup', undefined, cause);
+        this.failure ??= failure;
+        console.warn('Conversation search cache cleanup failed', failure.diagnostic);
       }
     };
-    this.closing = this.worker ? this.worker.terminate().then(cleanup, cleanup) : cleanup();
+    this.closing = this.worker
+      ? this.worker.terminate().then(cleanup, (cause: unknown) => {
+          const failure = new SessionSearchError('cleanup', undefined, cause);
+          this.failure ??= failure;
+          console.warn('Conversation search worker cleanup failed', failure.diagnostic);
+          return cleanup();
+        })
+      : cleanup();
     this.worker = undefined;
     return this.closing;
   }

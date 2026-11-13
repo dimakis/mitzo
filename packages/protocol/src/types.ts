@@ -474,6 +474,8 @@ export interface SessionSearchResult {
   modelObservedAt?: number;
   accountLabel?: string;
   snippet: string;
+  matchedFields?: Array<'title' | 'model' | 'provider' | 'account' | 'project' | 'messages'>;
+  messageId?: string;
   matchedAt: number; // timestamp of the matching event
   updatedAt: number;
 }

@@ -50,6 +50,7 @@ import {
   sessionListMetadata,
   sessionModelIdentity,
 } from './session-list-metadata.js';
+import { sessionSearchTerms, sessionSearchDiagnostic } from '@mitzo/protocol';
 import { readCompactionHistory } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
@@ -3454,6 +3455,12 @@ app.get('/api/sessions/active', (_req, res) => {
 
 app.get('/api/sessions/search', async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q : '';
+  try {
+    sessionSearchTerms(q);
+  } catch {
+    res.status(400).json({ error: 'Use up to 512 characters and 32 words or quoted phrases.' });
+    return;
+  }
   const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 50);
   if (!q.trim()) {
     res.json({ results: [] });
@@ -3468,7 +3475,9 @@ app.get('/api/sessions/search', async (req, res) => {
     const cacheDirectory = codexPrivateDirectory();
     protectCodexProfileRoots([cacheDirectory]);
     const results = (
-      await eventStore.searchSessionsAsync(q, limit, abort.signal, cacheDirectory)
+      await eventStore.searchSessionsAsync(q, limit, abort.signal, cacheDirectory, (id, fallback) =>
+        accountAliases.label(id, fallback),
+      )
     ).map((result) => ({
       ...result,
       ...sessionModelIdentity(
@@ -3480,7 +3489,7 @@ app.get('/api/sessions/search', async (req, res) => {
     res.json({ results });
   } catch (err: unknown) {
     if (abort.signal.aborted) return;
-    log.error('GET /api/sessions/search failed', { error: err });
+    log.error('GET /api/sessions/search failed', { diagnostic: sessionSearchDiagnostic(err) });
     res.status(500).json({ error: 'Search failed' });
   } finally {
     res.removeListener('close', close);

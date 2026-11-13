@@ -46,6 +46,11 @@ vi.mock('../hook-bridge.js', async (original) => ({
   loadProjectHooks: vi.fn(),
 }));
 
+// Cold imports plus three real offline SDK turns exceeded the default five-second
+// unit budget on a hosted shard. Keep a finite CI fixture allowance; operation
+// deadlines and the local test budget remain unchanged.
+vi.setConfig({ testTimeout: process.env.CI ? 15_000 : 5_000 });
+
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();

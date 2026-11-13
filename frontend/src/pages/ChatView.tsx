@@ -96,7 +96,8 @@ import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { WebSearchConsent } from '../components/WebSearchConsent';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
+import { conversationLibraryReturn } from '../lib/conversation-library-return';
 import { SymposiumConversation } from '../components/SymposiumConversation';
 import { SymposiumDirectorPanel } from '../components/SymposiumDirectorPanel';
 import { ChatInput, type ChatInputDraftControl } from '../components/ChatInput';
@@ -118,6 +119,7 @@ export function ChatView() {
 }
 
 function ChatViewContent() {
+  const libraryReturn = conversationLibraryReturn(useLocation().state);
   const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
@@ -1587,8 +1589,8 @@ function ChatViewContent() {
       }
       leading={
         <Link
-          to={telosRoute.back?.path ?? '/sessions'}
-          state={telosRoute.back?.state}
+          to={telosRoute.back?.path ?? libraryReturn.path}
+          state={telosRoute.back ? telosRoute.back.state : libraryReturn.state}
           className="chat-top-action"
           aria-label={telosRoute.back ? 'Back' : 'Back to chats'}
         >
@@ -1897,8 +1899,8 @@ function ChatViewContent() {
             showHeader: isSymposium,
             leading: (
               <Link
-                to={telosRoute.back?.path ?? '/sessions'}
-                state={telosRoute.back?.state}
+                to={telosRoute.back?.path ?? libraryReturn.path}
+                state={telosRoute.back ? telosRoute.back.state : libraryReturn.state}
                 className="chat-top-action"
                 aria-label={telosRoute.back ? 'Back' : 'Back to chats'}
               >
