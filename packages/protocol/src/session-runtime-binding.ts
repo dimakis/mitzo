@@ -82,6 +82,6 @@ export function isOrdinaryRepositoryParticipantBinding(binding: SessionRuntimeBi
     (binding.version === 2 &&
       binding.harness.implementation === 'claude-sdk' &&
       binding.execution.location === 'local' &&
-      ['anthropic-claude', 'anthropic-vertex'].includes(binding.account.provider))
+      ['anthropic-claude', 'anthropic-vertex', 'anthropic-api'].includes(binding.account.provider))
   );
 }

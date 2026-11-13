@@ -1,5 +1,6 @@
 import { afterAll, expect, it, vi } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { createApplicationJourney } from './fixtures/symposium-application-journey.js';
@@ -43,6 +44,7 @@ vi.mock('../claude-account-history.js', () => ({
 vi.mock('../credential-sdk-boundary.js', async (original) => ({
   ...(await original<object>()),
   credentialSdkBoundary: (await import('./fixtures/sdk-query-peer.js')).sdkFixtureBoundary,
+  runtimeFilesystemSdkBoundary: (await import('./fixtures/sdk-query-peer.js')).sdkFixtureBoundary,
 }));
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
@@ -164,7 +166,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
 
 const journey = createApplicationJourney({
   retainedArtifactOwner: true,
-  additionalAccountIds: ['offline-api'],
+  additionalAccountIds: ['offline-api', 'offline-messages'],
   participant: {
     accountId: 'offline-claude',
     harness: 'claude-sdk',
@@ -176,6 +178,17 @@ const journey = createApplicationJourney({
       expect(ref).toEqual({ provider: 'keychain', service: 'offline-test', account: 'api' });
       return 'synthetic-api-key';
     });
+    const { KeychainRotationCredentials } = await import('../keychain-rotation-credentials.js');
+    const read = KeychainRotationCredentials.prototype.read;
+    vi.spyOn(KeychainRotationCredentials.prototype, 'read').mockImplementation((ref, signal) =>
+      ref.service === 'offline-messages'
+        ? Promise.resolve({
+            value: 'synthetic-messages-key',
+            version: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+            managed: true,
+          })
+        : read.call(new KeychainRotationCredentials(), ref, signal),
+    );
     const config = join(root, 'claude-subscription');
     const executable = join(root, 'inert-claude');
     const target = join(root, 'claude-target.json');
@@ -218,6 +231,26 @@ const journey = createApplicationJourney({
         provider: 'openai',
         credentialRef: { provider: 'keychain', service: 'offline-test', account: 'api' },
         models: [{ id: 'fixture-model', label: 'Offline API', reasoningEfforts: ['low'] }],
+      });
+      accounts.push({
+        id: 'offline-messages',
+        label: 'Qualified Anthropic Messages endpoint',
+        provider: 'anthropic-api',
+        credentialRef: { provider: 'keychain', service: 'offline-messages', account: 'api' },
+        credentialVersion: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+        connection: {
+          endpoint: 'https://messages.example.invalid',
+          protocol: 'messages',
+          authentication: 'api-key',
+          qualification: {
+            source: 'operator',
+            streaming: true,
+            toolCalls: true,
+            continuation: true,
+            cancellation: true,
+          },
+        },
+        models: [{ id: 'fixture-model', label: 'Offline Messages', reasoningEfforts: ['low'] }],
       });
       await writeFile(path, JSON.stringify(accounts), { mode: 0o600 });
     }
@@ -288,7 +321,14 @@ it('silently joins personal Claude alongside a separate API-key participant and 
         const answer = projected.messages.find(
           (message) => message.replyToDeliveryId === claudeDelivery.deliveryId,
         );
-        expect(answer).toMatchObject({
+        expect(
+          answer,
+          readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
+            .split('\n')
+            .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
+            .slice(-20)
+            .join('\n'),
+        ).toMatchObject({
           text: 'Personal Claude reviewed the selected design.',
           author: { sessionId: joinedSessionId },
           source: { commandId: claudeDelivery.commandId },
@@ -297,6 +337,11 @@ it('silently joins personal Claude alongside a separate API-key participant and 
           projected.messages.find(
             (message) => message.replyToDeliveryId === apiDelivery.deliveryId,
           ),
+          readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
+            .split('\n')
+            .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
+            .slice(-10)
+            .join('\n'),
         ).toMatchObject({
           text: 'Reviewed the selected design.',
           author: { sessionId: apiSessionId },
@@ -479,6 +524,141 @@ it('silently joins personal Claude alongside a separate API-key participant and 
       const live = registry.findBySessionId(sessionId);
       if (live) registry.abort(live.clientId);
     }
+    const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
+    await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
+    native.restore();
+  }
+}, 30000);
+
+it('routes an independent specialist review across OpenAI and qualified Anthropic Messages accounts', async () => {
+  if (journey.state.root !== undefined) await journey.restartApplication();
+  const h = await journey.getApplicationUiJourney();
+  const { getSpecialistConsultations } = await import('../specialist-consultation-runtime.js');
+  const { captureAgentLibraryAuthorization } = await import('../agent-library-transport.js');
+  const { getAgentLibrary } = await import('../agent-library-runtime.js');
+  const auth = captureAgentLibraryAuthorization(h.clientId);
+  (await import('../auth.js')).setAuthRevocationStore(h.events);
+  const service = getSpecialistConsultations();
+  const initialView = await h.api.view(h.group);
+  for (const reader of initialView.policies.filter((policy) => policy.readsFutureDiscussion)) {
+    await h.api.setPolicy(h.group, {
+      requestId: crypto.randomUUID(),
+      expectedMembershipRevision: initialView.membershipRevision,
+      expectedRevision: reader.revision,
+      sessionId: reader.sessionId,
+      readsFutureDiscussion: false,
+      repliesByDefault: false,
+    });
+  }
+  const library = getAgentLibrary();
+  for (const role of ['consult-planner', 'consult-reviewer']) {
+    library.saveDraft('user', {
+      profileId: role,
+      expectedVersion: 0,
+      expectedRevision: 0,
+      idempotencyKey: role,
+      definition: {
+        name: role,
+        role,
+        modelPolicyRole: role,
+        instructions: 'Contribute to the bounded assignment.',
+        expectedOutput: 'Evidence',
+        acceptanceCriteria: ['Cite evidence'],
+      },
+    });
+    library.publish('user', {
+      profileId: role,
+      expectedVersion: 1,
+      idempotencyKey: 'publish-' + role,
+    });
+  }
+  const authority = {
+    leadSessionId: 'existing-chat',
+    operatorConnectionId: h.clientId,
+    auth: auth.auth,
+    signal: new AbortController().signal,
+    assertCurrent: () => auth.assertCurrent(),
+  };
+  const catalog = await service.catalog(authority);
+  const source = catalog.repositories.find((row) => row.accountId === 'offline-messages')!;
+  const policy = await service.authorize(
+    authority,
+    {
+      requestId: crypto.randomUUID(),
+      repository: source.repository,
+      connectionId: source.connectionId,
+      maxConsultations: 2,
+      routes: [
+        {
+          role: 'consult-planner',
+          accountId: 'offline-api',
+          model: 'fixture-model',
+          reasoningEffort: 'low',
+          runOn: 'local',
+          targetId: 'offline-observation',
+        },
+        {
+          role: 'consult-reviewer',
+          accountId: 'offline-messages',
+          model: 'fixture-model',
+          reasoningEffort: 'low',
+          runOn: 'local',
+          targetId: 'offline-claude-target',
+        },
+      ],
+    },
+    async () => true,
+  );
+  const { recordApplicationMessagingRuntime } =
+    await import('./fixtures/symposium-recording-runtime.js');
+  const native = await recordApplicationMessagingRuntime(h.events);
+  try {
+    const input = {
+      requestId: crypto.randomUUID(),
+      role: 'consult-planner',
+      assignment: 'Plan the change.',
+      messageIds: [],
+      artifacts: [],
+    };
+    await service.consult(authority, policy.policyId, input);
+    await vi.waitFor(
+      () =>
+        expect(
+          service.read(authority, input.requestId).status,
+          JSON.stringify({
+            observed: service.read(authority, input.requestId).deliveries,
+            native: native.requests.map((r) => r.method),
+          }),
+        ).toBe('completed'),
+      { timeout: 5000 },
+    );
+    const review = {
+      ...input,
+      requestId: crypto.randomUUID(),
+      role: 'consult-reviewer',
+      assignment: 'Review independently.',
+      reviewOf: input.requestId,
+    };
+    const requested = await service.consult(authority, policy.policyId, review);
+    expect(requested.independence).toMatchObject({ independent: true, differentFamily: true });
+    await vi.waitFor(() =>
+      expect(service.read(authority, review.requestId).status).toBe('completed'),
+    );
+    expect(service.read(authority, review.requestId).contributions[0]).toMatchObject({
+      role: 'consult-reviewer',
+      accountId: 'offline-messages',
+      text: 'Personal Claude reviewed the selected design.',
+    });
+    const before = observed.inputs.length;
+    await service.consult(authority, policy.policyId, review);
+    expect(observed.inputs).toHaveLength(before);
+    expect(observed.inputs.at(-1)?.text).toContain('Reviewed the selected design.');
+    expect(JSON.stringify(service.read(authority, review.requestId))).not.toContain(
+      'synthetic-messages-key',
+    );
+  } finally {
+    const { registry } = await import('../chat.js');
+    for (const entry of registry.entries(true)) registry.abort(entry[0]);
     const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
     await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
     native.restore();
