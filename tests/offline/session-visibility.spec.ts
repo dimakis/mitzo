@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 
 const bundle = build({
@@ -109,7 +110,10 @@ for (const surface of ['/sessions', '/panel'])
           });
         if (path.startsWith('/api/')) return route.fulfill({ json: {} });
         if (path.endsWith('.png') || path.endsWith('.svg'))
-          return route.fulfill({ status: 404, body: '' });
+          return route.fulfill({
+            body: await readFile(resolve('frontend/public', path.slice(1))),
+            contentType: path.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
+          });
         const file = files.find((file) =>
           path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
         );
@@ -120,7 +124,7 @@ for (const surface of ['/sessions', '/panel'])
           });
         return route.fulfill({
           contentType: 'text/html',
-          body: '<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><link rel="stylesheet" href="/fixture.css"><script type="module" src="/fixture.js"></script></html>',
+          body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'light' ? 'teal' : 'mint'}" data-font="${theme === 'light' ? 'georgia' : 'system'}"><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><link rel="stylesheet" href="/fixture.css"><script type="module" src="/fixture.js"></script></html>`,
         });
       });
       await page.goto(surface);
@@ -147,6 +151,7 @@ for (const surface of ['/sessions', '/panel'])
       await expect(page.getByRole('alert')).toHaveText('Review recovery first.');
       await page.screenshot({
         path: testInfo.outputPath(`hidden-history-${surface.slice(1)}-${theme}.png`),
+        animations: 'disabled',
       });
       failRestore = false;
       await page.getByRole('button', { name: 'Restore chat', exact: true }).click();
@@ -164,6 +169,7 @@ for (const surface of ['/sessions', '/panel'])
       expect(writes.length).toBe(before);
       await page.screenshot({
         path: testInfo.outputPath(`hidden-cleanup-${surface.slice(1)}-${theme}.png`),
+        animations: 'disabled',
       });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,

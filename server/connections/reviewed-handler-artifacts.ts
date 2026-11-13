@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1132-chat-ordering-fixture';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1133-chat-visual-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -48,7 +48,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'dcab456ac426a22b32547453e1acb5cbe7e2c1a0b3050581a4edbcfc63601661',
   '../session-visibility.ts': 'b631145345f948e5adbcdca2a41e033d5e12d0070fb3bcc30a6a8b05e5d560a0',
   '../../tests/offline/session-visibility.spec.ts':
-    'ea1aceae1c29998a3b145bc160fdae222ec24ad21aa33fd5b09ea16b21c6e923',
+    'cf6db1e7d23db2994feb2aa947cdf4905e644163cc39be1ca22b67f7d6248c04',
   '../__tests__/claude-login-sandbox.native.test.ts':
     '8861fece6a23ded423bbbdd8559c91ebab0e541adab372dc5d44b01c4fc84584',
   '../__tests__/credential-sdk-boundary-spawn.test.ts':
@@ -4307,7 +4307,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/TodoWorkspace.test.tsx':
     '6da5dfa21630d242bb7d070c6487772106a81b31eccfb015f5ea999025d89427',
   '../../tests/offline/session-library.spec.ts':
-    'eeffdb6f6b7b88109de7298a2356cfceea0e08160baa5b47236be025dc2d6fc2',
+    'c178ed143749c40902cc58dc48041684cbca3f31240bec0ea4bed946f8d90141',
   '../../frontend/src/hooks/__tests__/useAttentionFeed.canonical.test.tsx':
     'cac18f7dcd86924d644f88afcaaf886f0a01e39ca090d9dd9c882b4e70e9c6af',
   '../../frontend/src/components/__tests__/TelosTreeConversationEntry.refresh.test.tsx':
