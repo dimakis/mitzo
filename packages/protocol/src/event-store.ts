@@ -97,6 +97,7 @@ import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
 import {
   captureCollaborationDurableTranscript,
+  captureCollaborationCompletedBoundary,
   openCollaborationVisibleSource,
   readCollaborationFinalizedReply,
   readCollaborationStreamingReply,
@@ -4714,6 +4715,13 @@ export class EventStore {
       const initialPrompt = this.getSession(sessionId)?.initialPrompt ?? null;
       return captureCollaborationDurableTranscript(this.db!, sessionId, initialPrompt);
     })();
+  }
+
+  getCollaborationCompletedBoundary(sessionId: string) {
+    this.assertConversationIdentity(sessionId);
+    if (!this.isCollaborationParticipantAvailable(sessionId))
+      throw new SessionCollaborationError('not_found');
+    return captureCollaborationCompletedBoundary(this.db!, sessionId);
   }
 
   /** Host-only visible source capability. The caller retains normal operator/session authorization. */

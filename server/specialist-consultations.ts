@@ -391,7 +391,7 @@ export class SpecialistConsultations {
       a.auth.id,
       policyId,
       input,
-      this.owners.events.getDurableSessionTranscript(a.leadSessionId).boundary,
+      this.owners.events.getCollaborationCompletedBoundary(a.leadSessionId),
       candidates[0],
     );
     const pending = this.pending.get(a.leadSessionId);

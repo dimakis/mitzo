@@ -52,6 +52,36 @@ const completedAnchors = `session_id=@session AND seq<=@through AND ${ordinary()
  AND json_extract(b.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
  AND json_extract(b.payload,'$.blockType')='text')))`;
 
+/** Explicit completed prefix for a lead calling a tool during its own turn.
+ * This selects a boundary; it never certifies partial text as a finished message.
+ * The existing source reader still validates every requested public reference. */
+export function captureCollaborationCompletedBoundary(db: Database.Database, session: string) {
+  return db.transaction(() => {
+    const active = db
+      .prepare(
+        `SELECT MIN(s.seq) AS seq FROM events s
+      WHERE s.session_id=? AND s.type='message_start' AND ${ordinary('s')}
+      AND NOT EXISTS (SELECT 1 FROM events e WHERE e.session_id=s.session_id
+        AND e.seq>s.seq AND e.type='message_end' AND ${ordinary('e')}
+        AND json_extract(e.payload,'$.messageId')=json_extract(s.payload,'$.messageId'))`,
+      )
+      .get(session) as { seq: number | null };
+    const highwater = db
+      .prepare('SELECT MAX(seq) AS seq FROM events WHERE session_id=?')
+      .get(session) as { seq: number | null };
+    const through = active.seq === null ? highwater.seq : active.seq - 1;
+    if (through === null || !Number.isSafeInteger(through) || through < 1) fail();
+    const last = db
+      .prepare(
+        `SELECT seq,${messageIdProjection} AS messageId FROM events
+      WHERE ${completedAnchors} ORDER BY seq DESC LIMIT 1`,
+      )
+      .get({ session, through }) as { seq: number; messageId: unknown } | undefined;
+    if (!last || typeof last.messageId !== 'string') fail();
+    return { sequence: last.seq, messageId: last.messageId };
+  })();
+}
+
 /** Capture from retained events only. The highwater and completed anchor belong
  * to the same SQLite read transaction as every bounded visible-text projection.
  * No lifecycle recovery, SDK discovery, provider payload or event replay is used. */
