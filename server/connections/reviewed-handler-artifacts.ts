@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1127-specialist-consultation';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1128-specialist-consultation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -45,7 +45,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/specialist-consultation-store.test.ts':
     '1ff060424f64bc16d012db977d51dce62739707d4b816a15b4066da7acea3a5c',
   '../__tests__/specialist-consultation-application.test.ts':
-    'bcc77eccb80d573c835d2792ca8cb71507ba7ff5eef6f4ed3a7a882d05c935a4',
+    'cb7d0af2f643e8550d206caf7e2f3e380cdc031a67f01708a8c1edad9262482f',
   '../../packages/protocol/__tests__/consultation-context-boundary.test.ts':
     'dab750b79285533040e56862f2e78dbda53cff0745c156e450b54b077f8d6347',
   '../__tests__/claude-login-sandbox.native.test.ts':

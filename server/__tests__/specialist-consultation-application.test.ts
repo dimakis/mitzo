@@ -401,7 +401,6 @@ it('recovers a lost join response using the original shared owner without alloca
       elapsedTime.clock?.mockRestore();
       expireBeforeAdmission.mockRestore();
     }
-    delete elapsedTime.clock;
     let providerFenceReached = false;
     const wrapFinalFence = vi
       .spyOn(ApplicationCollaborationMessaging.prototype, 'send')
