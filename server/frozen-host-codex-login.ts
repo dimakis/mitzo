@@ -49,6 +49,7 @@ import {
   type AuthIdentity,
 } from './host-codex-login-files.js';
 export interface FrozenHostCodexClient {
+  readonly modelProvider?: string;
   initialize(): Promise<void>;
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
   close(): void;
