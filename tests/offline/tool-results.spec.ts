@@ -46,7 +46,10 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByText('/workspace/tests/new-file.ts', { exact: true })).toBeVisible();
     const code = page.locator('.code-block-highlight-pre').first();
     expect(await code.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Mono');
-    await page.screenshot({ path: info.outputPath(`apply-patch-${theme}.png`) });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: info.outputPath(`responsiveness-apply-patch-${theme}.png`) });
     await patch.click();
     await page.getByRole('button', { name: /GitHubRead/ }).click();
     await expect(page.getByText('Endpoint', { exact: true })).toBeVisible();

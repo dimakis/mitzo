@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1123-apply-patch-diffs';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1124-apply-patch-visual-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2070,7 +2070,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/tool-results.tsx':
     '76ad4b199280da8905075ba026227ed5660c48ef94a59ca0ed017f23679303eb',
   '../../tests/offline/tool-results.spec.ts':
-    'b20780bcf9993c1430b2b42dafc823e8444cd85402309f4e3555375e2e77b0b7',
+    '2ca3e3c2dd5aa7306795bf9cc3777b078619a2e5ff72c61c1ccf55aa8567ca8a',
   '../../frontend/src/lib/agent-task-proposal-link.ts':
     'c6d0636d69ea3fce109df49793011593761d7cfa34070818d92646f2a920a51f',
   '../session-agent-task-tools.ts':
