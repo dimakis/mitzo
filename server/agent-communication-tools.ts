@@ -602,6 +602,12 @@ export function sessionAgentCommunicationTools(owners: Owners) {
           captured.auth.id,
           call,
           send,
+          (originalOperator, replyingOperator) => {
+            current();
+            // Retained creating-login IDs are provenance. Live sender/recipient
+            // authority and the exact correlated grant were checked above.
+            return ordinaryOperatorOwnsConversation(originalOperator, replyingOperator);
+          },
         );
         if (message.status !== 'pending') return reconcile(message);
         const target = owners.registry.findBySessionId(input.recipientConversationId);

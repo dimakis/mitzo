@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { createAgentMessageApprover } from '../agent-communication-permission.js';
 import { EventStore } from '../event-store.js';
@@ -21,6 +21,7 @@ import { assertAgentToolRoute, bindAgentToolSelection } from '../agent-tool-sele
 import { SdkAgentMessageRuntime } from '../sdk-agent-message-runtime.js';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { createInteractiveAuth } from '../interactive-auth-core.js';
+import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 
 const cleanups: Array<() => void> = [];
 const revocations = new EventStore(':memory:');
@@ -162,6 +163,89 @@ async function signedOperator() {
   cleanups.push(() => revokeAuthSession(auth));
   return auth;
 }
+
+it.each(['codex-worker', 'claude-worker'] as const)(
+  'accepts a correlated reply from %s across verified operator logins through the full tool owner',
+  async (childId) => {
+    const auth = await signedOperator();
+    const childAuth = await signedOperator();
+    const f = fixture('codex', auth, childAuth);
+    f.install(childId, childId === 'codex-worker' ? 'codex' : 'claude-sdk');
+    const origin = f.install('orchestrator', 'codex');
+    const child = f.registry.get(`operator:${childId}`)!;
+    const brief = JSON.stringify({ summary: 'Assigned Telos child' });
+    retainTelosWorkRoleContext(f.events, childId, f.events.getSession(childId)!.accountBinding!, {
+      version: 1,
+      itemId: 'assigned-slice',
+      role: 'worker',
+      leadConversationId: 'other-lead',
+      brief: {
+        revision: 'r1',
+        text: brief,
+        sha256: createHash('sha256').update(brief).digest('hex'),
+      },
+      parentCriteria: [],
+      overallGoal: { itemId: 'feature', revision: 'r1', text: 'Assigned work' },
+      sources: [],
+      artifacts: [],
+    });
+    origin.session.sessionAllowList.add(`agent-communication:adapters-v1:${auth.id}:orchestrator`);
+    cleanups.push(bindAgentLibraryTransport('child-operator', childAuth));
+    child.ownerConnectionId = 'child-operator';
+    const childPrompt = vi.fn();
+    child.transport.send = childPrompt;
+    const toolName =
+      childId === 'claude-worker'
+        ? 'mcp__mitzo-connections__AgentCommunication'
+        : 'AgentCommunication';
+    const childTools = sessionAgentCommunicationTools({
+      toolName,
+      events: f.events,
+      native: f.native,
+      registry: f.registry,
+      conversationId: childId,
+      session: child,
+      assertRuntimeCurrent: async () => {},
+      assertRuntimeCurrentSync() {},
+      approve: createAgentMessageApprover({
+        events: f.events,
+        registry: f.registry,
+        conversationId: childId,
+        toolName,
+        assertCurrent() {},
+      }),
+      startQueued: vi.fn(async () => {}),
+    });
+    const sent = (await f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: childId,
+      text: 'Report the result.',
+    })) as { messageId: string };
+    const input = {
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'orchestrator',
+      text: 'Result ready.',
+      replyTo: sent.messageId,
+    };
+    const reply = await childTools.execute(input, new AbortController().signal, {
+      turnId: 'child-turn',
+      callId: 'child-reply',
+    });
+    expect(reply).toMatchObject({ status: 'delivered', replyTo: sent.messageId });
+    expect(origin.steer).toHaveBeenCalledOnce();
+    expect(childPrompt).not.toHaveBeenCalled();
+    expect(
+      await childTools.execute(input, new AbortController().signal, {
+        turnId: 'child-turn',
+        callId: 'retry',
+      }),
+    ).toEqual(reply);
+    expect(origin.steer).toHaveBeenCalledOnce();
+    expect(f.events.agentCommunication.inbox('orchestrator').messages).toEqual([reply]);
+  },
+);
 
 it('identifies unavailable sender custody separately from an inaccessible recipient', async () => {
   const f = fixture();

@@ -20,6 +20,7 @@ import { createLogger } from './logger.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import type { EventStore } from './event-store.js';
 import { telosWorkContext } from './telos-work-observation.js';
+import { telosWorkOverview } from './telos-work-overview.js';
 
 export const telosBacklogSchemas = {
   TelosListItems: TelosListItemsInputSchema,
@@ -39,7 +40,7 @@ export const telosBacklogDefinitions: ToolDefinition[] = Object.entries(telosBac
     input_schema: { type: 'object', ...z.toJSONSchema(schema, { io: 'input' }) },
     description:
       name === 'TelosManageItem'
-        ? 'Inspect a Telos item and lifecycle (read); edit its brief or classify an unclassified item with workLevel outcome, feature or slice before lead/worker setup (edit); record evidence and optionally change status to active, acknowledged or completed (update); archive, unarchive or restore. Read first: edit/update use item.revision; lifecycle changes use lifecycle.revision. Complete unfinished children before the parent. Large reads return json-fragment: follow nextOffset with unchanged snapshotHash and concatenate contentFragment. Mutations require exact approval and requestId; retry uncertain delivery with identical input. No lead assignment needed. No permanent deletion or conversion of existing work levels.'
+        ? 'Inspect a Telos item and lifecycle (read). Prefer view: overview for bounded current status, work level, parent/children, assigned chats and exact revisions; truncatedFields identifies excerpts and details supplies the full-read request. view: full (also the legacy default) retains complete content and history. Full reads may return json-fragment: follow nextOffset and verify unchanged snapshotHash only when that detail is needed. Edit the brief or classify unclassified work with workLevel outcome, feature or slice (edit); record evidence/status (update); archive/unarchive/restore. Edits/updates use item.revision; lifecycle changes use lifecycle.revision. Mutations require exact approval/requestId; retry uncertainty identically. Complete children before their parent. No lead assignment needed; no permanent deletion or conversion of existing levels.'
         : name === 'TelosCreateFeature'
           ? 'Create one standalone feature item with a complete brief and observable acceptance criteria. Use this for a single feature without inventing an outcome wrapper or milestones. Search existing work first. Supply a unique requestId and audit note; requires exact approval. Retry uncertainty with identical input and ID. Saves canonical backlog work and originating-chat provenance only; source attachment, reviewed working-session setup, assignment and execution remain separate.'
           : name === 'TelosCreateChild'
@@ -49,6 +50,11 @@ export const telosBacklogDefinitions: ToolDefinition[] = Object.entries(telosBac
 );
 const backlogOperations = `
 Use TelosListItems to browse live Telos and TelosSearchItems to find existing work before creating it.
+For current status, relationships, assigned chats and fresh revisions, use TelosManageItem read
+with view: overview first. It returns one bounded response and explicitly marks excerpts/omissions.
+Use view: full only for the particular brief/history detail still needed; do not page historical
+notes merely to establish current status. Reuse observations until a relevant change or decision
+requires freshness. Overview item/lifecycle revisions are the canonical tokens, not excerpt hashes.
 Use TelosCreateFeature for a standalone feature with a complete brief, criteria, audit note and
 unique requestId. No outcome wrapper or milestones are required. Session setup remains separate.
 Read item.workLevel before decomposing older work. For an unclassified item, TelosManageItem
@@ -173,7 +179,12 @@ export async function executeTelosBacklogOperation(
     } else {
       const input = TelosManageItemInputSchema.parse(structuredClone(raw));
       if (input.operation === 'read') {
-        value = {
+        if (input.view === 'overview' && (input.offset ?? 0) !== 0)
+          throw new TelosWorkError(
+            'invalid',
+            'Overview is one bounded response; offsets apply only to full reads',
+          );
+        const observation = {
           item: owners.items.readGuarded(input.itemId, current),
           lifecycle: owners.work.readBacklogGuarded(
             () => owners.work.readLifecycle(input.itemId, actor),
@@ -190,8 +201,12 @@ export async function executeTelosBacklogOperation(
             current,
           ),
         };
+        value = input.view === 'overview' ? telosWorkOverview(observation) : observation;
         const full = JSON.stringify(value);
-        if ((input.offset ?? 0) > 0 || Buffer.byteLength(full) > 48 * 1024) {
+        if (
+          input.view !== 'overview' &&
+          ((input.offset ?? 0) > 0 || Buffer.byteLength(full) > 48 * 1024)
+        ) {
           const offset = input.offset ?? 0;
           if (offset >= full.length)
             throw new TelosWorkError(
