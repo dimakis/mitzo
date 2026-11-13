@@ -7,6 +7,7 @@ export const SpecialistRouteInputSchema = z.strictObject({
   agent: AgentProfileSelectionSchema.optional(),
   accountId: id,
   model: id,
+  modelFamily: id.optional(),
   reasoningEffort: id.nullable(),
   runOn: z.enum(['local', 'openshell']).default('local'),
   targetId: id,
@@ -49,6 +50,7 @@ export const ConsultationRecordSchema = z.strictObject({
   policyId: z.uuid(),
   leadSessionId: id,
   revision: z.number().int().nonnegative(),
+  attemptOrdinal: z.number().int().nonnegative().max(7),
   input: ConsultationInputSchema,
   route: SpecialistRouteSchema,
   boundary: CollaborationSnapshotSelectionSchema.shape.boundary,
@@ -56,7 +58,6 @@ export const ConsultationRecordSchema = z.strictObject({
   reviewRequestId: z.uuid(),
   joinRequestId: z.uuid(),
   sendRequestId: z.uuid(),
-  stopRequestId: z.uuid(),
   state: z.enum([
     'reserved',
     'preparing',
@@ -70,12 +71,13 @@ export const ConsultationRecordSchema = z.strictObject({
   joinId: z.uuid().nullable(),
   review: z.unknown().optional(),
   messageInput: z.unknown().optional(),
+  routingAudit: z.unknown().optional(),
   diagnostic: z.strictObject({ code: id, stage: id, message: z.string().max(1000) }).nullable(),
 });
 export type ConsultationRecord = z.infer<typeof ConsultationRecordSchema>;
 
 export const specialistToolSchema = z.strictObject({
-  operation: z.enum(['catalog', 'authorize', 'consult', 'read', 'stop', 'revoke']),
+  operation: z.enum(['catalog', 'authorize', 'consult', 'read', 'recover', 'stop', 'revoke']),
   requestId: z.uuid().optional(),
   policyId: z.uuid().optional(),
   role: id.optional(),

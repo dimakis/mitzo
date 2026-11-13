@@ -1,4 +1,8 @@
-import { CollaborationMessageInputSchema, type AgentLibraryVersion } from '@mitzo/protocol';
+import {
+  CollaborationMessageInputSchema,
+  CollaborationApplicationReviewResultSchema,
+  type AgentLibraryVersion,
+} from '@mitzo/protocol';
 import { isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
@@ -21,6 +25,9 @@ import {
   type ConsultationRecord,
 } from './specialist-consultation-contract.js';
 import { createLogger } from './logger.js';
+import { specialistRoleExecution } from './specialist-role-execution.js';
+import { specialistDiagnostic } from './specialist-consultation-diagnostics.js';
+import { specialistReviewDiversity, specialistReviewerRank } from './specialist-review-routing.js';
 
 const log = createLogger('specialist-consultation');
 export type SpecialistAuthority = {
@@ -30,12 +37,6 @@ export type SpecialistAuthority = {
   signal: AbortSignal;
   assertCurrent(): void;
 };
-const family = (provider: string) =>
-  provider.startsWith('anthropic-')
-    ? 'anthropic'
-    : provider.startsWith('openai')
-      ? 'openai'
-      : provider;
 
 /** Bounded composition over existing Library, repository, context, joining,
  * messaging and ordinary execution owners. No model client or scheduler. */
@@ -315,13 +316,9 @@ export class SpecialistConsultations {
     const independent =
       record.route.agent.profileId !== original.route.agent.profileId &&
       record.sessionId !== original.sessionId;
-    const differentFamily = family(record.route.provider) !== family(original.route.provider);
     return {
       independent,
-      differentFamily,
-      reason: differentFamily
-        ? 'Independent profile and model family selected.'
-        : 'Independent profile selected. No eligible different-family route for this role was authorized in this policy.',
+      ...specialistReviewDiversity(record.route, original.route),
     };
   }
   read(a: SpecialistAuthority, requestId: string) {
@@ -391,8 +388,8 @@ export class SpecialistConsultations {
       );
       candidates.sort(
         (left, right) =>
-          Number(family(left.provider) === family(reviewed.receipt.route.provider)) -
-          Number(family(right.provider) === family(reviewed.receipt.route.provider)),
+          specialistReviewerRank(left, reviewed.receipt.route) -
+          specialistReviewerRank(right, reviewed.receipt.route),
       );
     }
     if (!candidates.length)
@@ -405,6 +402,29 @@ export class SpecialistConsultations {
       this.owners.events.getCollaborationCompletedBoundary(a.leadSessionId),
       candidates[0],
     );
+    if (record.state !== 'reserved' && !this.pending.has(a.leadSessionId))
+      return this.read(a, record.requestId);
+    return this.run(a, policy, record);
+  }
+  async recover(a: SpecialistAuthority, requestId: string) {
+    this.current(a);
+    const record = this.receipts.read(a.leadSessionId, requestId);
+    const observed = this.read(a, requestId);
+    if (observed.terminal || record.state === 'stopped') return observed;
+    const policy = this.receipts.assertPolicy(a.leadSessionId, a.auth.id, record.policyId);
+    // Retained send receipts always reconcile through their original owner.
+    // Recovery cannot replay possibly accepted native work.
+    if (
+      record.messageInput &&
+      this.owners.events.collaborationConversation.getMessageForRequest(
+        policy.collaborationId,
+        record.messageInput,
+      )
+    )
+      return observed;
+    return this.run(a, policy, record);
+  }
+  private run(a: SpecialistAuthority, policy: SpecialistPolicy, record: ConsultationRecord) {
     const pending = this.pending.get(a.leadSessionId);
     if (pending) {
       if (pending.requestId !== record.requestId)
@@ -413,7 +433,6 @@ export class SpecialistConsultations {
         );
       return pending.result;
     }
-    if (record.state !== 'reserved') return this.read(a, record.requestId);
     const cancel = new AbortController();
     const result = this.execute(a, policy, record, cancel.signal).finally(() =>
       this.pending.delete(a.leadSessionId),
@@ -447,62 +466,74 @@ export class SpecialistConsultations {
       assertCurrent();
       const resolved = await this.resolveRoute(record.route);
       assertCurrent();
-      update({ state: 'preparing' });
+      const routing = specialistRoleExecution(policy, record, loadAccountProfiles());
+      if (routing.kind !== 'selected')
+        throw Error('Specialist role routing refused: ' + routing.code);
+      update({ state: 'preparing', routingAudit: routing.audit });
       const workspace = this.owners.workspaces();
-      await workspace.preview(
-        resolved.binding,
-        policy.connectionId,
-        policy.repository,
-        signal,
-        {
-          runOn: record.route.runOn,
-          runtime: {
-            account: resolved.runtime.account,
-            harness: resolved.runtime.harness.implementation,
-            targetId: resolved.runtime.execution.targetId,
-          },
-        },
-        record.workspaceId,
-      );
-      assertCurrent();
-      await workspace.prepare(record.workspaceId, resolved.binding, signal);
-      assertCurrent();
-      stage = 'context_review';
-      const reviewOwner = new CollaborationApplicationReview({
-        store: this.owners.events,
-        workspaces: workspace,
-        authorizeOperator: () => assertCurrent(),
-      });
-      const view = this.assertAudience(policy, null);
-      const reviewed = await reviewOwner.review(
-        a.auth,
-        a.operatorConnectionId,
-        policy.collaborationId,
-        {
-          selection: {
-            requestId: record.reviewRequestId,
-            expectedMembershipRevision: view.membershipRevision,
-            sourceConversationId: a.leadSessionId,
-            boundary: record.boundary,
-            mode: 'selected',
-            messageIds: record.input.messageIds,
-            artifacts: record.input.artifacts,
-            purpose: record.input.assignment.slice(0, 4000),
-            joiningBrief: record.input.assignment,
-          },
-          target: {
+      let reviewed = record.review
+        ? CollaborationApplicationReviewResultSchema.parse(record.review)
+        : undefined;
+      let messageInput = record.messageInput
+        ? CollaborationMessageInputSchema.parse(record.messageInput)
+        : undefined;
+      if (!messageInput && !reviewed) {
+        await workspace.preview(
+          resolved.binding,
+          policy.connectionId,
+          policy.repository,
+          signal,
+          {
             runOn: record.route.runOn,
-            accountId: record.route.accountId,
-            model: record.route.model,
-            reasoningEffort: record.route.reasoningEffort,
-            agent: record.route.agent,
-            repositoryWorkspaceId: record.workspaceId,
-            permissionMode: 'ask',
+            runtime: {
+              account: resolved.runtime.account,
+              harness: resolved.runtime.harness.implementation,
+              targetId: resolved.runtime.execution.targetId,
+            },
           },
-        },
-        signal,
-      );
-      assertCurrent();
+          record.workspaceId,
+        );
+        assertCurrent();
+        await workspace.prepare(record.workspaceId, resolved.binding, signal);
+        assertCurrent();
+        stage = 'context_review';
+        const reviewOwner = new CollaborationApplicationReview({
+          store: this.owners.events,
+          workspaces: workspace,
+          authorizeOperator: () => assertCurrent(),
+        });
+        const view = this.assertAudience(policy, null);
+        reviewed = await reviewOwner.review(
+          a.auth,
+          a.operatorConnectionId,
+          policy.collaborationId,
+          {
+            selection: {
+              requestId: record.reviewRequestId,
+              expectedMembershipRevision: view.membershipRevision,
+              sourceConversationId: a.leadSessionId,
+              boundary: record.boundary,
+              mode: 'selected',
+              messageIds: record.input.messageIds,
+              artifacts: record.input.artifacts,
+              purpose: record.input.assignment.slice(0, 4000),
+              joiningBrief: record.input.assignment,
+            },
+            target: {
+              runOn: record.route.runOn,
+              accountId: record.route.accountId,
+              model: record.route.model,
+              reasoningEffort: record.route.reasoningEffort,
+              agent: record.route.agent,
+              repositoryWorkspaceId: record.workspaceId,
+              permissionMode: 'ask',
+            },
+          },
+          signal,
+        );
+        assertCurrent();
+        update({ state: 'reviewed', review: reviewed });
+      }
       let text = record.input.assignment;
       if (record.input.reviewOf) {
         const previous = this.read(a, record.input.reviewOf);
@@ -513,64 +544,74 @@ export class SpecialistConsultations {
           JSON.stringify(previous.contributions);
       }
       if (
-        Buffer.byteLength(JSON.stringify(reviewed.snapshot) + text, 'utf8') > policy.maxContextBytes
+        Buffer.byteLength(JSON.stringify(reviewed?.snapshot ?? null) + text, 'utf8') >
+        policy.maxContextBytes
       )
         throw Error('Selected context exceeds the approved byte limit; narrow it explicitly');
-      update({ state: 'reviewed', review: reviewed });
-      stage = 'joining';
-      const joined = await createApplicationCollaborationJoining(
-        { store: this.owners.events, workspaces: workspace },
-        a.auth,
-      ).confirm(
-        a.auth.id,
-        policy.collaborationId,
-        {
-          requestId: record.joinRequestId,
-          expectedMembershipRevision: reviewed.expectedMembershipRevision,
-          name: resolved.agent.definition.name,
-          settings: reviewed.settings,
-          snapshot: { snapshotId: reviewed.snapshot.snapshotId, sha256: reviewed.snapshot.sha256 },
-        },
-        signal,
-      );
-      assertCurrent();
-      if (joined.state !== 'linked' || !joined.sessionId)
-        throw Error('Specialist joining is incomplete; preserve its original join receipt');
-      update({ state: 'joined', sessionId: joined.sessionId, joinId: joined.joinId });
-      const current = this.assertAudience(policy, joined.sessionId);
-      const messageInput = CollaborationMessageInputSchema.parse({
-        requestId: record.sendRequestId,
-        expectedMembershipRevision: current.membershipRevision,
-        expectedPolicySequence: current.policySequence,
-        text,
-        responders: { kind: 'selected', sessionIds: [joined.sessionId] },
-        snapshot: null,
-      });
+      if (!messageInput) {
+        if (!reviewed) throw Error('Original consultation review is unavailable');
+        stage = 'joining';
+        const joined = await createApplicationCollaborationJoining(
+          { store: this.owners.events, workspaces: workspace },
+          a.auth,
+        ).confirm(
+          a.auth.id,
+          policy.collaborationId,
+          {
+            requestId: record.joinRequestId,
+            expectedMembershipRevision: reviewed.expectedMembershipRevision,
+            name: resolved.agent.definition.name,
+            settings: reviewed.settings,
+            snapshot: {
+              snapshotId: reviewed.snapshot.snapshotId,
+              sha256: reviewed.snapshot.sha256,
+            },
+          },
+          signal,
+        );
+        assertCurrent();
+        if (joined.state !== 'linked' || !joined.sessionId)
+          throw Error('Specialist joining is incomplete; preserve its original join receipt');
+        update({ state: 'joined', sessionId: joined.sessionId, joinId: joined.joinId });
+        const current = this.assertAudience(policy, joined.sessionId);
+        messageInput = CollaborationMessageInputSchema.parse({
+          requestId: record.sendRequestId,
+          expectedMembershipRevision: current.membershipRevision,
+          expectedPolicySequence: current.policySequence,
+          text,
+          responders: { kind: 'selected', sessionIds: [joined.sessionId] },
+          snapshot: null,
+        });
+        stage = 'delivery';
+        update({ messageInput });
+      }
       stage = 'delivery';
-      update({ messageInput });
       assertCurrent();
       await this.owners.messaging.send(a.auth, policy.collaborationId, messageInput, signal);
       assertCurrent();
       update({ state: 'dispatched' });
       return this.read(a, record.requestId);
     } catch (cause) {
-      log.warn('Specialist consultation could not complete', {
-        err: cause,
+      const diagnostic = specialistDiagnostic(cause);
+      const current = this.receipts.read(a.leadSessionId, record.requestId);
+      const details = {
         sessionId: a.leadSessionId,
         requestId: record.requestId,
         policyId: policy.policyId,
         stage,
-        code: 'specialist_consultation_failed',
-      });
-      const current = this.receipts.read(a.leadSessionId, record.requestId);
+        code: current.state === 'stopped' ? 'specialist_consultation_stopped' : diagnostic.code,
+      };
+      if (current.state === 'stopped') log.info('Specialist preparation stopped', details);
+      else log.warn('Specialist consultation could not complete', { ...details, err: cause });
       if (current.state !== 'stopped' && current.revision === record.revision)
         this.receipts.update(a.leadSessionId, record.requestId, current.revision, {
           state: 'uncertain',
           diagnostic: {
-            code: 'specialist_consultation_failed',
+            code: diagnostic.code,
             stage,
             message:
-              'Consultation did not complete. Read the original request and inspect its retained join/delivery receipts before recovery; do not submit a replacement request.',
+              diagnostic.message +
+              ' Read or recover the original request; do not submit a replacement.',
           },
         });
       this.current(a);

@@ -74,7 +74,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
   expect(catalog.profiles.map((p) => p.role)).toEqual(
     expect.arrayContaining(['planner', 'plan-reviewer']),
   );
-  const approve = vi.fn(async () => true);
+  const approve = vi.fn(async (_display: Record<string, unknown>) => true);
   const policy = await service.authorize(
     authority,
     {
@@ -88,6 +88,7 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         role,
         accountId: 'offline-personal',
         model: 'fixture-model',
+        modelFamily: 'synthetic-openai-family',
         reasoningEffort: 'low',
         runOn: 'local',
         targetId: 'offline-observation',
@@ -119,6 +120,10 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         .filter((line) => line.includes('specialist-consultation'))
         .join('\n'),
     ).toBe('dispatched');
+    expect(first.receipt.routingAudit).toMatchObject({
+      role: 'planner',
+      policyId: policy.policyId,
+    });
     await vi.waitFor(
       () =>
         expect(
@@ -189,7 +194,10 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
     });
     const gate = vi
       .spyOn(ApplicationCollaborationMessaging.prototype, 'send')
-      .mockImplementationOnce(async function (...args) {
+      .mockImplementationOnce(async function (
+        this: InstanceType<typeof ApplicationCollaborationMessaging>,
+        ...args
+      ) {
         await released;
         return send.apply(this, args);
       });
@@ -242,8 +250,98 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
   } finally {
     const { registry } = await import('../chat.js');
     for (const entry of registry.entries(true)) registry.abort(entry[0]);
-    const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
-    await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
     native.restore();
   }
 }, 60000);
+
+it('recovers a lost join response using the original shared owner without allocating a replacement', async () => {
+  const h = await journey.getApplicationUiJourney();
+  const { getSpecialistConsultations } = await import('../specialist-consultation-runtime.js');
+  const captured = (await import('../agent-library-transport.js')).captureAgentLibraryAuthorization(
+    h.clientId,
+  );
+  (await import('../auth.js')).setAuthRevocationStore(h.events);
+  const authority = {
+    leadSessionId: 'existing-chat',
+    operatorConnectionId: h.clientId,
+    auth: captured.auth,
+    signal: new AbortController().signal,
+    assertCurrent: () => captured.assertCurrent(),
+  };
+  const service = getSpecialistConsultations();
+  const catalog = await service.catalog(authority);
+  const policy = await service.authorize(
+    authority,
+    {
+      requestId: crypto.randomUUID(),
+      repository: 'example/acceptance',
+      connectionId: catalog.repositories[0].connectionId,
+      maxConsultations: 1,
+      routes: [
+        {
+          role: 'plan-reviewer',
+          accountId: 'offline-personal',
+          model: 'fixture-model',
+          reasoningEffort: 'low',
+          runOn: 'local',
+          targetId: 'offline-observation',
+        },
+      ],
+    },
+    async () => true,
+  );
+  const { OrdinaryCollaborationJoining } = await import('../collaboration-joining-owner.js');
+  const confirm = OrdinaryCollaborationJoining.prototype.confirm;
+  let originalSessionId: string | null = null;
+  const lost = vi
+    .spyOn(OrdinaryCollaborationJoining.prototype, 'confirm')
+    .mockImplementationOnce(async function (
+      this: InstanceType<typeof OrdinaryCollaborationJoining>,
+      ...args
+    ) {
+      const result = await confirm.apply(this, args);
+      originalSessionId = result.sessionId;
+      throw Error('Synthetic response loss after durable joining');
+    });
+  const { recordApplicationMessagingRuntime } =
+    await import('./fixtures/symposium-recording-runtime.js');
+  const native = await recordApplicationMessagingRuntime(h.events);
+  try {
+    const input = {
+      requestId: crypto.randomUUID(),
+      role: 'plan-reviewer',
+      assignment: 'Investigate this bounded question.',
+      messageIds: [],
+      artifacts: [],
+    };
+    const interrupted = await service.consult(authority, policy.policyId, input);
+    expect(interrupted.status).toBe('uncertain');
+    expect(
+      lost,
+      readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
+        .split('\n')
+        .filter((line) => line.includes('specialist-consultation'))
+        .slice(-3)
+        .join('\n'),
+    ).toHaveBeenCalledOnce();
+    expect(originalSessionId).toBeTruthy();
+    expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+    lost.mockRestore();
+    const recovered = await service.recover(authority, input.requestId);
+    expect(recovered.receipt.sessionId).toBe(originalSessionId);
+    expect(recovered.receipt.workspaceId).toBe(interrupted.receipt.workspaceId);
+    await vi.waitFor(
+      () => expect(service.read(authority, input.requestId).status).toBe('completed'),
+      { timeout: 5000 },
+    );
+    await service.recover(authority, input.requestId);
+    expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  } finally {
+    lost.mockRestore();
+    const { registry } = await import('../chat.js');
+    for (const entry of registry.entries(true)) registry.abort(entry[0]);
+    const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
+    await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle(), { timeout: 5000 });
+    native.restore();
+  }
+}, 30000);

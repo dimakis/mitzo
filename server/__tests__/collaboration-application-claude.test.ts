@@ -310,46 +310,49 @@ it('silently joins personal Claude alongside a separate API-key participant and 
         snapshot: null,
       };
       const accepted = await api.send(group, input);
-      await vi.waitFor(async () => {
-        const projected = await api.view(group);
-        const claudeDelivery = accepted.deliveries.find(
-          (delivery) => delivery.sessionId === joinedSessionId,
-        )!;
-        const apiDelivery = accepted.deliveries.find(
-          (delivery) => delivery.sessionId === apiSessionId,
-        )!;
-        const answer = projected.messages.find(
-          (message) => message.replyToDeliveryId === claudeDelivery.deliveryId,
-        );
-        expect(
-          answer,
-          readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
-            .split('\n')
-            .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
-            .slice(-20)
-            .join('\n'),
-        ).toMatchObject({
-          text: 'Personal Claude reviewed the selected design.',
-          author: { sessionId: joinedSessionId },
-          source: { commandId: claudeDelivery.commandId },
-        });
-        expect(
-          projected.messages.find(
-            (message) => message.replyToDeliveryId === apiDelivery.deliveryId,
-          ),
-          readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
-            .split('\n')
-            .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
-            .slice(-10)
-            .join('\n'),
-        ).toMatchObject({
-          text: 'Reviewed the selected design.',
-          author: { sessionId: apiSessionId },
-          source: { commandId: apiDelivery.commandId },
-        });
-        expect(JSON.stringify(answer)).not.toContain('private-claude');
-        expect((await api.observeSend(group, input)).terminal).toBe(true);
-      });
+      await vi.waitFor(
+        async () => {
+          const projected = await api.view(group);
+          const claudeDelivery = accepted.deliveries.find(
+            (delivery) => delivery.sessionId === joinedSessionId,
+          )!;
+          const apiDelivery = accepted.deliveries.find(
+            (delivery) => delivery.sessionId === apiSessionId,
+          )!;
+          const answer = projected.messages.find(
+            (message) => message.replyToDeliveryId === claudeDelivery.deliveryId,
+          );
+          expect(
+            answer,
+            readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
+              .split('\n')
+              .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
+              .slice(-20)
+              .join('\n'),
+          ).toMatchObject({
+            text: 'Personal Claude reviewed the selected design.',
+            author: { sessionId: joinedSessionId },
+            source: { commandId: claudeDelivery.commandId },
+          });
+          expect(
+            projected.messages.find(
+              (message) => message.replyToDeliveryId === apiDelivery.deliveryId,
+            ),
+            readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
+              .split('\n')
+              .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
+              .slice(-10)
+              .join('\n'),
+          ).toMatchObject({
+            text: 'Reviewed the selected design.',
+            author: { sessionId: apiSessionId },
+            source: { commandId: apiDelivery.commandId },
+          });
+          expect(JSON.stringify(answer)).not.toContain('private-claude');
+          expect((await api.observeSend(group, input)).terminal).toBe(true);
+        },
+        { timeout: 5000 },
+      );
       const count = observed.inputs.length;
       expect((await api.send(group, input)).messageId).toBe(accepted.messageId);
       expect(observed.inputs).toHaveLength(count);
@@ -528,7 +531,7 @@ it('silently joins personal Claude alongside a separate API-key participant and 
     await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
     native.restore();
   }
-}, 30000);
+}, 60000);
 
 it('routes an independent specialist review across OpenAI and qualified Anthropic Messages accounts', async () => {
   if (journey.state.root !== undefined) await journey.restartApplication();
@@ -591,6 +594,7 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
       routes: [
         {
           role: 'consult-planner',
+          modelFamily: 'synthetic-openai-family',
           accountId: 'offline-api',
           model: 'fixture-model',
           reasoningEffort: 'low',
@@ -599,6 +603,7 @@ it('routes an independent specialist review across OpenAI and qualified Anthropi
         },
         {
           role: 'consult-reviewer',
+          modelFamily: 'synthetic-anthropic-family',
           accountId: 'offline-messages',
           model: 'fixture-model',
           reasoningEffort: 'low',

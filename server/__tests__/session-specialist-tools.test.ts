@@ -9,7 +9,10 @@ import { revokeAuthSession } from '../auth.js';
 
 const fixture = vi.hoisted(() => ({
   approve: vi.fn(async (_display: unknown) => true),
-  consult: vi.fn(async () => ({ status: 'running', receipt: { requestId: 'retained' } })),
+  consult: vi.fn(async (_authority: unknown, _policyId: string, _input: unknown) => ({
+    status: 'running',
+    receipt: { requestId: 'retained' },
+  })),
   read: vi.fn(() => ({ status: 'completed', contributions: [{ text: 'Plan', role: 'planner' }] })),
   catalog: vi.fn(async () => ({ profiles: [] })),
 }));
@@ -144,4 +147,40 @@ it('preserves Ask, explicit tool selection, current login and cancellation fence
     true,
   );
   expect(fixture.consult).not.toHaveBeenCalled();
+});
+
+it('returns a useful independence refusal without exposing arbitrary upstream diagnostics', async () => {
+  const { tool } = tools();
+  const input = {
+    operation: 'consult',
+    requestId: randomUUID(),
+    policyId: randomUUID(),
+    role: 'reviewer',
+    assignment: 'Review independently',
+  };
+  fixture.consult.mockRejectedValueOnce(
+    Error('No eligible independent specialist route is authorized for this role'),
+  );
+  const refused = await tool.execute('SymposiumConsult', input, signal(), call);
+  expect(refused?.isError).toBe(true);
+  expect(JSON.parse(refused!.content)).toMatchObject({
+    error: 'independent_route_unavailable',
+    stage: 'consult',
+  });
+  fixture.consult.mockRejectedValueOnce(
+    Error('Upstream private credential payload must stay internal'),
+  );
+  const failed = await tool.execute('SymposiumConsult', input, signal(), call);
+  expect(failed?.content).not.toContain('private credential payload');
+});
+
+it('renews the original login after an awaited owner response', async () => {
+  const { tool, auth } = tools();
+  fixture.catalog.mockImplementationOnce(async () => {
+    revokeAuthSession(auth);
+    return { profiles: ['withheld-after-revocation'] } as never;
+  });
+  const result = await tool.execute('SymposiumConsult', { operation: 'catalog' }, signal(), call);
+  expect(result?.isError).toBe(true);
+  expect(result?.content).not.toContain('withheld-after-revocation');
 });

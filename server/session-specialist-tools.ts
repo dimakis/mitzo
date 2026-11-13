@@ -15,6 +15,7 @@ import { buildPermissionHandler } from './permission-handler.js';
 import { specialistToolSchema } from './specialist-consultation-contract.js';
 import { getSpecialistConsultations } from './specialist-consultation-runtime.js';
 import { createLogger } from './logger.js';
+import { specialistDiagnostic } from './specialist-consultation-diagnostics.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 
 const log = createLogger('specialist-tool');
@@ -74,7 +75,7 @@ export function sessionSpecialistTools(
         if (!['catalog', 'read'].includes(input.operation) && (!call?.turnId || !call.callId))
           throw Error('Verified current tool call required');
         if (
-          ['authorize', 'consult'].includes(input.operation) &&
+          ['authorize', 'consult', 'recover'].includes(input.operation) &&
           effectivePermissionMode(session) === 'ask'
         )
           throw Error('Ask mode cannot authorize or request specialist work');
@@ -128,7 +129,9 @@ export function sessionSpecialistTools(
           value =
             input.operation === 'stop'
               ? await service.stop(authority, input.requestId)
-              : service.read(authority, input.requestId);
+              : input.operation === 'recover'
+                ? await service.recover(authority, input.requestId)
+                : service.read(authority, input.requestId);
         }
         current();
         const failed =
@@ -138,25 +141,28 @@ export function sessionSpecialistTools(
           ['uncertain', 'failed'].includes(String(value.status));
         return { content: JSON.stringify(value), isError: !!failed };
       } catch (cause) {
-        log.warn('Specialist tool request failed', {
-          err: cause,
+        const diagnostic = specialistDiagnostic(cause);
+        const cancelled =
+          externalSignal.aborted ||
+          session.abortController.signal.aborted ||
+          operation?.signal.aborted === true;
+        const details = {
           sessionId,
           requestId,
           callId: call?.callId,
           stage,
-          code: 'specialist_tool_failed',
-        });
+          code: diagnostic.code,
+        };
+        if (cancelled) log.info('Specialist tool request cancelled', details);
+        else log.warn('Specialist tool request failed', { ...details, err: cause });
         return {
           content: JSON.stringify({
-            error: 'specialist_tool_failed',
+            error: diagnostic.code,
             stage,
             sessionId,
             requestId,
-            message:
-              stage === 'authorization'
-                ? 'Specialist tool authority, selection or input is unavailable.'
-                : 'Specialist operation failed. Inspect the original request and policy before retrying.',
-            cancelled: externalSignal.aborted || session.abortController.signal.aborted,
+            message: diagnostic.message,
+            cancelled,
           }),
           isError: true,
         };

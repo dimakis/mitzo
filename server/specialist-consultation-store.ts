@@ -142,6 +142,7 @@ export class SpecialistConsultationStore {
           policyId,
           leadSessionId: lead,
           revision: 0,
+          attemptOrdinal: count.count,
           input,
           route: selectedRoute ?? policy.routes.find((route) => route.role === input.role),
           boundary,
@@ -149,7 +150,6 @@ export class SpecialistConsultationStore {
           reviewRequestId: randomUUID(),
           joinRequestId: randomUUID(),
           sendRequestId: randomUUID(),
-          stopRequestId: randomUUID(),
           state: 'reserved',
           sessionId: null,
           joinId: null,
@@ -169,7 +169,7 @@ export class SpecialistConsultationStore {
     patch: Partial<
       Pick<
         ConsultationRecord,
-        'state' | 'sessionId' | 'joinId' | 'review' | 'messageInput' | 'diagnostic'
+        'state' | 'sessionId' | 'joinId' | 'review' | 'messageInput' | 'diagnostic' | 'routingAudit'
       >
     >,
   ) {
