@@ -108,6 +108,8 @@ export function sessionLaunchTools(options: {
   sessionId: string;
   session: ManagedSession;
   registry: SessionRegistry;
+  /** Transport's exposed tool namespace; native callers use bare names. */
+  permissionPrefix?: string;
   assertCurrent(): Promise<void>;
   assertCurrentSync(): void;
   controller?(): SessionLaunchController;
@@ -129,7 +131,11 @@ export function sessionLaunchTools(options: {
           !owner ||
           owner.session !== options.session ||
           !agentToolAllowed(options.session, name) ||
-          checkSkillPolicy(options.registry, owner.clientId, name) === 'deny' ||
+          checkSkillPolicy(
+            options.registry,
+            owner.clientId,
+            (options.permissionPrefix ?? '') + name,
+          ) === 'deny' ||
           options.registry.isClosingOut(owner.clientId) ||
           options.registry.isUserClose(owner.clientId)
         )

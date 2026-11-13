@@ -28,7 +28,10 @@ export type { AccountSelection } from '../types/account-selection';
 export interface Account {
   id: string;
   label: string;
-  modelDiscovery?: { stale: boolean };
+  modelDiscovery?: {
+    stale: boolean;
+    failure?: { code: 'claude_sign_in_unavailable'; diagnosticId: string };
+  };
   /** Account defaults remain visible intent even when this environment has no route. */
   configuredModels?: Account['models'];
   models: {
@@ -52,10 +55,28 @@ const catalogSchema = z.array(
   z.object({
     id: z.string().min(1),
     label: z.string().min(1),
-    modelDiscovery: z.object({ stale: z.boolean() }).optional(),
+    modelDiscovery: z
+      .object({
+        stale: z.boolean(),
+        failure: z
+          .object({ code: z.literal('claude_sign_in_unavailable'), diagnosticId: z.uuid() })
+          .optional(),
+      })
+      .optional(),
     models: modelsSchema,
   }),
 );
+
+function ModelRefreshFailure({ account }: { account: Account }) {
+  const failure = account.modelDiscovery?.failure;
+  return (
+    <span role="status">
+      {failure
+        ? `Claude sign-in could not be verified for chat. Check sign-in in Connections, then refresh models. Reference: ${failure.diagnosticId}. Showing the last available list.`
+        : 'Model refresh failed. Showing the last available list. Refresh models to retry.'}
+    </span>
+  );
+}
 
 /** Visible form labels belong to staged dialogs; inline chat controls keep their geometry. */
 function PickerField({
@@ -937,9 +958,7 @@ function SessionAccountModelPicker({
         </PickerField>
       )}
 
-      {account.modelDiscovery?.stale && (
-        <span role="status">Model refresh failed. Showing the last available list.</span>
-      )}
+      {account.modelDiscovery?.stale && <ModelRefreshFailure account={account} />}
       <QuickSettingsSupplement page="account">
         {(explicitSelection || needsConfirmation) && (
           <button
@@ -1288,9 +1307,7 @@ function ControlledAccountModelPicker({
           )}
       {account?.modelDiscovery?.stale && (
         <QuickSettingsSupplement page="model">
-          <span role="status">
-            Model refresh failed. Showing the last available list. Refresh models to retry.
-          </span>
+          <ModelRefreshFailure account={account} />
         </QuickSettingsSupplement>
       )}
       {quick && onRefresh && (

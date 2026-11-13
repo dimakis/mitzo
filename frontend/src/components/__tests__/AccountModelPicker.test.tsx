@@ -139,6 +139,28 @@ it.each([false, true])(
     expect(within(select).getByRole('option', { name: 'Hidden model' })).toBeTruthy();
   },
 );
+it('shows the sign-in recovery action and failure reference from the account catalog', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    Response.json([
+      {
+        id: 'personal-claude',
+        label: 'Personal Claude',
+        models: [{ id: 'sonnet', label: 'Sonnet' }],
+        modelDiscovery: {
+          stale: true,
+          failure: {
+            code: 'claude_sign_in_unavailable',
+            diagnosticId: '566e4644-cd56-4b29-938b-586d69c850ef',
+          },
+        },
+      },
+    ]),
+  );
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={vi.fn()} />);
+  expect(await screen.findByText(/Check sign-in in Connections/)).toBeTruthy();
+  expect(screen.getByText(/566e4644-cd56-4b29-938b-586d69c850ef/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Refresh models' })).toBeTruthy();
+});
 
 it.each([false, true])(
   'retains model refresh beside complete defaults (controlled=%s)',

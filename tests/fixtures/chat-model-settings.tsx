@@ -70,6 +70,17 @@ function Fixture() {
                       {
                         id: 'claude',
                         label: 'Personal Claude',
+                        modelDiscovery: {
+                          stale: !refreshed,
+                          ...(!refreshed
+                            ? {
+                                failure: {
+                                  code: 'claude_sign_in_unavailable' as const,
+                                  diagnosticId: '566e4644-cd56-4b29-938b-586d69c850ef',
+                                },
+                              }
+                            : {}),
+                        },
                         models: [
                           {
                             id: 'sonnet',

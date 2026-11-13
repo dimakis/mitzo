@@ -9,6 +9,8 @@ import {
 } from '../ordinary-local-vertex-owned-runtime.js';
 import { OrdinaryLocalVertexSdkAuthority } from '../ordinary-local-vertex-sdk-authority.js';
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 const keychain = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('../keychain-rotation-credentials.js', () => ({
@@ -58,6 +60,10 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
     anthropicApi: true,
     chatRoute: true,
     modelIds: models,
+    tools: [
+      { id: 'mitzo:TelosCreateSession', version: 1 },
+      { id: 'mitzo:CaptureMemoryCandidate', version: 1 },
+    ],
   });
   keychain.read.mockResolvedValue({
     value: 'synthetic-offline-key',
@@ -209,6 +215,84 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
     dispatch,
     dispatchContinuation: dispatch,
   });
+  async function checkProposalPermission(options: Options) {
+    const signal = new AbortController().signal;
+    const input = {
+      requestId: '420d1aae-505a-4ec0-9084-72d23164e184',
+      itemId: 'slice',
+      expectedRevision: 'a'.repeat(64),
+      title: 'Selected slice',
+      prompt: 'Reviewed work',
+    };
+    for (const [name, args] of [
+      ['mcp__mitzo-connections__TelosCreateSession', input],
+      ['mcp__mitzo-connections__CaptureMemoryCandidate', { action: 'sources' }],
+    ] as const) {
+      expect(options.allowedTools).toContain(name);
+      expect(
+        await options.canUseTool!(name, args, {
+          signal,
+          toolUseID: 'proposal',
+          requestId: 'proposal',
+        }),
+      ).toMatchObject({ behavior: 'allow' });
+      const hookResults = [];
+      for (const matcher of options.hooks!.PreToolUse!) {
+        for (const hook of matcher.hooks) {
+          hookResults.push(
+            await hook(
+              {
+                hook_event_name: 'PreToolUse',
+                tool_name: name,
+                tool_input: args,
+                tool_use_id: 'proposal',
+                session_id: f.reservation.conversationId,
+                cwd: options.cwd!,
+                transcript_path: '/offline-transcript',
+              },
+              'proposal',
+              { signal },
+            ),
+          );
+        }
+      }
+      expect(hookResults).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            hookSpecificOutput: expect.objectContaining({ permissionDecision: 'allow' }),
+          }),
+        ]),
+      );
+      for (const result of hookResults) {
+        expect(result).not.toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+        expect(result).not.toMatchObject({ continue: false });
+      }
+    }
+    expect(
+      await options.canUseTool!(
+        'mcp__mitzo-connections__ListConnections',
+        {},
+        {
+          signal,
+          toolUseID: 'not-selected',
+          requestId: 'not-selected',
+        },
+      ),
+    ).toMatchObject({ behavior: 'deny' });
+    const server = options.mcpServers!['mitzo-connections'];
+    if (server.type !== 'sdk') throw Error('Protected in-process SDK server required');
+    const client = new Client({ name: 'offline-telos-discovery', version: '1' });
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    await server.instance.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(
+        'TelosCreateSession',
+      );
+    } finally {
+      await client.close();
+    }
+  }
   try {
     await owner.admit(f.request).catch((error) => {
       throw startupErrors[0] ?? error;
@@ -218,6 +302,7 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
     const learningPrompt = (index: number) =>
       (calls[index].systemPrompt as { append: string }).append;
     expect(learningPrompt(0)).toContain('<session_learning mode="auto">');
+    await checkProposalPermission(calls[0]);
     await searches.at(-1)!('Synthetic search', new AbortController().signal, {
       parentSessionId: f.reservation.conversationId,
       operationId: 'search-first',
@@ -238,6 +323,7 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
     expect.soft(calls[1].model).toBe(models[1]);
     expect.soft(calls[1].effort).toBe('high');
     expect(learningPrompt(1)).not.toContain('<session_learning ');
+    await checkProposalPermission(calls[1]);
     await searches.at(-1)!('Synthetic search', new AbortController().signal, {
       parentSessionId: f.reservation.conversationId,
       operationId: 'search-next',
@@ -251,6 +337,7 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
       selection: { ...f.request.selection, model: models[1], thinking: 'high' },
     });
     expect(learningPrompt(2)).toContain('<session_learning mode="deep">');
+    await checkProposalPermission(calls[2]);
     expect(learningPrompt(2).match(/<session_learning /g)).toHaveLength(1);
     expect(learningPrompt(0)).toContain('<session_learning mode="auto">');
   } finally {
