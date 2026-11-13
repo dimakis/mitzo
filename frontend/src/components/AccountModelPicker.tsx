@@ -315,7 +315,7 @@ function SessionAccountModelPicker({
     onDraftSelectionChange,
   };
   useEffect(() => {
-    if (selection?.model) callbacks.current.onDraftSelectionChange?.(selection);
+    if (selection) callbacks.current.onDraftSelectionChange?.(selection);
   }, [selection]);
   const summaryAccount = accounts.find((a) => a.id === (selection?.accountId ?? ''));
   const selectedModel = summaryAccount?.models.find((m) => m.id === selection?.model);

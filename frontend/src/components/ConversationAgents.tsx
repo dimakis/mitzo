@@ -390,7 +390,7 @@ function ConversationAgentsBody({
                   initialSelection={setup.selection ?? undefined}
                   onDraftSelectionChange={(selection) => setSetup((s) => ({ ...s, selection }))}
                   onChange={(selection) => {
-                    if (selection) setSetup((s) => ({ ...s, selection }));
+                    setSetup((s) => ({ ...s, selection }));
                   }}
                 />
                 <h3>Execution</h3>
@@ -606,10 +606,12 @@ function ConversationAgentsBody({
                         !nameValid ||
                         !setup.purpose.trim() ||
                         !setup.selection?.accountId ||
+                        !setup.selection?.model.trim() ||
                         !!profileReason
                       }
                       title={!joiningOwner ? unavailable : undefined}
                       onClick={() => {
+                        if (!setup.selection?.accountId || !setup.selection.model.trim()) return;
                         setView('review');
                         void joining.prepare(setup);
                       }}

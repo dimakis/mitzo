@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1111-enmaas-account-settings';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1112-enmaas-account-settings';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2208,7 +2208,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../frontend/src/components/ConversationAgents.tsx':
-    'bd7e540ae5ba585321b99e85ff2c4faa5f9b75a8fc29a7197450960d064c56f0',
+    'c956e15283fa66d8f9cc19c0898d8da330d49407f41641ddc0144894320cb835',
+  '../../frontend/src/components/__tests__/ConversationAgents.model-visibility.test.tsx':
+    '162ca0d6966bfff5df1b2f52ce6aa582d704f54ece3b290d43fe946704f94533',
   '../../frontend/src/components/ConversationAgents.css':
     '97abcd1b2160b64af5d72959ed79c3bfdde8d802cc0825e319ecac67b73f413b',
   '../../frontend/src/components/ComposerResponders.tsx':
@@ -2377,7 +2379,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/client-store.ts':
     '9353d2adffa430e30aca1910ba4c580efe40b8c8b8741c8a252558674330af24',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    '752342d5f0f8cef872539f407bc4560c22301ece50278adf79ebf3383c4d51bc',
+    '4f7c6739e3aa9cf29b2264909898973c645225df233d19ccbbdaeb9a97f874ee',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
     '7efa0466b67598cf458c3e91b12042f56189747914a85d1040146b2bf6ae7155',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
