@@ -33,6 +33,8 @@ import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
+import { contextDigest } from './agent-context-compiler.js';
+import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
 
 const unavailable = () => new CollaborationContractError('execution_unavailable');
 
@@ -486,19 +488,32 @@ export class CollaborationApplicationReview {
           ? readAgentLibraryProfile(selection, connectionId)
           : Promise.resolve(readOrdinaryCodexAgentProfile(getAgentLibrary(), selection)),
     });
-    if (!agent || agent.definition.contextRecipe !== undefined) throw unavailable();
+    if (
+      !agent ||
+      (agent.definition.contextRecipe &&
+        (runtime.execution.location !== 'local' ||
+          runtime.harness.implementation !== 'codex' ||
+          agent.definition.contextRecipe.source === 'packs'))
+    )
+      throw unavailable();
     const settings: CollaborationSettings = {
       binding: runtime,
       selection: {
         version: 1,
         agent: target.agent,
-        context: { source: 'none', revision: null },
+        context: agent.definition.contextRecipe
+          ? {
+              source: agent.definition.contextRecipe.source,
+              revision: contextDigest(agent.definition.contextRecipe),
+            }
+          : { source: 'none', revision: null },
         permission: createOrdinaryFreshPermission(target.permissionMode),
         model: target.model,
         thinking: target.reasoningEffort,
       },
       repositoryWorkspaceId: target.repositoryWorkspaceId,
     };
+    assertOrdinaryCodexContextIdentity(agent, settings.selection, undefined, binding.provider);
     await this.owners.workspaces.qualifiedStatus(record.id, binding);
     if (originalReservation && join.state !== 'linked')
       await this.owners.workspaces.qualifyOrdinarySessionReservation({

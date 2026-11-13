@@ -29,6 +29,18 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         expectedOutput: 'Evidence and recommendations',
         acceptanceCriteria: ['Cite evidence'],
         modelPolicyRole: role,
+        ...(role === 'planner'
+          ? {
+              contextRecipe: {
+                version: 1,
+                source: 'workspace',
+                files: ['context.md'],
+                tokenBudget: 2048,
+                required: [],
+                excluded: [],
+              },
+            }
+          : {}),
       },
     });
     library.publish('user', {
@@ -108,7 +120,14 @@ it('lets an ordinary lead recruit a saved planner, read its attributed result an
         .join('\n'),
     ).toBe('dispatched');
     await vi.waitFor(() =>
-      expect(service.read(authority, input.requestId).status).toBe('completed'),
+      expect(
+        service.read(authority, input.requestId).status,
+        readFileSync(join(journey.state.root!, 'app.log'), 'utf8')
+          .split('\n')
+          .filter((line) => line.includes('"level":40') || line.includes('"level":50'))
+          .slice(-10)
+          .join('\n'),
+      ).toBe('completed'),
     );
     const planned = service.read(authority, input.requestId);
     expect(planned.contributions[0]).toMatchObject({

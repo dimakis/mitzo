@@ -200,7 +200,10 @@ export class SpecialistConsultations {
     });
     if (!agent || agent.contentHash !== route.profileHash)
       throw Error('Specialist profile changed');
-    if (agent.definition.contextRecipe)
+    if (
+      agent.definition.contextRecipe &&
+      (harness !== 'codex' || agent.definition.contextRecipe.source === 'packs')
+    )
       throw Error('This specialist context recipe needs a qualified shared joining route');
     return { binding, runtime: resolved.binding, agent };
   }

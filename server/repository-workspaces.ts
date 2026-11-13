@@ -812,7 +812,10 @@ export class RepositoryWorkspaces {
       if (
         settings.repositoryWorkspaceId !== selected.id ||
         !selected.allocationOperationId ||
-        selected.agentProfile?.definition.contextRecipe !== undefined
+        (selected.agentProfile?.definition.contextRecipe !== undefined &&
+          (settings.binding.harness.implementation !== 'codex' ||
+            settings.binding.execution.location !== 'local' ||
+            selected.agentProfile.definition.contextRecipe.source === 'packs'))
       )
         throw Error('Silent ordinary preparation settings unavailable');
       const record = this.get(selected.id);
