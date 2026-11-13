@@ -193,7 +193,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/agent-communication.md':
     '4cab031ee52b267dc4afbcbf03b741b39cc398ec17da2687292f22dc99c88266',
   '../__tests__/agent-communication-cross-runtime.test.ts':
-    '77b2c3380847565886ec487089de89f2731c80194d39c2a7625ea3796bf6b4a5',
+    'b9b8b23d338e6e58e45a13cd50a7a77ed426bddc50692f24c9ce40e17c9bea7e',
   '../__tests__/agent-communication-diagnostics.test.ts':
     '15761543b4acf55d2e7f13a2cbd4029b171d4a4790426b465acee17d316153aa',
   '../__tests__/sdk-agent-message-runtime.test.ts':
@@ -1913,7 +1913,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work-controls.ts':
     '1bb5a4acaed5acbe070830a87251929961aaa64e3ec149abd21502e32b0c41b4',
   '../agent-communication-tools.ts':
-    '418be35549f3856df0ebec51bcd6b959eb84915f7b845c00c4aee49a77d805ba',
+    '0f15d721ab9247f031ae511552d2363c723f8e4b25350d854d46e7c6566e7efc',
   '../telos-work-control-tools.ts':
     '716f889418970118c872d70c8718f4d268077fedc299f002b72446c205ef3b7d',
   '../telos-work-controls.ts': '684ebfd505612cd01074773b468bd11439909b85da8562ae2c167c0207bddf97',

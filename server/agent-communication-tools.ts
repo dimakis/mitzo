@@ -301,9 +301,13 @@ export function sessionAgentCommunicationTools(owners: Owners) {
               ))
         )
           throw new AgentCommunicationError(
-            'recipient_unavailable',
+            conversationId === owners.conversationId
+              ? 'sender_custody_unavailable'
+              : 'recipient_unavailable',
             'ownership',
-            'The recipient is unavailable to this signed operator.',
+            conversationId === owners.conversationId
+              ? 'This conversation has no available custody for the current signed operator. Reopen it through ordinary chat recovery before retrying; do not change assignments or private stores.'
+              : 'The recipient is unavailable to this signed operator.',
           );
         return meta;
       };

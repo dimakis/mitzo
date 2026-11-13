@@ -163,6 +163,16 @@ async function signedOperator() {
   return auth;
 }
 
+it('identifies unavailable sender custody separately from an inaccessible recipient', async () => {
+  const f = fixture();
+  vi.mocked(f.native.readHostCustody).mockReturnValue(undefined);
+  await expect(f.execute({ operation: 'inbox', after: 0 })).rejects.toMatchObject({
+    code: 'sender_custody_unavailable',
+    stage: 'ownership',
+  });
+  expect(f.approve).not.toHaveBeenCalled();
+});
+
 it('does not mistake a live isolated-realm owner for primary-operator login provenance', async () => {
   const source = await signedOperator();
   const isolated = createInteractiveAuth({
