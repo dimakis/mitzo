@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import type { StoredEvent } from '@mitzo/protocol';
 import { replayEventsToTranscript } from '../conversation-transcript.js';
+import { MitzoApiClient } from '../../packages/client/src/api-client.js';
 import {
   INITIAL_MESSAGES_STATE,
   messagesReducer,
@@ -10,7 +11,7 @@ import {
   restoreTranscriptCommandStates,
 } from '../../packages/client/src/command-attribution.js';
 
-it('restores the exact active repository continuation without inventing a user message', () => {
+it('restores the exact active repository continuation without inventing a user message', async () => {
   const continuation = `prepared-repository-${'a'.repeat(64)}`;
   const events: StoredEvent[] = [];
   const add = (type: string, payload: Record<string, unknown>) =>
@@ -22,9 +23,12 @@ it('restores the exact active repository continuation without inventing a user m
   add('ordinary_reply_source', { version: 1, messageId: 'answer', commandId: continuation });
   add('message_start', { messageId: 'answer' });
   const transcript = replayEventsToTranscript(events);
+  const wire = await new MitzoApiClient(async () => Response.json(transcript)).getSessionTranscript(
+    'chat',
+  );
   const restored = restoreTranscriptCommandStates(
-    messagesReducer(INITIAL_MESSAGES_STATE, { type: 'RESTORE', messages: transcript.messages }),
-    transcript.commandStates,
+    messagesReducer(INITIAL_MESSAGES_STATE, { type: 'RESTORE', messages: wire.messages }),
+    wire.commandStates,
   );
   expect(restored.messages.filter((message) => message.role === 'user')).toHaveLength(1);
   expect(activeSteeringCommandId(restored)).toBe(continuation);
