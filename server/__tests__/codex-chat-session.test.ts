@@ -187,6 +187,8 @@ import { AccountProfiles } from '../account-profiles.js';
 import { EventStore } from '../event-store.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
+import { installHostKnowledgeStore } from '../published-host-knowledge.js';
+import { hostKnowledgePublication } from './fixtures/host-knowledge-publication.js';
 
 beforeEach(() => {
   mocks.nativeDeniedRoots = ['/offline/owned-login'];
@@ -838,6 +840,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'SymposiumReadProfiles' }),
     expect.objectContaining({ name: 'ReadKnowledge' }),
     expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
+    expect.objectContaining({ name: 'CaptureMemoryCandidate' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
     expect.objectContaining({ name: 'TelosAdoptSource' }),
     expect.objectContaining({ name: 'TelosGetItem' }),
@@ -1159,6 +1162,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'SymposiumReadProfiles' }),
       expect.objectContaining({ name: 'ReadKnowledge' }),
       expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
+      expect.objectContaining({ name: 'CaptureMemoryCandidate' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({ name: 'TelosAdoptSource' }),
       expect.objectContaining({ name: 'TelosGetItem' }),
@@ -3297,6 +3301,8 @@ it.each(['recipe', 'supplied', 'retained'] as const)(
 );
 
 it('keeps scoped adviser context isolated when ordinary local discovery and efficiency are enabled', async () => {
+  const reconcile = vi.fn();
+  const disposeHostMemory = installHostKnowledgeStore({ id: 'mgmt', reconcile });
   mocks.initialize.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
   const integrationExecute = vi.fn(async () => ({ content: 'Ordinary integration output' }));
@@ -3331,6 +3337,13 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
     query = await openCodexChat({ ...f.opts, adviserScope: scope });
     const captured = mocks.conversationOptions!;
     expect(captured.tools).toEqual([]);
+    expect(
+      await (captured.prepareSystemPrompt as (signal: AbortSignal) => Promise<string>)(
+        new AbortController().signal,
+      ),
+    ).toBe('');
+    expect(captured.onApplicationContextAccepted).toBeUndefined();
+    expect(reconcile).not.toHaveBeenCalled();
     expect(captured.disableWebSearch).toBe(true);
     expect(captured.disableProjectDocuments).toBe(true);
     expect(captured.systemPrompt).toContain(scope.instructions());
@@ -3386,6 +3399,7 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
   } finally {
     query?.close();
     f.eventStore.close();
+    disposeHostMemory();
   }
 });
 
@@ -3842,6 +3856,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         ...profileToolDefinitions.map((tool) => tool.name),
         ...nativeConnectionToolNames,
         ...knowledgeToolDefinitions.map((tool) => tool.name),
+        'CaptureMemoryCandidate',
         'AgentReadTasks',
         'AgentProposeTask',
         'AgentCommunication',
@@ -7705,6 +7720,73 @@ it('exposes approved web access in owned local chat and integration discovery', 
   }
 });
 
+it('delivers selected host memory on the retained provider thread and records only its acknowledgement', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'host-memory-context-')));
+  const publication = hostKnowledgePublication(root, 'a', 'Accepted memory');
+  const reconcile = vi.fn().mockResolvedValue(publication);
+  const dispose = installHostKnowledgeStore({ id: 'mgmt', reconcile });
+  const fixture = ownedLocalOptions('/tmp');
+  const opts = fixture.opts;
+  vi.spyOn(opts.eventStore, 'append');
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(opts);
+    const prepare = mocks.conversationOptions?.prepareSystemPrompt as (
+      signal: AbortSignal,
+    ) => Promise<string>;
+    const acknowledge = mocks.conversationOptions?.onApplicationContextAccepted as (
+      command: string,
+      thread: string,
+      turn: string,
+      context: string,
+    ) => void;
+    const context = await prepare(AbortSignal.timeout(5000));
+    expect(context).toContain(publication.sourceCommit);
+    expect(context).toContain('<session_learning mode="auto">');
+    expect(opts.eventStore.append).not.toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.anything(),
+    );
+    expect(() =>
+      acknowledge('command', 'same-provider-thread', 'turn', context + 'changed'),
+    ).toThrow();
+    expect(opts.eventStore.append).not.toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.anything(),
+    );
+    acknowledge('command', 'same-provider-thread', 'turn', context);
+    expect(opts.eventStore.append).toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.objectContaining({
+        runtime: 'local-mac',
+        sourceCommit: publication.sourceCommit,
+        threadId: 'same-provider-thread',
+        turnId: 'turn',
+      }),
+    );
+    expect(reconcile).toHaveBeenCalledOnce();
+    opts.eventStore.setSessionLearningMode(opts.conversationId, 'off', 0);
+    const offContext = await prepare(AbortSignal.timeout(5000));
+    expect(offContext).toContain(publication.sourceCommit);
+    expect(offContext).not.toContain('<session_learning');
+    acknowledge('off-command', 'same-provider-thread', 'off-turn', offContext);
+    expect(opts.eventStore.append).toHaveBeenCalledWith(
+      opts.conversationId,
+      'published_knowledge_adopted',
+      expect.objectContaining({ commandId: 'off-command', turnId: 'off-turn' }),
+    );
+  } finally {
+    chat?.close();
+    dispose();
+    fixture.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 it('discovers and executes StartSession through the actual owned native default-agent registration without starting work', async () => {
   const { SessionRegistry } = await import('@mitzo/harness');
   const { readBuiltinAgentLibraryProfile, bindAgentLibraryTransport } =

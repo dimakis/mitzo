@@ -1,7 +1,9 @@
 import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
+import { parseSessionLearningPolicy, revokeSessionLearningHistory } from './session-learning.js';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { AgentLibraryVersionSchema } from './agent-library.js';
 import { AgentContextSnapshotSchema } from './agent-context-recipe.js';
 import { AccountBindingSchema } from './account-binding.js';
@@ -35,6 +37,7 @@ export const REGISTERED_CONVERSATION_SQL = `(
 )`;
 
 export interface SessionRow {
+  learning_policy?: string | null;
   conversation_source: 'mitzo' | 'external_import' | 'legacy';
   session_type: string;
   symposium_config: string | null;
@@ -86,7 +89,7 @@ export interface SessionRow {
 }
 
 export type SessionUpsert = Partial<
-  Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
+  Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision' | 'learningPolicy'>
 > & { sessionId: string };
 
 export interface SessionSummaryPage {
@@ -186,6 +189,16 @@ export class SessionMetadataStore {
       throw new Error('Runtime binding requires atomic new-session creation');
     this.owner.assertConversationIdentity(meta.sessionId);
     const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
+    // Read/modify/write callers may carry this read-only projection. Never write
+    // it back: changed/stale policy still requires the dedicated controller CAS.
+    if (
+      Object.prototype.hasOwnProperty.call(meta, 'learningPolicy') &&
+      !isDeepStrictEqual(
+        (meta as { learningPolicy?: unknown }).learningPolicy,
+        parseSessionLearningPolicy(existing?.learning_policy),
+      )
+    )
+      throw new Error('Learning policy requires setSessionLearningMode');
     sessionWorkspaceId({
       repositoryWorkspaceId:
         meta.repositoryWorkspaceId === undefined
@@ -245,6 +258,23 @@ export class SessionMetadataStore {
       }
       const fields: string[] = [];
       const values: unknown[] = [];
+      // Account/workspace changes revoke queued history monotonically. Returning
+      // to the original identity must never silently re-enroll an old candidate.
+      const oldAccount = parseAccountBinding(existing.account_binding);
+      if (
+        (meta.cwd !== undefined && meta.cwd !== existing.cwd) ||
+        (meta.accountBinding !== undefined &&
+          (meta.accountBinding?.accountId ?? null) !== (oldAccount?.accountId ?? null))
+      ) {
+        const policy = parseSessionLearningPolicy(existing.learning_policy);
+        const watermark = (
+          this.db!.prepare('SELECT COALESCE(MAX(seq),0) seq FROM events WHERE session_id=?').get(
+            meta.sessionId,
+          ) as { seq: number }
+        ).seq;
+        fields.push('learning_policy = ?');
+        values.push(JSON.stringify(revokeSessionLearningHistory(policy, watermark)));
+      }
       if (meta.ordinaryWorkspaceId !== undefined) {
         if (meta.ordinaryWorkspaceId !== (existing.ordinary_workspace_id ?? null))
           throw new Error('Ordinary workspace identity requires its original allocation');
@@ -781,6 +811,7 @@ export function rowToSession(row: SessionRow): SessionMeta {
     accountBinding: parseAccountBinding(row.account_binding),
     selectedModel: row.selected_model ?? null,
     reasoningEffort: row.reasoning_effort ?? null,
+    learningPolicy: parseSessionLearningPolicy(row.learning_policy),
     sessionType: row.session_type === 'symposium' ? 'symposium' : 'chat',
     symposiumConfig: row.symposium_config ?? null,
     symposiumRevision: row.symposium_revision ?? 0,

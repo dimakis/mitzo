@@ -107,13 +107,19 @@ for (const theme of ['dark', 'light'])
       await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto('/sessions');
-      await expect(page.getByRole('link', { name: /Drafts/ })).toBeVisible();
+      const drafts = page.locator('.conversation-drafts-section');
+      await expect(drafts.locator('summary')).toBeVisible();
+      await drafts.locator('summary').click();
+      await expect(page.getByRole('link', { name: /All Drafts/ })).toBeVisible();
+      await expect(
+        page.getByRole('link', { name: 'Unsent thought Saved', exact: false }),
+      ).toBeVisible();
       await expect(page.getByText('Pinned', { exact: true })).toBeVisible();
       const input = page.getByRole('searchbox', { name: 'Search conversations' });
       await input.fill('Claude personal');
       await expect(page.getByText('Searching…', { exact: true })).toBeVisible();
       await expect(page.locator('.conversation-results .session-item')).toHaveCount(20);
-      await expect(page.getByRole('link', { name: /Drafts/ })).toHaveCount(0);
+      await expect(drafts).toHaveCount(0);
       await expect(page.getByText('Pinned', { exact: true })).toHaveCount(0);
       const first = page.getByRole(isMobile ? 'link' : 'button', {
         name: (isMobile ? 'Open' : 'Preview') + ' Billing review',
@@ -176,7 +182,9 @@ for (const theme of ['dark', 'light'])
       await input.focus();
       await page.getByRole('button', { name: 'Clear search' }).click();
       await expect(input).toHaveValue('');
-      await expect(page.getByRole('link', { name: /Drafts/ })).toBeVisible();
+      await expect(drafts.locator('summary')).toBeVisible();
+      await drafts.locator('summary').click();
+      await expect(page.getByRole('link', { name: /All Drafts/ })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );

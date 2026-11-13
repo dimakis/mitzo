@@ -90,3 +90,19 @@ diagnostics omit query text, transcript data and exception messages. Worker exit
 and cache-cleanup failures remain observable without replacing the primary
 failure. Real-worker append/query regressions, the API error response and the
 real hook's retry state verify failure delivery and sanitized diagnostics.
+
+## Combined CI follow-up, 13 November 2026
+
+Candidate `0543e313` passed compilation, source preflight, core checks and all four
+unit shards. Its six search browser journeys stopped on an obsolete expectation
+that Drafts was a direct link. The fixture now opens the retained grouped
+disclosure, verifies its saved draft and All drafts navigation, and verifies the
+disclosure returns after clearing search. The approved interface is unchanged.
+
+The native repository artifact identifies the subscription failure at the
+`PublishPreparedRepository` helper's existing 30-second deadline. The API account
+journey completed its publication helper in 21.5 seconds. These observations do
+not establish a search-related cause. All coverage, ownership checks and operation
+deadlines remain intact for the fresh combined run. Local browser discovery works,
+but the isolated executor has no matching binaries and both full/headless browser
+downloads failed with a closed CDN connection; rendered verification remains in CI.

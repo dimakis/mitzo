@@ -481,6 +481,8 @@ export interface SessionSearchResult {
 }
 
 export interface SessionMeta {
+  /** Controller-owned; changes require an explicit revision-checked policy operation. */
+  learningPolicy?: import('./session-learning.js').SessionLearningPolicy;
   conversationSource?: 'mitzo' | 'external_import' | 'legacy';
   /** Persisted mode; adding/removing seats retains the session identity. */
   sessionType?: SessionType;
