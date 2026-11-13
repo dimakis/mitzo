@@ -29,7 +29,7 @@ export class ApprovalExpiredError extends Error {
   }
 }
 
-export function throwIfApprovalExpired(result: ApprovalPermissionResult): void {
+export function throwIfApprovalExpired(result: { behavior: string; failure?: ToolFailure }): void {
   if (result.behavior === 'deny' && result.failure?.code === 'approval_expired')
     throw new ApprovalExpiredError();
 }

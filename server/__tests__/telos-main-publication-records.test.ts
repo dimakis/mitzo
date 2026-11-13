@@ -532,7 +532,7 @@ it('an approval timeout preserves the request for fresh approval without denying
   f.setReply((event) => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Number(event.expiresAt) + 1);
     try {
-      resolvePending(String(event.permId), 'once');
+      return resolvePending(String(event.permId), 'once');
     } finally {
       clock.mockRestore();
     }
@@ -543,7 +543,7 @@ it('an approval timeout preserves the request for fresh approval without denying
   );
   expect(f.records().prepare(f.pins).state).toBe('requested');
   f.setReply((event) => {
-    resolvePending(String(event.permId), 'once');
+    return resolvePending(String(event.permId), 'once');
   });
   const result = await b.owner.request(f.pins.input, requestSignal());
   expect(result.state).toBe('accepted');

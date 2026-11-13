@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-user-input-expiry.test.ts':
     '0cdc893036977fe3d1ba9929ad461c744b98f92af63fc6a1fa0b3b4a83f57797',
   '../../packages/harness/src/approval-outcome.ts':
-    'ccd0603b7a6db4c28181f7f29faad1f0bdecd04fafaf68b6ec1bb89aaaa3bd90',
+    'e0774155bd53c12ff378d2351b284588db60e382daadf94dd727100dd0c5e13f',
   '../../packages/harness/__tests__/approval-expiry.test.ts':
     '1115153e3c755d91bc7f3b2a391b0fc0c1979f57710d6749910e2c8cf93dbbc6',
   '../local-repository-approval-recovery.ts':
@@ -3207,7 +3207,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/tool-lifecycle.ts':
     'd786494647ec605246a1d0a3d0537bdff167dffba435db1e425649c0b8800cd1',
   '../../frontend/src/components/ToolGroup.tsx':
-    '3a3721a7650aeb7bbfb7f855b092ebacfc3f28da6567a502e4a5a0728afc78c4',
+    'e16f724b3a38771477728a58f07d37aab1b44ea3642f29a5667891e32d3d21d6',
   '../../frontend/src/lib/tool-status.ts':
     'f2c948c9d4ffac04b154be8edf649795aac2ac7ba2ddc049b664b26aea993d5f',
   '../task-mcp-selection.ts': 'a3a6e3bc9d4d5d634011d24a1d95bafbc0328e86121a4d79296dffa56f9c6339',
@@ -3442,7 +3442,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../wait-for-change.ts': '82cfc955560c5494b9453bfc82e1a14004fc8349f2a5731583791323a03f17a0',
   '../local-agent-efficiency.ts':
     '4553febfe17e98cd1bf7110ec9a9a7391f3bd32808e77c8f97cfc46173be97c4',
-  '../codex-tool-failure.ts': 'c52a3d84515bbf83c76442193ff852979b6c2a306ad6fb7fe34a34d1c9526cec',
+  '../codex-tool-failure.ts': 'd0ee3858163236c0af1b912be1a58cc761b5bf0237cb54390d1d03d8828a7770',
   '../__tests__/tool-validation-consumer.test.ts':
     '7cdd57ea8b0c8a26e106d70a2a707c5c49a23a0f3129fca3ed748382c12d19a1',
   '../codex-tool-validation-error.ts':
@@ -4221,7 +4221,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-diagnostic-release.test.ts':
     '55ff5b03c35602da030efa21c7f8b75c2074d36eba35d26466909bd717c520ea',
   '../__tests__/codex-tool-failure-diagnostics.test.ts':
-    '32802ed695123d487b97f9f32b85ad4d9509ea02275bec33007220c2bef4b2aa',
+    '71a80ad68edb0e765a9951673023de53038f84274e609e4401ed67e7cde1d102',
   '../__tests__/completion-concurrency.test.ts':
     'c79b766ae23712787307c910ea7ce3199118c2ebcd93d768b990629939e9a3c8',
   '../__tests__/conversation-transcript.test.ts':

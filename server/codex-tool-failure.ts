@@ -205,7 +205,7 @@ function failureProjection(
   const code: ToolFailureCode = chain.some((failure) => failure.name === 'AbortError')
     ? 'cancelled'
     : (typed?.code ??
-      (expired ? 'approval_expired' : undefined) ??
+      (expired || timeout?.phase === 'approval' ? 'approval_expired' : undefined) ??
       (boundary?.code === 'pending_host_task_ownership_changed'
         ? 'stale_owner'
         : boundary?.code === 'pending_host_task_invalid_input'
@@ -227,7 +227,9 @@ function failureProjection(
       ].includes(value as string),
     );
   const reason: CodexToolFailureDiagnostic['reason'] = timeout
-    ? 'deadline'
+    ? timeout.phase === 'approval'
+      ? 'approval_expired'
+      : 'deadline'
     : resourceCode === 'ENOMEM'
       ? 'memory_exhausted'
       : ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND'].includes(String(resourceCode))
