@@ -108,7 +108,11 @@ export function sessionCredentialTools(
     definitions: filterAgentTools(session, [
       ...connections.definitions,
       ...repositoryTools.definitions,
-      ...profileToolDefinitions,
+      ...profileToolDefinitions.filter(
+        (tool) =>
+          tool.name !== 'SymposiumConsult' ||
+          (!!assertRuntimeCurrent && !!assertRuntimeCurrentSync),
+      ),
       ...(assertRuntimeCurrent && assertRuntimeCurrentSync ? sessionPromptDefinitions : []),
       ...(taskToolsEnabled ? agentTaskToolDefinitions : []),
       ...knowledgeToolDefinitions,
