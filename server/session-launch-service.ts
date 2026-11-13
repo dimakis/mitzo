@@ -171,7 +171,7 @@ export class SessionLaunchService {
       authority.signal.throwIfAborted();
       return this.store.markReleased(id);
     } catch (cause) {
-      recordSessionLaunchFailure(record, 'create_assignment', cause);
+      recordSessionLaunchFailure(record, 'release_reservation', cause);
       throw new SessionLaunchError(
         'Release is unconfirmed or refused. Check the original request; an existing allocation must be recovered.',
         409,

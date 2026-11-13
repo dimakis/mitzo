@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1112-telos-adoption-main-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1113-telos-adoption-delivery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -355,7 +354,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-launch-tools-selection.ts':
     '41652d9862067bbe6973029442eb5c7fac7f9c9ec6d977e14a21d13455e126a4',
   '../session-launch-diagnostics.ts':
-    '9733b7bad9e4dc7055becc5542d52aafbf09baaf9fa76af87e8d76cb65432fa4',
+    'd00c67e372fdae9f683fb4ee27774ca3bedacf93dd9fe2ae8dc982dbc0bf9388',
   '../__tests__/session-launch-handover.test.ts':
     '0a32179c74b13b66509ac2f18fdfc1f13cdba13f410a0a0a23a9c6f88b735ec7',
   '../__tests__/session-launch-tools-selection.test.ts':
@@ -768,7 +767,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-launch-runtime.ts':
     '67ff54a8ad2a35fa1521d25d042ed661be2c82b6060bf54507bd12ab16910370',
   '../session-launch-service.ts':
-    '8bf9a8b88d9a2e5d7c56e17961310d52f3bca4482220d153769983f2fc2faf43',
+    '81fc3f3a1f1d584b529aa4ac46eae013ab4bb039d8eeef410e9dd2006966e637',
   '../session-launch-store.ts': '7fa843ada57aeeb14b7b076daf03f282cc9d93932246a6213ef29a27c18dfb99',
   '../session-launch-tools.ts': 'edb4774c9c7086e7813ea02713aac317ca0272ac416d68c702470fb51f31a4ca',
   '../../tests/fixtures/session-launch-defaults.tsx':
@@ -778,7 +777,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/session-launch-defaults.spec.ts':
     'ae3c090d73c638be6fbac36b79e6587416a2cd96837af2daf67dcb59b6434b35',
   '../../tests/offline/session-launch.spec.ts':
-    '7ed62969102a83caf779e7b349f33aff8d2b857da6d527c7808de5bc2c72aab1',
+    '19844a9fe6c53d287a5d9f7bee933e37c9f6898530bfcf4e39b8dee03df93c19',
   '../host-codex-login-refresh-ledger.ts':
     'c85951c34922072589a206af17b55dfc57e400e440b9d1348e98b8a482e84bea',
   '../host-codex-login-recovery-command.ts':

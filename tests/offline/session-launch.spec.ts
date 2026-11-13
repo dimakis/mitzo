@@ -101,7 +101,9 @@ for (const mode of ['start', 'create', 'adopt', 'release']) {
         );
         expect(mutations).toHaveLength(1);
         expect(mutations[0].body).toEqual({ expectedRevision: 1 });
-        await page.screenshot({ path: info.outputPath(`session-release-${theme}-refusal.png`) });
+        await page.screenshot({
+          path: info.outputPath(`session-launch-release-${theme}-refusal.png`),
+        });
         expect(errors).toEqual([]);
         return;
       }
