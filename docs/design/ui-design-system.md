@@ -911,6 +911,13 @@ first nested level to preserve narrow-screen reading width. Partial JSON and
 results over 256 KiB fall back to wrapped text. Existing source-file, command,
 diff, image, proposal and setup renderers retain their specialized presentation.
 
+Native Codex `ApplyPatch` reuses the existing ToolPill disclosure and CodeBlock
+diff highlighting. Each file retains its path, copyable patch, operation and any
+move destination; additions, removals and hunk markers use the shared code theme.
+The collapsed row lists filenames rather than serialized tool arguments. Preview
+limits are explicit (100 files and 50,000 diff characters combined); the tool's
+actual success, failure or interruption remains independent of its preview.
+
 The `tool-results` offline fixture covers 320px mobile and desktop layouts,
 dark Mint/System and light Teal/Georgia with larger text, keyboard expansion,
 long values, raw access, paging, empty/error/running states and retained drafts.

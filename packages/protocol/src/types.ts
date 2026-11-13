@@ -109,7 +109,10 @@ export interface AgentDefinition {
 // --- Tool input ---
 
 export interface RawToolInput {
-  type: 'write' | 'diff' | 'command' | 'read' | 'agent';
+  type: 'write' | 'diff' | 'patch' | 'command' | 'read' | 'agent';
+  /** Native Codex file changes, bounded for transcript display. */
+  changes?: { path: string; diff: string; kind?: string; movePath?: string }[];
+  truncated?: boolean;
   path?: string;
   contents?: string;
   old_string?: string;

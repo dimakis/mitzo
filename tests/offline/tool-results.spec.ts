@@ -38,6 +38,16 @@ for (const theme of ['dark', 'light'])
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     if (theme === 'light') await page.addStyleTag({ content: 'html { font-size: 125%; }' });
+    const patch = page.getByRole('button', { name: /ApplyPatch/ });
+    await patch.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.hljs-addition').first()).toHaveText('+const next = 2;');
+    await expect(page.locator('.hljs-deletion').first()).toHaveText('-const old = 1;');
+    await expect(page.getByText('/workspace/tests/new-file.ts', { exact: true })).toBeVisible();
+    const code = page.locator('.code-block-highlight-pre').first();
+    expect(await code.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Mono');
+    await page.screenshot({ path: info.outputPath(`apply-patch-${theme}.png`) });
+    await patch.click();
     await page.getByRole('button', { name: /GitHubRead/ }).click();
     await expect(page.getByText('Endpoint', { exact: true })).toBeVisible();
     const result = page.getByRole('region', { name: 'Result', exact: true }).first();
