@@ -49,8 +49,8 @@ describe('exact transport resource drain', () => {
   it('awaits an admitted host callback after process closure without sending a late reply', async () => {
     const { child, reply, sent } = processStub();
     let finish!: () => void;
-    const callback = new Promise<void>((resolve) => {
-      finish = resolve;
+    const callback = new Promise<Record<string, unknown>>((resolve) => {
+      finish = () => resolve({});
     });
     const client = new CodexAppServerClient(child, {
       lifecycle: { onNotification: vi.fn(), onClose: vi.fn(), onRequest: () => callback },

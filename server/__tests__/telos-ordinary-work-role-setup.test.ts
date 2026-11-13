@@ -58,7 +58,7 @@ const fixture = (role?: 'advisor' | 'lead' | 'worker') =>
 
 it('releases only a proved absent create allocation and permanently fences its original allocator', async () => {
   const f = await fixture();
-  const input = { ...f.input, createOnly: true };
+  const input = { ...f.input, createOnly: true as const };
   const saved = f.work.prepareOrdinaryRoleSetup(input, f.actor);
   const operationId = saved.setup.allocationOperationId;
   const settings = input.settings;
@@ -109,7 +109,7 @@ it.each([
     const f = await fixture();
     const id = f.native.first.receipt.sessionId;
     const adoption = observeTelosAdoptionTarget(f.native.events, f.native.workspaces, id);
-    const input = { ...f.input, createOnly: true, adoption };
+    const input = { ...f.input, createOnly: true as const, adoption };
     const history = f.native.events.getSessionEvents(id);
     const reserve = vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace');
     let lost = scenario === 'lost response';
