@@ -871,7 +871,9 @@ export function ChatArea({
     ...messages,
     ...(current ? [current] : []),
     ...Object.values(currentByMessage),
-  ].some((message) => message.blocks.some((block) => !!block.rawInput?.nativeSubagentCommandId));
+  ].some((message) =>
+    [...message.blocks.values()].some((block) => !!block.rawInput?.nativeSubagentCommandId),
+  );
   return (
     <NativeSubagentsSession
       key={sessionId ?? 'new'}

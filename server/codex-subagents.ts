@@ -1293,11 +1293,11 @@ export class CodexSubagents {
         attempted = true;
       });
     };
-    let status: NativeSubagentControlStatus = 'uncertain';
+    let status: NativeSubagentControlStatus;
     try {
       authorize();
       this.current(live);
-      const perform = async () => {
+      const perform = async (): Promise<NativeSubagentControlStatus> => {
         const active =
           (['working', 'needs_permission'].includes(live.child.state) ||
             (parentStop && live.child.state === 'stopping')) &&
@@ -1315,7 +1315,7 @@ export class CodexSubagents {
             },
             'stopping',
           );
-          status = 'accepted';
+          return 'accepted';
         } else if (active) {
           const target = live.child.turnId;
           const response = object(
@@ -1329,8 +1329,7 @@ export class CodexSubagents {
               live.child.state,
             ),
           );
-          if (response.turnId === target) status = 'accepted';
-          else status = 'uncertain';
+          return response.turnId === target ? 'accepted' : 'uncertain';
         } else {
           if (!['completed', 'stopped'].includes(live.child.state))
             throw Error('Child unavailable');
@@ -1353,12 +1352,13 @@ export class CodexSubagents {
           const turn = object(response.turn);
           if (typeof turn.id === 'string') {
             this.apply(live, 'turn/started', { turn });
-            status = 'accepted';
-          } else status = 'uncertain';
+            return 'accepted';
+          }
+          return 'uncertain';
         }
       };
       try {
-        await perform();
+        status = await perform();
       } catch (error) {
         // Nothing was written when the exact dispatch fence detects completion.
         // Resolve this one transition under the same explicit request, checking
@@ -1373,7 +1373,7 @@ export class CodexSubagents {
         authorize();
         this.current(live);
         previousState = live.child.state;
-        await perform();
+        status = await perform();
       }
       stage = 'acknowledgement';
       authorize();

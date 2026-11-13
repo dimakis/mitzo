@@ -43,3 +43,9 @@ with one skip. Browser discovery lists the intercepted Chromium/WebKit cases;
 listing does not execute them. An unexpected native acknowledgement now retains
 an uncertainty diagnostic, and a later accepted explicit control clears stale
 failure presentation without resending the uncertain message.
+
+The first hosted compile caught streaming Map traversal, async result narrowing
+and a duplicate registry key. The follow-up corrects all three and adds a real
+streaming-to-finished marker regression. The expanded focused batch passes 163
+tests across thirteen files, including all existing ChatArea tests. Fresh hosted
+type checking and rendered verification remain pending for this correction.
