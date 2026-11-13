@@ -45,6 +45,7 @@ import {
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
 import { executeNativeTelosItemOperation } from './native-telos-item-operations.js';
 import { TELOS_WORKFLOW_INSTRUCTIONS } from './telos-workflow-instructions.js';
+import { sessionLearningGuidance, parseSessionLearningPolicy } from '@mitzo/protocol';
 import {
   telosBacklogDefinitions,
   isTelosBacklogTool,
@@ -2735,6 +2736,15 @@ async function openCodexChatBound(
         }
       : {}),
     systemPrompt: persistentSystemPrompt,
+    // Application context is rebuilt at every turn admission, also after compaction.
+    // Never retain learning instructions as immutable provider thread instructions.
+    prepareSystemPrompt: async () =>
+      options.adviserScope
+        ? ''
+        : sessionLearningGuidance(
+            options.eventStore.getSession(options.conversationId)?.learningPolicy ??
+              parseSessionLearningPolicy(),
+          ),
     startupSignal: signal,
     prepareAgentContext: ownedHost
       ? async (signal) => {
@@ -2849,7 +2859,13 @@ async function openCodexChatBound(
                   ? `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout${agentContext?.sandbox ? ' and saved recipe' : ''}. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${agentContext?.source === 'packs' ? 'The agent profile boot context retains its separately recorded source revisions. This retrieval publication does not replace that pinned profile context.' : selected.context.fullMarkdown}`
                   : '') +
                 taskRuntimeGuidance(capabilities) +
-                meetingPrepGuidance;
+                meetingPrepGuidance +
+                (options.adviserScope
+                  ? ''
+                  : sessionLearningGuidance(
+                      options.eventStore.getSession(options.conversationId)?.learningPolicy ??
+                        parseSessionLearningPolicy(),
+                    ));
               if (agentContext?.sandbox)
                 pendingAgentContextSha256 = createHash('sha256')
                   .update(pendingAdditionalContext)

@@ -421,6 +421,7 @@ import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
 import { getAccountUseStore } from './account-use-store.js';
 import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
+import { sessionLearningGuidance, parseSessionLearningPolicy } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -2524,7 +2525,13 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         (options.contributorGuidance
           ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
           : '') +
-        bootContextAppend;
+        bootContextAppend +
+        (codexProfile
+          ? ''
+          : sessionLearningGuidance(
+              eventStore.getSession(stateSessionId ?? options.resume ?? wtId)?.learningPolicy ??
+                parseSessionLearningPolicy(),
+            ));
 
     // Recipe-bound chats already have their exact Library definition and context.
     // Loading the legacy definition would compile another, unrelated default bundle.
@@ -3034,6 +3041,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               'mcp__mitzo-connections__SymposiumReadProfiles',
               'mcp__mitzo-connections__SymposiumProposeProfile',
               'mcp__mitzo-connections__AgentCommunication',
+              'mcp__mitzo-connections__CaptureMemoryCandidate',
               WEB_ACCESS_SDK_TOOL,
             ]
           : [
