@@ -109,6 +109,10 @@ it('recovers a lost removal acknowledgement by reading status, without removing 
   fireEvent.click(await screen.findByRole('button', { name: 'Remove account' }));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }));
   await screen.findByText(/Account removal could not be confirmed/);
+  expect((screen.getByRole('button', { name: 'Keep account' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Keep account' }));
   fireEvent.click(screen.getByRole('button', { name: 'Check sign-in status' }));
   await screen.findByRole('button', { name: 'Sign in with Claude' });
   expect(screen.queryByRole('button', { name: 'Confirm removal' })).toBeNull();

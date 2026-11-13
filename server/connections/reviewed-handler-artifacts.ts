@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1119-claude-account-recovery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1120-claude-native-login';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/claude-login-sandbox.native.test.ts':
+    '04b12c176cb8415012b61b10ad982b5849121688fdce93bc52ae60805e701a34',
+  '../__tests__/credential-sdk-boundary-spawn.test.ts':
+    'a9a880ad90f654bbaef3853e897863573c4fdd56b39fb5df8fece6208bc4586d',
   '../__tests__/claude-login-verification.test.ts':
     '797dbf9475236f698f540b928498b856aa43bfa2ad1ebc71dd0b28a36065659f',
   '../../frontend/src/components/__tests__/ConversationAgents.settings-scope.test.tsx':
@@ -230,9 +234,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-model-discovery.ts':
     '167e5a4dcd8547f1433e918707d31d92ba0d725a40483a70ab740349b628fac1',
   '../../frontend/src/components/ClaudeAccountConnection.tsx':
-    'bc89982ca1453871a5ce575bdf3206493a1fc6dd7443d22cac0c150603de4b43',
+    '6de46bf9ef603fd3ec780fbdb9de8bd21ff61ee80481524ccb86c297ee9670c2',
   '../../frontend/src/components/__tests__/ClaudeAccountConnection.test.tsx':
-    '78eff80fbeee2199db81086cb9009fcd2f699a6abdb7e18199a9c1d2c7f62145',
+    '694576397ee6952731085923af0ea18a2025bd96e0bf8864cf6ed6718ab25bea',
   '../../frontend/src/lib/claude-account-api.ts':
     '6434a06f5350267b263fec65b38fa80b81809e5f4cb3875ac8c2fbf97013e7dc',
   '../../frontend/src/pages/ConnectionsRoute.tsx':
@@ -248,19 +252,19 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-account-router.test.ts':
     '0466af14870c32b60b80fd8f467bcdc1dcd98eb429ae069c8bcccf1392b9ab16',
   '../__tests__/claude-account-store.test.ts':
-    '36cff4bc1481aa588c3f82e4f4232616e8b493265ed6d9a2f05280d4a9616483',
+    '5d3f79a78607600f8d116bfd3e6f2259ebf3570ca1230b6fb301d96cdcb99499',
   '../__tests__/claude-login-process.test.ts':
-    '215a38cc1fa37f10e1ce774dc8e5b0bb5c5bdb0e67c2e256a0e7e2ddb93793b8',
+    'f4e4f9f40779b0f3b4cbb2590433db78a8180c4f4e7732fa590bc8e0ff365aca',
   '../__tests__/claude-login-supervisor.test.ts':
-    '74e89a04474829bb42121ee8904adb5cda09e4e28f4c856855987741b8328a51',
+    'b5bff226051d8e7ff843e301aaec27868146745622993cc625d46adc72ba05e9',
   '../__tests__/claude-managed-profiles.test.ts':
     'a68e41f0a6117e120509894afb4f35c92e7e4487c813cbf7d092969a5c358aea',
   '../claude-account-login.ts': '3857b02e3b4db1d5f869475721d72504348f72c3fe66dfe86f71f0d539061934',
   '../claude-account-router.ts': 'd2fb76fc573f246ddbfc57a8ef3c3ab3450737c16a9ae3364326b9865e01f04d',
   '../claude-account-store.ts': '99d6054f487411d9a208613a0c5d0733bd29669151dffe5cb15fb5aa6da9cbd6',
-  '../claude-login-process.ts': '1c7d553ed25286916aceca0e49b409b2946b17d5faf38207e70975f2037aec9c',
+  '../claude-login-process.ts': '1fc8e418a8fdfbab7db9894fadf0f69f9168e10acbe8d1943c68e18a847f7299',
   '../claude-login-supervisor.cjs':
-    'd62c9117de7255c4087d54fa5840f382f594ee7ef4b3f35b47fcaa20bebafa94',
+    '14b9ae4e9f2fbbf279140e4024e0d15a473b74e2eaf9cd89148d301c13c858c9',
   '../connections-access.ts': 'd8b5053d8b0c76cdbca40cb7b664e2eaefbbc3b9736c650018c8b2d014e55bf0',
   '../../tests/offline/claude-account-connect.spec.ts':
     '1304c8b72af386e38ed303ce589d85fb78a7e17afdf8ff53f0f3987869d5035c',
@@ -2762,7 +2766,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../workspace-runtime-client.ts':
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../credential-sdk-boundary.ts':
-    '46026e9f38116e3868a24676401b14cfa8778903d68309e4cc602b7be51a8c26',
+    '9a971fd857b76eb996cbb962d89950112a5118e7b6a363712a3cb20439b2e08a',
   '../sandboxed-command-worker.ts':
     '2a573c2e8c11ffdb61a537e9b190f820bebd7ee1479bc65a3b81ba0ba2ab120e',
   '../protected-sdk-command.ts': '9b77fcbe62a8fb900f7ec548220345e50a6c56ebb194c1a748aaaf590812c39a',
@@ -4146,7 +4150,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '3b3f207865a36c619224e8dc3e8e9673178e2c1bc9d004ca001888cb3e9ad425',
+    'cb782675cbf73f4d9d81a1b3b0910a2fb54a96a79c7f512d040a22ade0a0383c',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -4422,7 +4426,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     'f54b300c69668515af4ee5a8c2d43834f4f8e40341be9a078e97ab9b1c7f9e45',
   '../../docs/features/personal-claude-local.md':
-    '46be577b2e9a3dce06027c308c7da1d02b99de713896bd9e8568c1d07976620f',
+    'e54e35cce8133257b4bfb4008d55df1856cea7977d0e64041dc035e15336f67e',
   '../../docs/features/telos-workflow.md':
     'e0f88cdcd71cb14c571df3d9217c40c51b14c5cd97c382a9c34ee1aeec745fb6',
   '../../frontend/src/test-utils/telos-session-launch-fixture.ts':

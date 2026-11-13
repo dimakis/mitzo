@@ -42,6 +42,7 @@ export function ClaudeAccountConnection({ accountId: selectedAccountId }: { acco
   const [authority, setAuthority] = useState(true);
   const [statusConfirmed, setStatusConfirmed] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [pendingRemovalId, setPendingRemovalId] = useState<string | null>(null);
   const [removedAccountId, setRemovedAccountId] = useState<string | null>(null);
   const accountId = selectedAccountId === removedAccountId ? undefined : selectedAccountId;
   const [observedAttemptId, setObservedAttemptId] = useState<string | null>(null);
@@ -165,14 +166,15 @@ export function ClaudeAccountConnection({ accountId: selectedAccountId }: { acco
       setSnapshot(value);
       setStatusConfirmed(true);
       notify(value);
-      if (removing && !value.accounts.some((row) => row.id === removing)) {
-        setRemovedAccountId(removing);
+      if (pendingRemovalId && !value.accounts.some((row) => row.id === pendingRemovalId)) {
+        setRemovedAccountId(pendingRemovalId);
         setRemoving(null);
         setObservedAttemptId(null);
         requestId.current = null;
         invalidateSymposiumAccountCatalog();
         navigate('/connections?manage=claude', { replace: true });
       }
+      setPendingRemovalId(null);
       const selected = value.accounts.filter((row) => row.id === (accountId ?? attempt?.accountId));
       const latest = [...value.attempts]
         .reverse()
@@ -290,8 +292,9 @@ export function ClaudeAccountConnection({ accountId: selectedAccountId }: { acco
     }
   };
   const remove = async (id: string) => {
-    if (mutation.current || !authority) return;
+    if (mutation.current || !authority || pendingRemovalId) return;
     mutation.current = true;
+    setPendingRemovalId(id);
     setBusy(true);
     setStatusConfirmed(false);
     setError('');
@@ -304,6 +307,7 @@ export function ClaudeAccountConnection({ accountId: selectedAccountId }: { acco
       setSnapshot(value);
       setStatusConfirmed(true);
       setRemoving(null);
+      setPendingRemovalId(null);
       setRemovedAccountId(id);
       setObservedAttemptId(null);
       requestId.current = null;
@@ -374,7 +378,8 @@ export function ClaudeAccountConnection({ accountId: selectedAccountId }: { acco
       if (mounted.current) setBusy(false);
     }
   };
-  const controlsDisabled = busy || !authority || !statusConfirmed || recoveryRequired;
+  const controlsDisabled =
+    busy || !authority || !statusConfirmed || recoveryRequired || !!pendingRemovalId;
   const signInFailed =
     attempt?.state === 'failed' ||
     attempt?.state === 'interrupted' ||
@@ -408,7 +413,9 @@ export function ClaudeAccountConnection({ accountId: selectedAccountId }: { acco
                 <button
                   type="button"
                   className="access-row-action"
-                  disabled={busy || !authority || busyAttempt || recoveryRequired}
+                  disabled={
+                    busy || !authority || busyAttempt || recoveryRequired || !!pendingRemovalId
+                  }
                   onClick={() => setRemoving(account.id)}
                 >
                   Remove account
@@ -426,12 +433,16 @@ export function ClaudeAccountConnection({ accountId: selectedAccountId }: { acco
           <div className="connections-wizard-actions">
             <button
               type="button"
-              disabled={busy || !authority || busyAttempt || recoveryRequired}
+              disabled={busy || !authority || busyAttempt || recoveryRequired || !!pendingRemovalId}
               onClick={() => void remove(removing)}
             >
               Confirm removal
             </button>
-            <button type="button" disabled={busy} onClick={() => setRemoving(null)}>
+            <button
+              type="button"
+              disabled={busy || !!pendingRemovalId}
+              onClick={() => setRemoving(null)}
+            >
               Keep account
             </button>
           </div>
