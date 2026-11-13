@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1124-apply-patch-visual-evidence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1125-patch-contrast';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2066,12 +2065,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '065eef206f07e4fca44d9e4418c76d58d19a18f363a4d318565a3ac85c5888d4',
   '../../frontend/src/styles/tool-result.css':
     'c232bf0777c08438666ae4fc154f2387b2cc8517a71ab004c808f71ad06a82ea',
+  '../../frontend/src/styles/code-block.css':
+    '2f2ac1fb83138ba9537dce065efd028719e51b8408a3f61c294091de47197f95',
   '../../frontend/src/components/__tests__/ToolResultContent.test.tsx':
     'c6627a7fa5ac673f45ce95a797fae56874273dd10642a60b26d0cb02711a9189',
   '../../tests/fixtures/tool-results.tsx':
     '76ad4b199280da8905075ba026227ed5660c48ef94a59ca0ed017f23679303eb',
   '../../tests/offline/tool-results.spec.ts':
-    '2ca3e3c2dd5aa7306795bf9cc3777b078619a2e5ff72c61c1ccf55aa8567ca8a',
+    '89cc94032d51a5c48706b4d6407d54d70a4bd0bf11539eae21ed1c63fc59d833',
   '../../frontend/src/lib/agent-task-proposal-link.ts':
     'c6d0636d69ea3fce109df49793011593761d7cfa34070818d92646f2a920a51f',
   '../session-agent-task-tools.ts':
