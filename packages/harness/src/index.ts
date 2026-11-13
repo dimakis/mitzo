@@ -70,7 +70,12 @@ export {
 } from './tool-tiers.js';
 
 // Skill policy
-export { setSkillPolicy, clearSkillPolicy, checkSkillPolicy } from './skill-policy.js';
+export {
+  setSkillPolicy,
+  clearSkillPolicy,
+  checkSkillPolicy,
+  checkSkillTool,
+} from './skill-policy.js';
 
 // Worktree guard
 export {
@@ -81,7 +86,10 @@ export {
 export type { OnDemandCreateFn, CheckWorktreePolicyOptions } from './worktree-guard.js';
 
 // Notifications
-export { registerPermissionNotificationOwner } from './permission-notification-owner.js';
+export {
+  registerPermissionNotificationOwner,
+  hasPermissionNotificationOwner,
+} from './permission-notification-owner.js';
 export * as ntfy from './notify.js';
 export * as pushover from './pushover.js';
 

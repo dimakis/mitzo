@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AccountBinding } from './account-binding.js';
 import type { RuntimeReadiness } from './runtime-readiness.js';
+import type { SessionControlSupport } from './session-control-support.js';
 import type { MitzoMode } from './types.js';
 
 /** Catalog support only. It is neither an executable inventory nor a grant. */
@@ -42,4 +43,5 @@ export interface SessionAccessEvidence {
   limits: null;
   readiness: RuntimeReadiness;
   helperSupport: SessionHelperSupport;
+  controls: SessionControlSupport;
 }

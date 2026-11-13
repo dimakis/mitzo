@@ -95,7 +95,7 @@ function fixture(permissionPrefix?: string) {
 beforeEach(() => vi.clearAllMocks());
 describe('StartSession proposal tool', () => {
   it.each(['', 'mcp__mitzo-connections__'])(
-    'enforces the actual %s skill namespace throughout proposal execution',
+    'refuses unqualified %s delegation and rechecks restrictions during proposal review',
     async (permissionPrefix) => {
       const f = fixture(permissionPrefix);
       f.session.activeSkillPolicy = new Set([permissionPrefix + 'TelosCreateSession']);
@@ -107,19 +107,23 @@ describe('StartSession proposal tool', () => {
           { turnId: 'turn', callId: 'call' },
           'TelosCreateSession',
         );
+      await expect(invoke()).rejects.toThrow(/skill tool restrictions/);
+      expect(f.telos.propose).not.toHaveBeenCalled();
+      expect(f.store.propose).not.toHaveBeenCalled();
+      f.session.activeSkillPolicy = undefined;
       await expect(invoke()).resolves.toMatchObject({ state: 'pending', childSessionId: null });
       expect(f.store.propose).toHaveBeenCalledOnce();
       f.session.activeSkillPolicy = new Set(['Read']);
-      await expect(invoke()).rejects.toThrow('Current ordinary session owner required.');
+      await expect(invoke()).rejects.toThrow(/skill tool restrictions/);
       expect(f.store.propose).toHaveBeenCalledOnce();
-      f.session.activeSkillPolicy = new Set([permissionPrefix + 'TelosCreateSession']);
+      f.session.activeSkillPolicy = undefined;
       const previous = f.telos.propose.getMockImplementation()!;
       f.telos.propose.mockImplementation(async (...args) => {
         const result = await previous(...args);
         f.session.activeSkillPolicy = new Set(['Read']);
         return result;
       });
-      await expect(invoke()).rejects.toThrow('Current ordinary session owner required.');
+      await expect(invoke()).rejects.toThrow(/skill tool restrictions/);
       expect(f.store.propose).toHaveBeenCalledOnce();
     },
   );

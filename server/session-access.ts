@@ -9,6 +9,7 @@ import type {
 import { recentAuthorizationSession } from './connections-router.js';
 import { projectRuntimeReadiness, type RuntimeReadinessInput } from './runtime-readiness.js';
 import { projectAgentHelperSupport } from './agent-tool-selection.js';
+import { projectSessionControlSupport } from './session-control-support.js';
 import { createLogger } from './logger.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
 
@@ -62,6 +63,7 @@ export function projectSessionAccess(
     limits: null,
     readiness,
     helperSupport: helperSupport(session, readiness),
+    controls: projectSessionControlSupport(readiness),
   };
   if (!session || readiness.session.state !== 'observed') return value;
   const { accountId, accountLabel, provider } = readiness.session.account;

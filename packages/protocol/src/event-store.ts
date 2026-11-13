@@ -91,6 +91,7 @@ import { OrdinaryLocalVertexCommandAdmissionSchema } from './ordinary-local-vert
 import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
 import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
+import { parseOrdinarySkillContext, type OrdinarySkillContext } from './ordinary-skill-context.js';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import { AgentCommunicationStore } from './agent-communication-store.js';
 import { UserTurnSteeringStore } from './user-turn-steering-store.js';
@@ -4664,35 +4665,31 @@ export class EventStore {
   admitWithOrdinarySkillContext(
     sessionId: string,
     commandId: string,
-    context: { text: string; prompt: string },
+    context: OrdinarySkillContext,
     admit: () => void,
   ): void {
+    const captured = parseOrdinarySkillContext(context);
     this.db!.transaction(() => {
       admit();
       const previous = this.getOrdinarySkillContext(sessionId, commandId);
-      if (previous && (previous.text !== context.text || previous.prompt !== context.prompt))
-        throw Error('Skill command changed');
+      if (previous && !isDeepStrictEqual(previous, captured)) throw Error('Skill command changed');
       if (!previous)
-        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...context });
+        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...captured });
     })();
   }
-  getOrdinarySkillContext(
-    sessionId: string,
-    commandId: string,
-  ): { text: string; prompt: string } | undefined {
+  getOrdinarySkillContext(sessionId: string, commandId: string): OrdinarySkillContext | undefined {
     const rows = this.db!.prepare(
       `SELECT payload FROM events WHERE session_id=? AND type='ordinary_skill_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
     ).all(sessionId, commandId) as Array<{ payload: string }>;
     if (!rows.length) return undefined;
-    const contexts = rows.map((row) => JSON.parse(row.payload));
+    const contexts = rows.map((row) => {
+      const { messageId: _, ...context } = JSON.parse(row.payload);
+      return parseOrdinarySkillContext(context);
+    });
     const first = contexts[0];
-    if (
-      typeof first.text !== 'string' ||
-      typeof first.prompt !== 'string' ||
-      contexts.some((context) => context.text !== first.text || context.prompt !== first.prompt)
-    )
+    if (contexts.some((context) => !isDeepStrictEqual(context, first)))
       throw Error('Skill command changed');
-    return { text: first.text, prompt: first.prompt };
+    return first;
   }
 
   getMessageReplyContext(sessionId: string, commandId: string): MessageReplyContext | undefined {

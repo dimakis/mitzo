@@ -79,9 +79,6 @@ it.each(['async', 'sync', 'wrapped'] as const)(
       'SymposiumProposeProfile',
       'SymposiumReadProfiles',
       'TaskExecution',
-      'SchedulePrompt',
-      'SessionTimers',
-      'SendSessionMessage',
       'CaptureMemoryCandidate',
       'TelosCreateSession',
     ]);

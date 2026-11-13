@@ -72,7 +72,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. The repo us
 
 - `skills.ts` — Skill registry: scoped discovery (bundled → user → repo), lazy metadata/body loading, deterministic precedence, collision tracking.
 - `slash-commands.ts` — Slash-command parsing, prompt expansion, skill resolution from user input.
-- `skill-policy.ts` — Per-turn tool restriction: skills declare `allowed-tools` in frontmatter, enforced as a ceiling on `canUseTool`.
+- `skill-policy.ts` — Shared executor tool ceiling. Prompt adapters currently refuse restricted skills until command lifetime and resume enforcement are qualified; see `docs/features/restricted-skills.md`.
 - `native-commands.ts` — Built-in native commands (`/skills`) — TypeScript product behavior, not prompt-based.
 
 **Task Board** — Multi-session orchestration
@@ -272,7 +272,7 @@ Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to b
 - Discovery: repo-local (`.mitzo/skills/`), user (`~/.mitzo/skills/`), bundled (`./skills/`).
 - Resolution order: Native → Repo → User → Bundled. Deterministic precedence with collision metadata.
 - `SlashPicker` component shows available skills when user types `/` in chat input, with type badges and collision notes.
-- Skills can declare `allowed-tools` in frontmatter — enforced as a ceiling (never expands permissions) via `skill-policy.ts`.
+- Skills can declare `allowed-tools` in frontmatter. Resolution intersects dependency ceilings and rejects invalid declarations. Current prompt adapters refuse restricted execution with a reason; shared executor checks never expand permissions. See `docs/features/restricted-skills.md` for the supported runtime decision and remaining qualification.
 - Bundled skills: `/simplify` (complexity, duplication, cleanup), `/risk-scan` (failure modes, missing tests, unsafe assumptions), `/pr-review` (diff/branch code review), `/person` (people profile lookup and update), `/review-response` (triage and fix PR review comments), `/land-pr` (shepherd a PR from open to merged), `/pr-shepherd` (persistent PR monitoring and lifecycle).
 - `GET /api/skills` returns merged registry with collision info, scoped by `cwd` query param.
 

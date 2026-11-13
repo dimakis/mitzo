@@ -11,6 +11,7 @@ const connectionHelpers: readonly string[] = Object.freeze([
   'AgentCommunication',
   'TelosCreateSession',
   'CaptureMemoryCandidate',
+  'TaskExecution',
 ]);
 export const ordinarySdkConnectionHelperTools: readonly string[] = Object.freeze(
   connectionHelpers.map((name) => `${SDK_CONNECTION_PREFIX}${name}`),

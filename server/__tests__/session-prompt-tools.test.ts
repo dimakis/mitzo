@@ -189,7 +189,13 @@ it('keeps listings read-only and makes task and session tools selectable across 
     false,
   );
   expect(f.approve).not.toHaveBeenCalled();
-  for (const name of ['TaskExecution', 'SchedulePrompt', 'SessionTimers', 'SendSessionMessage'])
+  expect(agentToolCatalog().find((tool) => tool.name === 'TaskExecution')?.routes).toEqual([
+    'local-api',
+    'codex',
+    'codex-owned-local',
+    'claude-sdk',
+  ]);
+  for (const name of ['SchedulePrompt', 'SessionTimers', 'SendSessionMessage'])
     expect(agentToolCatalog().find((tool) => tool.name === name)?.routes).toEqual([
       'local-api',
       'codex',

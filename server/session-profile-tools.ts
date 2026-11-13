@@ -130,6 +130,9 @@ export function sessionProfileTools(
             if (!read.data.revision) throw Error('Saved profile revision was not found');
           }
           await assertRuntimeCurrent?.();
+          // The awaiting consumer resumes after the runtime wrapper's final check.
+          // Revalidate the original command and operator at this effect boundary.
+          verifyAuthorization();
           const response = await custodianControllerClient.request(
             {
               requestId: randomUUID(),

@@ -61,6 +61,7 @@ import { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
 import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { registerAgentMessageRuntime, steerNativeAgentMessage } from './agent-message-runtime.js';
 import { PEER_MESSAGE_INSTRUCTIONS } from './peer-message-instructions.js';
+import { TASK_EXECUTION_INSTRUCTIONS } from './task-execution-definitions.js';
 import { sessionAgentCommunicationTools } from './agent-communication-tools.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { getOrdinarySessionPromptPort } from './session-prompt-runtime.js';
@@ -239,6 +240,7 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { setSkillPolicy } from './skill-policy.js';
+import { assertSkillRuntimeSupport } from './skill-runtime-support.js';
 import {
   runQueryLoop,
   retainQueryFinalization,
@@ -1374,6 +1376,7 @@ export async function startChat(
       ? nativeStartupSessionId(initialMessageId)
       : undefined;
   try {
+    assertSkillRuntimeSupport(options.skillAllowedTools);
     const retainedBinding = options.resume
       ? eventStore.getSession(options.resume)?.accountBinding
       : undefined;
@@ -2788,7 +2791,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         }),
       );
       const sdkAgentCommunication = options.ordinarySdkAuthority
-        ? () =>
+        ? (assertToolCurrent?: () => void) =>
             sessionAgentCommunicationTools({
               toolName: 'mcp__mitzo-connections__AgentCommunication',
               events: eventStore,
@@ -2796,17 +2799,26 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               registry,
               session,
               conversationId: session.sessionId!,
-              assertRuntimeCurrent: () =>
-                options.ordinarySdkAuthority!.assertCurrent(abortController.signal),
-              assertRuntimeCurrentSync: () =>
-                options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+              assertRuntimeCurrent: async () => {
+                assertToolCurrent?.();
+                await options.ordinarySdkAuthority!.assertCurrent(abortController.signal);
+                assertToolCurrent?.();
+              },
+              assertRuntimeCurrentSync: () => {
+                assertToolCurrent?.();
+                options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal);
+                assertToolCurrent?.();
+              },
               approve: createAgentMessageApprover({
                 toolName: 'mcp__mitzo-connections__AgentCommunication',
                 events: eventStore,
                 registry,
                 conversationId: session.sessionId!,
-                assertCurrent: () =>
-                  options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+                assertCurrent: () => {
+                  assertToolCurrent?.();
+                  options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal);
+                  assertToolCurrent?.();
+                },
               }),
               startQueued: async (recipient) => {
                 const runtime = getCodexRuntime(recipient);
@@ -3052,7 +3064,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               currentSystemPromptAppend() +
               WEB_ACCESS_INSTRUCTIONS +
               (options.ordinarySdkAuthority
-                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
+                ? (agentToolAllowed(session, 'mcp__mitzo-connections__TaskExecution')
+                    ? TASK_EXECUTION_INSTRUCTIONS
+                    : '') +
+                  '\n' +
+                  PEER_MESSAGE_INSTRUCTIONS +
+                  '\n'
                 : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
           };
         },
@@ -3141,6 +3158,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 connectionBoundary: 'sdk-callback',
                 agentCommunication: sdkAgentCommunication,
                 runCallback: state.runCallback,
+                checkTool: (name) => state.checkTool(name),
                 assertCurrentSync: (signal) => {
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');
                   options.ordinarySdkAuthority!.assertCurrentSync(signal);

@@ -1,5 +1,6 @@
 export * from './markdown-paths.js';
 export * from './ordinary-turn.js';
+export type { OrdinarySkillContext } from './ordinary-skill-context.js';
 export { ToolFailureSchema, toolFailure, toolFailureAction } from './tool-failure.js';
 export type { ToolFailure } from './tool-failure.js';
 export { stripMarkdownCodeBlocks } from './markdown-code-blocks.js';
@@ -425,3 +426,4 @@ export * from './session-prompts.js';
 export * from './native-subagents.js';
 export * from './session-access.js';
 export * from './session-learning.js';
+export * from './session-control-support.js';

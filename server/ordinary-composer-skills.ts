@@ -5,15 +5,15 @@ import { buildSkillRegistry } from './skill-registry-runtime.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { HostRepositoryReservationInput } from './repository-workspaces.js';
+import { assertSkillRuntimeSupport } from './skill-runtime-support.js';
 
-const restriction = 'This skill requires tool restrictions that this runtime cannot enforce.';
 const nativeNames = new Set(['skills', 'models', 'close', 'deliberate', 'fuse']);
 
 function assertSupported(registry: SkillRegistry, name: string, seen = new Set<string>()) {
   if (seen.has(name)) return; // The shared resolver reports circular dependencies.
   seen.add(name);
   const skill = registry.get(name);
-  if (skill?.allowedTools !== undefined) throw Error(restriction);
+  assertSkillRuntimeSupport(skill?.allowedTools);
   for (const dependency of skill?.requiredSkills ?? []) assertSupported(registry, dependency, seen);
 }
 
@@ -87,8 +87,8 @@ export function freezeOrdinarySkillCommand(
   if (!meta.cwd || typeof payload.text !== 'string' || !parseSlashCommand(payload.text))
     return admit();
   if (prepared && prepared.text !== payload.text) throw Error('Skill command changed');
-  const retained =
-    store.getOrdinarySkillContext(meta.sessionId, commandId) || store.getSendCommand(commandId);
+  const context = store.getOrdinarySkillContext(meta.sessionId, commandId);
+  const retained = context || store.getSendCommand(commandId);
   const prompt =
     !retained && prepared
       ? prepared.prompt
@@ -102,7 +102,7 @@ export function freezeOrdinarySkillCommand(
   store.admitWithOrdinarySkillContext(
     meta.sessionId,
     commandId,
-    { text: payload.text, prompt },
+    context ?? { text: payload.text, prompt },
     admit,
   );
 }
