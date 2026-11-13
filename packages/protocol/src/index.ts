@@ -36,6 +36,7 @@ export type {
   RawToolResultImage,
   ToolResultImage,
   Session,
+  ConversationReadState,
   SessionClosedBy,
   SessionState,
   ClientSessionState,

@@ -401,6 +401,40 @@
 .session-panel .active-sessions-list {
   min-height: 0;
   overflow-y: auto;
+  overflow-anchor: none;
+}
+.session-panel-list {
+  overflow-anchor: none;
+}
+.active-session-rows {
+  display: grid;
+  gap: var(--space-2);
+}
+.conversation-read-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: var(--space-2);
+  flex: 0 0 var(--space-2);
+}
+.conversation-unread-dot {
+  display: inline-block;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--color-unread);
+}
+.conversation-pin-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.session-item:has(.conversation-unread-dot) .session-item-summary,
+.session-panel-item:has(.conversation-unread-dot) .session-panel-item-summary,
+.cc-card:has(.conversation-unread-dot) .cc-card-title,
+.conversation-pin-select:has(.conversation-unread-dot) .conversation-pin-title {
+  font-weight: 600;
 }
 @media (min-width: 768px) {
   .desktop-shell .workspace-page.conversation-library {

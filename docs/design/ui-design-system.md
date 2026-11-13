@@ -1459,6 +1459,37 @@ WebKit ignores their minimum height; offline geometry checks require 44px target
 
 ## Session library and context summaries
 
+On 11 November 2026 Dimitri requested slower, pronounced promotions, one at a
+time, across Chats and its sidebar, and separation of finished jobs from active
+work. The shared ordering queue now commits one conversation per 2.5-second
+scheduling interval, using the 1100ms shared reorder motion role. In progress
+precedes Finished; completions move through the same queue. Captured nested
+scroll events, a scrolled-away viewport, mouse hover, keyboard focus and action
+dialogs hold ordering. Both views preserve their visible row through MotionList;
+Show latest applies the next held update. Reduced motion retains the order and
+browsing policy while removing animated movement. Existing controls remain.
+
+The same request adds reply read state and manual Mark as unread through the
+existing session actions. The presence dot gives way to a blue unread dot and
+slightly stronger title weight; status remains in the existing activity label.
+The marker uses `--color-unread`, aliased to the theme's blue role, and shared
+spacing/radius tokens. A fixed marker gutter prevents text jumping when read
+state changes. Read rows have no visible dot. The accessible label identifies
+an unread reply independently of color. Context menus, long-press preview actions,
+pins and the sidebar share the same state and Mark as read/unread control.
+
+A completed visible assistant-text reply has a durable sequence watermark.
+Only its appearance in a visible open transcript, or explicit Mark as read,
+acknowledges it; merely previewing a collection row does not. The acknowledgement
+cannot clear a newer unseen reply. Manual unread persists until another visit
+or explicit action; a tool event, thinking block or metadata refresh cannot
+create a new unread reply. Read state is server-persisted across devices, is
+revision-fenced, and never changes session freshness. Legacy histories without
+durable text/reply boundaries remain unknown rather than receiving an invented
+reply cursor. With no prior read receipt, retained replies are unread until
+viewed or marked read. Failed saves retain the marker and expose a retryable
+error in their owning menu or transcript.
+
 Activity additions use shared `SessionActivityStatus` and `ActivityBars` in the
 existing collection, search, pins, preview and sidebar. Open chat enriches the
 approved single composer-status row. Explicit elapsed/waiting/completion labels

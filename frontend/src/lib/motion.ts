@@ -20,7 +20,7 @@ export function animateMotion(
 ) {
   if (!element.animate || window.matchMedia?.(REDUCED_MOTION_QUERY).matches) return null;
   const styles = getComputedStyle(document.documentElement);
-  const token = kind === 'popover' ? 'fast' : 'standard';
+  const token = kind === 'reorder' ? 'reorder' : kind === 'popover' ? 'fast' : 'standard';
   const value = styles.getPropertyValue(`--motion-duration-${token}`).trim();
   const duration = parseFloat(value) * (value.endsWith('ms') ? 1 : 1000);
   if (!Number.isFinite(duration) || duration <= 0) return null;

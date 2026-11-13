@@ -8837,6 +8837,17 @@ export class EventStore {
     return this.sessionLearning.eligibility(id, requestId);
   }
 
+  getSessionReadState(sessionId: string) {
+    return this.sessionMetadata.reads.get(sessionId);
+  }
+
+  setSessionReadState(
+    sessionId: string,
+    update: ({ readReplySeq: number } | { markedUnread: true }) & { expectedRevision?: number },
+  ) {
+    return this.sessionMetadata.reads.set(sessionId, update);
+  }
+
   isSessionHidden(sessionId: string): boolean {
     return this.sessionMetadata.isSessionHidden(sessionId);
   }

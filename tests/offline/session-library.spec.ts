@@ -51,6 +51,141 @@ const bundle = build({
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
   },
 });
+
+for (const theme of ['dark', 'light'])
+  for (const surface of ['/sessions', '/panel'])
+    test(`conversation read state and finished grouping: ${surface} (${theme})`, async ({
+      page,
+      isMobile,
+    }, testInfo) => {
+      test.skip(isMobile && surface === '/panel', 'The desktop sidebar is a desktop surface.');
+      const fixtures = sessions.slice(0, 3).map((session, index) => ({
+        ...session,
+        telosTaskId: undefined,
+        isActive: true,
+        replyReadState: {
+          latestReplySeq: index + 10,
+          readReplySeq: index + 10,
+          markedUnread: false,
+          revision: 0,
+        },
+      }));
+      let failWrite = true;
+      await page.addInitScript(
+        ({ theme }) => {
+          class OfflineEventSource extends EventTarget {
+            readyState = 1;
+            onopen: (() => void) | null = null;
+            constructor() {
+              super();
+              queueMicrotask(() => this.onopen?.());
+              window.addEventListener('offline-session-activity', (event) =>
+                this.dispatchEvent(
+                  new MessageEvent('session_activity', {
+                    data: JSON.stringify((event as CustomEvent).detail),
+                  }),
+                ),
+              );
+            }
+            close() {}
+          }
+          Object.assign(window, { EventSource: OfflineEventSource });
+          localStorage.setItem('mitzo-session-view-mode', 'all');
+          localStorage.setItem('mitzo-theme', theme);
+          localStorage.setItem('mitzo-accent', theme === 'light' ? 'teal' : 'mint');
+          localStorage.setItem('mitzo-font', theme === 'light' ? 'arial' : 'georgia');
+        },
+        { theme },
+      );
+      const files = (await bundle).outputFiles!;
+      await page.route('**/*', async (route) => {
+        const url = new URL(route.request().url()),
+          path = url.pathname;
+        if (url.hostname !== 'mitzo-ui.test') return route.abort();
+        if (path.endsWith('/read-state')) {
+          const session = fixtures.find((item) => path.includes(`/${item.id}/`))!;
+          if (route.request().method() === 'PUT') {
+            if (failWrite) return route.fulfill({ status: 503, json: { error: 'Unavailable' } });
+            const update = route.request().postDataJSON();
+            session.replyReadState = {
+              ...session.replyReadState,
+              readReplySeq: update.readReplySeq ?? session.replyReadState.readReplySeq,
+              markedUnread: update.markedUnread === true,
+              revision: session.replyReadState.revision + 1,
+            };
+          }
+          return route.fulfill({ json: session.replyReadState });
+        }
+        if (path === '/api/sessions')
+          return route.fulfill({ json: { sessions: fixtures, hasMore: false } });
+        if (path === '/api/home/preferences')
+          return route.fulfill({
+            json: {
+              revision: 1,
+              names: { briefing: 'Mitzo', terminal: 'Mitzo' },
+              pins: [],
+              showDailyQuote: false,
+            },
+          });
+        if (path.endsWith('/messages')) return route.fulfill({ json: [] });
+        if (path.startsWith('/api/')) return route.fulfill({ json: {} });
+        if (path.endsWith('.png') || path.endsWith('.svg'))
+          return route.fulfill({
+            body: await readFile(resolve('frontend/public', path.slice(1))),
+            contentType: path.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
+          });
+        const file = files.find((file) =>
+          path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+        );
+        if (file)
+          return route.fulfill({
+            body: file.text,
+            contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+          });
+        return route.fulfill({
+          contentType: 'text/html',
+          body: '<div id="root"></div><link rel="stylesheet" href="/fixture.css"><script type="module" src="/fixture.js"></script>',
+        });
+      });
+      await page.goto(surface);
+      const selector = surface === '/panel' ? '.session-panel-item' : '.session-item';
+      const row = page.locator(selector).filter({ hasText: fixtures[0].summary });
+      await expect(row).toBeVisible();
+      await row.click({ button: 'right' });
+      const actionRole = isMobile ? 'button' : 'menuitem';
+      await page.getByRole(actionRole, { name: 'Mark as unread', exact: true }).click();
+      await expect(
+        page.getByRole('alert').filter({ hasText: 'Couldn’t save read status' }),
+      ).toBeVisible();
+      failWrite = false;
+      await page.getByRole(actionRole, { name: 'Mark as unread', exact: true }).click();
+      await expect(row.getByLabel('Unread reply')).toBeVisible();
+      if (isMobile) await page.getByRole('button', { name: 'Close preview' }).click();
+      await row.click({ button: 'right' });
+      await page.getByRole(actionRole, { name: 'Mark as read', exact: true }).click();
+      await expect(row.getByLabel('Unread reply')).toHaveCount(0);
+      if (isMobile) await page.getByRole('button', { name: 'Close preview' }).click();
+      await page.evaluate(
+        (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
+        fixtures.map((session, index) => ({
+          sessionId: session.id,
+          clientId: session.id,
+          title: session.summary,
+          flags: [],
+          state: index === 0 ? 'done' : 'working',
+          lastEventAt: session.lastModified,
+          completedAt: index === 0 ? Date.now() : undefined,
+        })),
+      );
+      await page.getByRole('button', { name: /1 updated · [Ss]how latest/ }).click();
+      await expect(page.locator(selector).last()).toContainText(fixtures[0].summary);
+      await expect(page.getByRole('heading', { name: 'In progress', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Finished', exact: true })).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath(`conversation-read-${surface.slice(1)}-${theme}.png`),
+      });
+    });
+
 for (const theme of ['dark', 'light'])
   test(`session library: pinned groups, gestures, actions and context (${theme})`, async ({
     page,
@@ -328,7 +463,13 @@ for (const theme of ['dark', 'light'])
     await page.evaluate(() =>
       document.dispatchEvent(new PointerEvent('pointerup', { pointerId: 77 })),
     );
+    // Mouse hover holds browsing too. Explicitly request the held promotion.
+    await page.getByRole('button', { name: /1 updated · show latest/ }).click();
     await expect(rows.first()).toHaveText('Conversation 11');
+    await page.mouse.move(0, 0);
+    await page.locator('.session-list-scroll').evaluate((element) => {
+      element.scrollTop = 0;
+    });
     await expect(page.locator('.session-list')).toHaveAttribute('data-observed-move', 'true');
     await page.screenshot({ path: testInfo.outputPath(`session-library-reordered-${theme}.png`) });
     await emit('done');

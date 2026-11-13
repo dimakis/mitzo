@@ -1,4 +1,5 @@
 import { MessageActions } from './MessageActions';
+import { useReplyReadReceipt } from '../hooks/useReplyReadReceipt';
 import { ReplyQuote, REPLY_NAVIGATION_EVENT } from './ReplyQuote';
 import { SessionLaunchCards } from './SessionLaunchCards';
 import type { SessionLaunchRecord } from '@mitzo/protocol';
@@ -228,6 +229,17 @@ export function ChatArea({
 }: ChatAreaProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
+  const latestReadReplySeq = messages.reduce(
+    (latest, message) =>
+      message.role === 'assistant' &&
+      !message.agentMessage &&
+      (!messageSessionId || messageSessionId(message.messageId) === sessionId) &&
+      message.blocks.some((block) => block.blockType === 'text' && block.content?.trim())
+        ? Math.max(latest, message.completedSeq ?? 0)
+        : latest,
+    0,
+  );
+  const replyRead = useReplyReadReceipt(sessionId, latestReadReplySeq, scrollRef);
   const prevMessageCount = useRef(0);
   const [replyReturn, setReplyReturn] = useState<{
     source: HTMLElement;
@@ -812,6 +824,11 @@ export function ChatArea({
               <>
                 <div
                   data-reply-source={block === firstVisibleText ? msg.messageId : undefined}
+                  data-read-reply-seq={
+                    !streaming && block.blockType === 'text' && block.content?.trim()
+                      ? finished?.completedSeq
+                      : undefined
+                  }
                   tabIndex={-1}
                   className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
                 >
@@ -894,6 +911,14 @@ export function ChatArea({
           ),
         )}
         {afterMessages}
+        {replyRead.error && (
+          <p role="alert">
+            {replyRead.error}{' '}
+            <button type="button" onClick={replyRead.retry}>
+              Retry read status
+            </button>
+          </p>
+        )}
         {replyNotice && <p role="status">{replyNotice}</p>}
         {replyReturn && replyReturn.sessionId === sessionId && (
           <button

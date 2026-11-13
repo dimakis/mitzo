@@ -7,6 +7,7 @@ Mitzo uses the same brief motion on the web and in the Capacitor iOS app.
 | ------------- | -------------- | ------------------------------ |
 | Fast          | 150ms          | Press feedback, menus, pickers |
 | Standard      | 200ms          | Pages, sheets, disclosures     |
+| Reorder       | 1100ms         | One conversation promotion     |
 | Spin / status | 800ms / 1200ms | Repeating activity indicators  |
 
 Use `var(--motion-ease)` for interaction easing. Activity indicators can use
@@ -97,7 +98,7 @@ timer-based unmount delays.
 
 `MotionList` snapshots keyed row positions before React's DOM mutation, preserves
 the first visible row in the chat scroller, then animates individual `translate`
-through `animateMotion`'s reorder role and the standard timing/easing tokens.
+through `animateMotion`'s reorder role and the shared reorder duration/easing tokens.
 It retains the same DOM rows and focus. Unchanged key order does not replay
 movement; interrupted moves begin at their visible position. Reduce Motion and
 unmount cancel active movement. The caller owns meaningful ordering and browsing

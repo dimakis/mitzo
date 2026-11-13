@@ -1,5 +1,7 @@
 import { useCallback, useState, useRef } from 'react';
-import { useSessionOrder } from '../hooks/useSessionOrder';
+import { useSessionOrdering } from '../hooks/useSessionOrder';
+import { MotionList } from './MotionList';
+import { ConversationUnreadDot } from './ConversationUnreadDot';
 import { useListBrowsing } from '../hooks/useListBrowsing';
 import { SessionActivityStatus } from './SessionActivityStatus';
 import {
@@ -59,13 +61,17 @@ function SessionPanelRow({
   );
   const title = recordTitle(session.summary || 'Untitled session');
   return (
-    <div className={`session-panel-item${active ? ' session-panel-item--active' : ''}`}>
+    <div
+      data-motion-key={session.id}
+      className={`session-panel-item${active ? ' session-panel-item--active' : ''}`}
+    >
       <button
         type="button"
         className="session-panel-select"
         {...handlers}
         aria-current={active || undefined}
       >
+        <ConversationUnreadDot session={session} />
         <span className="session-panel-item-text">
           <span className="session-panel-item-summary">{title}</span>
           <span className="session-panel-item-meta">
@@ -122,7 +128,12 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
     lastKnownActivities,
     modelObservations.current,
   );
-  const ordered = useSessionOrder([...combined.values()], activities, paused);
+  const {
+    sessions: ordered,
+    groups,
+    pendingCount,
+    showLatest,
+  } = useSessionOrdering([...combined.values()], activities, paused, { grouped: true });
   const displayById = new Map(
     (connected === false ? lastKnownActivities : activities).map((a) => [a.sessionId, a]),
   );
@@ -141,6 +152,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
         id: activity.sessionId,
         summary: activity.title,
         lastModified: activity.lastEventAt,
+        replyReadState: activity.replyReadState,
       },
       trigger,
       point,
@@ -190,6 +202,11 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
         onSelect={onSelectSession}
         onActions={showActions}
       />
+      {pendingCount > 0 && !menu && !renaming && !removing && (
+        <button type="button" className="session-freshness" onClick={showLatest}>
+          {pendingCount} updated · Show latest
+        </button>
+      )}
       {viewMode === 'active' ? (
         <ActiveSessionsList
           paused={paused}
@@ -212,9 +229,18 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
             <p className="session-panel-empty">No sessions</p>
           )}
           {!loading && ordered.length > 0 && (
-            <div className="session-panel-list">
-              <h2 className="session-list-group-title">All conversations</h2>
-              {ordered.map((session) => (
+            <MotionList className="session-panel-list" scrollSelector=".session-panel-list">
+              {ordered.flatMap((session, index) => [
+                ...(index === 0 || groups.get(session.id) !== groups.get(ordered[index - 1].id)
+                  ? [
+                      <h2
+                        key={`group-${groups.get(session.id)}`}
+                        className="session-list-group-title"
+                      >
+                        {groups.get(session.id) === 0 ? 'In progress' : 'Finished'}
+                      </h2>,
+                    ]
+                  : []),
                 <SessionPanelRow
                   key={session.id}
                   session={session}
@@ -223,19 +249,19 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
                   connected={connected}
                   onSelect={onSelectSession}
                   onActions={showActions}
-                />
-              ))}
-              {hasMore && (
-                <button
-                  type="button"
-                  className="session-load-more"
-                  onClick={loadMore}
-                  disabled={loadingMore}
-                >
-                  {loadingMore ? 'Loading...' : 'Load More'}
-                </button>
-              )}
-            </div>
+                />,
+              ])}
+            </MotionList>
+          )}
+          {hasMore && (
+            <button
+              type="button"
+              className="session-load-more"
+              onClick={loadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? 'Loading...' : 'Load More'}
+            </button>
           )}
         </>
       )}

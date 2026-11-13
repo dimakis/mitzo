@@ -15,6 +15,7 @@ beforeEach(() => {
     removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
   }));
   document.documentElement.style.setProperty('--motion-duration-standard', '200ms');
+  document.documentElement.style.setProperty('--motion-duration-reorder', '1100ms');
   document.documentElement.style.setProperty('--motion-ease', 'linear');
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: HTMLElement,
@@ -81,7 +82,7 @@ it('slides keyed rows from their old positions without remounting or replaying o
     { translate: '0 60px', zIndex: '1' },
     { translate: '0 0', zIndex: '1' },
   ]);
-  expect(animate.mock.calls[0][1]).toMatchObject({ duration: 200, easing: 'linear' });
+  expect(animate.mock.calls[0][1]).toMatchObject({ duration: 1100, easing: 'linear' });
   view.rerender(list(['b', 'a']));
   expect(animate).toHaveBeenCalledTimes(2);
 });

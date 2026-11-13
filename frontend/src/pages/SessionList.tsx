@@ -26,6 +26,7 @@ import { formatRelativeTime } from '../lib/formatTime';
 import '../styles/chat-drafts.css';
 import type { Session } from '../types/chat';
 import { SessionActivityStatus } from '../components/SessionActivityStatus';
+import { ConversationUnreadDot } from '../components/ConversationUnreadDot';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
@@ -258,13 +259,7 @@ function SwipeableSession({
           showPreview({ x: event.clientX, y: event.clientY });
         }}
       >
-        {session.isActive && session.isAttached != null && (
-          <span
-            className={`session-status-dot ${session.isAttached ? 'attached' : 'detached'}`}
-            role="status"
-            aria-label={session.isAttached ? 'Session active' : 'Session detached'}
-          />
-        )}
+        <ConversationUnreadDot session={session} />
         <div className="session-item-content">
           {editing ? (
             <input
@@ -454,9 +449,10 @@ export function SessionList() {
   );
   const {
     sessions: all,
+    groups,
     pendingCount,
     showLatest,
-  } = useSessionOrdering([...combined.values()], activities, paused);
+  } = useSessionOrdering([...combined.values()], activities, paused, { grouped: true });
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
@@ -476,6 +472,7 @@ export function SessionList() {
         mergeSessionModel(existing, result),
       ),
       accountLabel: result.accountLabel ?? existing?.accountLabel,
+      replyReadState: result.replyReadState ?? existing?.replyReadState,
       snippet: result.snippet,
     };
   });
@@ -769,7 +766,15 @@ export function SessionList() {
                 </p>
               )}
               <MotionList className="session-list">
-                {visible.map((s) => (
+                {visible.flatMap((s, index) => [
+                  ...(filter === 'all' &&
+                  (index === 0 || groups.get(s.id) !== groups.get(visible[index - 1].id))
+                    ? [
+                        <h2 key={`group-${groups.get(s.id)}`} className="session-list-group-title">
+                          {groups.get(s.id) === 0 ? 'In progress' : 'Finished'}
+                        </h2>,
+                      ]
+                    : []),
                   <SwipeableSession
                     key={s.id}
                     session={s}
@@ -783,8 +788,8 @@ export function SessionList() {
                     onClick={openSession}
                     onRename={handleRename}
                     onInteractionChange={onInteractionChange}
-                  />
-                ))}
+                  />,
+                ])}
               </MotionList>
               {hasMore && filter === 'all' && (
                 <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
