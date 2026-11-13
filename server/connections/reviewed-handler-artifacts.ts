@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1134-telos-browser-coordination-regressions';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1135-telos-live-coordination';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2212,7 +2211,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/WorkOutputs.tsx':
     '47933708c3613e0815b1fae093eb0239b8e8905edcc09faddc409b7ee13d6140',
   '../../frontend/src/components/TelosSourceWorkLink.tsx':
-    'ad7280b73f527e6a3e3b4a3350ce7625101cd62d47422eb432156fe63b18293a',
+    '9e35a3f56b3bcf3afb23eb74bd87dd4fc78e8fb0058154467df1c1b3ed4172b6',
   '../../frontend/src/components/TelosItemSources.tsx':
     '03abba949c3cc42c377a136c268f049d74fc2a858821af07fb7ef26f59271ebc',
   '../../frontend/src/components/SessionWorkLink.tsx':

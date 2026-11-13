@@ -1,9 +1,25 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TelosSourceWorkLink } from '../TelosSourceWorkLink';
 import { apiFetch } from '../../lib/api-fetch';
+const broadcasts = vi.hoisted(() => ({
+  events: new Map<string, () => void>(),
+  connections: new Set<(connected: boolean) => void>(),
+}));
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: {
+    on: (name: string, listener: () => void) => {
+      broadcasts.events.set(name, listener);
+      return () => broadcasts.events.delete(name);
+    },
+    onConnectionChange: (listener: (connected: boolean) => void) => {
+      broadcasts.connections.add(listener);
+      return () => broadcasts.connections.delete(listener);
+    },
+  },
+}));
 vi.mock('../../hooks/useTelosSourceNavigation', () => ({
   useTelosSourceNavigation: () => undefined,
 }));
@@ -13,8 +29,54 @@ vi.mock('../../lib/api-fetch', async (original) => ({
 }));
 afterEach(() => {
   cleanup();
+  vi.mocked(apiFetch).mockReset();
   vi.clearAllMocks();
 });
+it.each(['todo_update', 'sessions_changed', 'reconnect'])(
+  'refreshes canonical reporting on %s and hides the stale lead until the read settles',
+  async (event) => {
+    show({
+      itemId: 'slice',
+      role: 'worker',
+      assignment: 'current',
+      reportingTo: { conversationId: 'first-lead', availability: 'available' },
+    });
+    expect(
+      (await screen.findByRole('link', { name: 'Return to lead chat' })).getAttribute('href'),
+    ).toBe('/chat/first-lead');
+    let settle!: (value: Response) => void;
+    vi.mocked(apiFetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    act(() => {
+      if (event === 'reconnect') broadcasts.connections.forEach((listener) => listener(true));
+      else broadcasts.events.get(event)?.();
+    });
+    expect(screen.queryByRole('link', { name: 'Return to lead chat' })).toBeNull();
+    await act(async () =>
+      settle(
+        new Response(
+          JSON.stringify({
+            sessionId: 'worker',
+            telosWorkRoleContext: context,
+            telosSessionCoordination: {
+              itemId: 'slice',
+              role: 'worker',
+              assignment: 'current',
+              reportingTo: { conversationId: 'replacement-lead', availability: 'available' },
+            },
+          }),
+        ),
+      ),
+    );
+    expect(
+      (await screen.findByRole('link', { name: 'Return to lead chat' })).getAttribute('href'),
+    ).toBe('/chat/replacement-lead');
+  },
+);
 const context = {
   version: 1,
   itemId: 'slice',

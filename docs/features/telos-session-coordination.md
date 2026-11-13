@@ -66,6 +66,10 @@ incident has been repaired.
   Successful completed turns leave an idle coordinator available; stopping,
   stopped and interrupted sessions remain unavailable. An independent review
   identified this distinction, and real execution-ledger/UI regressions cover it.
+  Open chats invalidate the observed link on canonical work/session updates,
+  reconnect and visibility resume. A pending fresh read hides the former link;
+  aborted reads cannot restore it. Three event regressions fail before this fix
+  and pass with it, alongside the existing source-navigation consumers.
 
 ## Evidence states
 
