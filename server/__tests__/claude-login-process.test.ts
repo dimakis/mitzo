@@ -2,13 +2,27 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createClaudeLoginProcess } from '../claude-login-process.js';
+import { claudeLoginFailureReason, createClaudeLoginProcess } from '../claude-login-process.js';
 import { spawn } from 'node:child_process';
 const boundarySpawn = vi.hoisted(() => vi.fn());
 vi.mock('../credential-sdk-boundary.js', () => ({
-  credentialSdkBoundary: () => ({ spawnClaudeCodeProcess: boundarySpawn }),
+  claudeLoginSdkBoundary: () => ({ spawnClaudeCodeProcess: boundarySpawn }),
 }));
 const roots: string[] = [];
+it('classifies nested startup failures without returning provider text or secrets', () => {
+  expect(
+    claudeLoginFailureReason(
+      new Error('wrapper', { cause: new Error('Native login did not provide a sign-in link') }),
+    ),
+  ).toBe('native_link_timeout');
+  expect(
+    claudeLoginFailureReason(Object.assign(new Error('private/path'), { code: 'ENOENT' })),
+  ).toBe('native_file_missing');
+  expect(claudeLoginFailureReason(new Error('Native login exited (1)'))).toBe('native_exit_1');
+  expect(claudeLoginFailureReason(new Error('private-token-provider-response'))).toBe(
+    'unclassified_native_failure',
+  );
+});
 afterEach(() => {
   vi.unstubAllEnvs();
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
@@ -75,4 +89,24 @@ it('cancels a waiting native login and waits for process exit', async () => {
   });
   await login.cancel();
   expect(await login.completion).toMatchObject({ ok: false });
+});
+it('accepts the native terminal fallback and strips formatting split across chunks', async () => {
+  const f = fixture(`
+    if (!process.stdin.isTTY) process.exit(9);
+    process.stdout.write('Sign in at: \\x1b]8;;');
+    setTimeout(() => process.stdout.write('${url}\\x07${url}\\x1b]8;;\\x07\\n'), 10);
+    setInterval(() => {},1000);
+  `);
+  const login = await createClaudeLoginProcess(f.root, new AbortController().signal, {
+    executable: f.executable,
+  });
+  try {
+    expect(login.url).toBe(url);
+    for (const control of ['\x03', '\x04', '\x1a', '\x1b', '\x7f'])
+      await expect(login.submit('code' + control + '#state')).rejects.toMatchObject({
+        code: 'CLAUDE_LOGIN_PROCESS_FAILED',
+      });
+  } finally {
+    await login.cancel();
+  }
 });

@@ -17,6 +17,7 @@ function fixture() {
     status: vi.fn(() => ({ state: 'pending' })),
     submit: vi.fn(async () => ({ state: 'verifying' })),
     cancel: vi.fn(async () => ({ state: 'cancelled' })),
+    remove: vi.fn(() => ({ enabled: true, accounts: [], attempts: [] })),
   };
   const app = express();
   app.use((req, res, next) => {
@@ -30,6 +31,22 @@ function fixture() {
   );
   return { app, host };
 }
+it('removes only a named managed account through authenticated same-origin POST', async () => {
+  const { app, host } = fixture();
+  const accountId = `claude-${crypto.randomUUID()}`;
+  const endpoint = `/api/claude-accounts/accounts/${accountId}/remove`;
+  await request(app).post(endpoint).send({}).expect(401);
+  await request(app)
+    .post(endpoint)
+    .set('x-browser', 'yes')
+    .set('Origin', 'https://evil.test')
+    .send({})
+    .expect(403);
+  await request(app).post(endpoint).set('x-browser', 'yes').send({ path: '/private' }).expect(400);
+  expect(host.remove).not.toHaveBeenCalled();
+  await request(app).post(endpoint).set('x-browser', 'yes').send({}).expect(200);
+  expect(host.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'browser' }), accountId);
+});
 it('rejects internal/unauthenticated callers, foreign origins, oversized codes and unexpected secret fields', async () => {
   const { app, host } = fixture();
   expect((await request(app).get('/api/claude-accounts')).status).toBe(401);
