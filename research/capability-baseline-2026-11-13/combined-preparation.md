@@ -204,3 +204,10 @@ verification is `.verification/catalog-expectation-fix.log`. All eight failed
 unit assertions across these three completed shards have a confirmed cause and
 a passing focused check. Remaining hosted evidence is preserved, and final
 current-head CI and trusted review are still required before acceptance.
+
+Before the coordinated publication of this batch, the existing pre-aborted case
+was strengthened to assert no transport event, no pending permission and no
+session grant. It retains the exact `Aborted` denial assertion. All 96 permission
+and guarded TaskExecution checks pass, including these zero-effect assertions;
+the log is `.verification/pre-abort-zero-effects.log`. This final increment adds
+test evidence and its source pin, with no further production behavior change.
