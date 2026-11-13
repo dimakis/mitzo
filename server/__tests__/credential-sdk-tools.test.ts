@@ -71,6 +71,9 @@ it('routes Telos proposals through the owned callback and refuses retired query 
       { turnId: expect.any(String), callId: 'sdk-call' },
       'TelosCreateSession',
     );
+    expect(adapter).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionPrefix: 'mcp__mitzo-connections__' }),
+    );
     retired = true;
     await expect(tool.handler(input)).rejects.toThrow('query retired');
     expect(execute).toHaveBeenCalledOnce();

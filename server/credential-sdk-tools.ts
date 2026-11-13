@@ -35,6 +35,18 @@ import { sessionCredentialTools } from './session-credential-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 
 const prefix = 'mcp__mitzo-connections__';
+/** Keep SDK auto-admission and the mandatory PreToolUse route fence aligned.
+ * Every handler still enforces its profile, live authority and operation policy. */
+export const ordinarySdkHelperTools: readonly string[] = Object.freeze(
+  [
+    'ListConnections',
+    'SymposiumReadProfiles',
+    'SymposiumProposeProfile',
+    'AgentCommunication',
+    'TelosCreateSession',
+    'CaptureMemoryCandidate',
+  ].map((name) => prefix + name),
+);
 /** A failed authority check cannot become a recoverable application failure. */
 class SdkAuthorityFailure extends SessionRuntimeError {
   constructor(cause: unknown) {
@@ -192,6 +204,7 @@ export function createCredentialSdkServer(
                     sessionId: id,
                     session,
                     registry,
+                    permissionPrefix: prefix,
                     assertCurrent: () => authority.assertCurrent(signal),
                     assertCurrentSync: () => authority.assertCurrentSync(signal),
                   }).execute(

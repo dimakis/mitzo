@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1110-claude-telos-session-ownership';
+  'v1.0.1111-claude-telos-permission-gates';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -747,7 +747,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-launch-store.test.ts':
     '86f879dfc66732f9ca14ac44cc004130b2eafa3c8151d319d706c7f2353a8e77',
   '../__tests__/session-launch-tools.test.ts':
-    '369f2129c735543f1556781224061b816fa061b285554ece0ac47aec5dd85217',
+    'ea7a38da25ffef75c284a782837077e10f6c951482320aaab62bc3f3dca6f003',
   '../session-launch-controller.ts':
     '5eb7bba194fa8f0ddacd2eedf557b936e8d34c7fcb5fb77e57ba58215677c2fe',
   '../session-launch-defaults.ts':
@@ -758,7 +758,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-launch-service.ts':
     'd4eb60aef32262f7358cc3297c3662277bc4ad050e2e0ac703c3b289daed85bf',
   '../session-launch-store.ts': 'b1d2fc704c276b062d2d105ba167636a9c84c3642330ae8dc6eabf827c4a1a76',
-  '../session-launch-tools.ts': '35c864999bc7bc3a033ddc112957f1282f52e08262ae5513da46b3a2e2a475fa',
+  '../session-launch-tools.ts': 'a4076918af3710c3f3fca29553abc379966778305fa832514e106dba7198e809',
   '../../tests/fixtures/session-launch-defaults.tsx':
     '95fd8cddebfa31f139afc11617dad1b448f0d06cdf40ec41588a9bda46894bf9',
   '../../tests/fixtures/session-launch.tsx':
@@ -2289,7 +2289,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e4c18146a9b1742139131c2edd4e4c28d09a072deb33c561aaacd67d65330b77',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '185739f065ba2ad81534a2b171239d086010447fe03e3669d920dcd13804b5b1',
-  '../agent-tool-catalog.ts': '83ac09bf23c8cecd40ab64ddeacc86aebb9ed6beb56f085f089dad445e3cfbc1',
+  '../agent-tool-catalog.ts': '2ef8b222171d2a8792be31a4d6bdcdc825500e7cfaa09ee466be77a37dd4e51e',
   '../agent-tool-selection.ts': 'dea75b897b44f8b2bcf3fa6d447a527ca5e353f545916242db3de58efb923a7f',
   '../../packages/protocol/src/agent-tools.ts':
     'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
@@ -2586,7 +2586,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': '52236cfee083b9213fc4a4fa73bda4a26d3321a3ea3a7568d9a91377a5a20811',
+  '../chat.ts': 'd2acc4fd9e73af438aee7b84e04715045d2aafcccdadadac4555d3e7096a4f7f',
   '../../packages/harness/src/session-registry.ts':
     '920286cff62bab7712d9e8648166e74e2c1e084f11e0fe8978d2435c4a58da74',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -2701,7 +2701,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e33bda80c8667a2e22f02f1297e054b3769621fbb7cd6921a85f591d876f8c05',
   '../credential-http.ts': '4f9934df5c9f4918618868d663ed21ae2e633411bd7e027559f6008a21b8c7e4',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
-  '../credential-sdk-tools.ts': 'c081fa5a9ef6eeb0f58c6b3b7da4ba9a8f673fbc26dbcd6bad3bdceed348a942',
+  '../credential-sdk-tools.ts': 'a7dfaf1ef5bd9c6a80b77c86592e40c9085132625323a98caed5e5621c40f7f5',
   '../session-credential-tools.ts':
     '8b51d12a0a30970260903e3531bb0d7b26ef7ef6eb4641cdfa78fbf4e5918a0c',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
@@ -3490,7 +3490,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '47b1e88178a2c3711c2f13585efe087611e33d8ba350856a0300e61015ee94d3',
+    'fa08a3f2977f8b8ced5f1589b10b58e5b04788170587102e9d6aa96f09ce7bea',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '1cd3152f6a0b39ba08818d988b1b997425171ea3ebf1896e77d80804d12e2529',
   '../../packages/sqlite-file-owner/package.json':
@@ -3990,7 +3990,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-boundary.test.ts':
     '3bac4bc0290ddc4091f3f1f9054caf2f7afe6f03752952c1cdad07baa1602961',
   '../__tests__/credential-sdk-tools.test.ts':
-    '385e07154df22408582b084af5feb32063a2f6e3ebc31000208c24a1b6c49184',
+    'ba5da08689e551ff1412260129bedc7a7a41c5a9c69aa12cdc4c618e2f7a1464',
   '../__tests__/credential-setup-application.test.ts':
     '39683a04282c3149a17886b424218dc93bfa48bf208340f2f0a5736ad609f372',
   '../__tests__/credential-setup-continuation.test.ts':
@@ -4441,7 +4441,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/telos-agent-session-creation-handoff.md':
     'f144189dbd45d5092a58bf9be15cbfe0f947f0b5e3fe62bc04358af55067a28f',
   '../__tests__/telos-session-launch-adapters.test.ts':
-    'e1d91a0376676c92007860ebc242818145f8c0505153997d4d3bec53bd9d6463',
+    '9a8c0a395ce4ae09f5eb523bf641fdf613657aae83f8653c5ac730edce3d0409',
   '../telos-session-launch-adapters.ts':
     '930c5b1be8585501e576ecb848b9005b075a2359c8b9e570ba721f63d6ab9a00',
   '../telos-session-launch-tool.ts':
@@ -4451,7 +4451,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/model-spec.test.ts':
     'c6990b6483e9acdffcb63fb63efa5551c74960b481d4e21c623978555c92e3b8',
   '../__tests__/anthropic-api-sdk-model.test.ts':
-    '67ea92e529cb2104a506abb1ab2ab59c78ead1cfd5ab79e5b478d9e7ca216f9d',
+    '7c0252785b03966448dae8c3ded2de267a49f2640c2e5f2c9eaf0a373de821d4',
   '../anthropic-api-connection.ts':
     '0d28e1cccf86680c56196be272422a35be34ee809e83dcb57713dc41a14da731',
   '../__tests__/anthropic-api-child-env.test.ts':
