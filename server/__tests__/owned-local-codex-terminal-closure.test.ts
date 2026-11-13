@@ -29,6 +29,11 @@ import { revokeAuthSession } from '../auth.js';
 import { ordinaryLocalCodexBootstrapId } from '../ordinary-local-codex-admission.js';
 
 const peers = vi.hoisted(() => ({ close: vi.fn(async () => {}) }));
+// The provider is mocked: synthetic executable bytes do not run on the host.
+vi.mock('../codex-native-artifact-qualification.js', async (original) => ({
+  ...(await original<typeof import('../codex-native-artifact-qualification.js')>()),
+  assertQualifiedNativeMacExecutionArtifact: vi.fn(),
+}));
 vi.mock('../mcp-config.js', () => ({
   loadMcpServers: () => ({ offline: { command: 'never-launched' } }),
 }));
@@ -330,7 +335,7 @@ async function fixture() {
   };
 }
 
-it.each(['expiry', 'revocation', 'abort'] as const)(
+it.each(['expiry-then-revocation', 'revocation', 'abort'] as const)(
   'terminates the real owned conversation, stream and MCP owner on %s without recovery or custody cleanup',
   async (kind) => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
@@ -342,7 +347,15 @@ it.each(['expiry', 'revocation', 'abort'] as const)(
     const custody = store.readHostCustody(f.sessionId, f.reservation.binding)!;
     expect(custody).not.toBeNull();
     const authBytes = readFileSync(join(custody.login.privateHome, 'auth.json'));
-    if (kind === 'expiry') await vi.advanceTimersByTimeAsync(f.auth.expiresAt - Date.now() + 1);
+    if (kind === 'expiry-then-revocation') {
+      await vi.advanceTimersByTimeAsync(f.auth.expiresAt - Date.now() + 1);
+      expect(f.rpc.close).not.toHaveBeenCalled();
+      expect(peers.close).not.toHaveBeenCalled();
+      expect(f.ended).not.toHaveBeenCalled();
+      expect(chat.registry.findBySessionId(f.sessionId)).not.toBeNull();
+      expect(f.runtime.queue()).toMatchObject([{ id: f.commandId, status: 'running' }]);
+      revokeAuthSession(f.auth);
+    }
     if (kind === 'revocation') revokeAuthSession(f.auth);
     if (kind === 'abort') f.cancel.abort();
     expect(f.rpc.close).toHaveBeenCalled();

@@ -48,7 +48,7 @@ it('verifies logout targets without authorizing revoked sessions or depending on
   expect(await auth.authenticateToken(token)).toBeNull();
 });
 
-it('rejects expired, malformed and wrongly signed logout tokens', async () => {
+it('accepts expired identities only for logout and rejects malformed or wrongly signed tokens', async () => {
   const auth = createInteractiveAuth(config);
   const token = async (secret: string, expired = false) =>
     new SignJWT({ sub: 'user' })
@@ -56,12 +56,49 @@ it('rejects expired, malformed and wrongly signed logout tokens', async () => {
       .setJti('logout-target')
       .setExpirationTime(expired ? Math.floor(Date.now() / 1000) - 60 : '1h')
       .sign(new TextEncoder().encode(secret));
+  const expired = await token(config.secret, true);
+  expect(await auth.verifyLogoutToken(expired)).toEqual({
+    id: 'logout-target',
+    expiresAt: expect.any(Number),
+  });
+  expect(await auth.authenticateToken(expired)).toBeNull();
   for (const invalid of [
     'not-a-jwt',
-    await token(config.secret, true),
+    await token('a-different-test-secret-at-least-32-characters', true),
     await token('a-different-test-secret-at-least-32-characters'),
   ])
     expect(await auth.verifyLogoutToken(invalid)).toBeNull();
+});
+
+it('preserves subject, realm, not-before and identity checks for expired logout targets', async () => {
+  const realm = { issuer: 'offline-issuer', audience: 'offline-audience' };
+  const auth = createInteractiveAuth({ ...config, realm });
+  const now = Math.floor(Date.now() / 1000);
+  const claims = {
+    sub: 'user',
+    jti: 'realm-logout-target',
+    exp: now - 60,
+    iss: realm.issuer,
+    aud: realm.audience,
+  };
+  const sign = (payload: Record<string, unknown>) =>
+    new SignJWT(payload)
+      .setProtectedHeader({ alg: 'HS256' })
+      .sign(new TextEncoder().encode(config.secret));
+  const valid = await sign(claims);
+  expect(await auth.verifyLogoutToken(valid)).toEqual({
+    id: claims.jti,
+    expiresAt: claims.exp * 1000,
+  });
+  expect(await auth.authenticateToken(valid)).toBeNull();
+  for (const invalid of [
+    { ...claims, sub: 'another-user' },
+    { ...claims, iss: 'another-issuer' },
+    { ...claims, aud: 'another-audience' },
+    { ...claims, nbf: now + 60 },
+    { ...claims, jti: undefined },
+  ])
+    expect(await auth.verifyLogoutToken(await sign(invalid))).toBeNull();
 });
 it('retains logout revocation after auth and existing event store reopen', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-auth-continuity-'));

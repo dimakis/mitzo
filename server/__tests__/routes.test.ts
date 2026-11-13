@@ -374,6 +374,42 @@ describe('auth routes', () => {
     ).toBe(401);
   });
 
+  it.each(['bearer', 'cookie'] as const)(
+    'POST /api/auth/logout — expired %s revokes retained work without granting access',
+    async (kind) => {
+      const { login, authenticateToken } = await import('../auth.js');
+      const { retainAgentContextAuthority } = await import('../agent-context-authority.js');
+      const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+      const session = (await authenticateToken(token))!;
+      const controller = new AbortController();
+      const authority = retainAgentContextAuthority(session, controller);
+      try {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(session.expiresAt + 1);
+        expect(() => authority.assertCurrent()).not.toThrow();
+        expect(
+          (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`))
+            .status,
+        ).toBe(401);
+        expect(controller.signal.aborted).toBe(false);
+        const response = await request(app)
+          .post('/api/auth/logout')
+          .set(
+            kind === 'bearer' ? 'Authorization' : 'Cookie',
+            kind === 'bearer' ? `Bearer ${token}` : `cc_auth=${token}`,
+          );
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ ok: true });
+        expect(controller.signal.aborted).toBe(true);
+        expect(authority.failure()?.code).toBe('auth_revoked');
+        expect(() => authority.assertCurrent()).toThrow();
+      } finally {
+        vi.useRealTimers();
+        authority.release();
+      }
+    },
+  );
+
   it('POST /api/auth/logout — clears and revokes a valid cookie despite an invalid bearer', async () => {
     const token = authCookie.slice('cc_auth='.length);
     const response = await request(app)

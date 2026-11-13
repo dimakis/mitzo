@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify, decodeJwt } from 'jose';
+import { SignJWT, jwtVerify, decodeJwt, errors, type JWTPayload } from 'jose';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Request } from 'express';
 
@@ -113,18 +113,25 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
     return true;
   }
 
-  /** Signed, unexpired identity for revocation only. This never grants access:
-   * even an already revoked token must remain retryable after a durable write fails.
-   */
-  async function verifyLogoutToken(token: string): Promise<AuthSession | null> {
+  async function verifySessionToken(
+    token: string,
+    allowExpired = false,
+  ): Promise<AuthSession | null> {
     try {
-      const { payload } = await jwtVerify(
-        token,
-        SECRET,
-        config.realm
-          ? { issuer: config.realm.issuer, audience: config.realm.audience, algorithms: ['HS256'] }
-          : undefined,
-      );
+      let payload: JWTPayload;
+      try {
+        ({ payload } = await jwtVerify(token, SECRET, {
+          algorithms: ['HS256'],
+          subject: 'user',
+          ...(config.realm ? { issuer: config.realm.issuer, audience: config.realm.audience } : {}),
+        }));
+      } catch (error) {
+        // jose verifies signature, realm and not-before before reporting exp.
+        // Only this signed expiry failure may identify a logout target.
+        if (!allowExpired || !(error instanceof errors.JWTExpired) || error.claim !== 'exp')
+          throw error;
+        payload = error.payload;
+      }
       if (
         payload.sub !== 'user' ||
         (config.realm !== undefined &&
@@ -141,9 +148,16 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
     }
   }
 
+  /** Signed identity for revocation only, including expired/revoked logins.
+   * This never grants access and remains retryable after a durable write fails.
+   */
+  async function verifyLogoutToken(token: string): Promise<AuthSession | null> {
+    return verifySessionToken(token, true);
+  }
+
   async function authenticateToken(token: string): Promise<AuthSession | null> {
     try {
-      const session = await verifyLogoutToken(token);
+      const session = await verifySessionToken(token);
       if (!session || isSessionRevoked(session)) return null;
       for (const [id, saved] of authenticatedOperators)
         if (saved.expiresAt <= Date.now()) authenticatedOperators.delete(id);

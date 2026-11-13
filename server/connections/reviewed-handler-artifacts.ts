@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1099-retained-run-login-expiry';
+  'v1.0.1100-expired-login-logout-revocation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1009,7 +1009,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../inbox-scanner.ts': 'ee00e0aa6dce28803d51d14ee85c3807d365a6ff1db6239913f05060fe0af161',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',
   '../__tests__/owned-local-auth-feedback.test.ts':
-    'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
+    '67bcb9118761b297ec7ae9ae06ae2947793805887cc7c0d7f115317d00701f0b',
   '../../docs/design/ui-design-system.md':
     'f2a4a84eb5419e9cf21959567086dc6bd0f110c2ffb92bda22118a4e8e9c284e',
   '../../packages/protocol/src/session-prompts.ts':
@@ -2848,7 +2848,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/ordinary-openshell-admission.ts':
     'e0bf739a1a01a4a0068710b6297a890319a9a0d0c52caef40a66317a3f09d451',
   '../host-codex-custody.ts': '61aa7f207e85cda995ab21ca987946db1fbe83e81e232f038b656eb235d24212',
-  '../interactive-auth-core.ts': '512e933252bda6a86584dcb3d6a622ddea43d9e525c682dffae91f622e745120',
+  '../interactive-auth-core.ts': '91fed0b853bb5a6e811424fe2dafa63d98e396a3ad1d64fef1735925e2eb6820',
   '../openshell-codex-custody.ts':
     '7e08950de4b9e31af2aaa87e5bb8eb14a11322e893a4adc363e6c507fe6b323a',
   '../openshell-lifecycle-controller.ts':
@@ -3896,7 +3896,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-codex-owned-runtime.test.ts':
     '49fcd0ed58191fbc87cd214adc08e1a82ff5803411b8db0560204a26ffdd90e9',
   '../__tests__/owned-local-codex-terminal-closure.test.ts':
-    'd6901e8051b00e4ff7817748bc8e3910aa36e1455f16cc9dc055030b83b90ec7',
+    'a0714fe3ca9952eb7aee734581584c94bbac507fd6579ec256d1d6f377eae6ec',
   '../__tests__/query-loop.test.ts':
     'f940d4c974ccc6c2c5f449594a719041e4c8fae4957aa911b4555aeaad3a6d96',
   '../__tests__/reconstruct-messages.test.ts':

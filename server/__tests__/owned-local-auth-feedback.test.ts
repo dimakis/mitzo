@@ -20,16 +20,19 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-it('retains synchronously observed expiry before the original timer fires', async () => {
+it('keeps the dispatched admission current when the browser expires before its timer fires', async () => {
   const f = await ownedRuntimeFixture(cleanups);
   const runtime = f.create();
   await runtime.admit(f.request);
   const admission = f.dispatch.mock.calls[0][0].admission;
   vi.useFakeTimers();
   vi.setSystemTime(f.auth.expiresAt);
+  expect(() => admission.assertCurrentSync()).not.toThrow();
+  expect(admission.authenticationFailure()).toBeUndefined();
+  revokeAuthSession(f.auth);
   expect(() => admission.assertCurrentSync()).toThrow('Owned local Codex chat unavailable');
   const failure = admission.authenticationFailure();
-  expect(failure?.code).toBe('auth_expired');
+  expect(failure?.code).toBe('auth_revoked');
   admission.close();
   expect(admission.authenticationFailure()).toBe(failure);
 });
