@@ -1,5 +1,6 @@
 // Fail before application imports can create stores, routes or recovery owners.
 import './deployment-maintenance-entry.js';
+import { bindTelosWorkUpdateBroadcast } from './telos-work-updates.js';
 import { installHostKnowledgeStore } from './published-host-knowledge.js';
 import { knowledgeStoreFromEnvironment } from './knowledge-store-config.js';
 import { createDeploymentRuntime } from './deployment-runtime.js';
@@ -464,6 +465,7 @@ setWorkloadBroadcast((event) => {
   connRegistry.broadcastAll(event as Record<string, unknown>);
   sseRegistry.broadcast('todo_update', { action: 'refresh' });
 });
+const releaseTelosWorkUpdates = bindTelosWorkUpdateBroadcast(sseRegistry);
 
 // --- Workflow layer ---
 const wfTemplateStore = new WorkflowTemplateStore(taskStore.getDatabase());
@@ -1423,6 +1425,7 @@ async function shutdown(signal: string) {
         wfTemplateStore.close();
         healthMonitor.destroy();
         overviewEmitter.destroy();
+        releaseTelosWorkUpdates();
         sseRegistry.destroy();
         chatSseRegistry.destroy();
         connRegistry.dispose(); // Stop periodic sync + clear state

@@ -8,7 +8,7 @@ import { retainTelosSessionProposalFailure } from './telos-session-proposal-fail
 export const telosSessionLaunchDefinition = {
   name: 'TelosCreateSession',
   description:
-    'Propose a distinct ordinary session already assigned to one exact authorized Telos child. An outcome orchestrator creates its feature lead; a feature lead creates its slice worker. Supply itemId and its current revision. Review child account/model/agent/runtime/permissions and explicit work sources in this originating chat, then Approve & create. Creation admits no model command. Child settings are independent of the caller; supported child route is currently an independent Local Mac Codex workspace. Reuse the same requestId after uncertainty. Never substitute plain StartSession or manually link an unrelated chat.',
+    'Propose a distinct ordinary session already assigned to one exact authorized Telos child. An outcome orchestrator creates its feature lead; a feature lead creates its slice worker. Supply itemId and its current revision. For reviewed adoption, also supply exact existingConversationId without overrides: the compatible idle Local Mac Codex chat keeps its settings, workspace and history; Approve & adopt never allocates a replacement. Otherwise review independent child settings and explicit sources, then Approve & create. Both operations admit no model command and confer no credentials or grants. Review occurs in this originating chat. Reuse the same requestId after uncertainty; do not substitute StartSession or manually link an unrelated chat.',
   input_schema: z.toJSONSchema(TelosCreateSessionInputSchema),
 };
 export const TelosSessionProposalResponseSchema = SessionLaunchRecordSchema.extend({
@@ -65,7 +65,8 @@ export async function executeTelosCreateSession(
       record.data.sourceSessionId !== sessionId ||
       record.data.requestId !== parsed.data.requestId ||
       record.data.telos.itemId !== parsed.data.itemId ||
-      record.data.telos.expectedRevision !== parsed.data.expectedRevision
+      record.data.telos.expectedRevision !== parsed.data.expectedRevision ||
+      record.data.telos.adoption?.conversationId !== parsed.data.existingConversationId
     )
       return {
         content:

@@ -26,6 +26,9 @@ const errorCodes = new Map([
   ['SQLITE_BUSY', 'Conversation storage is busy.'],
 ]);
 const diagnosticFiles = new Set([
+  'telos-work-store',
+  'telos-work-command-scope',
+  'telos-work-execution-authority',
   'chat',
   'ordinary-openshell-codex-entry',
   'ordinary-openshell-codex-entry-owner',

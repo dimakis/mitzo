@@ -152,753 +152,755 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion', async () => {
-  ct09PhaseProfile = { start: performance.now(), marks: [] };
-  markCt09Phase('test-start');
-  vi.resetModules();
-  vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
-  vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', undefined);
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(() => {
-      throw Error('No external network or model calls');
-    }),
-  );
-  markCt09Phase('fixture-import-start');
-  const { ownedOrdinaryRuntimeFixture } =
-    await import('./fixtures/owned-ordinary-workspace-runtime.js');
-  markCt09Phase('fixture-imported');
-  f = await ownedOrdinaryRuntimeFixture(cleanup, {
-    chatRoute: true,
-    separateConfiguredWorkspace: true,
-  });
-  markCt09Phase('fixture-constructed');
-  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
-  const canonical = createTelosCanonicalData('fresh');
-  cleanup.push(() => canonical.close());
-  vi.stubEnv('TELOS_DB_PATH', canonical.dbPath);
-  application = await import('../app.js');
-  chat = await import('../chat.js');
-  markCt09Phase('app-chat-imported');
-  auth = await import('../auth.js');
-  transportAuth = await import('../transport-auth-ownership.js');
-  const native = await import('../codex-app-server-client.js');
-  const { SessionSseRegistry } = await import('../session-sse-registry.js');
-  const { SseTransport } = await import('../sse-transport.js');
-  const { ConnectionRegistry } = await import('@mitzo/harness');
-  connections = new ConnectionRegistry();
-  streams = application.chatSseRegistry;
-  expect(streams).toBeInstanceOf(SessionSseRegistry);
-  streams.add(
-    f.operatorConnectionId,
-    {
-      write: vi.fn((frame: string) => {
-        const data = frame.split('\n').find((line) => line.startsWith('data: '));
-        if (data) streamMessages.push(JSON.parse(data.slice(6)));
-        return true;
+it.each(['manual', 'lead'] as const)(
+  'CT09: actual canonical non-Git advisor-to-worker journey retains file bytes, review and verified completion (%s start)',
+  async (startupRoute) => {
+    ct09PhaseProfile = { start: performance.now(), marks: [] };
+    markCt09Phase('test-start');
+    vi.resetModules();
+    nativeSessions.length = 0;
+    streamMessages.length = 0;
+    vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        throw Error('No external network or model calls');
       }),
-      end: vi.fn(),
-      writableEnded: false,
-    } as unknown as Response,
-    f.auth.id,
-  );
-  connections.register(f.operatorConnectionId, new SseTransport(f.operatorConnectionId, streams));
-  transportAuth.claimTransportConnection(f.operatorConnectionId, f.auth.id);
-  chat.setConnectionRegistry(connections);
-  const server = application.app.listen(0, '127.0.0.1');
-  await new Promise<void>((resolve) => server.once('listening', resolve));
-  const address = server.address();
-  if (!address || typeof address === 'string') throw Error('Private callback port unavailable');
-  expect([3100, 3101, 3190]).not.toContain(address.port);
-  vi.stubEnv('PORT', String(address.port));
-  cleanup.push(
-    () =>
-      new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      ),
-  );
-  const entry = await import('../ordinary-local-codex-entry.js');
-  application.app.use(
-    '/api/ordinary/workspaces/commands',
-    entry.createOwnedOrdinaryWorkspaceCommandRouter(streams, {
-      connRegistry: connections,
-      sessionRegistry: chat.registry,
-      eventStore: chat.eventStore,
-    }),
-  );
-  const rawRpc = f.first.rpc.request.getMockImplementation()!;
-  vi.spyOn(native.CodexAppServerClient, 'launchIsolated').mockImplementation(
-    (_home, _env, lifecycle) => {
-      if (!lifecycle) throw Error('Native lifecycle callbacks required');
-      const n = nativeSessions.length + 1;
-      const threadId = 'offline-journey-thread-' + n,
-        turnId = 'offline-journey-turn-' + n;
-      const tools: Array<{ name: string; description: string }> = [];
-      const rpc = {
-        initialize: vi.fn(async () => {}),
-        request: vi.fn(async (method: string, params?: Record<string, unknown>) => {
-          if (method === 'thread/start')
-            tools.push(...((params?.dynamicTools as typeof tools) ?? []));
-          if (method === 'thread/start' || method === 'thread/resume')
-            return { thread: { id: threadId }, model: 'fixture-model', modelProvider: 'openai' };
-          if (method === 'turn/start') return { turn: { id: turnId } };
-          if (method === 'turn/interrupt') return {};
-          return rawRpc(method);
-        }),
-        notify: vi.fn(),
-        respond: vi.fn(),
-        close: vi.fn(() => lifecycle.onClose?.(Error('Offline native closed'))),
-      } as unknown as typeof f.first.rpc;
-      nativeSessions.push({ lifecycle, rpc, threadId, turnId, tools });
-      return rpc as unknown as ReturnType<typeof native.CodexAppServerClient.launchIsolated>;
-    },
-  );
-  for (const port of ['launch', 'launchOpenShell'] as const)
-    vi.spyOn(native.CodexAppServerClient, port).mockImplementation(() => {
-      throw Error('Alternate native process forbidden');
+    );
+    markCt09Phase('fixture-import-start');
+    const { ownedOrdinaryRuntimeFixture } =
+      await import('./fixtures/owned-ordinary-workspace-runtime.js');
+    markCt09Phase('fixture-imported');
+    f = await ownedOrdinaryRuntimeFixture(cleanup, {
+      chatRoute: true,
+      separateConfiguredWorkspace: true,
     });
-
-  const http = async (url: string, init?: RequestInit) => {
-    const call =
-      init?.method === 'POST'
-        ? request(application.app).post(url)
-        : request(application.app).get(url);
-    call.set('Authorization', 'Bearer ' + f.token).set('X-Connection-Id', f.operatorConnectionId);
-    for (const [key, value] of new Headers(init?.headers)) call.set(key, value);
-    if (init?.body) call.send(JSON.parse(String(init.body)));
-    const response = await call;
-    expect(response.status, JSON.stringify(response.body)).toBeLessThan(400);
-    return new Response(JSON.stringify(response.body), {
-      status: response.status,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  };
-  const { OrdinaryWorkspaceApiClient, TelosWorkApiClient } = await import('@mitzo/client');
-  const ordinary = new OrdinaryWorkspaceApiClient(http),
-    api = new TelosWorkApiClient(http);
-  markCt09Phase('owners-ready');
-  const prepared = await ordinary.prepare({
-    version: 1,
-    model: f.binding.model,
-    runOn: 'local',
-    runtime: {
-      account: f.first.request.runtime.account,
-      harness: f.first.request.runtime.harness,
-      targetId: f.first.request.runtime.targetId,
-    },
-  });
-  markCt09Phase('workspace-prepared');
-  expect(prepared.capabilities).toEqual([
-    'ordinary_conversation',
-    'writable_files',
-    'retained_artifacts',
-    'task_execution',
-  ]);
-  const settings = {
-    version: 2 as const,
-    binding: prepared.runtimeBinding,
-    selection: f.first.request.selection,
-    workspace: { kind: 'ordinary' as const, preparationId: prepared.preparationId },
-  };
-  chat.eventStore.upsertSession({
-    ...canonical.events.getSession('planning')!,
-    accountBinding: f.binding,
-  });
-  // Enter through the approved ordinary-chat creator instead of repairing a
-  // pre-classified fixture. The resulting item must support the whole journey.
-  const { TelosItemStore: CreationItems } = await import('../telos-item-store.js');
-  const { executeTelosBacklogOperation } = await import('../telos-backlog-tools.js');
-  const creationItems = new CreationItems(canonical.dbPath);
-  cleanup.push(() => creationItems.close());
-  const createInput = {
-    requestId: randomUUID(),
-    summary: 'Home recording feature',
-    intent: 'Record music using the reviewed acoustic plan.',
-    rationale: 'Retain the discussion, delegate the work and review its result.',
-    acceptanceCriteria: ['The separate worker returns a retained result for review.'],
-    note: 'The operator approved this standalone feature.',
-  };
-  const approveCreation = vi.fn(async (_name: string, input: Record<string, unknown>) => ({
-    behavior: 'allow' as const,
-    updatedInput: input,
-  }));
-  const createFeature = () =>
-    executeTelosBacklogOperation(
+    markCt09Phase('fixture-constructed');
+    const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+    const canonical = createTelosCanonicalData('fresh');
+    cleanup.push(() => canonical.close());
+    vi.stubEnv('TELOS_DB_PATH', canonical.dbPath);
+    application = await import('../app.js');
+    chat = await import('../chat.js');
+    markCt09Phase('app-chat-imported');
+    auth = await import('../auth.js');
+    transportAuth = await import('../transport-auth-ownership.js');
+    const native = await import('../codex-app-server-client.js');
+    const { SessionSseRegistry } = await import('../session-sse-registry.js');
+    const { SseTransport } = await import('../sse-transport.js');
+    const { ConnectionRegistry } = await import('@mitzo/harness');
+    connections = new ConnectionRegistry();
+    streams = application.chatSseRegistry;
+    expect(streams).toBeInstanceOf(SessionSseRegistry);
+    streams.add(
+      f.operatorConnectionId,
       {
-        items: creationItems,
-        work: canonical.work,
-        approve: approveCreation,
-        context: {
-          operatorId: canonical.actor.id,
-          conversationId: 'planning',
-          toolName: 'TelosCreateFeature',
-          requestHash: createHash('sha256').update(JSON.stringify(createInput)).digest('hex'),
-          signal: new AbortController().signal,
-          assertCurrentSync() {},
-          async assertCurrent() {},
-        },
+        write: vi.fn((frame: string) => {
+          const data = frame.split('\n').find((line) => line.startsWith('data: '));
+          if (data) streamMessages.push(JSON.parse(data.slice(6)));
+          return true;
+        }),
+        end: vi.fn(),
+        writableEnded: false,
+      } as unknown as Response,
+      f.auth.id,
+    );
+    connections.register(f.operatorConnectionId, new SseTransport(f.operatorConnectionId, streams));
+    transportAuth.claimTransportConnection(f.operatorConnectionId, f.auth.id);
+    chat.setConnectionRegistry(connections);
+    const { createChatRestRouter } = await import('../chat-rest-handler.js');
+    const { NativeCommandRegistry } = await import('../native-commands.js');
+    application.app.use(
+      '/api/chat',
+      createChatRestRouter(streams, {
+        connRegistry: connections,
+        sessionRegistry: chat.registry,
+        eventStore: chat.eventStore,
+        nativeCommands: new NativeCommandRegistry(),
+      }),
+    );
+    const server = application.app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw Error('Private callback port unavailable');
+    expect([3100, 3101, 3190]).not.toContain(address.port);
+    vi.stubEnv('PORT', String(address.port));
+    cleanup.push(
+      () =>
+        new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        ),
+    );
+    const entry = await import('../ordinary-local-codex-entry.js');
+    application.app.use(
+      '/api/ordinary/workspaces/commands',
+      entry.createOwnedOrdinaryWorkspaceCommandRouter(streams, {
+        connRegistry: connections,
+        sessionRegistry: chat.registry,
+        eventStore: chat.eventStore,
+      }),
+    );
+    const rawRpc = f.first.rpc.request.getMockImplementation()!;
+    vi.spyOn(native.CodexAppServerClient, 'launchIsolated').mockImplementation(
+      (_home, _env, lifecycle) => {
+        if (!lifecycle) throw Error('Native lifecycle callbacks required');
+        const n = nativeSessions.length + 1;
+        const threadId = 'offline-journey-thread-' + n,
+          turnId = 'offline-journey-turn-' + n;
+        const tools: Array<{ name: string; description: string }> = [];
+        const rpc = {
+          initialize: vi.fn(async () => {}),
+          request: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+            if (method === 'thread/start')
+              tools.push(...((params?.dynamicTools as typeof tools) ?? []));
+            if (method === 'thread/start' || method === 'thread/resume')
+              return { thread: { id: threadId }, model: 'fixture-model', modelProvider: 'openai' };
+            if (method === 'turn/start') return { turn: { id: turnId } };
+            if (method === 'turn/interrupt') return {};
+            return rawRpc(method);
+          }),
+          notify: vi.fn(),
+          respond: vi.fn(),
+          close: vi.fn(() => lifecycle.onClose?.(Error('Offline native closed'))),
+        } as unknown as typeof f.first.rpc;
+        nativeSessions.push({ lifecycle, rpc, threadId, turnId, tools });
+        return rpc as unknown as ReturnType<typeof native.CodexAppServerClient.launchIsolated>;
       },
+    );
+    for (const port of ['launch', 'launchOpenShell'] as const)
+      vi.spyOn(native.CodexAppServerClient, port).mockImplementation(() => {
+        throw Error('Alternate native process forbidden');
+      });
+
+    const http = async (url: string, init?: RequestInit) => {
+      const call =
+        init?.method === 'POST'
+          ? request(application.app).post(url)
+          : request(application.app).get(url);
+      call.set('Authorization', 'Bearer ' + f.token).set('X-Connection-Id', f.operatorConnectionId);
+      for (const [key, value] of new Headers(init?.headers)) call.set(key, value);
+      if (init?.body) call.send(JSON.parse(String(init.body)));
+      const response = await call;
+      expect(response.status, JSON.stringify(response.body)).toBeLessThan(400);
+      return new Response(JSON.stringify(response.body), {
+        status: response.status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const { OrdinaryWorkspaceApiClient, TelosWorkApiClient } = await import('@mitzo/client');
+    const ordinary = new OrdinaryWorkspaceApiClient(http),
+      api = new TelosWorkApiClient(http);
+    markCt09Phase('owners-ready');
+    const prepared = await ordinary.prepare({
+      version: 1,
+      model: f.binding.model,
+      runOn: 'local',
+      runtime: {
+        account: f.first.request.runtime.account,
+        harness: f.first.request.runtime.harness,
+        targetId: f.first.request.runtime.targetId,
+      },
+    });
+    markCt09Phase('workspace-prepared');
+    expect(prepared.capabilities).toEqual([
+      'ordinary_conversation',
+      'writable_files',
+      'retained_artifacts',
+      'task_execution',
+    ]);
+    const settings = {
+      version: 2 as const,
+      binding: prepared.runtimeBinding,
+      selection: f.first.request.selection,
+      workspace: { kind: 'ordinary' as const, preparationId: prepared.preparationId },
+    };
+    chat.eventStore.upsertSession({
+      ...canonical.events.getSession('planning')!,
+      accountBinding: f.binding,
+    });
+    // Enter through the approved ordinary-chat creator instead of repairing a
+    // pre-classified fixture. The resulting item must support the whole journey.
+    const { TelosItemStore: CreationItems } = await import('../telos-item-store.js');
+    const { executeTelosBacklogOperation } = await import('../telos-backlog-tools.js');
+    const creationItems = new CreationItems(canonical.dbPath);
+    cleanup.push(() => creationItems.close());
+    const createInput = {
+      requestId: randomUUID(),
+      summary: 'Home recording feature',
+      intent: 'Record music using the reviewed acoustic plan.',
+      rationale: 'Retain the discussion, delegate the work and review its result.',
+      acceptanceCriteria: ['The separate worker returns a retained result for review.'],
+      note: 'The operator approved this standalone feature.',
+    };
+    const approveCreation = vi.fn(async (_name: string, input: Record<string, unknown>) => ({
+      behavior: 'allow' as const,
+      updatedInput: input,
+    }));
+    const createFeature = () =>
+      executeTelosBacklogOperation(
+        {
+          items: creationItems,
+          work: canonical.work,
+          approve: approveCreation,
+          context: {
+            operatorId: canonical.actor.id,
+            conversationId: 'planning',
+            toolName: 'TelosCreateFeature',
+            requestHash: createHash('sha256').update(JSON.stringify(createInput)).digest('hex'),
+            signal: new AbortController().signal,
+            assertCurrentSync() {},
+            async assertCurrent() {},
+          },
+        },
+        'TelosCreateFeature',
+        createInput,
+      );
+    const created = await createFeature();
+    expect(created.isError, created.content).toBe(false);
+    expect(await createFeature()).toEqual(created);
+    expect(approveCreation).toHaveBeenCalledWith(
       'TelosCreateFeature',
       createInput,
+      expect.any(AbortSignal),
     );
-  const created = await createFeature();
-  expect(created.isError, created.content).toBe(false);
-  expect(await createFeature()).toEqual(created);
-  expect(approveCreation).toHaveBeenCalledWith(
-    'TelosCreateFeature',
-    createInput,
-    expect.any(AbortSignal),
-  );
-  const creationReceipt = JSON.parse(created.content);
-  const featureId: string = creationReceipt.item.id;
-  expect(creationReceipt).toMatchObject({
-    item: { workLevel: 'feature', parentId: null },
-    preparation: {
-      dedicatedConversationCreated: false,
-      sourceFilesSaved: false,
-      originatingConversationId: 'planning',
-    },
-  });
-  expect(canonical.work.read(featureId, canonical.actor)).toMatchObject({
-    kind: 'outcome',
-    assignments: [],
-    attempts: [],
-  });
-  expect(nativeSessions).toHaveLength(0);
-  // The original material belongs to the existing studio item. Only an exact
-  // reviewed adoption may make it part of the new feature's role context.
-  const material = {
-    artifactId: canonical.material.id,
-    revision: canonical.material.revision,
-    sha256: canonical.material.sha256,
-  };
-  const planningSequence = chat.eventStore.append('planning', 'user_message', {
-    messageId: 'original-feature-discussion',
-    text: 'Keep the acoustic plan with this feature and review the worker result before completion.',
-  });
-  const { buildPermissionHandler, getPendingRequestsBySession } = await import('@mitzo/harness');
-  const sourceClientId = 'ct09-planning-source';
-  const sourceController = new AbortController();
-  chat.registry.register(sourceClientId, {
-    transport: { isOpen: () => true, send: vi.fn() },
-    abortController: sourceController,
-    sessionId: 'planning',
-    sessionAllowList: new Set(),
-    mode: 'agent',
-  });
-  const removeSourceSession = () => {
-    sourceController.abort();
-    chat.registry.remove(sourceClientId);
-  };
-  const { featureSource, sourcePermissionId, sourceApprovalInput, sourcePreview } =
-    await (async () => {
-      try {
-        const sourceProposal = { itemId: featureId };
-        const sourcePermission = buildPermissionHandler(sourceClientId, chat.registry)(
-          'TelosAdoptSource',
-          sourceProposal,
-          {
-            signal: sourceController.signal,
-            toolUseID: 'native:' + randomUUID(),
-            forcePrompt: true,
-            allowSessionGrant: false,
-            nativeSourceScope: {
-              operatorId: f.auth.id,
-              assertCurrentSync() {
-                sourceController.signal.throwIfAborted();
-                if (!auth.isAuthSessionCurrent(f.auth)) throw Error('Planning operator retired');
-              },
-            },
-          },
-        );
-        void sourcePermission.catch(() => {});
-        await vi.waitFor(() => expect(getPendingRequestsBySession('planning')).toHaveLength(1));
-        const sourcePermissionId = getPendingRequestsBySession('planning')[0].permId;
-        const sourceReview = await api.getSourcePermission(sourcePermissionId, 'planning');
-        const sourceInput = {
-          sessionId: 'planning',
-          requestId: randomUUID(),
-          proposalSha256: sourceReview.proposalSha256,
-          selection: {
-            mode: 'selected' as const,
-            boundary: { sequence: planningSequence, messageId: 'original-feature-discussion' },
-            messageIds: ['original-feature-discussion'],
-            artifacts: [material],
-          },
-        };
-        const sourcePreview = await api.previewSourcePermission(sourcePermissionId, sourceInput);
-        const sourceApprovalInput = {
-          ...sourceInput,
-          previewSha256: sourcePreview.preview.sha256,
-        };
-        const featureSource = await api.approveSourcePermission(
-          sourcePermissionId,
-          sourceApprovalInput,
-        );
-        expect(await api.approveSourcePermission(sourcePermissionId, sourceApprovalInput)).toEqual(
-          featureSource,
-        );
-        const sourceResolution = await sourcePermission;
-        expect(sourceResolution.behavior).toBe('allow');
-        if (sourceResolution.behavior !== 'allow') throw Error('Reviewed source approval required');
-        const sourceReceiptId = sourceResolution.updatedInput?.__mitzoTelosApproval;
-        expect(typeof sourceReceiptId).toBe('string');
-        expect(sourceResolution.updatedInput).toEqual({
-          ...sourceProposal,
-          __mitzoTelosApproval: sourceReceiptId,
-        });
-        const consumedSource = await request(application.app)
-          .post('/api/internal/telos/source/execute')
-          .set('X-Internal-Token', 'synthetic-only-ordinary-native-token')
-          .set('X-Client-Id', sourceClientId)
-          .send({
-            approvalReceiptId: sourceReceiptId,
-            proposal: sourceProposal,
-            operation: 'adopt',
-          });
-        expect(consumedSource.status, JSON.stringify(consumedSource.body)).toBe(200);
-        expect(consumedSource.body.receipt).toEqual(featureSource.receipt);
-        return { featureSource, sourcePermissionId, sourceApprovalInput, sourcePreview };
-      } finally {
-        removeSourceSession();
-      }
-    })();
-  const assertFeatureSource = async () => {
-    const feature = await api.read(featureId);
-    expect(feature.sources).toHaveLength(1);
-    expect(feature.sources[0]).toMatchObject({
-      snapshotId: featureSource.sourceSnapshotId,
-      itemId: featureId,
-      source: { namespace: 'mitzo', conversationId: 'planning' },
-      selection: {
-        messageIds: ['original-feature-discussion'],
-        throughSequence: planningSequence,
+    const creationReceipt = JSON.parse(created.content);
+    const featureId: string = creationReceipt.item.id;
+    expect(creationReceipt).toMatchObject({
+      item: { workLevel: 'feature', parentId: null },
+      preparation: {
+        dedicatedConversationCreated: false,
+        sourceFilesSaved: false,
+        originatingConversationId: 'planning',
       },
     });
-    expect(feature.sources[0].artifacts).toContainEqual(material);
-    const retained = await api.readSource(featureId, featureSource.sourceSnapshotId);
-    expect(retained.packet).toEqual(sourcePreview.preview.packet);
-    expect(createHash('sha256').update(JSON.stringify(retained.packet)).digest('hex')).toBe(
-      sourcePreview.preview.sha256,
-    );
-  };
-  await assertFeatureSource();
-  expect(nativeSessions).toHaveLength(0);
-  markCt09Phase('feature-source-adopted');
-  const role = async (kind: 'advisor' | 'lead') => {
-    const reviewed = await api.reviewRoleContext({
-      itemId: featureId,
-      role: kind,
-      ...(kind === 'advisor' ? { advisorPurpose: 'child' as const } : {}),
-      sourceSnapshotIds: [featureSource.sourceSnapshotId],
-      artifactRefs: [material],
+    expect(canonical.work.read(featureId, canonical.actor)).toMatchObject({
+      kind: 'outcome',
+      assignments: [],
+      attempts: [],
     });
-    const input = {
-      version: 2 as const,
-      requestId: randomUUID(),
-      itemId: featureId,
-      role: kind,
-      expectedRevision: reviewed.selection.brief.revision,
-      expectedAssignmentRevision: kind === 'lead' ? 0 : null,
-      settings,
-      contextSelection: reviewed.selection,
+    expect(nativeSessions).toHaveLength(0);
+    // The original material belongs to the existing studio item. Only an exact
+    // reviewed adoption may make it part of the new feature's role context.
+    const material = {
+      artifactId: canonical.material.id,
+      revision: canonical.material.revision,
+      sha256: canonical.material.sha256,
     };
-    const body = { version: 2 as const, input, presentationRef: reviewed.presentationRef };
-    const receipt = await api.setupReviewedOrdinaryRole(body);
-    expect(await api.setupReviewedOrdinaryRole(body)).toEqual(receipt);
-    return receipt.work.links.find((link) => link.role === kind)!.conversation.conversationId;
-  };
-  const command = (sessionId: string) => ({
-    version: 2 as const,
-    ...structuredClone(f.first.request),
-    clientMsgId: randomUUID(),
-    runOn: 'local' as const,
-    sessionId,
-    workspace: {
-      kind: 'ordinary' as const,
-      workspaceId: chat.eventStore.getSession(sessionId)!.ordinaryWorkspaceId!,
-    },
-    payload: {
-      text: 'Perform only the reviewed work and retain a report.',
-      intent: 'Explicit reviewed command',
-    },
-  });
-  const before = chat.eventStore.listSessions().length;
-  markCt09Phase('advisor-setup-start');
-  const advisorId = await role('advisor');
-  markCt09Phase('advisor-setup-complete');
-  expect(chat.eventStore.listSessions()).toHaveLength(before + 1);
-  expect(nativeSessions).toHaveLength(0);
-  const sequence = chat.eventStore.append(advisorId, 'user_message', {
-    messageId: 'reviewed',
-    text: 'Retain this reviewed acoustic plan; execution is a separate decision.',
-  });
-  const revision = (await api.read(featureId)).revision;
-  const draft = {
-    requestId: randomUUID(),
-    operation: 'child' as const,
-    itemId: featureId,
-    advisorConversationId: advisorId,
-    expectedRevision: revision,
-    parentId: featureId,
-    expectedParentRevision: revision,
-    proposed: {
-      name: 'Reviewed recording plan',
-      desiredOutcome: 'Record clearly',
-      type: 'work_item' as const,
-      category: 'Music',
-    },
-    selection: {
-      requestId: randomUUID(),
-      expectedMembershipRevision: 0,
-      sourceConversationId: advisorId,
-      mode: 'selected' as const,
-      boundary: { sequence, messageId: 'reviewed' },
-      messageIds: ['reviewed'],
-      artifacts: [material],
-      purpose: 'Retain reviewed plan',
-      joiningBrief: '',
-    },
-  };
-  const preview = await api.previewAdvisorDraft(draft);
-  const saved = await api.saveAdvisorDraft({ ...draft, previewSha256: preview.sha256 });
-  expect(await api.saveAdvisorDraft({ ...draft, previewSha256: preview.sha256 })).toEqual(saved);
-  const childId = saved.work.itemId;
-  expect(saved.work.sources).toHaveLength(1);
-  const originalSource = saved.work.sources[0];
-  expect(originalSource).toMatchObject({
-    itemId: childId,
-    source: { namespace: 'mitzo', conversationId: advisorId },
-    selection: {
-      kind: 'selected',
-      messageIds: ['reviewed'],
-      blockIds: [],
-      throughSequence: sequence,
-    },
-  });
-  expect(originalSource.artifacts).toContainEqual(material);
-  const assertOriginalSource = async () => {
-    expect((await api.read(childId)).sources).toEqual([originalSource]);
-    const retainedSource = await api.readSource(childId, originalSource.snapshotId);
-    expect(retainedSource.snapshot).toEqual(originalSource);
-    expect(retainedSource.packet).toEqual(preview.packet);
-    expect(retainedSource.packet.selection).toEqual(draft.selection);
-    expect(retainedSource.packet.context.sourceConversationId).toBe(advisorId);
-    expect(retainedSource.packet.context.boundary).toEqual(draft.selection.boundary);
-    expect(retainedSource.packet.context.messages).toHaveLength(1);
-    expect(retainedSource.packet.context.messages[0]).toMatchObject({
-      conversationId: advisorId,
-      messageId: 'reviewed',
-      sequence,
-      author: 'operator',
-      blocks: [
-        { content: 'Retain this reviewed acoustic plan; execution is a separate decision.' },
-      ],
-    });
-    expect(createHash('sha256').update(JSON.stringify(retainedSource.packet)).digest('hex')).toBe(
-      preview.sha256,
-    );
-    const originalMaterial = retainedSource.packet.context.artifacts.find(
-      (pin) => pin.artifactId === material.artifactId,
-    )!;
-    expect(originalMaterial).toMatchObject(material);
-    const retainedMaterial = canonical.artifacts.read(material.artifactId, material.revision);
-    expect(retainedMaterial.sha256).toBe(material.sha256);
-    expect(retainedMaterial.bytes.toString()).toBe('The reviewed panel layout.');
-    expect(Buffer.from(originalMaterial.contentBase64!, 'base64')).toEqual(retainedMaterial.bytes);
-    expect(createHash('sha256').update(retainedMaterial.bytes).digest('hex')).toBe(material.sha256);
-  };
-  await assertOriginalSource();
-  markCt09Phase('advisor-draft-retained');
-
-  expect(
-    canonical.db.prepare('SELECT first_seen,last_seen FROM items WHERE id=?').get(childId),
-  ).toEqual({ first_seen: expect.any(String), last_seen: expect.any(String) });
-  expect(
-    canonical.db.prepare('SELECT old_status,new_status FROM history WHERE item_id=?').all(childId),
-  ).toEqual([{ old_status: null, new_status: 'active' }]);
-  markCt09Phase('lead-setup-start');
-  const leadId = await role('lead');
-  markCt09Phase('lead-setup-complete');
-  const leadCommand = command(leadId);
-  const { getOrdinaryWorkspaces } = await import('../repository-workspace-runtime.js');
-  const actualWorkspaces = getOrdinaryWorkspaces(true);
-  cleanup.push(() => actualWorkspaces.close());
-  const leadMeta = chat.eventStore.getSession(leadId)!;
-  expect(actualWorkspaces).not.toBe(f.workspaces);
-  expect(actualWorkspaces.getOrdinaryWorkspace(leadMeta.ordinaryWorkspaceId!)).toMatchObject({
-    id: leadMeta.ordinaryWorkspaceId,
-    conversationId: leadId,
-    directory: leadMeta.cwd,
-  });
-  expect(await ordinary.firstCommand(leadCommand)).toMatchObject({
-    state: 'consumed',
-    dispatched: true,
-  });
-  markCt09Phase('lead-dispatch-complete');
-  const leadClientId = chat.registry.findBySessionId(leadId)!.clientId;
-  const { TaskOrchestrator } = await import('../task-orchestrator.js');
-  const getClientId = vi.fn(() => {
-    throw Error('Legacy scheduler must not select a worker');
-  });
-  const orchestrator = new TaskOrchestrator({
-    store: application.taskStore,
-    getClientId,
-    setTaskContext: vi.fn(),
-    clearTaskContext: vi.fn(),
-    broadcastStatus: vi.fn(),
-    broadcastTasks: vi.fn(),
-  });
-  application.setOrchestrator(orchestrator);
-  const input = {
-    requestId: randomUUID(),
-    childItemId: childId,
-    mode: 'start',
-    predecessorAttemptId: null,
-    sourceSnapshotIds: saved.work.sources.map((s) => s.snapshotId),
-    artifactRefs: [material],
-  };
-  const internal = (clientId: string, path: string, body: object) =>
-    http(path, {
-      method: 'POST',
-      headers: {
-        'x-internal-token': 'synthetic-only-ordinary-native-token',
-        'x-client-id': clientId,
+    const { adoptReviewedSource } = await import('./fixtures/reviewed-source-adoption.js');
+    const {
+      featureSource,
+      sourcePermissionId,
+      sourceApprovalInput,
+      sourcePreview,
+      planningSequence,
+    } = await adoptReviewedSource({
+      api,
+      events: chat.eventStore,
+      registry: chat.registry,
+      app: application.app,
+      operatorId: f.auth.id,
+      assertOperatorCurrent() {
+        if (!auth.isAuthSessionCurrent(f.auth)) throw Error('Planning operator retired');
       },
-      body: JSON.stringify(body),
+      itemId: featureId,
+      sourceSessionId: 'planning',
+      messageId: 'original-feature-discussion',
+      text: 'Keep the acoustic plan with this feature and review the worker result before completion.',
+      artifacts: [material],
     });
-  const delegate = () =>
-    internal(leadClientId, '/api/internal/telos/work/delegate', {
-      clientId: leadClientId,
-      sessionId: leadId,
-      input,
+    const assertFeatureSource = async () => {
+      const feature = await api.read(featureId);
+      expect(feature.sources).toHaveLength(1);
+      expect(feature.sources[0]).toMatchObject({
+        snapshotId: featureSource.sourceSnapshotId,
+        itemId: featureId,
+        source: { namespace: 'mitzo', conversationId: 'planning' },
+        selection: {
+          messageIds: ['original-feature-discussion'],
+          throughSequence: planningSequence,
+        },
+      });
+      expect(feature.sources[0].artifacts).toContainEqual(material);
+      const retained = await api.readSource(featureId, featureSource.sourceSnapshotId);
+      expect(retained.packet).toEqual(sourcePreview.preview.packet);
+      expect(createHash('sha256').update(JSON.stringify(retained.packet)).digest('hex')).toBe(
+        sourcePreview.preview.sha256,
+      );
+    };
+    await assertFeatureSource();
+    expect(nativeSessions).toHaveLength(0);
+    markCt09Phase('feature-source-adopted');
+    const role = async (kind: 'advisor' | 'lead') => {
+      const reviewed = await api.reviewRoleContext({
+        itemId: featureId,
+        role: kind,
+        ...(kind === 'advisor' ? { advisorPurpose: 'child' as const } : {}),
+        sourceSnapshotIds: [featureSource.sourceSnapshotId],
+        artifactRefs: [material],
+      });
+      const input = {
+        version: 2 as const,
+        requestId: randomUUID(),
+        itemId: featureId,
+        role: kind,
+        expectedRevision: reviewed.selection.brief.revision,
+        expectedAssignmentRevision: kind === 'lead' ? 0 : null,
+        settings,
+        contextSelection: reviewed.selection,
+      };
+      const body = { version: 2 as const, input, presentationRef: reviewed.presentationRef };
+      const receipt = await api.setupReviewedOrdinaryRole(body);
+      expect(await api.setupReviewedOrdinaryRole(body)).toEqual(receipt);
+      return receipt.work.links.find((link) => link.role === kind)!.conversation.conversationId;
+    };
+    const command = (sessionId: string) => ({
+      version: 2 as const,
+      ...structuredClone(f.first.request),
+      clientMsgId: randomUUID(),
+      runOn: 'local' as const,
+      sessionId,
+      workspace: {
+        kind: 'ordinary' as const,
+        workspaceId: chat.eventStore.getSession(sessionId)!.ordinaryWorkspaceId!,
+      },
+      payload: {
+        text: 'Perform only the reviewed work and retain a report.',
+        intent: 'Explicit reviewed command',
+      },
     });
-  markCt09Phase('delegation-start');
-  const allocation = await delegate();
-  expect(allocation.status).toBe(200);
-  const receipt = await allocation.json();
-  expect(receipt.execution).toBe('not_started');
-  expect(receipt.attempt.state).toBe('chat_ready');
-  const workerId = receipt.workerConversationId as string,
-    taskId = receipt.attempt.executionTaskId as string;
-  expect(await (await delegate()).json()).toEqual(receipt);
-  expect(
-    await Promise.all([delegate(), delegate()]).then(async (rs) =>
-      Promise.all(rs.map((r) => r.json())),
-    ),
-  ).toEqual([receipt, receipt]);
-  markCt09Phase('delegation-complete');
-  expect(application.taskStore.getTree()).toHaveLength(1);
-  expect(nativeSessions).toHaveLength(1);
-  expect(chat.eventStore.getOrdinaryInitialCommandId(workerId)).toBeUndefined();
-  expect(new Set([advisorId, leadId, workerId]).size).toBe(3);
-  const directories = [advisorId, leadId, workerId].map(
-    (id) => chat.eventStore.getSession(id)!.cwd!,
-  );
-  expect(new Set(directories).size).toBe(3);
-  for (const id of [advisorId, leadId, workerId]) {
-    const session = chat.eventStore.getSession(id)!;
-    expect(session.repositoryWorkspaceId).toBeUndefined();
-    expect(session.ordinaryWorkspaceId).toBeTruthy();
-    expect(session.cwd!.startsWith(f.taskRoot + '/')).toBe(true);
-  }
-  const { resolveTelosWorkRoleContext } = await import('../telos-work-role-context.js');
-  const workerContext = resolveTelosWorkRoleContext(
-    chat.eventStore,
-    workerId,
-    chat.eventStore.getSession(workerId)!.accountBinding!,
-  );
-  expect(workerContext).toMatchObject({
-    itemId: childId,
-    role: 'worker',
-    leadConversationId: leadId,
-  });
-  expect(workerContext!.sources).toEqual([originalSource]);
-  expect(workerContext!.artifacts).toContainEqual(material);
-  const workerCommand = command(workerId);
-  markCt09Phase('worker-dispatch-start');
-  expect(await ordinary.firstCommand(workerCommand)).toMatchObject({
-    state: 'consumed',
-    dispatched: true,
-  });
-  markCt09Phase('worker-dispatch-complete');
-  const worker = chat.registry.findBySessionId(workerId)!;
-  const workerNative = nativeSessions[1];
-  const workerTurnStarts = () =>
-    workerNative.rpc.request.mock.calls.filter(([method]) => method === 'turn/start').length;
-  expect(workerTurnStarts()).toBe(1);
-  expect(worker.session.taskContext?.currentTaskId).toBe(taskId);
-  expect(nativeSessions).toHaveLength(2);
-  const directory = chat.eventStore.getSession(workerId)!.cwd!;
-  const inode = (await stat(directory)).ino;
-  const report = 'Recorded the first session and retained its notes.';
-  await writeFile(join(directory, 'recording-report.md'), report);
-  const file = await request(application.app)
-    .get('/api/files/read')
-    .set('Authorization', 'Bearer ' + f.token)
-    .query({ sessionId: workerId, path: 'recording-report.md' });
-  expect(file.status).toBe(200);
-  expect(file.body.content).toBe(report);
-  workerNative.lifecycle.onNotification('item/agentMessage/delta', {
-    threadId: workerNative.threadId,
-    turnId: workerNative.turnId,
-    itemId: 'report',
-    delta: 'Saved recording-report.md for review.',
-  });
-  workerNative.lifecycle.onNotification('item/completed', {
-    threadId: workerNative.threadId,
-    turnId: workerNative.turnId,
-    item: { type: 'agentMessage', id: 'report', text: 'Saved recording-report.md for review.' },
-  });
-  markCt09Phase('artifact-save-start');
-  const outputResponse = await internal(worker.clientId, '/api/internal/telos/artifacts/save', {
-    requestId: 'worker-output',
-    itemId: childId,
-    filename: 'recording-report.md',
-    title: 'Reviewed recording report',
-    path: 'recording-report.md',
-  });
-  markCt09Phase('artifact-save-complete');
-  expect(outputResponse.status).toBe(200);
-  const output = (await outputResponse.json()).artifact;
-  const retained = canonical.artifacts.read(output.id, output.revision);
-  expect(retained.bytes.toString()).toBe(report);
-  expect(retained.sha256).toBe(output.sha256);
-  const nativeTool = async (name: string, args: Record<string, unknown>) => {
-    const prepared = await prepareNativeProviderToolCall(workerNative, name, args);
+    const before = chat.eventStore.listSessions().length;
+    markCt09Phase('advisor-setup-start');
+    const advisorId = await role('advisor');
+    markCt09Phase('advisor-setup-complete');
+    expect(chat.eventStore.listSessions()).toHaveLength(before + 1);
+    expect(nativeSessions).toHaveLength(0);
+    const sequence = chat.eventStore.append(advisorId, 'user_message', {
+      messageId: 'reviewed',
+      text: 'Retain this reviewed acoustic plan; execution is a separate decision.',
+    });
+    const revision = (await api.read(featureId)).revision;
+    const draft = {
+      requestId: randomUUID(),
+      operation: 'child' as const,
+      itemId: featureId,
+      advisorConversationId: advisorId,
+      expectedRevision: revision,
+      parentId: featureId,
+      expectedParentRevision: revision,
+      proposed: {
+        name: 'Reviewed recording plan',
+        desiredOutcome: 'Record clearly',
+        type: 'work_item' as const,
+        category: 'Music',
+      },
+      selection: {
+        requestId: randomUUID(),
+        expectedMembershipRevision: 0,
+        sourceConversationId: advisorId,
+        mode: 'selected' as const,
+        boundary: { sequence, messageId: 'reviewed' },
+        messageIds: ['reviewed'],
+        artifacts: [material],
+        purpose: 'Retain reviewed plan',
+        joiningBrief: '',
+      },
+    };
+    const preview = await api.previewAdvisorDraft(draft);
+    const saved = await api.saveAdvisorDraft({ ...draft, previewSha256: preview.sha256 });
+    expect(await api.saveAdvisorDraft({ ...draft, previewSha256: preview.sha256 })).toEqual(saved);
+    const childId = saved.work.itemId;
+    expect(saved.work.sources).toHaveLength(1);
+    const originalSource = saved.work.sources[0];
+    expect(originalSource).toMatchObject({
+      itemId: childId,
+      source: { namespace: 'mitzo', conversationId: advisorId },
+      selection: {
+        kind: 'selected',
+        messageIds: ['reviewed'],
+        blockIds: [],
+        throughSequence: sequence,
+      },
+    });
+    expect(originalSource.artifacts).toContainEqual(material);
+    const assertOriginalSource = async () => {
+      expect((await api.read(childId)).sources).toEqual([originalSource]);
+      const retainedSource = await api.readSource(childId, originalSource.snapshotId);
+      expect(retainedSource.snapshot).toEqual(originalSource);
+      expect(retainedSource.packet).toEqual(preview.packet);
+      expect(retainedSource.packet.selection).toEqual(draft.selection);
+      expect(retainedSource.packet.context.sourceConversationId).toBe(advisorId);
+      expect(retainedSource.packet.context.boundary).toEqual(draft.selection.boundary);
+      expect(retainedSource.packet.context.messages).toHaveLength(1);
+      expect(retainedSource.packet.context.messages[0]).toMatchObject({
+        conversationId: advisorId,
+        messageId: 'reviewed',
+        sequence,
+        author: 'operator',
+        blocks: [
+          { content: 'Retain this reviewed acoustic plan; execution is a separate decision.' },
+        ],
+      });
+      expect(createHash('sha256').update(JSON.stringify(retainedSource.packet)).digest('hex')).toBe(
+        preview.sha256,
+      );
+      const originalMaterial = retainedSource.packet.context.artifacts.find(
+        (pin) => pin.artifactId === material.artifactId,
+      )!;
+      expect(originalMaterial).toMatchObject(material);
+      const retainedMaterial = canonical.artifacts.read(material.artifactId, material.revision);
+      expect(retainedMaterial.sha256).toBe(material.sha256);
+      expect(retainedMaterial.bytes.toString()).toBe('The reviewed panel layout.');
+      expect(Buffer.from(originalMaterial.contentBase64!, 'base64')).toEqual(
+        retainedMaterial.bytes,
+      );
+      expect(createHash('sha256').update(retainedMaterial.bytes).digest('hex')).toBe(
+        material.sha256,
+      );
+    };
+    await assertOriginalSource();
+    markCt09Phase('advisor-draft-retained');
+
     expect(
-      prepared.contract,
-      'Actual task MCP contract must be discovered through the registered provider bridge',
-    ).toBeTruthy();
-    expect(prepared.contract?.name).toBe(name);
-    expect(prepared.request.tool).toBe('InvokeIntegrationTool');
-    const before = streamMessages.length;
-    const pending = workerNative.lifecycle.onRequest(
-      'item/tool/call',
-      prepared.request,
-      new AbortController().signal,
-    ) as Promise<{ success: boolean; contentItems: Array<{ text: string }> }>;
-    await vi.waitFor(() =>
-      expect(
-        streamMessages
-          .slice(before)
-          .some(
-            (message) => message.type === 'permission_request' && message.sessionId === workerId,
-          ),
-      ).toBe(true),
-    );
-    const permission = streamMessages
-      .slice(before)
-      .find((message) => message.type === 'permission_request' && message.sessionId === workerId)!;
-    const { resolvePending } = await import('@mitzo/harness');
-    expect(resolvePending(permission.permId as string, 'once', undefined, workerId)).toBe(true);
-    return pending;
-  };
-  markCt09Phase('task-artifact-start');
-  const artifactResult = await nativeTool('mcp__task-board__TaskArtifact', {
-    key: 'report',
-    value: `artifact:${output.id}@${output.revision}`,
-  });
-  markCt09Phase('task-artifact-complete');
-  expect(artifactResult.success).toBe(true);
-  expect(artifactResult.contentItems.map((item) => item.text).join('')).not.toMatch(/Error:/);
-  const completion = await nativeTool('mcp__task-board__TaskComplete', {
-    summary: 'Saved report; awaiting explicit verification.',
-  });
-  markCt09Phase('task-complete-complete');
-  expect(completion.success).toBe(true);
-  expect(completion.contentItems.map((item) => item.text).join('')).toContain('pending_review');
-  expect(application.taskStore.get(taskId)?.status).toBe('pending_review');
-  expect(application.taskStore.get(taskId)?.artifacts?.report).toBe(
-    `artifact:${output.id}@${output.revision}`,
-  );
-  const { TelosItemStore } = await import('../telos-item-store.js');
-  const items = new TelosItemStore(canonical.dbPath);
-  cleanup.push(() => items.close());
-  expect(items.read(childId).status).toBe('active');
-  // Fake operator explicitly reads/verifies retained bytes before approving.
-  expect(canonical.artifacts.read(output.id, output.revision).bytes.toString()).toBe(report);
-  const approved = await request(application.app)
-    .post('/api/tasks/' + taskId + '/approve')
-    .set('Authorization', 'Bearer ' + f.token)
-    .send({});
-  expect(approved.status).toBe(200);
-  expect(application.taskStore.get(taskId)?.status).toBe('done');
-  expect(items.read(childId).status).toBe('active');
-  const verified = await internal(leadClientId, '/api/internal/telos/items/update', {
-    itemId: childId,
-    requestId: 'explicit-verified-completion',
-    expectedRevision: items.read(childId).revision,
-    status: 'completed',
-    note: `Verified artifact:${output.id}@${output.revision} SHA-256 ${output.sha256}; approved task ${taskId}.`,
-  });
-  expect(verified.status).toBe(200);
-  expect(items.read(childId).status).toBe('completed');
-  expect(items.read(featureId).status).toBe('active');
-  markCt09Phase('verified-complete');
-  for (const session of nativeSessions)
-    session.lifecycle.onNotification('turn/completed', {
-      threadId: session.threadId,
-      turn: { id: session.turnId, status: 'completed' },
+      canonical.db.prepare('SELECT first_seen,last_seen FROM items WHERE id=?').get(childId),
+    ).toEqual({ first_seen: expect.any(String), last_seen: expect.any(String) });
+    expect(
+      canonical.db
+        .prepare('SELECT old_status,new_status FROM history WHERE item_id=?')
+        .all(childId),
+    ).toEqual([{ old_status: null, new_status: 'active' }]);
+    markCt09Phase('lead-setup-start');
+    const leadId = await role('lead');
+    markCt09Phase('lead-setup-complete');
+    const leadCommand = command(leadId);
+    const { getOrdinaryWorkspaces } = await import('../repository-workspace-runtime.js');
+    const actualWorkspaces = getOrdinaryWorkspaces(true);
+    cleanup.push(() => actualWorkspaces.close());
+    const leadMeta = chat.eventStore.getSession(leadId)!;
+    expect(actualWorkspaces).not.toBe(f.workspaces);
+    expect(actualWorkspaces.getOrdinaryWorkspace(leadMeta.ordinaryWorkspaceId!)).toMatchObject({
+      id: leadMeta.ordinaryWorkspaceId,
+      conversationId: leadId,
+      directory: leadMeta.cwd,
     });
-  const transport = worker.session.transport;
-  expect(chat.detachChatIfCurrentTransport(worker.clientId, transport)).toBe(true);
-  expect(chat.reattachChat(worker.clientId, { send: vi.fn(), isOpen: () => true })).toBe(true);
-  const turnsBeforeReplay = workerTurnStarts();
-  expect(turnsBeforeReplay).toBe(1);
-  expect(await ordinary.firstCommand(workerCommand)).toMatchObject({
-    state: 'consumed',
-    dispatched: false,
-  });
-  expect(nativeSessions).toHaveLength(2);
-  expect(workerTurnStarts()).toBe(turnsBeforeReplay);
-  for (const id of [leadId, workerId])
-    chat.stopOrdinaryChat(chat.registry.findBySessionId(id)!.clientId);
-  await vi.waitFor(() => {
-    expect(chat.registry.findBySessionId(workerId)).toBeNull();
-    expect(chat.registry.findBySessionId(leadId)).toBeNull();
-  });
-  expect(f.legacyLookup).not.toHaveBeenCalled();
-  f.reopenWorkspaceOwner();
-  expect(f.workspaces.getOrdinaryWorkspace(workerCommand.workspace.workspaceId).state).toBe(
-    'claimed',
-  );
-  expect(chat.eventStore.getSession(workerId)?.ordinaryWorkspaceId).toBe(
-    workerCommand.workspace.workspaceId,
-  );
-  expect((await stat(directory)).ino).toBe(inode);
-  expect(await readFile(join(directory, 'recording-report.md'), 'utf8')).toBe(report);
-  expect(application.taskStore.getTree()).toHaveLength(1);
-  const { TaskStore } = await import('../task-store.js');
-  const reopenedTasks = new TaskStore(join(f.configuredWorkspace, '.mitzo', 'tasks.db'));
-  try {
-    expect(reopenedTasks.getTree()).toHaveLength(1);
-    expect(reopenedTasks.get(taskId)?.status).toBe('done');
-    expect(reopenedTasks.getTelosExecutionTaskForConversation(workerId)).toBe(taskId);
-  } finally {
-    reopenedTasks.close();
-  }
-  canonical.restartOwners();
-  await assertFeatureSource();
-  expect(await api.approveSourcePermission(sourcePermissionId, sourceApprovalInput)).toEqual(
-    featureSource,
-  );
-  await assertOriginalSource();
-  expect(
-    resolveTelosWorkRoleContext(
+    expect(await ordinary.firstCommand(leadCommand)).toMatchObject({
+      state: 'consumed',
+      dispatched: true,
+    });
+    markCt09Phase('lead-dispatch-complete');
+    const leadClientId = chat.registry.findBySessionId(leadId)!.clientId;
+    const { TaskOrchestrator } = await import('../task-orchestrator.js');
+    const getClientId = vi.fn(() => {
+      throw Error('Legacy scheduler must not select a worker');
+    });
+    const orchestrator = new TaskOrchestrator({
+      store: application.taskStore,
+      getClientId,
+      setTaskContext: vi.fn(),
+      clearTaskContext: vi.fn(),
+      broadcastStatus: vi.fn(),
+      broadcastTasks: vi.fn(),
+    });
+    application.setOrchestrator(orchestrator);
+    const input = {
+      requestId: randomUUID(),
+      childItemId: childId,
+      mode: 'start',
+      predecessorAttemptId: null,
+      sourceSnapshotIds: saved.work.sources.map((s) => s.snapshotId),
+      artifactRefs: [material],
+    };
+    const internal = (clientId: string, path: string, body: object) =>
+      http(path, {
+        method: 'POST',
+        headers: {
+          'x-internal-token': 'synthetic-only-ordinary-native-token',
+          'x-client-id': clientId,
+        },
+        body: JSON.stringify(body),
+      });
+    const delegate = () =>
+      internal(leadClientId, '/api/internal/telos/work/delegate', {
+        clientId: leadClientId,
+        sessionId: leadId,
+        input,
+      });
+    markCt09Phase('delegation-start');
+    const allocation = await delegate();
+    expect(allocation.status).toBe(200);
+    const receipt = await allocation.json();
+    expect(receipt.execution).toBe('not_started');
+    expect(receipt.attempt.state).toBe('chat_ready');
+    const workerId = receipt.workerConversationId as string,
+      taskId = receipt.attempt.executionTaskId as string;
+    expect(await (await delegate()).json()).toEqual(receipt);
+    expect(
+      await Promise.all([delegate(), delegate()]).then(async (rs) =>
+        Promise.all(rs.map((r) => r.json())),
+      ),
+    ).toEqual([receipt, receipt]);
+    markCt09Phase('delegation-complete');
+    expect(application.taskStore.getTree()).toHaveLength(1);
+    expect(nativeSessions).toHaveLength(1);
+    expect(chat.eventStore.getOrdinaryInitialCommandId(workerId)).toBeUndefined();
+    expect(new Set([advisorId, leadId, workerId]).size).toBe(3);
+    const directories = [advisorId, leadId, workerId].map(
+      (id) => chat.eventStore.getSession(id)!.cwd!,
+    );
+    expect(new Set(directories).size).toBe(3);
+    for (const id of [advisorId, leadId, workerId]) {
+      const session = chat.eventStore.getSession(id)!;
+      expect(session.repositoryWorkspaceId).toBeUndefined();
+      expect(session.ordinaryWorkspaceId).toBeTruthy();
+      expect(session.cwd!.startsWith(f.taskRoot + '/')).toBe(true);
+    }
+    const { resolveTelosWorkRoleContext } = await import('../telos-work-role-context.js');
+    const workerContext = resolveTelosWorkRoleContext(
       chat.eventStore,
       workerId,
       chat.eventStore.getSession(workerId)!.accountBinding!,
-    ),
-  ).toEqual(workerContext);
-  expect(canonical.artifacts.read(output.id, output.revision).bytes.toString()).toBe(report);
-  expect(items.read(childId).status).toBe('completed');
-  expect(chat.eventStore.getOrdinaryInitialCommandId(f.first.receipt.sessionId)).toBeUndefined();
-  expect(chat.eventStore.listSessions()).toHaveLength(before + 3);
-  for (const dir of [...directories, f.configuredWorkspace])
-    await expect(access(join(dir, '.git'))).rejects.toThrow();
-  expect(f.forbidden).not.toHaveBeenCalled();
-  expect(f.legacyLookup).not.toHaveBeenCalled();
-  expect(getClientId).not.toHaveBeenCalled();
-  markCt09Phase('journey-complete');
-});
+    );
+    expect(workerContext).toMatchObject({
+      itemId: childId,
+      role: 'worker',
+      leadConversationId: leadId,
+    });
+    expect(workerContext!.sources).toEqual([originalSource]);
+    expect(workerContext!.artifacts).toContainEqual(material);
+    const workerCommand = command(workerId);
+    const executeWorker = () =>
+      internal(leadClientId, '/api/internal/telos/work/delegate', {
+        clientId: leadClientId,
+        sessionId: leadId,
+        input: { ...input, execute: true },
+      });
+    markCt09Phase('worker-dispatch-start');
+    if (startupRoute === 'manual') {
+      expect(await ordinary.firstCommand(workerCommand)).toMatchObject({
+        state: 'consumed',
+        dispatched: true,
+      });
+    } else {
+      const response = await executeWorker();
+      expect(response.status).toBe(200);
+      const execution = await response.json();
+      expect(execution.allocation).toEqual(receipt);
+      expect(['admitted', 'started']).toContain(execution.execution.state);
+    }
+    markCt09Phase('worker-dispatch-complete');
+    const worker = chat.registry.findBySessionId(workerId)!;
+    const workerNative = nativeSessions[1];
+    const workerTurnStarts = () =>
+      workerNative.rpc.request.mock.calls.filter(([method]) => method === 'turn/start').length;
+    expect(workerTurnStarts()).toBe(1);
+    expect(worker.session.taskContext?.currentTaskId).toBe(taskId);
+    expect(nativeSessions).toHaveLength(2);
+    // Lead startup uses a background transport. Opening the worker subscribes
+    // the authenticated operator through the same watch route as the product.
+    const watched = await request(application.app)
+      .post('/api/chat/watch')
+      .set('Authorization', 'Bearer ' + f.token)
+      .set('X-Connection-ID', f.operatorConnectionId)
+      .send({ type: 'watch', sessionId: workerId });
+    expect(watched.status).toBe(200);
+    expect(connections.get(f.operatorConnectionId)?.watchedSessions.has(workerId)).toBe(true);
+    const directory = chat.eventStore.getSession(workerId)!.cwd!;
+    const inode = (await stat(directory)).ino;
+    const report = 'Recorded the first session and retained its notes.';
+    await writeFile(join(directory, 'recording-report.md'), report);
+    const file = await request(application.app)
+      .get('/api/files/read')
+      .set('Authorization', 'Bearer ' + f.token)
+      .query({ sessionId: workerId, path: 'recording-report.md' });
+    expect(file.status).toBe(200);
+    expect(file.body.content).toBe(report);
+    workerNative.lifecycle.onNotification('item/agentMessage/delta', {
+      threadId: workerNative.threadId,
+      turnId: workerNative.turnId,
+      itemId: 'report',
+      delta: 'Saved recording-report.md for review.',
+    });
+    workerNative.lifecycle.onNotification('item/completed', {
+      threadId: workerNative.threadId,
+      turnId: workerNative.turnId,
+      item: { type: 'agentMessage', id: 'report', text: 'Saved recording-report.md for review.' },
+    });
+    markCt09Phase('artifact-save-start');
+    const outputResponse = await internal(worker.clientId, '/api/internal/telos/artifacts/save', {
+      requestId: 'worker-output',
+      itemId: childId,
+      filename: 'recording-report.md',
+      title: 'Reviewed recording report',
+      path: 'recording-report.md',
+    });
+    markCt09Phase('artifact-save-complete');
+    expect(outputResponse.status).toBe(200);
+    const output = (await outputResponse.json()).artifact;
+    const retained = canonical.artifacts.read(output.id, output.revision);
+    expect(retained.bytes.toString()).toBe(report);
+    expect(retained.sha256).toBe(output.sha256);
+    const nativeTool = async (name: string, args: Record<string, unknown>) => {
+      const prepared = await prepareNativeProviderToolCall(workerNative, name, args);
+      expect(
+        prepared.contract,
+        'Actual task MCP contract must be discovered through the registered provider bridge',
+      ).toBeTruthy();
+      expect(prepared.contract?.name).toBe(name);
+      expect(prepared.request.tool).toBe('InvokeIntegrationTool');
+      const before = streamMessages.length;
+      const controller = new AbortController();
+      const pending = workerNative.lifecycle.onRequest(
+        'item/tool/call',
+        prepared.request,
+        controller.signal,
+      ) as Promise<{ success: boolean; contentItems: Array<{ text: string }> }>;
+      // Observe rejection immediately, including when an approval assertion fails.
+      const settled = pending.then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error }),
+      );
+      try {
+        await vi.waitFor(() =>
+          expect(
+            streamMessages
+              .slice(before)
+              .some(
+                (message) =>
+                  message.type === 'permission_request' && message.sessionId === workerId,
+              ),
+          ).toBe(true),
+        );
+        const permission = streamMessages
+          .slice(before)
+          .find(
+            (message) => message.type === 'permission_request' && message.sessionId === workerId,
+          )!;
+        const { resolvePending } = await import('@mitzo/harness');
+        expect(resolvePending(permission.permId as string, 'once', undefined, workerId)).toBe(true);
+        const outcome = await settled;
+        if ('error' in outcome) throw outcome.error;
+        return outcome.result;
+      } finally {
+        controller.abort();
+        await settled;
+      }
+    };
+    markCt09Phase('task-artifact-start');
+    const artifactResult = await nativeTool('mcp__task-board__TaskArtifact', {
+      key: 'report',
+      value: `artifact:${output.id}@${output.revision}`,
+    });
+    markCt09Phase('task-artifact-complete');
+    expect(artifactResult.success).toBe(true);
+    expect(artifactResult.contentItems.map((item) => item.text).join('')).not.toMatch(/Error:/);
+    const completion = await nativeTool('mcp__task-board__TaskComplete', {
+      summary: 'Saved report; awaiting explicit verification.',
+    });
+    markCt09Phase('task-complete-complete');
+    expect(completion.success).toBe(true);
+    expect(completion.contentItems.map((item) => item.text).join('')).toContain('pending_review');
+    expect(application.taskStore.get(taskId)?.status).toBe('pending_review');
+    expect(application.taskStore.get(taskId)?.artifacts?.report).toBe(
+      `artifact:${output.id}@${output.revision}`,
+    );
+    const { TelosItemStore } = await import('../telos-item-store.js');
+    const items = new TelosItemStore(canonical.dbPath);
+    cleanup.push(() => items.close());
+    expect(items.read(childId).status).toBe('active');
+    // Fake operator explicitly reads/verifies retained bytes before approving.
+    expect(canonical.artifacts.read(output.id, output.revision).bytes.toString()).toBe(report);
+    const approved = await request(application.app)
+      .post('/api/tasks/' + taskId + '/approve')
+      .set('Authorization', 'Bearer ' + f.token)
+      .send({});
+    expect(approved.status).toBe(200);
+    expect(application.taskStore.get(taskId)?.status).toBe('done');
+    expect(items.read(childId).status).toBe('active');
+    const verified = await internal(leadClientId, '/api/internal/telos/items/update', {
+      itemId: childId,
+      requestId: 'explicit-verified-completion',
+      expectedRevision: items.read(childId).revision,
+      status: 'completed',
+      note: `Verified artifact:${output.id}@${output.revision} SHA-256 ${output.sha256}; approved task ${taskId}.`,
+    });
+    expect(verified.status).toBe(200);
+    expect(items.read(childId).status).toBe('completed');
+    expect(items.read(featureId).status).toBe('active');
+    markCt09Phase('verified-complete');
+    for (const session of nativeSessions)
+      session.lifecycle.onNotification('turn/completed', {
+        threadId: session.threadId,
+        turn: { id: session.turnId, status: 'completed' },
+      });
+    const transport = worker.session.transport;
+    expect(chat.detachChatIfCurrentTransport(worker.clientId, transport)).toBe(true);
+    expect(chat.reattachChat(worker.clientId, { send: vi.fn(), isOpen: () => true })).toBe(true);
+    const turnsBeforeReplay = workerTurnStarts();
+    expect(turnsBeforeReplay).toBe(1);
+    if (startupRoute === 'manual') {
+      expect(await ordinary.firstCommand(workerCommand)).toMatchObject({
+        state: 'consumed',
+        dispatched: false,
+      });
+    } else {
+      const replay = await executeWorker();
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toMatchObject({
+        allocation: receipt,
+        execution: { state: 'started' },
+      });
+    }
+    expect(nativeSessions).toHaveLength(2);
+    expect(workerTurnStarts()).toBe(turnsBeforeReplay);
+    for (const id of [leadId, workerId])
+      chat.stopOrdinaryChat(chat.registry.findBySessionId(id)!.clientId);
+    await vi.waitFor(() => {
+      expect(chat.registry.findBySessionId(workerId)).toBeNull();
+      expect(chat.registry.findBySessionId(leadId)).toBeNull();
+    });
+    expect(f.legacyLookup).not.toHaveBeenCalled();
+    f.reopenWorkspaceOwner();
+    expect(f.workspaces.getOrdinaryWorkspace(workerCommand.workspace.workspaceId).state).toBe(
+      'claimed',
+    );
+    expect(chat.eventStore.getSession(workerId)?.ordinaryWorkspaceId).toBe(
+      workerCommand.workspace.workspaceId,
+    );
+    expect((await stat(directory)).ino).toBe(inode);
+    expect(await readFile(join(directory, 'recording-report.md'), 'utf8')).toBe(report);
+    expect(application.taskStore.getTree()).toHaveLength(1);
+    const { TaskStore } = await import('../task-store.js');
+    const reopenedTasks = new TaskStore(join(f.configuredWorkspace, '.mitzo', 'tasks.db'));
+    try {
+      expect(reopenedTasks.getTree()).toHaveLength(1);
+      expect(reopenedTasks.get(taskId)?.status).toBe('done');
+      expect(reopenedTasks.getTelosExecutionTaskForConversation(workerId)).toBe(taskId);
+    } finally {
+      reopenedTasks.close();
+    }
+    canonical.restartOwners();
+    await assertFeatureSource();
+    expect(await api.approveSourcePermission(sourcePermissionId, sourceApprovalInput)).toEqual(
+      featureSource,
+    );
+    await assertOriginalSource();
+    expect(
+      resolveTelosWorkRoleContext(
+        chat.eventStore,
+        workerId,
+        chat.eventStore.getSession(workerId)!.accountBinding!,
+      ),
+    ).toEqual(workerContext);
+    expect(canonical.artifacts.read(output.id, output.revision).bytes.toString()).toBe(report);
+    expect(items.read(childId).status).toBe('completed');
+    expect(chat.eventStore.getOrdinaryInitialCommandId(f.first.receipt.sessionId)).toBeUndefined();
+    expect(chat.eventStore.listSessions()).toHaveLength(before + 3);
+    for (const dir of [...directories, f.configuredWorkspace])
+      await expect(access(join(dir, '.git'))).rejects.toThrow();
+    expect(f.forbidden).not.toHaveBeenCalled();
+    expect(f.legacyLookup).not.toHaveBeenCalled();
+    expect(getClientId).not.toHaveBeenCalled();
+    markCt09Phase('journey-complete');
+  },
+  60_000,
+);

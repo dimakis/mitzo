@@ -4,6 +4,10 @@ import {
   hostKnowledgeReceipt,
 } from './published-host-knowledge.js';
 import { closeMcpAfterFailure } from './codex-mcp-tools.js';
+import {
+  observeTelosSessionCoordination,
+  renderTelosSessionCoordination,
+} from './telos-session-coordination.js';
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { retainedApplicationEffectObserver } from './retained-application-effects.js';
 import { steerNativeAgentMessage } from './agent-message-runtime.js';
@@ -229,6 +233,10 @@ import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
 import type { ConfiguredCatalogOptions } from './configured-tool-catalog.js';
 import { AsyncQueue } from './async-queue.js';
 import {
+  captureOrdinaryFirstCommandAuthority,
+  type OrdinaryFirstCommandAuthority,
+} from './ordinary-first-command-authority.js';
+import {
   CodexAppServerClient,
   CodexTransportError,
   SUPPORTED_CODEX_CLI_VERSION,
@@ -323,6 +331,26 @@ export function ordinaryRuntimeServiceProviders(
 }
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
+const runtimeOwners = new WeakMap<ManagedSession, CodexConversation>();
+const finalizerDrains = new WeakMap<ManagedSession, () => Promise<void>>();
+/** Exact owner proof survives removal from the live runtime map. Absence is not
+ * success; callers must independently qualify cold durable/runtime custody. */
+export async function drainCodexChatFinalizers(session: ManagedSession): Promise<void> {
+  const drain = finalizerDrains.get(session);
+  if (!drain) throw Error('Original Codex finalizer owner unavailable');
+  await drain();
+}
+export async function retireIdleCodexChat(
+  session: ManagedSession,
+  assertCurrent: () => void,
+): Promise<void> {
+  assertCurrent();
+  const owner = runtimeOwners.get(session);
+  if (!owner) throw Error('Original Codex runtime owner unavailable');
+  await owner.retireIdle(assertCurrent);
+  await drainCodexChatFinalizers(session);
+  assertCurrent();
+}
 interface PendingProviderAdmission {
   admission: ProviderDispatchAdmission;
   eventStore: EventStore;
@@ -723,6 +751,7 @@ interface Options {
   /** Exact admitted ordinary OpenShell target; bypasses deployment route inference. */
   ownedOpenShell?: OwnedOpenShellCodexChatAdmission;
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+  firstCommandAuthority?: OrdinaryFirstCommandAuthority;
   /** Host-owned admitted-command context delivery; never a public execution port. */
   ordinaryCollaborationDelivery?: OrdinaryCollaborationDelivery;
   contributorGuidance?: string;
@@ -979,6 +1008,10 @@ async function openCodexChatBound(
   onDemandConnections: readonly Connection[] = [],
   deferInitialSend = false,
 ) {
+  let firstCommandAuthority = captureOrdinaryFirstCommandAuthority(
+    options.firstCommandAuthority,
+    options.messageId,
+  );
   await options.ownedLocal?.assertCurrent();
   await options.ownedOpenShell?.assertCurrent();
   options.assertCapturedContext();
@@ -2217,40 +2250,80 @@ async function openCodexChatBound(
   const events = new AsyncQueue<Record<string, unknown>>();
   let unwatchAgentMessages: (() => void) | undefined;
   let closed = false;
+  let finalization: Promise<Error | undefined> | undefined;
+  finalizerDrains.set(options.session, async () => {
+    if (!closed || !finalization) throw Error('Codex owner must be closed before finalizer drain');
+    const failure = await finalization;
+    if (failure) throw failure;
+  });
   function finish() {
     if (closed) return;
     closed = true;
-    unwatchAgentMessages?.();
-    options.ownedLocal?.close();
-    githubPublishing.close();
-    cancelTrackedProviderAdmissions(options.session);
-    if (hooks)
-      void hooks
-        .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
-        .catch(() => {})
-        .finally(dispose);
-    else dispose();
-    signal.removeEventListener('abort', close);
-    events.close();
-    void mcp.close().catch(() => {
-      log.warn('Session MCP cleanup failed', {
-        code: 'mcp_cleanup_failed',
-        stage: 'session_close',
-        conversationId: options.conversationId,
+    const failures: Error[] = [];
+    const pending: Promise<void>[] = [];
+    const attempt = (stage: string, action: () => unknown) => {
+      const failed = (cause: unknown) => {
+        failures.push(new Error(`Codex finalizer failed during ${stage}`, { cause }));
+        log.warn('Codex finalizer failed', {
+          code: 'codex_finalizer_failed',
+          stage,
+          conversationId: options.conversationId,
+        });
+      };
+      try {
+        const completion = Promise.resolve(action()).then(() => undefined, failed);
+        pending.push(completion);
+        return completion;
+      } catch (cause) {
+        failed(cause);
+        return Promise.resolve();
+      }
+    };
+    attempt('message_subscription', () => unwatchAgentMessages?.());
+    attempt('local_owner', () => options.ownedLocal?.close());
+    attempt('publishing_owner', () => githubPublishing.close());
+    attempt('provider_admission', () => cancelTrackedProviderAdmissions(options.session));
+    attempt('session_hooks', async () => {
+      try {
+        await hooks?.run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000));
+      } finally {
+        await attempt('hook_disposal', dispose);
+      }
+    });
+    attempt('event_stream', () => {
+      signal.removeEventListener('abort', close);
+      events.close();
+      runtimes.delete(options.session);
+    });
+    attempt('mcp_cleanup', () => mcp.close());
+    attempt('capability_binding', () => {
+      const livePublishingOwner = getLiveCapabilityConversationBinding(
+        options.conversationId,
+      )?.runtimeOwnerId;
+      if (
+        managedCapabilityConnection &&
+        (!livePublishingOwner || livePublishingOwner === githubPublishing.runtimeOwnerId)
+      )
+        clearLiveCapabilityConversationBinding(options.conversationId, {
+          connectionId: managedCapabilityConnection.id,
+          connectionRevision: managedCapabilityConnection.revision,
+        });
+    });
+    finalization = new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        const failure = new Error('Codex finalizer drain is unconfirmed');
+        log.warn('Codex finalizer drain is unconfirmed', {
+          code: 'codex_finalizer_timeout',
+          stage: 'resource_drain',
+          conversationId: options.conversationId,
+        });
+        resolve(failures[0] ?? failure);
+      }, 6000);
+      void Promise.all(pending).then(() => {
+        clearTimeout(timer);
+        resolve(failures[0]);
       });
     });
-    runtimes.delete(options.session);
-    const livePublishingOwner = getLiveCapabilityConversationBinding(
-      options.conversationId,
-    )?.runtimeOwnerId;
-    if (
-      managedCapabilityConnection &&
-      (!livePublishingOwner || livePublishingOwner === githubPublishing.runtimeOwnerId)
-    )
-      clearLiveCapabilityConversationBinding(options.conversationId, {
-        connectionId: managedCapabilityConnection.id,
-        connectionRevision: managedCapabilityConnection.revision,
-      });
   }
   let nativeExecution: CodexNativeExecutionPolicy | undefined;
   const selectedNativePolicy = () => {
@@ -2343,6 +2416,20 @@ async function openCodexChatBound(
           : '');
   const instructionDelivery = assembleInstructionSections([
     { source: 'profile-and-runtime', text: baseSystemPrompt },
+    {
+      source: 'current-telos-coordination',
+      text:
+        !options.adviserScope && selectedTelosRole
+          ? renderTelosSessionCoordination(
+              observeTelosSessionCoordination(
+                options.eventStore,
+                options.conversationId,
+                undefined,
+                (id) => !!options.registry.findBySessionId(id),
+              ),
+            )
+          : '',
+    },
     {
       source: 'tool-failure-recovery',
       text: options.adviserScope ? '' : TOOL_FAILURE_INSTRUCTIONS,
@@ -2609,6 +2696,13 @@ async function openCodexChatBound(
       }
     : undefined;
   const runtimeOptions: CodexConversationOptions = {
+    ...(selectedTelosRole && options.ownedLocal
+      ? {
+          providerContextRevision: createHash('sha256')
+            .update(JSON.stringify(selectedTelosRole))
+            .digest('hex'),
+        }
+      : {}),
     canStartCommand: () => options.eventStore.deployment.canDispatch(options.conversationId),
     assertSubagentControlAdmission: () => {
       if (options.eventStore.deployment.active())
@@ -2770,6 +2864,15 @@ async function openCodexChatBound(
             return true;
           },
           canClaimCommand: (commandId: string) => options.ownedLocal!.canClaimCommand(commandId),
+          withQueueMutation: <T>(operation: () => T) =>
+            options.ownedLocal!.withQueueMutation(operation),
+          assertQueueCommandCurrent: (commandId: string) => {
+            options.ownedLocal!.assertQueueCommandCurrent(commandId);
+            // Recheck after intervening dispatch/native-policy callbacks, at the
+            // final synchronous fence immediately before physical turn/start.
+            if (firstCommandAuthority?.commandId === commandId)
+              firstCommandAuthority.assertCurrent();
+          },
           beforeThreadInitialization: (store: CodexConversationStore) =>
             options.ownedLocal!.persistCustody(store),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
@@ -3243,6 +3346,7 @@ async function openCodexChatBound(
       });
     },
     onProviderDispatch: (messageId) => {
+      if (firstCommandAuthority?.commandId === messageId) firstCommandAuthority.assertCurrent();
       options.adviserScope?.assertCommand(options.conversationId, messageId);
       options.assertWorkTurnAdmission?.();
       if (ownedHost) options.assertAgentContextAuthorization?.();
@@ -3259,6 +3363,9 @@ async function openCodexChatBound(
         });
     },
     onProviderAccepted: (messageId, threadId, turnId) => {
+      // Once this first turn is acknowledged, subsequent worker commands and
+      // tool continuations depend on the worker's own retained authority.
+      if (firstCommandAuthority?.commandId === messageId) firstCommandAuthority = undefined;
       if (options.ownedLocal) {
         recordAgentMessageAcceptance(
           options.eventStore,
@@ -3923,7 +4030,7 @@ async function openCodexChatBound(
         })(name, parsed.data, {
           signal,
           toolUseID: randomUUID(),
-          allowSessionGrant: true,
+          allowSessionGrant: !parsed.data.execute,
         });
         assertLead();
         if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
@@ -4145,6 +4252,9 @@ async function openCodexChatBound(
                   get work() {
                     return owners.work;
                   },
+                  events: options.eventStore,
+                  isConversationLive: (id) =>
+                    !!options.registry.findBySessionId(id)?.session.ordinaryRuntimeOwner,
                   approve: (toolName, exact, permissionSignal) =>
                     buildPermissionHandler(owner.clientId, options.registry, {
                       onDemandCreate: options.onDemandCreate,
@@ -4598,8 +4708,11 @@ async function openCodexChatBound(
   const runtime: CodexConversation = new CodexConversation(runtimeOptions);
   function close() {
     if (closed) return;
-    runtime.close();
-    finish();
+    try {
+      runtime.close();
+    } finally {
+      finish();
+    }
   }
   signal.addEventListener('abort', close, { once: true });
   try {
@@ -4641,6 +4754,7 @@ async function openCodexChatBound(
         );
     }
     signal.throwIfAborted();
+    runtimeOwners.set(options.session, runtime);
     runtimes.set(options.session, runtime);
     if (options.ownedLocal)
       unwatchAgentMessages = watchAgentMessageTranscript(

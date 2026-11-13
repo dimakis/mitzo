@@ -3,6 +3,7 @@ import { AgentProfileSelectionSchema } from './agent-library.js';
 import { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
 import { TelosWorkArtifactReferenceSchema } from './telos-work.js';
 import { TelosWorkRoleContextReviewSchema } from './telos-work-role-presentation.js';
+import { TelosExistingChatAdoptionSchema } from './telos-ordinary-work.js';
 
 const reference = z.string().min(1).max(200).regex(/^\S+$/);
 const account = z.strictObject({
@@ -88,9 +89,17 @@ export const TelosSessionLaunchScopeSchema = z.strictObject({
   role: z.enum(['lead', 'worker']),
   sourceSnapshotIds: z.array(reference).max(100),
   artifactRefs: z.array(TelosWorkArtifactReferenceSchema).max(100),
+  adoption: TelosExistingChatAdoptionSchema.extend({
+    title: z.string().min(1).max(1000),
+  }).optional(),
 });
 export type TelosSessionLaunchScope = z.infer<typeof TelosSessionLaunchScopeSchema>;
 export const TelosCreateSessionInputSchema = StartSessionInputSchema.extend({
+  existingConversationId: reference
+    .optional()
+    .describe(
+      'Explicit adoption of this exact compatible existing ordinary chat. Review its retained settings and bounded work context; never allocate a replacement or start a command.',
+    ),
   itemId: reference,
   expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
   sourceSnapshotIds: z.array(reference).max(100).default([]),

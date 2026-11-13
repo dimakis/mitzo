@@ -70,6 +70,8 @@ it('keeps an interactive chooser disclosure and keyboard focus while canonical c
         ...chat.eventStore.getSession(lead)!,
         summary: 'Hydration lead',
       });
+      // Match the real rename operation: a chosen name must survive work-title projection.
+      chat.eventStore.markManuallyRenamed(lead);
     }
   }
   const beforeWork = await api.read('studio');

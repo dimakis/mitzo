@@ -402,6 +402,12 @@ export class SessionLaunchStore {
         parsed.input.expectedRevision !== r.telos.expectedRevision ||
         parsed.input.createOnly !== true ||
         parsed.input.expectedAssignmentRevision !== 0 ||
+        !isDeepStrictEqual(
+          parsed.input.adoption,
+          r.telos.adoption
+            ? (({ title: _title, ...selected }) => selected)(r.telos.adoption)
+            : undefined,
+        ) ||
         !isDeepStrictEqual(parsed.input.contextSelection, r.telosReview.selection) ||
         !isDeepStrictEqual(parsed.presentationRef, r.telosReview.presentationRef)
       )
@@ -436,6 +442,20 @@ export class SessionLaunchStore {
         revision: entry.record.revision + 1,
         updatedAt: Date.now(),
       });
+    });
+  }
+  /** Only after canonical allocation/role owners return a retained release. */
+  markReleased(id: string) {
+    return this.mutate(id, (entry) => {
+      const record = entry.record;
+      if (record.state === 'cancelled') return;
+      if (!record.telos || record.childSessionId || record.state === 'assigned')
+        throw new SessionLaunchError('Original unallocated work request required.');
+      record.state = 'cancelled';
+      record.error =
+        'Reservation safely released after canonical owner reconciliation. Original request and history retained.';
+      record.revision++;
+      record.updatedAt = Date.now();
     });
   }
 }

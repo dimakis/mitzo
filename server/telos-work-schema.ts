@@ -69,6 +69,7 @@ export function initializeTelosWorkSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS telos_work_attempts(seq INTEGER PRIMARY KEY,attempt_id TEXT NOT NULL UNIQUE,item_id TEXT NOT NULL REFERENCES items(id),data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS telos_work_commands(seq INTEGER PRIMARY KEY,actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,receipt TEXT NOT NULL,UNIQUE(actor_id,request_id));
     CREATE TABLE IF NOT EXISTS telos_work_role_setups(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,intent TEXT NOT NULL,receipt TEXT,PRIMARY KEY(actor_id,request_id));
+    CREATE TABLE IF NOT EXISTS telos_work_role_setup_releases(request_id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,fingerprint TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS telos_work_role_presentations(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,selection TEXT NOT NULL,presentation TEXT NOT NULL,sha256 TEXT NOT NULL);
     CREATE TRIGGER IF NOT EXISTS telos_work_role_presentations_no_update BEFORE UPDATE ON telos_work_role_presentations BEGIN SELECT RAISE(ABORT,'Reviewed presentation is immutable'); END;
     CREATE TRIGGER IF NOT EXISTS telos_work_role_presentations_no_delete BEFORE DELETE ON telos_work_role_presentations BEGIN SELECT RAISE(ABORT,'Reviewed presentation is immutable'); END;

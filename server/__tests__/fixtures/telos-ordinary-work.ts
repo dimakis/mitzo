@@ -98,8 +98,12 @@ export async function createTelosOrdinaryWorkFixture(
   const assertAuthorized = () => {
     if (!isAuthSessionCurrent(native.auth)) throw Error('Revoked private operator');
   };
-  const createOwner = (selectedInput: TelosOrdinaryWorkRoleSetupInput = input) =>
+  const createOwner = (
+    selectedInput: TelosOrdinaryWorkRoleSetupInput = input,
+    adoption?: ConstructorParameters<typeof TelosOrdinaryWorkRoleSetup>[0]['adoption'],
+  ) =>
     new TelosOrdinaryWorkRoleSetup({
+      adoption,
       work,
       events: native.events,
       workspaces: native.workspaces,
