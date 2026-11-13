@@ -520,6 +520,7 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   await browserExpect(
     page.getByRole('region', { name: 'Work conversation setup' }),
   ).not.toBeVisible();
+  await waitForPreparedConversation(page, browserNetwork, advisorId);
   const advisorPrompt = 'Please retain the acoustic plan and create the reviewed recording slice.';
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill(advisorPrompt);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
@@ -701,6 +702,7 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
   await browserExpect(
     page.getByRole('region', { name: 'Work conversation setup' }),
   ).not.toBeVisible();
+  await waitForPreparedConversation(page, browserNetwork, leadId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   expect(nativeSessions).toHaveLength(1);
   await page

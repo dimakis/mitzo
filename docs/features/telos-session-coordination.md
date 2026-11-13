@@ -20,6 +20,10 @@ published `39c2b53ded1a06381b1d7e10bdf8f9974d526e5b` and accepted main
 The only merge conflict was the source registry; both key sets are retained and
 hashes recalculated. The first-command authority fence remains enforced through
 provider submission and releases only at the first acknowledgement.
+The final landing integration also includes accepted main
+`23816770cc1d80b16c557dd88f7078c7cf53f163` (#1332 custom Codex API routing).
+The registry again retains both key sets. Its provider identity/configuration
+changes are qualified alongside native message and submission authority fences.
 
 The supported `TelosManageItem` read confirmed the capability item is a feature
 with five direct slices. Its current brief explicitly distinguishes canonical
