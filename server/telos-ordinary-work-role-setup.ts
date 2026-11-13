@@ -15,6 +15,10 @@ import {
   renderTelosWorkRoleContext,
 } from './telos-work-role-context.js';
 import { runTelosWorkRoleSetup } from './telos-work-role-setup.js';
+import {
+  adoptTelosExistingChat,
+  type TelosAdoptionRuntime,
+} from './telos-existing-chat-adoption.js';
 export type TelosOrdinaryWorkRoleScope = {
   actor: TelosWorkActor;
   setup: TelosOrdinaryWorkRoleSetupIntent;
@@ -32,6 +36,7 @@ export class TelosOrdinaryWorkRoleSetup {
       work: TelosWorkStore;
       events: EventStore;
       workspaces: RepositoryWorkspaces;
+      adoption?: TelosAdoptionRuntime;
       resolveSelection(
         scope: { actor: TelosWorkActor; input: TelosOrdinaryWorkRoleSetupInput },
         signal: AbortSignal,
@@ -71,6 +76,32 @@ export class TelosOrdinaryWorkRoleSetup {
     };
     // Unsupported settings/readiness fail before a role or allocation intent exists.
     const qualified = await qualify();
+    if (input.adoption) {
+      if (!this.deps.adoption)
+        throw new TelosWorkError('conflict', 'Reviewed existing-chat adoption is unavailable');
+      const retained = this.deps.work.prepareOrdinaryRoleSetup(input, actor);
+      const scope = { actor, setup: retained.setup };
+      await this.deps.workspaces.revalidateOrdinaryWorkspace({
+        id: input.adoption.workspaceId,
+        conversationId: input.adoption.conversationId,
+        binding: qualified.binding,
+        taskRoot: qualified.taskRoot,
+        signal,
+      });
+      return adoptTelosExistingChat({
+        ...scope,
+        work: this.deps.work,
+        events: this.deps.events,
+        workspaces: this.deps.workspaces,
+        runtime: this.deps.adoption,
+        signal,
+        authorize: () => this.deps.authorize(structuredClone(scope), signal),
+        assertCurrent: () =>
+          this.deps.assertBeforeApply({ ...scope, conversationId: input.adoption!.conversationId }),
+        retainContext: (conversationId) =>
+          this.deps.retainContext({ ...scope, conversationId }, signal),
+      });
+    }
     const assertRetained = (scope: TelosOrdinaryWorkRoleScope) => {
       const receipt = this.deps.events.getOrdinaryWorkspaceSessionPreparation(
         scope.setup.allocationOperationId,

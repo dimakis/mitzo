@@ -57,6 +57,70 @@ const fixture = (role?: 'advisor' | 'lead' | 'worker') =>
   createTelosOrdinaryWorkFixture(cleanup, role);
 
 it.each([
+  'success',
+  'lost response',
+  'context failure',
+  'busy',
+  'changed custody',
+  'cancelled',
+] as const)(
+  'adopts an exact existing ordinary chat without allocating or dispatching (%s)',
+  async (scenario) => {
+    const { observeTelosAdoptionTarget } = await import('../telos-existing-chat-adoption.js');
+    const f = await fixture();
+    const id = f.native.first.receipt.sessionId;
+    const adoption = observeTelosAdoptionTarget(f.native.events, f.native.workspaces, id);
+    const input = { ...f.input, createOnly: true, adoption };
+    const history = f.native.events.getSessionEvents(id);
+    const reserve = vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace');
+    let lost = scenario === 'lost response';
+    const signal = new AbortController();
+    const runtime = {
+      assertQuiescent: vi.fn(() => {
+        if (scenario === 'busy') throw Error('busy native owner');
+      }),
+      retire: vi.fn(async () => {
+        if (scenario === 'cancelled') signal.abort();
+        if (lost) {
+          lost = false;
+          throw Error('lost retirement response');
+        }
+      }),
+    };
+    if (scenario === 'changed custody')
+      f.native.events.upsertSession({ sessionId: id, selectedModel: 'changed-model' });
+    const owner = f.createOwner(input, runtime);
+    const append = f.native.events.append.bind(f.native.events);
+    let failContext = scenario === 'context failure';
+    vi.spyOn(f.native.events, 'append').mockImplementation((sessionId, type, payload) => {
+      if (type === 'telos_work_role_context' && failContext) {
+        failContext = false;
+        throw Error('context storage failed');
+      }
+      return append(sessionId, type, payload);
+    });
+    if (scenario !== 'success') {
+      await expect(owner.setup(f.actor, input, signal.signal)).rejects.toThrow();
+      expect(f.work.read('studio', f.actor).assignments).toEqual([]);
+      expect(reserve).not.toHaveBeenCalled();
+      if (scenario !== 'lost response' && scenario !== 'context failure') return;
+      if (scenario === 'context failure')
+        runtime.retire.mockRejectedValue(Error('must recover durable retirement'));
+      f.restart();
+    }
+    const result = await f.createOwner(input, runtime).setup(f.actor, input, signal.signal);
+    expect(result.work.assignments[0].conversation.conversationId).toBe(id);
+    expect(await f.createOwner(input, runtime).setup(f.actor, input, signal.signal)).toEqual(
+      result,
+    );
+    expect(reserve).not.toHaveBeenCalled();
+    expect(f.native.events.getSessionEvents(id).slice(0, history.length)).toEqual(history);
+    expect(f.native.events.contextTransitions.observe(id)).toEqual({ epoch: 1, held: false });
+    expect(f.native.events.getSession(id)?.ordinaryWorkspaceId).toBe(adoption.workspaceId);
+  },
+);
+
+it.each([
   'recovery',
   'feature lead recovery',
   'Symposium origin recovery',

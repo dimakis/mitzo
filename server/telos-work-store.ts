@@ -723,6 +723,19 @@ export class TelosWorkStore {
       )
       .get(requestId, requestId);
   }
+  /** Initial adoption cannot silently replace another retained work role. Origin
+   * links are provenance and remain untouched. Replacement is a separate contract. */
+  assertConversationAvailableForAdoption(conversationId: string): void {
+    if (
+      !this.policy.ordinaryConversation(conversationId) ||
+      this.db
+        .prepare(
+          "SELECT 1 FROM telos_work_links WHERE namespace='mitzo' AND conversation_id=? AND role<>'origin' LIMIT 1",
+        )
+        .get(conversationId)
+    )
+      conflict('Existing conversation already retains a work role or is unavailable');
+  }
   /** Read-only recovery of the existing canonical role operation. */
   ordinaryRoleSetupForHost(requestId: string, actor: TelosWorkActor) {
     this.operator(actor);

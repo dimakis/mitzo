@@ -484,6 +484,25 @@ export class EventStore {
   readonly removals: SessionRemovalStore;
   readonly deployment: DeploymentStore;
   readonly contextTransitions: OrdinaryContextTransitionStore;
+  /** Negative proof from the command/admission owner, under its writer fence.
+   * Native runtime/effect and workspace custody require separate owner proofs. */
+  assertOrdinaryContextQuiescent(sessionId: string): void {
+    this.assertConversationIdentity(sessionId);
+    if (
+      this.db!.prepare(
+        `SELECT 1 FROM send_commands WHERE session_id=? AND
+        (preparing<>0 OR ordinary_admission IS NULL OR
+         json_extract(ordinary_admission,'$.state') IS NOT 'consumed') LIMIT 1`,
+      ).get(sessionId) ||
+      this.db!.prepare(
+        "SELECT 1 FROM provider_attempts WHERE session_id=? AND phase<>'TERMINAL' LIMIT 1",
+      ).get(sessionId) ||
+      this.db!.prepare(
+        "SELECT 1 FROM sessions WHERE session_id=? AND execution_phase IS NOT NULL AND execution_phase<>'TERMINAL'",
+      ).get(sessionId)
+    )
+      throw Error('Ordinary command admission remains active or uncertain');
+  }
   private readonly ordinaryContextAdmission = new AsyncLocalStorage<{
     sessionId: string;
     epoch: number;

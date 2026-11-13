@@ -52,7 +52,39 @@ export class OrdinaryContextTransitionStore {
     CREATE TABLE IF NOT EXISTS ordinary_command_context_epochs (
       command_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
       request_fingerprint TEXT NOT NULL, epoch INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS ordinary_context_retirements (
+      operation_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL
     );`);
+  }
+  hasRetirement(raw: OrdinaryContextTransitionIntent): boolean {
+    const input = Intent.parse(raw),
+      receipt = this.read(input.operationId);
+    if (!receipt) return false;
+    this.assertIdentity(receipt, input);
+    const row = this.db
+      .prepare('SELECT fingerprint FROM ordinary_context_retirements WHERE operation_id=?')
+      .get(input.operationId) as { fingerprint: string } | undefined;
+    if (row && row.fingerprint !== input.fingerprint) throw Error('Retirement identity changed');
+    return !!row;
+  }
+  /** Only the host that awaited the exact owner may retain resource-drain proof. */
+  retainRetirement(raw: OrdinaryContextTransitionIntent, assertDrained: () => void): void {
+    const input = Intent.parse(raw);
+    this.db
+      .transaction(() => {
+        const receipt = this.read(input.operationId);
+        if (!receipt || receipt.phase !== 'held') throw Error('Original held transition required');
+        this.assertIdentity(receipt, input);
+        const result: unknown = assertDrained();
+        if (result !== undefined) throw Error('Synchronous retirement proof required');
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO ordinary_context_retirements(operation_id,fingerprint) VALUES(?,?)',
+          )
+          .run(input.operationId, input.fingerprint);
+      })
+      .immediate();
   }
   read(operationId: string): OrdinaryContextTransitionReceipt | undefined {
     const row = this.db
