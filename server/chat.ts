@@ -1,3 +1,4 @@
+import { ordinarySdkConnectionHelperTools } from './ordinary-sdk-helper-registration.js';
 import {
   reconcilableLocalCodexCommand,
   retainedLocalCodexRecoveryReservation,
@@ -120,11 +121,7 @@ import {
   createWorkspaceRuntimeCommandRunner,
   type ProtectedSdkCommandRunner,
 } from './protected-sdk-command.js';
-import {
-  createCredentialSdkServer,
-  credentialSdkPermission,
-  ordinarySdkHelperTools,
-} from './credential-sdk-tools.js';
+import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
 import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
@@ -2901,7 +2898,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         if (
           options.ordinarySdkAuthority &&
           name.startsWith('mcp__mitzo-connections__') &&
-          !ordinarySdkHelperTools.includes(name)
+          !ordinarySdkConnectionHelperTools.includes(name)
         )
           return {
             behavior: 'deny',
@@ -3086,7 +3083,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
-          ? [...ordinarySdkHelperTools, WEB_ACCESS_SDK_TOOL]
+          ? [...ordinarySdkConnectionHelperTools, WEB_ACCESS_SDK_TOOL]
           : [
               ...(sdkCredentialIsolation ? [] : mcpAllowed),
               ...extraTools,

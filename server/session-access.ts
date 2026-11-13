@@ -1,30 +1,44 @@
 import { Router, type Request } from 'express';
 import type { ManagedSession } from '@mitzo/harness';
 import type {
-  AccountBinding,
-  MitzoMode,
   PermissionRequest,
   RuntimeReadiness,
+  SessionAccessEvidence,
+  SessionHelperSupport,
 } from '@mitzo/protocol';
 import { recentAuthorizationSession } from './connections-router.js';
 import { projectRuntimeReadiness, type RuntimeReadinessInput } from './runtime-readiness.js';
+import { projectAgentHelperSupport } from './agent-tool-selection.js';
+import { createLogger } from './logger.js';
+import { sessionMetadataDiagnostic } from './session-metadata-error.js';
 
-/** Bounded observation, not admission or an authority token. Unknown is never an empty grant. */
-export interface SessionAccessEvidence {
-  sessionId: string;
-  observedAt: number;
-  state: 'current' | 'unknown';
-  account: Pick<AccountBinding, 'accountId' | 'accountLabel' | 'provider'> | null;
-  model: string | null;
-  mode: MitzoMode | null;
-  grants: string[] | null;
-  skillCeiling: string[] | null;
-  pending: Array<{ permId: string; toolName: string; scope: string }> | null;
-  attachments: null;
-  tools: null;
-  limits: null;
-  readiness: RuntimeReadiness;
+const log = createLogger('session-access');
+export type { SessionAccessEvidence, SessionHelperSupport } from '@mitzo/protocol';
+
+function helperSupport(
+  session: ManagedSession | undefined,
+  readiness: RuntimeReadiness,
+): SessionHelperSupport {
+  if (
+    !session?.ordinaryRuntimeOwner ||
+    readiness.session.state !== 'observed' ||
+    readiness.execution.state !== 'configured'
+  )
+    return { state: 'unknown', reason: 'runtime_unavailable' };
+  const binding = readiness.execution.binding;
+  if (
+    binding.version !== 2 ||
+    binding.execution.location !== 'local' ||
+    !['codex', 'claude-sdk'].includes(binding.harness.implementation)
+  )
+    return { state: 'unknown', reason: 'route_unqualified' };
+  const route = binding.harness.implementation === 'codex' ? 'codex-owned-local' : 'claude-sdk';
+  const tools = projectAgentHelperSupport(session, route, session.activeSkillPolicy);
+  return tools
+    ? { state: 'configured', tools }
+    : { state: 'unknown', reason: 'selection_unavailable' };
 }
+
 export function projectSessionAccess(
   sessionId: string,
   session: ManagedSession | undefined,
@@ -47,6 +61,7 @@ export function projectSessionAccess(
     tools: null,
     limits: null,
     readiness,
+    helperSupport: helperSupport(session, readiness),
   };
   if (!session || readiness.session.state !== 'observed') return value;
   const { accountId, accountLabel, provider } = readiness.session.account;
@@ -82,8 +97,26 @@ export function createSessionAccessRouter(options: {
       if (typeof id !== 'string' || !options.hasSession(id))
         return res.status(404).json({ error: 'Conversation not found' });
       return res.json(options.read(id));
-    } catch {
-      return res.status(503).json({ error: 'Session Access could not be checked' });
+    } catch (error: unknown) {
+      const diagnostic = {
+        code: 'session_access_read_failed',
+        stage: 'read',
+        sessionId: req.params.id,
+        cause:
+          error instanceof TypeError
+            ? 'TypeError'
+            : error instanceof Error
+              ? 'Error'
+              : 'UnknownError',
+        ...sessionMetadataDiagnostic(error),
+      };
+      log.warn('Session Access could not be checked', diagnostic);
+      return res.status(503).json({
+        error: 'Session Access could not be checked. Refresh to try again.',
+        code: diagnostic.code,
+        stage: diagnostic.stage,
+        sessionId: diagnostic.sessionId,
+      });
     }
   });
   return router;

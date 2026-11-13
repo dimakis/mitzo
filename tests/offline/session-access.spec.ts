@@ -291,6 +291,130 @@ test('Access: pending request, unknown capability and stale refresh', async ({
   expect(errors).toEqual([]);
 });
 
+test('Access: capability support stays separate from verification and retains stale evidence', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 800 });
+  const errors = await fixture(page, true, false);
+  let unavailable = false;
+  const binding = {
+    version: 2,
+    account: { accountId: 'fixture-account', provider: 'anthropic-claude', profileRevision: 'p1' },
+    harness: { implementation: 'claude-sdk' },
+    execution: { location: 'local', targetId: 'mac', targetRevision: 't1' },
+  };
+  await page.route(`**/api/sessions/${sessionId}/access`, (route) => {
+    if (unavailable)
+      return route.fulfill({
+        status: 503,
+        json: { code: 'session_access_read_failed', stage: 'read', sessionId },
+      });
+    return route.fulfill({
+      json: {
+        sessionId,
+        observedAt: Date.now(),
+        state: 'current',
+        model: 'fixture-model',
+        mode: 'agent',
+        account: {
+          accountId: 'fixture-account',
+          accountLabel: 'Personal Claude',
+          provider: 'anthropic-claude',
+        },
+        grants: [],
+        skillCeiling: null,
+        pending: [],
+        tools: null,
+        limits: null,
+        attachments: null,
+        helperSupport: {
+          state: 'configured',
+          tools: [
+            {
+              name: 'ListConnections',
+              source: 'Connections',
+              state: 'supported',
+              requirement:
+                'Read-only connection discovery; existing account and session restrictions apply.',
+            },
+            {
+              name: 'ConnectionRequest',
+              source: 'Connections',
+              state: 'unsupported',
+              requirement: 'Service execution is unavailable on this SDK route.',
+            },
+            {
+              name: 'GoogleWorkspaceRead',
+              source: 'Google Workspace',
+              state: 'unsupported',
+              requirement: 'Requires the guarded Local Mac Codex route and existing read approval.',
+            },
+          ],
+        },
+        readiness: {
+          version: 1,
+          sessionId,
+          observedAt: Date.now(),
+          revision: 'a'.repeat(64),
+          session: { state: 'unknown', reason: 'not_observed' },
+          execution: { state: 'configured', binding },
+          capabilities: { state: 'unknown', reason: 'not_observed' },
+        },
+      },
+    });
+  });
+  await page.goto(`/chat/${sessionId}`);
+  const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+  await composer.fill('Keep this capability review draft');
+  const opener = page.getByRole('button', { name: 'Links & access', exact: true });
+  await opener.click();
+  const dialog = page.locator('.chat-access-dialog');
+  const capabilities = dialog.locator('.session-capabilities');
+  const summary = capabilities.locator(':scope > summary');
+  await summary.focus();
+  await summary.press('Enter');
+  await expect(capabilities.getByText('Claude · Local Mac')).toBeVisible();
+  await expect(capabilities.getByText(/Unknown — this runtime has not supplied/)).toBeVisible();
+  const group = capabilities
+    .locator('.session-capability-group')
+    .filter({ has: page.getByText('ListConnections', { exact: true }) });
+  await group.locator(':scope > summary').click();
+  await expect(
+    group.getByText('Supported by route; execution not verified', { exact: true }),
+  ).toBeVisible();
+  await expect(group.getByText('Unsupported on this route', { exact: true })).toBeVisible();
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'light' ? 'teal' : 'mint';
+      document.documentElement.dataset.font = theme === 'light' ? 'georgia' : 'system';
+      document.documentElement.style.fontSize = theme === 'light' ? '20px' : '';
+    }, theme);
+    await group.getByText('ListConnections', { exact: true }).scrollIntoViewIfNeeded();
+    expect((await summary.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: testInfo.outputPath(`capabilities-${theme}.png`),
+      animations: 'disabled',
+    });
+  }
+  unavailable = true;
+  await dialog.getByRole('button', { name: 'Refresh Access' }).click();
+  await expect(dialog.getByText(/Stale — refresh failed/)).toBeVisible();
+  await expect(capabilities.getByText(/Earlier capability observation/)).toBeVisible();
+  await expect(group.getByText('ListConnections', { exact: true })).toBeVisible();
+  await dialog.press('Escape');
+  await expect(opener).toBeFocused();
+  await expect(composer).toHaveValue('Keep this capability review draft');
+  expect(errors).toEqual([]);
+});
+
 test('Access: missing runtime evidence is independent of provider', async ({
   page,
   isMobile,
