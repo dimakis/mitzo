@@ -101,16 +101,22 @@
   font: inherit;
 }
 .session-access-details,
+.session-capabilities,
+.session-capability-group,
 .session-access-permissions {
   border-block: 1px solid var(--color-border);
   padding-block: var(--space-2);
 }
 .session-access-details > summary,
+.session-capabilities > summary,
+.session-capability-group > summary,
 .session-access-permissions > summary {
   min-height: var(--control-height);
   cursor: pointer;
 }
 .session-access-details > summary > span,
+.session-capabilities > summary > span,
+.session-capability-group > summary > span,
 .session-access-permissions > summary > span {
   display: block;
   margin-top: var(--space-1);
