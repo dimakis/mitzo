@@ -14,22 +14,33 @@ import { NotificationCenter } from '../notification-center.js';
 import { NotificationStore } from '../notification-store.js';
 import { TaskExecutionStore } from '../task-execution-store.js';
 import * as tasks from '../task-execution-runtime.js';
+import type { SandboxedCommandOptions } from '../sandboxed-command.js';
 
-const execution = vi.hoisted(() => ({ calls: [] as unknown[] }));
-vi.mock('../native-tool-executor.js', async (original) => ({
+const execution = vi.hoisted(() => ({ calls: [] as SandboxedCommandOptions[], wait: false }));
+// Keep SDK MCP, task admission, native permission handling and final spawn fences
+// real. Only the sandbox process effect and push delivery are synthetic.
+vi.mock('../sandboxed-command.js', async (original) => ({
   ...(await original<object>()),
-  createNativeToolExecutor:
-    (_client: string, _registry: unknown, options: { assertRuntimeCurrent(): void }) =>
-    async (block: unknown) => {
-      options.assertRuntimeCurrent();
-      execution.calls.push(block);
-      return { type: 'tool_result', tool_use_id: 'offline', content: 'passed', is_error: false };
-    },
+  executeSandboxedCommand: async (options: SandboxedCommandOptions) => {
+    await options.beforeSpawnAsync?.();
+    options.beforeSpawn?.();
+    execution.calls.push(options);
+    if (execution.wait)
+      await new Promise<void>((_resolve, reject) => {
+        options.signal.throwIfAborted();
+        options.signal.addEventListener('abort', () => reject(options.signal.reason), {
+          once: true,
+        });
+      });
+    return { content: 'passed', isError: false };
+  },
 }));
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
   execution.calls.length = 0;
+  execution.wait = false;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -107,7 +118,40 @@ async function fixture(provider: 'anthropic-claude' | 'anthropic-vertex', select
     const content = result.content as Array<{ type: string; text?: string }>;
     return JSON.parse(content.map((block) => block.text ?? '').join(''));
   };
-  return { client, call, decode, sent, session, sessionId, registry, authority, center, push };
+  return {
+    client,
+    call,
+    decode,
+    sent,
+    session,
+    sessionId,
+    registry,
+    authority,
+    center,
+    push,
+    store,
+    controller,
+  };
+}
+
+type Fixture = Awaited<ReturnType<typeof fixture>>;
+async function authorize(f: Fixture, decision: 'once' | 'deny' = 'once') {
+  const count = f.sent.filter((event) => event.type === 'permission_request').length;
+  const pending = f.call({
+    operation: 'authorize',
+    requestId: randomUUID(),
+    title: 'Offline repair',
+    network: 'none',
+    repositories: [],
+    durationMinutes: 5,
+  });
+  await vi.waitFor(() =>
+    expect(f.sent.filter((event) => event.type === 'permission_request')).toHaveLength(count + 1),
+  );
+  await f.center.flush();
+  const request = f.sent.filter((event) => event.type === 'permission_request').at(-1)!;
+  resolvePending(request.permId!, decision, undefined, f.sessionId);
+  return pending;
 }
 
 it.each(['anthropic-claude', 'anthropic-vertex'] as const)(
@@ -126,22 +170,7 @@ it.each(['anthropic-claude', 'anthropic-vertex'] as const)(
     ).toMatchObject({ behavior: 'allow' });
     expect(f.decode(await f.call({ operation: 'status' })).grants).toEqual([]);
     expect(f.sent).toHaveLength(0);
-    const approval = f.call({
-      operation: 'authorize',
-      requestId: randomUUID(),
-      title: 'Offline repair',
-      network: 'none',
-      repositories: [],
-      durationMinutes: 5,
-    });
-    await vi.waitFor(() =>
-      expect(f.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1),
-    );
-    await f.center.flush();
-    expect(f.push).toHaveBeenCalledOnce();
-    const request = f.sent.find((event) => event.type === 'permission_request')!;
-    resolvePending(request.permId!, 'once', undefined, f.sessionId);
-    const result = await approval;
+    const result = await authorize(f);
     expect(result.isError).not.toBe(true);
     const { grant, executionRoute } = f.decode(result);
     expect(executionRoute.tool).toBe('mcp__mitzo-connections__TaskExecution');
@@ -180,3 +209,70 @@ it('keeps omitted tools absent and refuses a retired SDK owner before dispatch',
   expect(execution.calls).toHaveLength(0);
   expect(f.sent).toHaveLength(0);
 });
+
+it('retains a denied decision without a task grant or command effect', async () => {
+  const f = await fixture('anthropic-claude');
+  expect((await authorize(f, 'deny')).isError).toBe(true);
+  expect(f.decode(await f.call({ operation: 'status' })).grants).toEqual([]);
+  expect(execution.calls).toHaveLength(0);
+  expect(f.push).toHaveBeenCalledOnce();
+});
+
+it.each(['ask', 'account', 'owner'] as const)(
+  'fences a retained SDK grant after %s changes without another approval',
+  async (change) => {
+    const f = await fixture('anthropic-vertex');
+    const { grant } = f.decode(await authorize(f));
+    if (change === 'ask') f.session.mode = 'ask';
+    else if (change === 'account')
+      f.session.accountBinding = { ...f.session.accountBinding!, accountId: 'different-account' };
+    else f.authority.current = false;
+    expect(
+      (
+        await f.call({
+          operation: 'run',
+          grantId: grant.id,
+          requestId: randomUUID(),
+          command: 'npm test',
+        })
+      ).isError,
+    ).toBe(true);
+    expect(execution.calls).toHaveLength(0);
+    expect(f.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+  },
+);
+
+it.each(['expiry', 'revocation', 'owner-loss'] as const)(
+  'cancels a running SDK command on %s and preserves uncertainty without replay',
+  async (reason) => {
+    const f = await fixture('anthropic-claude');
+    const { grant } = f.decode(await authorize(f));
+    vi.useFakeTimers();
+    // Start near the retained grant's expiry, before either the MCP request or
+    // command deadline. Advancing five minutes would test client timeout first.
+    if (reason === 'expiry') vi.setSystemTime(grant.expiresAt - 1_000);
+    execution.wait = true;
+    const input = {
+      operation: 'run',
+      grantId: grant.id,
+      requestId: randomUUID(),
+      command: 'npm test',
+    };
+    const pending = f.call(input);
+    await vi.waitFor(() => expect(execution.calls).toHaveLength(1));
+    if (reason === 'expiry') await vi.advanceTimersByTimeAsync(grant.expiresAt - Date.now() + 1);
+    else if (reason === 'revocation')
+      expect((await f.call({ operation: 'revoke', grantId: grant.id })).isError).not.toBe(true);
+    else {
+      f.authority.current = false;
+      f.controller.abort(Error('Original SDK owner lost'));
+    }
+    expect((await pending).isError).toBe(true);
+    expect(execution.calls[0].signal.aborted).toBe(true);
+    expect(f.store.runStatus(grant.id, f.sessionId, input.requestId).state).toBe('uncertain');
+    expect((await f.call(input)).isError).toBe(true);
+    expect(execution.calls).toHaveLength(1);
+    expect(f.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+    expect(f.push).toHaveBeenCalledOnce();
+  },
+);

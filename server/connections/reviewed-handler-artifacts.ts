@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1132-claude-notification-owner';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1133-claude-task-parity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -31,7 +30,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-isolated-host-launch.test.ts':
     '96c89c2e5ff418c70c71ca611cdfd265e7cd539e9ad57f8941a5c527ce55843a',
   '../__tests__/ordinary-claude-task-execution.test.ts':
-    '3fd1f83d96bf4b830a5baa9b3fdcd3c6517c62cf03928558558982ecbcfce669',
+    'c99c4f60a83ebbf39d0ec6ceabd76ad4ba92e0859715ebcf2668a9a27fe8899d',
   '../__tests__/ordinary-local-vertex-sdk-effects.test.ts':
     'e0d37bbf45ed1e0a5fda72df5fe932ced3ef24e781ca94a41222ddef611679a5',
   '../__tests__/claude-login-sandbox.native.test.ts':

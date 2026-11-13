@@ -28,7 +28,7 @@ not enable those tools, Telos item/artifact helpers, repository preparation or
 OpenShell Claude. It does not repair the separately reported `srt-mux` failure.
 
 Offline coverage uses the real in-memory SDK MCP transport, task store,
-permission handler and notification center for personal and Vertex identities.
+native executor, permission handler and notification center for personal and Vertex identities.
 It verifies one approval/alert for two command variants, refusal after grant
 revocation, profile exclusion and retired-owner refusal. The command effect and
 push transport are synthetic. The application admission/SDK continuation test
@@ -59,3 +59,11 @@ this change does not invent a second completion delivery system.
 Real query-loop consumer regressions demonstrate the duplicate send before the fix
 and cover both central and standalone ownership. All 141 query-loop/notification
 checks passed with synthetic transports; no device delivery is claimed.
+
+The strengthened SDK consumer suite has ten cases. It substitutes only the sandbox
+process effect and push transport while retaining native permission checks and final
+spawn fences. It covers denial, Ask/account/owner changes, and in-flight grant expiry,
+revocation and owner cancellation. Cancellation aborts the running synthetic effect,
+retains an uncertain receipt and refuses replay of the original request without
+another command effect or approval. Actual OS process termination and live provider
+qualification remain unverified.
