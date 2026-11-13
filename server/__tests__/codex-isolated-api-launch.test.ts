@@ -588,7 +588,9 @@ it.each(['///', '/////'])(
     );
     closes.push(() => resumed.close());
     const endpointArguments = processes.spawn.mock.calls.map((call) =>
-      call[1].find((argument: string) => argument.startsWith('model_providers.mitzo_api.base_url=')),
+      call[1].find((argument: string) =>
+        argument.startsWith('model_providers.mitzo_api.base_url='),
+      ),
     );
     expect(endpointArguments).toEqual([
       `model_providers.mitzo_api.base_url=${JSON.stringify(projection.endpoint)}`,

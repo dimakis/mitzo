@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1124-custom-codex-api-provider';
+  'v1.0.1125-custom-codex-api-provider';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3465,7 +3465,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-dispatch.test.ts':
     '6e21d20743c596012ef5c649fa8a3b3fd003086b69ca9a65b4a621074f16668d',
   '../__tests__/codex-isolated-api-launch.test.ts':
-    '974149d6a39a339e8b8a676b654747dc48ac61c46192ebb3acc4c7371833ef53',
+    '66421c1977ca83a0f7f6c7f4ec9e145a0e6a673f716e3e3fd37ee6ce7a94aaf5',
   '../__tests__/codex-mcp-tools.test.ts':
     '445e63cb34b152e919534855e6579ecc252df3f36032ec0c0b7b9daceb3f103f',
   '../__tests__/codex-ordinary-packet.test.ts':
