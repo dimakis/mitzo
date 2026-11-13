@@ -115,6 +115,7 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'SymposiumReadProfiles',
     'ReadKnowledge',
     'SaveKnowledgeDraft',
+    'CaptureMemoryCandidate',
     'TaskExecution',
     'SchedulePrompt',
     'SessionTimers',
