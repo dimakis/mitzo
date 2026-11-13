@@ -138,7 +138,12 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByRole('button', { name: /^Model,/ })).toContainText('Claude Sonnet 4.6');
     await page.getByRole('button', { name: /^Model,/ }).click();
     await expect(page.getByRole('button', { name: 'Luna', exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Check sign-in in Connections' }),
+    ).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`claude-sign-in-failure-${theme}.png`) });
     await page.getByRole('button', { name: 'Refresh models', exact: true }).click();
+    await expect(page.getByText(/Check sign-in in Connections/)).toHaveCount(0);
     await page.getByRole('button', { name: 'Claude Opus 4.8', exact: true }).click();
     await page.getByRole('button', { name: 'Back to chat settings' }).click();
     await page.getByRole('button', { name: /^Thinking,/ }).click();

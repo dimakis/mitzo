@@ -2,7 +2,8 @@ import './fixtures/offline-user-home.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AccountProfiles } from '../account-profiles.js';
 import { resolveNewOrdinarySessionRuntime } from '../ordinary-session-runtime.js';
-import { ClaudeSubscriptionCustody } from '../claude-subscription-custody.js';
+import { discoverClaudeModels } from '../claude-model-discovery.js';
+vi.mock('../claude-model-discovery.js', () => ({ discoverClaudeModels: vi.fn() }));
 const warn = vi.hoisted(() => vi.fn());
 vi.mock('../logger.js', () => ({
   createLogger: () => ({ warn, debug: vi.fn(), info: vi.fn(), error: vi.fn() }),
@@ -19,11 +20,7 @@ const personal = {
   models: [{ id: 'claude-opus-4-8', label: 'Opus' }],
 };
 it('reuses sign-in evidence in the existing account catalog and reports loss of login without changing billing', async () => {
-  const verify = vi.fn(async () => {});
-  vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockReturnValue({
-    assertCurrent() {},
-    verify,
-  } as never);
+  const verify = vi.mocked(discoverClaudeModels).mockResolvedValue([{ id: 'opus', label: 'Opus' }]);
   const profiles = new AccountProfiles([personal]);
   await profiles.checkSignIn(new AbortController().signal);
   expect(profiles.catalog()[0]).toMatchObject({

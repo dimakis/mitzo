@@ -3,12 +3,32 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createClaudeLoginProcess } from '../claude-login-process.js';
+import { spawn } from 'node:child_process';
+const boundarySpawn = vi.hoisted(() => vi.fn());
+vi.mock('../credential-sdk-boundary.js', () => ({
+  credentialSdkBoundary: () => ({ spawnClaudeCodeProcess: boundarySpawn }),
+}));
 const roots: string[] = [];
 afterEach(() => {
   vi.unstubAllEnvs();
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
 function fixture(body: string) {
+  boundarySpawn.mockImplementation(({ command, args, cwd, env }) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: { ...env, FIXTURE_PROTECTED_LOGIN: '1' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    // The protected SDK wrapper exposes exitCode but omits optional signalCode.
+    return new Proxy(child, {
+      get(target, key) {
+        if (key === 'signalCode') return undefined;
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  });
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-native-')));
   roots.push(root);
   const executable = join(root, 'claude');
@@ -22,6 +42,7 @@ it('uses clean routing, receives chunked manual URL, and hands codes to the nati
   vi.stubEnv('CLAUDE_CODE_USE_VERTEX', '1');
   vi.stubEnv('GH_TOKEN', 'synthetic-publishing-key');
   const f = fixture(`
+    if (process.env.FIXTURE_PROTECTED_LOGIN !== '1') process.exit(12);
     if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_USE_VERTEX || process.env.GH_TOKEN) process.exit(9);
     if (process.env.BROWSER !== '/usr/bin/false') process.exit(10);
     process.stdout.write('If the browser did');
@@ -34,6 +55,9 @@ it('uses clean routing, receives chunked manual URL, and hands codes to the nati
   expect(login.url).toBe(url);
   await login.submit('code#state');
   expect(await login.completion).toEqual({ ok: true });
+  expect(boundarySpawn).toHaveBeenCalledWith(
+    expect.objectContaining({ cwd: f.root, captureStderr: true }),
+  );
 });
 it('retains process failure and bounds output without exposing raw diagnostics', async () => {
   const f = fixture("process.stderr.write('private-provider-detail'); process.exit(1)");
@@ -49,7 +73,6 @@ it('cancels a waiting native login and waits for process exit', async () => {
   const login = await createClaudeLoginProcess(f.root, controller.signal, {
     executable: f.executable,
   });
-  controller.abort();
   await login.cancel();
   expect(await login.completion).toMatchObject({ ok: false });
 });

@@ -1,5 +1,29 @@
 import { expect, it, vi } from 'vitest';
-import { readCodexModels, refreshModels, cachedModels } from '../model-catalog.js';
+import {
+  readCodexModels,
+  refreshModels,
+  cachedModels,
+  ModelDiscoveryError,
+} from '../model-catalog.js';
+it('retains only an approved sign-in diagnostic and clears it after recovery', async () => {
+  const key = 'sign-in-diagnostic';
+  const diagnosticId = '566e4644-cd56-4b29-938b-586d69c850ef';
+  const discover = vi
+    .fn()
+    .mockRejectedValue(new ModelDiscoveryError(diagnosticId, { cause: Error('private-token') }));
+  await refreshModels(key, discover, true);
+  expect(cachedModels(key)?.failure).toEqual({ code: 'claude_sign_in_unavailable', diagnosticId });
+  expect(JSON.stringify(cachedModels(key))).not.toContain('private-token');
+  discover.mockResolvedValueOnce([{ id: 'sonnet', label: 'Sonnet' }]);
+  await refreshModels(key, discover, true);
+  expect(cachedModels(key)?.failure).toBeUndefined();
+  discover.mockRejectedValueOnce({
+    code: 'claude_sign_in_unavailable',
+    diagnosticId: 'private-token',
+  });
+  await refreshModels(key, discover, true);
+  expect(cachedModels(key)?.failure).toBeUndefined();
+});
 it('reads every page and preserves per-model reasoning choices', async () => {
   const request = vi
     .fn()

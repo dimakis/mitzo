@@ -5,14 +5,17 @@ import {
 } from './account-harness-connection.js';
 import { AnthropicApiConnectionSchema } from './anthropic-api-connection.js';
 import { protectCodexProfileRoots } from './codex-private-path.js';
-import {
-  ClaudeSubscriptionCustody,
-  ClaudeSubscriptionSignInError,
-} from './claude-subscription-custody.js';
+import { ClaudeSubscriptionSignInError } from './claude-subscription-custody.js';
 import { createLogger } from './logger.js';
 import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { readManagedClaudeProfiles } from './claude-account-store.js';
-import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
+import {
+  cachedModels,
+  CatalogModel,
+  refreshModels,
+  readCodexModels,
+  ModelDiscoveryError,
+} from './model-catalog.js';
 import { CredentialReferenceSchema, credentials } from './credentials.js';
 import { discoverOpenAIModels } from './openai-enrollment-models.js';
 import { CodexAppServerClient } from './codex-app-server-client.js';
@@ -440,6 +443,7 @@ export class AccountProfiles {
           modelDiscovery: {
             source: discovered?.models ? ('cached' as const) : ('configured' as const),
             stale: !!discovered?.error,
+            ...(discovered?.failure ? { failure: { ...discovered.failure } } : {}),
             ...(discovered?.updatedAt === undefined ? {} : { updatedAt: discovered.updatedAt }),
           },
         };
@@ -630,6 +634,7 @@ export class AccountProfiles {
           ),
           modelDiscovery: {
             updatedAt: discovered?.updatedAt,
+            ...(discovered?.failure ? { failure: { ...discovered.failure } } : {}),
             stale:
               !!discovered?.error ||
               (profile.provider === 'openai-codex' &&
@@ -726,7 +731,8 @@ export class AccountProfiles {
                 ),
               ),
             );
-            await ClaudeSubscriptionCustody.capture(env).verify(env, signal);
+            const { discoverClaudeModels } = await import('./claude-model-discovery.js');
+            await discoverClaudeModels(env, AbortSignal.any([signal, AbortSignal.timeout(10_000)]));
             signal.throwIfAborted();
             this.recordSignIn(
               evidence.profileRevision,
@@ -736,7 +742,7 @@ export class AccountProfiles {
                 checkedAt: Date.now(),
                 observedIdentity: { email: profile.email, planType: profile.planType },
                 explanation:
-                  'The native Claude sign-in matches this configured subscription account.',
+                  'The native Claude sign-in and chat runtime match this configured subscription account.',
               },
               generation,
             );
@@ -965,6 +971,8 @@ export class AccountProfiles {
           ? { signIn: cause.telemetry() }
           : { errorType: cause instanceof Error ? cause.name : 'unknown' }),
       });
+      if (cause instanceof ClaudeSubscriptionSignInError)
+        throw new ModelDiscoveryError(cause.diagnosticId, { cause });
       throw cause;
     } finally {
       clearTimeout(timeout);
