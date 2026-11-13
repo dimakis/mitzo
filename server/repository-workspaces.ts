@@ -2508,7 +2508,13 @@ export class RepositoryWorkspaces {
           isDeepStrictEqual(record.qualifiedLocalPreparation?.oldWorkspace, oldWorkspace) &&
           record.qualifiedLocalPreparation?.request.conversationId === request.conversationId &&
           record.qualifiedLocalPreparation?.request.taskRoot === request.taskRoot &&
-          isDeepStrictEqual(record.localSource, localSource) &&
+          // Clone/new sources live in independently qualified scratch on each
+          // attempt. The stable intent below owns their identity; an existing
+          // checkout must still match its original physical source.
+          (isDeepStrictEqual(record.localSource, localSource) ||
+            (facts.layout === 'standalone' &&
+              record.qualifiedLocalPreparation?.allocationFacts.layout === 'standalone' &&
+              (facts.sourceIntent?.kind === 'clone' || facts.sourceIntent?.kind === 'new'))) &&
           isDeepStrictEqual(
             record.qualifiedLocalPreparation?.allocationFacts.baseIntent,
             facts.baseIntent,

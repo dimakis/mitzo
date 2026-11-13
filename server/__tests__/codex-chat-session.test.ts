@@ -3,7 +3,6 @@ import { retainAgentContextAuthority } from '../agent-context-authority.js';
 import { revokeAuthSession } from '../auth.js';
 import { callbackOutcome } from '../turn-callbacks.js';
 import { toolFailure } from '@mitzo/protocol';
-import { isApprovalTimeout } from '../../frontend/src/lib/tool-status.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
@@ -1888,16 +1887,10 @@ it('preserves image attachments while binding a trusted capability, forcing appr
         result: retained,
         failure,
       });
-      expect(
-        isApprovalTimeout({
-          blockId: 'capability',
-          blockType: 'tool_use',
-          content: '',
-          done: true,
-          toolResult: expired.content,
-          toolError: expired.isError,
-        }),
-      ).toBe(state.effectStatus === 'not_started');
+      expect(expired.isError).toBe(true);
+      expect(JSON.parse(expired.content).failure.recovery).toBe(
+        state.effectStatus === 'not_started' ? 'renew_approval' : 'inspect_operation',
+      );
       expect(JSON.parse(expired.content).message).toContain(
         state.effectStatus === 'not_started'
           ? 'Approval timed out'
@@ -1917,16 +1910,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       nativeCall,
     );
     expect(JSON.parse(unverified.content)).not.toHaveProperty('failure');
-    expect(
-      isApprovalTimeout({
-        blockId: 'capability',
-        blockType: 'tool_use',
-        content: '',
-        done: true,
-        toolResult: unverified.content,
-        toolError: unverified.isError,
-      }),
-    ).toBe(false);
+    expect(unverified.isError).toBe(true);
     const capturedCall = invoke.mock.calls[0][3]!;
     callCurrent = false;
     await expect(capturedCall()).rejects.toThrow('Original native call expired');

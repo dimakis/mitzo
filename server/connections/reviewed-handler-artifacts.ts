@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1124-recoverable-approval-expiry';
+  'v1.0.1125-recoverable-approval-expiry';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1782,7 +1782,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/local-preparation-native.ts':
     '4766f9d9e448a410038461442060798cc6b62d2f84bdf79d8fe93c7ec6c2d0ef',
   '../__tests__/local-repository-preparation-authorization.test.ts':
-    'f8d45316508736479c8721c87aebc60b5082a8c778107c8b2323e8c530370c50',
+    '7032c5d75608f6e92aabbd271408fac444ac9fbfef03db1db4e9cf228ccfdc1e',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
     '996ffbc74d67d01b05c1dea357ad01a9a6155e35596eb77701a13515310a3671',
   '../pending-host-task.ts': '0629abff8e8e8ef1dd0f6e3ce1857326fc0e6f11cf1afd2515af34f41952585b',
@@ -1810,7 +1810,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    '5e6e79c6b08e94cd72a20fb64ea570f00278b1aa7edc9230ca03670e147e1152',
+    '2d062fe5c2be5baad2254de99f33362749dab61f7b7c0834fac3c3daf6f9ddbc',
   '../__tests__/codex-conversation.test.ts':
     'bbdf89bcdc3c5c67605570c44c5091ab5c2b84cf7dd74acf4649c3eec9f19335',
   '../__tests__/codex-native-approvals.test.ts':
@@ -2790,7 +2790,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': 'da602da8ad60e1dec4e9d0a916752fa49c585a84cd37fc33a5febcadb8e56b36',
   '../repository-preparation-capacity.ts':
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',
-  '../repository-workspaces.ts': '876984cd135c427fd467a23707c789fc36a9f3f43d5425311bf2e748495793f5',
+  '../repository-workspaces.ts': '1877116919e02343d6be4a1301b6a46ada18ec9430ca75068ad78a69cf7c9782',
   '../../packages/protocol/src/session-metadata-store.ts':
     '002a1650cf1d7d6e0468609e0aaf7bb3825a02f4c9000d5715e1396d83ec72ec',
   '../../packages/protocol/src/event-store.ts':

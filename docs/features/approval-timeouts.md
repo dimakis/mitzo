@@ -38,6 +38,9 @@ requalifies the source and current owner, journals the previous attempt, and
 atomically replaces only an unapproved selection or an expired unconsumed
 approval. A reservation, live or consumed approval, materialization, uncertain
 effect or retirement prevents replacement.
+Clone/new retries compare the original source and base intent while independently
+qualifying fresh temporary source bytes. Existing checkouts retain their original
+physical source identity requirement. Every replacement needs fresh approval.
 Older selections without expiry metadata can be renewed only after the original
 bounded lifetime and proof that no approval or materialization exists. Historical
 attempts remain journaled, and renewal uses the same capacity slot.
@@ -62,8 +65,8 @@ Local checks use synthetic providers; no live model or provider mutation is need
 The extended `tool-interrupted-display` offline fixture covers phone and desktop,
 dark Mint/System and light Teal/Georgia, larger text and keyboard disclosure.
 
-Local browser rendering remains unverified: the requested host route retained the
-macOS sandbox marker and Playwright refused before browser launch. Fixture discovery
-passed with `--list`; rendered verification remains for CI. The full server type
-check exceeds the required local 1 GiB Node heap and also needs CI. Source review,
-merge, production activation and user acceptance remain separate from local changes.
+Rendered verification and full server type checking run in CI. The requested local
+browser route retained the macOS sandbox marker and Playwright refused before launch;
+fixture discovery passed with `--list`. The full server type check exceeds the required
+local 1 GiB Node heap. Source review, merge, production activation and user acceptance
+remain separate from local changes; the PR retains candidate-specific evidence.
