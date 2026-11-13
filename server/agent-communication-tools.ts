@@ -18,7 +18,10 @@ import type { ProfileToolCall } from './session-profile-tools.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 import { sessionConversationNavigation } from './session-list-metadata.js';
-import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import {
+  ordinaryOperatorOwnsConversation,
+  ordinaryOperatorsShareIdentity,
+} from './ordinary-operator-identity.js';
 import {
   agentMessageRuntime,
   hasAgentMessageRuntime,
@@ -277,17 +280,21 @@ export function sessionAgentCommunicationTools(owners: Owners) {
       const eligible = (conversationId: string) => {
         const meta = owners.events.getSession(conversationId);
         const binding = owners.events.getSessionRuntimeBinding(conversationId);
+        const liveOwner =
+          owners.registry.findBySessionId(conversationId)?.session.ordinaryRuntimeOwner;
         if (
           !isAvailableTelosWorkConversation(meta) ||
           !meta?.accountBinding ||
           binding?.version !== 2 ||
+          (liveOwner &&
+            !ordinaryOperatorsShareIdentity(liveOwner.authSessionId, captured.auth.id)) ||
           (binding.harness.implementation === 'codex' && binding.execution.location === 'local'
             ? !owners.native?.hasConversation(conversationId) ||
               !ordinaryOperatorOwnsConversation(
                 owners.native.readHostCustody(conversationId, meta.accountBinding)?.authSessionId,
                 captured.auth.id,
               )
-            : !ordinaryOperatorOwnsConversation(
+            : !ordinaryOperatorsShareIdentity(
                 owners.registry.findBySessionId(conversationId)?.session.ordinaryRuntimeOwner
                   ?.authSessionId,
                 captured.auth.id,
@@ -309,7 +316,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         return target &&
           driver &&
           (!native || driver.admitAgentMessage || hasAgentMessageRuntime(target.session)) &&
-          ordinaryOperatorOwnsConversation(driver.authSessionId, captured.auth.id) &&
+          ordinaryOperatorsShareIdentity(driver.authSessionId, captured.auth.id) &&
           !target.session.abortController.signal.aborted &&
           !owners.registry.isClosingOut(target.clientId) &&
           !owners.registry.isUserClose(target.clientId)
@@ -598,7 +605,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         if (
           !target ||
           !driver ||
-          !ordinaryOperatorOwnsConversation(driver.authSessionId, captured.auth.id) ||
+          !ordinaryOperatorsShareIdentity(driver.authSessionId, captured.auth.id) ||
           target.session.abortController.signal.aborted ||
           owners.registry.isClosingOut(target.clientId) ||
           owners.registry.isUserClose(target.clientId)

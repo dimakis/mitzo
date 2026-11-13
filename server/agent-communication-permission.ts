@@ -5,7 +5,10 @@ import {
   type SessionRegistry,
 } from '@mitzo/harness';
 import type { EventStore } from './event-store.js';
-import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import {
+  ordinaryOperatorOwnsConversation,
+  ordinaryOperatorsShareIdentity,
+} from './ordinary-operator-identity.js';
 
 const grantKey = (operator: string, conversation: string) =>
   `agent-communication:${operator}:${conversation}`;
@@ -67,7 +70,7 @@ export function createAgentMessageApprover(options: {
           options.registry.findBySessionId(original.message.senderConversationId)?.session ===
             peer.session &&
           peer.session.ordinaryRuntimeOwner === peerIdentity &&
-          ordinaryOperatorOwnsConversation(peerIdentity?.authSessionId, operator) &&
+          ordinaryOperatorsShareIdentity(peerIdentity?.authSessionId, operator) &&
           !peer.session.abortController.signal.aborted &&
           !options.registry.isClosingOut(peer.clientId) &&
           !options.registry.isUserClose(peer.clientId) &&

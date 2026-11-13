@@ -3,7 +3,7 @@ import { agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
 import type { AuthSession } from './auth.js';
 import type { CodexConversation } from './codex-conversation.js';
 import type { CodexSteerInput, CodexSteerResult } from './codex-steering.js';
-import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { ordinaryOperatorsShareIdentity } from './ordinary-operator-identity.js';
 
 /** Only an initially idle owner may use ordinary admission. A captured active
  * turn becoming stale must never turn a correction into a future command. */
@@ -77,7 +77,7 @@ export function agentMessageRuntime(session: ManagedSession, operator: string) {
   if (
     session.abortController.signal.aborted ||
     owner?.identity !== runtime.identity ||
-    !ordinaryOperatorOwnsConversation(owner.authSessionId, operator)
+    !ordinaryOperatorsShareIdentity(owner.authSessionId, operator)
   )
     throw new AgentCommunicationError(
       'recipient_owner_changed',

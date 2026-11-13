@@ -1,5 +1,8 @@
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import {
+  ordinaryOperatorOwnsConversation,
+  ordinaryOperatorsShareIdentity,
+} from './ordinary-operator-identity.js';
 import type { ManagedSession } from '@mitzo/harness';
 import { agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
@@ -79,7 +82,7 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
   assertCurrent(operator: string) {
     const owner = this.owners.session.ordinaryRuntimeOwner;
     if (
-      !ordinaryOperatorOwnsConversation(this.owners.operatorAuthSessionId, operator) ||
+      !ordinaryOperatorsShareIdentity(this.owners.operatorAuthSessionId, operator) ||
       owner?.authSessionId !== this.owners.operatorAuthSessionId ||
       owner.identity !== this.identity ||
       this.owners.session.abortController.signal.aborted

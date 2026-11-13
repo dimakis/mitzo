@@ -20,6 +20,7 @@ import { createCredentialSdkServer, credentialSdkPermission } from '../credentia
 import { assertAgentToolRoute, bindAgentToolSelection } from '../agent-tool-selection.js';
 import { SdkAgentMessageRuntime } from '../sdk-agent-message-runtime.js';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { createInteractiveAuth } from '../interactive-auth-core.js';
 
 const cleanups: Array<() => void> = [];
 const revocations = new EventStore(':memory:');
@@ -161,6 +162,74 @@ async function signedOperator() {
   cleanups.push(() => revokeAuthSession(auth));
   return auth;
 }
+
+it('does not mistake a live isolated-realm owner for primary-operator login provenance', async () => {
+  const source = await signedOperator();
+  const isolated = createInteractiveAuth({
+    passphrase: process.env.AUTH_PASSPHRASE!,
+    secret: process.env.AUTH_SECRET!,
+    maxAgeHours: 1,
+    cookieName: 'isolated_auth',
+    realm: { issuer: 'separate-operator', audience: 'separate-operator' },
+  });
+  const token = await isolated.login(process.env.AUTH_PASSPHRASE!);
+  const peer = (await isolated.authenticateToken(token!))!;
+  cleanups.push(() => isolated.revokeAuthSession(peer));
+  const f = fixture('codex', source, peer);
+  const target = f.install('codex-worker', 'codex');
+  expect(await f.execute({ operation: 'list', offset: 0 })).toMatchObject({ chats: [] });
+  await expect(
+    f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'codex-worker',
+      text: 'Must remain isolated.',
+    }),
+  ).rejects.toMatchObject({ code: 'recipient_unavailable', stage: 'ownership' });
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(target.steer).not.toHaveBeenCalled();
+});
+
+it('reuses only the original peer grant for a correlated reply across verified logins', async () => {
+  const auth = await signedOperator(),
+    peer = await signedOperator();
+  const f = fixture('codex', auth, peer);
+  const origin = f.registry.get('operator:orchestrator')!;
+  origin.sessionAllowList.add(`agent-communication:adapters-v1:${auth.id}:orchestrator`);
+  const message = f.events.agentCommunication.reserve(
+    'orchestrator',
+    auth.id,
+    { turnId: 'origin', callId: 'send' },
+    {
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Report milestones.',
+    },
+  );
+  const recipient = f.registry.get('operator:claude-worker')!;
+  const prompt = vi.fn();
+  recipient.transport.send = prompt;
+  const approve = createAgentMessageApprover({
+    events: f.events,
+    registry: f.registry,
+    conversationId: 'claude-worker',
+    assertCurrent() {},
+  });
+  const decision = await approve(
+    {
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'orchestrator',
+      replyTo: message.messageId,
+      text: 'Milestone evidence.',
+    },
+    new AbortController().signal,
+  );
+  expect(decision.behavior).toBe('allow');
+  expect(prompt).not.toHaveBeenCalled();
+  origin.sessionAllowList.clear();
+  expect(() => decision.assertCurrent()).toThrow(/permission changed/);
+});
 
 it.each(['codex', 'claude-sdk'] as const)(
   'discovers and messages owned peers across verified logins from %s without changing custody',
