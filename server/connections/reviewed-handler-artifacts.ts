@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1124-persistent-agent-chat';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1125-task-route-constraints';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -820,14 +820,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-codex-lifecycle-bridge.test.ts':
     '69bfe06c30c4c256122864cc5b07eaea2b7ebf26fd489dce2785ab3ec9e2f882',
   '../task-execution-definitions.ts':
-    '3debd7c6085711bc729ffd5e4bf808fbfb3ced96b6cbb7f3ae4d4bae1564f9c6',
+    '614dcb1795831695ec351fc959d5d1695f638e5d13cda96a6403d527f7b3e158',
   '../task-execution-operation.ts':
     'd32f0d4d6bfbcd3fa1adddfcb34b5818c103e359a1aaa923f4c8d24dc36a1d86',
   '../task-execution-scope.ts': 'f39ab4c377268ec4cbdac4b086a47f8a13cd77bd252b6cce93f11283dcb41358',
   '../task-execution-runtime.ts':
     '3d8027c88f7348490683c3fc500625cbe53c9d1e470e40a074f6d90df431351c',
   '../task-execution-store.ts': '8f5e8ebf802529e3af7332a919d7e2bc8709742141943e537215cbd6fe7e377a',
-  '../task-execution-tools.ts': '6f3a9e4084c4cfbbe5aabb0931dc40dd3a42f19deb919436b6b851d8c65ae86c',
+  '../task-execution-tools.ts': 'a84a5574c64e7a563775ddc495fb1596bc0f9d8299185669261b6b397de30579',
   '../permission-audit.ts': '5ed5c6acb8b8f9c75ced2a0ded57c9945ec91d935c540b4b0c020ade94266835',
   '../../packages/harness/src/permission-audit.ts':
     '6bcfffbd3bfa1711315b5ca641b144113b65ab073717ce861f4ebf175cc5387f',
@@ -836,13 +836,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/permission-audit.test.ts':
     '1717ab55ad63b836167cd9b60d4a0f07adafc537cb96c7923edb0a6588cd949e',
   '../__tests__/task-execution-tools.test.ts':
-    '0e8916870117d43612f1bab98534cc0aa826d9609a50c2c0f99c7059c20e4226',
+    'acaa0814e5dc2201161d250ed8c8efe2d48e0e9f3dc30592bd85d2608ca19b16',
   '../__tests__/task-execution-store.test.ts':
     'dc0e1af35b5f803769c42ff7793a509c07d89dca9f669ca5af91dd16e1defa8f',
   '../__tests__/codex-native-approval-scope.test.ts':
     '904c243c41d8725457df25226d245aa641955b2b1ece2cfda6551b2fb91b1248',
   '../../docs/features/task-execution-authorization.md':
-    '7a0556e78a83a9b823aab2ad9bb9d9131e2be2e520a09864b320547242fc9d5e',
+    'c136e4a6009fb4751550a6b9146a6cc4df190cb0a64b419dedc30b17e5f0c5a8',
   '../__tests__/collaboration-application-joining-openshell.test.ts':
     '83aa34da6b23d66158ac6735b4a7da8a9a1b35e0cb650713abc3af947bd43aec',
   '../__tests__/fixtures/collaboration-application-review.ts':
