@@ -38,6 +38,37 @@ for (const theme of ['dark', 'light'])
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     if (theme === 'light') await page.addStyleTag({ content: 'html { font-size: 125%; }' });
+    const patch = page.getByRole('button', { name: /ApplyPatch/ });
+    await patch.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.hljs-addition').first()).toHaveText('+const next = 2;');
+    await expect(page.locator('.hljs-deletion').first()).toHaveText('-const old = 1;');
+    await expect(page.getByText('/workspace/tests/new-file.ts', { exact: true })).toBeVisible();
+    const code = page.locator('.code-block-highlight-pre').first();
+    expect(await code.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Mono');
+    const contrast = await code.evaluate((el) => {
+      const style = getComputedStyle(el);
+      const luminance = (color: string) => {
+        const rgb = color
+          .match(/[\d.]+/g)!
+          .slice(0, 3)
+          .map(Number)
+          .map((value) => {
+            const channel = value / 255;
+            return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+          });
+        return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+      };
+      const foreground = luminance(style.color);
+      const background = luminance(style.backgroundColor);
+      return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+    });
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: info.outputPath(`responsiveness-apply-patch-${theme}.png`) });
+    await patch.click();
     await page.getByRole('button', { name: /GitHubRead/ }).click();
     await expect(page.getByText('Endpoint', { exact: true })).toBeVisible();
     const result = page.getByRole('region', { name: 'Result', exact: true }).first();

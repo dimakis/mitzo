@@ -7,6 +7,32 @@ export function getRawInput(
   input: Record<string, unknown>,
 ): RawToolInput | undefined {
   switch (toolName) {
+    case 'ApplyPatch': {
+      if (!Array.isArray(input.changes) || !input.changes.length) return undefined;
+      const changes: NonNullable<RawToolInput['changes']> = [];
+      let remaining = RAW_INPUT_MAX_CHARS;
+      let truncated = input.changes.length > 100;
+      for (const change of input.changes.slice(0, 100)) {
+        if (!change || typeof change.path !== 'string' || typeof change.diff !== 'string')
+          return undefined;
+        const diff = change.diff.slice(0, remaining);
+        remaining -= diff.length;
+        truncated ||= diff.length < change.diff.length || change.path.length > 4096;
+        truncated ||=
+          typeof change.kind?.move_path === 'string' && change.kind.move_path.length > 4096;
+        changes.push({
+          path: change.path.slice(0, 4096),
+          diff,
+          ...(['add', 'delete', 'update'].includes(change.kind?.type)
+            ? { kind: change.kind.type }
+            : {}),
+          ...(typeof change.kind?.move_path === 'string'
+            ? { movePath: change.kind.move_path.slice(0, 4096) }
+            : {}),
+        });
+      }
+      return { type: 'patch', changes, ...(truncated ? { truncated: true } : {}) };
+    }
     case 'Read': {
       const path = String(input.file_path || '');
       return {
@@ -64,6 +90,20 @@ export function getRawInput(
 
 export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
+    case 'ApplyPatch': {
+      if (!Array.isArray(input.changes)) return 'File changes';
+      const paths = input.changes
+        .slice(0, 3)
+        .map((change) =>
+          typeof change?.path === 'string'
+            ? change.path.slice(0, TOOL_SUMMARY_MAX_CHARS)
+            : 'Unknown file',
+        );
+      return `${input.changes.length} file${input.changes.length === 1 ? '' : 's'}: ${paths.join(', ')}${input.changes.length > 3 ? ', …' : ''}`.slice(
+        0,
+        TOOL_SUMMARY_MAX_CHARS,
+      );
+    }
     case 'RequestWebAccess':
     case 'mcp__mitzo-web-access__RequestWebAccess':
       // Keep valid JSON for web presentation and restored history. Bound fields

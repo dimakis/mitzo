@@ -30,6 +30,32 @@ function RawInputDetail({
   raw: RawToolInput;
   onPopOut?: (path: string) => void;
 }) {
+  if (raw.type === 'patch') {
+    return (
+      <>
+        {raw.changes?.map((change, index) => (
+          <div className="tool-pill-section" key={`${index}:${change.path}`}>
+            <CodeBlock code={change.diff} language="diff" label={change.path} maxHeight={400} />
+            {change.kind && (
+              <span className="tool-pill-label">
+                {change.kind === 'add'
+                  ? 'Added file'
+                  : change.kind === 'delete'
+                    ? 'Deleted file'
+                    : 'Updated file'}
+              </span>
+            )}
+            {change.movePath && <span className="tool-pill-label">Moved to {change.movePath}</span>}
+          </div>
+        ))}
+        {raw.truncated && (
+          <p className="tool-pill-label">
+            Patch preview truncated. Additional changes are not shown.
+          </p>
+        )}
+      </>
+    );
+  }
   if (raw.type === 'read') {
     // Read tool: path shown in header, no input body to render
     return null;

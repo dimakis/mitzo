@@ -99,6 +99,7 @@
 
 .code-block-highlight-pre {
   margin: 0;
+  color: var(--color-text);
   padding: 0.5rem;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
