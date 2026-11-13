@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1127-restricted-skill-refusal';
+  'v1.0.1128-sdk-command-skill-ceiling';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/ordinary-skill-context.ts':
+    '08bc53929fe62921486620ff72685d2b068dd2004ff866eb396a959efe2f8878',
   '../skill-runtime-support.ts': '412e9a82cf3c7d6e8606bab79d74b48d71ba157111e67715708ecc21f4f736a9',
   '../slash-commands.ts': '792c67730c519119a89f048790e4fccf91847920436f19d01b27bc9ec6945e89',
   '../../packages/harness/src/skill-policy.ts':
@@ -912,7 +914,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e117a1a9a4ae2215836e886bc1be9af5e2c6b9e5bb85daeb86b176adea69d538',
   '../skills.ts': 'eca19df04fb3b331fe8fc0cf4482b00000b49003ecc7f4e16f20a0f7b9497877',
   '../__tests__/ordinary-composer-skills.test.ts':
-    'f0e877a985b147023fbbe75154eda76ab87f8ca79bb8268816f94d966594abf7',
+    '5218940a81bc4f28f2f0650923e7077dcbe8323324d4ae1ebbf2777eb4f1af7c',
   '../../frontend/src/lib/chat-composer-capabilities.ts':
     '103913d70dcdc129d38bbc3373d3e5492460327043873c0fddc19d3e207bbd00',
   '../../frontend/src/lib/__tests__/chat-composer-capabilities.test.ts':
@@ -2793,7 +2795,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '002a1650cf1d7d6e0468609e0aaf7bb3825a02f4c9000d5715e1396d83ec72ec',
   '../../packages/protocol/src/event-store.ts':
-    '73a01e5504c0734c21cbf809325303146720fb67aa452d5531b50397fd53b046',
+    '7e9b95ce6586a3806afb0dbfbb53bb5021e0a593be2dff5d621e46fdd6bfa21e',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -2850,7 +2852,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '500351d93c1864b700fcfab696f13f469465d21fb874bb99577ad1a7ebf4fa1d',
+    '96e2bac392ec591e2027857bb6626e0ee76a30338f6dab6ca92f30f860e01f76',
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':
