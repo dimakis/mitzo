@@ -1195,6 +1195,59 @@ export class TelosWorkStore {
       return this.snapshot(itemId);
     })();
   }
+  /** Host observation for an already-linked ordinary conversation. Only relationship
+   * facts in its ancestry and, for the current lead, direct children are disclosed.
+   * Origins, old assignments and takeover notes never confer child visibility. */
+  readConversationCoordination(itemId: string, conversationId: string) {
+    return this.readCoordination(itemId, { kind: 'conversation', id: conversationId });
+  }
+  readCoordination(itemId: string, actor: TelosWorkActor) {
+    return this.db.transaction(() => {
+      this.authorizeRead(itemId, actor);
+      const entry = (id: string) => {
+        const snapshot = this.snapshot(id);
+        const record = this.projectRecord(id);
+        if (/^life[-_ ]?ops$/i.test(record.profile))
+          throw new TelosWorkError('unauthorized', 'Coordination context unavailable');
+        return {
+          itemId: id,
+          summary: record.summary,
+          kind: snapshot.kind,
+          parentId: snapshot.parentId,
+          revision: snapshot.revision,
+          assignments: snapshot.assignments,
+          links: snapshot.links.map(({ role, conversation, availability }) => ({
+            role,
+            conversation,
+            availability,
+          })),
+        };
+      };
+      const item = entry(itemId);
+      const ancestors: ReturnType<typeof entry>[] = [];
+      const seen = new Set([itemId]);
+      let parent = item.parentId;
+      while (parent) {
+        if (seen.has(parent) || seen.size >= 100) conflict('Coordination ancestry unavailable');
+        seen.add(parent);
+        const current = entry(parent);
+        ancestors.push(current);
+        parent = current.parentId;
+      }
+      const isLead =
+        actor.kind === 'operator' ||
+        item.assignments.some(
+          (a) => a.role === 'lead' && a.conversation.conversationId === actor.id,
+        );
+      const rows = isLead
+        ? (this.db
+            .prepare('SELECT id FROM items WHERE parent_id=? ORDER BY id LIMIT 101')
+            .all(itemId) as Array<{ id: string }>)
+        : [];
+      if (rows.length > 100) conflict('Coordination children exceed bounded observation');
+      return { item, ancestors, children: rows.map(({ id }) => entry(id)) };
+    })();
+  }
   /** The original brief and evidence stay in the canonical tables. This read
    * shares the relationship store's exact-item authority and transaction.
    */

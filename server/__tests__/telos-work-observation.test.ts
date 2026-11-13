@@ -35,7 +35,7 @@ it.each([
         agentName: 'Architect',
         engine,
         executionLocation: location,
-        runtimeState: 'not_live',
+        runtimeState: 'unknown',
       });
       expect(events.getOrdinaryInitialCommandId('worker')).toBeUndefined();
       const work = TelosWorkViewSchema.parse({

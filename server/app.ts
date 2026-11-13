@@ -3,6 +3,7 @@ import { agentMessageRuntime } from './agent-message-runtime.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
+import { observeTelosSessionCoordination } from './telos-session-coordination.js';
 import { createQueuedMessageReceiptHandler } from './queued-message-receipt.js';
 import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { installChatCommandJson } from './chat-command-json.js';
@@ -4175,6 +4176,16 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
       : {}),
     ...(repositoryContext ? { repositoryContext } : {}),
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
+    ...(telosWorkRoleContext
+      ? {
+          telosSessionCoordination: observeTelosSessionCoordination(
+            eventStore,
+            meta.sessionId,
+            undefined,
+            (id) => !!registry.findBySessionId(id),
+          ),
+        }
+      : {}),
     ...(telosWorkRolePresentation ? { telosWorkRolePresentation } : {}),
     ...runtimeMetadata,
     ...(preparedStatus.prepared

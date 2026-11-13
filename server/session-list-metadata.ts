@@ -95,8 +95,6 @@ export function sessionConversationNavigation(
         }
         parentId = ancestors[0]?.id;
         parentRelationship = 'assignment';
-      } else if (!assignment) {
-        parentId = role.leadConversationId;
       }
     }
     const parent = parentId && parentId !== sessionId ? events.getSession(parentId) : undefined;

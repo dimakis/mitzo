@@ -4,6 +4,10 @@ import {
   hostKnowledgeReceipt,
 } from './published-host-knowledge.js';
 import { closeMcpAfterFailure } from './codex-mcp-tools.js';
+import {
+  observeTelosSessionCoordination,
+  renderTelosSessionCoordination,
+} from './telos-session-coordination.js';
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { retainedApplicationEffectObserver } from './retained-application-effects.js';
 import { steerNativeAgentMessage } from './agent-message-runtime.js';
@@ -2401,6 +2405,20 @@ async function openCodexChatBound(
           : '');
   const instructionDelivery = assembleInstructionSections([
     { source: 'profile-and-runtime', text: baseSystemPrompt },
+    {
+      source: 'current-telos-coordination',
+      text:
+        !options.adviserScope && selectedTelosRole
+          ? renderTelosSessionCoordination(
+              observeTelosSessionCoordination(
+                options.eventStore,
+                options.conversationId,
+                undefined,
+                (id) => !!options.registry.findBySessionId(id),
+              ),
+            )
+          : '',
+    },
     {
       source: 'tool-failure-recovery',
       text: options.adviserScope ? '' : TOOL_FAILURE_INSTRUCTIONS,

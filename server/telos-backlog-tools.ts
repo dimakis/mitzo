@@ -185,6 +185,7 @@ export async function executeTelosBacklogOperation(
                 owners.work.read(input.itemId, actor),
                 owners.events,
                 owners.isConversationLive,
+                owners.work.readCoordination(input.itemId, actor),
               ),
             current,
           ),

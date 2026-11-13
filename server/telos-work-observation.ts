@@ -3,13 +3,14 @@ import type { Session, TelosWorkView } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
 import { sessionConversationNavigation } from './session-list-metadata.js';
+import type { TelosWorkStore } from './telos-work-store.js';
 
 /** Read-only observations. A retained routing choice is never runtime readiness,
  * command authority, or proof that a provider accepted a turn. */
 export function observeWorkConversation(
   events: EventStore,
   conversationId: string,
-  isLive: (id: string) => boolean = () => false,
+  isLive?: (id: string) => boolean,
 ) {
   const meta = events.getSession(conversationId);
   if (!meta || meta.isHidden)
@@ -18,6 +19,7 @@ export function observeWorkConversation(
       name: null,
       availability: 'unavailable' as const,
       runtimeState: 'unknown' as const,
+      startEvidence: { state: 'unknown' as const },
     };
   const identity = {
     conversationId,
@@ -32,13 +34,24 @@ export function observeWorkConversation(
   };
   try {
     const binding = events.getSessionRuntimeBinding(conversationId);
+    const admission = events.getLatestOrdinaryCommandAdmission(conversationId);
     return {
       ...identity,
       engine: binding?.harness.implementation,
       executionLocation: binding?.execution.location,
       runtimeUnavailable: !binding,
-      runtimeState: isLive(conversationId) ? ('live' as const) : ('not_live' as const),
+      runtimeState: isLive
+        ? isLive(conversationId)
+          ? ('live' as const)
+          : ('not_live' as const)
+        : ('unknown' as const),
       executionPhase: meta.executionPhase,
+      executionTerminalReason: meta.executionTerminalReason,
+      startEvidence: {
+        state: admission ? ('admission_recorded' as const) : ('unknown' as const),
+        admissionState: admission?.state ?? null,
+        initialCommandId: events.getOrdinaryInitialCommandId(conversationId) ?? null,
+      },
     };
   } catch (cause) {
     createLogger('telos-work-observation').warn('Worker runtime observation unavailable', {
@@ -47,7 +60,12 @@ export function observeWorkConversation(
       conversationId,
       ...sessionMetadataDiagnostic(cause),
     });
-    return { ...identity, runtimeUnavailable: true, runtimeState: 'unknown' as const };
+    return {
+      ...identity,
+      runtimeUnavailable: true,
+      runtimeState: 'unknown' as const,
+      startEvidence: { state: 'unknown' as const },
+    };
   }
 }
 
@@ -65,30 +83,52 @@ export function sessionRuntimeIdentity(
   };
 }
 
+export function observeWorkAssignment(
+  work: Pick<TelosWorkView, 'itemId' | 'assignments'> & {
+    links?: Array<Pick<TelosWorkView['links'][number], 'role' | 'conversation' | 'availability'>>;
+  },
+  role: 'lead' | 'worker',
+  events?: EventStore,
+  isLive?: (id: string) => boolean,
+) {
+  const current = work.assignments.find((a) => a.role === role);
+  if (!current) return null;
+  const id = current.conversation.conversationId;
+  return {
+    ...(events
+      ? observeWorkConversation(events, id, isLive)
+      : {
+          conversationId: id,
+          name: null,
+          availability: 'unknown',
+          runtimeState: 'unknown',
+          startEvidence: { state: 'unknown' },
+        }),
+    ...(work.links &&
+    !work.links.some(
+      (link) =>
+        link.role === role &&
+        link.conversation.namespace === 'mitzo' &&
+        link.conversation.conversationId === id &&
+        link.availability === 'available',
+    )
+      ? { availability: 'unavailable' as const }
+      : {}),
+    itemId: work.itemId,
+    role,
+    assignmentRevision: current.revision,
+    assignedAt: current.assignedAt,
+    path: `/chat/${encodeURIComponent(id)}`,
+  };
+}
+
 export function telosWorkContext(
   work: TelosWorkView,
   events?: EventStore,
   isLive?: (id: string) => boolean,
+  scope?: ReturnType<TelosWorkStore['readCoordination']>,
 ) {
-  const assignment = (role: 'lead' | 'worker') => {
-    const current = work.assignments.find((a) => a.role === role);
-    if (!current) return null;
-    const id = current.conversation.conversationId;
-    return {
-      ...(events
-        ? observeWorkConversation(events, id, isLive)
-        : {
-            conversationId: id,
-            name: null,
-            availability: 'unknown',
-            runtimeState: 'unknown',
-          }),
-      role,
-      assignmentRevision: current.revision,
-      assignedAt: current.assignedAt,
-      path: `/chat/${encodeURIComponent(id)}`,
-    };
-  };
+  const assignment = (role: 'lead' | 'worker') => observeWorkAssignment(work, role, events, isLive);
   const currentWorker = assignment('worker');
   const latestAllocation = work.attempts.at(-1) ?? null;
   const workerId = currentWorker?.conversationId;
@@ -106,6 +146,19 @@ export function telosWorkContext(
     revision: work.revision,
     currentLead: assignment('lead'),
     currentWorker,
+    ...(scope
+      ? {
+          reportingTo: scope.ancestors[0]
+            ? observeWorkAssignment(scope.ancestors[0], 'lead', events, isLive)
+            : null,
+          children: scope.children.map((child) => ({
+            itemId: child.itemId,
+            summary: child.summary,
+            currentLead: observeWorkAssignment(child, 'lead', events, isLive),
+            currentWorker: observeWorkAssignment(child, 'worker', events, isLive),
+          })),
+        }
+      : {}),
     latestAllocation,
     assignmentHistory: work.assignmentHistory,
     startExistingWorker: {

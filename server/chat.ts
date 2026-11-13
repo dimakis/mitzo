@@ -3,6 +3,10 @@ import {
   retainedLocalCodexRecoveryReservation,
 } from './retained-local-codex-effects.js';
 import {
+  observeTelosSessionCoordination,
+  renderTelosSessionCoordination,
+} from './telos-session-coordination.js';
+import {
   assembleCommandPrompt,
   assembleReplyText,
   captureMessageReply,
@@ -2535,6 +2539,14 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           (options.contributorGuidance
             ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
             : '') +
+          renderTelosSessionCoordination(
+            observeTelosSessionCoordination(
+              eventStore,
+              session.sessionId ?? stateSessionId ?? newSdkSessionId,
+              undefined,
+              (id) => !!registry.findBySessionId(id),
+            ),
+          ) +
           bootContextAppend +
           (codexProfile
             ? ''

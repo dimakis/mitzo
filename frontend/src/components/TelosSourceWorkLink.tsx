@@ -11,6 +11,21 @@ import {
 import { apiFetch } from '../lib/api-fetch';
 import { TelosLinkedContext } from './TelosLinkedContext';
 import { readTelosRolePresentation } from '../lib/telos-role-presentation';
+import { z } from 'zod';
+
+const Coordination = z.object({
+  itemId: z.string(),
+  role: z.string(),
+  assignment: z.enum(['current', 'previous', 'unassigned']),
+  reportingTo: z
+    .object({
+      conversationId: z.string().min(1).max(200),
+      availability: z.string(),
+      executionPhase: z.string().nullable().optional(),
+    })
+    .nullable(),
+  diagnostic: z.string().nullable().optional(),
+});
 
 /** The compact item row is shared by the mobile and desktop ordinary chat. */
 export function TelosSourceWorkLink({
@@ -22,6 +37,7 @@ export function TelosSourceWorkLink({
     conversationId: string;
     context?: TelosWorkRoleContextSelection;
     display?: Pick<TelosWorkRoleContextReview, 'presentation' | 'presentationRef'>;
+    leadConversationId?: string;
     error?: boolean;
   }>();
   useEffect(() => {
@@ -52,7 +68,20 @@ export function TelosSourceWorkLink({
             presentationRef: TelosWorkRolePresentationRefSchema.parse(retained?.presentationRef),
           };
         }
-        if (!controller.signal.aborted) setRole({ conversationId, context, display });
+        const coordination = Coordination.safeParse(metadata.telosSessionCoordination);
+        const current = coordination.success ? coordination.data : undefined;
+        const leadConversationId =
+          context &&
+          current?.itemId === context.itemId &&
+          current.role === context.role &&
+          current.assignment === 'current' &&
+          !current.diagnostic &&
+          current.reportingTo?.availability === 'available' &&
+          current.reportingTo.executionPhase !== 'TERMINAL'
+            ? current.reportingTo.conversationId
+            : undefined;
+        if (!controller.signal.aborted)
+          setRole({ conversationId, context, display, leadConversationId });
       })
       .catch(() => {
         if (!controller.signal.aborted) setRole({ conversationId, error: true });
@@ -72,11 +101,13 @@ export function TelosSourceWorkLink({
     return (
       <div className="telos-chat-context">
         {!hideItemLink && <SessionWorkLink taskId={context.itemId} />}
-        {context.leadConversationId && (
-          <Link to={`/chat/${encodeURIComponent(context.leadConversationId)}`}>
+        {role.leadConversationId ? (
+          <Link to={`/chat/${encodeURIComponent(role.leadConversationId)}`}>
             Return to lead chat
           </Link>
-        )}
+        ) : context.role === 'worker' ? (
+          <span role="status">Current lead unavailable. Review the assignment in linked work.</span>
+        ) : null}
         <TelosLinkedContext context={context} {...role.display} />
       </div>
     );

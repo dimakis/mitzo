@@ -5081,6 +5081,73 @@ it.each(['worker', 'advisor'] as const)(
   },
 );
 
+it('supplements retained native startup context with the current canonical feature assignment', async () => {
+  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+  const { TelosWorkStore } = await import('../telos-work-store.js');
+  const { TelosItemStore } = await import('../telos-item-store.js');
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const canonical = createTelosCanonicalData();
+  const work = new TelosWorkStore(canonical.dbPath, { ordinaryConversation: () => true });
+  const items = new TelosItemStore(canonical.dbPath);
+  const f = ownedLocalOptions('/tmp');
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    items.editGuarded(
+      {
+        itemId: 'studio',
+        requestId: 'classify-startup',
+        expectedRevision: items.read('studio').revision,
+        workLevel: 'feature',
+        note: 'Canonical feature',
+      },
+      'planning',
+      () => {},
+    );
+    work.execute(
+      {
+        operation: 'setup_role',
+        requestId: 'lead-startup',
+        itemId: 'studio',
+        role: 'lead',
+        conversationId: f.opts.conversationId,
+        expectedAssignmentRevision: 0,
+        expectedRevision: work.read('studio', canonical.actor).revision,
+      },
+      canonical.actor,
+    );
+    const text = 'Original reviewed outcome context';
+    retainTelosWorkRoleContext(f.eventStore, f.opts.conversationId, f.opts.binding, {
+      version: 1,
+      itemId: 'studio',
+      itemKind: 'coordinator',
+      role: 'lead',
+      brief: {
+        revision: 'original',
+        text,
+        sha256: createHash('sha256').update(text).digest('hex'),
+      },
+      parentCriteria: [],
+      overallGoal: { itemId: 'studio', revision: 'original', text },
+      sources: [],
+      artifacts: [],
+    });
+    vi.stubEnv('TELOS_DB_PATH', canonical.dbPath);
+    chat = await openCodexChat(f.opts);
+    const prompt = mocks.conversationOptions!.systemPrompt!;
+    expect(prompt).toContain('## Current Telos coordination');
+    expect(prompt).toContain('"workLevel":"feature"');
+    expect(prompt).toContain('"assignment":"current"');
+    expect(prompt).toContain('Missing evidence never proves work has not started');
+  } finally {
+    chat?.close();
+    f.eventStore.close();
+    work.close();
+    items.close();
+    canonical.close();
+  }
+});
+
 it('exposes slice allocation to a retained OpenShell lead without enabling selected profile tool routes', async () => {
   vi.clearAllMocks();
   vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
@@ -5121,6 +5188,7 @@ it('exposes slice allocation to a retained OpenShell lead without enabling selec
     expect.objectContaining({ name: 'TelosStartSlice' }),
   );
   expect(mocks.conversationOptions?.systemPrompt).toContain('propose Telos');
+  expect(mocks.conversationOptions?.systemPrompt).toContain('coordination_unavailable');
   expect(mocks.conversationOptions?.systemPrompt?.split('## Telos work planning')).toHaveLength(2);
   chat.close();
   store.close();
