@@ -109,6 +109,15 @@ export class TelosWorkError extends Error {
     super(message);
   }
 }
+/** Typed refusal so ordinary startup retains an actionable safe diagnostic. */
+export class TelosExecutionContextChangedError extends TelosWorkError {
+  constructor() {
+    super(
+      'conflict',
+      'Reviewed execution context changed; explicitly review and adopt a new worker attempt',
+    );
+  }
+}
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function conflict(message: string): never {
   throw new TelosWorkError('conflict', message);
@@ -2416,9 +2425,7 @@ export class TelosWorkStore {
       const intent = JSON.parse(row.intent) as TelosWorkDelegationIntent;
       for (const pin of intent.recordRevisions)
         if (hash(this.item(pin.itemId)) !== pin.sha256)
-          conflict(
-            'Reviewed execution context changed; explicitly review and adopt a new worker attempt',
-          );
+          throw new TelosExecutionContextChangedError();
     })();
   }
   /** Host-only task-owner reconciliation. This binds retained allocation authority;
