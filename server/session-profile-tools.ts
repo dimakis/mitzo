@@ -12,8 +12,14 @@ import { SymposiumProfileStore } from './symposium-profiles.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
+import {
+  specialistToolSchema,
+  specialistToolDefinition,
+} from './specialist-consultation-contract.js';
+import { sessionSpecialistTools } from './session-specialist-tools.js';
 
 export const profileToolSchemas = {
+  SymposiumConsult: specialistToolSchema,
   SymposiumProposeProfile: ProfileProposalInputSchema,
   SymposiumReadProfiles: z.strictObject({
     action: z.enum(['list', 'get']),
@@ -23,6 +29,7 @@ export const profileToolSchemas = {
   }),
 };
 export const profileToolDefinitions = [
+  specialistToolDefinition,
   symposiumProposeProfileDefinition,
   {
     name: 'SymposiumReadProfiles',
@@ -42,6 +49,14 @@ export function sessionProfileTools(
   assertRuntimeCurrent?: () => Promise<void>,
   assertRuntimeCurrentSync?: () => void,
 ) {
+  const specialists = sessionSpecialistTools(
+    sessionId,
+    session,
+    registry,
+    prefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  );
   const current = (name: string) => {
     assertRuntimeCurrentSync?.();
     const owner = registry.findBySessionId(sessionId);
@@ -61,6 +76,7 @@ export function sessionProfileTools(
       signal: AbortSignal,
       call?: ProfileToolCall,
     ) {
+      if (name === 'SymposiumConsult') return specialists.execute(input, signal, call);
       if (!Object.hasOwn(profileToolSchemas, name)) return undefined;
       try {
         signal = AbortSignal.any([signal, session.abortController.signal]);

@@ -41,6 +41,7 @@ export const ordinarySdkHelperTools: readonly string[] = Object.freeze(
   [
     'ListConnections',
     'SymposiumReadProfiles',
+    'SymposiumConsult',
     'SymposiumProposeProfile',
     'AgentCommunication',
     'TelosCreateSession',
