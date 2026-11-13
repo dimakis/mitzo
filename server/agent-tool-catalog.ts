@@ -82,7 +82,12 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
             : source === 'Agent communication'
               ? ['codex-owned-local', 'claude-sdk']
               : source === 'Session automation'
-                ? ['local-api', 'codex', 'codex-owned-local']
+                ? [
+                    'local-api',
+                    'codex',
+                    'codex-owned-local',
+                    ...(tool.name === 'TaskExecution' ? ['claude-sdk'] : []),
+                  ]
                 : source === 'Google Workspace' ||
                     source === 'Session creation' ||
                     source === 'History' ||

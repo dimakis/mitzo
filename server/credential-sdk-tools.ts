@@ -141,7 +141,7 @@ export function createCredentialSdkServer(
               (tool) => tool.name === 'ListConnections',
             ),
             ...profileToolDefinitions,
-            ...sessionPromptDefinitions,
+            ...sessionPromptDefinitions.filter((tool) => tool.name === 'TaskExecution'),
             ...learningToolDefinitions,
           ]
         : definitions),

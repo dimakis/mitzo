@@ -53,6 +53,7 @@ import { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
 import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { registerAgentMessageRuntime, steerNativeAgentMessage } from './agent-message-runtime.js';
 import { PEER_MESSAGE_INSTRUCTIONS } from './peer-message-instructions.js';
+import { TASK_EXECUTION_INSTRUCTIONS } from './task-execution-definitions.js';
 import { sessionAgentCommunicationTools } from './agent-communication-tools.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { getOrdinarySessionPromptPort } from './session-prompt-runtime.js';
@@ -3031,7 +3032,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               currentSystemPromptAppend() +
               WEB_ACCESS_INSTRUCTIONS +
               (options.ordinarySdkAuthority
-                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
+                ? (agentToolAllowed(session, 'mcp__mitzo-connections__TaskExecution')
+                    ? TASK_EXECUTION_INSTRUCTIONS
+                    : '') +
+                  '\n' +
+                  PEER_MESSAGE_INSTRUCTIONS +
+                  '\n'
                 : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
           };
         },
