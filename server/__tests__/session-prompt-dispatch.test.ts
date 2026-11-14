@@ -4,6 +4,7 @@ import type { SessionRegistry, ConnectionRegistry } from '@mitzo/harness';
 import type { SessionPromptDelivery } from '../session-prompt-store.js';
 import { createSessionPromptPort, sessionPromptText } from '../session-prompt-dispatch.js';
 import type { OwnedOrdinaryDispatchInput } from '../ordinary-scoped-command.js';
+import { CollaborationSettingsSchema } from '@mitzo/protocol';
 
 const f = vi.hoisted(() => ({
   dispatch: vi.fn<(input: OwnedOrdinaryDispatchInput) => Promise<{ dispatched: boolean }>>(
@@ -320,14 +321,18 @@ it.each(['codex', 'claude-sdk'])(
       transport: { send() {}, isOpen: () => true },
     };
     f.live = { clientId: 'original-owner', session };
-    const prompt = {
+    const prompt: Parameters<typeof h.port.deliverOrdinary>[0] = {
       sessionId: 'worker',
       commandId: 'explicit-shared',
       text: 'An explicit shared response',
       auth: h.delivery.auth,
-      settings: { binding: f.binding, selection: f.selection, repositoryWorkspaceId: 'workspace' },
+      settings: CollaborationSettingsSchema.parse({
+        binding: f.binding,
+        selection: f.selection,
+        repositoryWorkspaceId: 'workspace',
+      }),
       turnLifecycle: { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() },
-    } as Parameters<typeof h.port.deliverOrdinary>[0];
+    };
     await expect(h.port.inspectCollaboration!(prompt)).resolves.toBeUndefined();
     expect(f.dispatch).not.toHaveBeenCalled();
     await h.port.deliverOrdinary(prompt, new AbortController().signal, f.current);

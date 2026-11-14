@@ -6,12 +6,59 @@ import { ChatInput } from '../ChatInput';
 import { ChatInputHost, RetainedChatInputSlot } from '../ChatInputHost';
 import { ComposerStatusProvider, ComposerStatusRail } from '../ComposerStatus';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
+import { SharedConversationComposerContext } from '../../lib/shared-conversation-composer';
 
 afterEach(() => {
   cleanup();
   localStorage.clear();
   sessionStorage.clear();
   vi.restoreAllMocks();
+});
+
+it('reports retained recovery controls to the current page status owner during qualification', async () => {
+  const recover = vi.fn();
+  function Phone() {
+    return (
+      <ComposerStatusProvider>
+        <ComposerStatusRail />
+        <ChatInput sessionId="source" running={false} onSend={() => false} onStop={() => {}} />
+      </ComposerStatusProvider>
+    );
+  }
+  function Desktop() {
+    return (
+      <ComposerStatusProvider>
+        <ComposerStatusRail />
+        <RetainedChatInputSlot sessionId="source">
+          <p>Checking</p>
+        </RetainedChatInputSlot>
+      </ComposerStatusProvider>
+    );
+  }
+  const tree = (desktop = false) => (
+    <MemoryRouter>
+      <ChatInputHost sessionId="source">
+        <SharedConversationComposerContext.Provider
+          value={{
+            sourceConversationId: 'source',
+            props: {
+              sendDisabledReason: 'Original request remains uncertain',
+              sendDisabledAction: { label: 'Check original request', onClick: recover },
+            },
+          }}
+        >
+          {desktop ? <Desktop /> : <Phone />}
+        </SharedConversationComposerContext.Provider>
+      </ChatInputHost>
+    </MemoryRouter>
+  );
+  const { rerender } = render(tree());
+  await screen.findByRole('button', { name: 'Check original request' });
+  const input = screen.getByRole('textbox');
+  rerender(tree(true));
+  expect(screen.getByRole('textbox')).toBe(input);
+  fireEvent.click(await screen.findByRole('button', { name: 'Check original request' }));
+  expect(recover).toHaveBeenCalledOnce();
 });
 
 it('moves the same ordinary input between responsive owners with unsaved rich edits and focus intact', async () => {
