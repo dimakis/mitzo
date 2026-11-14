@@ -79,6 +79,41 @@ afterEach(() => {
 });
 
 describe('useAttentionFeed', () => {
+  it('counts one conversation while retaining participant approval attention', async () => {
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => ({ items: [] }) } as Response);
+    const { result } = renderHook(() => useAttentionFeed());
+    const handler = mockEventBusOn.mock.calls.find(([type]) => type === 'session_activity')![1];
+    handler([
+      {
+        sessionId: 'peer-one',
+        title: 'One',
+        state: 'working',
+        flags: ['working'],
+        lastEventAt: 20,
+        presentationConversation: { id: 'source', title: 'Discussion' },
+      },
+      {
+        sessionId: 'peer-two',
+        title: 'Two',
+        state: 'waiting',
+        flags: ['waiting'],
+        waitReason: 'permission',
+        lastEventAt: 10,
+        presentationConversation: { id: 'source', title: 'Discussion' },
+      },
+    ]);
+    await waitFor(() =>
+      expect(result.current.items.filter((i) => i.source === 'session')).toEqual([
+        expect.objectContaining({
+          id: 'session-source',
+          title: 'Discussion',
+          meta: 'permission needed',
+          navigateTo: '/chat/source',
+        }),
+      ]),
+    );
+    expect(result.current.tier1Count).toBe(1);
+  });
   it('loads todos from API on mount', async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,

@@ -593,7 +593,10 @@ export class SessionMetadataStore {
     // Visibility may change during a worker await. Revalidate before delivery.
     const visible = new Map(sessions().map((row) => [row.session_id, row]));
     return hits
-      .filter((hit) => visible.has(hit.session_id))
+      .filter((hit) => {
+        const match = visible.get(hit.matched_session_id ?? hit.session_id);
+        return visible.has(hit.session_id) && match?.conversation_id === hit.session_id;
+      })
       .map((hit) => ({
         sessionId: hit.session_id,
         ...(hit.matched_session_id && hit.matched_session_id !== hit.session_id

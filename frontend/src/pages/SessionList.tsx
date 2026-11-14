@@ -479,6 +479,7 @@ export function SessionList() {
       ),
       accountLabel: result.accountLabel ?? existing?.accountLabel,
       snippet: result.snippet,
+      matchedSessionId: result.matchedSessionId,
     };
   });
   const currentPreview = preview
@@ -751,7 +752,7 @@ export function SessionList() {
                   selected={desktop && selectedPreview?.id === session.id}
                   onPreview={previewSession}
                   onActions={showActions}
-                  onClick={openSession}
+                  onClick={() => openSession(session.matchedSessionId ?? session.id)}
                   onRename={handleRename}
                 />
               ))}
