@@ -18,6 +18,20 @@ import { SessionPromptService } from '../session-prompt-service.js';
 import { SessionPromptStore } from '../session-prompt-store.js';
 import { initializeSessionLaunches, closeSessionLaunches } from '../session-launch-controller.js';
 import { SymposiumProfileStore } from '../symposium-profiles.js';
+import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
+import { AsyncQueue } from '../async-queue.js';
+import {
+  createOrdinaryLocalVertexSdkQuery,
+  SdkHookLifetime,
+  type SdkCallbackState,
+} from '../ordinary-local-vertex-sdk-query.js';
+
+vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
+  ...(await original<typeof import('@anthropic-ai/claude-agent-sdk')>()),
+  query: vi.fn(),
+  getSessionInfo: vi.fn(async () => ({ sessionId: 'sdk-history', cwd: process.cwd() })),
+  getSessionMessages: vi.fn(async () => [{ uuid: 'retained-input' }]),
+}));
 
 const runtime = vi.hoisted(() => ({
   service: undefined as SessionPromptService | undefined,
@@ -102,12 +116,18 @@ async function fixture(explicit = true) {
     ...(explicit ? { tools: names.map((name) => ({ id: `mitzo:${name}`, version: 1 })) } : {}),
   };
   bindAgentToolSelection(session, selected, 'claude-sdk');
-  const connect = async () => {
-    const server = createCredentialSdkServer(() => 'source', session, registry, {
+  const makeServer = (state?: Pick<SdkCallbackState, 'retired' | 'completing' | 'runCallback'>) =>
+    createCredentialSdkServer(() => 'source', session, registry, {
       profilesOnly: true,
-      assertCurrent: async () => {},
-      assertCurrentSync() {},
+      runCallback: state?.runCallback,
+      assertCurrent: async () => {
+        if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
+      },
+      assertCurrentSync() {
+        if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
+      },
     });
+  const connect = async (server = makeServer()) => {
     const client = new Client({ name: 'offline-coordination', version: '1' });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await server.instance.connect(a);
@@ -130,7 +150,7 @@ async function fixture(explicit = true) {
       return { ...result, value: result.isError ? text : JSON.parse(text) };
     };
   };
-  return { session, registry, connect, port, service, store, launches };
+  return { session, registry, connect, makeServer, port, service, store, launches };
 }
 
 it('qualifies the coordination surface for explicit profiles and the ordinary callback fence', () => {
@@ -260,3 +280,70 @@ it('projects exclusions and the exact SDK skill namespace without granting calls
   expect(supported.find((tool) => tool.name === 'SessionTimers')?.state).toBe('supported');
   expect(supported.find((tool) => tool.name === 'SchedulePrompt')?.state).toBe('restricted');
 });
+
+it.each([false, true])(
+  'retains callable coordination handlers on first, queued-successor and cold-continuation SDK queries (explicit=%s)',
+  async (explicit) => {
+    const f = await fixture(explicit);
+    vi.mocked(query).mockImplementation(
+      () => ({ close() {}, async *[Symbol.asyncIterator]() {} }) as never,
+    );
+    const create = (options: Options = {}) => {
+      const controller = new AbortController();
+      cleanup.push(() => controller.abort());
+      return createOrdinaryLocalVertexSdkQuery({
+        options: {
+          sessionId: 'sdk-history',
+          allowedTools: [...ordinarySdkConnectionHelperTools],
+          ...options,
+        },
+        input: new AsyncQueue(),
+        controller,
+        lifetime: new SdkHookLifetime(),
+        sdkSessionId: 'sdk-history',
+        cwd: process.cwd(),
+        authorize: async () => {},
+        authorizeSync() {},
+        adapt: (native) => native as never,
+        settings: () => ({}),
+        inputChanged() {},
+        onUnsent: () => {
+          throw Error('Unexpected input');
+        },
+        mcpServers: (state) => ({ 'mitzo-connections': f.makeServer(state) }),
+      });
+    };
+    const currentServer = () =>
+      vi.mocked(query).mock.calls.at(-1)![0].options!.mcpServers![
+        'mitzo-connections'
+      ] as ReturnType<typeof f.makeServer>;
+    const first = create();
+    const original = await f.connect(currentServer());
+    expect((await original('SessionTimers', { operation: 'list' })).value).toEqual([]);
+    await first.apply({} as never);
+    await first.apply({} as never);
+    const successor = await f.connect(currentServer());
+    expect(
+      (
+        await successor('StartSession', {
+          requestId: randomUUID(),
+          title: 'Successor handoff',
+          prompt: 'Self-contained follow-up.',
+        })
+      ).value.state,
+    ).toBe('pending');
+    expect(await original('SessionTimers', { operation: 'list' })).toMatchObject({
+      isError: true,
+      value: 'Completed SDK query retired',
+    });
+    create({ sessionId: undefined, resume: 'sdk-history' });
+    const cold = await f.connect(currentServer());
+    expect(
+      (await cold('SymposiumReadProfiles', { action: 'get', profileId: 'coordinator' })).value,
+    ).toMatchObject({ revision: 1 });
+    expect(vi.mocked(query).mock.calls.at(-1)![0].options).toMatchObject({
+      resume: 'sdk-history',
+      allowedTools: [...ordinarySdkConnectionHelperTools],
+    });
+  },
+);
