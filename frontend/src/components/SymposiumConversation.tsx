@@ -3,6 +3,7 @@ import { HomeDialog } from './HomeDialog';
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { RetainedConversationComposer } from './RetainedConversationComposer';
 import { SharedConversationBody } from './SharedConversation';
+import { RetainedChatInputSlot } from './ChatInputHost';
 import { createPortal } from 'react-dom';
 import { SymposiumAccessRequests } from './SymposiumAccessRequests';
 import {
@@ -742,48 +743,66 @@ export function SymposiumConversation({
       />
     ) : null;
 
-  if (base && (!status || status.sessionId !== sessionId) && !ordinaryConfirmed)
-    return (
+  if (base && (!status || status.sessionId !== sessionId) && !ordinaryConfirmed) {
+    const pendingHistory = (
+      <ChatArea
+        {...chat}
+        afterMessages={
+          <>
+            {chat.afterMessages}
+            {profileDrafts}
+          </>
+        }
+      />
+    );
+    const pendingComposer = (
       <>
-        {participantHeader}
-        <ChatArea
-          {...chat}
-          afterMessages={
-            <>
-              {chat.afterMessages}
-              {profileDrafts}
-            </>
-          }
-        />
         {pendingFeedback}
-        {/* Keep the input area visible without mounting queue/send effects. */}
-        <div className="chat-input" aria-busy="true">
-          <div className="chat-input-row">
-            <textarea
-              className="chat-input-field"
-              aria-label="Message Mitzo"
-              placeholder="Message Mitzo..."
-              rows={1}
-              disabled
-            />
-            {pendingSettings}
-            <div className="composer-toolbar">
-              <div className="composer-actions">
-                <button
-                  type="button"
-                  className="chat-input-btn chat-input-btn--send"
-                  aria-label="Send message"
-                  disabled
-                >
-                  <UiIcon name="send" />
-                </button>
+        {/* Fresh chats wait without mounting queue/send effects. Resized pages
+          keep the same already qualified command and draft owner. */}
+        <RetainedChatInputSlot sessionId={sessionId}>
+          <div className="chat-input" aria-busy="true">
+            <div className="chat-input-row">
+              <textarea
+                className="chat-input-field"
+                aria-label="Message Mitzo"
+                placeholder="Message Mitzo..."
+                rows={1}
+                disabled
+              />
+              {pendingSettings}
+              <div className="composer-toolbar">
+                <div className="composer-actions">
+                  <button
+                    type="button"
+                    className="chat-input-btn chat-input-btn--send"
+                    aria-label="Send message"
+                    disabled
+                  >
+                    <UiIcon name="send" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </RetainedChatInputSlot>
         {(statusError || error) && <div role="alert">{statusError || error}</div>}
       </>
     );
+    return (
+      <SharedConversationBody
+        sourceConversationId={sessionId ?? ''}
+        chat={chat}
+        ordinaryHistory={pendingHistory}
+        ordinaryComposer={pendingComposer}
+        beforeTranscript={participantHeader}
+      >
+        {participantHeader}
+        {pendingHistory}
+        {pendingComposer}
+      </SharedConversationBody>
+    );
+  }
   if (status?.sessionId !== sessionId || !status?.config)
     return (
       <SharedConversationBody

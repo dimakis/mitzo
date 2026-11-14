@@ -7,6 +7,7 @@ import type { CollaborationMessageInput, CollaborationProgress } from '@mitzo/pr
 import { SharedConversationHost } from '../SharedConversation';
 import { SymposiumConversation } from '../SymposiumConversation';
 import { ChatInput } from '../ChatInput';
+import { ChatInputHost } from '../ChatInputHost';
 import type { ChatAreaProps } from '../ChatArea';
 import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 import {
@@ -67,6 +68,7 @@ function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChat
     view.policies = view.policies.slice(0, 1);
   }
   let failRead = false;
+  let delayedStatus: Promise<Response> | undefined;
   let progress: CollaborationProgress = {
     collaborationId: view.collaborationId,
     membershipRevision: view.membershipRevision,
@@ -79,7 +81,7 @@ function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChat
     if (url.includes('/telos/work/links') || url.includes('/symposium/profile-proposals'))
       return Response.json([]);
     if (url.includes('/symposium/status'))
-      return Response.json({ sessionId: 'architect', config: null, seats: [] });
+      return delayedStatus ?? Response.json({ sessionId: 'architect', config: null, seats: [] });
     if (url.includes('source-setup'))
       return Response.json({
         state: 'selected',
@@ -121,7 +123,7 @@ function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChat
   const api = new MitzoApiClient(transport);
   const ordinarySend = vi.fn(() => false),
     ordinaryStop = vi.fn();
-  const tree = (source = chat) => (
+  const tree = (source = chat, layout = 'phone', ordinaryConfirmed = true) => (
     <MemoryRouter>
       <SharedConversationHost
         sourceConversationId="architect"
@@ -130,28 +132,31 @@ function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChat
         authScope={proof()}
         getVerifiedAuthScope={proof}
       >
-        <SymposiumConversation
-          sessionId="architect"
-          ordinaryConfirmed
-          chat={source}
-          profileToolsTarget={null}
-          ordinaryComposer={
-            <div className="conversation-composer">
-              <ChatInput
-                sessionId="architect"
-                savedChatDraft={ordinaryDraft}
-                composerCapabilities={{
-                  commands: 'ordinary',
-                  terminalHref: '/terminal?sessionId=architect',
-                }}
-                initialText="Ordinary draft before joining"
-                onSend={ordinarySend}
-                onStop={ordinaryStop}
-                running={source.running}
-              />
-            </div>
-          }
-        />
+        <ChatInputHost sessionId="architect">
+          <SymposiumConversation
+            key={layout}
+            sessionId="architect"
+            ordinaryConfirmed={ordinaryConfirmed}
+            chat={source}
+            profileToolsTarget={null}
+            ordinaryComposer={
+              <div className="conversation-composer">
+                <ChatInput
+                  sessionId="architect"
+                  savedChatDraft={ordinaryDraft}
+                  composerCapabilities={{
+                    commands: 'ordinary',
+                    terminalHref: '/terminal?sessionId=architect',
+                  }}
+                  initialText="Ordinary draft before joining"
+                  onSend={ordinarySend}
+                  onStop={ordinaryStop}
+                  running={source.running}
+                />
+              </div>
+            }
+          />
+        </ChatInputHost>
       </SharedConversationHost>
     </MemoryRouter>
   );
@@ -163,6 +168,13 @@ function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChat
     transport,
     ordinarySend,
     ordinaryStop,
+    delayStatus: () => {
+      let release!: (value: Response) => void;
+      delayedStatus = new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+      return () => release(Response.json({ sessionId: 'architect', config: null, seats: [] }));
+    },
     fail: () => {
       failRead = true;
     },
@@ -185,6 +197,28 @@ function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChat
     },
   };
 }
+
+it('retains the shared composer and transcript while a resized page requalifies ordinary status', async () => {
+  const f = fixture();
+  const { container, rerender } = render(f.tree());
+  await screen.findByRole('button', { name: 'Choose who replies' });
+  const input = screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: 'Draft while changing responsive owners' } });
+  input.focus();
+  input.setSelectionRange(4, 10);
+  const release = f.delayStatus();
+  rerender(f.tree(chat, 'desktop', false));
+  expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
+  expect(input.value).toBe('Draft while changing responsive owners');
+  expect(document.activeElement).toBe(input);
+  expect([input.selectionStart, input.selectionEnd]).toEqual([4, 10]);
+  expect(container.querySelectorAll('.chat-messages')).toHaveLength(1);
+  expect(screen.getByText('Ordinary history before joining')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Choose who replies' })).toBeTruthy();
+  expect(f.sends).toHaveLength(0);
+  await act(async () => release());
+  expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
+});
 async function poll() {
   await act(async () => {
     for (const callback of [...polls]) callback();

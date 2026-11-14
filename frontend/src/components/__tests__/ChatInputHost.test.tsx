@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatInput } from '../ChatInput';
-import { ChatInputHost } from '../ChatInputHost';
+import { ChatInputHost, RetainedChatInputSlot } from '../ChatInputHost';
 import { ComposerStatusProvider, ComposerStatusRail } from '../ComposerStatus';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 
@@ -103,4 +103,31 @@ it('leaves an unrelated embedded input with its own session owner', () => {
   expect(
     screen.getAllByRole('textbox').map((input) => (input as HTMLTextAreaElement).value),
   ).toEqual(['Source draft', 'Other draft']);
+});
+
+it('cannot expose another conversation draft while the next page is qualifying', () => {
+  const tree = (sessionId: string, pending = false) => (
+    <MemoryRouter>
+      <ChatInputHost sessionId={sessionId}>
+        {pending ? (
+          <RetainedChatInputSlot sessionId={sessionId}>
+            <p>Checking new conversation</p>
+          </RetainedChatInputSlot>
+        ) : (
+          <ChatInput
+            sessionId={sessionId}
+            initialText="Private source draft"
+            running={false}
+            onSend={() => false}
+            onStop={() => {}}
+          />
+        )}
+      </ChatInputHost>
+    </MemoryRouter>
+  );
+  const { rerender } = render(tree('source'));
+  expect(screen.getByRole('textbox')).toBeTruthy();
+  rerender(tree('different-conversation', true));
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.getByText('Checking new conversation')).toBeTruthy();
 });
