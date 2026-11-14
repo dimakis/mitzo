@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1163-symposium-integrated-acceptance';
+  'v1.0.1164-symposium-integrated-acceptance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -57,7 +57,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/support/application-event-source.ts':
     'da2d0fd6614485c42048e85449c79a0ab5a999f340fc29f7db4e02a90cbec973',
   '../../tests/offline/symposium-ordinary-responsive.spec.ts':
-    '108e968d2716ae6b9da58a2d21efc24ad07dc848726537f4dcc639dc27439521',
+    'ab21134ed4b294e7141f3d2916420c2e0c37d8f62ef3ede865914c30b4d44f33',
   '../session-conversation-list.ts':
     '2b55c6b61337ae96bda8688c9f41c70d6e598eec4bc2b59be03335df0044f6f9',
   '../../packages/protocol/src/conversation-activity.ts':

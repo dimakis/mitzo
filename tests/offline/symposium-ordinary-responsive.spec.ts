@@ -351,6 +351,39 @@ for (const theme of ['light', 'dark'] as const)
           .toBeInViewport({ ratio: 1 });
       }
     }
+    // Exercise the actual responsive page owners in one mounted conversation,
+    // beyond the independent viewport captures above and the narrow fixture.
+    await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
+    const retainedInput = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+    await retainedInput.fill('Same ordinary draft across actual responsive owners');
+    await retainedInput.focus();
+    await retainedInput.evaluate((element) => {
+      element.setAttribute('data-acceptance-retained', 'original-responsive-input');
+      (element as HTMLTextAreaElement).setSelectionRange(2, 9);
+    });
+    for (const width of [390, 320, 1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      await expect(retainedInput).toHaveAttribute(
+        'data-acceptance-retained',
+        'original-responsive-input',
+      );
+      await expect(retainedInput).toHaveValue(
+        'Same ordinary draft across actual responsive owners',
+      );
+      await expect(retainedInput).toBeFocused();
+      expect(
+        await retainedInput.evaluate((element) => [
+          (element as HTMLTextAreaElement).selectionStart,
+          (element as HTMLTextAreaElement).selectionEnd,
+        ]),
+      ).toEqual([2, 9]);
+      await expect(page.locator('.chat-messages')).toHaveCount(1);
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
+      observations.push({ responsiveTransition: { width, sameInput: true, selection: [2, 9] } });
+    }
     expect(writes.filter((path) => path.endsWith('/messages') || path.endsWith('/joins'))).toEqual(
       [],
     );
