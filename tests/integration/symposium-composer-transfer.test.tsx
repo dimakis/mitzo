@@ -117,9 +117,14 @@ async function fixture(initial: string | null) {
   };
 }
 
-it.each([null, 'original-chat'])(
-  'transfers later draft and remaining queue through exact assignment from %s',
-  async (source) => {
+it.each([
+  { source: null, event: '_send_accepted' },
+  { source: 'original-chat', event: '_send_accepted' },
+  { source: null, event: 'session_id' },
+  { source: 'original-chat', event: 'session_id' },
+])(
+  'transfers later draft and remaining queue through exact $event assignment from $source',
+  async ({ source, event }) => {
     const f = await fixture(source);
     try {
       f.running(true);
@@ -132,15 +137,24 @@ it.each([null, 'original-chat'])(
       await waitFor(() => expect(f.commands()).toHaveLength(1));
       const command = f.commands()[0];
       const originalInput = f.input();
+      expect(originalInput.value).toBe('Later edit before authenticated assignment');
+      expect(queuedText('Remaining queued work')).toBeTruthy();
       originalInput.focus();
       originalInput.setSelectionRange(2, 9);
       f.receive({
-        type: '_send_accepted',
+        type: event,
         originalSessionId: source,
         sessionId: 'assigned-chat',
         clientMsgId: command.clientMsgId,
       });
       await waitFor(() => expect(f.store.getState().sessions.active).toBe('assigned-chat'));
+      if (event === 'session_id')
+        f.receive({
+          type: 'user_message',
+          sessionId: 'assigned-chat',
+          messageId: command.clientMsgId,
+          text: 'Submitted queued command',
+        });
       expect.soft(f.input()).toBe(originalInput);
       expect.soft(f.input().value).toBe('Later edit before authenticated assignment');
       expect.soft(document.activeElement).toBe(originalInput);
@@ -182,6 +196,9 @@ it('retires an unrelated navigation owner and does not promote late assignment i
     expect(f.input().value).toBe('Independent unrelated draft');
     fireEvent(window, new Event('pagehide'));
     expect(chatStorage.getItem('mitzo-draft-unrelated-chat')).toBe('Independent unrelated draft');
+    expect(f.commands()).toHaveLength(1);
+    await act(async () => f.store.getState().switchSession('original-chat'));
+    expect(f.input().value).toBe('Original follow-up edit');
     expect(f.commands()).toHaveLength(1);
   } finally {
     f.close();
