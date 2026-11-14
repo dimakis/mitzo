@@ -42,7 +42,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-ordinary-surface.tsx':
     '744170c5c9ec0fd6d0032e37575852c69c2d4115328004425410bac62273c58f',
   '../../tests/integration/symposium-ordinary-acceptance.test.tsx':
-    '3c7868e5b258dad8a14af8d8b864e4f75c85ef66eb5644ba479a8b81639e2ebd',
+    '21af88b08127558bf1f77dc27c85e42c032a968a048c373b8d11940aa985898a',
   '../../tests/integration/symposium-required-owners.test.ts':
     'dfb7f311eab054c9f27e5401610819a5e743516ac2e22461fae1596e6b79aa01',
   '../../tests/offline/symposium-ordinary-surface.spec.ts':
@@ -50,7 +50,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/support/application-event-source.ts':
     'da2d0fd6614485c42048e85449c79a0ab5a999f340fc29f7db4e02a90cbec973',
   '../../tests/offline/symposium-ordinary-responsive.spec.ts':
-    '839601ad6fa21d81e739e744d94faabd67ea8739035b18e297b5df84685b2593',
+    '473f7eacf43aa41ebc7bf0036fb4e933670391c8ab616fb8b128375924ea548f',
   '../session-conversation-list.ts':
     '5ba1ca1e183a6fd5a6636a98fdd089ae6f20186464617b666a1344818a3388fb',
   '../../packages/protocol/src/conversation-activity.ts':

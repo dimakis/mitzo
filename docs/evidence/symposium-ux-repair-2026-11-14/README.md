@@ -164,3 +164,41 @@ joining, and waited for real idle teardown before reimport. Original red artifac
 remain available; corrected harness assumptions are not product-failure claims.
 The green result establishes the bounded deterministic behavior above. Combined
 CI, rendered comparison and final exact-head Centaur gates remain separate.
+
+Final implementation selection additionally includes slice 1 `7482bcb67`,
+`fe7bdcc34` and `eac6448fc`, combined as `5af455e1ffc0236d0ccb1ccde1bf62421b69b5da`.
+The adjacent source-name/activities hook conflict retained both owners and all
+raw activity/history wrapper behavior. `final-integrated-5af455e1f.log` records
+20 passes in four files, including the full journey above and input regressions.
+`final-focused-d80bd1d89.log` records 396 passes/1 existing skip in 17 owner/design
+files. These selections overlap. The combined registry intentionally advances to
+`v1.0.1151-symposium-integrated-acceptance`, retaining its 2457 existing entries
+and adding 14 new owner/test artifacts; `check:source-artifacts` passes.
+
+Draft [#1355](https://github.com/dimakis/mitzo/pull/1355) is the integration/evidence
+candidate; slice 1 is separately published as [#1356](https://github.com/dimakis/mitzo/pull/1356)
+and slice 2 as [#1354](https://github.com/dimakis/mitzo/pull/1354). Main was reread
+14 November at 11:22 UTC and remains the original accepted `9af764899`.
+The initial combined CI run at `0b8393e34` failed source registrations and
+TypeScript rootDir/nullability/timer issues; implementation owners supplied the
+fixes above. The original failed run remains inspectable as
+[43587939228](https://github.com/dimakis/mitzo/actions/runs/43587939228).
+Subsequent CI is qualification evidence only for its exact head.
+
+`tests/offline/symposium-ordinary-responsive.spec.ts` renders the real
+`ResponsiveChatView` with ordinary `sessionType: chat`, independently of the
+special Symposium preview. It retains paired ordinary/approved-HTML screenshots,
+build hashes, branch/head, route and viewport metadata for 320/390/1280, both
+themes, 60 history entries, keyboard/focus and 200% text. The narrower
+`symposium-ordinary-surface.spec.ts` additionally observes shared-host joining and
+input retention. Both use deterministic presentation HTTP fixtures; their results
+must stay separate from the real authenticated application journey. CI retains
+these screenshots/manifests on success or failure. The paired approved reference
+requires visual inspection; geometry assertions alone cannot claim pixel parity.
+
+The bounded diagnostic contract is in `observability-followup.md`. It preserves
+original operation correlation and sanitized code/stage/error through owners and
+consumers without collecting private prompts or inventing a phone root cause.
+Originating-chat delivery became unavailable at authorization/delivery; lookup of
+the original message receipt was also unavailable. Slice 1 and 2 received the
+verified checkpoint and remaining boundaries through supported peer messaging.

@@ -1,0 +1,71 @@
+{
+  "head": "608a1e60b366194922b481f18254671f9624a96d",
+  "runId": 43589672292,
+  "checkAnnotations": [
+    {
+      "name": "Compile and source preflight",
+      "conclusion": "FAILURE",
+      "annotations": {
+        "nodes": [
+          {
+            "message": "Process completed with exit code 1.",
+            "path": ".github"
+          },
+          {
+            "message": "Argument of type '(callback: (_: void) => void, timeout: number | undefined) => number | Timeout' is not assignable to parameter of type '(callback: (_: void) => void, delay?: number | undefined) => Timeout'.",
+            "path": ".github"
+          },
+          {
+            "message": "Process completed with exit code 2.",
+            "path": ".github"
+          },
+          {
+            "message": "Conversion of type '{ sessionId: string; commandId: string; text: string; auth: AuthSession; settings: { binding: Record<string, unknown>; selection: Record<string, unknown>; repositoryWorkspaceId: string; }; turnLifecycle: { ...; }; }' to type 'OrdinarySessionPrompt' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.",
+            "path": "server/__tests__/session-prompt-dispatch.test.ts"
+          },
+          {
+            "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\"",
+            "path": ".github"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Build shared frontend assets",
+      "conclusion": "FAILURE",
+      "annotations": {
+        "nodes": [
+          {
+            "message": "No files were found with the provided path: /home/runner/work/_temp/ci-ios-web.zip. No artifacts will be uploaded.",
+            "path": ".github"
+          },
+          {
+            "message": "Process completed with exit code 1.",
+            "path": ".github"
+          },
+          {
+            "message": "Process completed with exit code 1.",
+            "path": ".github"
+          },
+          {
+            "message": "Argument of type '(callback: (_: void) => void, timeout: number | undefined) => number | Timeout' is not assignable to parameter of type '(callback: (_: void) => void, delay?: number | undefined) => Timeout'.",
+            "path": ".github"
+          },
+          {
+            "message": "Process completed with exit code 1.",
+            "path": ".github"
+          },
+          {
+            "message": "Argument of type '(callback: (_: void) => void, timeout: number | undefined) => number | Timeout' is not assignable to parameter of type '(callback: (_: void) => void, delay?: number | undefined) => Timeout'.",
+            "path": ".github"
+          },
+          {
+            "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\"",
+            "path": ".github"
+          }
+        ]
+      }
+    }
+  ],
+  "browser": "not admitted"
+}

@@ -42,6 +42,28 @@ for (const theme of ['light', 'dark'] as const)
     const files = (await output).outputFiles!;
     const approved = await readFile(approvedPath);
     expect(createHash('sha256').update(approved).digest('hex')).toBe(approvedSha);
+    const buildIdentity = {
+      head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      branch:
+        execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim() ||
+        'detached HEAD',
+      build: 'esbuild production bundle',
+      bundleSha256: files.map((file) => ({
+        path: file.path,
+        sha256: createHash('sha256').update(file.contents).digest('hex'),
+      })),
+      project: info.project.name,
+      approvedPath,
+      approvedSha,
+      route: '/chat/architect',
+      plannedViewports: [320, 390, 1280].map((width) => ({ width, height: 844 })),
+      theme,
+    };
+    // Preserve identity even when a geometry assertion prevents the final manifest.
+    await info.attach('ordinary-responsive-build', {
+      body: JSON.stringify(buildIdentity, null, 2),
+      contentType: 'application/json',
+    });
     const inventory = multiRuntimeInventoryFixture({ nativeLocalApi: true });
     const account = inventory.accounts[0].account;
     const meta = {
@@ -245,16 +267,7 @@ for (const theme of ['light', 'dark'] as const)
     );
     expect(errors).toEqual([]);
     const manifest = {
-      head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-      branch: execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim(),
-      build: 'esbuild production bundle',
-      bundleSha256: files.map((file) => ({
-        path: file.path,
-        sha256: createHash('sha256').update(file.contents).digest('hex'),
-      })),
-      project: info.project.name,
-      approvedPath,
-      approvedSha,
+      ...buildIdentity,
       observations,
       boundary:
         'Production ResponsiveChatView + ordinary metadata; deterministic presentation transport, independent real application acceptance required. Paired reference screenshots require visual review; structural checks are not pixel parity.',

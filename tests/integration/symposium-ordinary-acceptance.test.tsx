@@ -25,7 +25,9 @@ beforeAll(async () => {
     'ORDINARY_ACCEPTANCE_SOURCE',
     JSON.stringify({
       head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-      branch: execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim(),
+      branch:
+        execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim() ||
+        'detached HEAD',
       testSha256: createHash('sha256')
         .update(await readFile(new URL(import.meta.url)))
         .digest('hex'),
