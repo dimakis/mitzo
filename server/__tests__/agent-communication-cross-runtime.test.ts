@@ -229,10 +229,38 @@ it.each(['codex-worker', 'claude-worker'] as const)(
       text: 'Result ready.',
       replyTo: sent.messageId,
     };
-    const reply = await childTools.execute(input, new AbortController().signal, {
-      turnId: 'child-turn',
-      callId: 'child-reply',
-    });
+    const reply = await (async () => {
+      if (childId !== 'claude-worker')
+        return childTools.execute(input, new AbortController().signal, {
+          turnId: 'child-turn',
+          callId: 'child-reply',
+        });
+      bindAgentToolSelection(
+        child,
+        {
+          tools: [{ id: 'mitzo:AgentCommunication', version: 1 }],
+        } as never,
+        'claude-sdk',
+      );
+      const server = createCredentialSdkServer(() => childId, child, f.registry, {
+        profilesOnly: true,
+        assertCurrent: async () => {},
+        assertCurrentSync() {},
+        agentCommunication: () => childTools,
+      });
+      const client = new Client({ name: 'correlated-child-reply', version: '1' });
+      const [a, b] = InMemoryTransport.createLinkedPair();
+      await server.instance.connect(a);
+      await client.connect(b);
+      try {
+        const result = await client.callTool({ name: 'AgentCommunication', arguments: input });
+        expect(result.isError).not.toBe(true);
+        return JSON.parse((result.content as Array<{ text: string }>)[0].text);
+      } finally {
+        await client.close();
+        await server.instance.close();
+      }
+    })();
     expect(reply).toMatchObject({ status: 'delivered', replyTo: sent.messageId });
     expect(origin.steer).toHaveBeenCalledOnce();
     expect(childPrompt).not.toHaveBeenCalled();
@@ -242,6 +270,23 @@ it.each(['codex-worker', 'claude-worker'] as const)(
         callId: 'retry',
       }),
     ).toEqual(reply);
+    expect(origin.steer).toHaveBeenCalledOnce();
+    expect(f.events.agentCommunication.inbox('orchestrator').messages).toEqual([reply]);
+    expect(f.events.agentCommunication.forHost(sent.messageId).operatorAuthSessionId).toBe(auth.id);
+    expect(f.events.agentCommunication.forHost(reply.messageId).operatorAuthSessionId).toBe(
+      childAuth.id,
+    );
+    origin.session.sessionAllowList.clear();
+    childPrompt.mockImplementation((event) => {
+      if (event.type === 'permission_request')
+        queueMicrotask(() => resolvePending(event.permId, 'deny'));
+    });
+    await expect(
+      childTools.execute({ ...input, requestId: randomUUID() }, new AbortController().signal, {
+        turnId: 'child-turn',
+        callId: 'revoked-reply',
+      }),
+    ).rejects.toMatchObject({ code: 'approval_denied', stage: 'approval' });
     expect(origin.steer).toHaveBeenCalledOnce();
     expect(f.events.agentCommunication.inbox('orchestrator').messages).toEqual([reply]);
   },
