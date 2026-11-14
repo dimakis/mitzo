@@ -374,3 +374,32 @@ Focused lint and package builds
 pass. Full server compilation exceeds the local 1 GiB heap; its log is retained
 and hosted current-head preflight remains required. Independent imported-history
 application reproduction and successor verification belong to slice 3.
+
+### Native CI fixture cleanup after accepted-main integration
+
+Accepted main `416faccb366f64ab858897f5b4bfa465e91ef385` is integrated in
+`c9caf405696b56e014b897d48ebdb5464b8ba191`. Both exact SDK input-cancellation
+and current-generation command-identity helpers are retained, together with
+accepted coordination/retry behavior and all 2,465 source registrations. After
+integration, 243 checks across 21 suites pass (one existing design skip), with
+package builds, lint, formatting and source pins green.
+
+Full CI 43618643185 has a different native failure from slice 3's uncertain
+repository capture. Job 132520882437 fails only the native Claude-login fixture's
+`afterEach` directory removal with `ENOTEMPTY` (log lines 389–400). Its sign-in
+link assertions and awaited cancellation/completion ran before cleanup; the other
+three sandbox checks pass. Original job log SHA256:
+`b95b8a27a8d84e415f85bf861dce3f579ea87aba13e101cece20f66d0d008278`.
+The log is retained in this task's `slice1-validation` directory.
+
+The test cleanup now uses Node's bounded recursive-removal retries (five retries,
+50 ms retry delay). Persistent cleanup failure still fails, and all four native
+assertions remain required. No production owner, authorization, process lifecycle
+or model call changes. This does not resolve or replay slice 3's separate unknown
+repository-capture outcome.
+
+Focused lint and formatting pass. Local process fixtures exit before readiness
+(five failures, four passes across three test files), so native cleanup remains
+unqualified locally; those original outputs are retained. Fresh hosted native CI
+and final exact-head Centaur verification remain required. No launch restriction
+was bypassed and no provider/model execution was introduced.
