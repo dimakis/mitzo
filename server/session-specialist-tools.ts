@@ -117,9 +117,9 @@ export function sessionSpecialistTools(
             requestId: input.requestId,
             role: input.role,
             assignment: input.assignment,
-            messageIds: input.messageIds,
-            artifacts: input.artifacts,
-            reviewOf: input.reviewOf,
+            ...(input.messageIds !== undefined ? { messageIds: input.messageIds } : {}),
+            ...(input.artifacts !== undefined ? { artifacts: input.artifacts } : {}),
+            ...(input.reviewOf !== undefined ? { reviewOf: input.reviewOf } : {}),
           });
         } else if (input.operation === 'revoke') {
           if (!input.policyId) throw Error('Revoke requires policyId');
