@@ -58,6 +58,7 @@ export interface ManagedSession {
       preparationSignal?: AbortSignal,
       assertAdmissionCurrent?: () => void,
       turnLifecycle?: OrdinaryTurnLifecycle,
+      sdkRetrySourceCommandId?: string,
     ): Promise<{ dispatched: boolean }>;
     /** Existing owned SDK queue only; native query selection stays private. */
     sdkTurns?: {

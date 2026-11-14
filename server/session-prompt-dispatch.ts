@@ -38,6 +38,8 @@ export interface OrdinarySessionPrompt {
   text: string;
   settings?: CollaborationSettings;
   preparationOperationId?: string;
+  /** Internal explicit retry adapter; never a timer/message wire override. */
+  sdkRetrySourceCommandId?: string;
   onQueryEvent?: OwnedOrdinaryDispatchInput['onQueryEvent'];
   turnLifecycle?: OrdinaryTurnLifecycle;
 }
@@ -131,7 +133,14 @@ export function createSessionPromptPort(
             state: 'consumed',
             workspace: { workspaceId: settings.repositoryWorkspaceId, cwd: meta.cwd },
           }
-        : ctx.eventStore.getLatestOrdinaryCommandAdmission(sessionId);
+        : prompt?.sdkRetrySourceCommandId
+          ? ctx.eventStore.getOrdinaryLocalVertexCommandAdmission(prompt.sdkRetrySourceCommandId)
+          : ctx.eventStore.getLatestOrdinaryCommandAdmission(sessionId);
+    if (
+      prompt?.sdkRetrySourceCommandId &&
+      (binding?.harness.implementation !== 'claude-sdk' || binding.execution.location !== 'local')
+    )
+      throw new SessionPromptError('Original local SDK retry owner required.', 422);
     const live = ctx.sessionRegistry.findBySessionId(sessionId);
     if (
       !isAvailableTelosWorkConversation(meta) ||
@@ -309,7 +318,15 @@ export function createSessionPromptPort(
           capabilityRevision: result.capabilityRevision,
           runtime,
           selection: admission.selection,
-          payload: { text: prompt.text },
+          payload: prompt.sdkRetrySourceCommandId
+            ? (() => {
+                const payload = {
+                  ...ctx.eventStore.getSendCommand(prompt.sdkRetrySourceCommandId)!.payload,
+                };
+                delete payload.systemPrompt;
+                return payload;
+              })()
+            : { text: prompt.text },
         },
         reservation: {
           id: workspace.id,
@@ -327,6 +344,9 @@ export function createSessionPromptPort(
         ...(prepared ? { preparationOperationId: prepared.allocationOperationId } : {}),
         ...(prompt.onQueryEvent ? { onQueryEvent: prompt.onQueryEvent } : {}),
         existingOwner: !!live,
+        ...(prompt.sdkRetrySourceCommandId
+          ? { sdkRetrySourceCommandId: prompt.sdkRetrySourceCommandId }
+          : {}),
         ...(prompt.turnLifecycle &&
         isOrdinaryRepositoryParticipantBinding(binding) &&
         binding.execution.location === 'local'
