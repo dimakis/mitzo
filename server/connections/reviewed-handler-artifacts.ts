@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1162-sdk-cold-fixture-boundary';
+  'v1.0.1163-specialist-authorization-replay';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -51,13 +51,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/specialist-review-routing.test.ts':
     'e45c277d88915ef60c905a92aaa98b415b17f77c514a3907a9a090b3ac45c700',
   '../specialist-consultations.ts':
-    '7c5d1d6e79439533ce858acf476063b1286b74911ea8690badcc3d62d6152076',
+    '4b1bbcd92d1df26cf2b7257157bd8415a93678ce42da6d93be3f8ab66510624d',
   '../specialist-role-execution.ts':
     'b0b2203fabed5dcde6b8dae704ebb254ba3b21cf1bbbf598520151b32bdca0ae',
   '../specialist-consultation-contract.ts':
-    '3678b80d24039981f67d96a51c5878608117e4bf1e0d9d834ce6adaf88ff0b38',
+    '385a21ee4348d13499ffeeaf8d31cfdda05b9e25c5de97198472d7ca8e66c45f',
   '../specialist-consultation-store.ts':
-    '71adfb4668c42221be1af09dc79b68530d7145fe3d45c36e81f564a9c962095a',
+    '8f07001f2f6f0cf59d8c1b58cc0d61aa7fa5681e99cb369d9743dd3b4e248f69',
   '../specialist-consultation-runtime.ts':
     'a3548f7815907ecbe6eaafea1d795673bf0abc1be14dd06e96dd5d209d5278a1',
   '../specialist-consultation-diagnostics.ts':
@@ -66,6 +66,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8576ee5ecc727c155bdf855d5376f9c32ca99a5cc4d0d9e18e0eac78d3e680d5',
   '../__tests__/session-specialist-tools.test.ts':
     '25974c3d094b7ccdefff0c42a3e605ce493bade0e1d769d70072d1785348ef2e',
+  '../__tests__/specialist-authorization-replay.test.ts':
+    'bad0660f3527c33d6a21ad50dffed5c8a3129d904858868a0fbb0fda1ebbad43',
   '../__tests__/specialist-consultation-store.test.ts':
     '1ff060424f64bc16d012db977d51dce62739707d4b816a15b4066da7acea3a5c',
   '../__tests__/specialist-consultation-application.test.ts':
@@ -3623,7 +3625,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     'f96af49e1dbf60cf9293d38a8c9c64b745efbcceed9d4c24a65a3f8e0be081e0',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '02f8faffc7493be93d895c221595d8e0f30d7f7028d9327302bbaa3e908bc641',
+    'c16245ff1d79f0509bd1768b64202f1b98d22ad8988f17f1db53758e2b012d02',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':

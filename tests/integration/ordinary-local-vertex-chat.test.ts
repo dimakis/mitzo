@@ -1243,7 +1243,10 @@ it.each(
       true,
     );
   },
-  30_000,
+  // This journey starts five SDK commands and exercises four real MCP
+  // surfaces. Hosted runs spend about five seconds in each information turn;
+  // retain the individual phase deadlines and budget their combined journey.
+  60_000,
 );
 
 it.each([

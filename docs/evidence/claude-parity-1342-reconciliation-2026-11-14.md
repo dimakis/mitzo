@@ -124,3 +124,54 @@ formatting, whitespace and regenerated source fingerprints pass. An ad-hoc
 semantic check used the server config for this integration file and encountered
 inherited fixture/rootDir diagnostics; it is not reported as a passing project
 typecheck. Hosted preflight and the new full CI remain the required evidence.
+
+## CI journey budget and retained authorization findings
+
+The next hosted run43604579700 (`cba3a83db`) passed the repaired predecessor
+boundary and the credential-input scenario. Its four remaining failures reached
+the whole-journey30-second deadline later, around `active-stop` or
+`saved-after-stop`. The first trace contains four completed SDK results between
+14:27:13 and14:27:30UTC; each information turn takes about five seconds. These
+cases combine five SDK command starts, four real MCP surfaces, cold recovery,
+revocation and Stop. The aggregate journey budget is now60seconds; existing
+phase deadlines, positive assertions and negative controls are unchanged. All19
+cases pass locally with one worker/1GiB (`ci-cold-budget-green.log`,141.94s).
+This is functional qualification with synthetic providers, not a performance SLA.
+An additional local experiment inserted five seconds of synthetic latency into
+each of the four MCP information turns. The full first/queued/cold/Stop scenario
+passed in44.22seconds with its original phase deadlines; the temporary delay was
+then removed (`ci-cold-budget-latency.log`).
+
+Retained report6865913086 correctly identifies two separate authorization
+defects in the canonical `SpecialistConsultations.authorize` owner:
+`CEN-9D5A3F9C4150` (blocking role/profile-pin replay) and
+`CEN-BC17E8AFBA41` (requested-duration immutability, a nonblocking follow-up).
+Neither is delivered by #1350; its owner confirmed their distinct scope. This
+repair retains normalized authorization intent in the existing policy receipt's
+`input` alongside the resolved selection. An exact replay compares that intent,
+reuses original profile pins and expiry, and revalidates current authority,
+account, runtime, profile and repository. Changed duration (including shortening),
+routes or limits conflicts before approval or receipt replacement. Revoked or
+expired policies cannot be reauthorized by replay. No new registry or store is
+introduced, and public policy response fields remain unchanged.
+
+Legacy receipts without retained original intent stay readable/usable under
+their existing policy guards. An authorization replay refuses to invent their
+original duration and directs the caller to review a new requestId. The focused
+regressions use the actual owner and SQLite ledger with synthetic dependencies;
+they include role ambiguity after publication and ledger reopen, explicit pins,
+normalized defaults, changed intent and authority negative controls. Against the
+old authorization owner, the initial20-case regression set produced10failures
+and10passing controls, including the reported role and duration defects and
+revoked/expired replay. This is not a claim that all10 failures are distinct
+product defects: some check earlier conflict classification or new legacy
+refusal behavior. Centaur must verify the published repair and retain its prior
+finding ledger; local evidence is not a final LGTM.
+
+Final focused qualification:29 tests pass across the authorization regression,
+existing policy store and actual specialist-tool handler suites
+(`ci-specialist-replay-final.log`). Four affected source files have zero scoped
+semantic TypeScript diagnostics under the server configuration. The full build
+remains hosted CI evidence because the earlier local build exhausted the
+prescribed1GiB heap. Source fingerprints and the runtime revision are updated
+for this reviewed delta. No live specialist, account or service was invoked.
