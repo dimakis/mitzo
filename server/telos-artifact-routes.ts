@@ -312,13 +312,17 @@ export function createTelosArtifactRouter(options: {
         } else {
           phase = 'read_artifact';
           const input = TelosReadArtifactInput.parse(parsed.data);
-          const { bytes, ...artifact } = store.read(input.id, input.revision);
-          if (artifact.sourceKind === 'source_capture') {
+          const metadata =
+            input.revision === undefined
+              ? store.latestMetadata(input.id)
+              : store.metadataForRevision(input.id, input.revision);
+          if (metadata.sourceKind === 'source_capture') {
             res
               .status(403)
               .json({ ok: false, error: 'Reviewed source requires scoped host authority' });
             return;
           }
+          const { bytes, ...artifact } = readResponseArtifact(store, metadata);
           const text = bytes.toString('utf8');
           const encoding = Buffer.from(text, 'utf8').equals(bytes) ? 'utf8' : 'base64';
           res.json({
