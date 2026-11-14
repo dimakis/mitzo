@@ -15,6 +15,20 @@ export const CollaborationSourceSetupSchema = z.discriminatedUnion('state', [
     ...source,
     collaboration: SessionCollaborationSchema,
   }),
+  z
+    .strictObject({
+      state: z.literal('participant_history'),
+      ...source,
+      originalConversationId: CollaborationBeginSchema.shape.sessionId,
+      collaboration: SessionCollaborationSchema,
+    })
+    .refine(
+      (value) =>
+        value.originalConversationId !== value.sourceConversationId &&
+        value.collaboration.participantSessionIds.includes(value.sourceConversationId) &&
+        value.collaboration.participantSessionIds.includes(value.originalConversationId),
+      'Participant history relationship changed',
+    ),
   z.strictObject({
     state: z.literal('unavailable'),
     ...source,

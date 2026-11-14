@@ -278,6 +278,7 @@ export class CollaborationConversationStore {
       {
         available: this.owners.sourceSetupAvailable,
         membership: this.owners.membership,
+        linkedHistory: (group, sessionId) => !!this.getLinkedJoinForSession(group, sessionId),
       },
       sha,
     );

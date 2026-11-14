@@ -267,6 +267,37 @@ hosted 11-application/56-browser checkpoint predates these two fixes; independen
 combined application/browser qualification and exact-head Centaur verification of
 this successor remain required. These findings are not marked reviewer-closed.
 
+Independent application qualification of `8dea24770` passed the three retained
+history/body/projection-ID phases and correlated assignment controls. Its new
+desktop grouped-search/Open journey exposed a further integration gap: the exact
+participant's native history loaded successfully, but source setup correctly
+returned `foreign_origin`, leaving the new packet-safety gate waiting. The guard
+is retained. Source setup now has a separate `participant_history` observation
+containing the requested participant, original begin source and current membership.
+It requires the existing continuous linked-join owner and verified original begin;
+ordinary foreign membership, corrupt proof and multiple associations remain refused.
+There is no new endpoint, inference or grant of source/participant send authority.
+
+The participant route hydrates parent command anchors through the same authorized
+history reader, displays canonical prompts delivered to that participant plus its
+own rich replies, and omits other agents' replies. It keeps one transcript/input,
+draft, focus, selection and tools. Send/interrupt, join and policy mutations are
+unavailable there, with an explicit Open shared conversation action using the
+verified source ID. The original participant Stop owner remains intact. Legacy
+embedded consumers without a router keep their ordinary controls; qualified
+history still refuses dispatch and explains how to return through Chats.
+
+The new production-wrapper test reproduces failure before qualification support,
+then verifies exact prompt/body occurrence, absent native packet/foreign reply,
+one transcript/input, retained draft/focus/selection and the exact navigation
+action with zero writes. A real store allocation/link/restart test verifies the
+new observation and refuses a removed/readded participant's stale linked proof.
+Client schema controls reject self/foreign original-source claims. All 135 affected
+owner checks across seven files, both actual application UI journeys, protocol and
+client package builds, 109 design checks (one existing skip), and focused lint pass.
+Independent full application/search/Open and hosted successor qualification remain
+pending; the previous accepted forced review job7484 covers only `8dea24770`.
+
 `tests/offline/symposium-ordinary-surface.spec.ts` adds the actual ordinary production
 composition to the offline browser matrix: remote joining, one transcript, exact
 input preservation at 320/390/1280 px, source activity and empty selection in dark/

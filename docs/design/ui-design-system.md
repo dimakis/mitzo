@@ -1775,6 +1775,12 @@ On reopen, existing authorized event pages reconstruct retained sequence history
 before native rows are exposed; later refreshes read only the new event delta.
 Failed or cancelled reads preserve the prior complete presentation and its recovery
 controls without publishing a partial reconstruction.
+Opening a joined participant's history requires the server's verified begin and
+continuous linked-join relation. That route shows only the participant's native
+history, canonical delivered prompts and its replies, with exact packet suppression.
+It preserves the draft and existing tools/Stop owner, while Open shared conversation
+returns replies to the source conversation. History inspection cannot join, send,
+interrupt or edit shared policies through that relationship-selection surface.
 The responsive input portal retains draft, attachments, context, selection and focus
 through status qualification; its routing updates independently of source activity.
 An exact current send's correlated assignment or fork transfers the existing input,

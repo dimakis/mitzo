@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createRef } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { MitzoApiClient } from '@mitzo/client';
 import { CollaborationJoinSchema, COLLABORATION_EXECUTION_DISABLED } from '@mitzo/protocol';
 import {
@@ -495,6 +495,104 @@ it('defers native history through retained-page loading and failed reconstructio
   expect(screen.getByRole('textbox')).toBe(input);
   expect(input.value).toBe('Keep the current safe draft');
   expect(screen.getByRole('button', { name: 'Refresh conversation' })).toBeTruthy();
+  expect(
+    fetch.mock.calls.every(([, options]) => !options?.method || options.method === 'GET'),
+  ).toBe(true);
+});
+
+it('qualifies linked participant history without showing another agent or allowing an ordinary reply', async () => {
+  function Pathname() {
+    return <output data-testid="history-path">{useLocation().pathname}</output>;
+  }
+  const view = sharedConversationView();
+  const fetch = vi.fn(async (url: string, _options?: RequestInit) => {
+    if (url.includes('source-setup'))
+      return Response.json({
+        state: 'participant_history',
+        sourceConversationId: 'reviewer',
+        originalConversationId: 'architect',
+        collaboration: {
+          version: 1,
+          collaborationId: view.collaborationId,
+          revision: view.membershipRevision,
+          participantSessionIds: view.participantSessionIds,
+        },
+      });
+    if (url.endsWith('/conversation')) return Response.json(view);
+    throw Error('Unexpected read: ' + url);
+  });
+  const send = vi.fn(() => false);
+  const proof = () => 'login';
+  const { container } = render(
+    <MemoryRouter>
+      <Pathname />
+      <SharedConversationHost
+        sourceConversationId="reviewer"
+        api={new MitzoApiClient(fetch)}
+        clientId="client"
+        authScope="login"
+        getVerifiedAuthScope={proof}
+      >
+        <SharedConversationBody
+          sourceConversationId="reviewer"
+          ordinaryComposer={
+            <ChatInput sessionId="reviewer" running={false} onSend={send} onStop={() => {}} />
+          }
+          chat={{
+            messages: [
+              {
+                messageId: 'ordinary-reviewer',
+                role: 'user',
+                blocks: [
+                  {
+                    blockId: 'packet',
+                    blockType: 'text',
+                    content: 'Encoded reviewer native packet',
+                  },
+                ],
+              },
+              {
+                messageId: 'reviewer-final',
+                role: 'assistant',
+                replyToMessageId: 'ordinary-reviewer',
+                blocks: [
+                  { blockId: 'answer', blockType: 'text', content: 'Reviewer retained answer' },
+                ],
+              },
+            ],
+            current: null,
+            running: false,
+            permission: null,
+            onPermissionRespond: () => {},
+          }}
+        >
+          Ordinary fallback
+        </SharedConversationBody>
+      </SharedConversationHost>
+    </MemoryRouter>,
+  );
+  const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: 'Keep this history draft' } });
+  input.focus();
+  input.setSelectionRange(2, 6);
+  await screen.findByText(view.messages[0].text);
+  expect(screen.getAllByText(view.messages[0].text)).toHaveLength(1);
+  expect(screen.getAllByText('Reviewer retained answer')).toHaveLength(1);
+  expect(screen.queryByText('Encoded reviewer native packet')).toBeNull();
+  expect(screen.queryByText(view.messages[1].text)).toBeNull();
+  expect(container.querySelectorAll('.chat-messages')).toHaveLength(1);
+  expect(screen.getAllByRole('textbox')).toHaveLength(1);
+  expect(screen.getByRole('textbox')).toBe(input);
+  expect(input.value).toBe('Keep this history draft');
+  expect(document.activeElement).toBe(input);
+  expect([input.selectionStart, input.selectionEnd]).toEqual([2, 6]);
+  expect((screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect(screen.getByRole('button', { name: 'Open shared conversation' })).toBeTruthy();
+  expect(send).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Open shared conversation' }));
+  expect(screen.getByTestId('history-path').textContent).toBe('/chat/architect');
   expect(
     fetch.mock.calls.every(([, options]) => !options?.method || options.method === 'GET'),
   ).toBe(true);

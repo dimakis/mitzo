@@ -16,7 +16,11 @@ import {
 export function resolveCollaborationSourceSetup(
   db: Database.Database,
   rawSource: string,
-  owners: { available(id: string): boolean; membership(id: string): SessionCollaboration | null },
+  owners: {
+    available(id: string): boolean;
+    membership(id: string): SessionCollaboration | null;
+    linkedHistory(group: string, sessionId: string): boolean;
+  },
   fingerprint: (value: unknown) => string,
 ): CollaborationSourceSetup {
   const sourceConversationId = CollaborationBeginSchema.shape.sessionId.parse(rawSource);
@@ -67,10 +71,25 @@ export function resolveCollaborationSourceSetup(
     });
     if (!input.success || receipt.fingerprint !== fingerprint({ kind: 'begin', input: input.data }))
       return unavailable('origin_unverified');
-    if (input.data.sessionId !== sourceConversationId) return unavailable('foreign_origin');
     const collaboration = owners.membership(group);
-    if (!collaboration?.participantSessionIds.includes(sourceConversationId))
+    if (
+      !collaboration?.participantSessionIds.includes(sourceConversationId) ||
+      !collaboration.participantSessionIds.includes(input.data.sessionId)
+    )
       return unavailable('origin_unverified');
+    if (input.data.sessionId !== sourceConversationId) {
+      if (
+        !owners.available(input.data.sessionId) ||
+        !owners.linkedHistory(group, sourceConversationId)
+      )
+        return unavailable('foreign_origin');
+      return CollaborationSourceSetupSchema.parse({
+        state: 'participant_history',
+        sourceConversationId,
+        originalConversationId: input.data.sessionId,
+        collaboration,
+      });
+    }
     return CollaborationSourceSetupSchema.parse({
       state: 'selected',
       sourceConversationId,
