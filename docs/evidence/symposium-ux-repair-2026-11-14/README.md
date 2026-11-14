@@ -4,7 +4,39 @@ Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.
 
-## Fully passing expanded focused acceptance
+## Final focused acceptance and retained control measurements
+
+Run [43602840514](https://github.com/dimakis/mitzo/actions/runs/43602840514),
+source `0c2b354f10193f948e8efbf4da1839c0131fecc3`, merge build
+`569f10f796967a85b2b67f8b95e5b7b9b1d0b2d9`, completed successfully:
+11 application checks (job132471090597) and56 browser tests/probes
+(job132471090334). `hosted-application-0c2b354f1.log` and
+`hosted-render-0c2b354f1.log` retain both logs. `render-0c2b354f1/` retains
+six raw responsive manifests and the original211-file render artifact hash index.
+All six frontend bundle hashes match the paired screenshots in `render-bb8680279/`.
+
+`render-0c2b354f1/available-control-targets.json` extracts42 observations from the
+original Playwright HTML report's per-file results, excluding its duplicate report
+summary. Each preserves project, theme-bearing test title, test ID, phase, original
+attachment body hash, route, viewport, text scale, enabled state and control bounds.
+All84 wheel/microphone control checks pass full viewport bounds and trial-click
+actionability across320/390/1280, normal/200% text and source activity. This is the
+narrow production composition with deterministic capability props; trial clicks
+execute no callback/audio. Actual ResponsiveChatView and authenticated application
+acceptance retain their separately stated boundaries.
+
+Render artifact14116814091 SHA256
+`d1ef0628f58beae0c83e958e5fc98d7059431dfe58854b1535fa8837bf5c4a85`;
+application artifact14116634344 SHA256
+`34b58ec40dab990334d4ca1658d2bc2c92b7cbf3b735caa5bf5e1e7bf84e10b8`.
+The source registry is2,476 keys/v1.0.1174. Full CI43602840427 remains queued
+at this evidence checkpoint; exact-head final Centaur review is unqualified.
+This final evidence-only successor does not change the verified source bytes.
+No merge/deploy, physical-phone, live-runtime, audio or blanket incident completion
+is claimed. Original incident identifiers, browser hard reload, reference icon/pixel
+parity and the other matrix gaps remain open. All original failures below are retained.
+
+## Earlier fully passing expanded focused acceptance
 
 Run [43601886056](https://github.com/dimakis/mitzo/actions/runs/43601886056),
 PR source `845caf2dd6800cfa35c92af91816e057201ee6eb`, merge build
@@ -24,11 +56,11 @@ application artifact `14116538231` SHA256
 Node24.22.1, pinned Playwright1.63.0 container, source/build/route/viewport/theme
 and compiler bundle hashes are preserved in the manifests and workflow.
 
-A final acceptance-only extension records wheel/mic bounds/enabled state and
+A subsequent acceptance-only extension records wheel/mic bounds/enabled state and
 checks full viewport visibility and trial-click actionability at normal/200%
 text after responsive changes and source activity. Trial clicks execute no audio
 or callbacks. This addresses a remaining concern that DOM visibility alone could
-hide an occluded hit target. The stronger successor still needs hosted execution;
+hide an occluded hit target. Its passing hosted result is recorded above;
 no production change is made. Full combined CI, exact-head final review, browser
 hard reload, live runtime and physical-phone qualification remain separate gates.
 The original incident IDs/build/operation/receipt remain absent. The diagnostics
