@@ -139,6 +139,16 @@ gaps and two 16px paddings. The desktop minimum now includes those existing
 glyph/gap/padding tokens as well as the name track; the verified phone minimum
 is preserved in the phone rule. Fresh desktop geometry remains unverified.
 
+Full CI exposed the existing forwarding UI fixture's old zero-recipient
+assumption: selecting Reviewer also retained the new original-agent selection,
+although that historical source intentionally has no live ordinary owner. Its
+production readiness check correctly refused this audience. Slice 3's test-only
+`7b2130d62` change explicitly deselects the source and waits for the remounted
+context control's qualification before clicking. The same two hunks reproduce
+red/green here through the real application/UI forwarding journey, retaining one
+confirmation and one native turn across lost confirmation and remount. No
+production readiness or control authority changed.
+
 Centaur's `bb219f421` review identified four further blocking regressions. Focused
 owner tests reproduce all four before their fixes: encoded native delivery packets
 replacing multiple operator bodies, source finalization/tool-only rows moving above
