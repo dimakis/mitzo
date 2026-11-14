@@ -140,6 +140,7 @@ function fixture(
         <ChatInputHost sessionId="architect">
           {originalName && (
             <SharedConversationAgents
+              compact
               scope="architect"
               messages={[]}
               agents={[{ id: 'architect', name: originalName, state: 'Current conversation' }]}
@@ -222,6 +223,26 @@ it('keeps the original named agent as the explicit initial recipient', async () 
   expect((screen.getByRole('checkbox', { name: 'Reviewer' }) as HTMLInputElement).checked).toBe(
     false,
   );
+  expect(f.sends).toHaveLength(0);
+});
+
+it('shows participant names in the ordinary compact header when a reviewer joins', async () => {
+  const f = fixture(true, undefined, 'Original architect');
+  render(f.tree());
+  const original = await screen.findByRole('button', { name: 'Agents, Original architect' });
+  expect(original.querySelector('.conversation-participant-names')).toBeNull();
+  f.join();
+  await poll();
+  const shared = await screen.findByRole('button', {
+    name: 'Agents, Original architect, Reviewer',
+  });
+  expect(shared).toBe(original);
+  expect(shared.querySelector('.conversation-participant-names')?.textContent).toBe(
+    'Original architect · Reviewer',
+  );
+  expect(shared.closest('.conversation-agents-entry--named')).not.toBeNull();
+  expect(shared.closest('.conversation-participants-container')).toBeNull();
+  expect(screen.getAllByRole('textbox', { name: 'Message Mitzo' })).toHaveLength(1);
   expect(f.sends).toHaveLength(0);
 });
 

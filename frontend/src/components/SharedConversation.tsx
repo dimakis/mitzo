@@ -385,6 +385,7 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
     <ConversationAgents
       {...props}
       agents={agents}
+      showParticipantNames={host.active || props.showParticipantNames}
       joiningOwner={host.joiningOwner}
       unavailableReason={host.error}
       policyUnavailableReason={
