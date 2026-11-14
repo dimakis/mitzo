@@ -10,6 +10,9 @@ import {
   type SdkCallbackState,
 } from '../ordinary-local-vertex-sdk-query.js';
 import { buildSessionPermissionHooks } from '../session-permission-policy.js';
+import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
+import { ordinarySdkRetryCommandId } from '../ordinary-local-vertex-queue.js';
+import { freezeOrdinarySkillCommand } from '../ordinary-composer-skills.js';
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
@@ -100,7 +103,7 @@ function fixture(
       events,
     });
     return {
-      close: vi.fn(),
+      close: vi.fn(() => events.close()),
       [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
     } as never;
   });
@@ -157,6 +160,7 @@ function fixture(
     sessionId: 'session',
     assertCurrent: current,
     assertCurrentSync: current,
+    ownsClaim: (id) => store.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed',
     settings: () => ({ model: 'model', thinkingTokens: null }),
     query: {
       applySettings: sdk.apply,
@@ -201,6 +205,8 @@ function fixture(
     requests,
     states,
     admit,
+    meta,
+    binding,
     hook,
     permission,
     current,
@@ -245,6 +251,68 @@ it('enforces the frozen ceiling through real SDK hooks/callbacks and retires it 
   expect(await f.hook(0, 'Read')).toMatchObject({ continue: false });
   expect(await f.permission(0, 'Read')).toMatchObject({ behavior: 'deny' });
   expect(() => f.states[0].checkTool('Read')).toThrow();
+});
+it('binds a failed-turn Retry to its original ceiling before a differently restricted FIFO successor', async () => {
+  const f = fixture();
+  const evidence = new OrdinarySdkTurnEvidence(f.store, 'session', 'session');
+  f.admit('first', ['Read']);
+  await f.owner.enqueue('first');
+  await f.requests[0].input[Symbol.asyncIterator]().next();
+  f.owner.inputObserved('first-input');
+  evidence.accepted('first', 'first-input');
+  f.admit('tail', []);
+  // The production admission owner consumes retained FIFO entries before the
+  // SDK command owner receives them; no execution has been allocated yet.
+  f.store.claimOrdinaryLocalVertexCommandDispatch('tail');
+  f.store.completeOrdinaryLocalVertexCommand('tail');
+  await f.owner.enqueue('tail');
+  f.requests[0].events.push({ type: 'result', session_id: 'session', is_error: true });
+  const results = f.sdk.query[Symbol.asyncIterator]();
+  await results.next();
+  evidence.settled('first', 'first-input', 'failed');
+  await f.owner.resultObserved('first-input', true);
+  expect(f.requests).toHaveLength(1);
+  const original = f.store.getSendCommand('first');
+  const childId = ordinarySdkRetryCommandId('first');
+  const context = f.store.getOrdinarySkillContext('session', 'first')!;
+  f.store.withOrdinaryDerivedCommandContext('session', 'first', (current) => {
+    current();
+    const source = f.store.getOrdinaryLocalVertexCommandAdmission('first')!;
+    freezeOrdinarySkillCommand(
+      f.store,
+      f.meta,
+      childId,
+      original!.payload,
+      () =>
+        f.store.admitOrdinaryLocalVertexContinuation(f.meta, f.binding, {
+          clientMsgId: childId,
+          requestFingerprint: childId,
+          payload: original!.payload,
+          selection: source.selection,
+        }),
+      context,
+    );
+  });
+  // Ambient legacy policy and a newer queued context cannot replace the source.
+  f.registry.get('client')!.activeSkillPolicy = null;
+  await f.owner.enqueue(childId, undefined, 'first');
+  await f.requests[1].input[Symbol.asyncIterator]().next();
+  f.owner.inputObserved('retry-input');
+  expect(f.states[1].commandId()).toBe(childId);
+  expect(await f.permission(1, 'Read')).toMatchObject({ behavior: 'allow' });
+  expect(await f.permission(1, 'Write')).toMatchObject({ behavior: 'deny' });
+  expect(f.states[1].checkTool('mcp__mitzo-connections__TaskExecution')).toBe('deny');
+  expect(await f.permission(0, 'Read')).toMatchObject({ behavior: 'deny' });
+  expect(f.store.getSendCommand('first')).toEqual(original);
+  expect(f.store.getOrdinarySkillContext('session', childId)).toEqual(context);
+  f.requests[1].events.push({ type: 'result', session_id: 'session' });
+  expect((await results.next()).value.type).toBe('sdk_query_retired');
+  expect((await results.next()).value.type).toBe('result');
+  await f.owner.resultObserved('retry-input');
+  await f.requests[2].input[Symbol.asyncIterator]().next();
+  expect(f.states[2].commandId()).toBe('tail');
+  expect(await f.permission(2, 'Read')).toMatchObject({ behavior: 'deny' });
+  expect(await f.permission(1, 'Read')).toMatchObject({ behavior: 'deny' });
 });
 it('rechecks the original command after an awaited project hook', async () => {
   let release!: () => void;

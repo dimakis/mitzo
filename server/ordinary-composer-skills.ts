@@ -3,7 +3,7 @@ import type { SkillRegistry } from './skills.js';
 import type { EventStore } from './event-store.js';
 import { buildSkillRegistry } from './skill-registry-runtime.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
-import type { AccountBinding } from '@mitzo/protocol';
+import type { AccountBinding, OrdinarySkillContext } from '@mitzo/protocol';
 import type { HostRepositoryReservationInput } from './repository-workspaces.js';
 import { assertSkillRuntimeSupport } from './skill-runtime-support.js';
 
@@ -82,9 +82,13 @@ export function freezeOrdinarySkillCommand(
   commandId: string,
   payload: Record<string, unknown>,
   admit: () => void,
-  prepared?: { text: string; prompt: string },
+  prepared?: OrdinarySkillContext,
 ) {
-  if (!meta.cwd || typeof payload.text !== 'string' || !parseSlashCommand(payload.text))
+  if (
+    !meta.cwd ||
+    typeof payload.text !== 'string' ||
+    (!parseSlashCommand(payload.text) && !prepared)
+  )
     return admit();
   if (prepared && prepared.text !== payload.text) throw Error('Skill command changed');
   const context = store.getOrdinarySkillContext(meta.sessionId, commandId);
@@ -102,7 +106,11 @@ export function freezeOrdinarySkillCommand(
   store.admitWithOrdinarySkillContext(
     meta.sessionId,
     commandId,
-    context ?? { text: payload.text, prompt },
+    context ?? {
+      text: payload.text,
+      prompt,
+      ...(prepared?.allowedTools === undefined ? {} : { allowedTools: prepared.allowedTools }),
+    },
     admit,
   );
 }

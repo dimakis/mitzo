@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  StartSessionInputSchema,
   TelosCreateSessionInputSchema,
   AgentReadTasksSchema,
   AgentTaskProposalInputSchema,
@@ -11,8 +12,7 @@ import {
 } from './session-history-tools.js';
 import { sessionSdkHistoryTools } from './session-history-sdk.js';
 import type { EventStore } from './event-store.js';
-import { sessionLaunchTools } from './session-launch-tools.js';
-import { telosSessionLaunchDefinition } from './telos-session-launch-tool.js';
+import { sessionLaunchTools, sessionLaunchDefinitions } from './session-launch-tools.js';
 import { learningToolSchemas, learningToolDefinitions } from './session-learning-tools.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
@@ -62,6 +62,7 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  StartSession: StartSessionInputSchema,
   AgentReadTasks: AgentReadTasksSchema,
   AgentProposeTask: AgentTaskProposalInputSchema,
   ...sessionHistoryToolSchemas,
@@ -207,7 +208,7 @@ export function createCredentialSdkServer(
               (tool) => tool.name === 'ListConnections',
             ),
             ...profileToolDefinitions,
-            ...sessionPromptDefinitions.filter((tool) => tool.name === 'TaskExecution'),
+            ...sessionPromptDefinitions,
             ...learningToolDefinitions,
             ...knowledgeToolDefinitions,
             ...agentTaskToolDefinitions,
@@ -215,7 +216,7 @@ export function createCredentialSdkServer(
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
       ...(boundary?.historyEvents ? sessionHistoryToolDefinitions : []),
-      ...(boundary ? [telosSessionLaunchDefinition] : []),
+      ...(boundary ? sessionLaunchDefinitions : []),
     ]).map((definition) =>
       tool(
         definition.name,
@@ -319,7 +320,11 @@ export function createCredentialSdkServer(
                     }),
                   );
                 }
-                if (definition.name === 'TelosCreateSession' && toolAuthority) {
+                if (
+                  (definition.name === 'StartSession' ||
+                    definition.name === 'TelosCreateSession') &&
+                  toolAuthority
+                ) {
                   await toolAuthority.assertCurrent(signal);
                   const result = await sessionLaunchTools({
                     sessionId: id,
@@ -337,7 +342,7 @@ export function createCredentialSdkServer(
                         (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
                       ),
                     },
-                    'TelosCreateSession',
+                    definition.name,
                   );
                   await toolAuthority.assertCurrent(signal);
                   return {

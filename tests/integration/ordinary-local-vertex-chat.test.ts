@@ -1574,6 +1574,387 @@ it.each([
   30000,
 );
 
+it.each([
+  { personal: false, cold: false, uncertain: false },
+  { personal: true, cold: true, uncertain: false },
+  { personal: false, cold: false, uncertain: true },
+])(
+  'public failed-turn Retry preserves source intent and FIFO (personal=$personal cold=$cold uncertain=$uncertain)',
+  async ({ personal, cold, uncertain }) => {
+    vi.resetModules();
+    const { ownedVertexRuntimeFixture } =
+      await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
+    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true, personal });
+    services.workspace = f.workspace;
+    services.library = f.library;
+    services.authId = f.auth.id;
+    services.auth = f.auth;
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw Error('No live provider in Retry fixture');
+      }),
+    );
+    if (personal) {
+      const { ClaudeSubscriptionCustody } =
+        await import('../../server/claude-subscription-custody.js');
+      const capture = ClaudeSubscriptionCustody.capture;
+      vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
+        capture(env, f.personalExecutable),
+      );
+      vi.spyOn(ClaudeSubscriptionCustody.prototype, 'verify').mockResolvedValue();
+    }
+    const history: string[] = [];
+    let finishSource: (() => void) | undefined, finishRetry: (() => void) | undefined;
+    const tails = new Map(
+      ['retry-tail-b', 'retry-tail-c'].map((id) => {
+        let observe!: () => void, finish!: () => void;
+        const observed = new Promise<void>((resolve) => {
+          observe = resolve;
+        });
+        const released = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        return [id, { observe, finish, observed, released }] as const;
+      }),
+    );
+    let accountWait: Promise<void> | undefined;
+    let accountWaiting = false;
+    services.query.mockImplementation((request) => {
+      services.requests.push(request);
+      let closed = false;
+      const process = request.options.spawnClaudeCodeProcess({
+        signal: request.options.abortController.signal,
+      });
+      return {
+        accountInfo: async () => {
+          if (accountWait) {
+            accountWaiting = true;
+            await accountWait;
+          }
+          return {
+            email: 'person@example.test',
+            subscriptionType: 'max',
+            apiProvider: 'firstParty',
+          };
+        },
+        async *[Symbol.asyncIterator]() {
+          for await (const input of request.prompt) {
+            if (closed) return;
+            const commandId = String(input.mitzoMessageId);
+            history.push(commandId);
+            yield {
+              type: 'user',
+              uuid: `input-${commandId}`,
+              parent_tool_use_id: null,
+              message: input.message,
+            };
+            if (commandId === f.request.clientMsgId) {
+              await new Promise<void>((resolve) => {
+                finishSource = resolve;
+              });
+              if (uncertain) throw Error('Synthetic lost result; effects remain unknown');
+            } else if (commandId.startsWith('sdk-retry:'))
+              await new Promise<void>((resolve) => {
+                finishRetry = resolve;
+              });
+            else if (tails.has(commandId)) {
+              const tail = tails.get(commandId)!;
+              tail.observe();
+              await tail.released;
+            }
+            if (closed) return;
+            yield {
+              type: 'result',
+              session_id: request.options.resume ?? request.options.sessionId,
+              is_error: commandId === f.request.clientMsgId,
+            };
+          }
+        },
+        close: () => {
+          closed = true;
+          process.emit('close', 0, null);
+        },
+        setPermissionMode: async () => {},
+        setModel: async () => {},
+        setMaxThinkingTokens: async () => {},
+      };
+    });
+    const chat = await import('../../server/chat.js');
+    const { ConnectionRegistry } = await import('@mitzo/harness');
+    const connections = new ConnectionRegistry();
+    const connectionId = f.dependencies.operatorConnectionId;
+    connections.register(connectionId, { isOpen: () => true, send: vi.fn() });
+    chat.setConnectionRegistry(connections);
+    cleanups.push(async () => {
+      finishSource?.();
+      finishRetry?.();
+      for (const tail of tails.values()) tail.finish();
+      chat.registry
+        .findBySessionId(f.reservation.conversationId)
+        ?.session.ordinaryRuntimeOwner?.close();
+      await vi.waitFor(() =>
+        expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
+      );
+      chat.setConnectionRegistry(null);
+      connections.dispose();
+      chat.eventStore.close();
+    });
+    const { app } = await import('../../server/app.js');
+    const { createOwnedLocalCodexEntryRouter } =
+      await import('../../server/ordinary-local-codex-entry.js');
+    const ctx = {
+      sessionRegistry: chat.registry,
+      eventStore: chat.eventStore,
+      connRegistry: connections,
+    } as import('../../server/ws-handler-v2.js').V2HandlerContext;
+    const sse = { has: () => true, isOpen: () => true, isOwnedBy: () => true } as never;
+    app.use('/api/fixture/retry-runtime', createOwnedLocalCodexEntryRouter(sse, ctx, true));
+    const { createChatRestRouter } = await import('../../server/chat-rest-handler.js');
+    app.use('/api/fixture/retry-chat', createChatRestRouter(sse, ctx));
+    const request = (await import('supertest')).default;
+    const httpServer = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve, reject) => {
+      httpServer.once('listening', resolve);
+      httpServer.once('error', reject);
+    });
+    cleanups.push(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          httpServer.closeAllConnections();
+          httpServer.close((error) => (error ? reject(error) : resolve()));
+        }),
+    );
+    const post = (path: string, body: object) =>
+      request(httpServer)
+        .post(path)
+        .set('Connection', 'close')
+        .set('X-Connection-ID', connectionId)
+        .send(body);
+    const id = f.reservation.conversationId;
+    const source = {
+      ...f.request,
+      payload: {
+        text: '/retry-fixture original task',
+        intent: 'Original authorized task',
+        images: [
+          {
+            mediaType: 'image/png',
+            data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aCfoAAAAASUVORK5CYII=',
+          },
+        ],
+      },
+    };
+    const wire = { runOn: 'local', repositoryWorkspaceId: f.reservation.id };
+    const started = await post('/api/fixture/retry-runtime/send', { ...source, ...wire });
+    expect(started.status, JSON.stringify(started.body)).toBe(202);
+    await vi.waitFor(() => expect(finishSource).toBeTypeOf('function'));
+    const original = chat.eventStore.getSession(id)!;
+    for (const commandId of ['retry-tail-b', 'retry-tail-c']) {
+      const queued = await post('/api/fixture/retry-runtime/continue', {
+        ...f.request,
+        ...wire,
+        sessionId: id,
+        clientMsgId: commandId,
+        payload: { text: commandId },
+        selection: { ...f.request.selection, model: 'next-model', thinking: 'high' },
+      });
+      expect(queued.status, JSON.stringify(queued.body)).toBe(202);
+    }
+    const retryPath = `/api/sessions/${id}/codex-queue/retry`;
+    expect(
+      (await post(retryPath, { sourceCommandId: source.clientMsgId, confirmAmbiguous: true }))
+        .status,
+    ).toBe(409);
+    finishSource!();
+    if (uncertain) {
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(id)).toBeNull());
+      expect(
+        (await post(retryPath, { sourceCommandId: source.clientMsgId, confirmAmbiguous: true }))
+          .status,
+      ).toBe(409);
+      expect(history).toEqual([source.clientMsgId]);
+      expect(
+        chat.eventStore.getOrdinarySdkTurnEvents(id, source.clientMsgId).map((event) => event.type),
+      ).toEqual(['ordinary_sdk_turn_accepted']);
+      expect(chat.eventStore.getPendingOrdinaryLocalVertexCommandIds(id)).toEqual([
+        'retry-tail-b',
+        'retry-tail-c',
+      ]);
+      return;
+    }
+    await vi.waitFor(() =>
+      expect(chat.eventStore.getSession(id)?.executionTerminalReason).toBe('failed'),
+    );
+    const originalReceipt = chat.eventStore.getSendCommand(source.clientMsgId);
+    const originalAdmission = chat.eventStore.getOrdinaryLocalVertexCommandAdmission(
+      source.clientMsgId,
+    );
+    const originalSkill = chat.eventStore.getOrdinarySkillContext(id, source.clientMsgId);
+    expect(history).toEqual([source.clientMsgId]);
+    expect((await post(retryPath, {})).status).toBe(409);
+    expect((await post(retryPath, { sourceCommandId: source.clientMsgId })).body.error).toMatch(
+      /confirm/i,
+    );
+    const staleRetry = await post(retryPath, {
+      sourceCommandId: 'stale-source',
+      confirmAmbiguous: true,
+    });
+    expect(staleRetry.status, JSON.stringify(staleRetry.body)).toBe(409);
+    services.auth = { ...f.auth, id: 'foreign-login' };
+    expect(
+      (await post(retryPath, { sourceCommandId: source.clientMsgId, confirmAmbiguous: true }))
+        .status,
+    ).toBe(403);
+    services.auth = f.auth;
+    if (cold) {
+      chat.registry.findBySessionId(id)!.session.ordinaryRuntimeOwner!.close();
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(id)).toBeNull());
+    }
+    const metadata = await request(httpServer)
+      .get(`/api/sessions/${id}/meta`)
+      .set('Connection', 'close');
+    expect(metadata.body.codexQueue).toMatchObject({
+      paused: true,
+      connected: !cold,
+      canContinue: !cold,
+      failed: 1,
+      queued: 2,
+      retryable: true,
+      retrySourceCommandId: source.clientMsgId,
+      requiresRetryConfirmation: true,
+    });
+    const retried = await post(retryPath, {
+      sourceCommandId: source.clientMsgId,
+      confirmAmbiguous: true,
+    });
+    expect(retried.status, JSON.stringify(retried.body)).toBe(200);
+    await vi.waitFor(() => expect(finishRetry).toBeTypeOf('function'));
+    const { ordinarySdkRetryCommandId } =
+      await import('../../server/ordinary-local-vertex-queue.js');
+    const childId = ordinarySdkRetryCommandId(source.clientMsgId);
+    expect(history).toEqual([source.clientMsgId, childId]);
+    expect(chat.eventStore.getSendCommand(childId)?.payload).toEqual(originalReceipt?.payload);
+    expect(chat.eventStore.getOrdinaryLocalVertexCommandAdmission(childId)?.selection).toEqual(
+      originalAdmission?.selection,
+    );
+    expect(chat.eventStore.getOrdinarySkillContext(id, childId)).toEqual(originalSkill);
+    expect(chat.eventStore.getSendCommand(source.clientMsgId)).toEqual(originalReceipt);
+    const requestCount = services.requests.length;
+    expect(
+      (await post(retryPath, { sourceCommandId: source.clientMsgId, confirmAmbiguous: true }))
+        .status,
+    ).toBe(200);
+    expect(services.requests).toHaveLength(requestCount);
+    finishRetry!();
+    // Observe each actual input and release its result explicitly. Two complete
+    // authority/history reopens do not share one polling assertion's deadline.
+    await tails.get('retry-tail-b')!.observed;
+    expect(history).toEqual([source.clientMsgId, childId, 'retry-tail-b']);
+    expect(chat.eventStore.getCurrentExecutionCommandId(id)).toBe('retry-tail-b');
+    expect(chat.eventStore.getPendingOrdinaryLocalVertexCommandIds(id)).toEqual(['retry-tail-c']);
+    tails.get('retry-tail-b')!.finish();
+    await tails.get('retry-tail-c')!.observed;
+    expect(history).toEqual([source.clientMsgId, childId, 'retry-tail-b', 'retry-tail-c']);
+    tails.get('retry-tail-c')!.finish();
+    await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
+    expect(chat.eventStore.getSession(id)).toMatchObject({
+      cwd: original.cwd,
+      accountBinding: original.accountBinding,
+      repositoryWorkspaceId: original.repositoryWorkspaceId,
+    });
+    expect(services.requests[1].options).toMatchObject({
+      resume: id,
+      cwd: original.cwd,
+      model: services.requests[0].options.model,
+    });
+    expect(
+      (await post(retryPath, { sourceCommandId: source.clientMsgId, confirmAmbiguous: true }))
+        .status,
+    ).toBe(200);
+    expect(history).toEqual([source.clientMsgId, childId, 'retry-tail-b', 'retry-tail-c']);
+    if (personal) {
+      const prompts = await import('../../server/session-prompt-runtime.js');
+      prompts.initializeSessionPrompts(':memory:', ctx);
+      cleanups.push(() => prompts.closeSessionPrompts());
+      const { agentMessageRuntime } = await import('../../server/agent-message-runtime.js');
+      const session = chat.registry.findBySessionId(id)!.session;
+      const runtime = agentMessageRuntime(session, f.auth.id)!;
+      chat.eventStore.upsertSession({ sessionId: 'peer-stop-sender' });
+      const peer = chat.eventStore.agentCommunication.reserve(
+        'peer-stop-sender',
+        f.auth.id,
+        { turnId: 'peer-stop-turn', callId: 'peer-stop-call' },
+        {
+          requestId: randomUUID(),
+          recipientConversationId: id,
+          text: 'Retain this input if Stop wins.',
+        },
+      );
+      chat.eventStore.agentCommunication.claim(peer.messageId);
+      let releaseAccount!: () => void;
+      accountWait = new Promise<void>((resolve) => {
+        releaseAccount = resolve;
+      });
+      cleanups.push(() => releaseAccount());
+      const beforePeer = [...history];
+      expect(await runtime.enqueue!(peer, () => {}, session.abortController.signal, f.auth)).toBe(
+        'queued',
+      );
+      await vi.waitFor(() => expect(accountWaiting).toBe(true));
+      expect(
+        (
+          await post('/api/fixture/retry-runtime/continue', {
+            ...f.request,
+            ...wire,
+            sessionId: id,
+            clientMsgId: 'after-peer-stop',
+            payload: { text: 'Original retained successor' },
+          })
+        ).status,
+      ).toBe(202);
+      expect(
+        (await post('/api/fixture/retry-chat/stop', { type: 'stop', sessionId: id })).status,
+      ).toBe(200);
+      await vi.waitFor(() =>
+        expect(chat.eventStore.getSession(id)?.executionPhase).toBe('STOPPING'),
+      );
+      releaseAccount();
+      await vi.waitFor(() =>
+        expect(chat.eventStore.getSession(id)).toMatchObject({
+          executionPhase: 'TERMINAL',
+          executionTerminalReason: 'stopped',
+        }),
+      );
+      expect(history).toEqual(beforePeer);
+      expect(chat.eventStore.getOrdinarySdkTurnEvents(id, peer.commandId)).toEqual([]);
+      expect(
+        chat.eventStore.agentCommunication.read('peer-stop-sender', peer.messageId),
+      ).toMatchObject({ status: 'failed', reason: 'cancelled' });
+      expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(200);
+      await vi.waitFor(() => expect(history).toEqual([...beforePeer, 'after-peer-stop']));
+      await vi.waitFor(() =>
+        expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'),
+      );
+      chat.registry.findBySessionId(id)!.session.ordinaryRuntimeOwner!.close();
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(id)).toBeNull());
+      const coldSend = await post('/api/fixture/retry-runtime/continue', {
+        ...f.request,
+        ...wire,
+        sessionId: id,
+        clientMsgId: 'cold-after-peer-stop',
+        payload: { text: 'Continue on the retained SDK history' },
+      });
+      expect(coldSend.status, JSON.stringify(coldSend.body)).toBe(202);
+      await vi.waitFor(() =>
+        expect(history).toEqual([...beforePeer, 'after-peer-stop', 'cold-after-peer-stop']),
+      );
+    }
+  },
+  30000,
+);
+
 it('a qualified preparation A starts model B on its original checkout and exact retry cannot launch again', async () => {
   vi.resetModules();
   const { ownedVertexRuntimeFixture } =
@@ -1866,6 +2247,53 @@ it('a qualified preparation A starts model B on its original checkout and exact 
   expect(chat.eventStore.hasUncertainOrdinaryCommand(sessionId)).toBe(false);
   expect(observedInputs).toEqual(['prepared-first-B']);
   expect(chat.registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner).toBeDefined();
+  const { createSessionPromptPort } = await import('../../server/session-prompt-dispatch.js');
+  const retryPort = createSessionPromptPort({
+    eventStore: chat.eventStore,
+    sessionRegistry: chat.registry,
+    connRegistry: { broadcast() {} },
+  });
+  cleanups.push(() => retryPort.close());
+  const queue = await import('../../server/ordinary-local-vertex-queue.js');
+  const { createCodexQueueRouter } = await import('../../server/codex-queue-routes.js');
+  router.use(
+    createCodexQueueRouter({
+      authorizeMutation: (id, auth) =>
+        queue.assertOwnedVertexQueueControl(chat.eventStore, id, auth),
+      binding: (id) => chat.eventStore.getSession(id)?.accountBinding ?? undefined,
+      overview: (id) => queue.readOwnedVertexQueueOverview(chat.eventStore, id),
+      cancel: (id, _binding, commandId, auth) =>
+        queue.cancelOwnedVertexQueuedCommand(chat.eventStore, id, commandId, auth),
+      retry: (id, _binding, confirm, context) =>
+        queue.retryOwnedVertexFailedTurn(
+          chat.eventStore,
+          retryPort,
+          id,
+          context!.sourceCommandId!,
+          confirm,
+          context?.authorization,
+        ),
+      reattach: async () => 'unavailable',
+    }),
+  );
+  const expiredReceipt = chat.eventStore.getSendCommand('expired-settings');
+  expect(
+    await invoke(
+      { sourceCommandId: 'expired-settings', confirmAmbiguous: false },
+      `/${sessionId}/codex-queue/retry`,
+    ),
+  ).toMatchObject({ status: 200 });
+  const retryId = queue.ordinarySdkRetryCommandId('expired-settings');
+  await vi.waitFor(() => expect(observedInputs).toEqual(['prepared-first-B', retryId]));
+  await vi.waitFor(() =>
+    expect(chat.eventStore.getSession(sessionId)?.executionPhase).toBe('TERMINAL'),
+  );
+  expect(chat.eventStore.getSendCommand('expired-settings')).toEqual(expiredReceipt);
+  const retryQueries = services.requests.length;
+  expect(
+    await invoke({ sourceCommandId: 'expired-settings' }, `/${sessionId}/codex-queue/retry`),
+  ).toMatchObject({ status: 200 });
+  expect(services.requests).toHaveLength(retryQueries);
   const continued = await invoke(
     {
       ...wire,
@@ -1876,8 +2304,11 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     },
     '/continue',
   );
-  expect(continued).toMatchObject({ status: 202, body: { state: 'consumed', sessionId } });
-  await vi.waitFor(() => expect(services.requests).toHaveLength(3));
+  expect(continued, JSON.stringify(continued.body)).toMatchObject({
+    status: 202,
+    body: { state: 'consumed', sessionId },
+  });
+  await vi.waitFor(() => expect(services.requests).toHaveLength(retryQueries + 1));
   await vi.waitFor(() =>
     expect(
       chat.eventStore.getExecutionTerminalReason(
@@ -1885,8 +2316,8 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       ),
     ).toBe('completed'),
   );
-  expect(services.requests[2].options.resume).toBe(sessionId);
-  expect(services.requests[2].options.model).toBe('future-C');
+  expect(services.requests[retryQueries].options.resume).toBe(sessionId);
+  expect(services.requests[retryQueries].options.model).toBe('future-C');
   expect(chat.eventStore.getSessionRuntimeBinding(sessionId)).toEqual(originalRuntime);
   expect(chat.eventStore.getSession(sessionId)?.accountBinding?.model).toBe('next-model');
   expect(chat.eventStore.getSessionEvents(sessionId).slice(0, originalHistory.length)).toEqual(
@@ -1896,7 +2327,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     status: 202,
     body: { state: 'consumed', dispatched: false, sessionId },
   });
-  expect(services.requests).toHaveLength(3);
+  expect(services.requests).toHaveLength(retryQueries + 1);
   expect(chat.eventStore.getOrdinaryLocalVertexCommandAdmission(wire.clientMsgId)).toEqual(
     originalReceipt,
   );
@@ -1911,7 +2342,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       })
     ).status,
   ).toBe(409);
-  expect(services.requests).toHaveLength(3);
+  expect(services.requests).toHaveLength(retryQueries + 1);
   expect(f.workspace.get(ready.id).binding.model).toBe('next-model');
   expect(f.workspace.get(ready.id).directory).toBe(claimed.directory);
   expect(f.workspace.get(ready.id).ordinaryPreparation).toEqual(claimed.ordinaryPreparation);
@@ -1930,7 +2361,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       '/continue',
     ),
   ).toMatchObject({ status: 202, body: { state: 'consumed', sessionId } });
-  await vi.waitFor(() => expect(services.requests).toHaveLength(4));
+  await vi.waitFor(() => expect(services.requests).toHaveLength(retryQueries + 2));
   await vi.waitFor(() =>
     expect(
       chat.eventStore.getExecutionTerminalReason(
@@ -1938,11 +2369,11 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       ),
     ).toBe('completed'),
   );
-  expect(services.requests[3].options.resume).toBe(sessionId);
-  expect(services.requests[3].options.model).toBe('future-C');
+  expect(services.requests[retryQueries + 1].options.resume).toBe(sessionId);
+  expect(services.requests[retryQueries + 1].options.model).toBe('future-C');
   expect(chat.eventStore.getSession(sessionId)?.accountBinding?.model).toBe('next-model');
   expect(chat.eventStore.getSessionRuntimeBinding(sessionId)).toEqual(originalRuntime);
-  expect(observedInputs).toEqual(['prepared-first-B', 'future-C', 'cold-future-C']);
+  expect(observedInputs).toEqual(['prepared-first-B', retryId, 'future-C', 'cold-future-C']);
   expect(f.workspace.get(ready.id).directory).toBe(claimed.directory);
 }, 20000);
 

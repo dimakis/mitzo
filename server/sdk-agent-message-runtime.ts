@@ -152,6 +152,26 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
   /** Called after asynchronous SDK authority checks and immediately before stdin yield.
    * Expected peer revocation/stale target drops only this unsubmitted correction.
    */
+  /** Only the ordinary queue owner's positive pre-input cancellation may retire
+   * an admitted idle peer without running its stopped-recipient dispatch guard. */
+  cancelInput(input: SDKUserMessage): void {
+    const commandId = (input as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId;
+    const retained = commandId && this.owners.events.agentCommunication.forCommand(commandId);
+    if (!retained) return;
+    const events = this.owners.events;
+    const execution = events.getExecutionAdmission(this.sessionId, commandId!);
+    if (
+      retained.message.recipientConversationId !== this.sessionId ||
+      !execution ||
+      events.getExecutionTerminalReason(execution.token) !== 'stopped' ||
+      events.getOrdinaryLocalVertexCommandAdmission(commandId!)?.state !== 'consumed' ||
+      events.getSendCommand(commandId!)?.error !== 'Cancelled before SDK dispatch' ||
+      events.getOrdinarySdkTurnEvents(this.sessionId, commandId!).length !== 0
+    )
+      throw Error('Original idle peer cancellation proof unavailable');
+    this.#ordinary.delete(commandId!);
+    events.agentCommunication.recordForHost(retained.message.messageId, 'failed', 'cancelled');
+  }
   beforeInput(input: SDKUserMessage, queryAvailable = true, query?: object): boolean | undefined {
     const userCorrection = this.userCorrections.beforeInput(input, queryAvailable, query);
     if (userCorrection !== undefined) return userCorrection;

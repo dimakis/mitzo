@@ -175,3 +175,65 @@ semantic TypeScript diagnostics under the server configuration. The full build
 remains hosted CI evidence because the earlier local build exhausted the
 prescribed1GiB heap. Source fingerprints and the runtime revision are updated
 for this reviewed delta. No live specialist, account or service was invoked.
+
+## Parallel composition with #1350, 14 November
+
+The retained published baseline is `9879cf7d2`, integrated against accepted
+`0ad803cd`: CI43607478432 passed all33 jobs and trusted Centaur review5905495499
+reported LGTM, recommendation merge, zero blockers/follow-ups and one verified
+resolved finding. Its required App-owned status succeeded. This evidence does
+not approve subsequent composition edits.
+
+Local preparation merges exact #1350 candidate
+`186807ceb3938352a37a7bc6e4477c9f3c65c68d`, including its legacy Retry UI correction,
+while retaining the assigned task branch and original histories. #1350 owns native
+positive selection, bounded Retry and coordination tools; this session does not
+reimplement those features. #1353 services and its accepted integration remain
+separate owned work. Actual landing order remains1350,1353,1342; no1342 turn or
+deployment authority is implied by this preparation.
+
+Six conflicted files were reconciled. The catalog and SDK bridge retain
+TaskExecution together with #1350's coordination/profile/session/scheduler tools.
+The original query's command authority and per-wire-name managed handler ceilings
+remain in force, including StartSession and TelosCreateSession. The final input
+fence runs the ordinary owner's positive Stop cancellation before the peer guard;
+valid steering retains the active command ceiling. Retry retains its canonical
+source, deterministic command identity and FIFO priority. Existing #1349 corrections
+and #1342 authorization replay/duration repairs remain present.
+
+The composition exposed an additional #1342 handoff defect: the canonical skill
+freezer reconstructed a prepared context from text/prompt, dropping an inherited
+allowedTools ceiling for a new derived command. It now captures the complete
+trusted prepared context through the existing ledger, preserving deny-all versus
+an absent legacy ceiling, including retained contexts with plain command text.
+No public restricted-skill execution is enabled: current direct/dependency
+restriction refusals remain tested. There is no new admission registry or store.
+
+Six freezer cases cover slash/plain text and absent/empty/Read ceilings, a later
+queued Write context, no latest-catalog read and detached input arrays. Before the
+fix five failed and one passed; all six pass after the fix. An actual SDK boundary
+case joins canonical derived admission/freezing to callbacks: Retry allows Read,
+refuses Write and the actual TaskExecution wire name, retires old callbacks and
+then applies the successor's independent deny-all ceiling. A widening control
+failed on an unexpected Write allowance and was removed.
+
+Local qualification uses one worker and a1GiB Node heap, synthetic providers and
+effects. The combined SDK journey suite passed22/22 in170.73s before the final
+freezer correction;216 focused checks passed, including the UI's legacy confirmed
+Retry, TaskExecution, native profile selection and coordination invocation. After
+joining the new SDK regression to the actual freezer, its two suites passed25/25.
+These counts overlap. Final affected SDK checks, source integrity and hooks are
+recorded in the ordinary delivery checkpoint. No rendered browser/device or live
+account/model/service qualification is claimed by these source/component tests.
+
+After the freezer fix, the four affected public Retry/preparation journeys passed
+again (36.61s); the other18 cases retain the full-suite result above. Design and
+coordination/messaging checks passed141 with one existing skip. The three SDK
+authority-refusal cases then passed after their expected registration list was
+updated to include the scheduler tools; their post-approval refusal assertions
+remain intact. Seven scoped source/test files have zero semantic TypeScript
+diagnostics. This is not a full repository typecheck/build. Source fingerprints
+were regenerated for runtime revision1165 and verified against the combined tree.
+
+Fresh combined-head CI, exact-head trusted integration review, required independent
+permission review and actual accepted1350/1353 composition remain landing gates.

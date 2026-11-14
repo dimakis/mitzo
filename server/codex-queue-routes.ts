@@ -33,6 +33,7 @@ interface Dependencies {
     sessionId: string,
     binding: AccountBinding,
     confirmAmbiguous: boolean,
+    context?: { sourceCommandId?: string; authorization?: AuthSession },
   ): Promise<
     'queued' | 'not_found' | 'unavailable' | 'too_early' | 'not_retryable' | 'confirmation_required'
   >;
@@ -161,7 +162,25 @@ export function createCodexQueueRouter(deps: Dependencies) {
       return;
     }
     try {
-      const result = await deps.retry(req.params.id, binding, req.body?.confirmAmbiguous === true);
+      const source = z
+        .string()
+        .min(1)
+        .max(200)
+        .regex(/^\S+$/)
+        .optional()
+        .safeParse(req.body?.sourceCommandId);
+      if (!source.success) {
+        res.status(400).json({ error: 'A valid original failed command is required.' });
+        return;
+      }
+      const authorization = res.locals.authSession as AuthSession | undefined;
+      const result =
+        source.data || authorization
+          ? await deps.retry(req.params.id, binding, req.body?.confirmAmbiguous === true, {
+              sourceCommandId: source.data,
+              authorization,
+            })
+          : await deps.retry(req.params.id, binding, req.body?.confirmAmbiguous === true);
       if (result === 'not_found') {
         res.status(409).json({ error: 'No failed turn is waiting to be retried.' });
         return;

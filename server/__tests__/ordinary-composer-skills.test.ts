@@ -85,6 +85,49 @@ it('replays the retained command ceiling without consulting a changed skill cata
     ),
   ).toThrow('Skill command changed');
 });
+it.each(
+  ['/restricted original task', 'captured derived task'].flatMap((text) =>
+    [undefined, [], ['Read']].map((allowedTools) => ({ text, allowedTools })),
+  ),
+)(
+  'freezes the original prepared Retry context (text=$text, ceiling=$allowedTools)',
+  ({ text, allowedTools }) => {
+    const store = new EventStore(':memory:');
+    cleanups.push(() => store.close());
+    const original = {
+      text,
+      prompt: 'Original captured instructions',
+      ...(allowedTools === undefined ? {} : { allowedTools }),
+    };
+    store.admitWithOrdinarySkillContext('chat', 'source', original, () =>
+      store.upsertSession({ sessionId: 'chat', cwd: '/task' }),
+    );
+    store.admitWithOrdinarySkillContext(
+      'chat',
+      'later-queued-command',
+      { text: '/later', prompt: 'Later instructions', allowedTools: ['Write'] },
+      () => {},
+    );
+    vi.spyOn(registries, 'buildSkillRegistry').mockImplementation(() => {
+      throw Error('Retry must not select the latest catalogue');
+    });
+    const prepared = store.getOrdinarySkillContext('chat', 'source')!;
+    const admit = vi.fn();
+    freezeOrdinarySkillCommand(
+      store,
+      { sessionId: 'chat', cwd: '/task' },
+      'retry',
+      { text },
+      admit,
+      prepared,
+    );
+    expect(admit).toHaveBeenCalledOnce();
+    expect(store.getOrdinarySkillContext('chat', 'retry')).toEqual(original);
+    prepared.allowedTools?.push('Write');
+    expect(store.getOrdinarySkillContext('chat', 'retry')).toEqual(original);
+    expect(store.getOrdinarySkillContext('chat', 'source')).toEqual(original);
+  },
+);
 it.each([null, 'Read', ['Read', 42], ['Bash(*)']])(
   'refuses invalid frozen ceiling %j before admission',
   (allowedTools) => {
