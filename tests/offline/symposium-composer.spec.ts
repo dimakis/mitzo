@@ -48,6 +48,7 @@ for (const theme of ['dark', 'light'])
       view.messages = [];
       const policies = structuredClone(view.policies);
       let writes = 0;
+      let observedMembership = 0;
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.route('**/*', async (route) => {
@@ -68,7 +69,10 @@ for (const theme of ['dark', 'light'])
               },
             },
           });
-        if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+        if (path.endsWith('/conversation')) {
+          observedMembership = view.membershipRevision;
+          return route.fulfill({ json: view });
+        }
         if (path.endsWith('/progress'))
           return route.fulfill({
             json: {
@@ -109,10 +113,20 @@ for (const theme of ['dark', 'light'])
       const picker = page.getByRole('button', { name: 'Choose who replies' });
       await expect(picker).toBeVisible();
       await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Keep this unsent draft.');
+      await page.getByRole('textbox', { name: 'Message Mitzo' }).evaluate((node) => {
+        (node as HTMLElement).dataset.retained = 'original';
+      });
       view.participantSessionIds = ['architect'];
       view.membershipRevision++;
       view.policies = policies.filter((policy) => policy.sessionId === 'architect');
-      await expect(picker).toBeHidden({ timeout: 7000 });
+      await expect.poll(() => observedMembership, { timeout: 7000 }).toBe(view.membershipRevision);
+      // The continuous shared composer retains its controls through singleton
+      // membership instead of switching to a different ordinary input.
+      await expect(picker).toBeVisible();
+      await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveAttribute(
+        'data-retained',
+        'original',
+      );
       view.participantSessionIds = ['architect', 'reviewer'];
       view.membershipRevision++;
       view.policies = policies.filter((policy) =>
@@ -123,6 +137,10 @@ for (const theme of ['dark', 'light'])
       await expect(page.getByText('Remote reply after rejoining.')).toBeVisible({ timeout: 7000 });
       await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
         'Keep this unsent draft.',
+      );
+      await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveAttribute(
+        'data-retained',
+        'original',
       );
       expect(writes).toBe(0);
       expect(errors).toEqual([]);
@@ -374,11 +392,14 @@ for (const theme of ['dark', 'light'])
       const input = page.getByRole('textbox', { name: 'Message Mitzo' });
       await input.fill('Review this exact discussion.');
       await page.getByRole('button', { name: 'Choose who replies' }).click();
+      await page.getByRole('checkbox', { name: 'Architect', exact: true }).uncheck();
       await page.getByRole('checkbox', { name: 'Reviewer', exact: true }).click();
       await page.getByRole('button', { name: 'Done choosing replies', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeFocused();
-      await expect(page.getByRole('button', { name: 'Choose who replies' })).toContainText(
-        'Reviewer',
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('');
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveAttribute(
+        'title',
+        'Replies: Reviewer',
       );
       await expect(
         page.getByText('Participant paused. Open it before sending.').first(),
@@ -487,8 +508,10 @@ for (const theme of ['dark', 'light'])
       await input.fill('Keep this draft while checking another recipient.');
       await page.getByRole('button', { name: 'Choose who replies' }).click();
       await page.getByRole('checkbox', { name: /reader/i }).click();
-      await expect(page.getByRole('button', { name: 'Choose who replies' })).toContainText(
-        'reader',
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('');
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveAttribute(
+        'title',
+        /reader/i,
       );
       await expect(send).toBeDisabled();
       await expect(input).toHaveValue('Keep this draft while checking another recipient.');
@@ -649,9 +672,7 @@ for (const theme of ['dark', 'light'])
       await picker.focus();
       await picker.press('Enter');
       await page.getByRole('button', { name: 'Defaults', exact: true }).click();
-      await expect(
-        page.getByRole('checkbox', { name: 'Current agent', exact: true }),
-      ).toBeChecked();
+      await expect(page.getByRole('checkbox', { name: 'Architect', exact: true })).toBeChecked();
       await expect(page.getByRole('checkbox', { name: 'Reviewer', exact: true })).toBeChecked();
       await page.getByRole('button', { name: 'Done choosing replies' }).click();
       await expect(picker).toBeFocused();

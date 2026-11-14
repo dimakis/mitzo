@@ -8,6 +8,8 @@ import {
   TelosWorkApiClient,
 } from '@mitzo/client';
 import { CollaborationTranscript } from '../CollaborationTranscript';
+import type { ChatAreaProps } from '../ChatArea';
+import type { FinishedMessage, StreamingMessage } from '@mitzo/protocol';
 import {
   sharedConversationView,
   sharedPrompt,
@@ -27,6 +29,198 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 const names = { architect: 'Architect', reviewer: 'Reviewer', reader: 'Reader' };
+const sourceChat = (
+  messages: FinishedMessage[],
+  current: StreamingMessage | null = null,
+): ChatAreaProps => ({
+  sessionId: 'architect',
+  messages,
+  current,
+  running: !!current,
+  permission: null,
+  onPermissionRespond: () => {},
+});
+const sourceStream = (commandId: string): StreamingMessage => ({
+  messageId: 'source-live',
+  replyToMessageId: commandId,
+  startedSeq: 1000,
+  blocks: new Map([
+    ['text', { blockId: 'text', blockType: 'text', content: 'Same visible body', done: false }],
+  ]),
+  blockOrder: ['text'],
+});
+
+it('suppresses a native delivery packet while retaining each operator body and projection identity', () => {
+  const view = sharedConversationView();
+  view.messages = [
+    { ...sharedPrompt, text: 'Earlier operator body' },
+    {
+      ...sharedPrompt,
+      messageId: uuid(80),
+      projectionId: uuid(81),
+      sequence: 2,
+      text: 'Latest operator body',
+    },
+  ];
+  const { container } = render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([
+          {
+            messageId: 'ordinary-architect',
+            role: 'user',
+            blocks: [
+              {
+                blockId: 'packet',
+                blockType: 'text',
+                content: 'Internal delivery instructions and discussion JSON',
+              },
+            ],
+          },
+        ])}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByText('Internal delivery instructions and discussion JSON')).toBeNull();
+  expect(screen.getAllByText('Earlier operator body')).toHaveLength(1);
+  expect(screen.getAllByText('Latest operator body')).toHaveLength(1);
+  expect(container.querySelectorAll(`[data-command-request="${uuid(3)}"]`)).toHaveLength(1);
+  expect(container.querySelectorAll(`[data-command-request="${uuid(81)}"]`)).toHaveLength(1);
+});
+
+it('anchors unfinished source reconciliation and tool-only messages after their shared command', () => {
+  const view = sharedConversationView();
+  view.messages = [sharedPrompt];
+  const finalized: FinishedMessage = {
+    messageId: sharedReply.source!.messageId,
+    replyToMessageId: sharedReply.source!.commandId,
+    role: 'assistant',
+    blocks: [{ blockId: 'text', blockType: 'text', content: sharedReply.text }],
+  };
+  const tool: FinishedMessage = {
+    messageId: 'tool-only',
+    replyToMessageId: 'ordinary-architect',
+    role: 'assistant',
+    blocks: [{ blockId: 'text', blockType: 'text', content: 'Retained ordinary tool observation' }],
+  };
+  const tree = () => (
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([tool, finalized])}
+      />
+    </MemoryRouter>
+  );
+  const { container, rerender } = render(tree());
+  const order = () => container.querySelector('.chat-messages')!.textContent!;
+  expect(order().indexOf(sharedPrompt.text)).toBeLessThan(
+    order().indexOf('Retained ordinary tool observation'),
+  );
+  expect(order().indexOf('Retained ordinary tool observation')).toBeLessThan(
+    order().indexOf(sharedReply.text),
+  );
+  view.messages.push(sharedReply);
+  rerender(tree());
+  expect(order().indexOf(sharedPrompt.text)).toBeLessThan(
+    order().indexOf('Retained ordinary tool observation'),
+  );
+  expect(order().indexOf('Retained ordinary tool observation')).toBeLessThan(
+    order().indexOf(sharedReply.text),
+  );
+  expect(screen.getAllByText(sharedReply.text)).toHaveLength(1);
+});
+
+it('deduplicates ordinary finished/live source echoes using command identity without collapsing equal reviewer text', () => {
+  const view = sharedConversationView();
+  view.messages = [view.messages[0]];
+  const progress = {
+    collaborationId: view.collaborationId,
+    membershipRevision: view.membershipRevision,
+    replies: [
+      {
+        projectionId: uuid(98),
+        sourceMessageId: 'source-live',
+        deliveryId: uuid(4),
+        sessionId: 'architect',
+        text: 'Same visible body',
+      },
+      {
+        projectionId: uuid(99),
+        sourceMessageId: 'source-live',
+        deliveryId: uuid(5),
+        sessionId: 'reviewer',
+        text: 'Same visible body',
+      },
+    ],
+    refusals: [],
+  };
+  const stream = sourceStream('ordinary-architect');
+  const tree = (ordinary: ChatAreaProps) => (
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={ordinary}
+        progress={progress}
+        names={names}
+      />
+    </MemoryRouter>
+  );
+  const h = render(tree(sourceChat([], stream)));
+  expect(screen.getAllByText('Same visible body')).toHaveLength(2);
+  expect(screen.getByLabelText('Message details for Architect')).toBeTruthy();
+  expect(screen.getByLabelText('Message details for Reviewer')).toBeTruthy();
+  // Ordinary finalization may precede the shared receipt. The old live sample
+  // must not duplicate a rich source body while the projection catches up.
+  h.rerender(
+    tree(
+      sourceChat([
+        {
+          messageId: stream.messageId,
+          replyToMessageId: stream.replyToMessageId,
+          role: 'assistant',
+          blocks: [{ blockId: 'text', blockType: 'text', content: 'Same visible body' }],
+        },
+      ]),
+    ),
+  );
+  expect(screen.getAllByText('Same visible body')).toHaveLength(2);
+  // Reusing a source message ID under another command is distinct work.
+  h.rerender(tree(sourceChat([], sourceStream('different-command'))));
+  expect(screen.getAllByText('Same visible body')).toHaveLength(3);
+});
+
+it('keeps ordinary prefix order and shared sequence order despite unrelated source cursors and timestamps', () => {
+  const view = sharedConversationView();
+  const prefix = {
+    messageId: 'prefix',
+    role: 'user' as const,
+    startedSeq: 9000,
+    timestamp: 999999,
+    blocks: [{ blockId: 'text', blockType: 'text' as const, content: 'Ordinary prefix' }],
+  };
+  const rich = {
+    messageId: sharedReply.source!.messageId,
+    replyToMessageId: sharedReply.source!.commandId,
+    role: 'assistant' as const,
+    startedSeq: 10000,
+    timestamp: 1,
+    blocks: [{ blockId: 'text', blockType: 'text' as const, content: sharedReply.text }],
+  };
+  const { container } = render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([prefix, rich])}
+        names={names}
+      />
+    </MemoryRouter>,
+  );
+  const text = container.querySelector('.chat-messages')!.textContent!;
+  expect(text.indexOf('Ordinary prefix')).toBeLessThan(text.indexOf(view.messages[0].text));
+  expect(text.indexOf(view.messages[0].text)).toBeLessThan(text.indexOf(sharedReply.text));
+  expect(screen.getAllByText(sharedReply.text)).toHaveLength(1);
+});
 it('attributes live visible text and preserves finalized answers beside a live source refusal', () => {
   const view = sharedConversationView();
   render(

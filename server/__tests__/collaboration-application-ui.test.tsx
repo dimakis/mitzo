@@ -89,14 +89,26 @@ it('sends first and later selected prompts from the production shared composer a
         <SharedConversationBody
           sourceConversationId="existing-chat"
           chat={{
-            messages: [],
+            messages: [
+              {
+                messageId: 'ordinary-history',
+                role: 'user',
+                blocks: [
+                  {
+                    blockId: 'text',
+                    blockType: 'text',
+                    content: 'Original discussion remains available.',
+                  },
+                ],
+              },
+            ],
             current: null,
             running: false,
             permission: null,
             onPermissionRespond: () => {},
           }}
         >
-          <p>Original discussion remains available.</p>
+          {null}
         </SharedConversationBody>
       </SharedConversationHost>
     </MemoryRouter>
@@ -110,6 +122,9 @@ it('sends first and later selected prompts from the production shared composer a
     );
     expect(runtime.requests).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    // The historical source has no live send owner. Explicitly address only
+    // the reviewer, preserving the new initial original-agent selection rule.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Current agent', exact: true }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Independent reviewer' }));
     fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
     const input = screen.getByRole('textbox', { name: 'Message Mitzo' });

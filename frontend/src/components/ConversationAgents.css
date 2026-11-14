@@ -1,4 +1,5 @@
-.conversation-participants-container {
+.conversation-participants-container,
+.workspace-controls:has(.conversation-agents-entry--named) {
   container-type: inline-size;
   container-name: conversation-participants;
   flex: none;
@@ -14,6 +15,16 @@
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
+}
+.conversation-agents-entry--named {
+  flex: 1;
+  /* Desktop retains both glyphs, two gaps and inline trigger padding. */
+  min-inline-size: calc(
+    2 * var(--space-6) + 2 * var(--icon-action-size) + 2 * var(--space-3) + 2 * var(--space-2)
+  );
+}
+.workspace-controls-heading:has(.conversation-agents-entry--named) {
+  flex-wrap: wrap;
 }
 .conversation-participants {
   flex: none;
@@ -413,6 +424,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Reserve the adjacent count inside the compact trigger's text track. Enlarged
+   text reflows the header actions instead of pushing them outside the viewport. */
+.conversation-agents-entry--named .conversation-participant-names {
+  min-inline-size: min(calc(2 * var(--space-6)), calc(100% - 2ch - var(--space-1)));
+}
 .conversation-participant-wide-count {
   flex: none;
   color: var(--color-muted);
@@ -488,6 +504,27 @@
   }
   .conversation-participants-trigger:not(.header-action) > svg:first-child,
   .conversation-participants-trigger small {
+    display: none;
+  }
+}
+
+/* The shared name track takes the ordinary metadata summary's place on phone;
+   settings and all header actions retain their existing controls and owners. */
+@media (max-width: 767px) {
+  .conversation-agents-entry--named {
+    min-inline-size: calc(2 * var(--space-6) + var(--control-height));
+  }
+  .workspace-controls-heading:has(.conversation-agents-entry--named) > .workspace-controls-context {
+    display: none;
+  }
+  .conversation-agents-entry--named .conversation-participants-trigger {
+    gap: var(--space-1);
+    padding-inline: 0;
+  }
+  .conversation-agents-entry--named .conversation-participants-trigger > svg:first-child {
+    display: block;
+  }
+  .conversation-agents-entry--named .conversation-participants-trigger > svg:last-child {
     display: none;
   }
 }

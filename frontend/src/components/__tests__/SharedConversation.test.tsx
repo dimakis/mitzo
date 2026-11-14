@@ -17,6 +17,7 @@ import {
   uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 import { ChatArea } from '../ChatArea';
+import { ChatInput } from '../ChatInput';
 import { installDialogStub } from './dialog-stub';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 
@@ -248,6 +249,7 @@ it('observes remote rejoining and its reply after the last other participant lea
   const view = sharedConversationView();
   view.messages = [];
   let progressFailure = false;
+  let singletonObserved = false;
   const policies = structuredClone(view.policies);
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
     expect(options?.method ?? 'GET').toBe('GET');
@@ -275,7 +277,10 @@ it('observes remote rejoining and its reply after the last other participant lea
         replies: [],
         refusals: [],
       });
-    if (url.endsWith('/conversation')) return Response.json(view);
+    if (url.endsWith('/conversation')) {
+      if (view.participantSessionIds.length === 1) singletonObserved = true;
+      return Response.json(view);
+    }
     throw Error('Unexpected observer request: ' + url);
   });
   const proof = () => 'login';
@@ -304,14 +309,12 @@ it('observes remote rejoining and its reply after the last other participant lea
       </SharedConversationHost>
     </MemoryRouter>,
   );
-  await screen.findByRole('button', { name: 'Choose who replies' });
+  const recipients = await screen.findByRole('button', { name: 'Choose who replies' });
   view.participantSessionIds = ['architect'];
   view.membershipRevision++;
   view.policies = policies.filter((policy) => policy.sessionId === 'architect');
-  await waitFor(
-    () => expect(screen.queryByRole('button', { name: 'Choose who replies' })).toBeNull(),
-    { timeout: 5000 },
-  );
+  await waitFor(() => expect(singletonObserved).toBe(true), { timeout: 5000 });
+  expect(screen.getByRole('button', { name: 'Choose who replies' })).toBe(recipients);
   progressFailure = true;
   await screen.findByText('Could not observe shared discussion', {}, { timeout: 5000 });
   expect(screen.getByText('Ordinary discussion remains available')).toBeTruthy();
@@ -381,7 +384,9 @@ it('mounts the retained shared transcript through the production wrapper while p
               Original ordinary history
             </div>
           }
-          ordinaryComposer={<button onClick={stop}>Stop source turn</button>}
+          ordinaryComposer={
+            <ChatInput sessionId="architect" onSend={() => false} onStop={stop} running={running} />
+          }
           chat={{
             messages: [],
             current: null,
@@ -401,10 +406,11 @@ it('mounts the retained shared transcript through the production wrapper while p
     expect(screen.getByRole('button', { name: 'Choose who replies' })).toBeTruthy(),
   );
   expect(screen.getByText('Original ordinary history')).toBeTruthy();
-  expect(scrollRef.current).toBe(screen.getByTestId('ordinary-history'));
+  expect(scrollRef.current?.classList.contains('chat-messages')).toBe(true);
+  expect(scrollRef.current?.contains(screen.getByTestId('ordinary-history'))).toBe(true);
   expect(fetch.mock.calls.some(([url]) => url.endsWith('/messages'))).toBe(false);
   rendered.rerender(surface(true));
-  fireEvent.click(screen.getByRole('button', { name: 'Stop source turn' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Stop original agent' }));
   expect(stop).toHaveBeenCalledOnce();
   expect(screen.getByText(view.messages[1].text)).toBeTruthy();
 });

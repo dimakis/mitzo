@@ -13,8 +13,13 @@ import {
 import { ChatStatusMessage, type ChatStatusAction } from './ChatStatusMessage';
 import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
+import { SharedConversationComposerContext } from '../lib/shared-conversation-composer';
+import { ChatInputMountContext } from '../lib/chat-input-mount';
+import { ChatInputStatusBridge } from './ChatInputHost';
+import { ActiveContext } from '../lib/composer-status-context';
 import {
   useState,
+  useContext,
   useRef,
   useEffect,
   useLayoutEffect,
@@ -80,6 +85,8 @@ interface Props {
   replyTarget?: MessageReplyContext;
   onClearReply?: () => void;
   responders?: ComposerResponderSelection;
+  /** This route can resolve its supplied refusal by changing recipients. */
+  recipientRecovery?: boolean;
   /** A retained delivery route may support text and voice but no attachments. */
   textOnly?: boolean;
   settings?: ReactNode;
@@ -97,6 +104,8 @@ interface Props {
     queuedCommandId?: string,
   ) => boolean;
   onStop: () => void;
+  /** Ordinary source operation, separate from a retained shared send's Stop. */
+  sourceStop?: () => void;
   onInterrupt?: (
     text: string,
     images?: ImageAttachment[],
@@ -138,6 +147,8 @@ interface Props {
   externalContextBlocks?: string[];
   onExternalContextBlockToggle?: (name: string) => void;
   tokenState?: TokenState;
+  /** Display label for this wheel's existing source usage, independent of reply recipients. */
+  tokenOwnerName?: string;
   collaboration?: ReactNode;
   compactions?: import('@mitzo/protocol').ContextCompaction[];
   compactionError?: string;
@@ -152,16 +163,62 @@ const EMPTY_MESSAGES: FinishedMessage[] = [];
 
 export function ChatInput(props: Props) {
   const sink = useComposerStatusSink();
+  const statusActive = useContext(ActiveContext);
+  const host = useContext(ChatInputMountContext);
+  const slot = useRef<HTMLDivElement>(null);
+  const shared = useContext(SharedConversationComposerContext);
+  const content = <ChatInputOwner {...props} />;
+  const mounted = host && host.sessionId === props.sessionId ? host : null;
+  const latestContent = useRef({ content, shared });
+  latestContent.current = { content, shared };
+  useLayoutEffect(() => {
+    if (mounted && slot.current)
+      return mounted.attach(
+        slot.current,
+        latestContent.current.content,
+        latestContent.current.shared,
+      );
+    // Updates publish separately; changing handlers must not detach the DOM.
+  }, [mounted]);
+  useLayoutEffect(() => {
+    if (mounted && slot.current) {
+      mounted.update(slot.current, content, shared);
+      mounted.updateStatus(slot.current, sink, statusActive);
+    }
+  });
+  return mounted ? (
+    <div className="chat-input-mount" ref={slot}>
+      <ChatInputStatusBridge target={slot} host={mounted} />
+    </div>
+  ) : (
+    content
+  );
+}
+
+function ChatInputOwner(props: Props) {
+  const sink = useComposerStatusSink();
+  const shared = useContext(SharedConversationComposerContext);
+  const routed =
+    shared && shared.sourceConversationId === props.sessionId
+      ? {
+          ...props,
+          ...shared.props,
+          // These are independent operation owners. A retained shared request
+          // (for example Reviewer's uncertain send) cannot hide source control.
+          sourceStop: props.running ? props.onStop : undefined,
+        }
+      : props;
   return sink ? (
-    <ChatInputContent {...props} />
+    <ChatInputContent {...routed} />
   ) : (
     <ComposerStatusProvider>
-      <ChatInputContent {...props} />
+      <ChatInputContent {...routed} />
     </ComposerStatusProvider>
   );
 }
 
 function ChatInputContent({
+  recipientRecovery = false,
   steeringTargetCommandId,
   replyTarget,
   onClearReply,
@@ -173,6 +230,7 @@ function ChatInputContent({
   interruptDisabledReason,
   onSend,
   onStop,
+  sourceStop,
   onInterrupt,
   running,
   awaitingApproval,
@@ -200,6 +258,7 @@ function ChatInputContent({
   externalContextBlocks,
   onExternalContextBlockToggle,
   tokenState,
+  tokenOwnerName,
   collaboration,
   compactions,
   compactionError,
@@ -412,6 +471,17 @@ function ChatInputContent({
     responders?.responders?.kind === 'selected'
       ? responders.responders.sessionIds
       : (responders?.selectedIds ?? []);
+  const responderTrigger = useRef<HTMLDivElement>(null);
+  const chooseResponders = () =>
+    responderTrigger.current?.querySelector<HTMLButtonElement>('button')?.click();
+  const needsRecipients =
+    !!responders &&
+    (!selectedResponderIds.length ||
+      selectedResponderIds.some(
+        (id) => !responders.members.some((m) => m.id === id && !m.unavailableReason),
+      ));
+  const retainedPayloadUnsupported =
+    textOnly && !!(images.length || activeContextBlocks.length || replyTarget);
   const sendDisabledReason =
     suppliedSendDisabledReason ??
     (respondersOpen ? 'Choose who replies, or close the picker to keep your draft.' : undefined) ??
@@ -424,8 +494,8 @@ function ChatInputContent({
     )
       ? 'A selected agent is unavailable. Choose who replies before sending.'
       : undefined) ??
-    (textOnly && (images.length || activeContextBlocks.length)
-      ? 'Remove attachments and context before sending through this conversation’s text-only route.'
+    (retainedPayloadUnsupported
+      ? 'This shared route supports text and reviewed prompt context. Remove retained attachments, ordinary context and reply quotes before sending.'
       : undefined) ??
     ((boundedFirstCommand || guardedConversation) && activeContextBlocks.length
       ? boundedFirstCommand
@@ -1565,7 +1635,19 @@ function ChatInputContent({
         />
       )}
       {queueError?.scope === composerScope && <ChatStatusMessage error={queueError.text} />}
-      <ChatStatusMessage status={sendDisabledReason} action={sendDisabledAction} />
+      <ChatStatusMessage
+        status={sendDisabledReason}
+        action={
+          needsRecipients &&
+          (!suppliedSendDisabledReason || recipientRecovery) &&
+          responders.maximum !== 1 &&
+          !responders.disabled
+            ? { label: 'Choose who replies', onClick: chooseResponders }
+            : retainedPayloadUnsupported && !suppliedSendDisabledReason
+              ? undefined
+              : sendDisabledAction
+        }
+      />
       <div className="chat-input-row">
         {replyTarget && (
           <div className="chat-reply-draft">
@@ -1604,13 +1686,15 @@ function ChatInputContent({
             }}
           >
             {responders && (
-              <ComposerResponders
-                selection={responders}
-                text={displayedText}
-                onTextChange={editText}
-                input={textareaRef}
-                onOpenChange={setRespondersOpen}
-              />
+              <div ref={responderTrigger}>
+                <ComposerResponders
+                  selection={responders}
+                  text={displayedText}
+                  onTextChange={editText}
+                  input={textareaRef}
+                  onOpenChange={setRespondersOpen}
+                />
+              </div>
             )}
             <ComposerTools
               onSchedule={
@@ -1704,9 +1788,21 @@ function ChatInputContent({
             )}
           </div>
           <div className="composer-actions">
+            {sourceStop && (
+              <button
+                type="button"
+                className="chat-input-btn chat-input-btn--stop"
+                aria-label="Stop original agent"
+                title="Stop original agent"
+                onClick={sourceStop}
+              >
+                <UiIcon name="stop" />
+              </button>
+            )}
             {tokenState && (
               <TokenBar
                 tokenState={tokenState}
+                ownerName={tokenOwnerName}
                 alwaysVisible
                 userTurns={messages.filter((message) => message.role === 'user').length}
               />

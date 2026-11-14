@@ -20,11 +20,12 @@ export type ComposerStatusSink = {
 };
 export const SinkContext = createContext<ComposerStatusSink | null>(null);
 export const ActiveContext = createContext(false);
-export const ViewContext = createContext<{
+export type ComposerStatusView = {
   notices: Map<string, ComposerNotice>;
   open: boolean;
   setOpen(open: boolean): void;
-} | null>(null);
+};
+export const ViewContext = createContext<ComposerStatusView | null>(null);
 
 export function useComposerStatusSink() {
   return useContext(SinkContext);

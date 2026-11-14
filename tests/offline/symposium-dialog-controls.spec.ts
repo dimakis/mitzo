@@ -46,6 +46,15 @@ for (const theme of ['dark', 'light'])
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.route('**/*', async (route) => {
       const path = new URL(route.request().url()).pathname;
+      // This POST is a canonical navigation read, not an inference/mutation.
+      // Keep its exact path, method and conversation scoped explicitly.
+      if (path === '/api/telos/work/links' && route.request().method() === 'POST') {
+        expect(route.request().postDataJSON()).toEqual({
+          namespace: 'mitzo',
+          conversationId: 'architect',
+        });
+        return route.fulfill({ json: [] });
+      }
       if (route.request().method() !== 'GET') mutations.push(path);
       if (path === '/api/auth/check')
         return route.fulfill({ json: { ok: true, authSessionId: 'offline-dialog-login' } });

@@ -1,10 +1,11 @@
 import {
   createContext,
-  cloneElement,
+  useCallback,
   isValidElement,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
   type ComponentProps,
@@ -35,6 +36,7 @@ import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
+import { SharedConversationComposerContext } from '../lib/shared-conversation-composer';
 
 const applicationApi = new MitzoApiClient(apiFetch);
 const EMPTY_CONTEXT: string[] = [];
@@ -101,10 +103,22 @@ function useSharedConversation({
     () => ({ api, sourceConversationId, clientId, authScope }),
     [api, sourceConversationId, clientId, authScope],
   );
+  const [sourceDisplay, setSourceDisplay] = useState<{ id: string; name: string }>();
+  const presentSourceName = useCallback(
+    (name: string) => {
+      setSourceDisplay((previous) =>
+        previous?.id === sourceConversationId && previous.name === name
+          ? previous
+          : { id: sourceConversationId, name },
+      );
+    },
+    [sourceConversationId],
+  );
   const [associationState, setAssociation] = useState<{
     owner: object;
     group?: string;
     begun?: boolean;
+    shared?: boolean;
     error?: string;
   }>({ owner });
   const association = associationState.owner === owner ? associationState : { owner };
@@ -135,7 +149,14 @@ function useSharedConversation({
           if (sessionStorage.getItem(key) !== group)
             throw Error('Could not retain this collaboration identity.');
         }
-        setAssociation({ owner, group, begun: setup.state === 'selected' });
+        setAssociation({
+          owner,
+          group,
+          begun: setup.state === 'selected',
+          shared:
+            setup.state === 'selected' &&
+            setup.collaboration.participantSessionIds.some((id) => id !== sourceConversationId),
+        });
         const id = 'shared:' + group;
         if (!getChatDraft(id)) {
           const draft = createChatDraft();
@@ -147,7 +168,7 @@ function useSharedConversation({
                 ...draft.settings,
                 collaborationResponders: {
                   collaborationId: group,
-                  responders: { kind: 'selected', sessionIds: [] },
+                  responders: { kind: 'selected', sessionIds: [sourceConversationId] },
                 },
               },
             })
@@ -222,10 +243,13 @@ function useSharedConversation({
   const names = useMemo(
     () =>
       Object.fromEntries([
-        [sourceConversationId, 'Current agent'],
+        [
+          sourceConversationId,
+          sourceDisplay?.id === sourceConversationId ? sourceDisplay.name : 'Current agent',
+        ],
         ...(view?.joinedParticipants?.map((p) => [p.sessionId, p.name]) ?? []),
       ]),
-    [sourceConversationId, view?.joinedParticipants],
+    [sourceConversationId, sourceDisplay, view?.joinedParticipants],
   );
   const promptContext = useConversationPromptContext({
     api,
@@ -260,7 +284,18 @@ function useSharedConversation({
     contextDisabledReason: promptContext.disabledReason,
     onAccepted: promptContext.consume,
   });
-  const active = !!view?.participantSessionIds.some((id) => id !== sourceConversationId);
+  const sharedMode = useRef({ sourceConversationId, active: false });
+  if (sharedMode.current.sourceConversationId !== sourceConversationId)
+    sharedMode.current = { sourceConversationId, active: false };
+  if (
+    association.shared ||
+    sending.pending ||
+    view?.joins.some((join) => join.state === 'linked') ||
+    view?.participantSessionIds.some((id) => id !== sourceConversationId)
+  )
+    sharedMode.current.active = true;
+  // Losing a participant cannot hand a retained operation back to ordinary send.
+  const active = sharedMode.current.active;
   const progress = useConversationProgress({
     api: api.collaborations,
     // Existing collaboration observation survives a temporary singleton. Its
@@ -272,6 +307,7 @@ function useSharedConversation({
   });
   return {
     sourceConversationId,
+    presentSourceName,
     presentation,
     sending,
     progress,
@@ -292,6 +328,12 @@ function useSharedConversation({
     joiningOwner,
     names,
     active,
+    resolving:
+      !!sourceConversationId &&
+      !!clientId &&
+      !!authScope &&
+      (!association.group || (association.begun && !view)) &&
+      !association.error,
     error: association.error,
     retry: () => {
       // Setup and the retained conversation read have different owners. Repeating
@@ -304,6 +346,12 @@ function useSharedConversation({
 
 export function SharedConversationAgents(props: ComponentProps<typeof ConversationAgents>) {
   const host = useContext(Context);
+  const presentSourceName =
+    host && host.sourceConversationId === props.scope ? host.presentSourceName : undefined;
+  const sourceName = props.agents.find((agent) => agent.id === props.scope)?.name;
+  useEffect(() => {
+    if (sourceName) presentSourceName?.(sourceName);
+  }, [presentSourceName, sourceName]);
   if (!host || host.sourceConversationId !== props.scope) return <ConversationAgents {...props} />;
   const { presentation, names } = host;
   const view = presentation.projection?.view;
@@ -330,6 +378,7 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
     <ConversationAgents
       {...props}
       agents={agents}
+      showParticipantNames={host.active || props.showParticipantNames}
       joiningOwner={host.joiningOwner}
       unavailableReason={host.error}
       policyUnavailableReason={
@@ -352,60 +401,139 @@ export function SharedConversationBody({
   children,
   ordinaryHistory,
   ordinaryComposer,
+  beforeTranscript,
+  ordinaryTools,
 }: {
   sourceConversationId: string;
   chat: ChatAreaProps;
   children: ReactNode;
   ordinaryHistory?: ReactNode;
   ordinaryComposer?: ReactNode;
+  beforeTranscript?: ReactNode;
+  ordinaryTools?: ReactNode;
 }) {
   const host = useContext(Context);
   const [sendFailure, setSendFailure] = useState<string>();
   if (!host || host.sourceConversationId !== sourceConversationId) return children;
-  if (!host.active)
-    return (
-      <>
-        {children}
-        <ChatStatusMessage
-          error={
-            host.error ??
-            (host.joiningOwner ? host.presentation.error : null) ??
-            host.progress.error
-          }
-          action={{ label: 'Refresh collaboration', onClick: host.retry }}
-        />
-      </>
-    );
   const { presentation, sending, progress, promptContext, forwarding, names } = host;
   const { draft, projection, composerResponders } = presentation;
   const canShare =
     !sending.pending && !promptContext.busy && !promptContext.attached && !forwarding.retained;
   const history =
     isValidElement<ChatAreaProps>(ordinaryHistory) && ordinaryHistory.type === ChatArea
-      ? cloneElement(ordinaryHistory, {
-          onShareMessage: host.shareMessage,
-          canShareMessage: () => canShare,
+      ? {
+          ...ordinaryHistory.props,
+          onShareMessage:
+            host.active && projection ? host.shareMessage : ordinaryHistory.props.onShareMessage,
+          canShareMessage: (message: ChatAreaProps['messages'][number]) =>
+            canShare &&
+            ordinaryHistory.props.messages.some((m) => m.messageId === message.messageId),
           shareInActions: true,
-        })
-      : ordinaryHistory;
+        }
+      : {
+          ...chat,
+          beforeMessages: (
+            <>
+              {chat.beforeMessages}
+              {ordinaryHistory}
+            </>
+          ),
+        };
+  const composer: ComponentProps<typeof ChatInput> = {
+    savedChatDraft: draft ?? undefined,
+    sessionId: draft?.id,
+    textOnly: true,
+    tokenOwnerName: names[sourceConversationId] ?? 'Original agent',
+    boundedFirstCommand: true,
+    guardedConversation: false,
+    recipientRecovery: !sending.pending && !presentation.error,
+    validateSend: undefined,
+    onInterrupt: undefined,
+    running: !!sending.pending,
+    onStop: () => void sending.stop(),
+    collaboration: (
+      <ConversationPromptContextButton flow={promptContext} disabled={!!sending.pending} />
+    ),
+    responders: composerResponders
+      ? {
+          ...composerResponders,
+          iconOnly: true,
+          members: composerResponders.members.map((member) => ({
+            ...member,
+            name: names[member.id] ?? member.name,
+          })),
+          disabled: !!sending.pending || composerResponders.disabled,
+        }
+      : undefined,
+    sendDisabledReason: presentation.error ?? sending.disabledReason,
+    sendDisabledAction: {
+      label: sending.pending ? 'Check original request' : 'Refresh conversation',
+      onClick: () => {
+        if (sending.pending) void sending.check();
+        else {
+          void presentation.refresh();
+          void sending.check();
+        }
+      },
+    },
+    onSend: (text, images, context, delivered) => {
+      if (images?.length || context?.length || sending.disabledReason) return false;
+      setSendFailure(undefined);
+      void sending.send(text).then(
+        (ok) => delivered?.(ok ? 'accepted' : 'failed'),
+        (cause) => {
+          setSendFailure(
+            cause instanceof Error
+              ? cause.message
+              : 'Could not send this prompt. Your draft is retained.',
+          );
+          delivered?.('failed');
+        },
+      );
+      return true;
+    },
+  };
+  // Never move the ordinary input or change its draft/session key on joining.
+  // Only this context's dispatch controls change; source.running cannot own them.
+  const routing = { ...composer };
+  delete routing.savedChatDraft;
+  delete routing.sessionId;
   return (
-    <>
-      {history ?? children}
-      {projection && (
+    <SharedConversationComposerContext.Provider
+      value={
+        host.active
+          ? { sourceConversationId, props: routing }
+          : host.resolving || host.error
+            ? {
+                sourceConversationId,
+                props: {
+                  sendDisabledReason: host.error ?? 'Checking discussion recipients…',
+                  sendDisabledAction: host.error
+                    ? { label: 'Refresh collaboration', onClick: host.retry }
+                    : undefined,
+                },
+              }
+            : null
+      }
+    >
+      {beforeTranscript}
+      {ordinaryComposer || ordinaryHistory || host.active ? (
         <CollaborationTranscript
-          {...chat}
-          scrollRef={undefined}
-          current={null}
-          currentByMessage={{}}
-          running={false}
-          permission={null}
-          onPermissionRespond={() => {}}
-          projection={projection}
+          {...history}
+          ordinary={{ ...history, sessionId: sourceConversationId }}
+          projection={host.active ? (projection ?? undefined) : undefined}
           progress={progress.progress}
           names={names}
-          beforeMessages={undefined}
-          afterMessages={undefined}
           onRefresh={() => void presentation.refresh()}
+        />
+      ) : (
+        children
+      )}
+      {ordinaryTools}
+      {!host.active && (
+        <ChatStatusMessage
+          error={host.error ?? (host.joiningOwner ? presentation.error : null) ?? progress.error}
+          action={{ label: 'Refresh collaboration', onClick: host.retry }}
         />
       )}
       {forwarding.retained && (
@@ -432,83 +560,32 @@ export function SharedConversationBody({
           unavailable: projection.view.unavailableParticipantSessionIds.includes(id),
         }))}
       />
-      {chat.running && ordinaryComposer
-        ? ordinaryComposer
-        : draft && (
-            <div className="conversation-composer">
-              {promptContext.attached && (
-                <div className="conversation-joining-context" role="status">
-                  <small>Reviewed context attached: {promptContext.form.purpose}</small>
-                  <button
-                    type="button"
-                    disabled={!!sending.pending || promptContext.busy}
-                    onClick={promptContext.remove}
-                  >
-                    Remove prompt context
-                  </button>
-                </div>
-              )}
-              <ChatInput
-                savedChatDraft={draft}
-                sessionId={draft.id}
-                textOnly
-                boundedFirstCommand
-                externalContextBlocks={EMPTY_CONTEXT}
-                running={!!sending.pending}
-                onStop={() => void sending.stop()}
-                collaboration={
-                  <ConversationPromptContextButton
-                    flow={promptContext}
-                    disabled={!!sending.pending}
-                  />
-                }
-                responders={
-                  composerResponders
-                    ? {
-                        ...composerResponders,
-                        members: composerResponders.members.map((member) => ({
-                          ...member,
-                          name: names[member.id] ?? member.name,
-                        })),
-                        disabled: !!sending.pending,
-                      }
-                    : undefined
-                }
-                sendDisabledReason={presentation.error ?? sending.disabledReason}
-                sendDisabledAction={{
-                  label: sending.pending ? 'Check original request' : 'Refresh conversation',
-                  onClick: () => {
-                    void presentation.refresh();
-                    void sending.check();
-                  },
-                }}
-                onSend={(text, images, context, delivered) => {
-                  if (images?.length || context?.length || sending.disabledReason) return false;
-                  setSendFailure(undefined);
-                  void sending.send(text).then(
-                    (ok) => delivered?.(ok ? 'accepted' : 'failed'),
-                    (cause) => {
-                      setSendFailure(
-                        cause instanceof Error
-                          ? cause.message
-                          : 'Could not send this prompt. Your draft is retained.',
-                      );
-                      delivered?.('failed');
-                    },
-                  );
-                  return true;
-                }}
-              />
-            </div>
-          )}
+      {ordinaryComposer ??
+        (host.active && draft && (
+          <div className="conversation-composer">
+            {promptContext.attached && (
+              <div className="conversation-joining-context" role="status">
+                <small>Reviewed context attached: {promptContext.form.purpose}</small>
+                <button
+                  type="button"
+                  disabled={!!sending.pending || promptContext.busy}
+                  onClick={promptContext.remove}
+                >
+                  Remove prompt context
+                </button>
+              </div>
+            )}
+            <ChatInput {...composer} externalContextBlocks={EMPTY_CONTEXT} />
+          </div>
+        ))}
       {sending.error && <p role="alert">{sending.error}</p>}
-      {progress.error && <p role="alert">{progress.error}</p>}
+      {host.active && progress.error && <p role="alert">{progress.error}</p>}
       {sending.pending && (sending.stopStatus || sending.pending.stopRequested) && (
         <p role="status">
           {sending.stopStatus ?? 'Stop was requested. Check the original request; do not resend.'}
         </p>
       )}
       {sendFailure && <p role="alert">{sendFailure}</p>}
-    </>
+    </SharedConversationComposerContext.Provider>
   );
 }

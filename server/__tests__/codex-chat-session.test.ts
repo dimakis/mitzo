@@ -691,6 +691,40 @@ it('rechecks the pending source after intervening dispatch callbacks at the fina
   }
 });
 
+it('resolves a later shared command observer on the existing ordinary native owner', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const observers = new Map();
+  const lifecycle = { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() };
+  const chat = await openCodexChat({
+    ...options(new AbortController()),
+    ordinaryTurnLifecycleForCommand: (id) => observers.get(id),
+  });
+  const controls = mocks.conversationOptions as unknown as {
+    onProviderDispatch(id: string): void;
+    onProviderAccepted(id: string, thread: string, turn: string): void;
+    onProviderTerminal(id: string, turn: string, status: 'completed'): void;
+  };
+  observers.set('later-shared-command', lifecycle);
+  controls.onProviderDispatch('ordinary-command');
+  expect(lifecycle.beforeDispatch).not.toHaveBeenCalled();
+  controls.onProviderDispatch('later-shared-command');
+  controls.onProviderAccepted('later-shared-command', 'original-thread', 'later-turn');
+  controls.onProviderTerminal('later-shared-command', 'later-turn', 'completed');
+  expect(lifecycle.beforeDispatch).toHaveBeenCalledWith('later-shared-command');
+  expect(lifecycle.accepted).toHaveBeenCalledWith(
+    'later-shared-command',
+    'original-thread',
+    'later-turn',
+  );
+  expect(lifecycle.terminal).toHaveBeenCalledWith(
+    'later-shared-command',
+    'later-turn',
+    'completed',
+  );
+  chat.close();
+});
+
 it.each([false, true])(
   'forwards ordinary provider receipts alongside retained context (%s) without treating close as termination',
   async (withContext) => {
