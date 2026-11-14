@@ -346,3 +346,18 @@ qualification must begin in a MGMT-like root and prove actual next-turn executio
 after adoption, including the retained profile, source/base, dirty-work,
 denial/cancellation/revocation and uncertain-receipt controls. This is a source
 assessment and retained delivery dependency, not an implementation or test result.
+
+Historical-path clarification: the authority constraints above describe the newer
+`PrepareLocalRepository` integration, not every way Vertex could previously work
+in repositories. Historical SDK startup already used `createSessionWorktrees`
+and passed `buildOnDemandCreate` into its permission handler (verified in
+`f7fd876a3` and pre-`69d77ac9b` source). On a first write into a configured
+secondary repository, `checkWorktreePolicy` could create its isolated worktree,
+add it to `session.worktreePaths` and return the worktree path for retry in the
+same chat. SDK native Bash/Read/Write/Edit then operated there. Existing
+`PrepareRepositoryChat` instead explicitly prepares a separate conversation.
+No dedicated Vertex-only repository tool has been identified in this assessment,
+and the exact route of the user's historical success is not yet established.
+Before selecting a repair, trace this existing worktree mechanism through current
+SDK authority and workspace admission; the missing newer managed adapter alone
+does not prove the older working workflow requires that adapter or a new backend.
