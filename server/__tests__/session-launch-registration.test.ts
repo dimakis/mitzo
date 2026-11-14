@@ -7,7 +7,7 @@ it('publishes StartSession on the ordinary owned Local Codex route', () => {
   expect(tool).toMatchObject({
     id: 'mitzo:StartSession',
     behavior: 'write',
-    routes: ['codex-owned-local'],
+    routes: ['codex-owned-local', 'claude-sdk'],
   });
   expect(sessionLaunchDefinitions[0].description).toContain('pending');
 });

@@ -194,5 +194,6 @@ it('keeps listings read-only and makes task and session tools selectable across 
       'local-api',
       'codex',
       'codex-owned-local',
+      ...(name === 'TaskExecution' ? [] : ['claude-sdk']),
     ]);
 });

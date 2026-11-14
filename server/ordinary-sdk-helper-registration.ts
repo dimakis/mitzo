@@ -9,6 +9,10 @@ const connectionHelpers: readonly string[] = Object.freeze([
   'SymposiumConsult',
   'SymposiumProposeProfile',
   'AgentCommunication',
+  'StartSession',
+  'SchedulePrompt',
+  'SessionTimers',
+  'SendSessionMessage',
   'TelosCreateSession',
   'CaptureMemoryCandidate',
 ]);

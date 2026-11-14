@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { TelosCreateSessionInputSchema } from '@mitzo/protocol';
-import { sessionLaunchTools } from './session-launch-tools.js';
-import { telosSessionLaunchDefinition } from './telos-session-launch-tool.js';
+import { StartSessionInputSchema, TelosCreateSessionInputSchema } from '@mitzo/protocol';
+import { sessionLaunchTools, sessionLaunchDefinitions } from './session-launch-tools.js';
 import { learningToolSchemas, learningToolDefinitions } from './session-learning-tools.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
@@ -45,6 +44,7 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  StartSession: StartSessionInputSchema,
   TelosCreateSession: TelosCreateSessionInputSchema,
   AgentCommunication: AgentCommunicationSdkInput,
   ...sessionPromptSchemas,
@@ -146,7 +146,7 @@ export function createCredentialSdkServer(
           ]
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
-      ...(boundary ? [telosSessionLaunchDefinition] : []),
+      ...(boundary ? sessionLaunchDefinitions : []),
     ]).map((definition) =>
       tool(
         definition.name,
@@ -189,7 +189,11 @@ export function createCredentialSdkServer(
                     ],
                     isError: true,
                   };
-                if (definition.name === 'TelosCreateSession' && authority) {
+                if (
+                  (definition.name === 'StartSession' ||
+                    definition.name === 'TelosCreateSession') &&
+                  authority
+                ) {
                   await authority.assertCurrent(signal);
                   const result = await sessionLaunchTools({
                     sessionId: id,
@@ -207,7 +211,7 @@ export function createCredentialSdkServer(
                         (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
                       ),
                     },
-                    'TelosCreateSession',
+                    definition.name,
                   );
                   await authority.assertCurrent(signal);
                   return {

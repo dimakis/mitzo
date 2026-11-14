@@ -83,6 +83,7 @@ it.each(['async', 'sync', 'wrapped'] as const)(
       'SessionTimers',
       'SendSessionMessage',
       'CaptureMemoryCandidate',
+      'StartSession',
       'TelosCreateSession',
     ]);
     const operation = sdk.handlers.get('SymposiumProposeProfile')!(
