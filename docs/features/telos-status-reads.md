@@ -9,8 +9,12 @@ tokens remain exact and usable by the existing guarded mutation owners.
 
 `truncatedFields` names every excerpted field/list. Counts describe the actual
 read snapshot; `updatesInFullReadWindow` counts the existing recent-update window,
-not all historical updates. Assignment and lifecycle history are omitted with
-their counts. Missing runtime evidence stays unknown. No history, metadata or
+not all historical updates. Assignment history is summarized per role by known
+conversation count and the canonical completeness flag; it is not an event count.
+Unavailable assignment-history evidence is explicitly null/unknown. Lifecycle
+history is counted in SQLite without fetching event bodies. Historical identities
+and event bodies are omitted and named in `truncatedFields`.
+Missing runtime evidence stays unknown. No history, metadata or
 assignment is rewritten, and the read starts no work or approval.
 
 The response supplies an explicit `details` request with `view: full`. That view,
@@ -30,3 +34,9 @@ Telos links establish work responsibility and delegated creation/control scope.
 Ordinary peer messaging remains independently authorized and does not require a
 shared Telos family. An independent audit chat does not need adoption to message
 another eligible operator-owned chat.
+
+Oversized mutation requests still meet the existing 10,000-character permission
+display limit. A refusal before display retains `invalid_input`, approval phase,
+`not_started` and the fixed size-limit explanation through the backlog and SDK
+adapters. It creates no card and applies no edit. The original request is never
+silently shortened to gain approval.
