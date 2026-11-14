@@ -3,16 +3,23 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { createMitzoStore, MitzoApiClient, type WebSocketLike } from '@mitzo/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
-import { SharedConversationHost } from '../../frontend/src/components/SharedConversation';
+import {
+  SharedConversationHost,
+  SharedConversationAgents,
+} from '../../frontend/src/components/SharedConversation';
 import { SymposiumConversation } from '../../frontend/src/components/SymposiumConversation';
 import { ChatInputHost } from '../../frontend/src/components/ChatInputHost';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
+import { WorkspaceControls } from '../../frontend/src/components/WorkspaceControls';
+import { SessionAccess } from '../../frontend/src/components/SessionAccess';
+import { UiIcon } from '../../frontend/src/components/UiIcon';
 import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/workspace-chat.css';
 import '../../frontend/src/styles/home.css';
+import '../../frontend/src/styles/header-actions.css';
 
 const store = createMitzoStore({
   transport: { fetch: (url, init) => fetch(url, init) },
@@ -65,6 +72,38 @@ function Surface() {
         >
           <ChatInputHost sessionId="architect">
             <main className="chat-page workspace-chat">
+              <WorkspaceControls
+                scopeKey="architect"
+                title="Ordinary chat"
+                agent="Architect"
+                status="Ready"
+                settings={<p>Retained conversation settings</p>}
+                leading={
+                  <button type="button" className="chat-top-action" aria-label="Back to chats">
+                    <UiIcon name="back" />
+                  </button>
+                }
+                trailing={
+                  <button type="button" className="chat-top-action" aria-label="New chat">
+                    <UiIcon name="edit" />
+                  </button>
+                }
+                actions={
+                  <>
+                    <SharedConversationAgents
+                      compact
+                      scope="architect"
+                      messages={messages}
+                      agents={[
+                        { id: 'architect', name: 'Architect', state: 'Current conversation' },
+                      ]}
+                    />
+                    <SessionAccess sessionId="architect" connected />
+                  </>
+                }
+              >
+                {null}
+              </WorkspaceControls>
               <SymposiumConversation
                 key={desktop ? 'desktop' : 'phone'}
                 sessionId="architect"

@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1159-symposium-conversation-review';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1160-symposium-header-reflow';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -42,9 +41,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-turn-observers.test.ts':
     '28f2c17c6080bdd3357a1a9085d29e1c9e08aa4d9e467c338ca5e31a089b182b',
   '../../tests/fixtures/symposium-ordinary-surface.tsx':
-    '0102c4afb4155713c54e8cef15b0ba16c91b675b42d245e420592d8134381573',
+    '4999c16ebccde4b86fddd91a965ccb5e672b3a14228a19ce2b4ceead819e5e8a',
   '../../tests/offline/symposium-ordinary-surface.spec.ts':
-    '0cd508186a76a90ed8acf484fead64d3f86623ddfe72214bebec1e3fcf5dd363',
+    '3ae691a87c3691d9151d4312b4f74c110e252729a36be98f8cef515383cd8b0c',
   '../telos-sdk-definitions.ts': 'f3b20b90e8f1bea646ab32847b592ce0736f662e1e6b26b094ec8396f9469871',
   '../telos-sdk-tools.ts': 'afa964a613c14f32c89a5238246cc5ca92f84e454061b011042e1e2760ee70b8',
   '../__tests__/telos-sdk-tools.test.ts':
@@ -1156,7 +1155,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '571c301305df453eccebba1626f3acd53985e792b53dadab30da0fa4ba3d8ecf',
+    'f23f4846500025c4db04690d941335079fb2543fd0a82a34a679c32d37d1a2eb',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
@@ -2352,7 +2351,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.tsx':
     '2bacb2f1b075f0731ddb271694425b50a786aedb051297d05761f2e2b4e2d4e3',
   '../../frontend/src/components/ConversationAgents.css':
-    '7406806aa6277a4a91760927c0c8d8922dad0e57c776b97aa47c79372c1cc367',
+    'aca82ef1b7b130ec1ce202705deb2999911922f6676eec320c4cb370deae8a0b',
   '../../frontend/src/components/ComposerResponders.tsx':
     'b4bd7467859874c67e8bdac851ddc94cd71f9b4abfcf4ca7fd3437775c71be36',
   '../../frontend/src/components/ComposerResponders.css':

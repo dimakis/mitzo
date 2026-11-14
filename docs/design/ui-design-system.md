@@ -1784,6 +1784,8 @@ action. On phone the named trigger takes the former metadata summary's space;
 settings retain those details. The bot, back, access, settings and new-chat controls
 keep their owners and touch targets. The existing name/count container rules reserve
 the readable source-name track and collapse additional names at narrow widths.
+At enlarged text sizes the existing heading actions wrap within the chat width;
+the compact name track reserves room for the adjacent participant count.
 This restores the approved `symposium-fresh-agent` surface using existing controls
 and tokens; it introduces no new visual theme or dispatch authority. See
 [slice 1 evidence](../evidence/symposium-integrated-conversation-2026-11-14.md).
