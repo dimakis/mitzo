@@ -20,7 +20,7 @@ shared ordinary/runtime/navigation owners remain outside this candidate.
 - Symposium participation first failed at the ordinary-only compatibility check,
   then passed through the existing source-visibility policy. All seven store
   tests pass, retaining denied ordinary runtime/item-read authority.
-- Final combined owner run passed **136 tests in seven files**: canonical work
+- Combined owner run at d349acd passed **136 tests in seven files**: canonical work
   store, lifecycle, role setup, team, authenticated routes and both client suites.
   Earlier 134-test and seven-test runs overlap this result, not additional checks.
 - A real canonical writer holding uncommitted item work reproduced a 503 on team
@@ -28,6 +28,11 @@ shared ordinary/runtime/navigation owners remain outside this candidate.
   a schema writer. Cold missing team layouts still initialize through the existing
   canonical owner; busy/corrupt/incompatible reads never retry as writers. The
   regression failed before the fix and passes on the final combined source.
+- A later cleanup regression reproduced loss of the primary read cause when
+  closing a failed reader also threw. The correction retains both causes through
+  the existing bounded diagnostic owner, returns the original safe failure and
+  refuses writer fallback. All **47 affected team/API checks pass** afterward,
+  overlapping the broader 136-test run; full CI remains pending.
 - Protocol/client package compilation passed. Scoped ESLint, formatting and
   source-artifact verification passed. A selected server semantic check exceeded
   the prescribed 1 GiB heap and aborted; it is not a passing check, and the heap
@@ -81,4 +86,4 @@ formal assignment, Symposium without grants, replacement/stale route, unlink
 replay after later changes/unavailability, reopen and revision-bound pages.
 Fixture/evidence source: #1359 successor53017ec92d79eba8e77927fca0677b5ef1c6ae86.
 That exact-source qualification does not include this PR's later HTTP read-only
-opener correction, full UI or workflow acceptance.
+opener/cleanup corrections, full UI or workflow acceptance.

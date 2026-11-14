@@ -18,6 +18,8 @@ Warm HTTP team reads use the canonical read-only opener and can return committed
 team state while another writer has uncommitted work. Only a missing additive
 team layout initializes through the canonical schema owner; unavailable or
 incompatible readers do not retry as writers.
+If closing a failed reader also fails, retain both causes and return the original
+read failure without opening a writer.
 
 Roles are orchestrator, feature lead, slice owner, investigator, implementer,
 reviewer, merge agent and contributor. Each owner role has one current holder per
