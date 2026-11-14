@@ -13,6 +13,8 @@ import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { createTelosWorkFixtures } from './fixtures/telos-work-fixtures.js';
 import { TelosWorkError, TelosWorkStore } from '../telos-work-store.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
+import { TelosWorkApiClient } from '@mitzo/client';
+import * as telosFailure from '../telos-operation-failure.js';
 
 const diagnostics = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('../logger.js', async (original) => {
@@ -74,6 +76,110 @@ async function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>
   return { app: server, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  it('delivers explicit membership through the actual client/router and replays an exact lost reply', async () => {
+    const f = await setup();
+    const address = f.app.address();
+    if (!address || typeof address === 'string') throw new Error('Expected loopback address');
+    const api = new TelosWorkApiClient((path, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set('x-operator', 'authenticated');
+      return fetch(`http://127.0.0.1:${address.port}${path}`, { ...init, headers });
+    });
+    expect((await request(f.app).get('/api/telos/work/items/item/team')).status).toBe(403);
+    const empty = await api.readTeam('item');
+    expect(empty.members).toEqual([]);
+    const input = {
+      itemId: 'item',
+      requestId: 'team-exact',
+      expectedRevision: empty.revision,
+      operation: 'link' as const,
+      conversationId: 'chat',
+      displayName: 'Fixture owner',
+      role: 'slice_owner' as const,
+      responsibility: 'Deliver this slice',
+      reportsToMembershipId: null,
+    };
+    const linked = await api.teamCommand(input);
+    expect(linked.team.members[0].displayName).toBe('Fixture owner');
+    await expect(api.teamCommand({ ...input, requestId: 'competing' })).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
+    const replaced = await api.teamCommand({
+      ...input,
+      operation: 'replace',
+      requestId: 'replacement',
+      expectedRevision: linked.team.revision,
+      membershipId: linked.team.members[0].membershipId,
+      conversationId: 'unrelated',
+      displayName: 'Fixture successor',
+    });
+    expect(replaced.team.members.map((member) => member.state)).toEqual(['former', 'current']);
+    expect(await api.teamCommand(input)).toEqual(linked);
+    const unlinked = await api.teamCommand({
+      operation: 'unlink',
+      itemId: 'item',
+      requestId: 'unlink',
+      expectedRevision: replaced.team.revision,
+      membershipId: replaced.team.members[1].membershipId,
+    });
+    expect(unlinked.team.members.every((member) => member.state === 'former')).toBe(true);
+    expect((await f.read()).body.assignments).toEqual([]);
+    expect(
+      (
+        await request(f.app)
+          .post('/api/telos/work/team/commands')
+          .set('x-operator', 'authenticated')
+          .send({ ...input, actor: { kind: 'operator', id: 'forged' } })
+      ).status,
+    ).toBe(400);
+  });
+
+  it('keeps team storage failures visible through HTTP/client and retains diagnostic sink failures', async () => {
+    const f = await setup();
+    const address = f.app.address();
+    if (!address || typeof address === 'string') throw new Error('Expected loopback address');
+    const api = new TelosWorkApiClient((path, init) =>
+      fetch(`http://127.0.0.1:${address.port}${path}`, {
+        ...init,
+        headers: { 'x-operator': 'authenticated' },
+      }),
+    );
+    const failure = Object.assign(new Error('private SQL and storage path'), {
+      code: 'SQLITE_BUSY',
+    });
+    vi.spyOn(TelosWorkStore.prototype, 'readTeam').mockImplementation(() => {
+      throw failure;
+    });
+    await expect(api.readTeam('item')).rejects.toMatchObject({
+      status: 503,
+      code: 'unavailable',
+      message: 'Telos work service unavailable',
+    });
+    expect(diagnostics.warn).toHaveBeenCalledWith(
+      'Telos work operation failed',
+      expect.objectContaining({
+        operation: 'team_read',
+        phase: 'execute_operation',
+        reason: 'sqlite_busy',
+        errorCode: 'SQLITE_BUSY',
+        requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    );
+    const diagnosticCause = new Error('diagnostic sink failed');
+    const retained = vi
+      .spyOn(telosFailure, 'retainTelosDiagnosticFailure')
+      .mockImplementation(() => {});
+    diagnostics.warn.mockImplementationOnce(() => {
+      throw diagnosticCause;
+    });
+    await expect(api.readTeam('item')).rejects.toMatchObject({ status: 503, code: 'unavailable' });
+    expect(retained).toHaveBeenCalledWith(
+      failure,
+      diagnosticCause,
+      expect.objectContaining({ stage: 'execute_operation', operation: 'team_read' }),
+    );
+  });
   it.each([false, true])(
     'preserves the operation response when closing fails (operation failed: %s)',
     async (failOperation) => {

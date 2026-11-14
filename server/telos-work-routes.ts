@@ -1,4 +1,5 @@
 import { TelosCollectionWakeupRequired } from './telos-snooze.js';
+import { createHash } from 'node:crypto';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import {
@@ -15,25 +16,41 @@ import {
   TelosWorkLifecycleCommandSchema,
   TelosWorkLifecycleListSchema,
   TelosRecordsInputSchema,
+  TelosTeamCommandSchema,
 } from '@mitzo/protocol';
 import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
 import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import { createLogger } from './logger.js';
-import { describeTelosOperationFailure } from './telos-operation-failure.js';
+import {
+  describeTelosOperationFailure,
+  retainTelosDiagnosticFailure,
+} from './telos-operation-failure.js';
 
 const log = createLogger('telos-work');
-function reportWorkFailure(error: unknown, phase: string, operation: string, sessionId?: string) {
+function reportWorkFailure(
+  error: unknown,
+  phase: string,
+  operation: string,
+  sessionId?: string,
+  requestHash?: string,
+) {
   try {
     log.warn('Telos work operation failed', {
       code: 'telos_work_unavailable',
       phase,
       operation,
       ...(sessionId ? { sessionId } : {}),
+      ...(requestHash ? { requestHash } : {}),
       ...describeTelosOperationFailure(error),
     });
-  } catch {
-    // Diagnostics must not replace the original operation's response.
+  } catch (diagnosticCause) {
+    retainTelosDiagnosticFailure(error, diagnosticCause, {
+      stage: phase,
+      operation,
+      sessionId,
+      requestHash,
+    });
   }
 }
 
@@ -81,6 +98,7 @@ export function createTelosWorkRouter(options: {
     res: Response,
     action: (store: TelosWorkStore) => unknown,
     mode: 'write' | 'record' | 'lifecycle' | 'collection' = 'write',
+    diagnostic?: { operation: string; requestHash: string },
   ) => {
     let store: TelosWorkStore | undefined;
     let phase = 'open_storage';
@@ -119,7 +137,14 @@ export function createTelosWorkRouter(options: {
           : error instanceof z.ZodError
             ? 400
             : 503;
-      if (status >= 500) reportWorkFailure(error, phase, mode);
+      if (status >= 500)
+        reportWorkFailure(
+          error,
+          phase,
+          diagnostic?.operation ?? mode,
+          undefined,
+          diagnostic?.requestHash,
+        );
       res.status(status).json({
         code: known ? error.code : status === 400 ? 'invalid' : 'unavailable',
         error: known
@@ -134,7 +159,13 @@ export function createTelosWorkRouter(options: {
       try {
         store?.close();
       } catch (error) {
-        reportWorkFailure(error, 'close_storage', mode);
+        reportWorkFailure(
+          error,
+          'close_storage',
+          diagnostic?.operation ?? mode,
+          undefined,
+          diagnostic?.requestHash,
+        );
       }
     }
   };
@@ -187,6 +218,52 @@ export function createTelosWorkRouter(options: {
     }
     return authority;
   };
+  const teamDiagnostic = (operation: string, identity: string) => ({
+    operation,
+    requestHash: createHash('sha256').update(identity).digest('hex'),
+  });
+  router.get('/api/telos/work/items/:itemId/team', options.operatorAuth, (req, res) => {
+    const authority = lifecycleActor(res);
+    if (!authority) return;
+    const itemId = TelosWorkIdSchema.safeParse(req.params.itemId);
+    if (!itemId.success) {
+      res.status(400).json({ code: 'invalid', error: 'Invalid work item ID' });
+      return;
+    }
+    run(
+      res,
+      (store) => store.readTeam(itemId.data, authority),
+      'write',
+      teamDiagnostic('team_read', itemId.data),
+    );
+  });
+  router.post(
+    '/api/telos/work/team/commands',
+    options.operatorAuth,
+    requireSameOriginJson,
+    (req, res) => {
+      const authority = lifecycleActor(res);
+      if (!authority) return;
+      const input = TelosTeamCommandSchema.safeParse(req.body);
+      if (!input.success) {
+        res.status(400).json({ code: 'invalid', error: 'Invalid team command' });
+        return;
+      }
+      run(
+        res,
+        (store) =>
+          store.executeTeam(input.data, authority, () => {
+            if (!isAuthSessionCurrent(res.locals.authSession as AuthSession))
+              throw new TelosWorkError('unauthorized', 'Current interactive operator required');
+          }),
+        'write',
+        teamDiagnostic(
+          'team_' + input.data.operation,
+          input.data.itemId + ':' + input.data.requestId,
+        ),
+      );
+    },
+  );
   router.get('/api/telos/work/items/:itemId/lifecycle', options.operatorAuth, (req, res) => {
     const authority = lifecycleActor(res);
     if (!authority) return;

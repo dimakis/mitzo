@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/client/src/__tests__/telos-work-team-api.test.ts':
+    'f5f06b764f82313cbc7e27af74c82cafbed38b34aaa5da414d9c63026eff9fea',
   '../../packages/protocol/src/telos-work-team.ts':
     '59cc8b2253885eeca8bdeec5aaef8f2834b63fda4be8af8345a259a722ffff43',
   '../__tests__/telos-work-team.test.ts':
@@ -2305,9 +2307,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'adc7e78171eeca4a19feccce8823024fa5b4d58ec87d1221c90cfa29cd08c7aa',
   '../telos-work-conversation.ts':
     '6abc340f3236812d9e9875e8a60944590575d991e95ccaf3f2b61aff323c5175',
-  '../telos-work-routes.ts': 'de239bc12f1a39629a9e92ce22c7a2f7233d4ff9fca46ddbf02fb2d486f3caa7',
+  '../telos-work-routes.ts': 'e28173d5b522d008d0cd412632bf06c6906a2a9c6f9288b20c42cc2981f3a54f',
   '../../packages/client/src/telos-work-api.ts':
-    '59f80b2ef68f2c1cac294f6d9f5d29e89ffc062025a3aa40e98c0da8136d048a',
+    '9ed6a275becdc3084307d01b6c5ee65084ec7989e4ccb9bca2fc18668f2bb1d8',
   '../telos-work-schema.ts': '6c9406ceec10bee8bf13f57c7b7f6e003805ee58071bdda8f5cc4c0738cd62e4',
   '../telos-work-store.ts': '7740e38c417dbd173e7c3c0d529b365a7d9e150ec61ad72e3dbf147b49412563',
   '../../packages/protocol/src/telos-work-api.ts':
@@ -4175,7 +4177,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-backlog.test.ts':
     'e682d8e975298dd997b05183e6b676cefe9fd9944f229cee1f2f6f235237f32e',
   '../__tests__/telos-work-routes.test.ts':
-    'cfaf066893f9c150dc986585bc27f7f29e8f19c51491957460938ca7d547a039',
+    'd4179583a6e5e985c8cd573550db4d6900b9b856741568046a7e0b381c5ffb6b',
   '../telos-backlog-tools.ts': 'e4577776c46ee0ab27bcaf3e2e105e53e5117f744f947a073c156548895de360',
   '../../tests/offline/telos-outcomes-workspace.spec.ts':
     'c01a12965a4e4679fee8b053959e717614c35899649ff1996eaff8d80746db0b',
