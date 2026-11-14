@@ -16,6 +16,11 @@ import {
   getPendingRequestsBySession,
 } from '@mitzo/harness';
 import { buildSessionPermissionHooks } from '../session-permission-policy.js';
+import {
+  agentToolAllowed,
+  assertAgentToolRoute,
+  bindAgentToolSelection,
+} from '../agent-tool-selection.js';
 
 // Real Bash tool execution with canned Messages responses, entirely on loopback.
 // Synthetic API auth substitutes only for inference: no real model or login.
@@ -32,6 +37,7 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
     { provider: 'vertex-like', mode: 'auto', decision: 'automatic', allowed: true },
     { provider: 'personal-policy', mode: 'auto', decision: 'automatic', allowed: true },
     { provider: 'enmaas-like', mode: 'auto', decision: 'automatic', allowed: true },
+    { provider: 'vertex-like', mode: 'auto', decision: 'selection-excluded', allowed: false },
     { provider: 'vertex-like', mode: 'ask', decision: 'automatic', allowed: false },
     { provider: 'personal-policy', mode: 'agent', decision: 'once', allowed: true },
     { provider: 'vertex-like', mode: 'agent', decision: 'deny', allowed: false },
@@ -174,12 +180,25 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
         .get('native-fixture')!
         .worktreePaths.set('repo', { path: cwd, wtId: 'native-fixture' });
     if (decision === 'restricted-skill') setSkillPolicy(registry, 'native-fixture', ['Read']);
+    const session = registry.get('native-fixture')!;
+    if (mode === 'auto') {
+      const definition = {
+        tools: (decision === 'selection-excluded'
+          ? ['Read']
+          : ['Bash', 'Read', 'Write', 'Edit']
+        ).map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+      } as never;
+      expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+      bindAgentToolSelection(session, definition, 'claude-sdk');
+    }
     const sharedDecision = buildPermissionHandler('native-fixture', registry, {
       assertCurrentSync() {
         if (!current) throw Error('Synthetic account/workspace authority revoked');
       },
     });
     const decide: typeof sharedDecision = (name, input, options) => {
+      if (!agentToolAllowed(session, name))
+        return Promise.resolve({ behavior: 'deny', message: 'Tool is not selected.' });
       const personal =
         provider === 'personal-policy'
           ? claudePersonalToolPermission(name, input, cwd, config)

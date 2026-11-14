@@ -570,6 +570,42 @@ export class EventStore {
       });
     });
   }
+  /** The pre-input cancellation owner proved this exact failed input never ran.
+   * Keep its error/consumed receipt; ordinary derived sources still reject errors. */
+  withOrdinaryUnsentSdkRetryContext<T>(
+    sessionId: string,
+    sourceCommandId: string,
+    operation: (assertSourceCurrent: () => void) => T,
+  ): T {
+    return this.contextTransitions.withAdmissionLock(() => {
+      this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+      const source = this.getSendCommand(sourceCommandId)!;
+      const receipt = this.getOrdinaryLocalVertexCommandAdmission(sourceCommandId);
+      const execution = this.getExecutionAdmission(sessionId, sourceCommandId);
+      const epoch = this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0;
+      const assertSourceCurrent = () => {
+        this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+        const current = this.getSendCommand(sourceCommandId)!;
+        if (
+          !execution ||
+          receipt?.state !== 'consumed' ||
+          current.error !== 'Cancelled before SDK dispatch' ||
+          this.getExecutionTerminalReason(execution.token) !== 'abandoned' ||
+          this.getOrdinarySdkTurnEvents(sessionId, sourceCommandId).length !== 0 ||
+          (this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0) !== epoch ||
+          !isDeepStrictEqual(current, source) ||
+          !isDeepStrictEqual(this.getOrdinaryLocalVertexCommandAdmission(sourceCommandId), receipt)
+        )
+          throw Error('Original SDK pre-input cancellation proof unavailable');
+      };
+      assertSourceCurrent();
+      return this.withOrdinaryContextAdmission(sessionId, epoch, () => {
+        const result = operation(assertSourceCurrent);
+        assertSourceCurrent();
+        return result;
+      });
+    });
+  }
   private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
     scope: OrdinaryCommandWireScope;
     assertCurrentSync: () => void;
@@ -3986,6 +4022,18 @@ export class EventStore {
   /** Read a durable execution admission receipt without consulting transport state. */
   getExecutionAdmission(sessionId: string, clientMsgId: string): ExecutionAdmission | undefined {
     return this.executionLedger.getExecutionAdmission(sessionId, clientMsgId);
+  }
+
+  /** Identity of the current execution, independent of later queued settings. */
+  getCurrentExecutionCommandId(sessionId: string): string | undefined {
+    const meta = this.getSession(sessionId);
+    if (!meta?.executionId || !meta.executionGeneration) return;
+    return (
+      this.db!.prepare(
+        'SELECT client_msg_id FROM execution_admissions WHERE session_id=? AND execution_id=? AND generation=?',
+      ).get(sessionId, meta.executionId, meta.executionGeneration) as
+        { client_msg_id: string } | undefined
+    )?.client_msg_id;
   }
 
   /** Positive pre-input cancellation evidence, not an inference from missing
