@@ -1184,6 +1184,10 @@ it.each([
       vi.spyOn(ClaudeSubscriptionCustody.prototype, 'verify').mockResolvedValue();
     }
     const history: string[] = [];
+    let acknowledgeColdInput!: () => void;
+    const coldInputObserved = new Promise<void>((resolve) => {
+      acknowledgeColdInput = resolve;
+    });
     let holdNext = true;
     let finish: (() => void) | undefined;
     let releaseAccount!: () => void;
@@ -1207,6 +1211,7 @@ it.each([
           for await (const input of request.prompt) {
             if (closed) return;
             history.push(input.mitzoMessageId);
+            if (input.mitzoMessageId === 'cold-before-first-input') acknowledgeColdInput();
             yield {
               type: 'user',
               uuid: `input-${input.mitzoMessageId}`,
@@ -1360,9 +1365,8 @@ it.each([
         payload: { text: 'Continue the same checkout after first-input cancellation' },
       });
       expect(recovered.status, JSON.stringify(recovered.body)).toBe(202);
-      await vi.waitFor(() =>
-        expect(history).toEqual(['queued-development', 'cold-before-first-input']),
-      );
+      await coldInputObserved;
+      expect(history).toEqual(['queued-development', 'cold-before-first-input']);
       await vi.waitFor(() =>
         expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'),
       );
@@ -1514,6 +1518,10 @@ it('a qualified preparation A starts model B on its original checkout and exact 
   const claim = vi.spyOn(f.workspace, 'claimReservedHostTask');
   let deferSettingsClose = false;
   let settingsCloseWaiting = false;
+  let acknowledgeSettingsClose!: () => void;
+  const settingsCloseObserved = new Promise<void>((resolve) => {
+    acknowledgeSettingsClose = resolve;
+  });
   let releaseSettingsClose!: () => void;
   const observedInputs: string[] = [];
   services.query.mockImplementation((request) => {
@@ -1527,6 +1535,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
         if (deferSettingsClose) {
           settingsCloseWaiting = true;
           releaseSettingsClose = () => process.emit('close', 0, null);
+          acknowledgeSettingsClose();
         } else process.emit('close', 0, null);
       },
       interrupt: vi.fn(),
@@ -1729,7 +1738,17 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     },
     '/continue',
   );
-  await vi.waitFor(() => expect(settingsCloseWaiting).toBe(true));
+  cleanups.push(() => {
+    deferSettingsClose = false;
+    releaseSettingsClose?.();
+  });
+  await Promise.race([
+    settingsCloseObserved,
+    expiredSettings.then(() => {
+      throw Error('Settings preparation completed before its deferred close checkpoint');
+    }),
+  ]);
+  expect(settingsCloseWaiting).toBe(true);
   expect(chat.eventStore.getSession(sessionId)?.executionPhase).toBe('RUNNING');
   expireSettings();
   deferSettingsClose = false;
