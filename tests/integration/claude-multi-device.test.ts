@@ -62,6 +62,7 @@ beforeEach(resetOfflineUserEnvironment);
 afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   services.query.mockReset();
 });
@@ -146,6 +147,12 @@ it.each([
     const address = server.address();
     if (!address || typeof address === 'string') throw Error('Private offline listener required');
     const origin = `http://127.0.0.1:${address.port}`;
+    const localFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', ((input, init) => {
+      if (!String(input).startsWith(`${origin}/`))
+        throw Error('No external network in this fixture');
+      return localFetch(input, init);
+    }) satisfies typeof fetch);
     cleanups.push(async () => {
       hold = false;
       finish?.();
@@ -247,16 +254,78 @@ it.each([
     expect(
       parsed.flatMap((result) => result.messagesActions).some((action) => action.type === 'ERROR'),
     ).toBe(false);
-    // Opening and navigating never command a second provider query or move execution.
+    // A second executor cannot cold-resume the active provider, even for the
+    // authorized operator. The existing runtime remains the only command owner.
+    const { OrdinaryLocalVertexOwnedRuntime } =
+      await import('../../server/ordinary-local-vertex-owned-runtime.js');
+    const competingDispatch = vi.fn(async () => {});
+    const competing = new OrdinaryLocalVertexOwnedRuntime({
+      enabled: true,
+      eventStore: chat.eventStore,
+      library: f.library,
+      workspace: f.workspace,
+      reservation: f.reservation,
+      commandId: `competing-${id}`,
+      operatorConnectionId: mobile.connectionId,
+      signal: new AbortController().signal,
+      env: f.dependencies.env,
+      dispatch: competingDispatch,
+    });
+    try {
+      await expect(
+        competing.admitResume({ ...f.request, clientMsgId: `competing-${id}` }),
+      ).rejects.toThrow();
+      expect(competingDispatch).not.toHaveBeenCalled();
+      expect(chat.eventStore.getSendCommand(`competing-${id}`)).toBeUndefined();
+    } finally {
+      competing.close();
+    }
+    expect(retained.session.abortController.signal.aborted).toBe(false);
+    // Use the installed SDK permission callback and actual replay consumer.
+    const { getPendingRequestsBySession, hasPending } = await import('../../server/permissions.js');
+    const permission = queries[0].canUseTool!(
+      'Bash',
+      { command: 'pwd' },
+      {
+        signal: retained.session.abortController.signal,
+        toolUseID: `tool-${id}`,
+      },
+    );
+    await vi.waitFor(() => expect(getPendingRequestsBySession(id)).toHaveLength(1));
+    const card = getPendingRequestsBySession(id)[0];
+    const permId = card.permId;
+    // Opening, navigation and iOS background hints do not move the live driver.
     await mobile.post('/api/chat/switch', { type: 'switch_session', sessionId: null });
     await mobile.post('/api/chat/switch', { type: 'switch_session', sessionId: id });
-    const { registerPending, hasPending } = await import('../../server/permissions.js');
-    const decide = vi.fn();
-    const permId = `approval-${id}`;
-    registerPending(permId, 'Bash', decide, { command: 'pwd' }, undefined, id);
-    cleanups.push(async () => {
-      (await import('../../server/permissions.js')).removePending(permId);
+    await mobile.post('/api/chat/suspend', {
+      type: 'session_suspend',
+      sessions: [{ sessionId: id, lastSeq: 0 }],
+      lifecycleRevision: 1,
     });
+    await mobile.post('/api/chat/reconnect', {
+      type: 'reconnect',
+      sessions: [{ sessionId: id, lastSeq: 0 }],
+      lifecycleRevision: 2,
+    });
+    expect(chat.registry.isSuspended(retained.clientId)).toBe(false);
+    expect(retained.session.ownerConnectionId).toBe(desktop.connectionId);
+    await vi.waitFor(() =>
+      expect(mobile.events).toContainEqual(
+        expect.objectContaining({ type: 'session_switched', pendingPermissions: [card] }),
+      ),
+    );
+    const replay = mobile.events.find(
+      (event) =>
+        event.type === 'session_switched' && (event.pendingPermissions as unknown[])?.length,
+    )!;
+    expect(
+      parseServerMessage(
+        replay as WsMsg,
+        { currentSessionId: id },
+        { onSessionAssigned() {}, onSessionExpired() {} },
+        id,
+      ).messagesActions,
+    ).toContainEqual({ type: 'PERMISSION_SNAPSHOT', permissions: [card] });
     expect(
       await mobile.post('/api/chat/permission', {
         type: 'permission_response',
@@ -265,8 +334,16 @@ it.each([
         decision: 'once',
       }),
     ).toMatchObject({ status: 200 });
-    expect(decide).toHaveBeenCalledOnce();
+    expect(await permission).toMatchObject({ behavior: 'allow', updatedInput: { command: 'pwd' } });
     expect(hasPending(permId)).toBe(false);
+    expect(
+      await desktop.post('/api/chat/permission', {
+        type: 'permission_response',
+        sessionId: id,
+        permId,
+        decision: 'once',
+      }),
+    ).toMatchObject({ status: 409 });
     const queued = {
       ...wire,
       sessionId: id,
@@ -325,6 +402,10 @@ it.each([
     );
     // A fresh transport/login can replay, including after its old connection cleans up.
     mobile.controller.abort();
+    await vi.waitFor(() => expect(connections.get(mobile.connectionId)).toBeUndefined());
+    expect(await mobile.post('/api/chat/stop', { type: 'stop', sessionId: id })).toMatchObject({
+      status: 404,
+    });
     const renewed = await client();
     expect(
       await renewed.post('/api/chat/reconnect', {
@@ -340,6 +421,16 @@ it.each([
     const count = queries.length;
     expect(await renewed.post('/api/chat/runtime/continue', queued)).toMatchObject({ status: 202 });
     expect(queries).toHaveLength(count);
+    const { SignJWT } = await import('jose');
+    const foreign = await new SignJWT({ sub: 'another-operator' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setJti('foreign-operator')
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(new TextEncoder().encode(process.env.AUTH_SECRET!));
+    expect(
+      await renewed.post('/api/chat/stop', { type: 'stop', sessionId: id }, foreign),
+    ).toMatchObject({ status: 401 });
     // Cold reopening is observational. Explicit Send resumes the retained SDK
     // session/account/workspace after terminal proof, preserving immutable custody.
     chat.registry.findBySessionId(id)!.session.ordinaryRuntimeOwner!.close();

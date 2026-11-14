@@ -37,7 +37,7 @@ export async function continueOwnedLocalVertexQueue(
   if (
     !owner?.sdkTurns ||
     !ordinaryOperatorOwnsConversation(owner.authSessionId, authorization?.id) ||
-    captured.auth.id !== authorization.id
+    captured.auth.id !== authorization?.id
   )
     throw unavailable();
   await owner.sdkTurns.resumeQueue();
