@@ -208,6 +208,9 @@ function snapshotDecisionInput(input: Record<string, unknown>) {
 
 export interface PermissionHandlerOptions {
   onDemandCreate?: OnDemandCreateFn;
+  /** Recheck the existing caller/account/workspace owner before allowing a tool
+   * or retaining its approval. The adapter owns these facts, not the card. */
+  assertCurrentSync?(): void;
 }
 
 export function buildPermissionHandler(
@@ -319,6 +322,48 @@ export function buildPermissionHandler(
     const onDecision = originalOptions.onDecision;
     const originalInput = _toolInput;
     const originalSignal = originalOptions.signal;
+    const approvalSignals = new Set([originalSignal, session.abortController.signal]);
+    const approvalSignal = AbortSignal.any([...approvalSignals]);
+    const cancelled = (): ApprovalPermissionResult => ({
+      behavior: 'deny',
+      message: 'Tool approval cancelled because the operation was aborted',
+      failure: toolFailure('cancelled', 'approval', 'not_started'),
+    });
+    const authorityRefusal = (): ApprovalPermissionResult | undefined => {
+      if (approvalSignal.aborted)
+        return approvalSignal.reason instanceof ApprovalExpiredError
+          ? expiredApprovalResult()
+          : cancelled();
+      try {
+        const result: unknown = handlerOpts?.assertCurrentSync?.();
+        if (result !== undefined) {
+          void Promise.resolve(result).catch((error: unknown) => {
+            log.warn('Asynchronous tool authority check rejected', {
+              err: error,
+              sessionId: session.sessionId,
+              toolName,
+              toolUseID: originalOptions.toolUseID,
+              stage: 'approval_authority',
+              code: 'tool_approval_authority_async_rejected',
+            });
+          });
+          throw Error('Tool authority check must finish synchronously');
+        }
+      } catch (error) {
+        log.warn('Original tool authority changed during permission check', {
+          err: error,
+          sessionId: session.sessionId,
+          toolName,
+          code: 'tool_approval_authority_changed',
+        });
+        return {
+          behavior: 'deny',
+          message: 'Original tool authority is no longer current; retry under current permissions',
+        };
+      }
+    };
+    const initialRefusal = authorityRefusal();
+    if (initialRefusal) return initialRefusal;
     const originalToolUseID = originalOptions.toolUseID;
     const originalControlPlane = originalOptions.controlPlane;
     const originalSessionId = session.sessionId;
@@ -518,6 +563,8 @@ export function buildPermissionHandler(
     // The mode may have changed while the worktree check was awaiting I/O.
     const deniedAfterWorktree = askDenial();
     if (deniedAfterWorktree) return deniedAfterWorktree;
+    const afterWorktreeRefusal = authorityRefusal();
+    if (afterWorktreeRefusal) return afterWorktreeRefusal;
     if (!nativeScopeCurrent())
       return { behavior: 'deny', message: 'Original approval scope changed' };
     if (!observationCurrent())
@@ -609,8 +656,9 @@ export function buildPermissionHandler(
       };
 
     const pending = new Promise<PermissionResult>((resolve) => {
-      if (originalSignal.aborted || !nativeScopeCurrent()) {
-        resolve({ behavior: 'deny', message: 'Aborted' });
+      const pendingRefusal = authorityRefusal();
+      if (pendingRefusal || !nativeScopeCurrent()) {
+        resolve(pendingRefusal ?? { behavior: 'deny', message: 'Original approval scope changed' });
         return;
       }
 
@@ -624,6 +672,8 @@ export function buildPermissionHandler(
       const revalidateAllow = (result: PermissionResult): PermissionResult => {
         try {
           if (result.behavior !== 'allow') return result;
+          const refusal = authorityRefusal();
+          if (refusal) return refusal;
           const activeClient = currentClientId();
           const modeDenial = askDenial();
           if (!nativeScopeCurrent())
@@ -667,7 +717,7 @@ export function buildPermissionHandler(
         settled = true;
         clearTimeout(timeout);
         clearTimeout(notificationTimer);
-        originalSignal.removeEventListener('abort', onAbort);
+        for (const signal of approvalSignals) signal.removeEventListener('abort', onAbort);
         untrackScope();
         result = revalidateAllow(result);
         if (onDecision && result.behavior === 'allow') {
@@ -730,20 +780,13 @@ export function buildPermissionHandler(
       const onAbort = () => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          const expired = originalSignal.reason instanceof ApprovalExpiredError;
+          const expired = approvalSignal.reason instanceof ApprovalExpiredError;
           removePending(permId, expired ? 'expired' : 'cancelled');
-          wrappedResolve(
-            expired
-              ? expiredApprovalResult()
-              : {
-                  behavior: 'deny',
-                  message: 'Tool approval cancelled because the operation was aborted',
-                  failure: toolFailure('cancelled', 'approval', 'not_started'),
-                },
-          );
+          wrappedResolve(expired ? expiredApprovalResult() : cancelled());
         }
       };
-      originalSignal.addEventListener('abort', onAbort, { once: true });
+      for (const signal of approvalSignals)
+        signal.addEventListener('abort', onAbort, { once: true });
 
       const approvalScope =
         opts.approvalScope ?? (opts.allowSessionGrant === false ? 'request' : 'session');

@@ -1,4 +1,5 @@
 import { createLogger } from './logger.js';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import { constants, openSync, closeSync, fstatSync, readSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
@@ -111,13 +112,15 @@ export class TelosMainPublicationRuntime {
     if (active === this) active = undefined;
     this.selection.close();
   }
-  bindContext<T extends NativeMainPublicationCall>(context: T): T {
+  bindContext<
+    T extends Pick<NativeMainPublicationCall, 'signal' | 'assertCurrentSync' | 'conversationId'>,
+  >(context: T): T {
     const assertCurrentSync = () => {
       if (active !== this) throw unavailable();
       this.retired.signal.throwIfAborted();
       const result: unknown = context.assertCurrentSync();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'backlog-authority', context);
         throw unavailable();
       }
     };
@@ -128,7 +131,12 @@ export class TelosMainPublicationRuntime {
       assertCurrentSync,
     });
   }
-  bindNativeContext(context: NativeHostToolContext): NativeHostToolContext {
+  bindNativeContext<
+    T extends Pick<
+      NativeHostToolContext,
+      'signal' | 'assertCurrentSync' | 'assertCurrent' | 'conversationId'
+    >,
+  >(context: T): T {
     const scoped = this.bindContext(context);
     return Object.freeze({
       ...scoped,
@@ -179,7 +187,7 @@ export class TelosMainPublicationRuntime {
         throw unavailable();
       const result: unknown = assertion();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'item-authority', { conversationId: sessionId });
         throw unavailable();
       }
     };
@@ -235,7 +243,7 @@ export class TelosMainPublicationRuntime {
       this.retired.signal.throwIfAborted();
       const result: unknown = context.assertCurrentSync();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'backlog-authority', context);
         throw unavailable();
       }
     };
@@ -287,10 +295,16 @@ export class TelosMainPublicationRuntime {
       }
     }
   }
-  async withArtifacts<T>(
-    context: NativeHostToolContext,
+  async withArtifacts<
+    T,
+    Context extends Pick<
+      NativeHostToolContext,
+      'signal' | 'assertCurrentSync' | 'assertCurrent' | 'conversationId' | 'operatorId'
+    >,
+  >(
+    context: Context,
     operation: (owners: {
-      context: NativeHostToolContext;
+      context: Context;
       artifacts: TelosArtifactStore;
       work: TelosWorkStore;
       sources: TelosSourceCapture;

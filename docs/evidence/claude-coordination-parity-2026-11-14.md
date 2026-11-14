@@ -63,6 +63,22 @@ Claude and Vertex. The unrelated `RequestWebAccess` route restriction remains co
 This is a consumer-test correction; the runtime sources and reviewed pins are unchanged.
 The correction still requires its own hosted CI and Centaur verification.
 
+## Accepted-base integration
+
+The correction head `68d0851db88e22e0326c264ce9ba1b1b047302b6` passed hosted
+CI `43553851674` and exact-head Centaur review `5901683432` (merge, zero blockers).
+It remains the approved review baseline.
+
+The landing candidate integrates accepted main
+`9af764899302cbcc55c60ed0d2e7f159b266a045`, including the canonical approval
+and Telos SDK changes from PRs #1351 and #1352. Catalog routes, the SDK helper
+allowlist and the browser fixture retain both batches' tool additions. Source
+registrations retain both sets of tests, and regenerated pins advance the runtime
+revision to `v1.0.1150-claude-coordination-integration`. Focused integration checks
+passed 222 tests across the coordination, cross-runtime delivery, Vertex callbacks,
+Telos, catalog, Session Access and approval-authority suites. The conflict resolutions and combined candidate still
+require hosted CI and targeted Centaur verification before landing.
+
 ## Integration custody and limits
 
 PR #1342 remains draft/open/conflicting at `b2675af8199ab8a99f3628d3d93c4e65145c7244`
