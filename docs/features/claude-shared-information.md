@@ -108,6 +108,19 @@ Source fingerprints were regenerated from the combined files;
 the accepted lifecycle tree and both Telos corrective checks remain present.
 Final combined-head CI and Centaur review are separate landing requirements.
 
+The subsequent Centaur follow-up verified both Telos fixes and identified
+CEN-94AC0E9A6A47: control inbox/read results lacked the same final cleanup fence.
+Six real MCP cleanup probes reproduced that gap across default/explicit profiles
+and query, operator and skill revocation. Ten adjacent probes also reproduced it
+in backlog/item reads and artifact discovery. These reads now retain the existing
+caller authority check through guard settlement, while artifact bytes keep their
+stronger canonical eligibility observation. Withheld reads retain settled callback
+outcomes; mutation acknowledgements and uncertain effects retain their owners.
+The control tests exercise the ordinary query's actual callback consumer through
+terminal settlement, alongside preserved release acknowledgements.
+All 192 tests across eight affected SDK, callback, artifact, backlog and startup
+suites pass after this correction (one worker, 1 GiB Node heap).
+
 No real model or production-service calls are required for these checks. This
 does not qualify Claude on OpenShell, arbitrary provider transcript imports,
 repository/bootstrap helpers, messaging/timers, Telos execution or changes to

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1158-claude-information-lifecycle';
+  'v1.0.1159-claude-information-read-delivery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,9 +27,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-claude-information.test.ts':
     'a56fa994583c78ddde1e1e6e8883fbdee0b38cdd800ba65770fb810822f04e73',
   '../telos-sdk-definitions.ts': 'f3b20b90e8f1bea646ab32847b592ce0736f662e1e6b26b094ec8396f9469871',
-  '../telos-sdk-tools.ts': 'bc8925e4f39ae873dd0fa30de3bb388ee1e91aa52e8ebf8c56e5ae144be5c10f',
+  '../telos-sdk-tools.ts': '29aa446b96aca0c05e1aee6163a84162c2e6c144804ebc06385b41f33d93d61d',
   '../__tests__/telos-sdk-tools.test.ts':
-    '9a33ff6ca40cb053c407faba1d8641c8a40974a8250928d8db08d7beeefd560a',
+    '147a5395c63dad8069c6f31ab10751dd7e810bba1ae9e6a9e2b0ac1e1f158447',
   '../__tests__/telos-sdk-source.test.ts':
     'd4a46546ef2519d8e61d6a0e0ffc219b37a986d94e4f1602c133ef4e8efdc2e2',
   '../__tests__/telos-work-delegation-host.test.ts':

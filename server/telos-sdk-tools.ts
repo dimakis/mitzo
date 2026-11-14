@@ -103,7 +103,7 @@ export function createTelosSdkServer(owners: {
     const input = request.params.arguments ?? {};
     const signal = AbortSignal.any([session.abortController.signal, extra.signal]);
     return (owners.runCallback ?? ((work) => work()))(async () => {
-      let assertDelivery = () => {};
+      let assertDelivery: (() => void) | undefined;
       try {
         const result = await runGuardedTool(
           {
@@ -191,6 +191,12 @@ export function createTelosSdkServer(owners: {
                 const runtime = getTelosMainPublicationRuntime();
                 if (!runtime?.supportsHost(registry, events))
                   throw Error('Canonical Telos backlog owner unavailable');
+                const readOnly =
+                  name !== 'TelosCreateChild' &&
+                  name !== 'TelosCreateFeature' &&
+                  name !== 'TelosUpdateItem' &&
+                  (name !== 'TelosManageItem' || input.operation === 'read');
+                if (readOnly) assertDelivery = current;
                 const context = {
                   operatorId: authorization.auth.id,
                   conversationId: id,
@@ -242,10 +248,7 @@ export function createTelosSdkServer(owners: {
                           name,
                           input,
                         ),
-                  name !== 'TelosCreateChild' &&
-                    name !== 'TelosCreateFeature' &&
-                    name !== 'TelosUpdateItem' &&
-                    (name !== 'TelosManageItem' || input.operation === 'read'),
+                  readOnly,
                 );
               }
               const schema = telosSdkSchemas[name as keyof typeof telosSdkSchemas];
@@ -303,6 +306,8 @@ export function createTelosSdkServer(owners: {
                     : executeTelosAdoptSource
                 )(base, owner.clientId, INTERNAL_TOKEN, permission.updatedInput, joined);
               if (isTelosArtifactTool(name)) {
+                if (name === 'TelosFindArtifacts' || name === 'TelosReadArtifact')
+                  assertDelivery = current;
                 const result = await executeTelosArtifactTool(
                   base,
                   owner.clientId,
@@ -327,20 +332,12 @@ export function createTelosSdkServer(owners: {
                     (parsed.revision !== undefined && metadata.revision !== parsed.revision)
                   )
                     throw Error('Original artifact revision unavailable');
-                  assertDelivery = () => {
-                    try {
-                      runtime.assertArtifactRead(events, metadata, current);
-                    } catch (error) {
-                      if (!signal.aborted && error instanceof Error)
-                        retainCallbackOutcome(error, 'settled');
-                      throw error;
-                    }
-                  };
+                  assertDelivery = () => runtime.assertArtifactRead(events, metadata, current);
                 }
                 // Reads must not disclose retained material after authority is
                 // revoked during I/O. Writes retain their known canonical ACK.
                 await assertCurrent();
-                assertDelivery();
+                assertDelivery?.();
                 return result;
               }
               if (name === 'TelosStartSlice')
@@ -362,8 +359,10 @@ export function createTelosSdkServer(owners: {
                 joined,
               );
               const command = parsed.command as { operation: string };
-              if (command.operation === 'inbox' || command.operation === 'read')
+              if (command.operation === 'inbox' || command.operation === 'read') {
+                assertDelivery = current;
                 await assertCurrent();
+              }
               return result;
             } finally {
               operation.dispose();
@@ -371,9 +370,11 @@ export function createTelosSdkServer(owners: {
           },
         );
         // Guard cleanup can yield after the final SDK authority await.
-        assertDelivery();
+        assertDelivery?.();
         return deliver(qualifyToolResult(definition.name, input, signal, result));
       } catch (error) {
+        if (assertDelivery && !signal.aborted && error instanceof Error)
+          retainCallbackOutcome(error, 'settled');
         return deliver(
           reportToolFailure(error, {
             sessionId: session.sessionId ?? 'unresolved',

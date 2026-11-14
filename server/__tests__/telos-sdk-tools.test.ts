@@ -455,12 +455,42 @@ it.each(['archive-revision', 'classification', 'archived-edit', 'archived-child'
   },
 );
 
-it.each(['retired', 'skill', 'operator'] as const)(
-  'fences delayed inbox/read disclosure after %s revocation and preserves mutation ACK',
-  async (revocation) => {
+it.each(
+  ([false, true] as const).flatMap((explicit) =>
+    (['fetch', 'cleanup'] as const).flatMap((phase) =>
+      (['retired', 'skill', 'operator'] as const).map(
+        (revocation) => [explicit, phase, revocation] as const,
+      ),
+    ),
+  ),
+)(
+  'fences inbox/read delivery and preserves mutation ACK (explicit=%s phase=%s revocation=%s)',
+  async (explicit, phase, revocation) => {
+    let revoke = () => {};
+    if (phase === 'cleanup') {
+      const guarded = harness.runGuardedTool;
+      vi.spyOn(harness, 'runGuardedTool').mockImplementation((options, execute) =>
+        guarded(
+          {
+            ...options,
+            onSettled: (observation) => {
+              options.onSettled?.(observation);
+              if (observation.outcome === 'completed') revoke();
+            },
+          },
+          execute,
+        ),
+      );
+    }
     for (const operation of ['inbox', 'read', 'release'] as const) {
-      const f = await fixture();
+      const f = await fixture(explicit);
       assignLead(f);
+      const sdk = phase === 'cleanup' ? await ordinaryClient(f) : undefined;
+      revoke = () => {
+        if (revocation === 'retired') f.retire();
+        if (revocation === 'operator') f.revoke();
+        if (revocation === 'skill') f.session.activeSkillPolicy = new Set(['Read']);
+      };
       const receipt = {
         version: 1,
         controlId: 'private-control',
@@ -493,18 +523,64 @@ it.each(['retired', 'skill', 'operator'] as const)(
           : operation === 'release'
             ? { operation, controlId: receipt.controlId, requestId: 'release' }
             : { operation, controlId: receipt.controlId };
-      const pending = f.call('TelosWorkControl', { command });
+      const pending = sdk
+        ? sdk.client.callTool({ name: 'TelosWorkControl', arguments: { command } })
+        : f.call('TelosWorkControl', { command });
       await checkpoint;
-      if (revocation === 'retired') f.retire();
-      if (revocation === 'operator') f.revoke();
-      if (revocation === 'skill') f.session.activeSkillPolicy = new Set(['Read']);
+      if (phase === 'fetch') revoke();
       release();
       const result = await pending;
       expect(result.isError).toBe(operation !== 'release');
       if (operation !== 'release') expect(JSON.stringify(result)).not.toContain(receipt.controlId);
       else expect(f.value(result)).toEqual(receipt);
+      if (sdk) await expect(sdk.terminal()).resolves.toMatchObject({ value: { type: 'result' } });
       expect(fetch).toHaveBeenCalledTimes(1);
     }
+  },
+);
+
+it.each(
+  [false, true].flatMap((explicit) =>
+    (
+      [
+        ['TelosListItems', {}],
+        ['TelosSearchItems', { query: 'studio' }],
+        ['TelosManageItem', { operation: 'read', itemId: 'studio' }],
+        ['TelosGetItem', { itemId: 'studio' }],
+        ['TelosFindArtifacts', { itemId: 'studio' }],
+      ] as Array<[string, Record<string, unknown>]>
+    ).map(([name, input]) => [explicit, name, input] as const),
+  ),
+)(
+  'withholds retained %s/%s read results after guard settlement revokes authority',
+  async (explicit, name, input) => {
+    const f = await fixture(explicit);
+    assignLead(f);
+    if (name === 'TelosFindArtifacts')
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(JSON.stringify({ ok: true, artifacts: [f.material] }))),
+      );
+    const before = await f.call(name, input);
+    expect(before.isError).toBe(false);
+    expect(JSON.stringify(before)).toContain('studio');
+    const guarded = harness.runGuardedTool;
+    vi.spyOn(harness, 'runGuardedTool').mockImplementation((options, execute) =>
+      guarded(
+        {
+          ...options,
+          onSettled: (observation) => {
+            options.onSettled?.(observation);
+            if (observation.outcome === 'completed') f.retire();
+          },
+        },
+        execute,
+      ),
+    );
+    const result = await f.call(name, input);
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('studio');
+    expect(f.outcome()).toBe('settled');
   },
 );
 
