@@ -78,8 +78,10 @@ export function createTelosSdkServer(owners: {
   assertCurrent(signal: AbortSignal): Promise<void>;
   assertCurrentSync(signal: AbortSignal): void;
   runCallback?: TurnCallbackRunner;
+  checkTool?(name: string): 'allow' | 'deny';
 }) {
   const { session, registry, events } = owners;
+  const checkTool = owners.checkTool;
   const runtimeId = randomUUID();
   const server = createSdkMcpServer({ name: 'telos', version: '1.0.0', tools: [] });
   const definitions = filterAgentTools(session, telosSdkDefinitions);
@@ -101,6 +103,11 @@ export function createTelosSdkServer(owners: {
         isError: true,
       };
     const input = request.params.arguments ?? {};
+    const wireName = telosSdkPrefix + definition.name;
+    const assertCommandTool = () => {
+      if (checkTool && checkTool(wireName) !== 'allow')
+        throw Error('Tool not allowed by the frozen command skill ceiling');
+    };
     const signal = AbortSignal.any([session.abortController.signal, extra.signal]);
     return (owners.runCallback ?? ((work) => work()))(async () => {
       let assertDelivery: (() => void) | undefined;
@@ -114,19 +121,21 @@ export function createTelosSdkServer(owners: {
             },
           },
           async (signal) => {
+            assertCommandTool();
             await owners.assertCurrent(signal);
+            assertCommandTool();
             const id = session.sessionId;
             const owner = id && registry.findBySessionId(id);
             if (!id || !owner || owner.session !== session)
               throw Error('Original Telos SDK owner unavailable');
             const name = definition.name;
-            const wireName = telosSdkPrefix + name;
             const connection = sessionToolOperatorConnection(session, owner.clientId);
             const authorization = captureAgentLibraryAuthorization(connection);
             const operation = captureAgentLibraryOperation(connection);
             const joined = AbortSignal.any([signal, operation.signal]);
             const workspace = session.cwd;
             const current = () => {
+              assertCommandTool();
               joined.throwIfAborted();
               owners.assertCurrentSync(joined);
               operation.assertCurrent();

@@ -341,6 +341,7 @@ it('invokes service requests on first query, queued successor and cold continuat
             profilesOnly: true,
             connectionBoundary: 'sdk-callback',
             runCallback: state.runCallback,
+            checkTool: (name) => state.checkTool(name),
             assertCurrent: async () => assert(),
             assertCurrentSync: assert,
           }),

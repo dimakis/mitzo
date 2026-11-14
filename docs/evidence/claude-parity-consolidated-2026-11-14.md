@@ -1,8 +1,8 @@
 # Remaining Claude parity integration
 
-This is one integration candidate for delivery immediately after #1342. Preparation
-and review run concurrently with that PR; its owner remains its only writer and
-landing executor. This candidate does not establish full parity or authorize
+This is one integration candidate for delivery immediately after accepted #1342.
+Its accepted source is incorporated below. This candidate does not establish full
+parity or authorize
 merge, deployment, staging, live models, device testing or a new worker session.
 
 ## Integration custody and source attribution
@@ -145,12 +145,24 @@ Do not promote optional SDK capabilities into a second implementation programme.
 
 ## Dependencies and preserved accepted contracts
 
-#1342 latest observed source is `2499da8b1b0f2a8c2cbe29715074c093f0b10af4`;
-it is not accepted at this checkpoint. Incorporate its actual accepted SHA before
-final combined gates. It owns canonical TaskExecution grant reuse, completion
+#1342 was accepted at `a4549a008715295e6e436a765e281cf3534b7871`, parent
+`27345bb50c698646f5a7c2128ab6573b488f624c`, at 21:55:02 UTC. Its accepted tree
+`bc019b1bffdc793daa869c32cacc59dd0a3e765a` equals reviewed `09e9eed25`.
+All 33 required CI jobs passed on run `43632457726` attempt 2, with exact final
+Centaur `5907323282` LGTM/merge and zero blockers. The separate auth helper also
+completed; no redundant main full-suite run is required. Its source is merged
+into this candidate, preserving canonical TaskExecution grant reuse, completion
 notifications, immutable original-command skill/dependency ceilings, authorization
-replay and the restored existing Vertex repository callback. Do not fix or push
-its branch, independently land #1343, or duplicate its repository implementation.
+replay, malformed skill fail-closed parsing and the restored existing Vertex
+repository callback. No repository implementation is duplicated.
+
+The two merge conflicts retain the union of integration scenarios and source pins.
+All 48 prior SDK journeys plus six repository-profile journeys remain, with both
+sets of scenario defaults and labels. All 2458 prior candidate and 2468 accepted
+main artifact keys are retained in 2473 combined entries; fingerprints are
+regenerated from the actual source at runtime revision
+`v1.0.1173-claude-parity-composed`. Focused execution and review of this composition
+remain required.
 
 The repository acceptance target is MGMT → discover/inspect configured target →
 safe isolated secondary checkout → same-chat continuation → actual edit/test/commit
@@ -205,7 +217,17 @@ proved the clone's HEAD unchanged, index empty and document still untracked. The
 document was then committed with authorized native Git in the exact clone. No
 effect was blindly retried, and no source checkout was modified by that recovery.
 
-Final readiness requires accepted #1342 composition, focused tests under one
+The independent permission assessment on `314d7518`, tree
+`d91976617d209b210e1b2e2e16abf0e139b0d567`, remains the candidate baseline:
+19 changed production files reviewed without blockers and 548 distinct checks
+across 14 suites with passing evidence. Ten initial setup failures were rerun
+successfully using a supported synthetic private directory; the initial failures
+are retained. Verbatim [assessment](claude-parity-reconciliation-2026-11-14/permission-review-314d7518.md)
+and [structured evidence](claude-parity-reconciliation-2026-11-14/permission-review-314d7518.json)
+are preserved from auditor commit `e026afbe4`. Accepted #1342 composition and any
+later reporting/runtime changes require focused follow-up against that baseline.
+
+Final readiness requires focused tests under one
 worker/1 GiB, normal combined-result PR CI, independent permission review, source
 owner reviews and trusted Centaur final LGTM/merge/zero blockers for the exact head.
 Every push invalidates prior-head approval. Preserve baseline/finding ledger and

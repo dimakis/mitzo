@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   SpecialistPolicyInputSchema,
   SpecialistPolicySchema,
+  SpecialistAuthorizationInputSchema,
   ConsultationInputSchema,
   ConsultationRecordSchema,
   type SpecialistPolicy,
@@ -51,6 +52,13 @@ export class SpecialistConsultationStore {
         .all(lead) as { body: string }[]
     ).map((row) => SpecialistPolicySchema.parse(JSON.parse(row.body)));
   }
+  authorizationInput(lead: string, policyId: string) {
+    const row = this.db
+      .prepare('SELECT input FROM specialist_consultation_policies WHERE lead_id=? AND policy_id=?')
+      .get(lead, policyId) as { input: string } | undefined;
+    const retained = row && JSON.parse(row.input).authorizationInput;
+    return retained === undefined ? undefined : SpecialistAuthorizationInputSchema.parse(retained);
+  }
   assertPolicy(lead: string, login: string, policyId: string) {
     const policy = this.policy(lead, policyId);
     if (policy.revoked || policy.expiresAt <= Date.now())
@@ -58,8 +66,20 @@ export class SpecialistConsultationStore {
     if (policy.authSessionId !== login) throw Error('Original consultation authorization required');
     return policy;
   }
-  authorize(lead: string, login: string, raw: unknown, collaborationId?: string) {
+  authorize(
+    lead: string,
+    login: string,
+    raw: unknown,
+    collaborationId?: string,
+    authorizationInput?: unknown,
+  ) {
     const input = SpecialistPolicyInputSchema.parse(raw);
+    const retainedInput = {
+      ...input,
+      ...(authorizationInput === undefined
+        ? {}
+        : { authorizationInput: SpecialistAuthorizationInputSchema.parse(authorizationInput) }),
+    };
     return this.db
       .transaction(() => {
         const row = this.db
@@ -69,7 +89,10 @@ export class SpecialistConsultationStore {
           .get(lead, input.requestId) as { input: string; body: string } | undefined;
         if (row) {
           const policy = SpecialistPolicySchema.parse(JSON.parse(row.body));
-          if (policy.authSessionId !== login || !isDeepStrictEqual(JSON.parse(row.input), input))
+          if (
+            policy.authSessionId !== login ||
+            !isDeepStrictEqual(JSON.parse(row.input), retainedInput)
+          )
             throw Error('Consultation policy request conflict');
           return policy;
         }
@@ -83,7 +106,7 @@ export class SpecialistConsultationStore {
         });
         this.db
           .prepare('INSERT INTO specialist_consultation_policies VALUES(?,?,?,?)')
-          .run(lead, policy.policyId, JSON.stringify(input), JSON.stringify(policy));
+          .run(lead, policy.policyId, JSON.stringify(retainedInput), JSON.stringify(policy));
         return policy;
       })
       .immediate();
