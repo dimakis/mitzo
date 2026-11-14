@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import { createMitzoStore, MitzoApiClient } from '@mitzo/client';
+import { createMitzoStore, MitzoApiClient, type WebSocketLike } from '@mitzo/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { SharedConversationHost } from '../../frontend/src/components/SharedConversation';
 import { SymposiumConversation } from '../../frontend/src/components/SymposiumConversation';
@@ -17,8 +17,24 @@ import '../../frontend/src/styles/home.css';
 const store = createMitzoStore({
   transport: { fetch: (url, init) => fetch(url, init) },
   wsConfig: {
-    buildUrl: () => {
-      throw Error('Unexpected fixture socket');
+    buildUrl: () => '',
+    createWebSocket: () => {
+      const socket: WebSocketLike = {
+        readyState: 1,
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+        send: () => {},
+        close: () => {},
+      };
+      queueMicrotask(() => {
+        socket.onopen?.({});
+        socket.onmessage?.({
+          data: JSON.stringify({ type: 'welcome', connectionId: 'offline-surface' }),
+        });
+      });
+      return socket;
     },
   },
 });

@@ -1,0 +1,851 @@
+﻿2026-11-14T11:28:53.3580861Z Current runner version: '2.338.2'
+2026-11-14T11:28:53.3608764Z ##[group]Runner Image Provisioner
+2026-11-14T11:28:53.3610071Z Hosted Compute Agent
+2026-11-14T11:28:53.3610955Z Version: 20261103.629
+2026-11-14T11:28:53.3611735Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-14T11:28:53.3612857Z Build Date: 2026-11-03T17:26:59Z
+2026-11-14T11:28:53.3613687Z Worker ID: {974393d7-af88-4de0-9b9f-4c40b96f3faf}
+2026-11-14T11:28:53.3614525Z Region: eastus2
+2026-11-14T11:28:53.3615305Z Cloud: Azure
+2026-11-14T11:28:53.3615937Z ##[endgroup]
+2026-11-14T11:28:53.3617780Z ##[group]Operating System
+2026-11-14T11:28:53.3618571Z Ubuntu
+2026-11-14T11:28:53.3619295Z 24.04.5
+2026-11-14T11:28:53.3619996Z LTS
+2026-11-14T11:28:53.3620653Z ##[endgroup]
+2026-11-14T11:28:53.3621417Z ##[group]Runner Image
+2026-11-14T11:28:53.3622147Z Image: ubuntu-24.04
+2026-11-14T11:28:53.3623248Z Version: 20261111.370.1
+2026-11-14T11:28:53.3624800Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.370/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-14T11:28:53.3626940Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.370
+2026-11-14T11:28:53.3628165Z ##[endgroup]
+2026-11-14T11:28:53.3629626Z ##[group]GITHUB_TOKEN Permissions
+2026-11-14T11:28:53.3631892Z Contents: read
+2026-11-14T11:28:53.3632799Z Metadata: read
+2026-11-14T11:28:53.3633469Z ##[endgroup]
+2026-11-14T11:28:53.3635954Z Secret source: Actions
+2026-11-14T11:28:53.3637088Z Cache mode: write
+2026-11-14T11:28:53.3638088Z Prepare workflow directory
+2026-11-14T11:28:53.4003751Z Prepare all required actions
+2026-11-14T11:28:53.4058669Z Getting action download info
+2026-11-14T11:28:53.5626392Z Download action repository 'actions/checkout@v7' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-14T11:28:54.4422892Z Download action repository 'actions/upload-artifact@v7' (SHA:cf430e030ddbb5b0abf93d22962f4752f3646cd9)
+2026-11-14T11:28:54.6415615Z Complete job name: Ordinary responsive render evidence
+2026-11-14T11:28:54.7266583Z ##[group]Run actions/checkout@v7
+2026-11-14T11:28:54.7267741Z with:
+2026-11-14T11:28:54.7268511Z   persist-credentials: false
+2026-11-14T11:28:54.7269406Z   repository: dimakis/mitzo
+2026-11-14T11:28:54.7277331Z   token: ***
+2026-11-14T11:28:54.7278081Z   ssh-strict: true
+2026-11-14T11:28:54.7278838Z   ssh-user: git
+2026-11-14T11:28:54.7279574Z   clean: true
+2026-11-14T11:28:54.7280345Z   sparse-checkout-cone-mode: true
+2026-11-14T11:28:54.7281248Z   fetch-depth: 1
+2026-11-14T11:28:54.7281997Z   fetch-tags: false
+2026-11-14T11:28:54.7282856Z   show-progress: true
+2026-11-14T11:28:54.7283644Z   lfs: false
+2026-11-14T11:28:54.7284363Z   submodules: false
+2026-11-14T11:28:54.7285132Z   set-safe-directory: true
+2026-11-14T11:28:54.7286012Z   allow-unsafe-pr-checkout: false
+2026-11-14T11:28:54.7287129Z ##[endgroup]
+2026-11-14T11:28:55.9222487Z Syncing repository: dimakis/mitzo
+2026-11-14T11:28:55.9223955Z ##[group]Getting Git version info
+2026-11-14T11:28:55.9224411Z Working directory is '/home/runner/work/mitzo/mitzo'
+2026-11-14T11:28:55.9224963Z [command]/usr/bin/git version
+2026-11-14T11:28:56.3223110Z git version 2.56.1
+2026-11-14T11:28:56.3244743Z ##[endgroup]
+2026-11-14T11:28:56.3250606Z Temporarily overriding HOME='/home/runner/work/_temp/eda1268f-3bd6-421a-927e-7b0d0b33bf4f' before making global git config changes
+2026-11-14T11:28:56.3251668Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T11:28:56.3256395Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T11:28:56.3667385Z Deleting the contents of '/home/runner/work/mitzo/mitzo'
+2026-11-14T11:28:56.3670586Z ##[group]Determining repository object format
+2026-11-14T11:28:56.3672156Z ##[endgroup]
+2026-11-14T11:28:56.3673042Z ##[group]Initializing the repository
+2026-11-14T11:28:56.3677172Z [command]/usr/bin/git init /home/runner/work/mitzo/mitzo
+2026-11-14T11:28:56.3813139Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-14T11:28:56.3814436Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-14T11:28:56.3815127Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-14T11:28:56.3815684Z hint: call:
+2026-11-14T11:28:56.3815941Z hint:
+2026-11-14T11:28:56.3816271Z hint: 	git config --global init.defaultBranch <name>
+2026-11-14T11:28:56.3816578Z hint:
+2026-11-14T11:28:56.3816855Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-14T11:28:56.3817276Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-14T11:28:56.3817608Z hint:
+2026-11-14T11:28:56.3817819Z hint: 	git branch -m <name>
+2026-11-14T11:28:56.3818047Z hint:
+2026-11-14T11:28:56.3818356Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-14T11:28:56.3820259Z Initialized empty Git repository in /home/runner/work/mitzo/mitzo/.git/
+2026-11-14T11:28:56.3828341Z [command]/usr/bin/git remote add origin https://github.com/dimakis/mitzo
+2026-11-14T11:28:56.3884039Z ##[endgroup]
+2026-11-14T11:28:56.3884670Z ##[group]Disabling automatic garbage collection
+2026-11-14T11:28:56.3887495Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-14T11:28:56.3926677Z ##[endgroup]
+2026-11-14T11:28:56.3927374Z ##[group]Setting up auth
+2026-11-14T11:28:56.3927847Z Removing SSH command configuration
+2026-11-14T11:28:56.3932880Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T11:28:56.3975060Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T11:28:56.8049820Z Removing HTTP extra header
+2026-11-14T11:28:56.8051033Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T11:28:56.8094667Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T11:28:56.8305101Z Removing includeIf entries pointing to credentials config files
+2026-11-14T11:28:56.8311362Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T11:28:56.8353062Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T11:28:56.8572455Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-14T11:28:56.8624233Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git.path /home/runner/work/_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config
+2026-11-14T11:28:56.8662458Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config
+2026-11-14T11:28:56.8708639Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config
+2026-11-14T11:28:56.8739994Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config
+2026-11-14T11:28:56.8778944Z ##[endgroup]
+2026-11-14T11:28:56.8779283Z ##[group]Fetching the repository
+2026-11-14T11:28:56.8787648Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +8bf86176098f5ae165cbaf6a6f234db45717071e:refs/remotes/pull/1355/merge
+2026-11-14T11:28:59.9348528Z From https://github.com/dimakis/mitzo
+2026-11-14T11:28:59.9349146Z  * [new ref]         8bf86176098f5ae165cbaf6a6f234db45717071e -> pull/1355/merge
+2026-11-14T11:28:59.9353280Z ##[endgroup]
+2026-11-14T11:28:59.9354108Z ##[group]Determining the checkout info
+2026-11-14T11:28:59.9354811Z ##[endgroup]
+2026-11-14T11:28:59.9360011Z [command]/usr/bin/git sparse-checkout disable
+2026-11-14T11:29:00.0513764Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-14T11:29:00.0966521Z ##[group]Checking out the ref
+2026-11-14T11:29:00.0972143Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1355/merge
+2026-11-14T11:29:00.6490925Z Note: switching to 'refs/remotes/pull/1355/merge'.
+2026-11-14T11:29:00.6491198Z 
+2026-11-14T11:29:00.6491393Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-14T11:29:00.6491805Z changes and commit them, and you can discard any commits you make in this
+2026-11-14T11:29:00.6492183Z state without impacting any branches by switching back to a branch.
+2026-11-14T11:29:00.6492402Z 
+2026-11-14T11:29:00.6493556Z If you want to create a new branch to retain commits you create, you may
+2026-11-14T11:29:00.6493991Z do so (now or later) by using -c with the switch command. Example:
+2026-11-14T11:29:00.6494222Z 
+2026-11-14T11:29:00.6494318Z   git switch -c <new-branch-name>
+2026-11-14T11:29:00.6494520Z 
+2026-11-14T11:29:00.6494603Z Or undo this operation with:
+2026-11-14T11:29:00.6494736Z 
+2026-11-14T11:29:00.6494815Z   git switch -
+2026-11-14T11:29:00.6494942Z 
+2026-11-14T11:29:00.6495120Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-14T11:29:00.6495355Z 
+2026-11-14T11:29:00.6495669Z HEAD is now at 8bf8617 Merge c0a8e7aaf69373b87f68b0d1e9d56e787a52542a into 9af764899302cbcc55c60ed0d2e7f159b266a045
+2026-11-14T11:29:00.6579201Z ##[endgroup]
+2026-11-14T11:29:00.6631542Z [command]/usr/bin/git log -1 --format=%H
+2026-11-14T11:29:00.6666218Z 8bf86176098f5ae165cbaf6a6f234db45717071e
+2026-11-14T11:29:00.6675478Z ##[group]Removing auth
+2026-11-14T11:29:00.6675883Z Removing SSH command configuration
+2026-11-14T11:29:00.6679148Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T11:29:00.6718115Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T11:29:00.6939605Z Removing HTTP extra header
+2026-11-14T11:29:00.6943910Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T11:29:00.6983703Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T11:29:00.7205293Z Removing includeIf entries pointing to credentials config files
+2026-11-14T11:29:00.7209100Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T11:29:00.7246399Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T11:29:00.7246965Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T11:29:00.7247471Z includeif.gitdir:/github/workspace/.git.path
+2026-11-14T11:29:00.7247904Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T11:29:00.7255878Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T11:29:00.7288491Z /home/runner/work/_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config
+2026-11-14T11:29:00.7304258Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-7a5e381d\-d671\-4c77\-95d3\-3d213172cfb3\.config
+2026-11-14T11:29:00.7355256Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T11:29:00.7390317Z /home/runner/work/_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config
+2026-11-14T11:29:00.7398310Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-7a5e381d\-d671\-4c77\-95d3\-3d213172cfb3\.config
+2026-11-14T11:29:00.7442416Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-14T11:29:00.7473056Z /github/runner_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config
+2026-11-14T11:29:00.7483688Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-7a5e381d\-d671\-4c77\-95d3\-3d213172cfb3\.config
+2026-11-14T11:29:00.7527248Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T11:29:00.7561707Z /github/runner_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config
+2026-11-14T11:29:00.7568763Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-7a5e381d\-d671\-4c77\-95d3\-3d213172cfb3\.config
+2026-11-14T11:29:00.7610631Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T11:29:00.7828913Z Removing credentials config '/home/runner/work/_temp/git-credentials-7a5e381d-d671-4c77-95d3-3d213172cfb3.config'
+2026-11-14T11:29:00.7838670Z ##[endgroup]
+2026-11-14T11:29:00.8150473Z Prepare all required actions
+2026-11-14T11:29:00.8150937Z Getting action download info
+2026-11-14T11:29:00.8895231Z Download action repository 'actions/setup-node@v7' (SHA:949feb2413d6458794dcd2491c4babbbce0c15c1)
+2026-11-14T11:29:01.0447118Z ##[group]Run ./.github/actions/ci-node
+2026-11-14T11:29:01.0447364Z with:
+2026-11-14T11:29:01.0447537Z   node-version: 24.22.1
+2026-11-14T11:29:01.0447722Z ##[endgroup]
+2026-11-14T11:29:01.0494778Z ##[start-action display=Run actions/setup-node@v7;id=__self.__actions_setup-node]
+2026-11-14T11:29:01.0566763Z ##[group]Run actions/setup-node@v7
+2026-11-14T11:29:01.0566994Z with:
+2026-11-14T11:29:01.0567185Z   node-version: 24.22.1
+2026-11-14T11:29:01.0567375Z   cache: npm
+2026-11-14T11:29:01.0567538Z   check-latest: false
+2026-11-14T11:29:01.0569727Z   token: ***
+2026-11-14T11:29:01.0569912Z   package-manager-cache: true
+2026-11-14T11:29:01.0570122Z ##[endgroup]
+2026-11-14T11:29:01.1641562Z Attempting to download 24.22.1...
+2026-11-14T11:29:01.7101506Z Acquiring 24.22.1 - x64 from https://github.com/actions/node-versions/releases/download/24.22.1-39619001896/node-24.22.1-linux-x64.tar.gz
+2026-11-14T11:29:02.0244472Z Extracting ...
+2026-11-14T11:29:02.0366560Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/91a1ad53-9bc3-4de5-86f3-ad1c84f734e4 -f /home/runner/work/_temp/14130702-60c0-450c-9115-64d81654b03c
+2026-11-14T11:29:03.1019842Z Adding to the cache ...
+2026-11-14T11:29:05.9408919Z ##[group]Environment details
+2026-11-14T11:29:06.1390247Z node: v24.22.1
+2026-11-14T11:29:06.1390488Z npm: 11.19.1
+2026-11-14T11:29:06.1390658Z yarn: 1.22.22
+2026-11-14T11:29:06.1391115Z ##[endgroup]
+2026-11-14T11:29:06.1403665Z [command]/opt/hostedtoolcache/node/24.22.1/x64/bin/npm config get cache
+2026-11-14T11:29:06.2193401Z /home/runner/.npm
+2026-11-14T11:29:06.3023992Z Cache hit for: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T11:29:07.3493762Z Received 264241152 of 422744543 (62.5%), 251.7 MBs/sec
+2026-11-14T11:29:08.0702154Z Received 422744543 of 422744543 (100.0%), 234.4 MBs/sec
+2026-11-14T11:29:08.0702486Z Cache Size: ~403 MB (422744543 B)
+2026-11-14T11:29:08.0751088Z [command]/usr/bin/tar -xf /home/runner/work/_temp/04ca100f-2565-4d43-b66c-29ede0886bfe/cache.tzst -P -C /home/runner/work/mitzo/mitzo --use-compress-program unzstd
+2026-11-14T11:29:08.7981003Z Cache restored successfully
+2026-11-14T11:29:08.8150177Z Cache restored from key: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T11:29:08.8341590Z ##[end-action id=__self.__actions_setup-node;outcome=success;conclusion=success;duration_ms=7784]
+2026-11-14T11:29:08.8344711Z ##[start-action display=Run npm install --global npm@11.18.0;id=__self.__run]
+2026-11-14T11:29:08.8374670Z ##[group]Run npm install --global npm@11.18.0
+2026-11-14T11:29:08.8375007Z [36;1mnpm install --global npm@11.18.0[0m
+2026-11-14T11:29:08.8398283Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T11:29:08.8398594Z ##[endgroup]
+2026-11-14T11:29:10.4349380Z 
+2026-11-14T11:29:10.4355655Z changed 18 packages in 2s
+2026-11-14T11:29:10.4355896Z 
+2026-11-14T11:29:10.4356081Z 15 packages are looking for funding
+2026-11-14T11:29:10.4356345Z   run `npm fund` for details
+2026-11-14T11:29:10.4802290Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=1645]
+2026-11-14T11:29:10.4804973Z ##[start-action display=Run npm install --no-audit;id=__self.__run_2]
+2026-11-14T11:29:10.4824702Z ##[group]Run npm install --no-audit
+2026-11-14T11:29:10.4825017Z [36;1mnpm install --no-audit[0m
+2026-11-14T11:29:10.4843643Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T11:29:10.4843961Z ##[endgroup]
+2026-11-14T11:29:11.2161440Z npm warn skipping integrity check for git dependency ssh://git@github.com/dimakis/contexgin.git
+2026-11-14T11:29:16.6186043Z npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+2026-11-14T11:29:17.3595433Z npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+2026-11-14T11:29:30.1726202Z npm warn gitignore-fallback No .npmignore file found, using .gitignore for file exclusion. Consider creating a .npmignore file to explicitly control published files.
+2026-11-14T11:29:39.2306404Z 
+2026-11-14T11:29:39.2307183Z > mitzo@1.0.0 postinstall
+2026-11-14T11:29:39.2307557Z > node scripts/prepare-terminal-native.mjs
+2026-11-14T11:29:39.2307748Z 
+2026-11-14T11:29:39.3017609Z 
+2026-11-14T11:29:39.3018230Z > mitzo@1.0.0 prepare
+2026-11-14T11:29:39.3018532Z > husky || true
+2026-11-14T11:29:39.3018654Z 
+2026-11-14T11:29:39.4303489Z 
+2026-11-14T11:29:39.4304213Z added 1026 packages in 29s
+2026-11-14T11:29:39.4306145Z 
+2026-11-14T11:29:39.4306757Z 280 packages are looking for funding
+2026-11-14T11:29:39.4307318Z   run `npm fund` for details
+2026-11-14T11:29:39.4319754Z npm warn allow-scripts 6 packages have install scripts not yet covered by allowScripts:
+2026-11-14T11:29:39.4320619Z npm warn allow-scripts   better-sqlite3@13.0.3 (install: node-gyp rebuild)
+2026-11-14T11:29:39.4321488Z npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)
+2026-11-14T11:29:39.4322333Z npm warn allow-scripts   esbuild@0.28.2 (postinstall: node install.js)
+2026-11-14T11:29:39.4323575Z npm warn allow-scripts   node-pty@1.1.0 (install: node scripts/prebuild.js || node-gyp rebuild; postinstall: node scripts/post-install.js)
+2026-11-14T11:29:39.4324554Z npm warn allow-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+2026-11-14T11:29:39.4325313Z npm warn allow-scripts   esbuild@0.25.12 (postinstall: node install.js)
+2026-11-14T11:29:39.4325813Z npm warn allow-scripts
+2026-11-14T11:29:39.4326538Z npm warn allow-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+2026-11-14T11:29:39.5551754Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=29074]
+2026-11-14T11:29:39.5605081Z Prepare all required actions
+2026-11-14T11:29:39.5638579Z ##[group]Run ./.github/actions/ci-playwright
+2026-11-14T11:29:39.5638830Z with:
+2026-11-14T11:29:39.5639007Z   browsers: webkit chromium
+2026-11-14T11:29:39.5639210Z ##[endgroup]
+2026-11-14T11:29:39.5667377Z ##[start-action display=Prepare the pinned Linux browser image;id=__self_2.__run]
+2026-11-14T11:29:39.5685883Z ##[group]Run bash scripts/ci-browser-container.sh --prepare $CI_PLAYWRIGHT_BROWSERS
+2026-11-14T11:29:39.5686382Z [36;1mbash scripts/ci-browser-container.sh --prepare $CI_PLAYWRIGHT_BROWSERS[0m
+2026-11-14T11:29:39.5704153Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T11:29:39.5704436Z env:
+2026-11-14T11:29:39.5704630Z   CI_PLAYWRIGHT_BROWSERS: webkit chromium
+2026-11-14T11:29:39.5704858Z ##[endgroup]
+2026-11-14T11:29:39.7891202Z mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27: Pulling from playwright
+2026-11-14T11:29:39.8294500Z 0926a8eb0e60: Pulling fs layer
+2026-11-14T11:29:39.8295012Z e2bfec3c8017: Pulling fs layer
+2026-11-14T11:29:39.8295384Z 74c72610aa2d: Pulling fs layer
+2026-11-14T11:29:39.8295654Z d8cf7dc1ff62: Pulling fs layer
+2026-11-14T11:29:39.8295898Z b4dfe9b5d621: Pulling fs layer
+2026-11-14T11:29:39.8296255Z a2ac83a9a562: Pulling fs layer
+2026-11-14T11:29:39.8296610Z 1b189482e65c: Pulling fs layer
+2026-11-14T11:29:39.8296963Z a2ac83a9a562: Waiting
+2026-11-14T11:29:39.8297323Z b4dfe9b5d621: Waiting
+2026-11-14T11:29:39.8297525Z d8cf7dc1ff62: Waiting
+2026-11-14T11:29:39.8297741Z 1b189482e65c: Waiting
+2026-11-14T11:29:39.8936708Z 74c72610aa2d: Download complete
+2026-11-14T11:29:39.9998118Z 0926a8eb0e60: Verifying Checksum
+2026-11-14T11:29:39.9998615Z 0926a8eb0e60: Download complete
+2026-11-14T11:29:40.4192352Z e2bfec3c8017: Verifying Checksum
+2026-11-14T11:29:40.4194001Z e2bfec3c8017: Download complete
+2026-11-14T11:29:40.9256918Z a2ac83a9a562: Verifying Checksum
+2026-11-14T11:29:40.9257486Z a2ac83a9a562: Download complete
+2026-11-14T11:29:41.0945234Z 0926a8eb0e60: Pull complete
+2026-11-14T11:29:41.0963794Z d8cf7dc1ff62: Verifying Checksum
+2026-11-14T11:29:41.0964318Z d8cf7dc1ff62: Download complete
+2026-11-14T11:29:41.4045373Z 1b189482e65c: Verifying Checksum
+2026-11-14T11:29:41.4045959Z 1b189482e65c: Download complete
+2026-11-14T11:29:41.5703010Z b4dfe9b5d621: Verifying Checksum
+2026-11-14T11:29:41.5703672Z b4dfe9b5d621: Download complete
+2026-11-14T11:29:51.5856571Z e2bfec3c8017: Pull complete
+2026-11-14T11:29:51.6136578Z 74c72610aa2d: Pull complete
+2026-11-14T11:30:01.3311621Z d8cf7dc1ff62: Pull complete
+2026-11-14T11:30:07.7231366Z b4dfe9b5d621: Pull complete
+2026-11-14T11:30:10.5653017Z a2ac83a9a562: Pull complete
+2026-11-14T11:30:13.3302184Z 1b189482e65c: Pull complete
+2026-11-14T11:30:13.3350869Z Digest: sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T11:30:13.3360071Z Status: Downloaded newer image for mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T11:30:13.3366657Z mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T11:30:13.7471487Z Using preinstalled webkit 1.63.0: /ms-playwright/webkit-2359/pw_run.sh
+2026-11-14T11:30:13.7473600Z Using preinstalled chromium 1.63.0: /ms-playwright/chromium-1243/chrome-linux64/chrome
+2026-11-14T11:30:13.8351211Z ##[end-action id=__self_2.__run;outcome=success;conclusion=success;duration_ms=34268]
+2026-11-14T11:30:13.8355971Z ##[start-action display=Install native macOS browsers;id=__self_2.__run_2]
+2026-11-14T11:30:13.8361261Z ##[end-action id=__self_2.__run_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T11:30:13.8386886Z ##[group]Run bash scripts/ci-browser-container.sh node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1
+2026-11-14T11:30:13.8388265Z [36;1mbash scripts/ci-browser-container.sh node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1[0m
+2026-11-14T11:30:13.8407327Z shell: /usr/bin/bash -e {0}
+2026-11-14T11:30:13.8407543Z env:
+2026-11-14T11:30:13.8407763Z   NODE_OPTIONS: --max-old-space-size=1024
+2026-11-14T11:30:13.8408004Z ##[endgroup]
+2026-11-14T11:30:15.3313309Z 
+2026-11-14T11:30:15.3314150Z Running 14 tests using 1 worker
+2026-11-14T11:30:15.3314447Z 
+2026-11-14T11:30:17.4350438Z   ✓   1 [browser-startup-0] › tests/support/browser-startup.setup.ts:5:1 › browser startup (1.5s)
+2026-11-14T11:30:18.4864947Z   ✓   2 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (385ms)
+2026-11-14T11:30:27.6263152Z   ✘   3 [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (8.1s)
+2026-11-14T11:30:27.6264636Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"506acac6e77c618fe904-34852a1f0f4fb0bf3837"}
+2026-11-14T11:30:36.6907025Z   ✘   4 [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (8.1s)
+2026-11-14T11:30:36.6908565Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"506acac6e77c618fe904-65413ccea1425821b075"}
+2026-11-14T11:30:44.6910865Z   ✘   5 [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (7.1s)
+2026-11-14T11:30:44.6912171Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-1f9aef8ddb75130aeba4"}
+2026-11-14T11:30:52.6982380Z   ✘   6 [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (7.1s)
+2026-11-14T11:30:52.6983341Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-302156ae11d2babebf77"}
+2026-11-14T11:31:01.5628019Z   ✘   7 [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (7.9s)
+2026-11-14T11:31:01.5628857Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"506acac6e77c618fe904-89eb06da5c26e39ab866"}
+2026-11-14T11:31:10.2640545Z   ✘   8 [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (7.8s)
+2026-11-14T11:31:10.2641366Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"506acac6e77c618fe904-95f77211f132e1d9bc36"}
+2026-11-14T11:31:18.2698841Z   ✘   9 [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (7.2s)
+2026-11-14T11:31:18.2700149Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-4a353143b9ebc6f0b77a"}
+2026-11-14T11:31:26.1889857Z   ✘  10 [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (7.1s)
+2026-11-14T11:31:26.1890655Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-30c3f7dfc5029f3b169b"}
+2026-11-14T11:31:34.9913506Z   ✘  11 [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (7.8s)
+2026-11-14T11:31:34.9914783Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"506acac6e77c618fe904-e4df438269fcec4d5bef"}
+2026-11-14T11:31:43.7034120Z   ✘  12 [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (7.8s)
+2026-11-14T11:31:43.7035407Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"506acac6e77c618fe904-53cc9ff8b882cefc5301"}
+2026-11-14T11:31:51.6637828Z   ✘  13 [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (7.1s)
+2026-11-14T11:31:51.6638671Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-ef1d75a4c474f2156519"}
+2026-11-14T11:31:59.5552347Z   ✘  14 [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (7.0s)
+2026-11-14T11:31:59.5553331Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-496b8b8835f0fa1bf300"}
+2026-11-14T11:31:59.5840958Z 
+2026-11-14T11:31:59.5845144Z 
+2026-11-14T11:31:59.5855320Z   1) [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T11:31:59.5856757Z 
+2026-11-14T11:31:59.5857160Z     Error: expect(locator).toHaveCount(expected) failed
+2026-11-14T11:31:59.5857652Z 
+2026-11-14T11:31:59.5858237Z     Locator:  getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.5858886Z     Expected: 1
+2026-11-14T11:31:59.5859164Z     Received: 0
+2026-11-14T11:31:59.5859423Z     Timeout:  5000ms
+2026-11-14T11:31:59.5859606Z 
+2026-11-14T11:31:59.5859713Z     Call log:
+2026-11-14T11:31:59.5860494Z       - Expect "toHaveCount" getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true }) with timeout 5000ms
+2026-11-14T11:31:59.5861566Z       - waiting for getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.5862364Z         14 × locator resolved to 0 elements
+2026-11-14T11:31:59.5862892Z            - unexpected value "0"
+2026-11-14T11:31:59.5863114Z 
+2026-11-14T11:31:59.5863132Z 
+2026-11-14T11:31:59.5863238Z       208 |         1,
+2026-11-14T11:31:59.5863516Z       209 |       );
+2026-11-14T11:31:59.5864070Z     > 210 |       await expect(page.getByText(sharedReply.text, { exact: true })).toHaveCount(1);
+2026-11-14T11:31:59.5864727Z           |                                                                       ^
+2026-11-14T11:31:59.5865362Z       211 |       await input.fill('Keyboard draft retained in ordinary responsive chat');
+2026-11-14T11:31:59.5865903Z       212 |       await input.focus();
+2026-11-14T11:31:59.5866317Z       213 |       await page.keyboard.press('Tab');
+2026-11-14T11:31:59.5867017Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:210:71
+2026-11-14T11:31:59.5867489Z 
+2026-11-14T11:31:59.5868031Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5869088Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/test-failed-1.png
+2026-11-14T11:31:59.5870215Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5870547Z 
+2026-11-14T11:31:59.5871252Z     Error Context: test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/error-context.md
+2026-11-14T11:31:59.5871981Z 
+2026-11-14T11:31:59.5872628Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5873626Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/trace.zip
+2026-11-14T11:31:59.5874337Z     Usage:
+2026-11-14T11:31:59.5874485Z 
+2026-11-14T11:31:59.5875188Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/trace.zip
+2026-11-14T11:31:59.5875921Z 
+2026-11-14T11:31:59.5876397Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5876772Z 
+2026-11-14T11:31:59.5879685Z   2) [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T11:31:59.5880495Z 
+2026-11-14T11:31:59.5880720Z     Error: expect(locator).toHaveCount(expected) failed
+2026-11-14T11:31:59.5881010Z 
+2026-11-14T11:31:59.5881456Z     Locator:  getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.5882032Z     Expected: 1
+2026-11-14T11:31:59.5882279Z     Received: 0
+2026-11-14T11:31:59.5882809Z     Timeout:  5000ms
+2026-11-14T11:31:59.5882971Z 
+2026-11-14T11:31:59.5883077Z     Call log:
+2026-11-14T11:31:59.5883807Z       - Expect "toHaveCount" getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true }) with timeout 5000ms
+2026-11-14T11:31:59.5884773Z       - waiting for getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.5892817Z         14 × locator resolved to 0 elements
+2026-11-14T11:31:59.5893106Z            - unexpected value "0"
+2026-11-14T11:31:59.5893341Z 
+2026-11-14T11:31:59.5893348Z 
+2026-11-14T11:31:59.5893458Z       208 |         1,
+2026-11-14T11:31:59.5893711Z       209 |       );
+2026-11-14T11:31:59.5894253Z     > 210 |       await expect(page.getByText(sharedReply.text, { exact: true })).toHaveCount(1);
+2026-11-14T11:31:59.5894911Z           |                                                                       ^
+2026-11-14T11:31:59.5895505Z       211 |       await input.fill('Keyboard draft retained in ordinary responsive chat');
+2026-11-14T11:31:59.5896017Z       212 |       await input.focus();
+2026-11-14T11:31:59.5896402Z       213 |       await page.keyboard.press('Tab');
+2026-11-14T11:31:59.5897058Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:210:71
+2026-11-14T11:31:59.5897516Z 
+2026-11-14T11:31:59.5898051Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5899049Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/test-failed-1.png
+2026-11-14T11:31:59.5900082Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5900423Z 
+2026-11-14T11:31:59.5900847Z     Error Context: test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/error-context.md
+2026-11-14T11:31:59.5901462Z 
+2026-11-14T11:31:59.5901924Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5902962Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/trace.zip
+2026-11-14T11:31:59.5903622Z     Usage:
+2026-11-14T11:31:59.5903758Z 
+2026-11-14T11:31:59.5904604Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/trace.zip
+2026-11-14T11:31:59.5905316Z 
+2026-11-14T11:31:59.5905746Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5906089Z 
+2026-11-14T11:31:59.5906799Z   3) [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T11:31:59.5907414Z 
+2026-11-14T11:31:59.5907623Z     Error: expect(locator).toHaveValue(expected) failed
+2026-11-14T11:31:59.5907882Z 
+2026-11-14T11:31:59.5908099Z     Locator: getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.5908527Z     Expected: "Ordinary unsent draft"
+2026-11-14T11:31:59.5908851Z     Timeout: 5000ms
+2026-11-14T11:31:59.5909130Z     Error: element(s) not found
+2026-11-14T11:31:59.5909320Z 
+2026-11-14T11:31:59.5909415Z     Call log:
+2026-11-14T11:31:59.5910008Z       - Expect "toHaveValue" getByRole('textbox', { name: 'Message Mitzo' }) with timeout 5000ms
+2026-11-14T11:31:59.5910827Z       - waiting for getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.5911134Z 
+2026-11-14T11:31:59.5911140Z 
+2026-11-14T11:31:59.5911284Z       124 |     await page.goto('/');
+2026-11-14T11:31:59.5911773Z       125 |     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+2026-11-14T11:31:59.5912464Z     > 126 |     await expect(input).toHaveValue('Ordinary unsent draft');
+2026-11-14T11:31:59.5913018Z           |                         ^
+2026-11-14T11:31:59.5913477Z       127 |     await input.fill('Draft retained through joining and resizing');
+2026-11-14T11:31:59.5913961Z       128 |     await input.evaluate((node) => {
+2026-11-14T11:31:59.5914430Z       129 |       (node as HTMLElement).dataset.retained = 'original';
+2026-11-14T11:31:59.5915113Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:126:25
+2026-11-14T11:31:59.5915550Z 
+2026-11-14T11:31:59.5916053Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5917025Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/test-failed-1.png
+2026-11-14T11:31:59.5918037Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5918377Z 
+2026-11-14T11:31:59.5919021Z     Error Context: test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/error-context.md
+2026-11-14T11:31:59.5919671Z 
+2026-11-14T11:31:59.5920137Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5921047Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/trace.zip
+2026-11-14T11:31:59.5921702Z     Usage:
+2026-11-14T11:31:59.5921832Z 
+2026-11-14T11:31:59.5922485Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/trace.zip
+2026-11-14T11:31:59.5923307Z 
+2026-11-14T11:31:59.5923724Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5924062Z 
+2026-11-14T11:31:59.5924783Z   4) [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T11:31:59.5925394Z 
+2026-11-14T11:31:59.5925591Z     Error: expect(locator).toHaveValue(expected) failed
+2026-11-14T11:31:59.5925842Z 
+2026-11-14T11:31:59.5926065Z     Locator: getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.5926486Z     Expected: "Ordinary unsent draft"
+2026-11-14T11:31:59.5926799Z     Timeout: 5000ms
+2026-11-14T11:31:59.5927075Z     Error: element(s) not found
+2026-11-14T11:31:59.5927270Z 
+2026-11-14T11:31:59.5927360Z     Call log:
+2026-11-14T11:31:59.5927846Z       - Expect "toHaveValue" getByRole('textbox', { name: 'Message Mitzo' }) with timeout 5000ms
+2026-11-14T11:31:59.5928661Z       - waiting for getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.5928967Z 
+2026-11-14T11:31:59.5928973Z 
+2026-11-14T11:31:59.5929104Z       124 |     await page.goto('/');
+2026-11-14T11:31:59.5929584Z       125 |     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+2026-11-14T11:31:59.5930161Z     > 126 |     await expect(input).toHaveValue('Ordinary unsent draft');
+2026-11-14T11:31:59.5930598Z           |                         ^
+2026-11-14T11:31:59.5931058Z       127 |     await input.fill('Draft retained through joining and resizing');
+2026-11-14T11:31:59.5931551Z       128 |     await input.evaluate((node) => {
+2026-11-14T11:31:59.5931998Z       129 |       (node as HTMLElement).dataset.retained = 'original';
+2026-11-14T11:31:59.5932786Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:126:25
+2026-11-14T11:31:59.5933216Z 
+2026-11-14T11:31:59.5933686Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5934860Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/test-failed-1.png
+2026-11-14T11:31:59.5935893Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5936218Z 
+2026-11-14T11:31:59.5936850Z     Error Context: test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/error-context.md
+2026-11-14T11:31:59.5937503Z 
+2026-11-14T11:31:59.5937973Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5938883Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/trace.zip
+2026-11-14T11:31:59.5939533Z     Usage:
+2026-11-14T11:31:59.5939656Z 
+2026-11-14T11:31:59.5940322Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/trace.zip
+2026-11-14T11:31:59.5941025Z 
+2026-11-14T11:31:59.5941439Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5941756Z 
+2026-11-14T11:31:59.5942619Z   5) [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T11:31:59.5943271Z 
+2026-11-14T11:31:59.5943465Z     Error: expect(locator).toHaveCount(expected) failed
+2026-11-14T11:31:59.5943738Z 
+2026-11-14T11:31:59.5944172Z     Locator:  getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.5944719Z     Expected: 1
+2026-11-14T11:31:59.5944951Z     Received: 0
+2026-11-14T11:31:59.5945197Z     Timeout:  5000ms
+2026-11-14T11:31:59.5945350Z 
+2026-11-14T11:31:59.5945453Z     Call log:
+2026-11-14T11:31:59.5946146Z       - Expect "toHaveCount" getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true }) with timeout 5000ms
+2026-11-14T11:31:59.5947350Z       - waiting for getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.5948023Z         14 × locator resolved to 0 elements
+2026-11-14T11:31:59.5948383Z            - unexpected value "0"
+2026-11-14T11:31:59.5948573Z 
+2026-11-14T11:31:59.5948579Z 
+2026-11-14T11:31:59.5948691Z       208 |         1,
+2026-11-14T11:31:59.5948929Z       209 |       );
+2026-11-14T11:31:59.5949435Z     > 210 |       await expect(page.getByText(sharedReply.text, { exact: true })).toHaveCount(1);
+2026-11-14T11:31:59.5950034Z           |                                                                       ^
+2026-11-14T11:31:59.5950606Z       211 |       await input.fill('Keyboard draft retained in ordinary responsive chat');
+2026-11-14T11:31:59.5951135Z       212 |       await input.focus();
+2026-11-14T11:31:59.5951510Z       213 |       await page.keyboard.press('Tab');
+2026-11-14T11:31:59.5952290Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:210:71
+2026-11-14T11:31:59.5952862Z 
+2026-11-14T11:31:59.5953333Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5954311Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/test-failed-1.png
+2026-11-14T11:31:59.5955421Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5955747Z 
+2026-11-14T11:31:59.5956419Z     Error Context: test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/error-context.md
+2026-11-14T11:31:59.5957107Z 
+2026-11-14T11:31:59.5957576Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5958514Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/trace.zip
+2026-11-14T11:31:59.5959231Z     Usage:
+2026-11-14T11:31:59.5959377Z 
+2026-11-14T11:31:59.5960075Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/trace.zip
+2026-11-14T11:31:59.5960783Z 
+2026-11-14T11:31:59.5961215Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5961550Z 
+2026-11-14T11:31:59.5962319Z   6) [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T11:31:59.5963105Z 
+2026-11-14T11:31:59.5963306Z     Error: expect(locator).toHaveCount(expected) failed
+2026-11-14T11:31:59.5963582Z 
+2026-11-14T11:31:59.5964007Z     Locator:  getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.5964587Z     Expected: 1
+2026-11-14T11:31:59.5964826Z     Received: 0
+2026-11-14T11:31:59.5965080Z     Timeout:  5000ms
+2026-11-14T11:31:59.5965238Z 
+2026-11-14T11:31:59.5965486Z     Call log:
+2026-11-14T11:31:59.5966218Z       - Expect "toHaveCount" getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true }) with timeout 5000ms
+2026-11-14T11:31:59.5967278Z       - waiting for getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.5967993Z         14 × locator resolved to 0 elements
+2026-11-14T11:31:59.5968416Z            - unexpected value "0"
+2026-11-14T11:31:59.5968619Z 
+2026-11-14T11:31:59.5968625Z 
+2026-11-14T11:31:59.5968721Z       208 |         1,
+2026-11-14T11:31:59.5968975Z       209 |       );
+2026-11-14T11:31:59.5969493Z     > 210 |       await expect(page.getByText(sharedReply.text, { exact: true })).toHaveCount(1);
+2026-11-14T11:31:59.5970119Z           |                                                                       ^
+2026-11-14T11:31:59.5970721Z       211 |       await input.fill('Keyboard draft retained in ordinary responsive chat');
+2026-11-14T11:31:59.5971421Z       212 |       await input.focus();
+2026-11-14T11:31:59.5971809Z       213 |       await page.keyboard.press('Tab');
+2026-11-14T11:31:59.5972489Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:210:71
+2026-11-14T11:31:59.5973090Z 
+2026-11-14T11:31:59.5973591Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5974624Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/test-failed-1.png
+2026-11-14T11:31:59.5975686Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5976030Z 
+2026-11-14T11:31:59.5976698Z     Error Context: test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/error-context.md
+2026-11-14T11:31:59.5977398Z 
+2026-11-14T11:31:59.5977914Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5978875Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/trace.zip
+2026-11-14T11:31:59.5979579Z     Usage:
+2026-11-14T11:31:59.5979706Z 
+2026-11-14T11:31:59.5980407Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/trace.zip
+2026-11-14T11:31:59.5981157Z 
+2026-11-14T11:31:59.5981609Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5981972Z 
+2026-11-14T11:31:59.5983041Z   7) [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T11:31:59.5983736Z 
+2026-11-14T11:31:59.5983949Z     Error: expect(locator).toHaveValue(expected) failed
+2026-11-14T11:31:59.5984234Z 
+2026-11-14T11:31:59.5984487Z     Locator: getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.5984938Z     Expected: "Ordinary unsent draft"
+2026-11-14T11:31:59.5985262Z     Timeout: 5000ms
+2026-11-14T11:31:59.5985572Z     Error: element(s) not found
+2026-11-14T11:31:59.5985770Z 
+2026-11-14T11:31:59.5985879Z     Call log:
+2026-11-14T11:31:59.5986397Z       - Expect "toHaveValue" getByRole('textbox', { name: 'Message Mitzo' }) with timeout 5000ms
+2026-11-14T11:31:59.5987090Z       - waiting for getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.5987399Z 
+2026-11-14T11:31:59.5987405Z 
+2026-11-14T11:31:59.5987562Z       124 |     await page.goto('/');
+2026-11-14T11:31:59.5988066Z       125 |     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+2026-11-14T11:31:59.5988689Z     > 126 |     await expect(input).toHaveValue('Ordinary unsent draft');
+2026-11-14T11:31:59.5989140Z           |                         ^
+2026-11-14T11:31:59.5989625Z       127 |     await input.fill('Draft retained through joining and resizing');
+2026-11-14T11:31:59.5990331Z       128 |     await input.evaluate((node) => {
+2026-11-14T11:31:59.5990815Z       129 |       (node as HTMLElement).dataset.retained = 'original';
+2026-11-14T11:31:59.5991532Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:126:25
+2026-11-14T11:31:59.5991976Z 
+2026-11-14T11:31:59.5992492Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5993692Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/test-failed-1.png
+2026-11-14T11:31:59.5994895Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5995259Z 
+2026-11-14T11:31:59.5995978Z     Error Context: test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/error-context.md
+2026-11-14T11:31:59.5996723Z 
+2026-11-14T11:31:59.5997424Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.5998460Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/trace.zip
+2026-11-14T11:31:59.5999166Z     Usage:
+2026-11-14T11:31:59.5999310Z 
+2026-11-14T11:31:59.6000029Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/trace.zip
+2026-11-14T11:31:59.6000766Z 
+2026-11-14T11:31:59.6001242Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6001609Z 
+2026-11-14T11:31:59.6002619Z   8) [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T11:31:59.6003399Z 
+2026-11-14T11:31:59.6003642Z     Error: expect(locator).toHaveValue(expected) failed
+2026-11-14T11:31:59.6003948Z 
+2026-11-14T11:31:59.6004228Z     Locator: getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.6004723Z     Expected: "Ordinary unsent draft"
+2026-11-14T11:31:59.6005085Z     Timeout: 5000ms
+2026-11-14T11:31:59.6005396Z     Error: element(s) not found
+2026-11-14T11:31:59.6005621Z 
+2026-11-14T11:31:59.6005728Z     Call log:
+2026-11-14T11:31:59.6006285Z       - Expect "toHaveValue" getByRole('textbox', { name: 'Message Mitzo' }) with timeout 5000ms
+2026-11-14T11:31:59.6007015Z       - waiting for getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.6007361Z 
+2026-11-14T11:31:59.6007367Z 
+2026-11-14T11:31:59.6007525Z       124 |     await page.goto('/');
+2026-11-14T11:31:59.6008072Z       125 |     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+2026-11-14T11:31:59.6008722Z     > 126 |     await expect(input).toHaveValue('Ordinary unsent draft');
+2026-11-14T11:31:59.6009203Z           |                         ^
+2026-11-14T11:31:59.6009726Z       127 |     await input.fill('Draft retained through joining and resizing');
+2026-11-14T11:31:59.6010405Z       128 |     await input.evaluate((node) => {
+2026-11-14T11:31:59.6010877Z       129 |       (node as HTMLElement).dataset.retained = 'original';
+2026-11-14T11:31:59.6011622Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:126:25
+2026-11-14T11:31:59.6012092Z 
+2026-11-14T11:31:59.6012804Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6013893Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/test-failed-1.png
+2026-11-14T11:31:59.6014961Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6015295Z 
+2026-11-14T11:31:59.6015937Z     Error Context: test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/error-context.md
+2026-11-14T11:31:59.6016611Z 
+2026-11-14T11:31:59.6017329Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6018274Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/trace.zip
+2026-11-14T11:31:59.6018962Z     Usage:
+2026-11-14T11:31:59.6019089Z 
+2026-11-14T11:31:59.6019776Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/trace.zip
+2026-11-14T11:31:59.6020484Z 
+2026-11-14T11:31:59.6020903Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6021242Z 
+2026-11-14T11:31:59.6021994Z   9) [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T11:31:59.6022490Z 
+2026-11-14T11:31:59.6022848Z     Error: expect(locator).toHaveCount(expected) failed
+2026-11-14T11:31:59.6023036Z 
+2026-11-14T11:31:59.6023337Z     Locator:  getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.6023713Z     Expected: 1
+2026-11-14T11:31:59.6023889Z     Received: 0
+2026-11-14T11:31:59.6024062Z     Timeout:  5000ms
+2026-11-14T11:31:59.6024170Z 
+2026-11-14T11:31:59.6024247Z     Call log:
+2026-11-14T11:31:59.6024705Z       - Expect "toHaveCount" getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true }) with timeout 5000ms
+2026-11-14T11:31:59.6025362Z       - waiting for getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.6025817Z         14 × locator resolved to 0 elements
+2026-11-14T11:31:59.6026076Z            - unexpected value "0"
+2026-11-14T11:31:59.6026226Z 
+2026-11-14T11:31:59.6026230Z 
+2026-11-14T11:31:59.6026309Z       208 |         1,
+2026-11-14T11:31:59.6026490Z       209 |       );
+2026-11-14T11:31:59.6026840Z     > 210 |       await expect(page.getByText(sharedReply.text, { exact: true })).toHaveCount(1);
+2026-11-14T11:31:59.6027268Z           |                                                                       ^
+2026-11-14T11:31:59.6027658Z       211 |       await input.fill('Keyboard draft retained in ordinary responsive chat');
+2026-11-14T11:31:59.6028008Z       212 |       await input.focus();
+2026-11-14T11:31:59.6028377Z       213 |       await page.keyboard.press('Tab');
+2026-11-14T11:31:59.6029095Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:210:71
+2026-11-14T11:31:59.6029586Z 
+2026-11-14T11:31:59.6030059Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6031029Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/test-failed-1.png
+2026-11-14T11:31:59.6032053Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6032744Z 
+2026-11-14T11:31:59.6033540Z     Error Context: test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/error-context.md
+2026-11-14T11:31:59.6034214Z 
+2026-11-14T11:31:59.6034680Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6035619Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/trace.zip
+2026-11-14T11:31:59.6036283Z     Usage:
+2026-11-14T11:31:59.6036410Z 
+2026-11-14T11:31:59.6037081Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/trace.zip
+2026-11-14T11:31:59.6037774Z 
+2026-11-14T11:31:59.6038196Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6038522Z 
+2026-11-14T11:31:59.6039308Z   10) [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T11:31:59.6039987Z 
+2026-11-14T11:31:59.6040206Z     Error: expect(locator).toHaveCount(expected) failed
+2026-11-14T11:31:59.6040469Z 
+2026-11-14T11:31:59.6040885Z     Locator:  getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.6041429Z     Expected: 1
+2026-11-14T11:31:59.6041662Z     Received: 0
+2026-11-14T11:31:59.6041890Z     Timeout:  5000ms
+2026-11-14T11:31:59.6042055Z 
+2026-11-14T11:31:59.6042160Z     Call log:
+2026-11-14T11:31:59.6043065Z       - Expect "toHaveCount" getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true }) with timeout 5000ms
+2026-11-14T11:31:59.6044071Z       - waiting for getByText('Architect answer is retained even while Reviewer is uncertain.', { exact: true })
+2026-11-14T11:31:59.6044727Z         14 × locator resolved to 0 elements
+2026-11-14T11:31:59.6045053Z            - unexpected value "0"
+2026-11-14T11:31:59.6045251Z 
+2026-11-14T11:31:59.6045257Z 
+2026-11-14T11:31:59.6045357Z       208 |         1,
+2026-11-14T11:31:59.6045608Z       209 |       );
+2026-11-14T11:31:59.6046094Z     > 210 |       await expect(page.getByText(sharedReply.text, { exact: true })).toHaveCount(1);
+2026-11-14T11:31:59.6046676Z           |                                                                       ^
+2026-11-14T11:31:59.6047237Z       211 |       await input.fill('Keyboard draft retained in ordinary responsive chat');
+2026-11-14T11:31:59.6047726Z       212 |       await input.focus();
+2026-11-14T11:31:59.6048099Z       213 |       await page.keyboard.press('Tab');
+2026-11-14T11:31:59.6048790Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:210:71
+2026-11-14T11:31:59.6049285Z 
+2026-11-14T11:31:59.6049767Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6050739Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/test-failed-1.png
+2026-11-14T11:31:59.6051957Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6052269Z 
+2026-11-14T11:31:59.6053011Z     Error Context: test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/error-context.md
+2026-11-14T11:31:59.6053681Z 
+2026-11-14T11:31:59.6054148Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6055113Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/trace.zip
+2026-11-14T11:31:59.6055778Z     Usage:
+2026-11-14T11:31:59.6055905Z 
+2026-11-14T11:31:59.6056591Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/trace.zip
+2026-11-14T11:31:59.6057274Z 
+2026-11-14T11:31:59.6057675Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6058163Z 
+2026-11-14T11:31:59.6058917Z   11) [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T11:31:59.6059526Z 
+2026-11-14T11:31:59.6059723Z     Error: expect(locator).toHaveValue(expected) failed
+2026-11-14T11:31:59.6059999Z 
+2026-11-14T11:31:59.6060218Z     Locator: getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.6060637Z     Expected: "Ordinary unsent draft"
+2026-11-14T11:31:59.6060957Z     Timeout: 5000ms
+2026-11-14T11:31:59.6061245Z     Error: element(s) not found
+2026-11-14T11:31:59.6061426Z 
+2026-11-14T11:31:59.6061521Z     Call log:
+2026-11-14T11:31:59.6061996Z       - Expect "toHaveValue" getByRole('textbox', { name: 'Message Mitzo' }) with timeout 5000ms
+2026-11-14T11:31:59.6062767Z       - waiting for getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.6063437Z 
+2026-11-14T11:31:59.6063455Z 
+2026-11-14T11:31:59.6063694Z       124 |     await page.goto('/');
+2026-11-14T11:31:59.6064343Z       125 |     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+2026-11-14T11:31:59.6065104Z     > 126 |     await expect(input).toHaveValue('Ordinary unsent draft');
+2026-11-14T11:31:59.6065773Z           |                         ^
+2026-11-14T11:31:59.6066414Z       127 |     await input.fill('Draft retained through joining and resizing');
+2026-11-14T11:31:59.6067058Z       128 |     await input.evaluate((node) => {
+2026-11-14T11:31:59.6067658Z       129 |       (node as HTMLElement).dataset.retained = 'original';
+2026-11-14T11:31:59.6068580Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:126:25
+2026-11-14T11:31:59.6069112Z 
+2026-11-14T11:31:59.6083212Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6084368Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/test-failed-1.png
+2026-11-14T11:31:59.6085718Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6086088Z 
+2026-11-14T11:31:59.6086799Z     Error Context: test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/error-context.md
+2026-11-14T11:31:59.6087507Z 
+2026-11-14T11:31:59.6087984Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6088943Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/trace.zip
+2026-11-14T11:31:59.6089673Z     Usage:
+2026-11-14T11:31:59.6089814Z 
+2026-11-14T11:31:59.6090530Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/trace.zip
+2026-11-14T11:31:59.6091263Z 
+2026-11-14T11:31:59.6091699Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6092187Z 
+2026-11-14T11:31:59.6094024Z   12) [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T11:31:59.6094670Z 
+2026-11-14T11:31:59.6094888Z     Error: expect(locator).toHaveValue(expected) failed
+2026-11-14T11:31:59.6095136Z 
+2026-11-14T11:31:59.6095362Z     Locator: getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.6095790Z     Expected: "Ordinary unsent draft"
+2026-11-14T11:31:59.6096111Z     Timeout: 5000ms
+2026-11-14T11:31:59.6096400Z     Error: element(s) not found
+2026-11-14T11:31:59.6096602Z 
+2026-11-14T11:31:59.6096704Z     Call log:
+2026-11-14T11:31:59.6097236Z       - Expect "toHaveValue" getByRole('textbox', { name: 'Message Mitzo' }) with timeout 5000ms
+2026-11-14T11:31:59.6097931Z       - waiting for getByRole('textbox', { name: 'Message Mitzo' })
+2026-11-14T11:31:59.6098256Z 
+2026-11-14T11:31:59.6098276Z 
+2026-11-14T11:31:59.6098427Z       124 |     await page.goto('/');
+2026-11-14T11:31:59.6098938Z       125 |     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+2026-11-14T11:31:59.6099559Z     > 126 |     await expect(input).toHaveValue('Ordinary unsent draft');
+2026-11-14T11:31:59.6100034Z           |                         ^
+2026-11-14T11:31:59.6100530Z       127 |     await input.fill('Draft retained through joining and resizing');
+2026-11-14T11:31:59.6101060Z       128 |     await input.evaluate((node) => {
+2026-11-14T11:31:59.6101552Z       129 |       (node as HTMLElement).dataset.retained = 'original';
+2026-11-14T11:31:59.6102278Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:126:25
+2026-11-14T11:31:59.6102964Z 
+2026-11-14T11:31:59.6103498Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6104568Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/test-failed-1.png
+2026-11-14T11:31:59.6105696Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6106056Z 
+2026-11-14T11:31:59.6106761Z     Error Context: test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/error-context.md
+2026-11-14T11:31:59.6107465Z 
+2026-11-14T11:31:59.6107969Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6108960Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/trace.zip
+2026-11-14T11:31:59.6109689Z     Usage:
+2026-11-14T11:31:59.6109816Z 
+2026-11-14T11:31:59.6110544Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/trace.zip
+2026-11-14T11:31:59.6111238Z 
+2026-11-14T11:31:59.6111647Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T11:31:59.6112262Z 
+2026-11-14T11:31:59.6112378Z   12 failed
+2026-11-14T11:31:59.6113365Z     [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T11:31:59.6114726Z     [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T11:31:59.6116032Z     [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T11:31:59.6117313Z     [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T11:31:59.6118700Z     [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T11:31:59.6120095Z     [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T11:31:59.6121373Z     [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T11:31:59.6122798Z     [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T11:31:59.6124145Z     [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T11:31:59.6125474Z     [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T11:31:59.6126781Z     [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T11:31:59.6128075Z     [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T11:31:59.6128789Z   2 passed (1.8m)
+2026-11-14T11:32:00.1165057Z ##[error]Process completed with exit code 1.
+2026-11-14T11:32:00.1237939Z ##[group]Run actions/upload-artifact@v7
+2026-11-14T11:32:00.1238186Z with:
+2026-11-14T11:32:00.1238480Z   name: symposium-ordinary-renders-8bf86176098f5ae165cbaf6a6f234db45717071e-1
+2026-11-14T11:32:00.1238878Z   path: test-results/offline/
+playwright-report/offline/
+
+2026-11-14T11:32:00.1239149Z   retention-days: 7
+2026-11-14T11:32:00.1239339Z   if-no-files-found: warn
+2026-11-14T11:32:00.1239535Z   compression-level: 6
+2026-11-14T11:32:00.1239716Z   overwrite: false
+2026-11-14T11:32:00.1239907Z   include-hidden-files: false
+2026-11-14T11:32:00.1240106Z   archive: true
+2026-11-14T11:32:00.1240285Z ##[endgroup]
+2026-11-14T11:32:00.2565983Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-11-14T11:32:00.2567885Z The least common ancestor is /home/runner/work/mitzo/mitzo. This will be the root directory of the artifact
+2026-11-14T11:32:00.2568758Z With the provided path, there will be 85 files uploaded
+2026-11-14T11:32:00.2572275Z Artifact name is valid!
+2026-11-14T11:32:00.2572808Z Root directory input is valid!
+2026-11-14T11:32:00.4652077Z Uploading artifact: symposium-ordinary-renders-8bf86176098f5ae165cbaf6a6f234db45717071e-1.zip
+2026-11-14T11:32:00.4681353Z Beginning upload of artifact content to blob storage
+2026-11-14T11:32:00.8476557Z Uploaded bytes 8388608
+2026-11-14T11:32:01.1585487Z Uploaded bytes 16777216
+2026-11-14T11:32:01.2766730Z Uploaded bytes 25165824
+2026-11-14T11:32:01.4367485Z Uploaded bytes 33554432
+2026-11-14T11:32:01.6953672Z Uploaded bytes 41943040
+2026-11-14T11:32:01.8524043Z Uploaded bytes 50331648
+2026-11-14T11:32:02.1103275Z Uploaded bytes 58720256
+2026-11-14T11:32:02.1648429Z Uploaded bytes 61722664
+2026-11-14T11:32:02.1754308Z Finished uploading artifact content to blob storage!
+2026-11-14T11:32:02.1757218Z SHA256 digest of uploaded artifact is 44b7ec9453e58065cba758872adcabd4cf6f72c4a9745ebb4b6f5de9f3f7dc30
+2026-11-14T11:32:02.1758805Z Finalizing artifact upload
+2026-11-14T11:32:02.5895305Z Artifact symposium-ordinary-renders-8bf86176098f5ae165cbaf6a6f234db45717071e-1 successfully finalized. Artifact ID 14112440171
+2026-11-14T11:32:02.5896448Z Artifact symposium-ordinary-renders-8bf86176098f5ae165cbaf6a6f234db45717071e-1 has been successfully uploaded! Final size is 61722664 bytes. Artifact ID is 14112440171
+2026-11-14T11:32:02.5899085Z Artifact download URL: https://github.com/dimakis/mitzo/actions/runs/43590207422/artifacts/14112440171
+2026-11-14T11:32:02.6109269Z Post job cleanup.
+2026-11-14T11:32:02.6112339Z ##[start-action display=Run actions/setup-node@v7;id=__ecdd10f0-354b-4b09-9c23-2caf506fa8d8.__actions_setup-node]
+2026-11-14T11:32:02.6114721Z ##[end-action id=__ecdd10f0-354b-4b09-9c23-2caf506fa8d8.__actions_setup-node;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T11:32:02.6536546Z Post job cleanup.
+2026-11-14T11:32:02.7279954Z [command]/usr/bin/git version
+2026-11-14T11:32:02.7320504Z git version 2.56.1
+2026-11-14T11:32:02.7349425Z Temporarily overriding HOME='/home/runner/work/_temp/e9b39eff-30d4-4714-9b8e-145e096bbf01' before making global git config changes
+2026-11-14T11:32:02.7350842Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T11:32:02.7355643Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T11:32:02.7398812Z Removing SSH command configuration
+2026-11-14T11:32:02.7403983Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T11:32:02.7439236Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T11:32:02.7783380Z Removing HTTP extra header
+2026-11-14T11:32:02.7797056Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T11:32:02.7875842Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T11:32:02.8176092Z Removing includeIf entries pointing to credentials config files
+2026-11-14T11:32:02.8191325Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T11:32:02.8309486Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T11:32:02.8806246Z Cleaning up orphan processes

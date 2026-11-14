@@ -69,7 +69,7 @@ jobs:
       - name: Render ordinary composition and unchanged approved reference
         env:
           NODE_OPTIONS: --max-old-space-size=1024
-        run: bash scripts/ci-browser-container.sh node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1
+        run: bash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:

@@ -202,3 +202,47 @@ consumers without collecting private prompts or inventing a phone root cause.
 Originating-chat delivery became unavailable at authorization/delivery; lookup of
 the original message receipt was also unavailable. Slice 1 and 2 received the
 verified checkpoint and remaining boundaries through supported peer messaging.
+
+## Recovery consumer and hosted baseline
+
+The stronger actual-screen check found a missing recovery consumer after the
+earlier API recovery passed. `baseline-missing-status-view.log` retains the red
+assertion: the draft and original 31st turn survived, but neither status details
+nor Check original request was reachable. Slice 1 confirmed the portal forwarded
+the status sink/active state without its view context. Original `aed7a34a2`
+(combined `ee2b8440e`) repairs that owner/consumer boundary; `a778c1d51` also fixes
+status ownership and the two CI test types. `final-visible-recovery-ee2b8440e.log`
+records 21 passes in four files, including opening real Conversation status
+details, checking the exact original request, and completing the full Stop and
+restart continuation without another dispatch. The original red assertion stays
+in the final harness. Recovery actions may be grouped in status details when
+several notices exist; the test follows that actual user path.
+
+Hosted focused run [43590207422](https://github.com/dimakis/mitzo/actions/runs/43590207422),
+PR head `c0a8e7aaf69373b87f68b0d1e9d56e787a52542a`, executed merge ref
+`8bf86176098f5ae165cbaf6a6f234db45717071e` with Node `24.22.1`:
+
+| Job                                       | Observed outcome                                               | Exact evidence                                                             |
+| ----------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Ordinary authenticated application owners | PASS, 9 tests, full 31-turn journey and five omission controls | `hosted-application-c0a8e7aaf.log`, job `132433141922`                     |
+| Browser host preparation                  | PASS, pinned Linux Chromium/WebKit container                   | Job `132433141743`                                                         |
+| Ordinary responsive render evidence       | FAIL, all 12 presentation cases; 2 startup probes passed       | `hosted-render-c0a8e7aaf-original.log`, retained screenshots/traces/report |
+
+The render failures were fixture prerequisites. The narrow fixture's socket
+throws during automatic store connection. The full responsive fixture renders
+ordinary history but supplies no startup-verified auth session ID, so the actual
+ordinary shared host correctly remains unqualified. The fixture corrections add
+an inert external socket and exercise real `restoreCookieAuthentication` against
+the intercepted verified login before mounting the route. They do not bypass
+production authentication or establish an application/device pass. Original
+downloaded artifacts remain under `.cache/symposium-ci-c0/` in this verification
+checkout; the complete hosted logs and exact commits are retained here.
+
+The focused `symposium-acceptance.yml` workflow uses the repository's existing
+pinned Node/browser-container actions with read-only GitHub permissions and
+bounded jobs. It supplements full CI and removes no required gate. It retains
+the complete report/screenshots/traces on success or failure; bounded fixture
+failure annotations make diagnostics available even when the separate tool's
+authenticated REST log quota is exhausted. The existing signed-in native GitHub
+route remained usable and supplied these original logs/artifacts. Origin
+communication later recovered and received the confirmed blocker/fix evidence.

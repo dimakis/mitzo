@@ -651,6 +651,22 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31),
     );
     expect(loseSend).toBe(false);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
+      ).toBe('Retain original operation through lost response and Stop.'),
+    );
+    // Recovery is inspectable through the actual current composer status owner.
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
+    const statusDetails = await screen.findByRole('dialog', {
+      name: 'Conversation status',
+      exact: true,
+    });
+    fireEvent.click(
+      await within(statusDetails).findByRole('button', { name: 'Check original request' }),
+    );
+    fireEvent.keyDown(statusDetails, { key: 'Escape' });
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31);
     const lostCall = h.fetch.mock.calls.find(
       ([url, init]) =>
         url.endsWith('/messages') &&

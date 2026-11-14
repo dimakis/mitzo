@@ -15,7 +15,7 @@ import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 // Canned HTTP is presentation evidence only; actual authenticated application
 // acceptance is tests/integration/symposium-ordinary-acceptance.test.tsx.
 const output = build({
-  entryPoints: [resolve('tests/fixtures/repository-preparation-recovery.tsx')],
+  entryPoints: [resolve('tests/fixtures/symposium-ordinary-responsive.tsx')],
   plugins: [chatStorageBootstrap()],
   bundle: true,
   external: ['/*.png', '/*.svg'],
@@ -155,7 +155,7 @@ for (const theme of ['light', 'dark'] as const)
         });
       if (path.startsWith('/api/')) {
         const fixtures: Record<string, unknown> = {
-          '/api/auth/check': { authenticated: true },
+          '/api/auth/check': { authenticated: true, authSessionId: 'offline-responsive-operator' },
           '/api/chat/runtime/capabilities': inventory,
           '/api/config': { quickActions: [], contextBlocks: {} },
           '/api/agent-library': { drafts: [], versions: inventory.agentProfiles },
