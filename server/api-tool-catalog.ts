@@ -180,7 +180,7 @@ export class ApiToolCatalog {
           },
           required: false,
           behavior: 'read',
-          routes: ['local-api', 'codex'],
+          routes: ['local-api', 'codex', 'claude-sdk'],
           requirement:
             'Reviewed read-only API template. Select RequestConnectionAccess too; current connection approval is required. New session required for changes.',
         };

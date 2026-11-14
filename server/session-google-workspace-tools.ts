@@ -17,16 +17,20 @@ import {
   googleReadSessionApproval,
 } from './google-workspace-read.js';
 import { captureSessionCapability } from './session-capability-grants.js';
+import { reportToolFailure } from './tool-failure-reporting.js';
+import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 
 /** The admitted Local Mac owner supplies both fences; no shell credential access is granted. */
 export function sessionGoogleWorkspaceTools(options: {
   sessionId: string;
   session: ManagedSession;
   registry: SessionRegistry;
+  toolName?: string;
   assertCurrent(): Promise<void>;
   assertCurrentSync(): void;
 }) {
   const name = googleWorkspaceReadDefinition.name;
+  const policyName = options.toolName ?? name;
   const service = getConnectionsRuntime()?.googleWorkspace;
   const current = () => {
     options.assertCurrentSync();
@@ -36,7 +40,7 @@ export function sessionGoogleWorkspaceTools(options: {
       owner.session !== options.session ||
       options.session.abortController.signal.aborted ||
       !agentToolAllowed(options.session, name) ||
-      checkSkillPolicy(options.registry, owner.clientId, name) === 'deny' ||
+      checkSkillPolicy(options.registry, owner.clientId, policyName) === 'deny' ||
       !service ||
       getConnectionsRuntime()?.googleWorkspace !== service
     )
@@ -61,11 +65,34 @@ export function sessionGoogleWorkspaceTools(options: {
         options.session.abortController.signal,
         AbortSignal.timeout(30_000),
       ]);
+      const observeRead = async <T>(
+        work: () => Promise<T>,
+        assertCurrent: () => Promise<void>,
+      ): Promise<T> => {
+        try {
+          return await work();
+        } catch (error) {
+          // Preparation and resource-read failures are completed observations
+          // while original authority and consent remain current. Cancellation
+          // and explicit uncertainty must still block terminal settlement.
+          await assertCurrent();
+          combined.throwIfAborted();
+          if (
+            callbackOutcome(error) === 'settled' &&
+            !(error instanceof Error && error.name === 'AbortError')
+          )
+            throw retainCallbackOutcome(
+              new Error('Google read failed', { cause: error }),
+              'settled',
+            );
+          throw error;
+        }
+      };
       try {
         const request = GoogleWorkspaceReadSchema.parse(input);
         combined.throwIfAborted();
         await guard();
-        const prepared = await service!.prepareRead(request, combined);
+        const prepared = await observeRead(() => service!.prepareRead(request, combined), guard);
         await guard();
         combined.throwIfAborted();
         const review = { account: prepared.email, request };
@@ -99,7 +126,7 @@ export function sessionGoogleWorkspaceTools(options: {
         const permission =
           consent || autoRead
             ? { behavior: 'allow' as const, updatedInput: review }
-            : await buildPermissionHandler(owner.clientId, options.registry)(name, review, {
+            : await buildPermissionHandler(owner.clientId, options.registry)(policyName, review, {
                 signal: combined,
                 toolUseID: randomUUID(),
                 // Reads are never tier auto-allowed outside Auto; a retained
@@ -120,18 +147,17 @@ export function sessionGoogleWorkspaceTools(options: {
         if (!isDeepStrictEqual(permission.updatedInput, review))
           throw Error('Google read approval changed');
         onAuthorized?.(readCurrent);
-        const content = await prepared.read(readGuard);
+        const content = await observeRead(() => prepared.read(readGuard), readGuard);
         await readGuard();
         combined.throwIfAborted();
         return { content, isError: false };
-      } catch {
+      } catch (error) {
         // OAuth, CLI and HTTP diagnostics can contain secrets. Never return causes.
-        return {
-          content: combined.aborted
-            ? 'Google read cancelled or timed out.'
-            : 'Google read unavailable. Check the configured Google sign-in, resource access and current chat permissions, then retry.',
-          isError: true,
-        };
+        return reportToolFailure(error, {
+          sessionId: options.sessionId,
+          tool: name,
+          signal: combined,
+        });
       }
     },
   };

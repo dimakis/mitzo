@@ -1,10 +1,13 @@
+import { nativeConnectionToolNames } from './credential-connection-tools.js';
+
 /** Exact ordinary SDK callback allowlist, shared by its owner and read-only
  * support projection. These names grant nothing and do not change profile
  * eligibility in the executable catalog.
  */
 export const SDK_CONNECTION_PREFIX = 'mcp__mitzo-connections__';
 const connectionHelpers: readonly string[] = Object.freeze([
-  'ListConnections',
+  ...nativeConnectionToolNames,
+  'GoogleWorkspaceRead',
   'SymposiumReadProfiles',
   'SymposiumConsult',
   'SymposiumProposeProfile',

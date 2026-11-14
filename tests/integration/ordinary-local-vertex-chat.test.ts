@@ -762,7 +762,7 @@ it.each(
           'ConnectionRequest',
           'PrepareConnectionSetup',
         ])
-          expect(names).not.toContain(name);
+          expect(names.includes(name)).toBe(!idleSuccess);
         if (execute) {
           const decision = await options.canUseTool!(
             'mcp__mitzo-connections__ListConnections',
@@ -780,7 +780,14 @@ it.each(
               { connectionId: 'forged', method: 'GET', path: '/api/' },
               { signal: new AbortController().signal, toolUseID: 'unavailable-connection-request' },
             ),
-          ).toMatchObject({ behavior: 'deny' });
+          ).toMatchObject({ behavior: idleSuccess ? 'deny' : 'allow' });
+          if (!idleSuccess)
+            expect(
+              await client.callTool({
+                name: 'ConnectionRequest',
+                arguments: { connectionId: 'forged', method: 'GET', path: '/api/' },
+              }),
+            ).toMatchObject({ isError: true });
         }
       } finally {
         await client.close();

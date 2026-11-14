@@ -1,4 +1,6 @@
 import { ordinarySdkConnectionHelperTools } from './ordinary-sdk-helper-registration.js';
+import { createSdkToolLibrary } from './tool-library-sdk.js';
+import { CONNECTION_ACCESS_INSTRUCTIONS } from './session-connection-tools.js';
 import {
   reconcilableLocalCodexCommand,
   retainedLocalCodexRecoveryReservation,
@@ -2787,6 +2789,19 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         }),
       );
+      const sdkToolLibrary = options.ordinarySdkAuthority
+        ? await createSdkToolLibrary({
+            sessionId: session.sessionId!,
+            session,
+            registry,
+            refs: agentProfile?.definition.tools,
+            defaultMcpServers: mcpServers,
+            cwd,
+            env: nativeExecutionEnv(),
+            assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
+            assertCurrentSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
+          })
+        : undefined;
       const sdkAgentCommunication = options.ordinarySdkAuthority
         ? () =>
             sessionAgentCommunicationTools({
@@ -2886,6 +2901,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             message: 'This helper is unavailable for the selected conversation route.',
           };
         try {
+          // The published MCP/API owners perform the canonical operation approval.
+          if (sdkToolLibrary?.handles(name) && !opts.forcePrompt)
+            return { behavior: 'allow', updatedInput: input };
           const keychain = credentialSdkPermission(name, input, clientId, registry, session);
           return keychain && !opts.forcePrompt
             ? keychain
@@ -3049,13 +3067,25 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               currentSystemPromptAppend() +
               WEB_ACCESS_INSTRUCTIONS +
               (options.ordinarySdkAuthority
-                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
+                ? '\n' +
+                  PEER_MESSAGE_INSTRUCTIONS +
+                  '\n' +
+                  (agentToolAllowed(session, 'ListConnections')
+                    ? CONNECTION_ACCESS_INSTRUCTIONS
+                    : '') +
+                  (agentToolAllowed(session, 'GoogleWorkspaceRead')
+                    ? '\nUse GoogleWorkspaceRead for Drive, Docs, Sheets, Slides and Calendar reads through the existing Google sign-in.\n'
+                    : '')
                 : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
           };
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
-          ? [...ordinarySdkConnectionHelperTools, WEB_ACCESS_SDK_TOOL]
+          ? [
+              ...ordinarySdkConnectionHelperTools,
+              WEB_ACCESS_SDK_TOOL,
+              ...(sdkToolLibrary?.allowedTools ?? []),
+            ]
           : [
               ...(sdkCredentialIsolation ? [] : mcpAllowed),
               ...extraTools,
@@ -3074,7 +3104,15 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         ...(resolvedResume ? { resume: resolvedResume } : {}),
         ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
         mcpServers: options.ordinarySdkAuthority
-          ? { 'mitzo-connections': connectionServer, 'mitzo-web-access': webAccess }
+          ? {
+              'mitzo-connections': connectionServer,
+              'mitzo-web-access': webAccess,
+              ...(sdkToolLibrary
+                ? {
+                    'mitzo-tool-library': sdkToolLibrary.createServer(options.ordinarySdkAuthority),
+                  }
+                : {}),
+            }
           : {
               ...(sdkCredentialIsolation ? {} : allMcpServers),
               'mitzo-web-access': webAccess,
@@ -3128,6 +3166,25 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           },
           peerMessages: () => sdkPeerMessages,
           mcpServers: (state) => ({
+            ...(sdkToolLibrary
+              ? {
+                  'mitzo-tool-library': sdkToolLibrary.createServer({
+                    runCallback: state.runCallback,
+                    assertCurrentSync: (signal) => {
+                      if (state.retired || state.completing)
+                        throw Error('Completed SDK query retired');
+                      options.ordinarySdkAuthority!.assertCurrentSync(signal);
+                    },
+                    assertCurrent: async (signal) => {
+                      if (state.retired || state.completing)
+                        throw Error('Completed SDK query retired');
+                      await options.ordinarySdkAuthority!.assertCurrent(signal);
+                      if (state.retired || state.completing)
+                        throw Error('Completed SDK query retired');
+                    },
+                  }),
+                }
+              : {}),
             'mitzo-web-access': createSdkWebAccess(state),
             'mitzo-connections': createCredentialSdkServer(
               () => session.sessionId,

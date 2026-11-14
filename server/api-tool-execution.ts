@@ -1,4 +1,5 @@
 import { retainCallbackOutcome, retainReadOnlyCallbackOutcome } from './turn-callbacks.js';
+import { reportToolFailure } from './tool-failure-reporting.js';
 import type { AgentToolReference } from '@mitzo/protocol';
 import type { buildPermissionHandler } from '@mitzo/harness';
 import type { ApiToolCatalog } from './api-tool-catalog.js';
@@ -71,14 +72,13 @@ export function admitApiTools(options: {
             ),
             isError: false,
           };
-        } catch {
+        } catch (error) {
           return retainCallbackOutcome(
-            {
-              content: currentSignal.aborted
-                ? 'API tool request cancelled'
-                : 'API tool unavailable. Check its verification, connection access and current permissions.',
-              isError: true,
-            },
+            reportToolFailure(error, {
+              sessionId: options.sessionId,
+              tool: name,
+              signal: currentSignal,
+            }),
             currentSignal.aborted ? 'unknown' : 'settled',
           );
         } finally {
