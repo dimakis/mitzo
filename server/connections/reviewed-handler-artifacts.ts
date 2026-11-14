@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1152-symposium-integrated-conversation';
+  'v1.0.1153-symposium-integrated-conversation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/shared-conversation-composer.ts':
     'cf1faa7501c2e11c845e38caab5352d4c7d6831def7e8519dda74b4e59a46392',
   '../../frontend/src/components/__tests__/ChatInputHost.test.tsx':
-    '4a8d03ed7d720a017562540cb73cb0e8b1c539521fa74f4ebeb8f746b74458b0',
+    'bf330f2120b2c37b577fc10be3cad83fadf4edf37f540d07e499d060be053aba',
   '../../frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx':
     '5db2246ee5fac185f0cfcec84c6ff5399344598b69797f91a1aca52ab9849d37',
   '../../frontend/src/components/__tests__/CollaborationTranscript.test.tsx':

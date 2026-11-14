@@ -55,7 +55,7 @@ it('reports retained recovery controls to the current page status owner during q
   const { rerender } = render(tree());
   await screen.findByRole('button', { name: 'Check original request' });
   fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
-  const details = await screen.findByRole('dialog', { name: 'Conversation status', exact: true });
+  const details = await screen.findByRole('dialog', { name: 'Conversation status' });
   fireEvent.keyDown(details, { key: 'Escape' });
   const input = screen.getByRole('textbox');
   rerender(tree(true));
