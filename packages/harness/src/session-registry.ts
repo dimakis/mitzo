@@ -59,6 +59,7 @@ export interface ManagedSession {
     ): Promise<{ dispatched: boolean }>;
     /** Existing owned SDK queue only; native query selection stays private. */
     sdkTurns?: {
+      resumeQueue(): Promise<void>;
       captureInterruptTarget(): OrdinarySdkInterruptTarget | undefined;
       interruptIfCurrent(
         requestId: string,

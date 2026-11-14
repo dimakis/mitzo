@@ -1,5 +1,6 @@
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import { agentMessageRuntime } from './agent-message-runtime.js';
+import { continueOwnedLocalVertexQueue } from './ordinary-local-vertex-entry.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
@@ -4551,14 +4552,16 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
     res.status(409).json({ error: failure.publicMessage(), runtimeFailure: failure.telemetry() });
   };
   const runtimeBinding = eventStore.getSessionRuntimeBinding(sessionId);
-  const localContinue = ['responses', 'gemini'].includes(
-    runtimeBinding?.harness.implementation ?? '',
-  )
-    ? continueOwnedLocalResponsesQueue
-    : runtimeBinding?.harness.implementation === 'codex' &&
-        runtimeBinding.execution.location === 'local'
-      ? continueOwnedLocalCodexQueue
-      : undefined;
+  const localContinue =
+    runtimeBinding?.harness.implementation === 'claude-sdk' &&
+    runtimeBinding.execution.location === 'local'
+      ? continueOwnedLocalVertexQueue
+      : ['responses', 'gemini'].includes(runtimeBinding?.harness.implementation ?? '')
+        ? continueOwnedLocalResponsesQueue
+        : runtimeBinding?.harness.implementation === 'codex' &&
+            runtimeBinding.execution.location === 'local'
+          ? continueOwnedLocalCodexQueue
+          : undefined;
   if (localContinue) {
     try {
       await localContinue(

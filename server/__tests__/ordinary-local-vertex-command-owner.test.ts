@@ -118,6 +118,21 @@ it('offers a peer steering target only after the original SDK input is acknowled
   await f.owner.resultObserved('original-input');
   expect(f.owner.peerTurnTarget()).toBeUndefined();
 });
+it('coalesces concurrent Continue requests without aborting the newly running command', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+  await f.owner.enqueue('second');
+  f.store.transitionExecution(f.store.getExecutionAdmission('session', 'first')!.token, 'STOPPING');
+  await f.owner.complete('first');
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+  await expect(Promise.all([f.owner.resumeQueue(), f.owner.resumeQueue()])).resolves.toEqual([
+    undefined,
+    undefined,
+  ]);
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
+  expect(f.query.abort).not.toHaveBeenCalled();
+});
 it('projects a positively cancelled queued peer message into both retained transcripts before any provider input', async () => {
   const f = setup();
   await f.owner.enqueue('first');

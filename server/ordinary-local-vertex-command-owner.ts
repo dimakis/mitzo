@@ -130,6 +130,25 @@ export class OrdinaryLocalVertexCommandOwner {
   acceptsPeerMessages(): boolean {
     return !this.#paused && !this.#failed;
   }
+  resumeQueue(): Promise<void> {
+    if (
+      this.#active ||
+      this.owners.store.getSession(this.owners.sessionId)?.executionPhase !== 'TERMINAL'
+    )
+      return Promise.reject(Error('Original SDK result must settle before continuing'));
+    return this.#serialize(async () => {
+      await this.#fence();
+      // A concurrent Continue/Send or Stop may win during authority I/O.
+      // This request then has nothing to release; never abort that newer turn.
+      if (
+        this.#active ||
+        this.owners.store.getSession(this.owners.sessionId)?.executionPhase !== 'TERMINAL'
+      )
+        return;
+      this.#paused = false;
+      await this.#dispatch();
+    });
+  }
   /** A preparing command is not yet a provider-acknowledged steering target. */
   peerTurnTarget(): string | undefined {
     return this.#active && this.#inputUuid && this.#inputDispatched === this.#active.commandId

@@ -20,7 +20,27 @@ import { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command
 import { OrdinarySdkTurnEvidence } from './ordinary-sdk-turn-evidence.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { OrdinaryLocalVertexCommandRequestSchema } from './ordinary-local-codex-admission.js';
+import { assertOwnedVertexQueueControl } from './ordinary-local-vertex-queue.js';
+import type { AuthSession } from './auth.js';
 const unavailable = () => Error('Owned Local Claude runtime unavailable');
+export async function continueOwnedLocalVertexQueue(
+  sessionId: string,
+  authorization: AuthSession | undefined,
+  connectionId?: string,
+) {
+  assertOwnedVertexQueueControl(eventStore, sessionId, authorization);
+  if (!connectionId) throw unavailable();
+  const captured = captureAgentLibraryAuthorization(connectionId);
+  captured.assertCurrent();
+  const owner = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
+  if (
+    !owner?.sdkTurns ||
+    owner.authSessionId !== authorization?.id ||
+    captured.auth.id !== authorization.id
+  )
+    throw unavailable();
+  await owner.sdkTurns.resumeQueue();
+}
 export function canResumeOwnedLocalVertexDriver(sessionId: string, authSessionId: string): boolean {
   try {
     if (
@@ -253,6 +273,7 @@ export async function startOwnedLocalVertexCommand(
               });
             },
             sdkTurns: {
+              resumeQueue: () => queue!.resumeQueue(),
               captureInterruptTarget: () => queue!.captureInterruptTarget(),
               interruptIfCurrent: (requestId, target) =>
                 queue!.interruptIfCurrent(requestId, target),

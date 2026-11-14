@@ -14,6 +14,7 @@ vi.mock('../../server/claude-account-history.js', () => ({
 }));
 const services = vi.hoisted(() => ({
   authId: '',
+  auth: undefined as import('../../server/auth.js').AuthSession | undefined,
   workspace: undefined as unknown,
   library: undefined as unknown,
   query: vi.fn(),
@@ -54,6 +55,14 @@ vi.mock('node:child_process', async (original) => {
 // its mock is initializing: that import cycle can capture the global getter.
 vi.mock('../../server/repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: () => services.workspace,
+  getRepositoryWorkspaceCustody: () => services.workspace,
+  repositoryWorkspaceBinding: () => {
+    throw Error('No repository selection in this fixture');
+  },
+  repositoryWorkspaceCatalog: () => {
+    throw Error('No repository catalog in this fixture');
+  },
+  closeIdleRepositoryWorkspaces: () => {},
   getOrdinaryWorkspaces: () => {
     throw Error('No ordinary workspace selected by this repository fixture');
   },
@@ -79,6 +88,10 @@ vi.mock('../../server/agent-library-runtime.js', async (original) => ({
 vi.mock('../../server/auth.js', async (original) => ({
   ...(await original<object>()),
   hasPersistentRevocationAuthority: () => true,
+  authMiddleware: (_req: unknown, res: { locals: Record<string, unknown> }, next: () => void) => {
+    res.locals.authSession = services.auth;
+    next();
+  },
   operatorAuthMiddleware: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 vi.mock('../../server/connections-router.js', async (original) => ({
@@ -1054,7 +1067,8 @@ it.each(
       }),
     ).resolves.toMatchObject({ status: 202 });
     const stoppedQueryCount = services.requests.length;
-    chat.stopOrdinaryChat(chat.registry.findBySessionId(f.reservation.conversationId)!.clientId);
+    // Abrupt runtime loss still cannot manufacture a settled SDK result.
+    chat.stopChat(chat.registry.findBySessionId(f.reservation.conversationId)!.clientId);
     await vi.waitFor(() =>
       expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
     );
@@ -1084,6 +1098,223 @@ it.each(
     );
   },
   15_000,
+);
+
+it.each([false, true])(
+  'public Stop, reconnect and Continue retain the SDK development owner (personal=%s)',
+  async (personal) => {
+    vi.resetModules();
+    const { ownedVertexRuntimeFixture } =
+      await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
+    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true, personal });
+    services.workspace = f.workspace;
+    services.library = f.library;
+    services.authId = f.auth.id;
+    services.auth = f.auth;
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw Error('No live provider in this fixture');
+      }),
+    );
+    if (personal) {
+      const { ClaudeSubscriptionCustody } =
+        await import('../../server/claude-subscription-custody.js');
+      const capture = ClaudeSubscriptionCustody.capture;
+      vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
+        capture(env, f.personalExecutable),
+      );
+      vi.spyOn(ClaudeSubscriptionCustody.prototype, 'verify').mockResolvedValue();
+    }
+    const history: string[] = [];
+    let holdNext = true;
+    let finish: (() => void) | undefined;
+    const interrupt = vi.fn(async () => {});
+    services.query.mockImplementation((request) => {
+      services.requests.push(request);
+      let closed = false;
+      const process = request.options.spawnClaudeCodeProcess({
+        signal: request.options.abortController.signal,
+      });
+      return {
+        accountInfo: async () => ({
+          email: 'person@example.test',
+          subscriptionType: 'max',
+          apiProvider: 'firstParty',
+        }),
+        async *[Symbol.asyncIterator]() {
+          for await (const input of request.prompt) {
+            if (closed) return;
+            history.push(input.mitzoMessageId);
+            yield {
+              type: 'user',
+              uuid: `input-${input.mitzoMessageId}`,
+              parent_tool_use_id: null,
+              message: input.message,
+            };
+            if (holdNext)
+              await new Promise<void>((resolve) => {
+                holdNext = false;
+                finish = resolve;
+                request.options.abortController.signal.addEventListener('abort', resolve, {
+                  once: true,
+                });
+              });
+            if (closed) return;
+            yield {
+              type: 'result',
+              session_id: request.options.resume ?? request.options.sessionId,
+              is_error: false,
+            };
+          }
+        },
+        interrupt,
+        close: () => {
+          closed = true;
+          process.emit('close', 0, null);
+        },
+        setPermissionMode: async () => {},
+        setModel: async () => {},
+        setMaxThinkingTokens: async () => {},
+      };
+    });
+    const chat = await import('../../server/chat.js');
+    const { ConnectionRegistry } = await import('@mitzo/harness');
+    const connections = new ConnectionRegistry();
+    const connectionId = f.dependencies.operatorConnectionId;
+    const transport = { isOpen: () => true, send: vi.fn() };
+    connections.register(connectionId, transport);
+    chat.setConnectionRegistry(connections);
+    cleanups.push(async () => {
+      chat.registry
+        .findBySessionId(f.reservation.conversationId)
+        ?.session.ordinaryRuntimeOwner?.close();
+      await vi.waitFor(() =>
+        expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
+      );
+      chat.setConnectionRegistry(null);
+      connections.dispose();
+      chat.eventStore.close();
+    });
+    const { app } = await import('../../server/app.js');
+    const { createOwnedLocalCodexEntryRouter } =
+      await import('../../server/ordinary-local-codex-entry.js');
+    const { createChatRestRouter } = await import('../../server/chat-rest-handler.js');
+    const ctx = {
+      sessionRegistry: chat.registry,
+      eventStore: chat.eventStore,
+      connRegistry: connections,
+    } as import('../../server/ws-handler-v2.js').V2HandlerContext;
+    const sse = { has: () => true, isOpen: () => true, isOwnedBy: () => true } as never;
+    app.use('/api/fixture/runtime', createOwnedLocalCodexEntryRouter(sse, ctx, true));
+    app.use('/api/fixture/chat', createChatRestRouter(sse, ctx));
+    const request = (await import('supertest')).default;
+    const post = (path: string, body: unknown) =>
+      request(app)
+        .post(path.startsWith('/fixture') ? `/api${path}` : path)
+        .set('X-Connection-ID', connectionId)
+        .send(
+          path.startsWith('/fixture/runtime')
+            ? { runOn: 'local', repositoryWorkspaceId: f.reservation.id, ...(body as object) }
+            : (body as object),
+        );
+    const id = f.reservation.conversationId;
+    const started = await post('/fixture/runtime/send', f.request);
+    expect(started.status, JSON.stringify(started.body)).toBe(202);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    const retained = chat.registry.findBySessionId(id)!;
+    const original = chat.eventStore.getSession(id)!;
+    expect(
+      (
+        await post('/fixture/runtime/continue', {
+          ...f.request,
+          sessionId: id,
+          clientMsgId: 'queued-development',
+          payload: { text: 'Run tests and commit in this checkout' },
+        })
+      ).status,
+    ).toBe(202);
+    expect((await post('/fixture/chat/stop', { type: 'stop', sessionId: id })).status).toBe(200);
+    await vi.waitFor(() => expect(interrupt).toHaveBeenCalledOnce());
+    expect(chat.registry.findBySessionId(id)?.session).toBe(retained.session);
+    expect(chat.eventStore.getSession(id)?.executionPhase).toBe('STOPPING');
+    // An interrupt acknowledgment is not terminal proof. Continue cannot release the tail yet.
+    expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(409);
+    expect(history).toEqual([f.request.clientMsgId]);
+    finish!();
+    await vi.waitFor(() =>
+      expect(chat.eventStore.getSession(id)).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'stopped',
+      }),
+    );
+    expect(history).toEqual([f.request.clientMsgId]);
+    chat.detachChat(retained.clientId);
+    const reconnect = { isOpen: () => true, send: vi.fn() };
+    expect(chat.reattachChat(retained.clientId, reconnect)).toBe(true);
+    services.auth = { ...f.auth, id: 'foreign-login' };
+    expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(403);
+    services.auth = f.auth;
+    expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(200);
+    await vi.waitFor(() => expect(history).toEqual([f.request.clientMsgId, 'queued-development']));
+    await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
+    expect(chat.eventStore.getSession(id)).toMatchObject({
+      cwd: original.cwd,
+      accountBinding: original.accountBinding,
+      repositoryWorkspaceId: original.repositoryWorkspaceId,
+    });
+    expect(services.requests[1].options).toMatchObject({ cwd: original.cwd, resume: id });
+    expect(
+      (
+        await post('/fixture/runtime/continue', {
+          ...f.request,
+          sessionId: id,
+          clientMsgId: 'publication-followup',
+          payload: { text: 'Read CI and keep fixing' },
+        })
+      ).status,
+    ).toBe(202);
+    await vi.waitFor(() =>
+      expect(history).toEqual([
+        f.request.clientMsgId,
+        'queued-development',
+        'publication-followup',
+      ]),
+    );
+    await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
+    // A rejected SDK interrupt keeps the original activity and a sanitized diagnostic.
+    holdNext = true;
+    finish = undefined;
+    expect(
+      (
+        await post('/fixture/runtime/continue', {
+          ...f.request,
+          sessionId: id,
+          clientMsgId: 'failed-interrupt',
+          payload: { text: 'Keep uncertain work visible' },
+        })
+      ).status,
+    ).toBe(202);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    interrupt.mockRejectedValueOnce(Error('synthetic-private-provider-failure'));
+    expect((await post('/fixture/chat/stop', { type: 'stop', sessionId: id })).status).toBe(200);
+    await vi.waitFor(() =>
+      expect(chat.eventStore.getLatestEvent(id, 'error')?.payload).toMatchObject({
+        runtimeFailure: { runtimeFailureCode: 'unsettled_effects' },
+      }),
+    );
+    expect(JSON.stringify(chat.eventStore.getLatestEvent(id, 'error')?.payload)).not.toContain(
+      'synthetic-private-provider-failure',
+    );
+    expect(chat.registry.findBySessionId(id)?.session).toBe(retained.session);
+    expect((await post('/fixture/chat/stop', { type: 'stop', sessionId: id })).status).toBe(200);
+    expect(interrupt).toHaveBeenCalledTimes(2);
+    expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(409);
+    finish!();
+    await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
+  },
+  30000,
 );
 
 it('a qualified preparation A starts model B on its original checkout and exact retry cannot launch again', async () => {
