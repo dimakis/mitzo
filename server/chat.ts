@@ -425,7 +425,7 @@ import {
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { shouldAutoRename } from './auto-rename.js';
-import { sessionDisplayName, sessionNamingPrompts } from './session-naming-context.js';
+import { sessionNamingPrompts } from './session-naming-context.js';
 import { sessionConversationPage } from './session-conversation-list.js';
 import {
   registerSession,
@@ -450,7 +450,7 @@ function initEventStore(): EventStore {
   const mitzoDir = join(repoPath, '.mitzo');
   mkdirSync(mitzoDir, { recursive: true });
   const dbPath = join(mitzoDir, 'events.db');
-  const store = new EventStore(dbPath);
+  const store = new EventStore(dbPath, log);
   const recover = Reflect.get(store, 'recoverSymposiumDeliveries') as
     EventStore['recoverSymposiumDeliveries'] | undefined;
   const recovered =

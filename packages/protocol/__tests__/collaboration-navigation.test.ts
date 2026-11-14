@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -74,6 +74,27 @@ it('preserves legacy associations, multiple memberships and corrupt older origin
   db.close();
   expect(store.collaborationConversation.navigation()).toEqual([]);
   expect(store.listSessions()).toHaveLength(3);
+});
+
+it('keeps malformed historical joins independent and reports their retained identity safely', () => {
+  const group = begin(store);
+  joinParticipant(store, group);
+  const db = new Database(database);
+  db.prepare(
+    `UPDATE collaboration_records SET body=json_remove(body,'$.settings') WHERE kind='join' AND json_extract(body,'$.state')='linked'`,
+  ).run();
+  db.close();
+  store.close();
+  const info = vi.fn();
+  store = new EventStore(database, { info });
+  expect(store.collaborationConversation.navigation()).toEqual([]);
+  expect(info).toHaveBeenCalledWith('Participant navigation record unavailable', {
+    stage: 'participant_navigation',
+    code: 'participant_navigation_record_unavailable',
+    collaborationId: group,
+    sessionId: 'peer',
+  });
+  expect(store.getSession('peer')?.isHidden).toBe(false);
 });
 
 it('groups async and synchronous search before the result limit and retains the match owner', async () => {
