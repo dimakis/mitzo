@@ -59,7 +59,8 @@ No historical S7 note body was imported into this checkpoint or a new brief.
 
 ## Current source and custody boundary
 
-Named PR metadata and changed-file lists were inspected; this is a bounded
+Named PR metadata and changed-file lists were inspected (#1355: all 281 entries
+across three pages, including its inherited changes); this is a bounded
 collision check, not a repository-wide PR inventory. Heads are observations,
 not locks or acceptance. Refresh the selected heads before composition.
 
@@ -68,7 +69,7 @@ not locks or acceptance. Refresh the selected heads before composition.
 | #1350 | `ce53717be1ff42ffa2fdd883ee53ae9422522b49` | `0a9c3f49-c1f1-83ff-85c8-0b457660b20b`; coordination/native selection/explicit failed-turn Retry; first in existing parity queue. |
 | #1353 | `bf75c2f96945bafb2cf4f79380705795af517965` | `0fb80b6d-ce89-880f-9822-c2779c3cb683`; services/Tool Library; published base remains old; compose accepted fixes through its owner. |
 | #1342 | `9879cf7d2fcebead24962abbb923ed994efea40d` | `059e312d-4552-89ed-83e8-1009eeea3c0c`; TaskExecution, notifications, immutable command ceilings; third in existing parity queue. |
-| #1345 | `a7cb0ac5d54d6eb85480b5516e8206402d6c2181` | Compact Telos status and ordinary/linked-child replies. Coordinator verified sole owner `1428dc32-6bd9-8974-949a-a60fd1eced22` live and acknowledging custody; boundary agreement with D remains pending. Draft/conflicting. Do not build another read/messaging manager. |
+| #1345 | `a7cb0ac5d54d6eb85480b5516e8206402d6c2181` | Compact Telos status and ordinary/linked-child replies. Coordinator verified sole owner `1428dc32-6bd9-8974-949a-a60fd1eced22` live and acknowledging custody; D reports agreed composition boundaries/no semantic-file overlap. Draft/conflicting. Do not build another read/messaging manager. |
 | #1354 | `7bdb364c0711746d0c9e3eec21c870b44111a772` | `93b4737a-b57b-89cf-be2f-ad6379d4ac68`; participant navigation. PR reports green CI and exact-head Centaur approval; that qualifies this head only. |
 | #1356 | `8dea247707e7c8450f423325e4f938e35af1e067` | `79ba52a6-14f5-8ef9-a048-5712569164fc`; continuous conversation, assignment/fork draft/queue retention and packet rollover/reopen. Latest corrections await independent combined qualification. |
 | #1355 | `b93961fb79790b38a62395920c084fb0e018598f` | `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`; combined Symposium acceptance, carries #1354/#1356 changes. Its file list is not additional implementation custody. Published head predates the reported newest local composition. Full CI has the external blocker below. |
@@ -151,7 +152,7 @@ An evidence group identifies a meaningful check to reuse, not a new passing run.
 | --- | --- | --- |
 | Two investigations | Original tool/outcome audit plus independent S01–S14 SDK supplement, source pins above | A retains both inputs and the existing parity auditor's dispositions. No invocation count is promoted to parity. |
 | Requirements | Eight-category index, parity feature `8e186fdf-9058-4ad6-af18-8fd6797bf935`, current Telos root and original UX/CT contracts | D must expose actual dependencies/current owners and exact source/review links without importing giant historical bodies. |
-| Parallel implementation | Existing parity sole owners; M/D ordinary sessions; Symposium #1354/#1356 | M/D provide committed operation/revision/current/former/contributor interfaces and owner tests. Coordinator reports `readTeam` agreement only; no tested implementation is yet supplied. |
+| Parallel implementation | Existing parity sole owners; M/D ordinary sessions; Symposium #1354/#1356 | M/D provide committed operation/revision/current/former/contributor interfaces and owner tests. Coordinator reports `readTeam` agreement; D reports 61 offline passes for its projection/controls-diagnostic change, but its exact draft PR/head is not yet supplied. M remains blocked on setup, with a first regression file only. No combined pass is inferred. |
 | Coordinated source integration | Existing parity queue #1350 → #1353 → #1342, then Symposium; Telos preparation concurrent | Existing coordinators own their queues. This team cannot merge or alter those queues. Preserve both source registries/pins on eventual composition. |
 | Independent merged/inflight review | Parity auditor's pinned checkpoints; Symposium #1355; this current-source gap map | A distinguishes accepted versus inflight source, review findings versus verified corrections, and exact matching test/render evidence. |
 | Corrective work | #1349 accepted Telos delivery/start corrections; #1350 native selection/Retry follow-up; #1356 assignment/fork and packet corrections | Keep correction with sole owner and original cause/operation. These are concrete repair examples, not this slice taking custody. |
@@ -201,13 +202,21 @@ dispositions remain with the existing parity auditor, not new Telos repairs.
    `.cache/slice3-b939-native-ci.log`. Next action: existing coordinator obtains
    an explicit repair-owner decision and verified fix/current composed result.
    This slice does not diagnose it or equate another green job with resolution.
-3. **Combined implementation source is not ready.** M/D deliverables and #1345
-   boundary agreement remain pending. #1355's newer local composition is not its
+3. **Combined implementation source is not ready.** Exact M/D deliverables
+   remain pending. Coordinator message `e18f3807-a3dc-49b1-97a2-7503af5d6ce2`
+   reports D's 61 offline passes, agreed #1345 boundary and only two owned changed
+   fingerprint entries (`telos-work-controls.ts`, `telos-operation-failure.ts`).
+   Its future registry/revision update must preserve the priority branches'
+   additions. D's broad typecheck exceeded the prescribed 1 GiB heap; CI remains
+   required. #1355's newer local composition is not its
    inspected published head. Source acceptance, combined deterministic checks,
    UI comparison and final independent disposition remain open.
 
-Only source/evidence inspection has completed here. Documentation consistency
-checks, publication and CI results must be recorded separately after they occur.
+Source/evidence inspection and documentation checks have completed here: all 44
+unique requirement IDs match the original ledger in order, every relative
+evidence link resolves, and `git diff --check` passes. These are documentation
+checks, not application acceptance. Publication and CI results must be recorded
+separately after they occur.
 No broad build, browser launch, real model/provider call, service mutation,
 deployment or staging operation was attempted. No specialist was invoked under
 this task's no-live-model limit. Parent and slice completion are not claimed.
