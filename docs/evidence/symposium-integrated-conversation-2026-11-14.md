@@ -197,6 +197,18 @@ now scopes the exact child label before checking the full owner text. This is a
 test-only correction; original failure evidence remains retained and fresh hosted
 execution is required.
 
+The expanded hosted run `43600918311` reports 11 application checks and 50/56
+browser checks passing, including all six narrow wheel/microphone cases and all
+actual responsive cases. Slice 3 retained the singleton/light WebKit trace in
+artifact `14116124654`, job `132465272305` (trace SHA256
+`28f453ee222f950051cdf7c64ff47df3bcff2c9353b45c9f674ebec4147bb5a7`).
+Its only non-GET was POST `/api/telos/work/links` with the exact Architect
+conversation reference, aborted by the fixture and miscounted as a write. The
+authenticated server handler performs a navigation read. The singleton fixture
+now handles only that exact path/method/body as a read; all other non-GETs remain
+counted and the zero-write assertion stays. No production changes. Hosted rerun
+remains required for these six cases.
+
 Full CI exposed the existing forwarding UI fixture's old zero-recipient
 assumption: selecting Reviewer also retained the new original-agent selection,
 although that historical source intentionally has no live ordinary owner. Its

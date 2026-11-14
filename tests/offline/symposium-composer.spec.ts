@@ -53,6 +53,15 @@ for (const theme of ['dark', 'light'])
       page.on('pageerror', (error) => errors.push(error.message));
       await page.route('**/*', async (route) => {
         const path = new URL(route.request().url()).pathname;
+        // Authenticated conversation-navigation read; this POST neither
+        // dispatches a turn nor mutates work. All other non-GETs remain writes.
+        if (path === '/api/telos/work/links' && route.request().method() === 'POST') {
+          expect(route.request().postDataJSON()).toEqual({
+            namespace: 'mitzo',
+            conversationId: 'architect',
+          });
+          return route.fulfill({ json: [] });
+        }
         if (path.startsWith('/api/') && route.request().method() !== 'GET') writes++;
         if (path === '/api/auth/check')
           return route.fulfill({ json: { ok: true, authSessionId: 'offline-observer-login' } });
