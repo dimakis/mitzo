@@ -62,7 +62,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "mixed",
-    "routes": ["local-api", "codex", "codex-owned-local"],
+    "routes": ["local-api", "codex", "codex-owned-local", "claude-sdk"],
     "requirement": "Requires an available OS sandbox and existing workspace permissions; no network or credentials."
   },
   {
@@ -95,7 +95,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "read",
-    "routes": ["local-api", "codex", "codex-owned-local"],
+    "routes": ["local-api", "codex", "codex-owned-local", "claude-sdk"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -106,7 +106,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api", "codex", "codex-owned-local"],
+    "routes": ["local-api", "codex", "codex-owned-local", "claude-sdk"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -117,7 +117,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api", "codex", "codex-owned-local"],
+    "routes": ["local-api", "codex", "codex-owned-local", "claude-sdk"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {

@@ -126,7 +126,11 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                               'local-api',
                               'codex',
                               'codex-owned-local',
-                              ...(tool.name === 'AskUserQuestion' ? ['claude-sdk'] : []),
+                              ...(['AskUserQuestion', 'Bash', 'Read', 'Write', 'Edit'].includes(
+                                tool.name,
+                              )
+                                ? ['claude-sdk']
+                                : []),
                             ]
                           : source === 'Connections' || source === 'Web'
                             ? [

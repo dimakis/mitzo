@@ -112,6 +112,26 @@ Fresh combined hosted CI and current-head Centaur verification remain required.
 Review `5901683432` remains the accepted baseline; integrating the repair does not
 itself close the current finding.
 
+## Positive native tool selection
+
+The audit reproduced a catalog mismatch: default Claude SDK profiles could use
+native Bash/Read/Write/Edit, but explicitly selecting those same tools failed
+route admission. Their existing Workspace entries now include `claude-sdk`;
+execution continues through the SDK's builtins and canonical permission hooks.
+No wrapper or new execution owner was added. Other native integrations retain
+their existing route restrictions.
+
+All 39 catalog/native-development checks pass. Positive selection tests cover
+each of the four exact tools, default exposure, empty-profile exclusion,
+unselected siblings, forged aliases and unknown versions. The actual pinned SDK
+Bash qualification now uses explicit native selections for personal, Vertex-like
+and guarded API fixtures, and proves that excluding Bash prevents its command
+from executing. Existing mode, approval, revocation, skill and workspace checks
+remain in that native qualification. Inference uses disposable loopback canned
+responses; no live provider or production effects were used. Source pins advance
+to `v1.0.1159-claude-native-profile-selection`; hosted CI and exact-head review of
+this follow-up remain required.
+
 ## Integration custody and limits
 
 PR #1342 remains draft/open/conflicting at `b2675af8199ab8a99f3628d3d93c4e65145c7244`

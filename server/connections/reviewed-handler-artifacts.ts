@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1158-claude-coordination-recovery-integration';
+  'v1.0.1159-claude-native-profile-selection';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -38,7 +38,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/claude-telos-bridge.md':
     '7913df466a52e51df888e70b2cf9a56c54ce49731557d58fddcad76ac81643fe',
   '../__tests__/claude-native-development.test.ts':
-    'f670e08f660fbbaa92cf1baebcc849f826c0f940f6e797a5fcf032c00add7f8e',
+    '5b4f3ca5f844921e7fb660e53f8027ae7ad306d6680692ba69b8b1f013d79379',
   '../../packages/harness/src/worktree-guard.ts':
     '0e2280cdc706abee7b9cea3686231f29988f425620f6a3ade841beae1fb16e68',
   '../../packages/harness/__tests__/sdk-write-scope.test.ts':
@@ -2390,7 +2390,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e4c18146a9b1742139131c2edd4e4c28d09a072deb33c561aaacd67d65330b77',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '185739f065ba2ad81534a2b171239d086010447fe03e3669d920dcd13804b5b1',
-  '../agent-tool-catalog.ts': '60dc481218d37c2dc64853339444b60be243bdb3490ad12d3474c80d05b6e419',
+  '../agent-tool-catalog.ts': 'ae826aab6620ffd928b767de936cc076d7d54a30fe4209311c6cad4c4c5dc5f3',
   '../agent-tool-selection.ts': '549ac85422bf6778ff25caea19357c4ef9701e950dfa7d5797dbf8dd5821d881',
   '../ordinary-sdk-helper-registration.ts':
     '44cb4171f280ea680fb472532eda2e1608fb3b71d85667963e238e1fae713b3f',
@@ -3597,7 +3597,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    'ef490a600ef98aa0b2c769c2d833f181b4d652c160ae26303cf50b748d5ebbde',
+    '7621d9da1165bc7f6636c23c1044ecd281e78f7652bdfcc59628726224aa2414',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '79e0eed24d322b95e21684d6ed321c1620b812720d02c229a2dfad4dd9b98bfa',
   '../../packages/sqlite-file-owner/package.json':
@@ -3927,7 +3927,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-native-operator.test.ts':
     '5b82af350123289703819217e750645b3f1c83b93c3ae2064056be13e98ca698',
   '../__tests__/agent-tool-catalog.test.ts':
-    'f012802baac197c958ecd57eae7a760aa413b7189547f2f036333f0c6c17c185',
+    'edba3b93a90b7f50ef0b9c0835c13d495c295b1edf1b242058bc01c59c7669aa',
   '../__tests__/telos-item-store.test.ts':
     '4566b58a4fccb07f137476f521bbee1fc6bd1721a21332cf47e893e81458d629',
   '../__tests__/telos-source-current-auth.test.ts':
