@@ -11,6 +11,10 @@ socket initialization conflicted with the outer process sandbox and prevented
 ordinary Bash/repository work. Direct file requests targeting private account
 paths still receive the existing denial; this is not complete credential isolation
 for arbitrary shell commands or recursive searches. Do not claim otherwise.
+Glob's literal pattern prefix also receives that canonical private-path check,
+including absolute paths, relative search roots and directory aliases. This closes
+the direct-pattern bypass identified by Centaur `CEN-A295D8A2E2C8` on 14 November;
+broad workspace searches still follow shared permissions.
 
 Account identity, billing selection, revocation, shared command approval and the
 existing outer controller protection remain enforced. Claude on OpenShell is

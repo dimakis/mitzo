@@ -41,4 +41,24 @@ it('denies explicit private paths while allowing workspace tools through shared 
     expect(
       claudePersonalToolPermission(name, { path: config, pattern: '*' }, root, config),
     ).toMatchObject({ behavior: 'deny' });
+  for (const input of [
+    { pattern: join(config, '**/*') },
+    { pattern: join(config, '.credentials.json') },
+    { pattern: join(root, 'alias', '*.json') },
+    { pattern: 'personal/**/*' },
+    { pattern: '../personal/*.json', path: join(root, 'workspace') },
+    { pattern: join(config, '{*.json,*.txt}'), path: join(root, 'workspace') },
+  ])
+    expect(claudePersonalToolPermission('Glob', input, root, config)).toMatchObject({
+      behavior: 'deny',
+    });
+  for (const input of [
+    { pattern: '**/*' },
+    { pattern: 'src/**/*.{ts,tsx}' },
+    { pattern: join(root, 'workspace', '*.json') },
+    { pattern: '*.ts', path: join(root, 'workspace') },
+  ])
+    expect(claudePersonalToolPermission('Glob', input, root, config)).toBeUndefined();
+  // Grep's pattern is content, not a filesystem target.
+  expect(claudePersonalToolPermission('Grep', { pattern: config }, root, config)).toBeUndefined();
 });

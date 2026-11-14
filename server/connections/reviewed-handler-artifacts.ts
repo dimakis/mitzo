@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1146-personal-claude-native-diagnostics';
+  'v1.0.1146-personal-claude-glob-prefix';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4494,7 +4494,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
   '../claude-personal-policy.ts':
-    'dc718ab73f32a444afb2fbb8313a13d019a481512fec05bce94dd811367ae0a5',
+    'd7f09353a9fb9aadb1310b43b59c54e58e1ad9139071a357e54190c1e463614d',
   '../__tests__/claude-personal-account.test.ts':
     '3733125994ddb7db77bab7e0427e9b868f5ddb934c4ee96a4ebc2823b3dce59b',
   '../__tests__/claude-subscription-custody.test.ts':
@@ -4502,7 +4502,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-account-history.test.ts':
     'd6436f966881065bde719731ae07639f18694465b595eaa52d611173f58b4bb0',
   '../__tests__/claude-personal-policy.test.ts':
-    'c8ddcc55266efca298426241f7a2950051c76a062ccffee42f2eb3a6b97519b0',
+    'e84f40fe8ac1854c86daeb8c211dad8738206366025af2eb0a72638b6e209415',
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     'f54b300c69668515af4ee5a8c2d43834f4f8e40341be9a078e97ab9b1c7f9e45',
   '../../docs/features/personal-claude-local.md':

@@ -11,12 +11,22 @@ export function claudePersonalToolPermission(
   configDirectory: string,
 ) {
   protectCodexProfileRoots([configDirectory]);
+  // Glob can carry its target entirely in pattern. Check its literal prefix
+  // against the same canonical path guard, relative to the supplied search root.
+  const globPrefix =
+    name === 'Glob' && typeof input.pattern === 'string'
+      ? input.pattern.split(/[*?[\]{}()]/, 1)[0]
+      : undefined;
   if (
-    ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'NotebookEdit'].includes(name) &&
-    ['file_path', 'path', 'notebook_path'].some(
-      (key) =>
-        typeof input[key] === 'string' && isPrivateCodexPath(resolve(cwd, input[key] as string)),
-    )
+    (['Read', 'Write', 'Edit', 'Glob', 'Grep', 'NotebookEdit'].includes(name) &&
+      ['file_path', 'path', 'notebook_path'].some(
+        (key) =>
+          typeof input[key] === 'string' && isPrivateCodexPath(resolve(cwd, input[key] as string)),
+      )) ||
+    (globPrefix !== undefined &&
+      isPrivateCodexPath(
+        resolve(cwd, typeof input.path === 'string' ? input.path : '.', globPrefix),
+      ))
   ) {
     return {
       behavior: 'deny' as const,
