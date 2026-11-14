@@ -180,6 +180,62 @@ it('cancels Stop during settings preparation without pushing input or dispatchin
     executionTerminalReason: 'stopped',
   });
 });
+it.each(['push', 'post-push-fence'] as const)(
+  'preserves every FIFO successor when a stopped pre-input command is cancelled during %s',
+  async (phase) => {
+    const f = setup(undefined, true);
+    await f.owner.enqueue('first');
+    f.owner.assertInputCurrent('first');
+    f.owner.inputObserved('first-input');
+    for (const id of ['second', 'third', 'fourth']) {
+      f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command(id));
+      await f.owner.enqueue(id);
+      f.store.claimOrdinaryLocalVertexCommandDispatch(id);
+      f.store.completeOrdinaryLocalVertexCommand(id);
+    }
+    let release!: () => void;
+    let waiting = false;
+    const pendingFence = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const wait = () => {
+      waiting = true;
+      return pendingFence;
+    };
+    f.query.push.mockImplementationOnce(async (id) => {
+      f.calls.push(`push:${id}`);
+      if (phase === 'push') await wait();
+      else f.assertCurrent.mockImplementationOnce(wait);
+    });
+    const completed = f.owner.resultObserved('first-input');
+    await vi.waitFor(() => expect(waiting).toBe(true));
+    expect(f.owner.activeCommandId()).toBe('second');
+    await f.owner.stop(randomUUID());
+    expect(f.owner.assertInputCurrent('second')).toBe(false);
+    expect(f.store.getSendCommand('second')?.error).toBe('Cancelled before SDK dispatch');
+    expect(f.store.getOrdinarySdkTurnEvents('session', 'second')).toEqual([]);
+    const continuing = f.owner.resumeQueue();
+    release();
+    await completed;
+    await continuing;
+    expect(f.store.getSendCommand('second')?.error).toBe('Cancelled before SDK dispatch');
+    expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second', 'third']);
+    f.owner.assertInputCurrent('third');
+    f.owner.inputObserved('third-input');
+    await f.owner.resultObserved('third-input');
+    expect(f.query.push.mock.calls.map(([id]) => id)).toEqual([
+      'first',
+      'second',
+      'third',
+      'fourth',
+    ]);
+    f.owner.assertInputCurrent('fourth');
+    f.owner.inputObserved('fourth-input');
+    await f.owner.resultObserved('fourth-input');
+    expect(f.owner.activeCommandId()).toBeUndefined();
+    expect(f.query.abort).not.toHaveBeenCalled();
+  },
+);
 it('retains Stop while a result is settling even without a native interrupt target', async () => {
   const f = setup(undefined, true);
   await f.owner.enqueue('first');

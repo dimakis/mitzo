@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1150-claude-stop-approval-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1151-claude-stop-fifo';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -141,7 +140,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-claude.test.ts':
     '0b91f49d0aaa73947e52a5b9b3fb6e66db2b53836a6d5b141fedc06643840948',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
-    'ab9daa1c66cec2165600f02e8eaa8c31abcc5bbc825a8ea5b80ee4e40335e7fe',
+    '1e140d627a582e7e443a326997422dc7cd28aafe852c788f8d50069ea846722e',
   '../__tests__/ordinary-sdk-turn-evidence.test.ts':
     '56bb1430bc6b7b931dbd61e9498b0d04701400becc6fb93db30d0e8c0dc6e808',
   '../ordinary-sdk-turn-evidence.ts':
@@ -3018,7 +3017,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-query.ts':
     '79e3683fea5d11378d87895f3051e7d38620262e49ad56ec42f00f8ac563876a',
   '../ordinary-local-vertex-command-owner.ts':
-    '6eb4126b03a1ca90837becfa01a6a1f53e13fe1c6241d3c48c3fcff1715a0239',
+    '485a3d0a4939182fa18282316f4e6b6c51251ebcf5bc476828f0cc41e90e0af8',
   '../ordinary-local-vertex-capabilities.ts':
     'f1b3716a985362d937a421f92b4bbed8e58ce5d54b7e047bccca283f833a0cc1',
   '../ordinary-local-vertex-queue.ts':

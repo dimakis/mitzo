@@ -386,7 +386,7 @@ export class OrdinaryLocalVertexCommandOwner {
       admission.state === 'consumed' &&
       !this.owners.store.getExecutionAdmission(this.owners.sessionId, commandId)
     ) {
-      this.#pending.shift();
+      this.#pending = this.#pending.filter((id) => id !== commandId);
       this.#dispatchingCommandId = undefined;
       this.owners.onTerminal?.(commandId);
       return this.#dispatch(preparationSignal, admittingCommandId);
@@ -426,6 +426,8 @@ export class OrdinaryLocalVertexCommandOwner {
     await this.#fence();
     assertPreparation();
     this.owners.store.completeOrdinaryLocalVertexCommand(commandId);
-    this.#pending.shift();
+    // A final input fence can cancel this exact command during push or the
+    // authority await above. Its removal must never consume the retained head.
+    this.#pending = this.#pending.filter((id) => id !== commandId);
   }
 }
