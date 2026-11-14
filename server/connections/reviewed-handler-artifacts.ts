@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1146-personal-claude-approval-integration';
+  'v1.0.1146-personal-claude-offline-environment';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3579,7 +3579,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '5fe0e25012c1d5324c32cf76f25397cc6a9a97321a3a14a5e1b6f6195ebfc5bd',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '8237e76493ca643d712bbbc64bab77c46cfa0616aa564dc0a8c54c0569dac2dd',
+    'd8d98e4dc84a4ce64030fbc452fc140f54f03c94c398ebbce583fd9775a528b4',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':

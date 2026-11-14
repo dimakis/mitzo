@@ -1,10 +1,10 @@
-import '../../server/__tests__/fixtures/offline-user-home.js';
+import { resetOfflineUserEnvironment } from '../../server/__tests__/fixtures/offline-user-home.js';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance, Options } from '@anthropic-ai/claude-agent-sdk';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { agentLibrarySource } from '../../server/__tests__/fixtures/agent-library-source.js';
 vi.mock('../../server/claude-account-history.js', () => ({
   readClaudeAccountHistory: vi.fn(async (sessionId: string, cwd: string) => ({
@@ -127,6 +127,9 @@ vi.mock('../../server/keychain-rotation-credentials.js', () => ({
   },
 }));
 const cleanups: Array<() => void | Promise<void>> = [];
+// afterEach restores the host environment; each scenario must clear its private
+// enrollments again before exercising real privacy guards against fixture paths.
+beforeEach(resetOfflineUserEnvironment);
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.restoreAllMocks();
