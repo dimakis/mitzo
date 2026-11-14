@@ -1,0 +1,19 @@
+Original full log: slice3-hosted-f60-core.log
+SHA256: e86122808362c6262e00c805451393ae0327640463d7e4bce89235e1a64ad16c
+CI run:43594789592; PR:f60ad7ce39d81d6da3c651d8baadf2009001b099; merge:830029869573b450a9f17aca75c0690d11f91a3f
+2026-11-14T12:33:03.7152658Z 
+2026-11-14T12:33:03.7153289Z > mitzo@1.0.0 format:check
+2026-11-14T12:33:03.7153754Z > prettier --check .
+2026-11-14T12:33:03.7153946Z 
+2026-11-14T12:33:03.7885192Z Checking formatting...
+2026-11-14T12:33:08.9148200Z [[33mwarn[39m] docs/evidence/symposium-ux-repair-2026-11-14/render-06ad8abd7/desktop-chromium-dark-manifest.json
+2026-11-14T12:33:08.9166486Z [[33mwarn[39m] docs/evidence/symposium-ux-repair-2026-11-14/render-06ad8abd7/desktop-chromium-light-manifest.json
+2026-11-14T12:33:08.9274757Z [[33mwarn[39m] docs/evidence/symposium-ux-repair-2026-11-14/render-06ad8abd7/mobile-chromium-dark-manifest.json
+2026-11-14T12:33:08.9293655Z [[33mwarn[39m] docs/evidence/symposium-ux-repair-2026-11-14/render-06ad8abd7/mobile-chromium-light-manifest.json
+2026-11-14T12:33:08.9440032Z [[33mwarn[39m] docs/evidence/symposium-ux-repair-2026-11-14/render-06ad8abd7/mobile-webkit-dark-manifest.json
+2026-11-14T12:33:08.9458196Z [[33mwarn[39m] docs/evidence/symposium-ux-repair-2026-11-14/render-06ad8abd7/mobile-webkit-light-manifest.json
+2026-11-14T12:33:55.0445242Z [[33mwarn[39m] server/connections/reviewed-handler-artifacts.ts
+2026-11-14T12:33:58.9353063Z [[33mwarn[39m] server/session-conversation-list.ts
+2026-11-14T12:34:07.5433206Z [[33mwarn[39m] Code style issues found in 8 files. Run Prettier with --write to fix.
+2026-11-14T12:34:07.6040531Z ##[error]Process completed with exit code 1.
+2026-11-14T12:34:07.6071610Z ##[group]Run npm run test:design

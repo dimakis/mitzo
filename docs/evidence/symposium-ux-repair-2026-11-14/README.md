@@ -392,3 +392,43 @@ account's hourly quota (reset `2026-11-14T12:30:55Z`); GraphQL check summaries
 remain readable through that existing account. No account/credential switch is
 used. [Current acceptance matrix](acceptance-matrix.md) separates all observed
 results and remaining consumer, visual, phone and runtime gaps.
+
+## Phone geometry verified; desktop successor and combined CI repairs
+
+At source head `f60ad7ce39d81d6da3c651d8baadf2009001b099`, hosted run
+`43594789588` executes merge `830029869573b450a9f17aca75c0690d11f91a3f`.
+All nine application checks pass (`hosted-application-f60ad7ce3.log`), including
+the full 31-turn journey. Six narrow browser cases and two startup probes pass.
+All six responsive cases complete their width/theme matrix and retain manifests:
+320px normal names measure 69.6–70.3px, large names 111.2–112.6px; at 390px large
+names measure 166px. All original phone header actions/count remain in viewport.
+Single scroll, composer, focus, long-history and no-horizontal-overflow checks
+pass. The remaining failure is desktop 1280px/200% names at 52px: its 172px trigger
+loses 32px to padding, 48px to gaps and 40px to icons.
+
+`render-f60ad7ce3/` retains 12 original paired screenshots, six complete engine/
+theme manifests and artifact index. Artifact `14113613972`, SHA256
+`d7b169ad294b594548a65cb47cabc065ee50bd2a510573cb38369f2c1e1c5150`, and
+`hosted-render-f60ad7ce3-desktop-width-failure.log` preserve the failure.
+Raw copied manifests now use `.json.txt` to preserve original bytes through the
+repository formatter; `immutable-json-artifacts.json` records every rename/hash.
+The downloaded originals and source paths in artifact indexes remain intact.
+
+Slice 1 desktop budget correction `a1d9f1d4c9f4803136f5257b5d23b09b4846b9d5`
+is integrated as `d286b7d3d`. It preserves the verified phone budget and includes
+desktop icon/gap/padding costs in the existing named entry's minimum. Its geometry
+remains pending the next hosted run. Runtime registration is now `v1.0.1163`.
+
+Full CI `43594789592` also finds formatting of six immutable JSON copies, the
+combined registry and slice 2 list source. Raw-byte renames and Prettier-only
+source/registry formatting address those without changing implementation semantics.
+`ci-f60-core-format-excerpt.log` retains the original failure and full-log hash.
+Unit shard 3 reports 521 files passed, 3 skipped and one forwarding UI test failed:
+the test selected Reviewer without deselecting the newly initially selected
+historical source, which correctly fails readiness. Test-only `7b2130d62`
+explicitly selects Reviewer and waits for the remounted context action to enable.
+`forward-reviewer-only-7b2130d62.log` passes the entire forwarding/uncertain receipt
+journey with exactly one confirmation and one turn. The original unit failure is
+retained in `ci-f60-forward-ui-excerpt.log`, with the full log's hash. Production
+readiness is unchanged; slice 1 received the exact test-only commit for adoption.
+Combined current-head CI and exact-head independent review remain pending.

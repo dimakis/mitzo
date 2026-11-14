@@ -59,7 +59,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-ordinary-responsive.spec.ts':
     '108e968d2716ae6b9da58a2d21efc24ad07dc848726537f4dcc639dc27439521',
   '../session-conversation-list.ts':
-    '5ba1ca1e183a6fd5a6636a98fdd089ae6f20186464617b666a1344818a3388fb',
+    '2b55c6b61337ae96bda8688c9f41c70d6e598eec4bc2b59be03335df0044f6f9',
   '../../packages/protocol/src/conversation-activity.ts':
     '1d7f5073add509ec8543388e817cf7309bbbb61e39568c014626dbea520a6e5d',
   '../../frontend/src/lib/conversation-activity.ts':
@@ -228,7 +228,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useConversationForwarding.test.tsx':
     '166cdf5937594f383dcdc8aad1eaa4758b01ed0e02e466ded2a0f6b81543e2e3',
   '../__tests__/collaboration-forward-ui.test.tsx':
-    '697c23e6bc71c68f58fe5367b85096317c4eea4d97c8b8ee3b0a43787aedf823',
+    'ccefda9cd2ed5137d5064224bb65d61ddb50397e6378865eba89ef986f5cf8bd',
   '../__tests__/collaboration-application-forwarding.test.ts':
     '713e28a52f3d936c6eb41ff5a12bf66c6fa12400924b2cc3b191171052834039',
   '../__tests__/collaboration-forward-application-journey.test.ts':
