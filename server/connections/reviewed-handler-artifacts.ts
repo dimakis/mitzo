@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1166-symposium-integrated-acceptance';
+  'v1.0.1167-symposium-integrated-acceptance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -49,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-ordinary-surface.tsx':
     'e9e9b6715a189ef3f3c96a2f1e6345e49cc5439d95ea4a6a2a75151936930ad7',
   '../../tests/integration/symposium-ordinary-acceptance.test.tsx':
-    '44ed23e9feca024544fb0ede5f237ae8946657b5f7323137587d31c93bb16124',
+    '1b8770cf9657151664f0c0909abcb4aca1dbfaa9eb714bca2e27fd0090d2fe19',
   '../../tests/integration/symposium-required-owners.test.ts':
     'dfb7f311eab054c9f27e5401610819a5e743516ac2e22461fae1596e6b79aa01',
   '../../tests/offline/symposium-ordinary-surface.spec.ts':
@@ -57,7 +57,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/support/application-event-source.ts':
     'da2d0fd6614485c42048e85449c79a0ab5a999f340fc29f7db4e02a90cbec973',
   '../../tests/offline/symposium-ordinary-responsive.spec.ts':
-    '762bc64d0f8ceb0848775550f65813b9a4055d839459448557b35957d4fc0382',
+    '78e74300dc114c31ddf937798f31a78376c3b642a5cf3b3d0df0b5b977c35b0f',
   '../session-conversation-list.ts':
     '2b55c6b61337ae96bda8688c9f41c70d6e598eec4bc2b59be03335df0044f6f9',
   '../../packages/protocol/src/conversation-activity.ts':

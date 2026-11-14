@@ -391,6 +391,15 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       if ((checkbox as HTMLInputElement).checked !== !!wanted) fireEvent.click(checkbox);
     }
     fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+    const assertCompactRecipient = (expected?: string) => {
+      const trigger = screen.getByRole('button', { name: 'Choose who replies' });
+      expect(trigger.textContent).toBe('');
+      const description = document.getElementById(trigger.getAttribute('aria-describedby') ?? '');
+      expect(description?.textContent).toBe(trigger.getAttribute('title'));
+      expect(description?.textContent).not.toContain('Unavailable agent');
+      if (expected) expect(description?.textContent).toBe('Replies: ' + expected);
+    };
+    assertCompactRecipient('AcceptanceReviewer');
     runtime.holdTurn(2);
     stage = 'first_explicit_streamed_reply';
     fireEvent.change(currentInput, {
@@ -484,6 +493,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       expect(retainedInput.value).toBe('Draft while changing responsive owners');
       expect(document.activeElement).toBe(retainedInput);
       expect([retainedInput.selectionStart, retainedInput.selectionEnd]).toEqual([3, 10]);
+      assertCompactRecipient('AcceptanceReviewer');
       expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
       expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
     }
@@ -811,6 +821,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     expect(h.events.getSession(recipient)?.isHidden).not.toBe(true);
     expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
     expect(screen.getAllByRole('textbox', { name: 'Message Mitzo' })).toHaveLength(1);
+    assertCompactRecipient();
     fireEvent.click(await screen.findByRole('button', { name: /^Agents/ }));
     expect(
       (await screen.findAllByText('AcceptanceReviewer', { exact: true })).length,

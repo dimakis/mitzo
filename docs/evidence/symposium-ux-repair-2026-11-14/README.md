@@ -4,6 +4,65 @@ Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.
 
+## Icon-only composer successor
+
+Owner commit `c3b277cd25e090ae4b5574bcc21c1b567e4ce7b7` is integrated as
+`8bd4b85b7e87815aa319ee8a54f22207e3eb2f7b`. Only the source registry conflicted;
+all 2,474 combined keys were retained (the incoming 2,456 keys were a subset),
+and combined source hashes were regenerated as v1.0.1166. The source-name/activity/
+history wrapper retains both owners' behavior. No approved HTML bytes changed.
+
+The ordinary shared recipient trigger is now icon-only; selection remains in
+its picker, title and accessible description. Existing source usage gains that
+source's name, independently of selected recipients. The owner regression retains
+the same input, context wheel and microphone through actual shared composition,
+qualification and source activity, and invokes the original voice callback.
+The narrow browser fixture supplies explicit deterministic token/voice props;
+the broader actual application fixture still lacks these capabilities. This
+qualifies control retention separately from real audio or per-agent usage data.
+The separately approved multicolor/count/popup-wheel proposal is not implemented
+or accepted by this slice.
+
+`icon-composer-8bd4b85b7-integrated.log` records 25 passes in four files, including
+all nine actual application/omission checks and both affected owner suites.
+Stronger A source SHA256 is
+`1b8770cf9657151664f0c0909abcb4aca1dbfaa9eb714bca2e27fd0090d2fe19`:
+empty visible trigger, exact accessible Reviewer selection after joining and
+responsive transitions, and readable selection after owner restart. The log
+identifies production head 8bd4 and the exact independently edited test bytes;
+those test bytes are committed in the following acceptance successor.
+`icon-composer-8bd4b85b7-design.log` preserves design checks. ESLint, formatting,
+source registration and browser fixture listing passed. Hosted successor
+verification remains pending; the following complete hosted checkpoint predates
+this production composer delta.
+
+## Latest focused successor
+
+Run [43598419261](https://github.com/dimakis/mitzo/actions/runs/43598419261),
+PR head `d6fdcaf8068fbd669f27fbb3741dc223cbd2fd1b`, merge build
+`0ec390a6c22a8d1a1974654344ff78cb05cf53f9`, completed successfully: nine actual
+application checks and 14 browser cases/probes. `render-d6fdcaf80/` retains six
+original manifests with four same-input resize transitions each, selected large
+phone/desktop screenshots, and every original artifact-file hash. Render artifact
+`14115890310` SHA256 is
+`86eca073a9671a6990d3cbf24150822ae979efd3d9b726da06b4c8d382ea7982`;
+application artifact `14114204797` SHA256 is
+`b0726d66b905d7a79a6ab8a6a216d37d9ed7fbea097c17d1451721be7f83b2d8`.
+The two `hosted-*-d6fdcaf80.log` files retain exact receipts.
+
+The capture correction holds one ordinary document across viewports and keeps
+all pageerror assertions. It also returns the valid `{requests: [], links: []}`
+envelope to the real ordinary link reader, removing the fixture's unrelated
+error banner. This does not qualify browser document unload/reload; the original
+WebKit navigation failure remains inspectable below. Real application remount,
+SSE reconnect and persisted-owner restart remain independently verified.
+Manual inspection of the corrected 320px/dark/200% capture confirms history is
+visible, all original header actions fit and the composer remains visible. Its
+inline recipient name is intentionally still recorded as superseded/pending
+Dimitri's subsequent icon-only correction; no screenshot is presented as final
+product approval. Full CI `43598419226` remains in progress. The following
+checkpoint preserves its original qualification and failures.
+
 ## Latest bounded checkpoint
 
 Hosted run [43596283360](https://github.com/dimakis/mitzo/actions/runs/43596283360),

@@ -215,6 +215,16 @@ for (const theme of ['light', 'dark'] as const)
         1,
       );
       await expect(page.getByText(sharedReply.text, { exact: true })).toHaveCount(1);
+      const recipient = page.getByRole('button', { name: 'Choose who replies' });
+      await expect(recipient).toHaveText('');
+      const recipientSummary = await recipient.evaluate((button) => ({
+        title: button.getAttribute('title'),
+        description: document.getElementById(button.getAttribute('aria-describedby') ?? '')
+          ?.textContent,
+      }));
+      expect(recipientSummary.description).toBe(recipientSummary.title);
+      expect(recipientSummary.description).toMatch(/^Replies: /);
+      expect(recipientSummary.description).not.toContain('Unavailable agent');
       await input.fill('Keyboard draft retained in ordinary responsive chat');
       await input.focus();
       await page.keyboard.press('Tab');
@@ -260,6 +270,7 @@ for (const theme of ['light', 'dark'] as const)
         keyboardFocus,
         route: '/chat/architect',
         ordinarySessionType: meta.sessionType,
+        recipientSummary,
       });
       const reference = await context.newPage();
       await reference.route('**/*', (route) => route.abort());
@@ -389,6 +400,7 @@ for (const theme of ['light', 'dark'] as const)
       ).toEqual([2, 9]);
       await expect(page.locator('.chat-messages')).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('');
       observations.push({ responsiveTransition: { width, sameInput: true, selection: [2, 9] } });
     }
     expect(writes.filter((path) => path.endsWith('/messages') || path.endsWith('/joins'))).toEqual(
