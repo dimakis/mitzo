@@ -4,14 +4,25 @@ import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { throwIfApprovalExpired, expiredApprovalToolResult } from '@mitzo/harness';
 import type { TelosWorkAssignment } from '@mitzo/protocol';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import type { TelosItemStore } from './telos-item-store.js';
 import type { TelosWorkStore } from './telos-work-store.js';
 import { TelosGetItemInput, TelosUpdateItemInput } from './telos-item-tools.js';
 import type { TelosToolResult } from './telos-tool.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 
 type Name = 'TelosGetItem' | 'TelosUpdateItem';
 export interface NativeTelosItemOwners {
-  context: NativeHostToolContext;
+  context: Pick<
+    NativeHostToolContext,
+    | 'signal'
+    | 'selectedRole'
+    | 'toolName'
+    | 'requestHash'
+    | 'conversationId'
+    | 'assertCurrent'
+    | 'assertCurrentSync'
+  >;
   items: TelosItemStore;
   work: TelosWorkStore;
   assertProgressConsent?: () => void;
@@ -22,11 +33,11 @@ export interface NativeTelosItemOwners {
   ): Promise<PermissionResult>;
 }
 function unavailable(): never {
-  throw Error('Original native Telos item scope unavailable');
+  throw Error('Original Telos lead and item scope unavailable');
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-/** Original signed native call only. Canonical role assignments and the item
+/** Original authenticated call only. Canonical role assignments and the item
  * owner's guarded transaction supply scope and linearize a new mutation. */
 export async function executeNativeTelosItemOperation(
   owners: NativeTelosItemOwners,
@@ -47,7 +58,7 @@ export async function executeNativeTelosItemOperation(
       owners.assertProgressConsent?.();
       const renewed: unknown = ctx.assertCurrentSync();
       if (renewed !== undefined) {
-        void Promise.resolve(renewed).catch(() => {});
+        drainRejectedTelosAuthority(renewed, 'item-authority', ctx);
         unavailable();
       }
       if (
@@ -96,7 +107,7 @@ export async function executeNativeTelosItemOperation(
     return { content: JSON.stringify({ ok: true, ...receipt }), isError: false };
   } catch (error) {
     const expired = expiredApprovalToolResult(error);
-    if (expired) return expired;
+    if (expired) return retainCallbackOutcome(expired, 'settled');
     const message = error instanceof Error ? error.message : '';
     const known = [
       'Telos item changed;',

@@ -21,6 +21,7 @@ import { createLogger } from './logger.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import type { EventStore } from './event-store.js';
 import { telosWorkContext } from './telos-work-observation.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 
 export const telosBacklogSchemas = {
   TelosListItems: TelosListItemsInputSchema,
@@ -259,7 +260,7 @@ export async function executeTelosBacklogOperation(
     return { content, isError: false };
   } catch (error) {
     const expired = expiredApprovalToolResult(error);
-    if (expired) return expired;
+    if (expired) return retainCallbackOutcome(expired, 'settled');
     const known =
       error instanceof TelosWorkError ||
       (error instanceof Error &&
