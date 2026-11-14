@@ -75,6 +75,8 @@ fresh signed client replay are simulated. Original-owner expiry/revocation and
 unsettled provider effects retain their existing fail-closed behavior; a second
 device cannot replace that execution authority merely by opening the chat.
 
+The combined 15-suite run passed 428 checks; the subsequent prompt-identity
+regression and its complete 35-check suite pass, adding one distinct check.
 Workspace package TypeScript builds, scoped lint/format and source pins pass.
 The broad server compiler exceeded the required local 1 GiB heap and is left to
 CI. Two existing Codex prepared-repository metadata scenarios returned 409 before
