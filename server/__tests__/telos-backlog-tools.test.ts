@@ -11,6 +11,7 @@ import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js
 import * as logging from '../logger.js';
 import fs from 'node:fs';
 import { telosDiagnosticFailure } from '../telos-operation-failure.js';
+import { retainCallbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -69,6 +70,32 @@ function fixture(variant: 'fresh' | 'upgraded' = 'fresh') {
     },
   };
 }
+it('keeps original uncertainty blocked before backlog delegation', async () => {
+  const f = fixture();
+  const cause = retainCallbackOutcome(Error('Original guard outcome unknown'), 'unknown');
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  const result = await callbacks.track(() =>
+    f.run(
+      'TelosManageItem',
+      {
+        operation: 'update',
+        itemId: 'studio',
+        requestId: 'uncertain-guard',
+        expectedRevision: f.items.read('studio').revision,
+        note: 'Must not apply',
+      },
+      () => {
+        throw cause;
+      },
+    ),
+  );
+  expect(result.isError).toBe(true);
+  expect(f.approve).not.toHaveBeenCalled();
+  await expect(callbacks.settle(new AbortController().signal)).rejects.toMatchObject({
+    code: 'callbacks_failed',
+  });
+});
+
 it('returns the current named assignment separately from historical links, without starting work', async () => {
   const f = fixture();
   const command = (raw: Record<string, unknown>) =>

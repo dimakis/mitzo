@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 import { TelosWorkControlViewSchema } from '@mitzo/protocol';
+import { TelosWorkLifecycle } from '../telos-work-lifecycle.js';
+import { TelosWorkControls } from '../telos-work-controls.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from '../turn-callbacks.js';
 
 const closes: Array<() => void> = [];
 afterEach(() =>
@@ -60,6 +63,44 @@ function fixture(variant: 'fresh' | 'upgraded' = 'fresh') {
     },
   };
 }
+
+it.each(['before-write', 'after-write'] as const)(
+  'retains nested outcome evidence at the original lifecycle %s boundary',
+  (phase) => {
+    const f = fixture();
+    const read = (id: string) => f.work.read(id, f.actor);
+    const owner = new TelosWorkLifecycle(
+      f.canonical.db,
+      read,
+      new TelosWorkControls(f.canonical.db, read, () => true),
+    );
+    const input = {
+      operation: 'archive',
+      itemId: 'studio',
+      requestId: randomUUID(),
+      expectedRevision: read('studio').revision,
+    };
+    const cause = retainCallbackOutcome(
+      Error('Original nested outcome'),
+      phase === 'before-write' ? 'unknown' : 'settled',
+    );
+    const refuse = () => {
+      throw cause;
+    };
+    expect(() =>
+      owner.execute(
+        input,
+        f.actor,
+        undefined,
+        phase === 'after-write' ? refuse : undefined,
+        phase === 'before-write' ? refuse : undefined,
+      ),
+    ).toThrow(cause);
+    expect(retainedCallbackOutcome(cause)).toBe('unknown');
+    expect(f.work.readLifecycle('studio', f.actor).effectiveDisposition).toBe('active');
+    expect(f.work.readLifecycle('studio', f.actor).history).toEqual([]);
+  },
+);
 
 it.each(['fresh', 'upgraded'] as const)(
   'adds lifecycle without rewriting %s canonical records and preserves archive through trash/restore/restart',
