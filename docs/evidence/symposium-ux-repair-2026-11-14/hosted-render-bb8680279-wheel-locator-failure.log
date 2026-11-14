@@ -1,0 +1,700 @@
+﻿2026-11-14T13:28:09.2529595Z Current runner version: '2.338.2'
+2026-11-14T13:28:09.2555490Z ##[group]Runner Image Provisioner
+2026-11-14T13:28:09.2556516Z Hosted Compute Agent
+2026-11-14T13:28:09.2557111Z Version: 20261103.629
+2026-11-14T13:28:09.2557725Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-14T13:28:09.2558427Z Build Date: 2026-11-03T17:26:59Z
+2026-11-14T13:28:09.2559118Z Worker ID: {7ba321d9-0c61-43fa-9b7f-cff181a4dd6a}
+2026-11-14T13:28:09.2559851Z Region: us-east-1
+2026-11-14T13:28:09.2560415Z Cloud: AWS
+2026-11-14T13:28:09.2560913Z ##[endgroup]
+2026-11-14T13:28:09.2562404Z ##[group]Operating System
+2026-11-14T13:28:09.2563033Z Ubuntu
+2026-11-14T13:28:09.2563549Z 24.04.5
+2026-11-14T13:28:09.2564252Z LTS
+2026-11-14T13:28:09.2564788Z ##[endgroup]
+2026-11-14T13:28:09.2565317Z ##[group]Runner Image
+2026-11-14T13:28:09.2565949Z Image: ubuntu-24.04
+2026-11-14T13:28:09.2566560Z Version: 20261111.127.1
+2026-11-14T13:28:09.2567815Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.127/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-14T13:28:09.2569384Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.127
+2026-11-14T13:28:09.2570404Z ##[endgroup]
+2026-11-14T13:28:09.2571510Z ##[group]GITHUB_TOKEN Permissions
+2026-11-14T13:28:09.2573887Z Contents: read
+2026-11-14T13:28:09.2574684Z Metadata: read
+2026-11-14T13:28:09.2575294Z ##[endgroup]
+2026-11-14T13:28:09.2577603Z Secret source: Actions
+2026-11-14T13:28:09.2578551Z Cache mode: write
+2026-11-14T13:28:09.2579225Z Prepare workflow directory
+2026-11-14T13:28:09.2904659Z Prepare all required actions
+2026-11-14T13:28:09.2955978Z Getting action download info
+2026-11-14T13:28:09.4578814Z Download action repository 'actions/checkout@v7' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-14T13:28:11.0000749Z Download action repository 'actions/upload-artifact@v7' (SHA:cf430e030ddbb5b0abf93d22962f4752f3646cd9)
+2026-11-14T13:28:11.2447989Z Complete job name: Ordinary responsive render evidence
+2026-11-14T13:28:11.3203799Z ##[group]Run actions/checkout@v7
+2026-11-14T13:28:11.3205286Z with:
+2026-11-14T13:28:11.3206197Z   persist-credentials: false
+2026-11-14T13:28:11.3207138Z   repository: dimakis/mitzo
+2026-11-14T13:28:11.3213794Z   token: ***
+2026-11-14T13:28:11.3214815Z   ssh-strict: true
+2026-11-14T13:28:11.3215632Z   ssh-user: git
+2026-11-14T13:28:11.3216421Z   clean: true
+2026-11-14T13:28:11.3217311Z   sparse-checkout-cone-mode: true
+2026-11-14T13:28:11.3218256Z   fetch-depth: 1
+2026-11-14T13:28:11.3219076Z   fetch-tags: false
+2026-11-14T13:28:11.3219896Z   show-progress: true
+2026-11-14T13:28:11.3220726Z   lfs: false
+2026-11-14T13:28:11.3221527Z   submodules: false
+2026-11-14T13:28:11.3222392Z   set-safe-directory: true
+2026-11-14T13:28:11.3223326Z   allow-unsafe-pr-checkout: false
+2026-11-14T13:28:11.3224623Z ##[endgroup]
+2026-11-14T13:28:13.5657125Z Syncing repository: dimakis/mitzo
+2026-11-14T13:28:13.5658559Z ##[group]Getting Git version info
+2026-11-14T13:28:13.5659367Z Working directory is '/home/runner/work/mitzo/mitzo'
+2026-11-14T13:28:13.5660194Z [command]/usr/bin/git version
+2026-11-14T13:28:13.6572447Z git version 2.56.1
+2026-11-14T13:28:13.6588358Z ##[endgroup]
+2026-11-14T13:28:13.6597605Z Temporarily overriding HOME='/home/runner/work/_temp/0c6deecc-7960-4b95-89b0-f4dc0c11856f' before making global git config changes
+2026-11-14T13:28:13.6598708Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T13:28:13.6601382Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T13:28:13.6658109Z Deleting the contents of '/home/runner/work/mitzo/mitzo'
+2026-11-14T13:28:13.6662746Z ##[group]Determining repository object format
+2026-11-14T13:28:13.6663964Z ##[endgroup]
+2026-11-14T13:28:13.6664718Z ##[group]Initializing the repository
+2026-11-14T13:28:13.6667517Z [command]/usr/bin/git init /home/runner/work/mitzo/mitzo
+2026-11-14T13:28:13.7082155Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-14T13:28:13.7083101Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-14T13:28:13.7083704Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-14T13:28:13.7084251Z hint: call:
+2026-11-14T13:28:13.7084593Z hint:
+2026-11-14T13:28:13.7085038Z hint: 	git config --global init.defaultBranch <name>
+2026-11-14T13:28:13.7085373Z hint:
+2026-11-14T13:28:13.7085692Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-14T13:28:13.7086224Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-14T13:28:13.7086626Z hint:
+2026-11-14T13:28:13.7087291Z hint: 	git branch -m <name>
+2026-11-14T13:28:13.7087583Z hint:
+2026-11-14T13:28:13.7087924Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-14T13:28:13.7096882Z Initialized empty Git repository in /home/runner/work/mitzo/mitzo/.git/
+2026-11-14T13:28:13.7106332Z [command]/usr/bin/git remote add origin https://github.com/dimakis/mitzo
+2026-11-14T13:28:13.7162364Z ##[endgroup]
+2026-11-14T13:28:13.7163117Z ##[group]Disabling automatic garbage collection
+2026-11-14T13:28:13.7165584Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-14T13:28:13.7191364Z ##[endgroup]
+2026-11-14T13:28:13.7193523Z ##[group]Setting up auth
+2026-11-14T13:28:13.7194814Z Removing SSH command configuration
+2026-11-14T13:28:13.7196589Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T13:28:13.7226141Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T13:28:13.9109552Z Removing HTTP extra header
+2026-11-14T13:28:13.9115000Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T13:28:13.9141410Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T13:28:13.9292014Z Removing includeIf entries pointing to credentials config files
+2026-11-14T13:28:13.9298195Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T13:28:13.9325607Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T13:28:13.9475364Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-14T13:28:13.9506122Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git.path /home/runner/work/_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config
+2026-11-14T13:28:13.9530004Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config
+2026-11-14T13:28:13.9554999Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config
+2026-11-14T13:28:13.9585474Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config
+2026-11-14T13:28:13.9607917Z ##[endgroup]
+2026-11-14T13:28:13.9608527Z ##[group]Fetching the repository
+2026-11-14T13:28:13.9613402Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +15c52b74a880694a48b8ad856a2ad3bf17193e26:refs/remotes/pull/1355/merge
+2026-11-14T13:28:16.9853759Z From https://github.com/dimakis/mitzo
+2026-11-14T13:28:16.9854680Z  * [new ref]         15c52b74a880694a48b8ad856a2ad3bf17193e26 -> pull/1355/merge
+2026-11-14T13:28:16.9859057Z ##[endgroup]
+2026-11-14T13:28:16.9859934Z ##[group]Determining the checkout info
+2026-11-14T13:28:16.9860504Z ##[endgroup]
+2026-11-14T13:28:16.9865482Z [command]/usr/bin/git sparse-checkout disable
+2026-11-14T13:28:16.9933967Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-14T13:28:16.9958261Z ##[group]Checking out the ref
+2026-11-14T13:28:16.9961766Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1355/merge
+2026-11-14T13:28:17.5596106Z Note: switching to 'refs/remotes/pull/1355/merge'.
+2026-11-14T13:28:17.5596403Z 
+2026-11-14T13:28:17.5596644Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-14T13:28:17.5597092Z changes and commit them, and you can discard any commits you make in this
+2026-11-14T13:28:17.5597500Z state without impacting any branches by switching back to a branch.
+2026-11-14T13:28:17.5597736Z 
+2026-11-14T13:28:17.5597930Z If you want to create a new branch to retain commits you create, you may
+2026-11-14T13:28:17.5598431Z do so (now or later) by using -c with the switch command. Example:
+2026-11-14T13:28:17.5598639Z 
+2026-11-14T13:28:17.5598782Z   git switch -c <new-branch-name>
+2026-11-14T13:28:17.5598933Z 
+2026-11-14T13:28:17.5599065Z Or undo this operation with:
+2026-11-14T13:28:17.5599256Z 
+2026-11-14T13:28:17.5599370Z   git switch -
+2026-11-14T13:28:17.5599551Z 
+2026-11-14T13:28:17.5599725Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-14T13:28:17.5600225Z 
+2026-11-14T13:28:17.5600623Z HEAD is now at 15c52b7 Merge bb8680279a5eccf24bf68e8e53b3b04b20c4a14a into 0ad803cdae56ed6e22c89273ae800d3e7aeb9706
+2026-11-14T13:28:17.5630513Z ##[endgroup]
+2026-11-14T13:28:17.5661385Z [command]/usr/bin/git log -1 --format=%H
+2026-11-14T13:28:17.5683047Z 15c52b74a880694a48b8ad856a2ad3bf17193e26
+2026-11-14T13:28:17.5690623Z ##[group]Removing auth
+2026-11-14T13:28:17.5690918Z Removing SSH command configuration
+2026-11-14T13:28:17.5692744Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T13:28:17.5717401Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T13:28:17.5877993Z Removing HTTP extra header
+2026-11-14T13:28:17.5881090Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T13:28:17.5904695Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T13:28:17.6062192Z Removing includeIf entries pointing to credentials config files
+2026-11-14T13:28:17.6065850Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T13:28:17.6089251Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T13:28:17.6089760Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T13:28:17.6090198Z includeif.gitdir:/github/workspace/.git.path
+2026-11-14T13:28:17.6090520Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T13:28:17.6094894Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T13:28:17.6113754Z /home/runner/work/_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config
+2026-11-14T13:28:17.6119803Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-1ec937a5\-453a\-4626\-9620\-b150ca2ccf22\.config
+2026-11-14T13:28:17.6144894Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T13:28:17.6164831Z /home/runner/work/_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config
+2026-11-14T13:28:17.6170499Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-1ec937a5\-453a\-4626\-9620\-b150ca2ccf22\.config
+2026-11-14T13:28:17.6195775Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-14T13:28:17.6212746Z /github/runner_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config
+2026-11-14T13:28:17.6217400Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-1ec937a5\-453a\-4626\-9620\-b150ca2ccf22\.config
+2026-11-14T13:28:17.6248139Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T13:28:17.6263912Z /github/runner_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config
+2026-11-14T13:28:17.6269689Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-1ec937a5\-453a\-4626\-9620\-b150ca2ccf22\.config
+2026-11-14T13:28:17.6293026Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T13:28:17.6447526Z Removing credentials config '/home/runner/work/_temp/git-credentials-1ec937a5-453a-4626-9620-b150ca2ccf22.config'
+2026-11-14T13:28:17.6454344Z ##[endgroup]
+2026-11-14T13:28:17.6651544Z Prepare all required actions
+2026-11-14T13:28:17.6652248Z Getting action download info
+2026-11-14T13:28:17.7380505Z Download action repository 'actions/setup-node@v7' (SHA:949feb2413d6458794dcd2491c4babbbce0c15c1)
+2026-11-14T13:28:17.8779199Z ##[group]Run ./.github/actions/ci-node
+2026-11-14T13:28:17.8779487Z with:
+2026-11-14T13:28:17.8779745Z   node-version: 24.22.1
+2026-11-14T13:28:17.8779984Z ##[endgroup]
+2026-11-14T13:28:17.8829380Z ##[start-action display=Run actions/setup-node@v7;id=__self.__actions_setup-node]
+2026-11-14T13:28:17.8903807Z ##[group]Run actions/setup-node@v7
+2026-11-14T13:28:17.8904287Z with:
+2026-11-14T13:28:17.8904520Z   node-version: 24.22.1
+2026-11-14T13:28:17.8904752Z   cache: npm
+2026-11-14T13:28:17.8904978Z   check-latest: false
+2026-11-14T13:28:17.8906706Z   token: ***
+2026-11-14T13:28:17.8906958Z   package-manager-cache: true
+2026-11-14T13:28:17.8907207Z ##[endgroup]
+2026-11-14T13:28:17.9861471Z Attempting to download 24.22.1...
+2026-11-14T13:28:18.4978626Z Acquiring 24.22.1 - x64 from https://github.com/actions/node-versions/releases/download/24.22.1-39619001896/node-24.22.1-linux-x64.tar.gz
+2026-11-14T13:28:19.0011627Z Extracting ...
+2026-11-14T13:28:19.0106111Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/a978a1ea-da7c-4d77-a701-dc37f933ce89 -f /home/runner/work/_temp/f45d04d7-053a-480a-8ee5-f046179769aa
+2026-11-14T13:28:20.0677973Z Adding to the cache ...
+2026-11-14T13:28:21.0547563Z ##[group]Environment details
+2026-11-14T13:28:21.7259673Z node: v24.22.1
+2026-11-14T13:28:21.7260062Z npm: 11.19.1
+2026-11-14T13:28:21.7260512Z yarn: 1.22.22
+2026-11-14T13:28:21.7261069Z ##[endgroup]
+2026-11-14T13:28:21.7272427Z [command]/opt/hostedtoolcache/node/24.22.1/x64/bin/npm config get cache
+2026-11-14T13:28:21.7953880Z /home/runner/.npm
+2026-11-14T13:28:21.8549091Z Cache hit for: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T13:28:22.9616588Z Received 130023424 of 422744543 (30.8%), 124.0 MBs/sec
+2026-11-14T13:28:23.9819456Z Received 134217728 of 422744543 (31.7%), 63.4 MBs/sec
+2026-11-14T13:28:24.9792009Z Received 293601280 of 422744543 (69.5%), 92.7 MBs/sec
+2026-11-14T13:28:25.8985856Z Received 422744543 of 422744543 (100.0%), 102.4 MBs/sec
+2026-11-14T13:28:25.9006276Z Cache Size: ~403 MB (422744543 B)
+2026-11-14T13:28:25.9068225Z [command]/usr/bin/tar -xf /home/runner/work/_temp/ea3a4316-048e-4410-a436-bd50cee8783f/cache.tzst -P -C /home/runner/work/mitzo/mitzo --use-compress-program unzstd
+2026-11-14T13:28:26.2348460Z Cache restored successfully
+2026-11-14T13:28:26.2475492Z Cache restored from key: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T13:28:26.2584862Z ##[end-action id=__self.__actions_setup-node;outcome=success;conclusion=success;duration_ms=8375]
+2026-11-14T13:28:26.2587554Z ##[start-action display=Run npm install --global npm@11.18.0;id=__self.__run]
+2026-11-14T13:28:26.2617950Z ##[group]Run npm install --global npm@11.18.0
+2026-11-14T13:28:26.2618351Z [36;1mnpm install --global npm@11.18.0[0m
+2026-11-14T13:28:26.5370363Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T13:28:26.5370791Z ##[endgroup]
+2026-11-14T13:28:27.6203698Z 
+2026-11-14T13:28:27.6210636Z changed 18 packages in 1s
+2026-11-14T13:28:27.6211036Z 
+2026-11-14T13:28:27.6211328Z 15 packages are looking for funding
+2026-11-14T13:28:27.6211792Z   run `npm fund` for details
+2026-11-14T13:28:27.6401267Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=1381]
+2026-11-14T13:28:27.6403667Z ##[start-action display=Run npm install --no-audit;id=__self.__run_2]
+2026-11-14T13:28:27.6423539Z ##[group]Run npm install --no-audit
+2026-11-14T13:28:27.6423930Z [36;1mnpm install --no-audit[0m
+2026-11-14T13:28:27.6451129Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T13:28:27.6451517Z ##[endgroup]
+2026-11-14T13:28:28.2517374Z npm warn skipping integrity check for git dependency ssh://git@github.com/dimakis/contexgin.git
+2026-11-14T13:28:33.1421110Z npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+2026-11-14T13:28:33.6660763Z npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+2026-11-14T13:28:43.7958152Z npm warn gitignore-fallback No .npmignore file found, using .gitignore for file exclusion. Consider creating a .npmignore file to explicitly control published files.
+2026-11-14T13:28:53.2371663Z 
+2026-11-14T13:28:53.2373018Z > mitzo@1.0.0 postinstall
+2026-11-14T13:28:53.2373655Z > node scripts/prepare-terminal-native.mjs
+2026-11-14T13:28:53.2373966Z 
+2026-11-14T13:28:53.2852713Z 
+2026-11-14T13:28:53.2854233Z > mitzo@1.0.0 prepare
+2026-11-14T13:28:53.2855133Z > husky || true
+2026-11-14T13:28:53.2855425Z 
+2026-11-14T13:28:53.3848891Z 
+2026-11-14T13:28:53.3850125Z added 1026 packages in 26s
+2026-11-14T13:28:53.3850432Z 
+2026-11-14T13:28:53.3850644Z 280 packages are looking for funding
+2026-11-14T13:28:53.3850940Z   run `npm fund` for details
+2026-11-14T13:28:53.3863506Z npm warn allow-scripts 6 packages have install scripts not yet covered by allowScripts:
+2026-11-14T13:28:53.3864317Z npm warn allow-scripts   better-sqlite3@13.0.3 (install: node-gyp rebuild)
+2026-11-14T13:28:53.3865010Z npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)
+2026-11-14T13:28:53.3865646Z npm warn allow-scripts   esbuild@0.28.2 (postinstall: node install.js)
+2026-11-14T13:28:53.3866415Z npm warn allow-scripts   node-pty@1.1.0 (install: node scripts/prebuild.js || node-gyp rebuild; postinstall: node scripts/post-install.js)
+2026-11-14T13:28:53.3867202Z npm warn allow-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+2026-11-14T13:28:53.3867747Z npm warn allow-scripts   esbuild@0.25.12 (postinstall: node install.js)
+2026-11-14T13:28:53.3868201Z npm warn allow-scripts
+2026-11-14T13:28:53.3868776Z npm warn allow-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+2026-11-14T13:28:53.4437334Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=25803]
+2026-11-14T13:28:53.4493251Z Prepare all required actions
+2026-11-14T13:28:53.4531658Z ##[group]Run ./.github/actions/ci-playwright
+2026-11-14T13:28:53.4531974Z with:
+2026-11-14T13:28:53.4532218Z   browsers: webkit chromium
+2026-11-14T13:28:53.4532505Z ##[endgroup]
+2026-11-14T13:28:53.4541412Z ##[start-action display=Prepare the pinned Linux browser image;id=__self_2.__run]
+2026-11-14T13:28:53.4562070Z ##[group]Run bash scripts/ci-browser-container.sh --prepare $CI_PLAYWRIGHT_BROWSERS
+2026-11-14T13:28:53.4562761Z [36;1mbash scripts/ci-browser-container.sh --prepare $CI_PLAYWRIGHT_BROWSERS[0m
+2026-11-14T13:28:53.4591086Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T13:28:53.4591504Z env:
+2026-11-14T13:28:53.4591777Z   CI_PLAYWRIGHT_BROWSERS: webkit chromium
+2026-11-14T13:28:53.4592148Z ##[endgroup]
+2026-11-14T13:28:55.2564662Z mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27: Pulling from playwright
+2026-11-14T13:28:55.2973717Z 0926a8eb0e60: Pulling fs layer
+2026-11-14T13:28:55.2975118Z e2bfec3c8017: Pulling fs layer
+2026-11-14T13:28:55.2975926Z 74c72610aa2d: Pulling fs layer
+2026-11-14T13:28:55.2977218Z d8cf7dc1ff62: Pulling fs layer
+2026-11-14T13:28:55.2977841Z b4dfe9b5d621: Pulling fs layer
+2026-11-14T13:28:55.2978303Z a2ac83a9a562: Pulling fs layer
+2026-11-14T13:28:55.2978777Z 1b189482e65c: Pulling fs layer
+2026-11-14T13:28:55.2979270Z b4dfe9b5d621: Waiting
+2026-11-14T13:28:55.2979642Z a2ac83a9a562: Waiting
+2026-11-14T13:28:55.2979996Z 1b189482e65c: Waiting
+2026-11-14T13:28:55.2980328Z d8cf7dc1ff62: Waiting
+2026-11-14T13:28:55.3782723Z 74c72610aa2d: Verifying Checksum
+2026-11-14T13:28:55.3783279Z 74c72610aa2d: Download complete
+2026-11-14T13:28:55.4806142Z 0926a8eb0e60: Download complete
+2026-11-14T13:28:55.7811474Z e2bfec3c8017: Verifying Checksum
+2026-11-14T13:28:55.7812448Z e2bfec3c8017: Download complete
+2026-11-14T13:28:56.1693575Z a2ac83a9a562: Verifying Checksum
+2026-11-14T13:28:56.1698292Z a2ac83a9a562: Download complete
+2026-11-14T13:28:56.3907262Z 0926a8eb0e60: Pull complete
+2026-11-14T13:28:56.5539131Z 1b189482e65c: Verifying Checksum
+2026-11-14T13:28:56.5540021Z 1b189482e65c: Download complete
+2026-11-14T13:28:56.6008618Z d8cf7dc1ff62: Verifying Checksum
+2026-11-14T13:28:56.6010706Z d8cf7dc1ff62: Download complete
+2026-11-14T13:28:56.6690973Z b4dfe9b5d621: Verifying Checksum
+2026-11-14T13:28:56.6691709Z b4dfe9b5d621: Download complete
+2026-11-14T13:28:58.7889926Z e2bfec3c8017: Pull complete
+2026-11-14T13:28:58.8000050Z 74c72610aa2d: Pull complete
+2026-11-14T13:29:03.2307753Z d8cf7dc1ff62: Pull complete
+2026-11-14T13:29:05.9175707Z b4dfe9b5d621: Pull complete
+2026-11-14T13:29:07.1182588Z a2ac83a9a562: Pull complete
+2026-11-14T13:29:08.2551082Z 1b189482e65c: Pull complete
+2026-11-14T13:29:08.2575288Z Digest: sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T13:29:08.2581576Z Status: Downloaded newer image for mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T13:29:08.2588629Z mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T13:29:14.9313332Z Using preinstalled webkit 1.63.0: /ms-playwright/webkit-2359/pw_run.sh
+2026-11-14T13:29:14.9314241Z Using preinstalled chromium 1.63.0: /ms-playwright/chromium-1243/chrome-linux64/chrome
+2026-11-14T13:29:14.9862383Z ##[end-action id=__self_2.__run;outcome=success;conclusion=success;duration_ms=21532]
+2026-11-14T13:29:14.9867312Z ##[start-action display=Install native macOS browsers;id=__self_2.__run_2]
+2026-11-14T13:29:14.9874485Z ##[end-action id=__self_2.__run_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T13:29:14.9901457Z ##[group]Run bash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs
+2026-11-14T13:29:14.9903557Z [36;1mbash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs[0m
+2026-11-14T13:29:14.9933572Z shell: /usr/bin/bash -e {0}
+2026-11-14T13:29:14.9933949Z env:
+2026-11-14T13:29:14.9934499Z   NODE_OPTIONS: --max-old-space-size=1024
+2026-11-14T13:29:14.9934863Z ##[endgroup]
+2026-11-14T13:29:16.3055609Z 
+2026-11-14T13:29:16.3057204Z Running 14 tests using 1 worker
+2026-11-14T13:29:16.3057735Z 
+2026-11-14T13:29:18.0310055Z   ✓   1 [browser-startup-0] › tests/support/browser-startup.setup.ts:5:1 › browser startup (1.1s)
+2026-11-14T13:29:18.8325731Z   ✓   2 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (299ms)
+2026-11-14T13:29:33.2782715Z   ✓   3 [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (13.8s)
+2026-11-14T13:29:44.2487980Z   ✓   4 [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (11.0s)
+2026-11-14T13:29:48.6626892Z   ✘   5 [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (4.1s)
+2026-11-14T13:29:48.6628139Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-1f9aef8ddb75130aeba4"}
+2026-11-14T13:29:48.6657434Z ##[error] / mobile-webkit / symposium-ordinary-surface.spec.ts / ordinary shared surface keeps one history and composer (dark)
+Error: expect(locator).toHaveText(expected) failed
+
+Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+Expected: "AgentArchitect"
+Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+    1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+    2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+    3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+
+Call log:
+  - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+  - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+
+2026-11-14T13:29:53.7518648Z   ✘   6 [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (4.3s)
+2026-11-14T13:29:53.7519818Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-302156ae11d2babebf77"}
+2026-11-14T13:29:53.7527200Z ##[error] / mobile-webkit / symposium-ordinary-surface.spec.ts / ordinary shared surface keeps one history and composer (light)
+Error: expect(locator).toHaveText(expected) failed
+
+Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+Expected: "AgentArchitect"
+Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+    1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+    2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+    3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+
+Call log:
+  - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+  - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+
+2026-11-14T13:30:02.3526799Z   ✓   7 [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (8.0s)
+2026-11-14T13:30:09.6855311Z   ✓   8 [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (7.3s)
+2026-11-14T13:30:13.7483809Z   ✘   9 [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (3.8s)
+2026-11-14T13:30:13.7485334Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-4a353143b9ebc6f0b77a"}
+2026-11-14T13:30:13.7492039Z ##[error] / mobile-chromium / symposium-ordinary-surface.spec.ts / ordinary shared surface keeps one history and composer (dark)
+Error: expect(locator).toHaveText(expected) failed
+
+Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+Expected: "AgentArchitect"
+Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+    1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+    2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+    3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+
+Call log:
+  - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+  - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+
+2026-11-14T13:30:18.5363215Z   ✘  10 [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (4.0s)
+2026-11-14T13:30:18.5364413Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-30c3f7dfc5029f3b169b"}
+2026-11-14T13:30:18.5373807Z ##[error] / mobile-chromium / symposium-ordinary-surface.spec.ts / ordinary shared surface keeps one history and composer (light)
+Error: expect(locator).toHaveText(expected) failed
+
+Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+Expected: "AgentArchitect"
+Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+    1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+    2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+    3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+
+Call log:
+  - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+  - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+
+2026-11-14T13:30:26.3576536Z   ✓  11 [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (7.3s)
+2026-11-14T13:30:32.3468145Z   ✓  12 [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (6.0s)
+2026-11-14T13:30:36.3038531Z   ✘  13 [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (3.7s)
+2026-11-14T13:30:36.3039743Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-ef1d75a4c474f2156519"}
+2026-11-14T13:30:36.3045114Z ##[error] / desktop-chromium / symposium-ordinary-surface.spec.ts / ordinary shared surface keeps one history and composer (dark)
+Error: expect(locator).toHaveText(expected) failed
+
+Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+Expected: "AgentArchitect"
+Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+    1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+    2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+    3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+
+Call log:
+  - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+  - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+
+2026-11-14T13:30:41.0296267Z   ✘  14 [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (3.9s)
+2026-11-14T13:30:41.0297407Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"2430e3ec43d7ae4dc973-496b8b8835f0fa1bf300"}
+2026-11-14T13:30:41.0302208Z ##[error] / desktop-chromium / symposium-ordinary-surface.spec.ts / ordinary shared surface keeps one history and composer (light)
+Error: expect(locator).toHaveText(expected) failed
+
+Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+Expected: "AgentArchitect"
+Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+    1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+    2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+    3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+
+Call log:
+  - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+  - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+
+2026-11-14T13:30:41.0513884Z 
+2026-11-14T13:30:41.0516855Z 
+2026-11-14T13:30:41.0528642Z   1) [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T13:30:41.0529894Z 
+2026-11-14T13:30:41.0530445Z     Error: expect(locator).toHaveText(expected) failed
+2026-11-14T13:30:41.0530980Z 
+2026-11-14T13:30:41.0531579Z     Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0532416Z     Expected: "AgentArchitect"
+2026-11-14T13:30:41.0533117Z     Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+2026-11-14T13:30:41.0539550Z         1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+2026-11-14T13:30:41.0540783Z         2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+2026-11-14T13:30:41.0541512Z         3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+2026-11-14T13:30:41.0541967Z 
+2026-11-14T13:30:41.0542160Z     Call log:
+2026-11-14T13:30:41.0542758Z       - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+2026-11-14T13:30:41.0543585Z       - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0543967Z 
+2026-11-14T13:30:41.0543999Z 
+2026-11-14T13:30:41.0544614Z       142 |     await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
+2026-11-14T13:30:41.0545121Z       143 |     await wheel.click();
+2026-11-14T13:30:41.0545777Z     > 144 |     await expect(page.locator('.token-bar-detail-row').filter({ hasText: 'Agent' })).toHaveText(
+2026-11-14T13:30:41.0546430Z           |                                                                                      ^
+2026-11-14T13:30:41.0546933Z       145 |       'AgentArchitect',
+2026-11-14T13:30:41.0547318Z       146 |     );
+2026-11-14T13:30:41.0547715Z       147 |     await page.keyboard.press('Escape');
+2026-11-14T13:30:41.0548369Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:144:86
+2026-11-14T13:30:41.0548828Z 
+2026-11-14T13:30:41.0549411Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0550369Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/test-failed-1.png
+2026-11-14T13:30:41.0551358Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0551716Z 
+2026-11-14T13:30:41.0552630Z     Error Context: test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/error-context.md
+2026-11-14T13:30:41.0553155Z 
+2026-11-14T13:30:41.0553546Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0554742Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/trace.zip
+2026-11-14T13:30:41.0555427Z     Usage:
+2026-11-14T13:30:41.0555612Z 
+2026-11-14T13:30:41.0556301Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/trace.zip
+2026-11-14T13:30:41.0556972Z 
+2026-11-14T13:30:41.0557387Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0557901Z 
+2026-11-14T13:30:41.0558587Z   2) [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T13:30:41.0559213Z 
+2026-11-14T13:30:41.0559476Z     Error: expect(locator).toHaveText(expected) failed
+2026-11-14T13:30:41.0559779Z 
+2026-11-14T13:30:41.0560120Z     Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0560668Z     Expected: "AgentArchitect"
+2026-11-14T13:30:41.0561359Z     Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+2026-11-14T13:30:41.0562292Z         1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+2026-11-14T13:30:41.0563068Z         2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+2026-11-14T13:30:41.0563818Z         3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+2026-11-14T13:30:41.0564356Z 
+2026-11-14T13:30:41.0564522Z     Call log:
+2026-11-14T13:30:41.0565123Z       - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+2026-11-14T13:30:41.0565965Z       - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0566309Z 
+2026-11-14T13:30:41.0566316Z 
+2026-11-14T13:30:41.0566743Z       142 |     await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
+2026-11-14T13:30:41.0567299Z       143 |     await wheel.click();
+2026-11-14T13:30:41.0567976Z     > 144 |     await expect(page.locator('.token-bar-detail-row').filter({ hasText: 'Agent' })).toHaveText(
+2026-11-14T13:30:41.0568630Z           |                                                                                      ^
+2026-11-14T13:30:41.0569189Z       145 |       'AgentArchitect',
+2026-11-14T13:30:41.0569579Z       146 |     );
+2026-11-14T13:30:41.0569950Z       147 |     await page.keyboard.press('Escape');
+2026-11-14T13:30:41.0570667Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:144:86
+2026-11-14T13:30:41.0571109Z 
+2026-11-14T13:30:41.0571618Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0572401Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/test-failed-1.png
+2026-11-14T13:30:41.0573271Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0573562Z 
+2026-11-14T13:30:41.0574625Z     Error Context: test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/error-context.md
+2026-11-14T13:30:41.0575277Z 
+2026-11-14T13:30:41.0575767Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0576685Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/trace.zip
+2026-11-14T13:30:41.0577602Z     Usage:
+2026-11-14T13:30:41.0577778Z 
+2026-11-14T13:30:41.0578497Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/trace.zip
+2026-11-14T13:30:41.0579206Z 
+2026-11-14T13:30:41.0579597Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0579916Z 
+2026-11-14T13:30:41.0580626Z   3) [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T13:30:41.0581202Z 
+2026-11-14T13:30:41.0581496Z     Error: expect(locator).toHaveText(expected) failed
+2026-11-14T13:30:41.0581792Z 
+2026-11-14T13:30:41.0582103Z     Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0582595Z     Expected: "AgentArchitect"
+2026-11-14T13:30:41.0583278Z     Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+2026-11-14T13:30:41.0584394Z         1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+2026-11-14T13:30:41.0585403Z         2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+2026-11-14T13:30:41.0586202Z         3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+2026-11-14T13:30:41.0586502Z 
+2026-11-14T13:30:41.0586681Z     Call log:
+2026-11-14T13:30:41.0587312Z       - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+2026-11-14T13:30:41.0588072Z       - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0588441Z 
+2026-11-14T13:30:41.0588448Z 
+2026-11-14T13:30:41.0588841Z       142 |     await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
+2026-11-14T13:30:41.0589433Z       143 |     await wheel.click();
+2026-11-14T13:30:41.0590074Z     > 144 |     await expect(page.locator('.token-bar-detail-row').filter({ hasText: 'Agent' })).toHaveText(
+2026-11-14T13:30:41.0590685Z           |                                                                                      ^
+2026-11-14T13:30:41.0591220Z       145 |       'AgentArchitect',
+2026-11-14T13:30:41.0591567Z       146 |     );
+2026-11-14T13:30:41.0591927Z       147 |     await page.keyboard.press('Escape');
+2026-11-14T13:30:41.0592615Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:144:86
+2026-11-14T13:30:41.0592970Z 
+2026-11-14T13:30:41.0593462Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0594821Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/test-failed-1.png
+2026-11-14T13:30:41.0595961Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0596315Z 
+2026-11-14T13:30:41.0596860Z     Error Context: test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/error-context.md
+2026-11-14T13:30:41.0597567Z 
+2026-11-14T13:30:41.0598262Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0599078Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/trace.zip
+2026-11-14T13:30:41.0599885Z     Usage:
+2026-11-14T13:30:41.0600029Z 
+2026-11-14T13:30:41.0600640Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/trace.zip
+2026-11-14T13:30:41.0601307Z 
+2026-11-14T13:30:41.0601779Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0602099Z 
+2026-11-14T13:30:41.0602870Z   4) [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T13:30:41.0603604Z 
+2026-11-14T13:30:41.0603903Z     Error: expect(locator).toHaveText(expected) failed
+2026-11-14T13:30:41.0604381Z 
+2026-11-14T13:30:41.0604721Z     Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0605305Z     Expected: "AgentArchitect"
+2026-11-14T13:30:41.0605972Z     Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+2026-11-14T13:30:41.0606879Z         1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+2026-11-14T13:30:41.0607695Z         2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+2026-11-14T13:30:41.0608407Z         3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+2026-11-14T13:30:41.0608747Z 
+2026-11-14T13:30:41.0608905Z     Call log:
+2026-11-14T13:30:41.0609694Z       - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+2026-11-14T13:30:41.0610452Z       - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0610862Z 
+2026-11-14T13:30:41.0610869Z 
+2026-11-14T13:30:41.0611302Z       142 |     await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
+2026-11-14T13:30:41.0611848Z       143 |     await wheel.click();
+2026-11-14T13:30:41.0612496Z     > 144 |     await expect(page.locator('.token-bar-detail-row').filter({ hasText: 'Agent' })).toHaveText(
+2026-11-14T13:30:41.0613163Z           |                                                                                      ^
+2026-11-14T13:30:41.0613642Z       145 |       'AgentArchitect',
+2026-11-14T13:30:41.0614015Z       146 |     );
+2026-11-14T13:30:41.0614601Z       147 |     await page.keyboard.press('Escape');
+2026-11-14T13:30:41.0615370Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:144:86
+2026-11-14T13:30:41.0615852Z 
+2026-11-14T13:30:41.0616356Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0617445Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/test-failed-1.png
+2026-11-14T13:30:41.0618674Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0619057Z 
+2026-11-14T13:30:41.0619756Z     Error Context: test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/error-context.md
+2026-11-14T13:30:41.0620503Z 
+2026-11-14T13:30:41.0620970Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0621972Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/trace.zip
+2026-11-14T13:30:41.0622730Z     Usage:
+2026-11-14T13:30:41.0622908Z 
+2026-11-14T13:30:41.0623588Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/trace.zip
+2026-11-14T13:30:41.0624561Z 
+2026-11-14T13:30:41.0625099Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0625462Z 
+2026-11-14T13:30:41.0626221Z   5) [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T13:30:41.0626869Z 
+2026-11-14T13:30:41.0627116Z     Error: expect(locator).toHaveText(expected) failed
+2026-11-14T13:30:41.0627397Z 
+2026-11-14T13:30:41.0627705Z     Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0628267Z     Expected: "AgentArchitect"
+2026-11-14T13:30:41.0628945Z     Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+2026-11-14T13:30:41.0629854Z         1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+2026-11-14T13:30:41.0630884Z         2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+2026-11-14T13:30:41.0631759Z         3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+2026-11-14T13:30:41.0632119Z 
+2026-11-14T13:30:41.0632217Z     Call log:
+2026-11-14T13:30:41.0632853Z       - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+2026-11-14T13:30:41.0634275Z       - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0635620Z 
+2026-11-14T13:30:41.0635638Z 
+2026-11-14T13:30:41.0636318Z       142 |     await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
+2026-11-14T13:30:41.0636822Z       143 |     await wheel.click();
+2026-11-14T13:30:41.0637429Z     > 144 |     await expect(page.locator('.token-bar-detail-row').filter({ hasText: 'Agent' })).toHaveText(
+2026-11-14T13:30:41.0638151Z           |                                                                                      ^
+2026-11-14T13:30:41.0638621Z       145 |       'AgentArchitect',
+2026-11-14T13:30:41.0638997Z       146 |     );
+2026-11-14T13:30:41.0639416Z       147 |     await page.keyboard.press('Escape');
+2026-11-14T13:30:41.0640039Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:144:86
+2026-11-14T13:30:41.0640476Z 
+2026-11-14T13:30:41.0640997Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0641918Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/test-failed-1.png
+2026-11-14T13:30:41.0642870Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0643259Z 
+2026-11-14T13:30:41.0643906Z     Error Context: test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/error-context.md
+2026-11-14T13:30:41.0644752Z 
+2026-11-14T13:30:41.0645161Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0646212Z     test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/trace.zip
+2026-11-14T13:30:41.0646974Z     Usage:
+2026-11-14T13:30:41.0647203Z 
+2026-11-14T13:30:41.0647780Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/trace.zip
+2026-11-14T13:30:41.0648420Z 
+2026-11-14T13:30:41.0648869Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0649338Z 
+2026-11-14T13:30:41.0649983Z   6) [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T13:30:41.0650563Z 
+2026-11-14T13:30:41.0650801Z     Error: expect(locator).toHaveText(expected) failed
+2026-11-14T13:30:41.0651317Z 
+2026-11-14T13:30:41.0651618Z     Locator: locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0652180Z     Expected: "AgentArchitect"
+2026-11-14T13:30:41.0652876Z     Error: strict mode violation: locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) resolved to 3 elements:
+2026-11-14T13:30:41.0653719Z         1) <div class="token-bar-detail-row">…</div> aka getByText('AgentArchitect')
+2026-11-14T13:30:41.0654725Z         2) <div class="token-bar-detail-row">…</div> aka getByText('Agent turns2 turns')
+2026-11-14T13:30:41.0655482Z         3) <div class="token-bar-detail-row">…</div> aka getByText('Agent #1')
+2026-11-14T13:30:41.0655842Z 
+2026-11-14T13:30:41.0655967Z     Call log:
+2026-11-14T13:30:41.0656604Z       - Expect "toHaveText" locator('.token-bar-detail-row').filter({ hasText: 'Agent' }) with timeout 5000ms
+2026-11-14T13:30:41.0657348Z       - waiting for locator('.token-bar-detail-row').filter({ hasText: 'Agent' })
+2026-11-14T13:30:41.0657705Z 
+2026-11-14T13:30:41.0657729Z 
+2026-11-14T13:30:41.0658214Z       142 |     await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
+2026-11-14T13:30:41.0658692Z       143 |     await wheel.click();
+2026-11-14T13:30:41.0659353Z     > 144 |     await expect(page.locator('.token-bar-detail-row').filter({ hasText: 'Agent' })).toHaveText(
+2026-11-14T13:30:41.0660147Z           |                                                                                      ^
+2026-11-14T13:30:41.0660643Z       145 |       'AgentArchitect',
+2026-11-14T13:30:41.0661046Z       146 |     );
+2026-11-14T13:30:41.0661467Z       147 |     await page.keyboard.press('Escape');
+2026-11-14T13:30:41.0662176Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-surface.spec.ts:144:86
+2026-11-14T13:30:41.0662676Z 
+2026-11-14T13:30:41.0663197Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0664381Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/test-failed-1.png
+2026-11-14T13:30:41.0665555Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0665935Z 
+2026-11-14T13:30:41.0666765Z     Error Context: test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/error-context.md
+2026-11-14T13:30:41.0667466Z 
+2026-11-14T13:30:41.0667930Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0668913Z     test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/trace.zip
+2026-11-14T13:30:41.0669652Z     Usage:
+2026-11-14T13:30:41.0669840Z 
+2026-11-14T13:30:41.0670491Z         npx playwright show-trace test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/trace.zip
+2026-11-14T13:30:41.0671197Z 
+2026-11-14T13:30:41.0671609Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T13:30:41.0672098Z 
+2026-11-14T13:30:41.0672210Z   6 failed
+2026-11-14T13:30:41.0673079Z     [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T13:30:41.0674560Z     [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T13:30:41.0675976Z     [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T13:30:41.0677333Z     [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T13:30:41.0678931Z     [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) 
+2026-11-14T13:30:41.0680508Z     [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) 
+2026-11-14T13:30:41.0681255Z   8 passed (1.4m)
+2026-11-14T13:30:41.2822382Z ##[error]Process completed with exit code 1.
+2026-11-14T13:30:41.2898074Z ##[group]Run actions/upload-artifact@v7
+2026-11-14T13:30:41.2898386Z with:
+2026-11-14T13:30:41.2898766Z   name: symposium-ordinary-renders-15c52b74a880694a48b8ad856a2ad3bf17193e26-1
+2026-11-14T13:30:41.2899183Z   path: test-results/offline/
+playwright-report/offline/
+
+2026-11-14T13:30:41.2899544Z   retention-days: 7
+2026-11-14T13:30:41.2899767Z   if-no-files-found: warn
+2026-11-14T13:30:41.2900038Z   compression-level: 6
+2026-11-14T13:30:41.2900273Z   overwrite: false
+2026-11-14T13:30:41.2900564Z   include-hidden-files: false
+2026-11-14T13:30:41.2900809Z   archive: true
+2026-11-14T13:30:41.2901016Z ##[endgroup]
+2026-11-14T13:30:41.4136768Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-11-14T13:30:41.4138153Z The least common ancestor is /home/runner/work/mitzo/mitzo. This will be the root directory of the artifact
+2026-11-14T13:30:41.4138742Z With the provided path, there will be 147 files uploaded
+2026-11-14T13:30:41.4142090Z Artifact name is valid!
+2026-11-14T13:30:41.4142509Z Root directory input is valid!
+2026-11-14T13:30:41.6998282Z Uploading artifact: symposium-ordinary-renders-15c52b74a880694a48b8ad856a2ad3bf17193e26-1.zip
+2026-11-14T13:30:41.7025277Z Beginning upload of artifact content to blob storage
+2026-11-14T13:30:42.2573133Z Uploaded bytes 8388608
+2026-11-14T13:30:42.4387338Z Uploaded bytes 16777216
+2026-11-14T13:30:42.6855852Z Uploaded bytes 25165824
+2026-11-14T13:30:42.8461716Z Uploaded bytes 33554432
+2026-11-14T13:30:43.0930968Z Uploaded bytes 40066219
+2026-11-14T13:30:43.1297864Z Finished uploading artifact content to blob storage!
+2026-11-14T13:30:43.1299999Z SHA256 digest of uploaded artifact is 73a28c330af9d2ac4d373179a8967822e783b9cb699ea9dc5766990d44d81d3c
+2026-11-14T13:30:43.1300980Z Finalizing artifact upload
+2026-11-14T13:30:43.4560596Z Artifact symposium-ordinary-renders-15c52b74a880694a48b8ad856a2ad3bf17193e26-1 successfully finalized. Artifact ID 14115423884
+2026-11-14T13:30:43.4561814Z Artifact symposium-ordinary-renders-15c52b74a880694a48b8ad856a2ad3bf17193e26-1 has been successfully uploaded! Final size is 40066219 bytes. Artifact ID is 14115423884
+2026-11-14T13:30:43.4564581Z Artifact download URL: https://github.com/dimakis/mitzo/actions/runs/43599810172/artifacts/14115423884
+2026-11-14T13:30:43.4729713Z Post job cleanup.
+2026-11-14T13:30:43.4733450Z ##[start-action display=Run actions/setup-node@v7;id=__c9a22019-5bc4-497a-be48-01c0f6a8375a.__actions_setup-node]
+2026-11-14T13:30:43.4736211Z ##[end-action id=__c9a22019-5bc4-497a-be48-01c0f6a8375a.__actions_setup-node;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T13:30:43.4794522Z Post job cleanup.
+2026-11-14T13:30:43.5460071Z [command]/usr/bin/git version
+2026-11-14T13:30:43.5483366Z git version 2.56.1
+2026-11-14T13:30:43.5505922Z Temporarily overriding HOME='/home/runner/work/_temp/0ff66a3d-7f9d-4d20-86cd-8fbce6ab21f3' before making global git config changes
+2026-11-14T13:30:43.5507048Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T13:30:43.5508828Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T13:30:43.5534498Z Removing SSH command configuration
+2026-11-14T13:30:43.5538816Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T13:30:43.5562505Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T13:30:43.5721375Z Removing HTTP extra header
+2026-11-14T13:30:43.5725338Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T13:30:43.5748199Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T13:30:43.5900840Z Removing includeIf entries pointing to credentials config files
+2026-11-14T13:30:43.5905253Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T13:30:43.5928824Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T13:30:43.6232798Z Cleaning up orphan processes

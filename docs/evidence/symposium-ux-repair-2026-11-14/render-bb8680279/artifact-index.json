@@ -1,0 +1,744 @@
+{
+  "runId": 43599810172,
+  "prHead": "bb8680279a5eccf24bf68e8e53b3b04b20c4a14a",
+  "mergeHead": "15c52b74a880694a48b8ad856a2ad3bf17193e26",
+  "artifactId": 14115423884,
+  "artifactSha256": "73a28c330af9d2ac4d373179a8967822e783b9cb699ea9dc5766990d44d81d3c",
+  "files": [
+    {
+      "path": "playwright-report/offline/data/0816d26f8b78da85a3fb69f8fde731363c41b674.zip",
+      "bytes": 2102980,
+      "sha256": "8f631e58942b955cf6b076a559562ba19cfd90207fc4b19105efb7050f6ac210"
+    },
+    {
+      "path": "playwright-report/offline/data/1114cd00d14598fe7c0f23338c9076285d913b9c.zip",
+      "bytes": 2291998,
+      "sha256": "db89a605d907c81c88f6043538d7777da08bb966c68274a3857d0ad1cc7f9f03"
+    },
+    {
+      "path": "playwright-report/offline/data/13529bb1a9bf6236880dcef3194ffd3651aa9d5b.md",
+      "bytes": 14150,
+      "sha256": "b5ab991d2a19ce7009d41cb2ad7014256f40bf4b7f26beb65e27cb5d7fedb684"
+    },
+    {
+      "path": "playwright-report/offline/data/202663536b4924884658e201ee422249e0f09e10.png",
+      "bytes": 182860,
+      "sha256": "8f99c829ea326a4d36f65c583eae5bb26b677ccb05599b0464580f527f46a333"
+    },
+    {
+      "path": "playwright-report/offline/data/315f79971209d7d8d752ce0faaa065ad474e6b84.zip",
+      "bytes": 2091072,
+      "sha256": "5f33874c361a2c3c68fccb7253d2e236b20f336edb5763caefa11c8959a5eb38"
+    },
+    {
+      "path": "playwright-report/offline/data/347b167e40790a967b2f78954feee164a3d8df50.png",
+      "bytes": 53551,
+      "sha256": "b574de59a9e00e4d01c9bd114b3a52c8ff905aebdcd21c2d360e67663803b9c2"
+    },
+    {
+      "path": "playwright-report/offline/data/3627d216e711b01a73f8945ac7409231dc55f7eb.png",
+      "bytes": 204542,
+      "sha256": "91e726eaf82d5b32b7ba9fd6849b4a780472956ff6c7957b590027c3830aa4d0"
+    },
+    {
+      "path": "playwright-report/offline/data/49276c7dfec063af848208d5dd7275daa7a5db92.zip",
+      "bytes": 2342504,
+      "sha256": "e28002fd899a2f16ac86d68a63045ac2f3366106c5682b2d7a4ca9de22ceaf4a"
+    },
+    {
+      "path": "playwright-report/offline/data/737130726d0a64bc7bd86201d80afae3e57b1ac1.png",
+      "bytes": 48689,
+      "sha256": "8b68b1d589be8813c1ceb4a9738f76b7e58ea7bbccd658312e08a9aaee22333c"
+    },
+    {
+      "path": "playwright-report/offline/data/7a9e92cd2ba9f885d084fdaac7f93e99c905a88b.png",
+      "bytes": 169308,
+      "sha256": "1f0752b570adaf319c7e46f7a93916973f1491d3a6abb30cad2dbdaa46a805ea"
+    },
+    {
+      "path": "playwright-report/offline/data/8e3c2a6bb37095afb2ee90d2a43f5d18bdfb4f11.png",
+      "bytes": 235422,
+      "sha256": "6f6e9fe42e9615580e4244d9fd611184778de59573e83bb235e7e985884fdcee"
+    },
+    {
+      "path": "playwright-report/offline/data/a43e5bd76776c73468135dcccb57cbb06a4daaa2.md",
+      "bytes": 14149,
+      "sha256": "412928f2341edde971e27f7a85ba96b13535a84d89bda46c99107e68c23e8b9f"
+    },
+    {
+      "path": "playwright-report/offline/data/e18e13d9b396fa9ad6d1f08489f0dcb1bcd7bc9c.zip",
+      "bytes": 2253668,
+      "sha256": "fe8d9edfe054f138f455e6260bc6728559fb373ab90c9d1ec0605302196ac9a2"
+    },
+    {
+      "path": "playwright-report/offline/data/e8c0c7534df6cd4d737668b732be9343c0ce3786.zip",
+      "bytes": 2375502,
+      "sha256": "398c1c9d457cbb8347cf061bc55edbaf948124572a309983fe98ceb24bd801d6"
+    },
+    {
+      "path": "playwright-report/offline/index.html",
+      "bytes": 662119,
+      "sha256": "0c9dd5de4e5eb8a36135ea34e73881a70b4ec0dfa72ee315820a183fabae0b67"
+    },
+    {
+      "path": "playwright-report/offline/trace/assets/codeMirrorModule-BbkfBe3n.js",
+      "bytes": 307393,
+      "sha256": "274b964242426bf4e1c662a84f6345d8a99f67821caa508fb12c52e2d1dfd48c"
+    },
+    {
+      "path": "playwright-report/offline/trace/assets/defaultSettingsView-Ds6CBOo0.js",
+      "bytes": 654294,
+      "sha256": "0b48f13034cfa075338cc0839f212297d22cadab9219d9699d161d2b18c79019"
+    },
+    {
+      "path": "playwright-report/offline/trace/assets/urlMatch-L3liM589.js",
+      "bytes": 2510,
+      "sha256": "1bc6321e32d11c31a452bc75896f0b344e6153321854d9f1658818be7f845c16"
+    },
+    {
+      "path": "playwright-report/offline/trace/codeMirrorModule.-QdMvsKi.css",
+      "bytes": 6251,
+      "sha256": "20be824a82832b62cc04642d31da3c609fd280b23f1cdcb1e622c4f40aac5ab8"
+    },
+    {
+      "path": "playwright-report/offline/trace/codicon.DCmgc-ay.ttf",
+      "bytes": 80340,
+      "sha256": "0f1d5219934e96e83b8db162d60b4d8c09b5de1e7d38031cbafe4a3c0f2889c9"
+    },
+    {
+      "path": "playwright-report/offline/trace/defaultSettingsView.Bqk9acqE.css",
+      "bytes": 107049,
+      "sha256": "cd1d3c277d4962246ed92d7d42734c5ffed6bac5c499232693f9c8331b71801f"
+    },
+    {
+      "path": "playwright-report/offline/trace/index.B4cLoZK3.js",
+      "bytes": 6628,
+      "sha256": "7b96efd541639738a8d46e4b6ba9780ffaf57a5c104db66764e0cec46d9f64e8"
+    },
+    {
+      "path": "playwright-report/offline/trace/index.B_TqY17P.css",
+      "bytes": 2055,
+      "sha256": "08a212fcacae1866f44f065654afcc4c7d03409c68c74b3315c5bda17a0ca003"
+    },
+    {
+      "path": "playwright-report/offline/trace/index.html",
+      "bytes": 2363,
+      "sha256": "139ac80123fb450cfc0631296e9f01463313ca2fec961b3a247ec6c9528447a2"
+    },
+    {
+      "path": "playwright-report/offline/trace/manifest.webmanifest",
+      "bytes": 429,
+      "sha256": "d8540500603a32a39fe7e5a0375dc0f9ebafd11118e06a846db7efc608223ab9"
+    },
+    {
+      "path": "playwright-report/offline/trace/playwright-logo.svg",
+      "bytes": 5033,
+      "sha256": "6b0a4367bdeab10995bc239278f04c68c10e48adbec15e799e01909a0d66dcb9"
+    },
+    {
+      "path": "playwright-report/offline/trace/snapshot.B_Jk1wbt.js",
+      "bytes": 650,
+      "sha256": "d4d09e05451d107d8e1a6bbd041405fe518b9fd2833890e4ebaaad83b7f554f5"
+    },
+    {
+      "path": "playwright-report/offline/trace/snapshot.html",
+      "bytes": 389,
+      "sha256": "c608c8899c95c5a74d3f556e20146c3d852b9df85ae2854c659a7cc773c9b727"
+    },
+    {
+      "path": "playwright-report/offline/trace/sw.bundle.js",
+      "bytes": 95459,
+      "sha256": "37b230329280e28e32b03df20738d2ed3bfd0ea45b408a69213158bb8400adb3"
+    },
+    {
+      "path": "playwright-report/offline/trace/uiMode.CU5KtEkS.js",
+      "bytes": 38057,
+      "sha256": "0c0dc5e0c822c27e60420a5c1659683fda89398f1561e43608f9d829eafdc197"
+    },
+    {
+      "path": "playwright-report/offline/trace/uiMode.CyMfwkXJ.css",
+      "bytes": 54590,
+      "sha256": "fb403cf0b07007bc1d771e29737f7408924da300e2fab8b289a3ef2e8fc08d7b"
+    },
+    {
+      "path": "playwright-report/offline/trace/uiMode.html",
+      "bytes": 727,
+      "sha256": "c6e92923ea7f2b617db3a2128ac8889c6c1461a77764651588e0111b729c3a3d"
+    },
+    {
+      "path": "playwright-report/offline/trace/xtermModule.kHJ-D0s7.css",
+      "bytes": 2853,
+      "sha256": "0dd60056134e6a2994a86b59a1e9789b9f04e92924da109aef8c923acaf08ce5"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/approved-fresh-setup-1280-dark.png",
+      "bytes": 68835,
+      "sha256": "533b731f4f9cbeffe798d24681122b079bcabb5e6cb90f1482817c9ac6997c42"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/approved-fresh-setup-320-dark.png",
+      "bytes": 33956,
+      "sha256": "05fb09e706625a339a1372b6554bdc7b6790e41aa4f7a7630c271f5d654160ba"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/approved-fresh-setup-390-dark.png",
+      "bytes": 39242,
+      "sha256": "24a901a35fe8d2c2557535b75ee19237e498200ed72e1e8b2ea4fe84f7f63305"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/approved-reference-1280-dark.png",
+      "bytes": 69664,
+      "sha256": "cc87d087089a6ece8dbdc854dc0c3d164cadd3a78be4111ee58efc3ebc8322c8"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/approved-reference-320-dark.png",
+      "bytes": 39749,
+      "sha256": "cfaceb474be500c2d3499176be76dfbd5d7983a3da4fce431049d7f0d8ab7d5f"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/approved-reference-390-dark.png",
+      "bytes": 42969,
+      "sha256": "f64c7757328a7dc1e08cc749a68942f43ea8448831e30f019ed31033f8795419"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-1280-dark.png",
+      "bytes": 90940,
+      "sha256": "93d6bec12a6136101b7eccba227478fc58477b5d8398eb7c05804c8788528893"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-320-dark.png",
+      "bytes": 43091,
+      "sha256": "e5d984fadbcdbac49e201978c34b74752b13f9a4ae1cf6757e2e44738e1c03d0"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-390-dark.png",
+      "bytes": 52308,
+      "sha256": "abf0bec67c993e5b7b7fcd58d046e27b768d79a0b08274ee80313bd1c3652cd7"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-checkpoint-1280.json",
+      "bytes": 51575,
+      "sha256": "1ca3fb87fd2175f9e470e6bba0543e92cee27e443c5818562ee3c16d8d6640ef"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-checkpoint-320.json",
+      "bytes": 18316,
+      "sha256": "5d7a2d858c162f59dec95e47d046018e574370a4cc6aec9ac779660bf97b74bf"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-checkpoint-390.json",
+      "bytes": 35288,
+      "sha256": "09d5b12b31b743fe1caeda0a0241b96821ae431d08b711939694d1eae7b7ad08"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-large-1280-dark.png",
+      "bytes": 91632,
+      "sha256": "3001cc0991a41f792f3bbc933e5d641cbf6c5a1c193d45a40ebc47dd509ce9d0"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-large-320-dark.png",
+      "bytes": 42726,
+      "sha256": "901b563ebf4aae30e41c7359dfb48023e8c6c1339f71541a375352ef379ceb45"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-large-390-dark.png",
+      "bytes": 47257,
+      "sha256": "ad3051b0b4884a7a3f5abc98e5c3e2fa33bfd628ff3a19b3ac326849ba3fc0d6"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-manifest.json",
+      "bytes": 52464,
+      "sha256": "32699d1ae62d1942b783d6a29b4387fa741805616ab34cbc67211f1fcb8f031e"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/approved-fresh-setup-1280-dark.png",
+      "bytes": 239757,
+      "sha256": "81bf5f0d774001a8f3e69c55ded3cbd7b190ec7a608360683a10970468f6330d"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/approved-fresh-setup-320-dark.png",
+      "bytes": 132706,
+      "sha256": "43912fbee4c1ea23f334097cb679c99b8bc15600780c6813f7e3a675d4bc48c6"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/approved-fresh-setup-390-dark.png",
+      "bytes": 132706,
+      "sha256": "43912fbee4c1ea23f334097cb679c99b8bc15600780c6813f7e3a675d4bc48c6"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/approved-reference-1280-dark.png",
+      "bytes": 238982,
+      "sha256": "3a154c93fdf4b4fbd2045b78f1cb863ad53f567cba3130b99150f4291b5f3f00"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/approved-reference-320-dark.png",
+      "bytes": 162339,
+      "sha256": "a8da5258a8cbe65330840376d44de8c3e935752e6cc544c2b1340694f2a63920"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/approved-reference-390-dark.png",
+      "bytes": 162339,
+      "sha256": "a8da5258a8cbe65330840376d44de8c3e935752e6cc544c2b1340694f2a63920"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-1280-dark.png",
+      "bytes": 289425,
+      "sha256": "0fb5f3aac4d9e17d8a8de99e98b23c5c40a37c093af93f9ca90e4b4c0e7e32bb"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-320-dark.png",
+      "bytes": 178185,
+      "sha256": "fd17bdda11b1463d35dd899fcf02a400278a550d0420db00d33955727841928b"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-390-dark.png",
+      "bytes": 191686,
+      "sha256": "9c4c0e381387dc2e14fb90e53e19d5929ff33418b28c25506b4649e7d94d067e"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-checkpoint-1280.json",
+      "bytes": 51643,
+      "sha256": "4a20693b01404c5c75f86e2aef25d88ea07aabf00432f84272992adc09d919a6"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-checkpoint-320.json",
+      "bytes": 18338,
+      "sha256": "26e21caf7e42191b3f20ab6816002199a33a311c231231774ad14746085f2336"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-checkpoint-390.json",
+      "bytes": 35349,
+      "sha256": "7151c9f74b23c50da59b4b84e1fd64bc771dd6df0f7c057f6a039ea79daa3cf1"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-large-1280-dark.png",
+      "bytes": 278889,
+      "sha256": "e4a425bdcdd8e721c5374d4407e264ab718e28502bb0d542797653324742f197"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-large-320-dark.png",
+      "bytes": 132428,
+      "sha256": "f3ad3850d28a389ce75dc574b0d1b29b5daab6344e6d894c41669e949d44ff0e"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-large-390-dark.png",
+      "bytes": 164782,
+      "sha256": "442e82f665ab2fb0aad6e193ccb5106892561ffd7ebb40b7a0ecfd18e0fa7ba5"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-manifest.json",
+      "bytes": 52532,
+      "sha256": "6ec7754ae7b436f392a79c9987a51e1ab564fc7b2148421976f5f1638ec99663"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/approved-fresh-setup-1280-dark.png",
+      "bytes": 297746,
+      "sha256": "5697e03ee4bd064b98a87c46a4dcb340e9ae3c5491581c53382ebd4d7d050b9e"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/approved-fresh-setup-320-dark.png",
+      "bytes": 166845,
+      "sha256": "cc13572069329a5dfc39845e6e555c4eefac16d9c03271414bde9a9fcf8a68e3"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/approved-fresh-setup-390-dark.png",
+      "bytes": 166845,
+      "sha256": "cc13572069329a5dfc39845e6e555c4eefac16d9c03271414bde9a9fcf8a68e3"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/approved-reference-1280-dark.png",
+      "bytes": 295036,
+      "sha256": "55c70489a671edfba06881fa3e224f3e472d20fa3ff448a0fa7e15f3f735e086"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/approved-reference-320-dark.png",
+      "bytes": 202290,
+      "sha256": "b4a5358de9f8f0e916953cf4599d2e05a4a157007ea85040e96b9c94f7ddaa50"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/approved-reference-390-dark.png",
+      "bytes": 202290,
+      "sha256": "b4a5358de9f8f0e916953cf4599d2e05a4a157007ea85040e96b9c94f7ddaa50"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-1280-dark.png",
+      "bytes": 355349,
+      "sha256": "ad3b17e040a56a6fa59db1e2b96098fc84a9b877afe49e85e609dcc9c1f0f793"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-320-dark.png",
+      "bytes": 221325,
+      "sha256": "c3b75ae52c9b937a2dc9839a971b4a55f12c55f56d9f29e0b69e9d64ffc0e8ee"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-390-dark.png",
+      "bytes": 218175,
+      "sha256": "9d29a31ba07f752e81f9415fcf2c7a3f5b989fe64d8e1f0a69a8a31c615f771c"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-checkpoint-1280.json",
+      "bytes": 47012,
+      "sha256": "bfb6d26214d4d2a31c19c54bcab5384d33b6ed9e2fc4e0b595bc455e876382d0"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-checkpoint-320.json",
+      "bytes": 16791,
+      "sha256": "6ab48e7bfc53d97ea34781ce8fa081007057f4bd4bdc8db4cd964f79f5501262"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-checkpoint-390.json",
+      "bytes": 32245,
+      "sha256": "41c95d5a9adccaf15092d55f796e3c7b6b909fa024276da4b697a5b3c8e4ccba"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-large-1280-dark.png",
+      "bytes": 394230,
+      "sha256": "e06a923ea2cdd6e119a57bf14101b733ee844c4262c6c5f25683bc789bc07b66"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-large-320-dark.png",
+      "bytes": 182775,
+      "sha256": "0d07ea8118d35c384872f480888b1a47ec6660e2384a01bfd8430637cdf5a4e9"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-large-390-dark.png",
+      "bytes": 175647,
+      "sha256": "1d1f8e48d6828e468c37c7f5685c178d2f96989cea56d7cae687d4ef11224fa9"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-manifest.json",
+      "bytes": 47901,
+      "sha256": "c7fbbea9aa181b3edaea63ac1dad977db3392043eab651cb0e695b635df6db20"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/approved-fresh-setup-1280-light.png",
+      "bytes": 68921,
+      "sha256": "628a7059f38df171e72716365d33e76481c39d3488a13679f1ddd9affb0a5071"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/approved-fresh-setup-320-light.png",
+      "bytes": 34338,
+      "sha256": "985e1a911cec03793a398127a5a51a8bfa7c973320d72d9a643ca0c70b0943e3"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/approved-fresh-setup-390-light.png",
+      "bytes": 39570,
+      "sha256": "8dd68024608748d5c6e7a1609e8efa1a0dfa9c1f39492487bc407980bc7fa560"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/approved-reference-1280-light.png",
+      "bytes": 69374,
+      "sha256": "89b8d020dfb28690e96ce14d643b6d5eb07c2a2d71df3d1169eae63f97fa2bb2"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/approved-reference-320-light.png",
+      "bytes": 39282,
+      "sha256": "c5016902324c4a2b152e8ea28abffdac4dfd29595cfa6ce30e372cef8a745702"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/approved-reference-390-light.png",
+      "bytes": 42900,
+      "sha256": "44d7681c1b8a338dc369ffc72d9d4c2fdd11db10132e5a02dcdaf04747deb0ef"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-1280-light.png",
+      "bytes": 91243,
+      "sha256": "afaeab7ec983e70cc33d9e8e7b642c85e51d26bf7b5b9ca4d9b80e1ebd2b5a87"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-320-light.png",
+      "bytes": 42110,
+      "sha256": "340311d4907a64d54cde18d2ec0a34ab4bd2d6dfd2f54d79b2b6a7279ce2236a"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-390-light.png",
+      "bytes": 51685,
+      "sha256": "b23856d5b995531839a2018147610ee5db2d355a0ecf7fe7cfedde066520631e"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-checkpoint-1280.json",
+      "bytes": 51582,
+      "sha256": "01115a254ffd25bc6e3a0d7268aa4d75376b02ed58dfe835a4c18eb495c1ddc1"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-checkpoint-320.json",
+      "bytes": 18319,
+      "sha256": "bafed65cac8338f05c0393ad1d6adb60310c2258073ceb95bdca42cf95d05434"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-checkpoint-390.json",
+      "bytes": 35293,
+      "sha256": "f26946d3f0e7ebfe8dd146b36002806262f12f4967a4375949f75b4d2958c812"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-large-1280-light.png",
+      "bytes": 91728,
+      "sha256": "619d3a5419ead2b8a503a5cf4991ee8bbaa3bf99b7628de5d43dc5d13463801f"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-large-320-light.png",
+      "bytes": 42415,
+      "sha256": "4289544100a4ee4f5737adfaa1423eb984bed8af3fbbee0354e576329e998427"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-large-390-light.png",
+      "bytes": 46890,
+      "sha256": "5a005f0d60ed92adb66a3bd5a9aa9e2391bc4369dbba092c166d0e9eb727af98"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-manifest.json",
+      "bytes": 52471,
+      "sha256": "b8c1e176f9b600cee7a17f905715dcd5392a0feeca6a47d0d550ac042b70087f"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/approved-fresh-setup-1280-light.png",
+      "bytes": 238396,
+      "sha256": "8e0f74bec6a642d7ae3a5ed325c861114b5538e45b3d7b10a7246316b0ba9aca"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/approved-fresh-setup-320-light.png",
+      "bytes": 132908,
+      "sha256": "ee1a7b3c765fd017fc82c28167ae547b65bfb155cd5d02a21255d567406a9748"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/approved-fresh-setup-390-light.png",
+      "bytes": 132908,
+      "sha256": "ee1a7b3c765fd017fc82c28167ae547b65bfb155cd5d02a21255d567406a9748"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/approved-reference-1280-light.png",
+      "bytes": 238843,
+      "sha256": "9b2c3bb074ca90ea515e8efba9e00ecfc8f6fd45381ebd60ee246439ddd85aff"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/approved-reference-320-light.png",
+      "bytes": 162383,
+      "sha256": "52ca40cacb81ab8a3fa10e2490e64d9acc0f840c21490569898a087287a640f3"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/approved-reference-390-light.png",
+      "bytes": 162383,
+      "sha256": "52ca40cacb81ab8a3fa10e2490e64d9acc0f840c21490569898a087287a640f3"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-1280-light.png",
+      "bytes": 289381,
+      "sha256": "d66b05306255f39d0efb91116c6843c19b7616b6bde3885c43fecf7184101c41"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-320-light.png",
+      "bytes": 178151,
+      "sha256": "3ac69d2e2cfe300208dfe7ebfca33fb93bdd9bb8c10005319c7aaf6c161ffb56"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-390-light.png",
+      "bytes": 191716,
+      "sha256": "a68f5265ef2d5fb0417dc916675e842bf55ad02ec3e349ab7a813bb1e6c7f75f"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-checkpoint-1280.json",
+      "bytes": 51650,
+      "sha256": "b3d037df6287aaacca992ff614cbcc9d0e769d9388dc657f10d21d251eafb397"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-checkpoint-320.json",
+      "bytes": 18341,
+      "sha256": "f4b62a6b0393b2d1a22efbcdf1419f4695711824bc96fb60736fd592a337f0c3"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-checkpoint-390.json",
+      "bytes": 35354,
+      "sha256": "976e8ce1ed89e3ecac343e82c00552ad05f98226933296586998d97c5bb1a453"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-large-1280-light.png",
+      "bytes": 278475,
+      "sha256": "e0fca1d356aa4b9535ab7cd3a5a94bb4f197586a6194f7f99bbc1a1fc095a0da"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-large-320-light.png",
+      "bytes": 131158,
+      "sha256": "b35d94570c0cda61f5cd2c1d47cd779258dcbf5c13d13a9e659a74694436140b"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-large-390-light.png",
+      "bytes": 163075,
+      "sha256": "59c0d469935a844a300bd8d4a738ba22cab932a3d4007f207ed85685fbee6445"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-manifest.json",
+      "bytes": 52539,
+      "sha256": "85a4c94f4f23f58637f5c45ca7b3679e33264b903c4f3b2338ba37f5ee8e1d63"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/approved-fresh-setup-1280-light.png",
+      "bytes": 302033,
+      "sha256": "e9b73f220d0f332eeb67cc2d6d0ad4f0ce2bdddc94d7512500c78f710cd29cc8"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/approved-fresh-setup-320-light.png",
+      "bytes": 170153,
+      "sha256": "8d29db9c880f9ca8aacf431afaf6f939113abdd580e60d4afdc490b4587568a5"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/approved-fresh-setup-390-light.png",
+      "bytes": 170153,
+      "sha256": "8d29db9c880f9ca8aacf431afaf6f939113abdd580e60d4afdc490b4587568a5"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/approved-reference-1280-light.png",
+      "bytes": 295845,
+      "sha256": "09405ddb9d6576a705279114116cc897a8889574435c923740edaef9707c224f"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/approved-reference-320-light.png",
+      "bytes": 202257,
+      "sha256": "c1041f96cfac163fc8f57af6b83e6ed525bf9932e119bc41ed656bb0b6a73bec"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/approved-reference-390-light.png",
+      "bytes": 202257,
+      "sha256": "c1041f96cfac163fc8f57af6b83e6ed525bf9932e119bc41ed656bb0b6a73bec"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-1280-light.png",
+      "bytes": 355400,
+      "sha256": "ef9955d0ffccbbd815662c52879370ae4b4d57fc3bf4e7ea0889f61338658a59"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-320-light.png",
+      "bytes": 221034,
+      "sha256": "6cde81e9d021a3538b01c7fc009e9b7433b470740f76b2870c2daa9cf4d4bbf3"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-390-light.png",
+      "bytes": 217632,
+      "sha256": "c7e65327aa89701a004fbd445fdf8251eea09a3735e586ebc874a346b3ebe528"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-checkpoint-1280.json",
+      "bytes": 47019,
+      "sha256": "5f040e0f362cf09c343921398b2aee312ea65f3bedb04ed058a511cae26010dc"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-checkpoint-320.json",
+      "bytes": 16794,
+      "sha256": "e76833d5df8fecd9f22032524cbab6661fb8e8a8beb7f87bfe728c571807b48a"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-checkpoint-390.json",
+      "bytes": 32250,
+      "sha256": "93c7e51e456f6fc50b9e8fe4c1c0d2361226e36217cd521ede6bfb598c75d9b6"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-large-1280-light.png",
+      "bytes": 394158,
+      "sha256": "70de90dc0241fad39b1997568d2c2cc1675b2bb749954270ebfda60fd7d28d80"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-large-320-light.png",
+      "bytes": 181636,
+      "sha256": "c9b59b28d677a62222dd6c52111cf653843c4e9734a38b7833ced0fba4705b50"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-large-390-light.png",
+      "bytes": 176284,
+      "sha256": "7e0e9690778e431f19874a729701773835dcd4acfa7e65d6cb068b71e41d7432"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-manifest.json",
+      "bytes": 47908,
+      "sha256": "4aa8f64d74a2c2c95071c8dd3684efd3f74ba3f6869c11a7e147f06eb46464de"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/error-context.md",
+      "bytes": 14149,
+      "sha256": "412928f2341edde971e27f7a85ba96b13535a84d89bda46c99107e68c23e8b9f"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/test-failed-1.png",
+      "bytes": 53551,
+      "sha256": "b574de59a9e00e4d01c9bd114b3a52c8ff905aebdcd21c2d360e67663803b9c2"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--desktop-chromium/trace.zip",
+      "bytes": 2102980,
+      "sha256": "8f631e58942b955cf6b076a559562ba19cfd90207fc4b19105efb7050f6ac210"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/error-context.md",
+      "bytes": 14149,
+      "sha256": "412928f2341edde971e27f7a85ba96b13535a84d89bda46c99107e68c23e8b9f"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/test-failed-1.png",
+      "bytes": 182860,
+      "sha256": "8f99c829ea326a4d36f65c583eae5bb26b677ccb05599b0464580f527f46a333"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-chromium/trace.zip",
+      "bytes": 2375502,
+      "sha256": "398c1c9d457cbb8347cf061bc55edbaf948124572a309983fe98ceb24bd801d6"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/error-context.md",
+      "bytes": 14149,
+      "sha256": "412928f2341edde971e27f7a85ba96b13535a84d89bda46c99107e68c23e8b9f"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/test-failed-1.png",
+      "bytes": 235422,
+      "sha256": "6f6e9fe42e9615580e4244d9fd611184778de59573e83bb235e7e985884fdcee"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-36e86--history-and-composer-dark--mobile-webkit/trace.zip",
+      "bytes": 2291998,
+      "sha256": "db89a605d907c81c88f6043538d7777da08bb966c68274a3857d0ad1cc7f9f03"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/error-context.md",
+      "bytes": 14150,
+      "sha256": "b5ab991d2a19ce7009d41cb2ad7014256f40bf4b7f26beb65e27cb5d7fedb684"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/test-failed-1.png",
+      "bytes": 48689,
+      "sha256": "8b68b1d589be8813c1ceb4a9738f76b7e58ea7bbccd658312e08a9aaee22333c"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--desktop-chromium/trace.zip",
+      "bytes": 2091072,
+      "sha256": "5f33874c361a2c3c68fccb7253d2e236b20f336edb5763caefa11c8959a5eb38"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/error-context.md",
+      "bytes": 14150,
+      "sha256": "b5ab991d2a19ce7009d41cb2ad7014256f40bf4b7f26beb65e27cb5d7fedb684"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/test-failed-1.png",
+      "bytes": 169308,
+      "sha256": "1f0752b570adaf319c7e46f7a93916973f1491d3a6abb30cad2dbdaa46a805ea"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-chromium/trace.zip",
+      "bytes": 2342504,
+      "sha256": "e28002fd899a2f16ac86d68a63045ac2f3366106c5682b2d7a4ca9de22ceaf4a"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/error-context.md",
+      "bytes": 14150,
+      "sha256": "b5ab991d2a19ce7009d41cb2ad7014256f40bf4b7f26beb65e27cb5d7fedb684"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/test-failed-1.png",
+      "bytes": 204542,
+      "sha256": "91e726eaf82d5b32b7ba9fd6849b4a780472956ff6c7957b590027c3830aa4d0"
+    },
+    {
+      "path": "test-results/offline/symposium-ordinary-surface-ef063-history-and-composer-light--mobile-webkit/trace.zip",
+      "bytes": 2253668,
+      "sha256": "fe8d9edfe054f138f455e6260bc6728559fb373ab90c9d1ec0605302196ac9a2"
+    }
+  ]
+}

@@ -4,6 +4,29 @@ Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.
 
+## Hosted icon-only ordinary composition and narrow selector failure
+
+At production/accepted-main head `bb8680279a5eccf24bf68e8e53b3b04b20c4a14a`,
+focused run `43599810172` (merge build `15c52b74a880694a48b8ad856a2ad3bf17193e26`)
+passes all nine application checks and all six actual ResponsiveChatView browser
+cases, plus two startup probes. This verifies the icon-only ordinary recipient
+and accessible selection through the actual responsive owners. The six narrow
+surface cases stop at a test-only strict locator error: substring `Agent` matches
+three metric rows (Agent, Agent loop time and Agent time). The assertion is being
+corrected to select the exact child label Agent, retaining the expected original
+owner value Architect. No production behavior is changed or accepted from these
+incomplete narrow cases. Original job `132461946147` and its full failure log are
+retained in `hosted-render-bb8680279-wheel-locator-failure.log`.
+
+Application artifact `14116480464`, SHA256
+`4e7e64197f572d975d813d643e03fa7336d45678efbe20fc3ea7ab1d6dbde2b7`;
+render artifact `14115423884`, SHA256
+`73a28c330af9d2ac4d373179a8967822e783b9cb699ea9dc5766990d44d81d3c`.
+Full expanded 56-browser/11-application verification remains pending after the
+selector correction and older fixture integration. Full combined CI and final
+exact-head review remain open; an individual passing responsive case does not
+qualify physical microphones, browser hard reload, live models or the phone incident.
+
 ## Older fixture expectations and expanded hosted verification
 
 Owner test-only `8ee5a86b46b8ba5eba2cd5dc6920080872547b8b` is integrated as
