@@ -388,7 +388,7 @@ it.each(['reattach', 'subscribe', 'permission_response'] as const)(
         ? { type, clientId: f.driverId }
         : type === 'subscribe'
           ? { type, sessionId: f.sessionId }
-          : { type, permId: f.permId, sessionId: f.sessionId, decision: 'once' };
+          : { type, permId: f.permId, decision: 'once' };
     expect(() => f.dispatch(other, message)).toThrow('another login');
     expect(f.registry.get(f.driverId)?.transport).toBe(f.originalTransport);
     expect(f.approval).not.toHaveBeenCalled();
