@@ -1,0 +1,158 @@
+Original CI43596285237 / job132452150634; source6e64337be05ff85b89744ad993d0fef14e1a33f6
+Full original log SHA256 ce3f7e1a52075594160c87d618de28da676d02d0483a36420e57ad56a10773fc; retained locally at slice3-owner-6e-offline-red.log
+https://github.com/dimakis/mitzo/actions/runs/43596285237/job/132452150634
+
+Original lines 1000–1040:
+2026-11-14T12:55:32.4348727Z CI_BROWSER_RESOURCES {"timestamp":"2026-11-14T12:55:32.427Z","kernel":"7.0.0-1017-azure","totalMemory":16760344576,"freeMemory":11880321024,"load":[3.51,2.25,1.06],"cpuCount":4,"commandProcess":{"pid":15,"pgid":15},"linux":{"/proc/meminfo":"MemTotal:       16367524 kB\nMemFree:         5373752 kB\nMemAvailable:   11601876 kB\nBuffers:          171664 kB\nCached:          6097456 kB\nSwapCached:            0 kB\nActive:          4021800 kB\nInactive:        5697296 kB\nActive(anon):    3529376 kB\nInactive(anon):        0 kB\nActive(file):     492424 kB\nInactive(file):  5697296 kB\nUnevictable:       46760 kB\nMlocked:           43688 kB\nSwapTotal:       3145724 kB\nSwapFree:        3145724 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:             16636 kB\nWriteback:             0 kB\nAnonPages:       3496956 kB\nMapped:           671988 kB\nShmem:             70652 kB\nKReclaimable:     384332 kB\nSlab:             505564 kB\nSReclaimable:     384332 kB\nSUnreclaim:       121232 kB\nKernelStack:        6480 kB\nPageTables:        31996 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    11329484 kB\nCommitted_AS:    7288832 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       41160 kB\nVmallocChunk:          0 kB\nPercpu:             2384 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:      2048 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:      2048 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:         1478640 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nGPUActive:             0 kB\nGPUReclaim:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:      132224 kB\nDirectMap2M:     7202816 kB\nDirectMap1G:    11534336 kB","/proc/pressure/memory":"some avg10=0.00 avg60=0.00 avg300=0.00 total=40\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=9","/sys/fs/cgroup/memory.current":"3404587008","/sys/fs/cgroup/memory.max":"max","/sys/fs/cgroup/memory.events":"low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0","/proc/self/cgroup":"0::/"},"processes":["PID    PPID    PGID   RSS","   3764    3750      15 1588356","   4142    4127    4120 607944","   4110    4102      15 542372","   4102    3750      15 361928","   3750      27      15 344412","   4127    4120    4120 169236","   4139    4127    4120 72056","     15       7      15 67208","     27      26      15 58600","      7       1       7 54728","   4192       7       7  4172","   4120    4102    4120  3664","     26      15      15  1964","      1       0       1   728"]}
+2026-11-14T12:55:32.7660804Z   ✓  6 [mobile-webkit] › tests/offline/telos-first-use.spec.ts:30:3 › Telos first use: ten reports, stable layout and readable saved PDFs (dark) (4.0s)
+2026-11-14T12:55:32.8577589Z 
+2026-11-14T12:55:32.8578656Z 
+2026-11-14T12:55:32.8588735Z   1) [mobile-webkit] › tests/offline/symposium-composer.spec.ts:43:3 › shared observer survives singleton membership (dark) 
+2026-11-14T12:55:32.8589758Z 
+2026-11-14T12:55:32.8590235Z     Error: expect(locator).toBeHidden() failed
+2026-11-14T12:55:32.8590595Z 
+2026-11-14T12:55:32.8590921Z     Locator:  getByRole('button', { name: 'Choose who replies' })
+2026-11-14T12:55:32.8591580Z     Expected: hidden
+2026-11-14T12:55:32.8591852Z     Received: visible
+2026-11-14T12:55:32.8592084Z     Timeout:  7000ms
+2026-11-14T12:55:32.8592225Z 
+2026-11-14T12:55:32.8592319Z     Call log:
+2026-11-14T12:55:32.8592781Z       - Expect "toBeHidden" getByRole('button', { name: 'Choose who replies' }) with timeout 7000ms
+2026-11-14T12:55:32.8593388Z       - waiting for getByRole('button', { name: 'Choose who replies' })
+2026-11-14T12:55:32.8594784Z         18 × locator resolved to <button type="button" aria-expanded="false" title="Replies: Architect" aria-label="Choose who replies" class="chat-input-btn composer-responders-trigger">…</button>
+2026-11-14T12:55:32.8595570Z            - unexpected value "visible"
+2026-11-14T12:55:32.8595791Z 
+2026-11-14T12:55:32.8595798Z 
+2026-11-14T12:55:32.8595945Z       113 |       view.membershipRevision++;
+2026-11-14T12:55:32.8596455Z       114 |       view.policies = policies.filter((policy) => policy.sessionId === 'architect');
+2026-11-14T12:55:32.8597006Z     > 115 |       await expect(picker).toBeHidden({ timeout: 7000 });
+2026-11-14T12:55:32.8597476Z           |                            ^
+2026-11-14T12:55:32.8597876Z       116 |       view.participantSessionIds = ['architect', 'reviewer'];
+2026-11-14T12:55:32.8598298Z       117 |       view.membershipRevision++;
+2026-11-14T12:55:32.8598681Z       118 |       view.policies = policies.filter((policy) =>
+2026-11-14T12:55:32.8599227Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-composer.spec.ts:115:28
+2026-11-14T12:55:32.8599579Z 
+2026-11-14T12:55:32.8600025Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:55:32.8600943Z     test-results/offline/batch-009/symposium-composer-shared--d895d--singleton-membership-dark--mobile-webkit/test-failed-1.png
+2026-11-14T12:55:32.8602459Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:55:32.8602742Z 
+2026-11-14T12:55:32.8603302Z     Error Context: test-results/offline/batch-009/symposium-composer-shared--d895d--singleton-membership-dark--mobile-webkit/error-context.md
+2026-11-14T12:55:32.8603837Z 
+2026-11-14T12:55:32.8604212Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T12:55:32.8605011Z     test-results/offline/batch-009/symposium-composer-shared--d895d--singleton-membership-dark--mobile-webkit/trace.zip
+2026-11-14T12:55:32.8605568Z     Usage:
+2026-11-14T12:55:32.8605679Z 
+2026-11-14T12:55:32.8606277Z         npx playwright show-trace test-results/offline/batch-009/symposium-composer-shared--d895d--singleton-membership-dark--mobile-webkit/trace.zip
+2026-11-14T12:55:32.8606890Z 
+
+Original lines 1070–1105:
+2026-11-14T12:56:26.0888098Z   ✓  6 [mobile-webkit] › tests/offline/telos-ordinary-chat.spec.ts:29:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) (4.6s)
+2026-11-14T12:56:26.2028042Z 
+2026-11-14T12:56:26.2028329Z 
+2026-11-14T12:56:26.2029781Z   1) [mobile-webkit] › tests/offline/symposium-composer.spec.ts:136:3 › shared composer: readiness, finalized reply and retained refusal (light) 
+2026-11-14T12:56:26.2030359Z 
+2026-11-14T12:56:26.2030540Z     Error: expect(locator).toBeEnabled() failed
+2026-11-14T12:56:26.2030756Z 
+2026-11-14T12:56:26.2030948Z     Locator:  getByRole('button', { name: 'Send message' })
+2026-11-14T12:56:26.2031294Z     Expected: enabled
+2026-11-14T12:56:26.2031518Z     Received: disabled
+2026-11-14T12:56:26.2031742Z     Timeout:  5000ms
+2026-11-14T12:56:26.2031878Z 
+2026-11-14T12:56:26.2031967Z     Call log:
+2026-11-14T12:56:26.2032420Z       - Expect "toBeEnabled" getByRole('button', { name: 'Send message' }) with timeout 5000ms
+2026-11-14T12:56:26.2032986Z       - waiting for getByRole('button', { name: 'Send message' })
+2026-11-14T12:56:26.2033821Z         14 × locator resolved to <button disabled aria-label="Send message" class="chat-input-btn chat-input-btn--send">…</button>
+2026-11-14T12:56:26.2034714Z            - unexpected value "disabled"
+2026-11-14T12:56:26.2034912Z 
+2026-11-14T12:56:26.2034918Z 
+2026-11-14T12:56:26.2035461Z       390 |       await page.getByRole('button', { name: 'Refresh conversation', exact: true }).click();
+2026-11-14T12:56:26.2036045Z       391 |       const send = page.getByRole('button', { name: 'Send message' });
+2026-11-14T12:56:26.2036478Z     > 392 |       await expect(send).toBeEnabled();
+2026-11-14T12:56:26.2036785Z           |                          ^
+2026-11-14T12:56:26.2037233Z       393 |       const contextTrigger = page.getByRole('button', { name: 'Review prompt context' });
+2026-11-14T12:56:26.2037896Z       394 |       await contextTrigger.click();
+2026-11-14T12:56:26.2038359Z       395 |       const context = page.getByRole('dialog', { name: 'Context for this prompt' });
+2026-11-14T12:56:26.2038953Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-composer.spec.ts:392:26
+2026-11-14T12:56:26.2039309Z 
+2026-11-14T12:56:26.2039782Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:56:26.2040648Z     test-results/offline/batch-011/symposium-composer-shared--433a0-and-retained-refusal-light--mobile-webkit/test-failed-1.png
+2026-11-14T12:56:26.2041508Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:56:26.2041790Z 
+2026-11-14T12:56:26.2042350Z     Error Context: test-results/offline/batch-011/symposium-composer-shared--433a0-and-retained-refusal-light--mobile-webkit/error-context.md
+2026-11-14T12:56:26.2042915Z 
+2026-11-14T12:56:26.2043300Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T12:56:26.2044090Z     test-results/offline/batch-011/symposium-composer-shared--433a0-and-retained-refusal-light--mobile-webkit/trace.zip
+
+Original lines 1140–1170:
+2026-11-14T12:57:07.0180827Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"069bb9cab044cac398cf-59e45e5f54e806c788e3"}
+2026-11-14T12:57:09.9730391Z   ✓  6 [mobile-webkit] › tests/offline/unified-mobile.spec.ts:4294:1 › rejected idle ordinary Send keeps attachments and an explicit retry without replacing newer input (2.3s)
+2026-11-14T12:57:10.0884766Z 
+2026-11-14T12:57:10.0889920Z 
+2026-11-14T12:57:10.0926110Z   1) [mobile-webkit] › tests/offline/symposium-composer.spec.ts:507:3 › shared composer: Defaults preserves independent recipient recovery (light) 
+2026-11-14T12:57:10.0927001Z 
+2026-11-14T12:57:10.0927135Z     Error: expect(locator).toBeChecked() failed
+2026-11-14T12:57:10.0927612Z 
+2026-11-14T12:57:10.0927879Z     Locator: getByRole('checkbox', { name: 'Current agent', exact: true })
+2026-11-14T12:57:10.0929201Z     Expected: checked
+2026-11-14T12:57:10.0929584Z     Timeout: 5000ms
+2026-11-14T12:57:10.0929811Z     Error: element(s) not found
+2026-11-14T12:57:10.0929968Z 
+2026-11-14T12:57:10.0930111Z     Call log:
+2026-11-14T12:57:10.0930673Z       - Expect "toBeChecked" getByRole('checkbox', { name: 'Current agent', exact: true }) with timeout 5000ms
+2026-11-14T12:57:10.0931479Z       - waiting for getByRole('checkbox', { name: 'Current agent', exact: true })
+2026-11-14T12:57:10.0931786Z 
+2026-11-14T12:57:10.0931806Z 
+2026-11-14T12:57:10.0931990Z       652 |       await expect(
+2026-11-14T12:57:10.0932853Z       653 |         page.getByRole('checkbox', { name: 'Current agent', exact: true }),
+2026-11-14T12:57:10.0933352Z     > 654 |       ).toBeChecked();
+2026-11-14T12:57:10.0933950Z           |         ^
+2026-11-14T12:57:10.0934542Z       655 |       await expect(page.getByRole('checkbox', { name: 'Reviewer', exact: true })).toBeChecked();
+2026-11-14T12:57:10.0935248Z       656 |       await page.getByRole('button', { name: 'Done choosing replies' }).click();
+2026-11-14T12:57:10.0935542Z       657 |       await expect(picker).toBeFocused();
+2026-11-14T12:57:10.0935873Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-composer.spec.ts:654:9
+2026-11-14T12:57:10.0936131Z 
+2026-11-14T12:57:10.0936432Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:57:10.0937050Z     test-results/offline/batch-013/symposium-composer-shared--59d7e-t-recipient-recovery-light--mobile-webkit/test-failed-1.png
+2026-11-14T12:57:10.0937820Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:57:10.0937985Z 
+
+Original lines 1260–1298:
+2026-11-14T12:58:37.8201150Z   ✘  5 [mobile-webkit] › tests/offline/ordinary-collaboration-status.spec.ts:33:5 › ordinary collaboration status stays above composer and recovers view (light) (1.4s)
+2026-11-14T12:58:37.8202035Z CI_BROWSER_TEST_FAILURE {"status":"failed","testId":"9515b92138d0186d6739-7f26b01a9fabfb5a5baa"}
+2026-11-14T12:58:41.2511302Z   ✓  6 [mobile-webkit] › tests/offline/telos-chat-selection.spec.ts:137:3 › S8 chooser and collapsed tree retain ordinary chat state (light) (3.0s)
+2026-11-14T12:58:41.3309983Z 
+2026-11-14T12:58:41.3321049Z 
+2026-11-14T12:58:41.3322643Z   1) [mobile-webkit] › tests/offline/ordinary-collaboration-status.spec.ts:33:5 › ordinary collaboration status stays above composer and recovers view (light) 
+2026-11-14T12:58:41.3323479Z 
+2026-11-14T12:58:41.3323802Z     Error: expect(received).toEqual(expected) // deep equality
+2026-11-14T12:58:41.3324177Z 
+2026-11-14T12:58:41.3324395Z     - Expected  - 1
+2026-11-14T12:58:41.3324665Z     + Received  + 3
+2026-11-14T12:58:41.3324807Z 
+2026-11-14T12:58:41.3324898Z     - Array []
+2026-11-14T12:58:41.3325104Z     + Array [
+2026-11-14T12:58:41.3325548Z     +   "/api/session-collaborations/00000000-0000-4000-8000-000000000001/recipients/architect",
+2026-11-14T12:58:41.3326016Z     + ]
+2026-11-14T12:58:41.3326121Z 
+2026-11-14T12:58:41.3326315Z       176 |       else expect(reads.progress).toBeGreaterThan(0);
+2026-11-14T12:58:41.3326682Z       177 |       expect(mutations).toEqual([]);
+2026-11-14T12:58:41.3327073Z     > 178 |       expect(unexpectedCollaborationReads).toEqual([]);
+2026-11-14T12:58:41.3327603Z           |                                            ^
+2026-11-14T12:58:41.3327922Z       179 |       expect(errors).toEqual([]);
+2026-11-14T12:58:41.3328202Z       180 |     });
+2026-11-14T12:58:41.3328402Z       181 |
+2026-11-14T12:58:41.3328838Z         at /home/runner/work/mitzo/mitzo/tests/offline/ordinary-collaboration-status.spec.ts:178:44
+2026-11-14T12:58:41.3329217Z 
+2026-11-14T12:58:41.3329712Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:58:41.3330476Z     test-results/offline/batch-019/ordinary-collaboration-sta-35918-er-and-recovers-view-light--mobile-webkit/test-failed-1.png
+2026-11-14T12:58:41.3331338Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:58:41.3331615Z 
+2026-11-14T12:58:41.3332150Z     Error Context: test-results/offline/batch-019/ordinary-collaboration-sta-35918-er-and-recovers-view-light--mobile-webkit/error-context.md
+2026-11-14T12:58:41.3332721Z 
+2026-11-14T12:58:41.3333135Z     attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T12:58:41.3333887Z     test-results/offline/batch-019/ordinary-collaboration-sta-35918-er-and-recovers-view-light--mobile-webkit/trace.zip
+2026-11-14T12:58:41.3334436Z     Usage:
+2026-11-14T12:58:41.3334548Z 
+2026-11-14T12:58:41.3335075Z         npx playwright show-trace test-results/offline/batch-019/ordinary-collaboration-sta-35918-er-and-recovers-view-light--mobile-webkit/trace.zip
+2026-11-14T12:58:41.3335642Z 
+2026-11-14T12:58:41.3336003Z     ────────────────────────────────────────────────────────────────────────────────────────────────

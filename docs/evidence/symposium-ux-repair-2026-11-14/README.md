@@ -4,6 +4,56 @@ Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.
 
+## Older fixture expectations and expanded hosted verification
+
+Owner test-only `8ee5a86b46b8ba5eba2cd5dc6920080872547b8b` is integrated as
+`3f1090114`; production bytes are unchanged. Both existing application journeys
+now explicitly deselect the historical source when addressing only the reviewer,
+and supply retained ordinary history through its reader. Both pass locally:
+`owner-fixtures-3f1090114-green.log`. The existing singleton composer checks retain
+picker/input identity; icon-only selection is read by title; source checkbox is
+named Architect. Browser fixtures accept only exact source-readiness and POST
+work-link read boundaries; unknown calls remain failures. The normal observer
+adopts Defaults changes; the earlier stale-policy path still uses explicit Refresh.
+
+The original failing CI `43596285237` at source `6e64337be` is retained as three
+`owner-6e-*-original-failure.log` excerpts, with exact full-log SHA256, original
+line numbers and job URLs. Offline expected hidden/received visible, disabled
+reviewer send, stale source checkbox and unexpected work-link read are preserved.
+Both application UI failures remain inspectable. Joined macOS job `132451907591`
+separately timed out in CT07/09 at 120,000ms; it is not attributed to these fixture
+changes or declared fixed. Its diagnostic/ownership follow-up remains open.
+
+The focused workflow now includes all 42 affected older browser scenarios with
+the ordinary matrix (56 total including two startup probes), plus the two
+existing application journeys alongside A and required-owner omissions (11 checks).
+All 56 list/bundle; affected files pass lint/format. Hosted execution of the
+expanded combined matrix remains pending. Full combined CI and exact-head
+Centaur final review remain required before any separately authorized merge.
+
+## Accepted-main reconciliation after icon correction
+
+Accepted main advanced to `0ad803cdae56ed6e22c89273ae800d3e7aeb9706`
+(#1349 shared ordinary-Claude information tools). PR head 4cc5657c9 became
+conflicting, so only its Centaur workflow started; no application/browser run
+was inferred. Local merge `bb8680279` preserves accepted tool behavior and
+conversation grouping in `server/chat.ts`. The only conflict was the source
+registry: retain all 2,476 union keys, including accepted `session-history-sdk.ts`
+and its ordinary-Claude information test; regenerate combined hashes as v1.0.1168.
+`accepted-main-0ad-icon-composer.log` records all nine actual application and
+owner-omission checks passing against these merged bytes, with stronger A SHA256
+1b8770cf9657151664f0c0909abcb4aca1dbfaa9eb714bca2e27fd0090d2fe19. Its logged
+HEAD is the pre-merge 4cc5657c9; the source tree includes the explicit accepted
+main integration subsequently committed as bb8680279. Exact merged-head hosted
+CI remains required. No accepted production owner was replaced or weakened.
+
+Slice 1 is separately correcting older test fixtures whose assumptions conflict
+with explicit initial-source selection, retained picker, named source, icon-only
+trigger and exact readiness read. That batch is now integrated as 3f1090114, as recorded above. Its
+reported macOS non-git-browser CT07/09 120-second timeouts remain unexplained;
+no cause or full-CI pass is inferred. Full combined CI and exact-head review
+remain open gates.
+
 ## Icon-only composer successor
 
 Owner commit `c3b277cd25e090ae4b5574bcc21c1b567e4ce7b7` is integrated as

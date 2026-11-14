@@ -8,12 +8,16 @@ on:
       - 'tests/integration/symposium-*'
       - 'tests/support/application-event-source.ts'
       - 'tests/offline/symposium-ordinary-*'
+      - 'tests/offline/symposium-composer.spec.ts'
+      - 'tests/offline/symposium-dialog-controls.spec.ts'
+      - 'tests/offline/ordinary-collaboration-status.spec.ts'
       - 'tests/fixtures/symposium-ordinary-*'
       - 'frontend/src/components/*Conversation*'
       - 'frontend/src/components/ChatInput*'
       - 'frontend/src/components/ResponsiveChatView.tsx'
       - 'server/session-prompt-dispatch.ts'
       - 'server/session-conversation-list.ts'
+      - 'server/__tests__/collaboration-application*-ui.test.tsx'
 
 permissions:
   contents: read
@@ -42,7 +46,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=1024
         run: |
           set -o pipefail
-          npx vitest run tests/integration/symposium-ordinary-acceptance.test.tsx tests/integration/symposium-required-owners.test.ts --maxWorkers=1 --reporter=verbose 2>&1 | tee symposium-application.log
+          npx vitest run tests/integration/symposium-ordinary-acceptance.test.tsx tests/integration/symposium-required-owners.test.ts server/__tests__/collaboration-application-fresh-agent-ui.test.tsx server/__tests__/collaboration-application-ui.test.tsx --maxWorkers=1 --reporter=verbose 2>&1 | tee symposium-application.log
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -69,7 +73,7 @@ jobs:
       - name: Render ordinary composition and unchanged approved reference
         env:
           NODE_OPTIONS: --max-old-space-size=1024
-        run: bash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs
+        run: bash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts tests/offline/symposium-composer.spec.ts tests/offline/symposium-dialog-controls.spec.ts tests/offline/ordinary-collaboration-status.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:

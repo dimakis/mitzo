@@ -1,0 +1,55 @@
+Original CI43596285237 / job132452150489; source6e64337be05ff85b89744ad993d0fef14e1a33f6
+Full original log SHA256 0cf1b12e1ad5e20e1483b5c018c86ccf4a6659851704d9edf8f0a347964bf602; retained locally at slice3-owner-6e-unit-red.log
+https://github.com/dimakis/mitzo/actions/runs/43596285237/job/132452150489
+
+Original lines 5294–5316:
+2026-11-14T12:59:06.6421495Z [41m[1m FAIL [22m[49m server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T12:59:06.6428948Z [31m[1mAssertionError[22m[39m: expected true to be false // Object.is equality
+2026-11-14T12:59:06.6429622Z 
+2026-11-14T12:59:06.6429851Z Ignored nodes: comments, script, style
+2026-11-14T12:59:06.6430294Z [36m<html>[39m
+2026-11-14T12:59:06.6430568Z   [36m<head />[39m
+2026-11-14T12:59:06.6430834Z   [36m<body[39m
+2026-11-14T12:59:06.6431127Z     [33mstyle[39m=[32m""[39m
+2026-11-14T12:59:06.6431419Z   [36m>[39m
+2026-11-14T12:59:06.6431666Z     [36m<div>[39m
+2026-11-14T12:59:06.6431922Z       [36m<div[39m
+2026-11-14T12:59:06.6432368Z         [33mclass[39m=[32m"conversation-participants-container"[39m
+2026-11-14T12:59:06.6432781Z       [36m>[39m
+2026-11-14T12:59:06.6433049Z         [36m<div[39m
+2026-11-14T12:59:06.6433441Z           [33mclass[39m=[32m"conversation-participants"[39m
+2026-11-14T12:59:06.6433818Z         [36m>[39m
+2026-11-14T12:59:06.6434086Z           [36m<button[39m
+2026-11-14T12:59:06.6434457Z             [33maria-expanded[39m=[32m"false"[39m
+2026-11-14T12:59:06.6435081Z             [33maria-label[39m=[32m"Agents, Independent reviewer, FreshReviewer, Current agent"[39m
+2026-11-14T12:59:06.6435755Z             [33mclass[39m=[32m"conversation-participants-trigger"[39m
+2026-11-14T12:59:06.6436227Z             [33mtype[39m=[32m"button"[39m
+2026-11-14T12:59:06.6436551Z           [36m>[39m
+2026-11-14T12:59:06.6436820Z             [36m<svg[39m
+
+Original lines 5734–5758:
+2026-11-14T12:59:06.6694714Z [41m[1m FAIL [22m[49m server/__tests__/collaboration-application-ui.test.tsx[2m > [22msends first and later selected prompts from the production shared composer after remount
+2026-11-14T12:59:06.6695725Z [31m[1mAssertionError[22m[39m: expected true to be false // Object.is equality
+2026-11-14T12:59:06.6696051Z 
+2026-11-14T12:59:06.6696218Z Ignored nodes: comments, script, style
+2026-11-14T12:59:06.6696671Z [36m<html>[39m
+2026-11-14T12:59:06.6696982Z   [36m<head />[39m
+2026-11-14T12:59:06.6697244Z   [36m<body>[39m
+2026-11-14T12:59:06.6697502Z     [36m<div>[39m
+2026-11-14T12:59:06.6697769Z       [36m<div[39m
+2026-11-14T12:59:06.6698100Z         [33mclass[39m=[32m"chat-messages"[39m
+2026-11-14T12:59:06.6698442Z       [36m>[39m
+2026-11-14T12:59:06.6699245Z         [36m<p[39m
+2026-11-14T12:59:06.6699598Z           [33mclass[39m=[32m"chat-empty"[39m
+2026-11-14T12:59:06.6699921Z         [36m>[39m
+2026-11-14T12:59:06.6700230Z           [0mSend a message to start[0m
+2026-11-14T12:59:06.6700748Z         [36m</p>[39m
+2026-11-14T12:59:06.6701167Z       [36m</div>[39m
+2026-11-14T12:59:06.6701579Z       [36m<div[39m
+2026-11-14T12:59:06.6702138Z         [33mclass[39m=[32m"conversation-composer"[39m
+2026-11-14T12:59:06.6702515Z       [36m>[39m
+2026-11-14T12:59:06.6702939Z         [36m<div[39m
+2026-11-14T12:59:06.6703597Z           [33mclass[39m=[32m"chat-input chat-input--compact"[39m
+2026-11-14T12:59:06.6704219Z         [36m>[39m
+2026-11-14T12:59:06.6704622Z           [36m<div[39m
+2026-11-14T12:59:06.6705544Z             [33maria-label[39m=[32m"Conversation status"[39m
