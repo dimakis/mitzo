@@ -462,6 +462,8 @@ function ChatInputContent({
       selectedResponderIds.some(
         (id) => !responders.members.some((m) => m.id === id && !m.unavailableReason),
       ));
+  const retainedPayloadUnsupported =
+    textOnly && !!(images.length || activeContextBlocks.length || replyTarget);
   const sendDisabledReason =
     suppliedSendDisabledReason ??
     (respondersOpen ? 'Choose who replies, or close the picker to keep your draft.' : undefined) ??
@@ -474,7 +476,7 @@ function ChatInputContent({
     )
       ? 'A selected agent is unavailable. Choose who replies before sending.'
       : undefined) ??
-    (textOnly && (images.length || activeContextBlocks.length || replyTarget)
+    (retainedPayloadUnsupported
       ? 'This shared route supports text and reviewed prompt context. Remove retained attachments, ordinary context and reply quotes before sending.'
       : undefined) ??
     ((boundedFirstCommand || guardedConversation) && activeContextBlocks.length
@@ -1620,7 +1622,9 @@ function ChatInputContent({
         action={
           needsRecipients && responders.maximum !== 1 && !responders.disabled
             ? { label: 'Choose who replies', onClick: chooseResponders }
-            : sendDisabledAction
+            : retainedPayloadUnsupported && !suppliedSendDisabledReason
+              ? undefined
+              : sendDisabledAction
         }
       />
       <div className="chat-input-row">

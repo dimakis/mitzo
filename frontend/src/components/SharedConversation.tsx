@@ -422,7 +422,6 @@ export function SharedConversationBody({
     textOnly: true,
     boundedFirstCommand: true,
     guardedConversation: false,
-    composerCapabilities: undefined,
     validateSend: undefined,
     onInterrupt: undefined,
     running: !!sending.pending,
