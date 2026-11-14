@@ -12,7 +12,10 @@ export type OwnedLocalControlContext = {
   eventStore: Pick<EventStore, 'getSessionRuntimeBinding'>;
 };
 
-/** Retained execution ownership belongs to a login, independently of attachment keys. */
+export const OWNED_LOCAL_CONTROL_ERROR =
+  'Owned local session belongs to another login. Sign in to Mitzo again, reopen this conversation and review its activity before continuing.';
+
+/** Retained execution custody is independent of the operator's viewing login. */
 export function ownedLocalControlStatus(
   connectionId: string,
   sessionId: string,
@@ -26,7 +29,7 @@ export function ownedLocalControlStatus(
   const boundLocal = binding?.execution?.location === 'local';
   if (!owner && !boundLocal) return 'unrestricted';
   return owner &&
-    (binding?.harness.implementation === 'codex'
+    (['codex', 'claude-sdk'].includes(binding?.harness.implementation ?? '')
       ? ordinaryOperatorOwnsConversation(owner, liveTransportAuthSessionId(connectionId))
       : liveTransportAuthSessionId(connectionId) === owner) &&
     transport?.isOpen()
@@ -67,7 +70,7 @@ export function assertLegacyOwnedControlAllowed(
         sessionId === pendingSessionId &&
         binding?.execution.location === 'local')
     )
-      throw Error('Owned local session belongs to another login');
+      throw Error(OWNED_LOCAL_CONTROL_ERROR);
     if (status === 'authorized') {
       // The assigned connection carries auth. A reattached driver key never replaces it.
       try {
@@ -75,7 +78,7 @@ export function assertLegacyOwnedControlAllowed(
         captured.assertCurrent();
         if (captured.auth.id !== liveTransportAuthSessionId(connectionId)) throw Error();
       } catch {
-        throw Error('Owned local session belongs to another login');
+        throw Error(OWNED_LOCAL_CONTROL_ERROR);
       }
     }
     if ((message.type === 'send' || message.type === 'set_mode') && binding)

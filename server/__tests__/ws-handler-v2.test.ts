@@ -11,6 +11,8 @@ import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { V2SendMessage } from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
 import { acceptSendCommandAsync } from '../send-command.js';
+import { parseServerMessage } from '../../packages/client/src/protocol-parser.js';
+import type { WsMsg } from '../../packages/client/src/server-messages.js';
 
 vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
@@ -200,9 +202,26 @@ describe('owned Local operator controls', () => {
     expect(transport.sent).toContainEqual(
       expect.objectContaining({
         type: 'error',
-        error: 'Owned local session belongs to another login',
+        code: 'session_operator_denied',
+        stage: 'session_control',
+        nonfatal: true,
+        error: expect.stringContaining('Sign in'),
       }),
     );
+    const rejected = transport.sent.find((event) => event.type === 'error')!;
+    const running = vi.fn();
+    const parsed = parseServerMessage(
+      rejected as WsMsg,
+      { currentSessionId: session.sessionId },
+      {
+        onSessionAssigned: vi.fn(),
+        onSessionExpired: vi.fn(),
+        setWsRunning: running,
+      },
+      session.sessionId,
+    );
+    expect(parsed.messagesActions).toEqual([{ type: 'CONTROL_REJECTED', error: rejected.error }]);
+    expect(running).not.toHaveBeenCalled();
   });
   it('refuses foreign reconnect before watch, replay or ownership changes', () => {
     const { ctx, session } = ownedFixture();

@@ -27,6 +27,7 @@ import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { tracer } from './tracing.js';
+import { recordRuntimeFailure } from './runtime-failure-diagnostics.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
 import type { ProviderFailure, AccountBinding } from '@mitzo/protocol';
@@ -2137,6 +2138,16 @@ async function _runQueryLoopInner(
     } finally {
       loopFinished = true;
       clearTimeout(firstEventTimer);
+      // An input refusal aborts the SDK after retaining its diagnostic. The SDK
+      // may then close normally or throw a generic AbortError. Preserve a caught
+      // runtime failure, but do not let an SDK abort hide the retained refusal
+      // from the terminal callback and its outer chat.start span.
+      const retainedAbort = findSessionRuntimeError(abortController.signal.reason);
+      if (retainedAbort) {
+        caughtError = true;
+        if (!findSessionRuntimeError(terminalError)) terminalError = retainedAbort;
+        recordRuntimeFailure(span, retainedAbort);
+      }
       // Reporting is fallible (store writes and trusted observers can throw).
       // Preserve the first cause while completing every independent cleanup stage.
       const cleanup = (stage: string, action: () => void) => {
