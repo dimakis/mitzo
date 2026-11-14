@@ -180,6 +180,35 @@ checks list/bundle; lint and formatting pass. Rendered execution remains pending
 The same CI run's separate CT07/09 non-Git joined-browser contract timed out at
 120 seconds; its original log is retained, with no root cause established here.
 
+Accepted main `0ad803cda` (ordinary Claude information tools, #1349) is integrated.
+The sole conflict was the source registry; all 2,458 unique entries from both
+parents remain, with hashes regenerated from the combined source. The auto-merged
+`chat.ts` retains ordinary ownership and accepted information-tool instructions.
+Both real application UI journeys plus the affected Claude-information/SDK-effect
+owners pass: 31 checks across four files, plus 36 original-owner dispatch checks.
+Current combined CI and exact-head
+Centaur verification remain pending.
+
+Slice 3 reports hosted run `43599810172` (job `132461946147`, combined `bb868`)
+passing the application journey and all six actual ResponsiveChatView/icon-only
+cases. All six narrow fixture cases stopped at the context-owner assertion:
+substring `Agent` matched Agent, Agent loop time and Agent time rows. Its selector
+now scopes the exact child label before checking the full owner text. This is a
+test-only correction; original failure evidence remains retained and fresh hosted
+execution is required.
+
+The expanded hosted run `43600918311` reports 11 application checks and 50/56
+browser checks passing, including all six narrow wheel/microphone cases and all
+actual responsive cases. Slice 3 retained the singleton/light WebKit trace in
+artifact `14116124654`, job `132465272305` (trace SHA256
+`28f453ee222f950051cdf7c64ff47df3bcff2c9353b45c9f674ebec4147bb5a7`).
+Its only non-GET was POST `/api/telos/work/links` with the exact Architect
+conversation reference, aborted by the fixture and miscounted as a write. The
+authenticated server handler performs a navigation read. The singleton fixture
+now handles only that exact path/method/body as a read; all other non-GETs remain
+counted and the zero-write assertion stays. No production changes. Hosted rerun
+remains required for these six cases.
+
 Full CI exposed the existing forwarding UI fixture's old zero-recipient
 assumption: selecting Reviewer also retained the new original-agent selection,
 although that historical source intentionally has no live ordinary owner. Its
