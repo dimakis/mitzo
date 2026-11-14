@@ -586,6 +586,12 @@ it('returns one bounded overview of legacy work without downloading its history 
   const legacy = 'Historical evidence and previous checkpoints. '.repeat(20_000);
   f.db.prepare('UPDATE items SET summary=?,intent=? WHERE id=?').run(legacy, legacy, 'studio');
   f.db.prepare('UPDATE telos_item_updates SET note=? WHERE item_id=?').run(legacy, 'studio');
+  const full = await f.run('TelosManageItem', {
+    operation: 'read',
+    itemId: 'studio',
+    view: 'full',
+  });
+  expect(JSON.parse(full.content).format).toBe('json-fragment');
   const template = f.db.prepare('SELECT * FROM items WHERE id=?').get('studio') as Record<
     string,
     unknown
@@ -594,12 +600,13 @@ it('returns one bounded overview of legacy work without downloading its history 
   const insert = f.db.prepare(
     `INSERT INTO items (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
   );
-  for (let index = 0; index < 25; index++) {
+  for (let index = 0; index < 101; index++) {
     const child = {
       ...template,
       id: `child-${String(index).padStart(2, '0')}`,
       parent_id: 'studio',
       summary: 'Child title '.repeat(100),
+      intent: 'Bounded child brief',
     };
     insert.run(...columns.map((column) => child[column as keyof typeof child]));
   }
@@ -652,21 +659,24 @@ it('returns one bounded overview of legacy work without downloading its history 
     worker: { complete: true, knownConversations: 0 },
   });
   expect(value.truncatedFields).toContain('workContext.assignmentHistory');
-  expect(value.counts.children).toBe(25);
+  expect(value.counts.children).toBe(101);
   expect(value.item.children).toHaveLength(5);
   expect(value.truncatedFields).toContain('item.children');
+  expect(value.workContext.children).toHaveLength(5);
+  expect(value.truncatedFields).toContain('workContext.children');
   const children = await f.run('TelosListItems', { parentId: 'studio', limit: 100 });
-  expect(JSON.parse(children.content).items).toHaveLength(25);
+  const page = JSON.parse(children.content);
+  expect(page.items).toHaveLength(100);
+  const next = await f.run('TelosListItems', {
+    parentId: 'studio',
+    limit: 100,
+    cursor: page.nextCursor,
+  });
+  expect(JSON.parse(next.content).items).toHaveLength(1);
   expect(value.format).toBeUndefined();
   expect(f.items.read('studio')).toEqual(original);
   expect(f.approve).not.toHaveBeenCalled();
   expect(f.events.getOrdinaryInitialCommandId('planning')).toBeUndefined();
-  const full = await f.run('TelosManageItem', {
-    operation: 'read',
-    itemId: 'studio',
-    view: 'full',
-  });
-  expect(JSON.parse(full.content).format).toBe('json-fragment');
 });
 it('retains the canonical edit token in an overview and rechecks authority instead of caching it', async () => {
   const f = fixture();

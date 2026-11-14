@@ -1210,7 +1210,7 @@ export class TelosWorkStore {
   readConversationCoordination(itemId: string, conversationId: string) {
     return this.readCoordination(itemId, { kind: 'conversation', id: conversationId });
   }
-  readCoordination(itemId: string, actor: TelosWorkActor) {
+  readCoordination(itemId: string, actor: TelosWorkActor, view: 'full' | 'overview' = 'full') {
     return this.db.transaction(() => {
       this.authorizeRead(itemId, actor);
       const entry = (id: string) => {
@@ -1250,8 +1250,8 @@ export class TelosWorkStore {
         );
       const rows = isLead
         ? (this.db
-            .prepare('SELECT id FROM items WHERE parent_id=? ORDER BY id LIMIT 101')
-            .all(itemId) as Array<{ id: string }>)
+            .prepare('SELECT id FROM items WHERE parent_id=? ORDER BY id LIMIT ?')
+            .all(itemId, view === 'overview' ? 5 : 101) as Array<{ id: string }>)
         : [];
       if (rows.length > 100) conflict('Coordination children exceed bounded observation');
       return { item, ancestors, children: rows.map(({ id }) => entry(id)) };

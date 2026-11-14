@@ -18,7 +18,8 @@ export function telosWorkOverview(value: {
     return source.slice(0, limit).replace(/[\uD800-\uDBFF]$/u, '') + '…';
   };
   const first = <T>(field: string, source: T[], limit: number) => {
-    if (source.length > limit) truncatedFields.push(field);
+    if (source.length > limit || (field === 'workContext.children' && item.children.length > limit))
+      truncatedFields.push(field);
     return source.slice(0, limit);
   };
   const assignment = (field: string, source: typeof context.currentLead) => {
