@@ -3583,7 +3583,11 @@ app.get('/api/sessions', async (req, res) => {
         if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
       }
       return sessions.map((s) => {
-        const live = activeMap.get(s.id);
+        const participantIds = Array.isArray(s.participantSessionIds)
+          ? (s.participantSessionIds as string[])
+          : [];
+        const live =
+          activeMap.get(s.id) ?? participantIds.map((id) => activeMap.get(id)).find(Boolean);
         const meta = eventStore.getSession(s.id);
         return {
           ...s,
@@ -3708,6 +3712,10 @@ mountObservedRouter(
   operatorAuthMiddleware,
   createSessionCollaborationRouter({
     store: eventStore,
+    navigationChanged: () => {
+      sseRegistry.broadcast('sessions_changed', {});
+      overviewEmitter?.scheduleBroadcast();
+    },
     messaging: collaborationMessaging,
     forwarding: collaborationForwarding,
     joining: (auth) =>

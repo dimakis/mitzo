@@ -426,6 +426,8 @@ export interface SessionActivity {
   sessionId: string;
   /** Chats destination only; sessionId remains the approval/Stop/history owner. */
   presentationConversation?: { id: string; title: string };
+  /** Navigation projection only; raw participant evidence retains original IDs. */
+  participantActivities?: SessionActivity[];
   clientId: string;
   title: string;
   model?: string;

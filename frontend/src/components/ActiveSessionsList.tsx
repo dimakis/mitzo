@@ -59,7 +59,7 @@ export function ActiveSessionsList({
   onSelectSession,
   onActions,
 }: ActiveSessionsListProps) {
-  const { activities, attendCount, connected, lastKnownActivities = [] } = useSessionOverview();
+  const { activities, attendCount, connected, lastKnownActivities = [] } = useSessionOverview(true);
 
   const display = connected === false ? lastKnownActivities : activities;
   const byId = new Map(display.map((a) => [a.sessionId, a]));
