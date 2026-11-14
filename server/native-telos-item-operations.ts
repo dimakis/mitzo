@@ -9,7 +9,7 @@ import type { TelosItemStore } from './telos-item-store.js';
 import type { TelosWorkStore } from './telos-work-store.js';
 import { TelosGetItemInput, TelosUpdateItemInput } from './telos-item-tools.js';
 import type { TelosToolResult } from './telos-tool.js';
-import { retainCallbackOutcome } from './turn-callbacks.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 
 type Name = 'TelosGetItem' | 'TelosUpdateItem';
 export interface NativeTelosItemOwners {
@@ -44,6 +44,7 @@ export async function executeNativeTelosItemOperation(
   name: Name,
   rawOriginal: unknown,
 ): Promise<TelosToolResult> {
+  let mutationStarted = false;
   try {
     const { context: ctx, work, items } = owners;
     if (name !== 'TelosGetItem' && name !== 'TelosUpdateItem') unavailable();
@@ -97,6 +98,7 @@ export async function executeNativeTelosItemOperation(
         content: JSON.stringify({ ok: true, item: items.readGuarded(input.itemId, current) }),
         isError: false,
       };
+    mutationStarted = true;
     const receipt = items.updateGuarded(
       TelosUpdateItemInput.parse(input),
       ctx.conversationId,
@@ -106,19 +108,29 @@ export async function executeNativeTelosItemOperation(
     // The real owner acknowledged COMMIT. Never renew authority after its effect.
     return { content: JSON.stringify({ ok: true, ...receipt }), isError: false };
   } catch (error) {
+    const outcome = error instanceof Error ? retainedCallbackOutcome(error) : undefined;
     const expired = expiredApprovalToolResult(error);
-    if (expired) return retainCallbackOutcome(expired, 'settled');
+    if (expired)
+      return retainCallbackOutcome(expired, outcome === 'unknown' ? 'unknown' : 'settled');
     const message = error instanceof Error ? error.message : '';
     const known = [
       'Telos item changed;',
       'Unfinished milestones;',
       'Update request identity reused',
     ];
-    return {
+    const result = {
       isError: true,
       content: known.some((prefix) => message.startsWith(prefix))
         ? message
         : 'Telos item operation unavailable. Preserve the original request; a committed update is recoverable only by its exact request and input.',
     };
+    return retainCallbackOutcome(
+      result,
+      outcome === 'unknown'
+        ? 'unknown'
+        : !mutationStarted || outcome === 'settled'
+          ? 'settled'
+          : 'unknown',
+    );
   }
 }

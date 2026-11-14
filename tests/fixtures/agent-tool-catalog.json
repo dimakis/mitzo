@@ -359,7 +359,7 @@
     "source": "Agent Library",
     "required": false,
     "behavior": "read",
-    "routes": ["local-api", "codex-owned-local"],
+    "routes": ["local-api", "codex-owned-local", "claude-sdk"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -370,7 +370,7 @@
     "source": "Agent Library",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api", "codex-owned-local"],
+    "routes": ["local-api", "codex-owned-local", "claude-sdk"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -403,7 +403,7 @@
     "source": "Knowledge",
     "required": false,
     "behavior": "read",
-    "routes": ["local-api", "codex-owned-local"],
+    "routes": ["local-api", "codex-owned-local", "claude-sdk"],
     "requirement": "Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge."
   },
   {
@@ -414,7 +414,7 @@
     "source": "Knowledge",
     "required": false,
     "behavior": "write",
-    "routes": ["local-api", "codex-owned-local"],
+    "routes": ["local-api", "codex-owned-local", "claude-sdk"],
     "requirement": "Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge."
   },
   {
@@ -513,8 +513,8 @@
     "source": "History",
     "required": false,
     "behavior": "read",
-    "routes": ["codex-owned-local"],
-    "requirement": "Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery."
+    "routes": ["codex-owned-local", "claude-sdk"],
+    "requirement": "Requires the current signed operator and original owned-local native or guarded SDK call. Reads only registered visible durable history within current tool and skill scope; no provider transcript or credential discovery."
   },
   {
     "id": "mitzo:ReadPastSession",
@@ -524,8 +524,8 @@
     "source": "History",
     "required": false,
     "behavior": "read",
-    "routes": ["codex-owned-local"],
-    "requirement": "Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery."
+    "routes": ["codex-owned-local", "claude-sdk"],
+    "requirement": "Requires the current signed operator and original owned-local native or guarded SDK call. Reads only registered visible durable history within current tool and skill scope; no provider transcript or credential discovery."
   },
   {
     "id": "mitzo:RequestGithubMainPublication",

@@ -134,3 +134,42 @@ it('groups async and synchronous search before the result limit and retains the 
     store.searchSessions('Needle', 2).find((r) => r.sessionId === 'source')?.summary,
   ).toBeNull();
 });
+
+it.each(['source', 'participant'] as const)(
+  'keeps %s title-match ranking independent of unrelated conversation activity',
+  async (matching) => {
+    const group = begin(store);
+    joinParticipant(store, group, 'participant');
+    joinParticipant(store, group, 'recent-worker');
+    store.upsertSession({
+      sessionId: 'source',
+      summary: matching === 'source' ? 'Needle older source' : 'Original discussion',
+      updatedAt: 100,
+    });
+    store.upsertSession({
+      sessionId: 'participant',
+      summary: matching === 'participant' ? 'Needle older participant' : 'Unrelated participant',
+      updatedAt: 200,
+    });
+    store.upsertSession({
+      sessionId: 'recent-worker',
+      summary: 'Unrelated recent work',
+      updatedAt: 900,
+    });
+    store.upsertSession({
+      sessionId: 'newer',
+      conversationSource: 'mitzo',
+      summary: 'Needle newer match',
+      numTurns: 1,
+      updatedAt: 500,
+    });
+    const expected = store.searchSessions('Needle', 2);
+    expect(expected.map((r) => r.sessionId)).toEqual(['newer', 'source']);
+    expect(expected[1]).toMatchObject({
+      matchedAt: matching === 'source' ? 100 : 200,
+      updatedAt: 900,
+    });
+    expect(await store.searchSessionsAsync('Needle', 2)).toEqual(expected);
+    expect(await store.searchSessionsAsync('Needle', 1)).toEqual(store.searchSessions('Needle', 1));
+  },
+);

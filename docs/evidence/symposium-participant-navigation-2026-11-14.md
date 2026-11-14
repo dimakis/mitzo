@@ -129,3 +129,25 @@ and registers the new owner/projection/test modules. The source-only artifact ch
 passes against the actual final bytes. This is a candidate registration, not trusted
 review, source acceptance or runtime activation. Slice 3 must regenerate again from
 its final combined sources rather than adopt this branch's differing fingerprints.
+
+## Centaur review corrections
+
+Review `5904134966` at `e5b59fc4f` identified two blocking regressions. Both were
+reproduced with failing tests before correction. `CEN-0F21B679E671` is covered by
+the real desktop SessionList/SessionInspector history fetch and Open action:
+`matchedSessionId` now survives preview selection and controls the history/open
+destination while the row ID and its actions retain the source identity. Mobile
+saved-history previews use the same destination. The intercepted session-library
+fixture asserts the matching history and exact opened route on phone/desktop.
+
+`CEN-B2B70D0BCD99` is covered by actual persisted-store title-only searches for
+both source and participant titles at one/two-result limits. Async metadata now
+retains execution `updated_at` for title-match ranking and carries aggregate
+`conversation_updated_at` separately for display. Sync/async results, match clocks,
+exact matching sessions and conversation recency agree despite newer unrelated
+participant activity.
+
+Accepted main `0ad803cda` was integrated without changing either branch's source
+owners. The registration conflict retains all entries from both parents and renews
+fingerprints under `v1.0.1160-symposium-search-review`. Exact-head Centaur follow-up,
+hosted CI and combined slice 3 verification remain separate delivery gates.

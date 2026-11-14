@@ -376,6 +376,8 @@ export interface SessionContextUsage {
 export interface Session {
   id: string;
   summary: string;
+  /** Search-only history destination; row identity and actions remain on id. */
+  matchedSessionId?: string;
   /** Presentation membership only. Each participant retains its execution owner. */
   participantSessionIds?: string[];
   /** Navigation metadata only; never task, runtime or transcript authority. */

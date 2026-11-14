@@ -562,7 +562,7 @@ export class SessionMetadataStore {
         const source = byId.get(relations[row.session_id]);
         return {
           ...row,
-          updated_at: recency.get(source?.session_id ?? row.session_id)!,
+          conversation_updated_at: recency.get(source?.session_id ?? row.session_id)!,
           conversation_id: source?.session_id ?? row.session_id,
           conversation_summary: source ? source.summary : row.summary,
         };
@@ -612,7 +612,7 @@ export class SessionMetadataStore {
         summary: visible.get(hit.session_id)!.summary,
         snippet: extractSnippet(hit.payload, query),
         matchedAt: hit.matched_at,
-        updatedAt: visible.get(hit.session_id)!.updated_at,
+        updatedAt: visible.get(hit.session_id)!.conversation_updated_at!,
       }));
   }
 

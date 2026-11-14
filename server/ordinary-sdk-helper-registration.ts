@@ -11,6 +11,12 @@ const connectionHelpers: readonly string[] = Object.freeze([
   'SymposiumConsult',
   'SymposiumProposeProfile',
   'AgentCommunication',
+  'SearchPastSessions',
+  'ReadPastSession',
+  'ReadKnowledge',
+  'SaveKnowledgeDraft',
+  'AgentReadTasks',
+  'AgentProposeTask',
   'TelosCreateSession',
   'CaptureMemoryCandidate',
 ]);

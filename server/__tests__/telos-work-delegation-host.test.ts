@@ -14,6 +14,7 @@ import { resolveTelosWorkRolePresentation } from '../telos-work-role-presentatio
 import { resolveTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { createTelosWorkDelegationHost } from '../telos-work-delegation-host.js';
 import { createTelosWorkerStarter } from '../telos-worker-start.js';
+import { startAllocatedTelosWorker } from '../telos-worker-start-runtime.js';
 import { createTelosWorkRoleHost } from '../telos-work-role-host.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { TaskStore } from '../task-store.js';
@@ -28,7 +29,34 @@ import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { INTERNAL_TOKEN } from '../internal-token.js';
 
-vi.mock('../chat.js', () => ({ sendToChat: vi.fn() }));
+const production = vi.hoisted(() => ({
+  registry: undefined as SessionRegistry | undefined,
+  events: undefined as import('../event-store.js').EventStore | undefined,
+  workspaces: undefined as unknown,
+  dispatch: vi.fn(),
+}));
+vi.mock('../chat.js', () => ({
+  sendToChat: vi.fn(),
+  get registry() {
+    return production.registry;
+  },
+  get eventStore() {
+    return production.events;
+  },
+}));
+vi.mock('../codex-chat-session.js', () => ({
+  getCodexConversationStore: () => ({
+    hasConversation: () => false,
+    acceptedProviderTurnForCommand: () => false,
+  }),
+}));
+vi.mock('../repository-workspace-runtime.js', () => ({
+  getOrdinaryWorkspaces: () => production.workspaces,
+  getRepositoryWorkspaces: () => production.workspaces,
+}));
+vi.mock('../ordinary-scoped-command.js', () => ({
+  dispatchOwnedOrdinaryCommand: production.dispatch,
+}));
 
 const cleanups: (() => void)[] = [];
 afterEach(async () => {
@@ -386,6 +414,54 @@ it.each(['shared', 'sdk-default', 'sdk-explicit'])(
   'passes explicit execution through the mounted lead route and %s consumer',
   async (consumer) => {
     const f = await executionFixture();
+    const registry = new SessionRegistry();
+    registry.register('exact-client', {
+      sessionId: f.leadId,
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      abortController: new AbortController(),
+      ordinaryRuntimeOwner: { authSessionId: 'operator' } as never,
+      transport: {
+        isOpen: () => true,
+        send: (event) => {
+          if (event.type === 'permission_request' && typeof event.permId === 'string') {
+            const permId = event.permId;
+            queueMicrotask(() => resolvePending(permId, 'once'));
+          }
+        },
+      },
+    });
+    const session = registry.get('exact-client')!;
+    session.activeSkillPolicy = new Set(
+      ['TelosStartSlice', 'TelosWorkControl'].map((name) =>
+        consumer === 'shared' ? name : `mcp__telos__${name}`,
+      ),
+    );
+    const release = bindAgentLibraryTransport('exact-client', {
+      id: 'operator',
+      expiresAt: Date.now() + 60_000,
+    });
+    bindAgentToolSelection(
+      session,
+      consumer === 'sdk-explicit'
+        ? ({
+            tools: ['TelosStartSlice', 'TelosWorkControl'].map((name) => ({
+              id: `mitzo:${name}`,
+              version: 1,
+            })),
+          } as never)
+        : undefined,
+      consumer === 'shared' ? 'codex-owned-local' : 'claude-sdk',
+    );
+    production.registry = registry;
+    production.events = f.ordinary.store;
+    production.workspaces = f.ordinary.workspaces;
+    production.dispatch.mockImplementation(f.dispatch);
+    cleanups.push(() => {
+      release();
+      registry.dispose();
+      production.dispatch.mockReset();
+    });
     const app = express();
     app.use(express.json());
     app.use(
@@ -401,7 +477,11 @@ it.each(['shared', 'sdk-default', 'sdk-explicit'])(
         delegateSlice: async (req) => {
           const allocation = await f.host().delegate(req);
           return (req.raw as { execute?: true }).execute
-            ? f.starter()(allocation, f.authority)
+            ? startAllocatedTelosWorker(req, allocation, {
+                dbPath: () => f.path,
+                tasks: f.tasks,
+                qualify: f.qualify,
+              })
             : allocation;
         },
       }),
@@ -431,39 +511,6 @@ it.each(['shared', 'sdk-default', 'sdk-explicit'])(
           { ...f.input, execute: true },
         );
       if (consumer !== 'shared') {
-        const registry = new SessionRegistry();
-        registry.register('exact-client', {
-          sessionId: f.leadId,
-          mode: 'agent',
-          sessionAllowList: new Set(),
-          abortController: new AbortController(),
-          transport: {
-            isOpen: () => true,
-            send: (event) => {
-              if (event.type === 'permission_request' && typeof event.permId === 'string') {
-                const permId = event.permId;
-                queueMicrotask(() => resolvePending(permId, 'once'));
-              }
-            },
-          },
-        });
-        const session = registry.get('exact-client')!;
-        const release = bindAgentLibraryTransport('exact-client', {
-          id: 'operator',
-          expiresAt: Date.now() + 60_000,
-        });
-        bindAgentToolSelection(
-          session,
-          consumer === 'sdk-explicit'
-            ? ({
-                tools: ['TelosStartSlice', 'TelosWorkControl'].map((name) => ({
-                  id: `mitzo:${name}`,
-                  version: 1,
-                })),
-              } as never)
-            : undefined,
-          'claude-sdk',
-        );
         const server = createTelosSdkServer({
           session,
           registry,
@@ -475,10 +522,6 @@ it.each(['shared', 'sdk-default', 'sdk-explicit'])(
         const [a, b] = InMemoryTransport.createLinkedPair();
         await server.instance.connect(a);
         await client.connect(b);
-        cleanups.push(() => {
-          release();
-          registry.dispose();
-        });
         // Teardown the protocol before its canonical fixture owners.
         const resultFrom = (result: Awaited<ReturnType<typeof client.callTool>>) => ({
           content: (result.content as Array<{ text: string }>)[0].text,
@@ -506,6 +549,11 @@ it.each(['shared', 'sdk-default', 'sdk-explicit'])(
           );
           expect(inbox.isError, inbox.content).toBe(false);
           expect(JSON.parse(inbox.content)).toEqual([]);
+          const pendingAuthority = f.dispatch.mock.calls[0][0].firstCommandAuthority!;
+          expect(() => pendingAuthority.assertCurrent()).not.toThrow();
+          session.activeSkillPolicy = new Set(['TelosStartSlice']);
+          expect(() => pendingAuthority.assertCurrent()).toThrow();
+          expect(f.dispatch).toHaveBeenCalledTimes(1);
         } finally {
           await client.close();
           await server.instance.close();
@@ -519,6 +567,10 @@ it.each(['shared', 'sdk-default', 'sdk-explicit'])(
         execution: { state: 'admitted' },
       });
       expect(f.dispatch).toHaveBeenCalledTimes(1);
+      const pendingAuthority = f.dispatch.mock.calls[0][0].firstCommandAuthority!;
+      expect(() => pendingAuthority.assertCurrent()).not.toThrow();
+      session.activeSkillPolicy = new Set(['mcp__telos__TelosStartSlice']);
+      expect(() => pendingAuthority.assertCurrent()).toThrow();
     } finally {
       vi.unstubAllGlobals();
     }

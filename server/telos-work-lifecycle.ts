@@ -13,6 +13,7 @@ import {
 } from '@mitzo/protocol';
 import { TelosWorkControls } from './telos-work-controls.js';
 import { TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 
 type Disposition = TelosWorkLifecycleView['disposition'];
 interface State {
@@ -171,138 +172,156 @@ export class TelosWorkLifecycle {
     beforeCommit?: () => void,
     beforeApply?: () => void,
   ): TelosWorkLifecycleReceipt {
-    this.operator(actor);
-    const input = TelosWorkLifecycleCommandSchema.parse(raw);
-    const actorId = `operator:${actor.id}`;
-    return this.db
-      .transaction(() => {
-        const checkCurrent = () => {
-          if (!beforeApply) return;
-          const result: unknown = beforeApply();
-          if (result !== undefined) {
-            void Promise.resolve(result).catch(() => {});
-            conflict('Synchronous lifecycle authority required');
-          }
-        };
-        checkCurrent();
-        const fingerprint = digest(input);
-        const saved = this.db
-          .prepare(
-            'SELECT fingerprint,receipt FROM telos_work_lifecycle_commands WHERE actor_id=? AND request_id=?',
-          )
-          .get(actorId, input.requestId) as { fingerprint: string; receipt: string } | undefined;
-        if (saved) {
-          if (saved.fingerprint !== fingerprint)
-            conflict('Lifecycle request identity reused with different input');
-          return TelosWorkLifecycleReceiptSchema.parse(JSON.parse(saved.receipt));
-        }
-        if (this.work(input.itemId).revision !== input.expectedRevision)
-          conflict('Work revision conflict; read current lifecycle before retrying');
-        const state = this.state(input.itemId);
-        checkCurrent();
-        switch (input.operation) {
-          case 'pause':
-            this.assertActive(input.itemId);
-            if (
-              state.pauseControlIds.some((id) => this.controls.read(id, actor).stage !== 'released')
-            )
-              conflict('Outcome already has an operator pause');
-            state.pauseControlIds = (
-              ['new_worker_dispatch', 'safe_point', 'publication'] as const
-            ).map(
-              (scope) =>
-                this.controls.requestOperatorPause(input.itemId, input.requestId, scope, actor)
-                  .controlId,
-            );
-            break;
-          case 'resume':
-            this.assertActive(input.itemId);
-            if (!state.pauseControlIds.length) conflict('No operator pause to resume');
-            for (const controlId of state.pauseControlIds)
-              this.controls.release(
-                { requestId: digest([input.requestId, controlId]), controlId },
-                actor,
-              );
-            state.pauseControlIds = [];
-            break;
-          case 'archive':
-            if (state.disposition !== 'active') conflict('Only an active item can be archived');
-            state.disposition = 'archived';
-            break;
-          case 'unarchive':
-            if (state.disposition !== 'archived')
-              conflict('Only an archived item can be unarchived');
-            state.disposition = 'active';
-            break;
-          case 'trash':
-            if (state.disposition === 'trashed') conflict('Item is already trashed');
-            state.restoreDisposition = state.disposition;
-            state.disposition = 'trashed';
-            break;
-          case 'restore':
-            if (state.disposition !== 'trashed') conflict('Only a trashed item can be restored');
-            state.disposition = state.restoreDisposition;
-            break;
-          case 'delete_permanently': {
-            if (input.confirmation.itemId !== input.itemId)
-              conflict('Exact item confirmation required');
-            if (state.disposition !== 'trashed')
-              conflict('Permanent deletion requires an explicitly trashed item');
-            this.assertUnreferencedLeaf(input.itemId);
-            if (!assertQuiescent)
-              conflict('Verified host quiescence required for permanent deletion');
-            const result: unknown = assertQuiescent(input.itemId);
+    let mutationStarted = false;
+    try {
+      this.operator(actor);
+      const input = TelosWorkLifecycleCommandSchema.parse(raw);
+      const actorId = `operator:${actor.id}`;
+      return this.db
+        .transaction(() => {
+          const checkCurrent = () => {
+            if (!beforeApply) return;
+            const result: unknown = beforeApply();
             if (result !== undefined) {
               void Promise.resolve(result).catch(() => {});
-              conflict('Synchronous host quiescence required for permanent deletion');
+              conflict('Synchronous lifecycle authority required');
             }
-            this.db
-              .prepare('UPDATE telos_work_lifecycle SET purging=1 WHERE item_id=?')
-              .run(input.itemId);
-            this.db.prepare('DELETE FROM telos_work_lifecycle WHERE item_id=?').run(input.itemId);
-            // Only canonical item-owned status history is removable. Every other
-            // relationship was checked; no child/file/artifact cascade is allowed.
-            if (
-              this.db
-                .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='history'")
-                .get()
-            )
-              this.db.prepare('DELETE FROM history WHERE item_id=?').run(input.itemId);
-            this.db.prepare('DELETE FROM items WHERE id=?').run(input.itemId);
-            break;
-          }
-        }
-        if (input.operation !== 'delete_permanently') {
-          state.generation++;
-          this.db
+          };
+          checkCurrent();
+          const fingerprint = digest(input);
+          const saved = this.db
             .prepare(
-              'INSERT INTO telos_work_lifecycle(item_id,data) VALUES(?,?) ON CONFLICT(item_id) DO UPDATE SET data=excluded.data',
+              'SELECT fingerprint,receipt FROM telos_work_lifecycle_commands WHERE actor_id=? AND request_id=?',
             )
-            .run(input.itemId, JSON.stringify(state));
-        }
-        this.db.prepare('INSERT INTO telos_work_lifecycle_history(item_id,data) VALUES(?,?)').run(
-          input.itemId,
-          JSON.stringify({
+            .get(actorId, input.requestId) as { fingerprint: string; receipt: string } | undefined;
+          if (saved) {
+            if (saved.fingerprint !== fingerprint)
+              conflict('Lifecycle request identity reused with different input');
+            return TelosWorkLifecycleReceiptSchema.parse(JSON.parse(saved.receipt));
+          }
+          if (this.work(input.itemId).revision !== input.expectedRevision)
+            conflict('Work revision conflict; read current lifecycle before retrying');
+          const state = this.state(input.itemId);
+          checkCurrent();
+          switch (input.operation) {
+            case 'pause':
+              this.assertActive(input.itemId);
+              if (
+                state.pauseControlIds.some(
+                  (id) => this.controls.read(id, actor).stage !== 'released',
+                )
+              )
+                conflict('Outcome already has an operator pause');
+              mutationStarted = true;
+              state.pauseControlIds = (
+                ['new_worker_dispatch', 'safe_point', 'publication'] as const
+              ).map(
+                (scope) =>
+                  this.controls.requestOperatorPause(input.itemId, input.requestId, scope, actor)
+                    .controlId,
+              );
+              break;
+            case 'resume':
+              this.assertActive(input.itemId);
+              if (!state.pauseControlIds.length) conflict('No operator pause to resume');
+              mutationStarted = true;
+              for (const controlId of state.pauseControlIds)
+                this.controls.release(
+                  { requestId: digest([input.requestId, controlId]), controlId },
+                  actor,
+                );
+              state.pauseControlIds = [];
+              break;
+            case 'archive':
+              if (state.disposition !== 'active') conflict('Only an active item can be archived');
+              state.disposition = 'archived';
+              break;
+            case 'unarchive':
+              if (state.disposition !== 'archived')
+                conflict('Only an archived item can be unarchived');
+              state.disposition = 'active';
+              break;
+            case 'trash':
+              if (state.disposition === 'trashed') conflict('Item is already trashed');
+              state.restoreDisposition = state.disposition;
+              state.disposition = 'trashed';
+              break;
+            case 'restore':
+              if (state.disposition !== 'trashed') conflict('Only a trashed item can be restored');
+              state.disposition = state.restoreDisposition;
+              break;
+            case 'delete_permanently': {
+              if (input.confirmation.itemId !== input.itemId)
+                conflict('Exact item confirmation required');
+              if (state.disposition !== 'trashed')
+                conflict('Permanent deletion requires an explicitly trashed item');
+              this.assertUnreferencedLeaf(input.itemId);
+              if (!assertQuiescent)
+                conflict('Verified host quiescence required for permanent deletion');
+              const result: unknown = assertQuiescent(input.itemId);
+              if (result !== undefined) {
+                void Promise.resolve(result).catch(() => {});
+                conflict('Synchronous host quiescence required for permanent deletion');
+              }
+              mutationStarted = true;
+              this.db
+                .prepare('UPDATE telos_work_lifecycle SET purging=1 WHERE item_id=?')
+                .run(input.itemId);
+              this.db.prepare('DELETE FROM telos_work_lifecycle WHERE item_id=?').run(input.itemId);
+              // Only canonical item-owned status history is removable. Every other
+              // relationship was checked; no child/file/artifact cascade is allowed.
+              if (
+                this.db
+                  .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='history'")
+                  .get()
+              )
+                this.db.prepare('DELETE FROM history WHERE item_id=?').run(input.itemId);
+              this.db.prepare('DELETE FROM items WHERE id=?').run(input.itemId);
+              break;
+            }
+          }
+          if (input.operation !== 'delete_permanently') {
+            mutationStarted = true;
+            state.generation++;
+            this.db
+              .prepare(
+                'INSERT INTO telos_work_lifecycle(item_id,data) VALUES(?,?) ON CONFLICT(item_id) DO UPDATE SET data=excluded.data',
+              )
+              .run(input.itemId, JSON.stringify(state));
+          }
+          this.db.prepare('INSERT INTO telos_work_lifecycle_history(item_id,data) VALUES(?,?)').run(
+            input.itemId,
+            JSON.stringify({
+              requestId: input.requestId,
+              operation: input.operation,
+              actorId,
+              at: new Date().toISOString(),
+            }),
+          );
+          const receipt = TelosWorkLifecycleReceiptSchema.parse({
             requestId: input.requestId,
+            itemId: input.itemId,
             operation: input.operation,
-            actorId,
-            at: new Date().toISOString(),
-          }),
+            lifecycle:
+              input.operation === 'delete_permanently' ? null : this.read(input.itemId, actor),
+          });
+          this.db
+            .prepare('INSERT INTO telos_work_lifecycle_commands VALUES(?,?,?,?)')
+            .run(actorId, input.requestId, fingerprint, JSON.stringify(receipt));
+          beforeCommit?.();
+          return receipt;
+        })
+        .immediate();
+    } catch (error) {
+      // This original owner has not issued any write or delegated control.
+      // Post-write/COMMIT failures remain uncertain even after rollback.
+      if (error instanceof Error)
+        retainCallbackOutcome(
+          error,
+          mutationStarted || retainedCallbackOutcome(error) === 'unknown' ? 'unknown' : 'settled',
         );
-        const receipt = TelosWorkLifecycleReceiptSchema.parse({
-          requestId: input.requestId,
-          itemId: input.itemId,
-          operation: input.operation,
-          lifecycle:
-            input.operation === 'delete_permanently' ? null : this.read(input.itemId, actor),
-        });
-        this.db
-          .prepare('INSERT INTO telos_work_lifecycle_commands VALUES(?,?,?,?)')
-          .run(actorId, input.requestId, fingerprint, JSON.stringify(receipt));
-        beforeCommit?.();
-        return receipt;
-      })
-      .immediate();
+      throw error;
+    }
   }
   private assertUnreferencedLeaf(itemId: string) {
     if (this.db.prepare('SELECT 1 FROM items WHERE parent_id=? LIMIT 1').get(itemId))

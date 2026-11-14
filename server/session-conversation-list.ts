@@ -44,14 +44,12 @@ export function sessionConversationPage(store: EventStore, offset = 0, limit = 2
   }
   const grouped = [...rows.values()].sort((a, b) => b.lastModified - a.lastModified);
   return {
-    sessions: grouped
-      .slice(offset, offset + limit)
-      .map((row) => ({
-        ...row,
-        summary: sessionDisplayName(metadata.get(row.id)!, () =>
-          store.getSessionNamingEvents(row.id),
-        ),
-      })),
+    sessions: grouped.slice(offset, offset + limit).map((row) => ({
+      ...row,
+      summary: sessionDisplayName(metadata.get(row.id)!, () =>
+        store.getSessionNamingEvents(row.id),
+      ),
+    })),
     hasMore: grouped.length > offset + limit,
   };
 }

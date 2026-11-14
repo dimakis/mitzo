@@ -35,17 +35,18 @@ import {
 } from '../agent-tool-selection.js';
 
 it.each(['SearchPastSessions', 'ReadPastSession'])(
-  'registers %s only as optional owned-local read capability',
+  'registers %s as optional owned-local native and guarded SDK read capability',
   (name) => {
     expect(agentToolCatalog().find((tool) => tool.name === name)).toMatchObject({
       source: 'History',
       behavior: 'read',
-      routes: ['codex-owned-local'],
+      routes: ['codex-owned-local', 'claude-sdk'],
       required: false,
     });
     const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
     expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
-    for (const route of ['codex', 'local-api', 'openshell', 'claude-sdk'])
+    expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+    for (const route of ['codex', 'local-api', 'openshell'])
       expect(() => assertAgentToolRoute(definition, route)).toThrow();
   },
 );
@@ -178,12 +179,12 @@ it('registers task proposals separately from execution with explicit selection c
   expect(agentToolCatalog().find((tool) => tool.name === 'AgentReadTasks')).toMatchObject({
     version: 1,
     behavior: 'read',
-    routes: ['local-api', 'codex-owned-local'],
+    routes: ['local-api', 'codex-owned-local', 'claude-sdk'],
   });
   expect(agentToolCatalog().find((tool) => tool.name === 'AgentProposeTask')).toMatchObject({
     version: 1,
     behavior: 'write',
-    routes: ['local-api', 'codex-owned-local'],
+    routes: ['local-api', 'codex-owned-local', 'claude-sdk'],
   });
   const session = {};
   bindAgentToolSelection(session, { tools: [] } as never);
