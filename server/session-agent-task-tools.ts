@@ -17,6 +17,7 @@ import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js'
 import type { ProfileToolCall } from './session-profile-tools.js';
 import { reportToolFailure } from './tool-failure-reporting.js';
 import { retainCallbackOutcome } from './turn-callbacks.js';
+import { retainToolResultAuthority } from './codex-tool-result.js';
 
 export const agentTaskToolDefinitions = [
   {
@@ -134,15 +135,18 @@ export function sessionAgentTaskTools(
         verify();
         if (proposal) {
           const receipt = z.object({ proposalId: z.string().min(1) }).parse(value);
-          return {
-            content: JSON.stringify({
-              proposalId: receipt.proposalId,
-              status: 'awaiting_user_review',
-              taskId: proposal.taskId,
-              expectedRevision: proposal.expectedRevision,
-            }),
-            isError: false,
-          };
+          return retainToolResultAuthority(
+            {
+              content: JSON.stringify({
+                proposalId: receipt.proposalId,
+                status: 'awaiting_user_review',
+                taskId: proposal.taskId,
+                expectedRevision: proposal.expectedRevision,
+              }),
+              isError: false,
+            },
+            verify,
+          );
         }
         const result =
           read?.action === 'get'
@@ -152,24 +156,30 @@ export function sessionAgentTaskTools(
           throw Error('Task owner returned a different identity');
         if (Array.isArray(result)) {
           const offset = read?.action === 'list' ? (read.offset ?? 0) : 0;
-          return {
-            content: JSON.stringify({
-              tasks: result
-                .slice(offset, offset + 100)
-                .map(({ taskId, revision, definition, configuration }) => ({
-                  taskId,
-                  revision,
-                  name: definition.name,
-                  profile: definition.profile,
-                  schedule: definition.schedule,
-                  configuration,
-                })),
-              nextOffset: offset + 100 < result.length ? offset + 100 : null,
-            }),
-            isError: false,
-          };
+          return retainToolResultAuthority(
+            {
+              content: JSON.stringify({
+                tasks: result
+                  .slice(offset, offset + 100)
+                  .map(({ taskId, revision, definition, configuration }) => ({
+                    taskId,
+                    revision,
+                    name: definition.name,
+                    profile: definition.profile,
+                    schedule: definition.schedule,
+                    configuration,
+                  })),
+                nextOffset: offset + 100 < result.length ? offset + 100 : null,
+              }),
+              isError: false,
+            },
+            verify,
+          );
         }
-        return { content: JSON.stringify(result), isError: false };
+        return retainToolResultAuthority(
+          { content: JSON.stringify(result), isError: false },
+          verify,
+        );
       } catch (error) {
         // The canonical proposal store (including its custodian transport)
         // rejects this exact, expected conflict before writing. Preserve an

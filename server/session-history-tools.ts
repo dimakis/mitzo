@@ -3,6 +3,7 @@ import type { EventStore, StoredEvent } from './event-store.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 import { reportToolFailure } from './tool-failure-reporting.js';
 import { retainCallbackOutcome } from './turn-callbacks.js';
+import { retainToolResultAuthority } from './codex-tool-result.js';
 import {
   HISTORY_SCAN_LIMIT,
   readHistoryMessages,
@@ -363,7 +364,7 @@ export function sessionHistoryTools(owners: Owners) {
           if (!fits(value)) throw Error('Search output bound exceeded');
           const content = JSON.stringify(value);
           current();
-          return { content, isError: false };
+          return retainToolResultAuthority({ content, isError: false }, current);
         }
         const request = schemas.ReadPastSession.parse(parsed);
         await authorizeRead(request.conversationId);
@@ -399,7 +400,7 @@ export function sessionHistoryTools(owners: Owners) {
           if (!fits(value)) throw Error('History output bound exceeded');
           const content = JSON.stringify(value);
           current();
-          return { content, isError: false };
+          return retainToolResultAuthority({ content, isError: false }, current);
         }
         const rows = owners.store.getEventsAfter(
           request.conversationId,
@@ -468,7 +469,7 @@ export function sessionHistoryTools(owners: Owners) {
         if (!fits(value)) throw Error('History output bound exceeded');
         const content = JSON.stringify(value);
         current();
-        return { content, isError: false };
+        return retainToolResultAuthority({ content, isError: false }, current);
       } catch (error) {
         // Authority/configuration errors may contain sensitive diagnostics.
         const failure = reportToolFailure(error, {

@@ -23,6 +23,7 @@ import { installKnowledgeDraftRuntime } from '../session-knowledge-tools.js';
 import { AgentLibraryStore } from '../agent-library-store.js';
 import { getAgentTasks, closeAgentTasks } from '../agent-task-runtime.js';
 import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
+import { TurnCallbacks } from '../turn-callbacks.js';
 
 const names = [
   'SearchPastSessions',
@@ -145,10 +146,12 @@ async function fixture(selected?: string[], mode: 'ask' | 'agent' | 'auto' = 'au
   const assertCurrentSync = () => {
     if (!state.current) throw Error('PRIVATE_REVOKED_DETAIL');
   };
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
   const server = createCredentialSdkServer(() => session.sessionId, session, registry, {
     profilesOnly: true,
     connectionBoundary: 'sdk-callback',
     historyEvents: events,
+    runCallback: (work) => callbacks.track(work),
     assertCurrentSync,
     assertCurrent: async () => {
       assertCurrentSync();
@@ -186,6 +189,7 @@ async function fixture(selected?: string[], mode: 'ask' | 'agent' | 'auto' = 'au
     call,
     task,
     definition,
+    callbacks,
   };
 }
 
@@ -393,6 +397,110 @@ it('rejects hidden and unregistered history and preserves snapshot pagination', 
   expect(next.text).toContain('Second public message');
   expect(next.text).not.toContain('AFTER_SNAPSHOT');
 });
+
+it.each(['ReadPastSession', 'SearchPastSessions', 'ReadKnowledge', 'AgentReadTasks'])(
+  'withholds %s when its source or operator changes during the final SDK delivery await',
+  async (name) => {
+    const args = (f: Awaited<ReturnType<typeof fixture>>) =>
+      name === 'ReadPastSession'
+        ? { conversationId: 'visible' }
+        : name === 'SearchPastSessions'
+          ? { query: 'needle' }
+          : name === 'ReadKnowledge'
+            ? { action: 'read', path: 'docs/accepted.md', revision: f.revision }
+            : { action: 'list' };
+    const baseline = await fixture(names);
+    let checks = 0;
+    baseline.state.afterCheck = () => {
+      checks++;
+    };
+    expect((await baseline.call(name, args(baseline))).isError).not.toBe(true);
+    const f = await fixture(names);
+    let seen = 0;
+    f.state.afterCheck = () => {
+      if (++seen !== checks) return;
+      if (name === 'ReadKnowledge')
+        cleanups.push(installKnowledgeDraftRuntime(async () => undefined));
+      else if (name === 'AgentReadTasks') f.unbind();
+      else f.events.hideSession('visible');
+    };
+    const result = await f.call(name, args(f));
+    expect(seen).toBe(checks);
+    expect(result.isError).toBe(true);
+    expect(result.text).not.toMatch(/Public needle|Accepted library text|Saved task/);
+    expect(f.callbacks.needsSettlement).toBe(false);
+  },
+);
+
+it('keeps original runtime refusal private through the real SDK error serializer', async () => {
+  const f = await fixture(names);
+  f.state.current = false;
+  const result = await f.call('ReadPastSession', { conversationId: 'visible' });
+  expect(result.isError).toBe(true);
+  expect(result.text).not.toContain('PRIVATE_REVOKED_DETAIL');
+  expect(f.callbacks.needsSettlement).toBe(true);
+});
+
+it.each(['SaveKnowledgeDraft', 'AgentProposeTask'] as const)(
+  'retains the %s write and uncertainty when delivery authority changes after persistence',
+  async (name) => {
+    const prepare = async () => {
+      const f = await fixture(names);
+      f.session.transport = {
+        isOpen: () => true,
+        send(event: Record<string, unknown>) {
+          if (event.type === 'permission_request')
+            queueMicrotask(() => resolvePending(String(event.permId), 'once', undefined, 'chat'));
+        },
+      } as never;
+      const args =
+        name === 'SaveKnowledgeDraft'
+          ? {
+              requestId: '864aa6ad-b67b-4acc-9e12-87a2d1e812c9',
+              title: 'Delivery race',
+              baseRevision: f.revision,
+              documents: [{ path: 'docs/accepted.md', content: 'Proposed text' }],
+            }
+          : {
+              taskId: 'saved',
+              expectedRevision: f.task.revision,
+              definition: { ...f.definition, name: 'Proposed task' },
+            };
+      return { f, args };
+    };
+    const baseline = await prepare();
+    let checks = 0;
+    baseline.f.state.afterCheck = () => {
+      checks++;
+    };
+    expect((await baseline.f.call(name, baseline.args)).isError).not.toBe(true);
+    const { f, args } = await prepare();
+    let seen = 0;
+    f.state.afterCheck = () => {
+      if (++seen !== checks) return;
+      if (name === 'SaveKnowledgeDraft')
+        cleanups.push(installKnowledgeDraftRuntime(async () => undefined));
+      else f.unbind();
+    };
+    const result = await f.call(name, args);
+    expect(seen).toBe(checks);
+    expect(result.isError).toBe(true);
+    expect(f.callbacks.needsSettlement).toBe(true);
+    if (name === 'SaveKnowledgeDraft') expect(f.drafts.list()).toHaveLength(1);
+    else {
+      const proposals = new SymposiumProfileProposalStore(join(f.root, '.mitzo/events.db'));
+      try {
+        expect(proposals.listTaskProposals('user', 'chat')).toHaveLength(1);
+      } finally {
+        proposals.close();
+      }
+    }
+    expect(getAgentTasks().read('user', 'saved')).toEqual(f.task);
+    expect((await f.source.read('docs/accepted.md', f.revision)).content).toBe(
+      'Accepted library text',
+    );
+  },
+);
 
 it('keeps excluded profiles and callback decisions closed', async () => {
   const f = await fixture([]);

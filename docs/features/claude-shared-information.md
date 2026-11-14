@@ -34,6 +34,15 @@ storage failures use the shared sanitized diagnostic reporter. Failed reads are
 settled observations; cancellation and uncertain proposals retain their existing
 callback outcome rules.
 
+Successful shared-handler results retain their canonical synchronous access check
+in memory. The SDK invokes that same check after its final authority wait and guard
+cleanup, before returning content. History visibility, Knowledge source ownership
+and task operator access cannot change during those waits and expose stale bytes.
+Authority failures keep their original cause internally and expose a safe runtime
+message through MCP; cancellation, turn completion and timeout retirement remain
+with their existing owners. A proposal persisted before delivery authority is lost
+retains its durable receipt and uncertain callback outcome; it is not blindly replayed.
+
 ## Qualification evidence
 
 Baseline inspected: main `f801f8df6cac9c1305727b85a7235928eef2e175`, SDK `0.3.322`.
@@ -47,7 +56,9 @@ ordinary Local Mac Claude without broadening the legacy route or Codex routes.
   executes reads, saves actual draft/task proposals, and checks returned payloads.
   It covers selection, exact MCP skill names, hidden history, snapshot paging,
   accepted source bytes, approval/denial/expiry/cancellation/revocation, changed
-  source revisions, idempotency and sanitized storage failures.
+  source revisions, idempotency and sanitized storage failures. Final-delivery race
+  tests cover history search/read, Knowledge and task reads, persisted proposals,
+  callback settlement, and the actual SDK serialization of authority errors.
 - `tests/integration/ordinary-local-vertex-chat.test.ts` uses synthetic providers
   through the ordinary chat owner. Personal and Vertex first, queued successor
   and cold-continuation queries invoke discovery, history search/read and task

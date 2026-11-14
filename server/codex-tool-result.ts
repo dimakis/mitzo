@@ -1,4 +1,22 @@
 import { copyCallbackOutcome } from './turn-callbacks.js';
+
+const resultAuthorities = new WeakMap<object, () => void>();
+/** Keep the canonical owner's synchronous delivery check with its in-memory
+ * result. JSON, provider content and durable copies cannot manufacture it. */
+export function retainToolResultAuthority<T extends object>(
+  result: T,
+  assertCurrent: () => void,
+): T {
+  resultAuthorities.set(result, assertCurrent);
+  return result;
+}
+export function assertToolResultAuthority(result: object): void {
+  resultAuthorities.get(result)?.();
+}
+export function copyToolResultAuthority<T extends object>(source: object, target: T): T {
+  const assertCurrent = resultAuthorities.get(source);
+  return assertCurrent ? retainToolResultAuthority(target, assertCurrent) : target;
+}
 /** Product tools use the native dynamic-tool result surface. These are receipts,
  * not another tool executor or native history. Keep legacy text results intact. */
 export type CodexToolContentItem =

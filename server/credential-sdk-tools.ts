@@ -17,7 +17,11 @@ import { learningToolSchemas, learningToolDefinitions } from './session-learning
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
-import { copyCallbackOutcome, type TurnCallbackRunner } from './turn-callbacks.js';
+import {
+  copyCallbackOutcome,
+  retainCallbackOutcome,
+  type TurnCallbackRunner,
+} from './turn-callbacks.js';
 import {
   AgentCommunicationSdkInput,
   agentCommunicationDefinitions,
@@ -44,6 +48,8 @@ import {
 } from './credential-connection-tools.js';
 import { sessionCredentialTools } from './session-credential-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
+import { assertToolResultAuthority, copyToolResultAuthority } from './codex-tool-result.js';
+import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
 
 const prefix = 'mcp__mitzo-connections__';
 /** Keep SDK auto-admission and the mandatory PreToolUse route fence aligned.
@@ -220,6 +226,21 @@ export function createCredentialSdkServer(
           const signal = callSignal
             ? AbortSignal.any([session.abortController.signal, callSignal])
             : session.abortController.signal;
+          const assertDelivery = (result: object) => {
+            try {
+              assertToolResultAuthority(result);
+            } catch (error) {
+              // A withheld read is a settled observation, never an uncertain
+              // write. Runtime refusal/cancellation still takes the throw path.
+              if (
+                !signal.aborted &&
+                error instanceof Error &&
+                isReadOnlyBuiltinToolCall(definition.name, input)
+              )
+                retainCallbackOutcome(error, 'settled');
+              throw error;
+            }
+          };
           if (signal.aborted)
             return {
               content: [{ type: 'text' as const, text: 'Tool call cancelled before dispatch.' }],
@@ -263,11 +284,15 @@ export function createCredentialSdkServer(
                   });
                   await authority!.assertCurrent(signal);
                   if (!result) throw Error('History handler unavailable');
+                  assertDelivery(result);
                   qualifyToolResult(definition.name, input, signal, result);
-                  return copyCallbackOutcome(result, {
-                    content: [{ type: 'text' as const, text: result.content }],
-                    isError: result.isError,
-                  });
+                  return copyToolResultAuthority(
+                    result,
+                    copyCallbackOutcome(result, {
+                      content: [{ type: 'text' as const, text: result.content }],
+                      isError: result.isError,
+                    }),
+                  );
                 }
                 if (definition.name === 'TelosCreateSession' && authority) {
                   await authority.assertCurrent(signal);
@@ -345,6 +370,7 @@ export function createCredentialSdkServer(
                   ),
                 });
                 await authority?.assertCurrent(signal);
+                if (rawResult) assertDelivery(rawResult);
                 const result =
                   rawResult && qualifyToolResult(definition.name, input, signal, rawResult);
                 const delivered = {
@@ -356,30 +382,40 @@ export function createCredentialSdkServer(
                   ],
                   isError: result?.isError ?? true,
                 };
-                return result ? copyCallbackOutcome(result, delivered) : delivered;
+                return result
+                  ? copyToolResultAuthority(result, copyCallbackOutcome(result, delivered))
+                  : delivered;
               },
-            ).catch((error: unknown) => {
-              const authorityFailed = error instanceof SdkAuthorityFailure;
-              const cause = authorityFailed ? error.cause : error;
-              const failure = reportToolFailure(cause, {
-                sessionId: sessionId() ?? runtimeId,
-                tool: definition.name,
-                signal,
-              });
-              // Authority failures, cancellation and timeout retirement retain
-              // their fences. Report before propagating the original cause.
-              if (
-                authorityFailed ||
-                signal.aborted ||
-                cause instanceof ToolGuardTimeoutError ||
-                findSessionRuntimeError(cause)
-              )
-                throw cause;
-              return copyCallbackOutcome(failure, {
-                content: [{ type: 'text' as const, text: failure.content }],
-                isError: true,
-              });
-            }),
+            )
+              .then((result) => {
+                // Guard cleanup may await too. Recheck the canonical source and
+                // caller immediately before returning the MCP payload.
+                assertDelivery(result);
+                return result;
+              })
+              .catch((error: unknown) => {
+                const authorityFailed = error instanceof SdkAuthorityFailure;
+                const cause = authorityFailed ? error.cause : error;
+                const failure = reportToolFailure(cause, {
+                  sessionId: sessionId() ?? runtimeId,
+                  tool: definition.name,
+                  signal,
+                });
+                // Authority failures, cancellation and timeout retirement retain
+                // their fences. Keep the original cause inside a safe runtime
+                // wrapper: the SDK serializes thrown messages to the model.
+                if (authorityFailed) throw findSessionRuntimeError(error) ?? error;
+                if (cause instanceof ToolGuardTimeoutError) throw cause;
+                if (signal.aborted || findSessionRuntimeError(cause))
+                  throw (
+                    findSessionRuntimeError(cause) ??
+                    new SessionRuntimeError('runtime_unavailable', { cause })
+                  );
+                return copyCallbackOutcome(failure, {
+                  content: [{ type: 'text' as const, text: failure.content }],
+                  isError: true,
+                });
+              }),
           );
         },
       ),
