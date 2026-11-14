@@ -314,6 +314,7 @@ it.each(
       }),
     );
     let releaseFirst: (() => void) | undefined;
+    let releaseRetainedTail: (() => void) | undefined;
     let consumePeer: (() => Promise<Record<string, unknown>>) | undefined;
     let idleInputReady: Promise<void> | undefined;
     let first = true;
@@ -450,6 +451,14 @@ it.each(
               yield { ...peer, session_id: id };
               await completed;
             }
+            if (closed.value) return;
+            if (message.mitzoMessageId === 'retained-cold-tail')
+              await new Promise<void>((resolve) => {
+                releaseRetainedTail = resolve;
+                request.options.abortController.signal.addEventListener('abort', resolve, {
+                  once: true,
+                });
+              });
             if (closed.value) return;
             yield {
               type: 'assistant',
@@ -1030,6 +1039,20 @@ it.each(
         payload: { text: '/mockup Same retained task' },
       }),
     ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
+    // Cold recovery first runs the acknowledged predecessor, including its
+    // real MCP/permission callbacks. Wait for that startup separately, then
+    // prove the new input cannot overtake its still-unsettled result.
+    await vi.waitFor(() => expect(releaseRetainedTail).toBeTypeOf('function'), {
+      timeout: 10_000,
+    });
+    expect(history).toEqual([f.request.clientMsgId, 'queued', 'retained-cold-tail']);
+    expect(
+      chat.eventStore.getExecutionAdmission(f.reservation.conversationId, 'cold'),
+    ).toBeUndefined();
+    expect(chat.eventStore.getOrdinarySdkTurnEvents(f.reservation.conversationId, 'cold')).toEqual(
+      [],
+    );
+    releaseRetainedTail!();
     await vi.waitFor(
       () =>
         expect(history).toEqual([f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold']),

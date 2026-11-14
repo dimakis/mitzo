@@ -102,3 +102,25 @@ root cause. Preserve those logs; current-head CI remains decisive.
 
 Deployment, live provider/service writes, scheduled messages and worker starts
 are outside this delivery.
+
+## CI cold-recovery fixture correction
+
+Run43601079662 on `b719989c8` passed compile/source, core, browser and three unit
+shards; shard2 reported five failures in the ordinary SDK integration suite. Four
+cold cases waited five seconds for both the restored predecessor's startup/tool
+callbacks and the new successor. In the first CI trace, the predecessor's Bash
+permission completed at13:50:13.65UTC and its result arrived at13:50:13.75, just
+before test teardown began. The subsequent credential-input case also observed
+extra queries; interference from unfinished teardown is consistent with that
+trace but is not independently proved as its sole cause.
+
+The unchanged19-case suite passes locally. The correction makes the predecessor
+boundary explicit: wait for its existing startup budget, hold its result, assert
+that the new command has no execution admission or SDK events, then release it.
+The existing successor-history assertion and five-second timeout remain intact,
+as does the overall scenario deadline. All19 cases pass with this stronger
+boundary, one worker and1GiB heap (`ci-cold-boundary-green.log`). Scoped lint,
+formatting, whitespace and regenerated source fingerprints pass. An ad-hoc
+semantic check used the server config for this integration file and encountered
+inherited fixture/rootDir diagnostics; it is not reported as a passing project
+typecheck. Hosted preflight and the new full CI remain the required evidence.

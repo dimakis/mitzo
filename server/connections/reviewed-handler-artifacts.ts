@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1161-claude-command-fixture-types';
+  'v1.0.1162-sdk-cold-fixture-boundary';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3623,7 +3623,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     'f96af49e1dbf60cf9293d38a8c9c64b745efbcceed9d4c24a65a3f8e0be081e0',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    'a1d270e7329d22a69c26780a2875165e89a8b0e1640f29065b8934b7975b38fe',
+    '02f8faffc7493be93d895c221595d8e0f30d7f7028d9327302bbaa3e908bc641',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
