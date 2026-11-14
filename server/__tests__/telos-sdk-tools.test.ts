@@ -267,6 +267,7 @@ it.each([
   'stale-native-item',
   'stale-parent',
   'unknown',
+  'rolled-back-write',
 ])('retains refusal evidence through the SDK terminal result (%s)', async (refusal) => {
   const f = await fixture();
   if (refusal === 'stale-native-item' || refusal === 'denied-native') assignLead(f);
@@ -283,7 +284,7 @@ it.each([
   const update = {
     itemId: 'studio',
     requestId: 'refused-update',
-    expectedRevision: 'stale',
+    expectedRevision: '0'.repeat(64),
     note: 'No effect',
   };
   if (refusal === 'denied' || refusal === 'denied-native') f.deny();
@@ -297,6 +298,11 @@ it.each([
       // Even a familiar message after COMMIT cannot manufacture refusal evidence.
       throw Error('Telos item changed; simulated uncertain storage failure');
     });
+  }
+  if (refusal === 'rolled-back-write') {
+    f.db.exec(`CREATE TRIGGER refused_write AFTER INSERT ON items BEGIN
+      SELECT RAISE(ABORT, 'injected write failure'); END`);
+    vi.spyOn(TelosItemStore.prototype, 'createFeatureGuarded');
   }
   const [name, input]: [string, Record<string, unknown>] =
     refusal === 'missing-lead'
@@ -318,7 +324,7 @@ it.each([
               : refusal === 'stale-parent'
                 ? [
                     'TelosCreateChild',
-                    { ...feature, parentId: 'studio', expectedParentRevision: 'stale' },
+                    { ...feature, parentId: 'studio', expectedParentRevision: '0'.repeat(64) },
                   ]
                 : ['TelosCreateFeature', feature];
   const result = await sdk.client.callTool({
@@ -326,8 +332,13 @@ it.each([
     arguments: input,
   });
   expect(result.isError).toBe(true);
+  if (refusal.startsWith('stale-')) expect(JSON.stringify(result)).toContain('Telos item changed;');
   if (refusal === 'unknown') {
     expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toHaveLength(before.length + 1);
+    expect(TelosItemStore.prototype.createFeatureGuarded).toHaveBeenCalledTimes(1);
+    await expect(sdk.terminal()).rejects.toMatchObject({ code: 'callbacks_failed' });
+  } else if (refusal === 'rolled-back-write') {
+    expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
     expect(TelosItemStore.prototype.createFeatureGuarded).toHaveBeenCalledTimes(1);
     await expect(sdk.terminal()).rejects.toMatchObject({ code: 'callbacks_failed' });
   } else {
@@ -335,6 +346,97 @@ it.each([
     await expect(sdk.terminal()).resolves.toMatchObject({ value: { type: 'result' } });
   }
 });
+
+it.each(['archive-revision', 'classification', 'archived-edit', 'archived-child'] as const)(
+  'settles canonical %s refusal with valid revisions and no canonical changes',
+  async (refusal) => {
+    const f = await fixture();
+    const feature = {
+      requestId: 'existing-feature',
+      summary: 'Existing feature',
+      intent: 'Existing',
+      rationale: 'Regression',
+      acceptanceCriteria: ['No refused changes'],
+      note: 'Offline',
+    };
+    const created = f.value(await f.call('TelosCreateFeature', feature));
+    const itemId = created.item.id;
+    const read = () => f.call('TelosManageItem', { operation: 'read', itemId }).then(f.value);
+    if (refusal.startsWith('archived-')) {
+      const current = await read();
+      expect(
+        (
+          await f.call('TelosManageItem', {
+            operation: 'archive',
+            itemId,
+            requestId: 'archive-existing',
+            expectedRevision: current.lifecycle.revision,
+          })
+        ).isError,
+      ).toBe(false);
+    }
+    const current = await read();
+    const stale = '0'.repeat(64);
+    expect(stale).not.toBe(current.lifecycle.revision);
+    expect(stale).not.toBe(current.item.revision);
+    const snapshot = () =>
+      [
+        'items',
+        'history',
+        'telos_item_updates',
+        'telos_work_kinds',
+        'telos_work_lifecycle',
+        'telos_work_lifecycle_history',
+        'telos_work_lifecycle_commands',
+      ].map((table) => ({
+        table,
+        rows: f.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
+      }));
+    const before = snapshot();
+    const sdk = await ordinaryClient(f);
+    const [name, input]: [string, Record<string, unknown>] =
+      refusal === 'archive-revision'
+        ? [
+            'TelosManageItem',
+            { operation: 'archive', itemId, requestId: 'stale-archive', expectedRevision: stale },
+          ]
+        : refusal === 'archived-child'
+          ? [
+              'TelosCreateChild',
+              {
+                ...feature,
+                requestId: 'refused-child',
+                parentId: itemId,
+                expectedParentRevision: current.item.revision,
+              },
+            ]
+          : [
+              'TelosManageItem',
+              {
+                operation: 'edit',
+                itemId,
+                requestId: 'refused-edit',
+                expectedRevision: current.item.revision,
+                note: 'Must not change',
+                ...(refusal === 'classification'
+                  ? { workLevel: 'outcome' }
+                  : { summary: 'Must not change' }),
+              },
+            ];
+    const result = await sdk.client.callTool({ name, arguments: input });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('Invalid Telos backlog input');
+    expect(JSON.stringify(result)).toContain(
+      refusal === 'archive-revision'
+        ? 'Work revision conflict;'
+        : refusal === 'classification'
+          ? 'already classified;'
+          : 'Work is archived;',
+    );
+    expect(snapshot()).toEqual(before);
+    await expect(sdk.terminal()).resolves.toMatchObject({ value: { type: 'result' } });
+  },
+);
 
 it.each(['retired', 'skill', 'operator'] as const)(
   'fences delayed inbox/read disclosure after %s revocation and preserves mutation ACK',
