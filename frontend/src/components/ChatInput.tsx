@@ -13,8 +13,10 @@ import {
 import { ChatStatusMessage, type ChatStatusAction } from './ChatStatusMessage';
 import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
+import { SharedConversationComposerContext } from '../lib/shared-conversation-composer';
 import {
   useState,
+  useContext,
   useRef,
   useEffect,
   useLayoutEffect,
@@ -97,6 +99,8 @@ interface Props {
     queuedCommandId?: string,
   ) => boolean;
   onStop: () => void;
+  /** Ordinary source operation, separate from a retained shared send's Stop. */
+  sourceStop?: () => void;
   onInterrupt?: (
     text: string,
     images?: ImageAttachment[],
@@ -152,11 +156,20 @@ const EMPTY_MESSAGES: FinishedMessage[] = [];
 
 export function ChatInput(props: Props) {
   const sink = useComposerStatusSink();
+  const shared = useContext(SharedConversationComposerContext);
+  const routed =
+    shared?.sourceConversationId === props.sessionId
+      ? {
+          ...props,
+          ...shared.props,
+          sourceStop: props.running && !shared.props.running ? props.onStop : undefined,
+        }
+      : props;
   return sink ? (
-    <ChatInputContent {...props} />
+    <ChatInputContent {...routed} />
   ) : (
     <ComposerStatusProvider>
-      <ChatInputContent {...props} />
+      <ChatInputContent {...routed} />
     </ComposerStatusProvider>
   );
 }
@@ -173,6 +186,7 @@ function ChatInputContent({
   interruptDisabledReason,
   onSend,
   onStop,
+  sourceStop,
   onInterrupt,
   running,
   awaitingApproval,
@@ -412,6 +426,15 @@ function ChatInputContent({
     responders?.responders?.kind === 'selected'
       ? responders.responders.sessionIds
       : (responders?.selectedIds ?? []);
+  const responderTrigger = useRef<HTMLDivElement>(null);
+  const chooseResponders = () =>
+    responderTrigger.current?.querySelector<HTMLButtonElement>('button')?.click();
+  const needsRecipients =
+    !!responders &&
+    (!selectedResponderIds.length ||
+      selectedResponderIds.some(
+        (id) => !responders.members.some((m) => m.id === id && !m.unavailableReason),
+      ));
   const sendDisabledReason =
     suppliedSendDisabledReason ??
     (respondersOpen ? 'Choose who replies, or close the picker to keep your draft.' : undefined) ??
@@ -424,8 +447,8 @@ function ChatInputContent({
     )
       ? 'A selected agent is unavailable. Choose who replies before sending.'
       : undefined) ??
-    (textOnly && (images.length || activeContextBlocks.length)
-      ? 'Remove attachments and context before sending through this conversation’s text-only route.'
+    (textOnly && (images.length || activeContextBlocks.length || replyTarget)
+      ? 'This shared route supports text and reviewed prompt context. Remove retained attachments, ordinary context and reply quotes before sending.'
       : undefined) ??
     ((boundedFirstCommand || guardedConversation) && activeContextBlocks.length
       ? boundedFirstCommand
@@ -1565,7 +1588,14 @@ function ChatInputContent({
         />
       )}
       {queueError?.scope === composerScope && <ChatStatusMessage error={queueError.text} />}
-      <ChatStatusMessage status={sendDisabledReason} action={sendDisabledAction} />
+      <ChatStatusMessage
+        status={sendDisabledReason}
+        action={
+          needsRecipients && !responders.disabled
+            ? { label: 'Choose who replies', onClick: chooseResponders }
+            : sendDisabledAction
+        }
+      />
       <div className="chat-input-row">
         {replyTarget && (
           <div className="chat-reply-draft">
@@ -1604,13 +1634,15 @@ function ChatInputContent({
             }}
           >
             {responders && (
-              <ComposerResponders
-                selection={responders}
-                text={displayedText}
-                onTextChange={editText}
-                input={textareaRef}
-                onOpenChange={setRespondersOpen}
-              />
+              <div ref={responderTrigger}>
+                <ComposerResponders
+                  selection={responders}
+                  text={displayedText}
+                  onTextChange={editText}
+                  input={textareaRef}
+                  onOpenChange={setRespondersOpen}
+                />
+              </div>
             )}
             <ComposerTools
               onSchedule={
@@ -1704,6 +1736,17 @@ function ChatInputContent({
             )}
           </div>
           <div className="composer-actions">
+            {sourceStop && (
+              <button
+                type="button"
+                className="chat-input-btn chat-input-btn--stop"
+                aria-label="Stop original agent"
+                title="Stop original agent"
+                onClick={sourceStop}
+              >
+                <UiIcon name="stop" />
+              </button>
+            )}
             {tokenState && (
               <TokenBar
                 tokenState={tokenState}
