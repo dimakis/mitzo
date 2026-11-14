@@ -49,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-ordinary-surface.tsx':
     '0102c4afb4155713c54e8cef15b0ba16c91b675b42d245e420592d8134381573',
   '../../tests/integration/symposium-ordinary-acceptance.test.tsx':
-    '75e48f846d549c997d8cbcec19d2b6393cf3b09d6feb8a2d4e556bd97fc11062',
+    '44ed23e9feca024544fb0ede5f237ae8946657b5f7323137587d31c93bb16124',
   '../../tests/integration/symposium-required-owners.test.ts':
     'dfb7f311eab054c9f27e5401610819a5e743516ac2e22461fae1596e6b79aa01',
   '../../tests/offline/symposium-ordinary-surface.spec.ts':

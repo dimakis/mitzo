@@ -338,3 +338,26 @@ retains screenshots/traces before failure. No name-geometry pass follows from
 this run. The corrected adapter selects the declared iOS panel at phone widths
 and Web at desktop using only section `hidden` state; approved source bytes and
 product styles remain unchanged. It then follows that panel's Close control.
+
+## Independent review successor
+
+Slice 1 review correction `f39c50944982993445f63beac964e02f134057a6` is
+integrated as `7c959bac4962768b07ba5d2bc0924bd33de0df69`. The owner repairs
+native delivery-packet suppression, source rows awaiting reply reconciliation,
+independent original/shared Stop controls, and portal retirement on navigation
+to a different conversation. Owner documentation is retained without changing
+the approved HTML/ledger. Combined registration now preserves 2,474 entries at
+`v1.0.1160-symposium-integrated-acceptance`.
+
+`accepted-review-f39-operator-bodies.log` records **35 passes in five files**.
+The full real-application journey additionally asserts each distinct operator
+body and projection ID, excludes the exact native delivery packet from visible
+text, and checks prompt-before-source-output order while streaming and after
+finalization. Acceptance source SHA256 is
+`44ed23e9feca024544fb0ede5f237ae8946657b5f7323137587d31c93bb16124`.
+The owner's focused component tests prove independent Stop callbacks during a
+reviewer uncertainty and retirement of deferred dispatch on source navigation.
+That simultaneous control case is component evidence: the actual native
+application journey verifies reviewer-only uncertain Stop and concurrent source
+activity separately, not simultaneous independently running SDK source Stop.
+Hosted render/full-CI/exact-head review must be observed again on the successor.

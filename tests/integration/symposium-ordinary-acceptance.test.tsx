@@ -532,6 +532,33 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     expect([sourceTurn, reviewerTurn].sort()).toEqual([3, 4]);
     await waitFor(() => runtime.streamTurn(sourceTurn, 'Live original ordinary source activity'));
     await screen.findByText('Live original ordinary source activity', {}, { timeout: 10000 });
+    // Native input contains delivery instructions and retained discussion. The
+    // operator's separate projected bodies/IDs must remain the visible prompts.
+    const assertOperatorBodies = async () => {
+      for (const prompt of (await h.api.view(group)).messages.filter(
+        (message) => message.author === 'operator',
+      )) {
+        expect(screen.getAllByText(prompt.text, { exact: true })).toHaveLength(1);
+        const row = mounted.ui.container.querySelector(
+          `[data-command-request="${prompt.projectionId}"]`,
+        );
+        expect(row).not.toBeNull();
+        expect(row!.textContent).toContain(prompt.text);
+      }
+      const sourceInput = activeTurns[sourceTurn - 1].params.input as Array<{
+        type: string;
+        text?: string;
+      }>;
+      for (const part of sourceInput.filter((part) => part.type === 'text' && part.text)) {
+        expect(part.text).not.toBe(acceptedFanout.text);
+        expect(screen.queryByText(part.text!, { exact: true })).toBeNull();
+      }
+      const transcript = mounted.ui.container.querySelector('.chat-messages')!.textContent!;
+      expect(transcript.indexOf(acceptedFanout.text)).toBeLessThan(
+        transcript.indexOf('Live original ordinary source activity'),
+      );
+    };
+    await waitFor(assertOperatorBodies, { timeout: 10000 });
     expect.soft(screen.queryByRole('button', { name: 'Choose who replies' })).not.toBeNull();
     const busyInput = screen.getByRole('textbox', { name: 'Message Mitzo' });
     fireEvent.change(busyInput, {
@@ -558,6 +585,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       () => expect(screen.getAllByText('Live original ordinary source activity')).toHaveLength(1),
       { timeout: 10000 },
     );
+    await waitFor(assertOperatorBodies, { timeout: 10000 });
     expect.soft(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(busyInput);
     expect
       .soft((screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value)
