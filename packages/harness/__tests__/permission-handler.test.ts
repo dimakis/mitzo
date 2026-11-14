@@ -11,6 +11,7 @@ import { setSkillPolicy } from '../src/skill-policy.js';
 import { applyTierOverrides } from '../src/tool-tiers.js';
 import type { SessionTransport } from '../src/session-transport.js';
 import type { TelosOutcomeProposal } from '@mitzo/protocol';
+import { PERMISSION_EXPIRED_MESSAGE } from '../src/approval-outcome.js';
 
 function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
@@ -689,8 +690,7 @@ describe('buildPermissionHandler', () => {
       ).toBe(false);
       expect(await execution).toMatchObject({
         behavior: 'deny',
-        message:
-          'Tool approval expired without a response. Wait for the user; do not recreate the unchanged request automatically.',
+        message: PERMISSION_EXPIRED_MESSAGE,
       });
       expect(allowList.size).toBe(0);
       expect(getPendingRequestsBySession('deadline-session')).toEqual([]);
@@ -1143,7 +1143,7 @@ describe('buildPermissionHandler', () => {
         message:
           cause === 'abort'
             ? 'Tool approval cancelled because the operation was aborted'
-            : 'Tool approval expired without a response. Wait for the user; do not recreate the unchanged request automatically.',
+            : PERMISSION_EXPIRED_MESSAGE,
       });
       expect(lifecycle).toHaveBeenLastCalledWith({
         type: 'resolved',

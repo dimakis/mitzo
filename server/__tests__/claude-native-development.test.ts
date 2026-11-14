@@ -179,17 +179,17 @@ it('executes native SDK Bash repository work for Vertex, personal and EnMaaS pol
       rmSync(root, { recursive: true, force: true });
     }
   }
-  expect(observations[0]).toMatchObject({
+  expect(observations[0], JSON.stringify(observations[0], null, 2)).toMatchObject({
     mode: 'vertex-like',
     insideWritten: true,
     siblingWritten: true,
   });
-  expect(observations[1]).toMatchObject({
+  expect(observations[1], JSON.stringify(observations[1], null, 2)).toMatchObject({
     mode: 'personal-policy',
     insideWritten: true,
     siblingWritten: true,
   });
-  expect(observations[2]).toMatchObject({
+  expect(observations[2], JSON.stringify(observations[2], null, 2)).toMatchObject({
     mode: 'enmaas-like',
     insideWritten: true,
     siblingWritten: true,

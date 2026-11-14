@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import { throwIfApprovalExpired, expiredApprovalToolResult } from '@mitzo/harness';
 import { TelosSourcePacketSchema } from '@mitzo/protocol';
 import type { TelosWorkSourceSnapshot } from '@mitzo/protocol';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
@@ -65,6 +66,7 @@ export async function executeNativeTelosArtifactOperation(
       current();
       const permission = await owners.approve(name, structuredClone(input), ctx.signal);
       await renew();
+      throwIfApprovalExpired(permission);
       if (permission.behavior !== 'allow' || !isDeepStrictEqual(permission.updatedInput, input))
         unavailable();
     };
@@ -194,7 +196,9 @@ export async function executeNativeTelosArtifactOperation(
     const text = bytes.toString('utf8');
     const encoding = Buffer.from(text, 'utf8').equals(bytes) ? 'utf8' : 'base64';
     return result({ ...artifact, encoding, content: bytes.toString(encoding) });
-  } catch {
+  } catch (error) {
+    const expired = expiredApprovalToolResult(error);
+    if (expired) return expired;
     return {
       isError: true,
       content:

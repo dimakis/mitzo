@@ -1,7 +1,33 @@
 import { expect, it } from 'vitest';
+import { ApprovalExpiredError } from '@mitzo/harness';
 import { executeAgentCommunicationTool } from '../agent-communication-tools.js';
 import { AgentCommunicationError } from '../agent-message-runtime.js';
 import { retainCallbackOutcome, retainedCallbackOutcome } from '../turn-callbacks.js';
+
+it('preserves approval expiry and its settled receipt through the public tool consumer', async () => {
+  const error = retainCallbackOutcome(new ApprovalExpiredError(), 'settled');
+  const requestId = '00000000-0000-4000-8000-000000000002';
+  const result = await executeAgentCommunicationTool(
+    async () => {
+      throw error;
+    },
+    { conversationId: 'sender', requestId, recipientConversationId: 'worker' },
+  );
+  expect(result.isError).toBe(true);
+  expect(JSON.parse(result.content)).toMatchObject({
+    failure: {
+      code: 'approval_expired',
+      phase: 'approval',
+      effectStatus: 'not_started',
+      recovery: 'renew_approval',
+    },
+    message: expect.stringContaining('Approval timed out'),
+    conversationId: 'sender',
+    requestId,
+    recipientConversationId: 'worker',
+  });
+  expect(retainedCallbackOutcome(result)).toBe('settled');
+});
 
 it('projects capability refusal through the tool consumer with stable identifiers and the original settlement classification', async () => {
   const error = retainCallbackOutcome(

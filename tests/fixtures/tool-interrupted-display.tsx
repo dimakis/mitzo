@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import type { StreamingBlock } from '@mitzo/protocol';
+import { toolFailure, toolFailureAction, type StreamingBlock } from '@mitzo/protocol';
 import { ToolPill } from '../../frontend/src/components/ToolPill';
 import { ToolGroup } from '../../frontend/src/components/ToolGroup';
 import { AgentActivity } from '../../frontend/src/components/AgentActivity';
@@ -71,6 +71,23 @@ function Fixture() {
           ]}
           replied={false}
         />
+        <section aria-label="Expired approval">
+          <ToolPill
+            block={{
+              ...owned,
+              blockId: 'expired-approval',
+              toolName: 'PrepareLocalRepository',
+              toolInterrupted: false,
+              toolError: true,
+              toolResult: JSON.stringify({
+                failure: toolFailure('approval_expired', 'approval', 'not_started'),
+                message: toolFailureAction(
+                  toolFailure('approval_expired', 'approval', 'not_started'),
+                ),
+              }),
+            }}
+          />
+        </section>
       </main>
     </MemoryRouter>
   );

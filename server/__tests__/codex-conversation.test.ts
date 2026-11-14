@@ -2650,7 +2650,7 @@ async function setup(
   const onClosed = vi.fn();
   const onError = vi.fn();
   const onTransportClosed = vi.fn();
-  const requestUserInput = vi.fn(
+  const requestUserInput = vi.fn<NonNullable<CodexConversationOptions['requestUserInput']>>(
     async (_params: Record<string, unknown>, _signal: AbortSignal) => ({
       answers: { q1: { answers: ['Work'] } },
     }),
@@ -6117,7 +6117,8 @@ it.each([undefined, '/sandbox/workspaces/task'])(
 );
 
 it('routes native user input with active thread/turn identity and abort lifetime', async () => {
-  const { c, callbacks, requestUserInput } = await setup();
+  const { c, callbacks, requestUserInput, store, getBinding } = await setup();
+  const recordFailure = vi.spyOn(store, 'recordToolFailure');
   await c.send({ id: 'question', prompt: 'ask' });
   const params = {
     threadId: 'provider-thread',
@@ -6142,7 +6143,21 @@ it('routes native user input with active thread/turn identity and abort lifetime
     new AbortController().signal,
   );
   expect(response).toEqual({ answers: { q1: { answers: ['Work'] } } });
-  expect(requestUserInput).toHaveBeenCalledWith(params, expect.any(AbortSignal));
+  expect(requestUserInput).toHaveBeenCalledWith(params, expect.any(AbortSignal), {
+    observeFailure: expect.any(Function),
+  });
+  const observer = requestUserInput.mock.calls[0][2]!;
+  const failure = toolFailure('approval_expired', 'approval', 'not_started');
+  observer.observeFailure(failure);
+  expect(recordFailure).toHaveBeenCalledExactlyOnceWith(
+    'app',
+    getBinding(),
+    'question',
+    'turn-1',
+    'question-1',
+    failure,
+    'native_approval',
+  );
   await expect(
     callbacks.onRequest(
       'item/tool/requestUserInput',
@@ -6151,6 +6166,9 @@ it('routes native user input with active thread/turn identity and abort lifetime
     ),
   ).rejects.toThrow('identity');
   expect(requestUserInput).toHaveBeenCalledTimes(1);
+  c.close();
+  expect(() => observer.observeFailure(failure)).toThrow();
+  expect(recordFailure).toHaveBeenCalledTimes(1);
 });
 
 it('waits for completion hooks before releasing queued turns', async () => {
