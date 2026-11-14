@@ -3,14 +3,11 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '@mitzo/protocol/event-store';
-import {
-  begin,
-  joinParticipant,
-} from '../../packages/protocol/__tests__/fixtures/collaboration-navigation.js';
+import { begin, joinParticipant } from './fixtures/collaboration-navigation.js';
 import { sessionConversationPage } from '../session-conversation-list.js';
 import { SessionOverviewEmitter, type SessionOverviewDeps } from '../session-overview.js';
 import { registerPending, removePending } from '@mitzo/harness';
-import { conversationActivities } from '../../frontend/src/lib/conversation-activity.js';
+import { conversationActivities } from '@mitzo/protocol';
 
 let store: EventStore, directory: string, path: string;
 beforeEach(() => {
@@ -96,8 +93,8 @@ it('delivers actual permission attention through the emitter and Chats consumer 
       awaitingApproval: false,
       spawnEnabled: false,
     }),
-    getSessionTitle: (id) => store.getSession(id)?.summary ?? undefined,
-    isSessionHidden: (id) => store.isSessionHidden(id),
+    getSessionTitle: (id: string) => store.getSession(id)?.summary ?? undefined,
+    isSessionHidden: (id: string) => store.isSessionHidden(id),
   } as unknown as SessionOverviewDeps);
   registerPending('navigation-permission', 'Read', vi.fn(), {}, undefined, 'peer');
   try {

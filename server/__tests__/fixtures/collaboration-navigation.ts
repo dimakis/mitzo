@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { EventStore } from '../../src/event-store.js';
+import type { EventStore } from '@mitzo/protocol/event-store';
 
 export const settings = {
   binding: {

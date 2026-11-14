@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { EventStore } from '../src/event-store.js';
-import { begin, joinParticipant } from './fixtures/collaboration-navigation.js';
+import {
+  begin,
+  joinParticipant,
+} from '../../../server/__tests__/fixtures/collaboration-navigation.js';
 
 let store: EventStore, directory: string, database: string;
 beforeEach(() => {
