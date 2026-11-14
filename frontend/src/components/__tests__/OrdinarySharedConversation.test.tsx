@@ -216,6 +216,23 @@ it('retains the shared composer and transcript while a resized page requalifies 
   expect(screen.getByText('Ordinary history before joining')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Choose who replies' })).toBeTruthy();
   expect(f.sends).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Current agent' }));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('checkbox', { name: 'Current agent' }) as HTMLInputElement).checked,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(f.sends).toHaveLength(1));
+  expect(f.sends[0].responders).toEqual({ kind: 'selected', sessionIds: ['reviewer'] });
   await act(async () => release());
   expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
 });
