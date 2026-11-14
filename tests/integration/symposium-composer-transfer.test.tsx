@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import React, { type ComponentProps } from 'react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { useStore } from 'zustand';
@@ -13,6 +16,24 @@ import { queueDraft, queuedText } from '../../frontend/src/test-utils/queued-dra
 // Client/portal integration, independently of the authenticated application
 // journey. Only wire transport is deterministic; parser, exact receipt/assignment
 // observers, draft/queue hooks and actual mounted input owner remain production.
+beforeAll(async () => {
+  console.info(
+    'ORDINARY_TRANSFER_SOURCE',
+    JSON.stringify({
+      head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      branch:
+        execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim() ||
+        'detached HEAD',
+      testSha256: createHash('sha256')
+        .update(await readFile(new URL(import.meta.url)))
+        .digest('hex'),
+      node: process.version,
+      build: 'Vitest source transpilation',
+      boundary:
+        'Actual client/protocol/ChatInputHost/ChatInput; deterministic wire. No authenticated application or browser geometry qualification.',
+    }),
+  );
+});
 afterEach(() => {
   cleanup();
   localStorage.clear();
@@ -118,13 +139,13 @@ async function fixture(initial: string | null) {
 }
 
 it.each([
-  { source: null, event: '_send_accepted' },
-  { source: 'original-chat', event: '_send_accepted' },
-  { source: null, event: 'session_id' },
-  { source: 'original-chat', event: 'session_id' },
+  { source: null, event: '_send_accepted', acceptedFirst: false },
+  { source: 'original-chat', event: '_send_accepted', acceptedFirst: false },
+  { source: null, event: 'session_id', acceptedFirst: false },
+  { source: 'original-chat', event: 'session_id', acceptedFirst: true },
 ])(
-  'transfers later draft and remaining queue through exact $event assignment from $source',
-  async ({ source, event }) => {
+  'transfers draft/queue through $event from $source (correlated acceptance first: $acceptedFirst)',
+  async ({ source, event, acceptedFirst }) => {
     const f = await fixture(source);
     try {
       f.running(true);
@@ -141,6 +162,16 @@ it.each([
       expect(queuedText('Remaining queued work')).toBeTruthy();
       originalInput.focus();
       originalInput.setSelectionRange(2, 9);
+      // An existing ordinary fork is selected by its original-session receipt.
+      // A bare foreign session_id is filtered by the real client; the subsequent
+      // matching legacy frame must not recreate that already transferred owner.
+      if (acceptedFirst)
+        f.receive({
+          type: '_send_accepted',
+          originalSessionId: source,
+          sessionId: 'assigned-chat',
+          clientMsgId: command.clientMsgId,
+        });
       f.receive({
         type: event,
         originalSessionId: source,

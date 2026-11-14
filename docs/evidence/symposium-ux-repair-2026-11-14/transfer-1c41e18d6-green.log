@@ -1,0 +1,22 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+[90mstdout[2m | tests/integration/symposium-composer-transfer.test.tsx
+[22m[39mORDINARY_TRANSFER_SOURCE {"head":"1c41e18d6dca2165f09c5f4adf9eac48224079f9","branch":"test/symposium-integrated-acceptance","testSha256":"c9bc99ceb3e17211bd03de2d1a771cb714ed78f2ad6608834300876ecb3f9cdc","node":"v24.10.0","build":"Vitest source transpilation","boundary":"Actual client/protocol/ChatInputHost/ChatInput; deterministic wire. No authenticated application or browser geometry qualification."}
+
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers draft/queue through '_send_accepted' from null (correlated acceptance first: false)[32m 152[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers draft/queue through '_send_accepted' from 'original-chat' (correlated acceptance first: false)[32m 80[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers draft/queue through 'session_id' from null (correlated acceptance first: false)[32m 66[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers draft/queue through 'session_id' from 'original-chat' (correlated acceptance first: true)[32m 67[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mretires an unrelated navigation owner and does not promote late assignment into its draft[32m 34[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m   Start at [22m 15:40:24
+[2m   Duration [22m 2.44s[2m (transform 658ms, setup 0ms, import 1.15s, tests 466ms, environment 713ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

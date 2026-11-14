@@ -42,6 +42,27 @@ the exact `user_message` acceptance: all four assignment/fork variants fail, whi
 unrelated navigation, late assignment and return to the original saved draft pass.
 `centaur-b939-assignment-expanded-red.log` preserves that run separately.
 
+Correction: the expanded baseline's bare `session_id` from an existing source
+cannot independently select a foreign ordinary fork in this standalone client;
+the real client filters it. The supported existing-fork probe now uses exact
+`_send_accepted(originalSessionId)` followed by the matching legacy `session_id`
+frame and verifies no second remount or dispatch. New-chat legacy assignment,
+both receipt-first assignment paths and unrelated navigation remain separate
+controls. No active-session mutation or synthetic router bypass was introduced.
+
+At integrated1c41e18d6, the original three rollover/reopen/restart assertions pass.
+The corrected five transfer controls also pass (`transfer-1c41e18d6-green.log`).
+The strengthened application journey exposes a new participant-history Open
+blocker: search preview reads the exact participant, Open selects it and loads60
+ordinary history messages with no history error, but the safe transcript gate
+remains at `Checking retained discussion history…` and Send stays disabled.
+`participant-history-open-1c41e18d6-red.log` retains the original combined14/16
+run, including the now-corrected standalone legacy-fork fixture issue. Slice1
+confirmed the production cause: source setup returns `unavailable/foreign_origin`
+for a participant's history, with no qualified participant-history branch. A
+server-proven read relation and explicit route back to shared replies are being
+implemented by that owner; the acceptance gate is preserved.
+
 ## Separate terminal combined-CI failure
 
 Current published b939 full CI43604334027 is **FAILED**, job132476431194
@@ -57,3 +78,22 @@ No root cause, safe retry or successful outcome is inferred. The parity coordina
 confirms no verified current native-capture owner or accepted fix; the origin has
 that coordination gap. Slice3 has not changed this production surface. This is
 separate from the two confirmed Symposium regressions and original phone incident.
+
+Artifact14117309443 (`native-repository-workflows-43604334027-1`), SHA256
+`68d19e7e5dcba8d7611cc7dc723d9856046bbe27291593f849d030586cbcd53a`,
+contains the original account phase evidence. `native-ci-b939/` retains both
+immutable JSON files and the complete18-file artifact hash index. Both account
+receipts say preparation service `not-reached`, CAS calls0, helperErrors0;
+`preparationDiagnostics.stages/checks` are empty. These observations narrow the
+boundary but do not establish the thrown cause or authorize a replay. A bounded
+owner repair should preserve the original diagnostic IDs and emit an allowlisted
+code/stage/category at the failing object-capture boundary, without private bytes.
+
+For comparison, source2 head7bdb364c0 completed the same native workflow job
+132485565481 in full CI43607355855 successfully. This is a different branch and
+does not qualify the combined head or identify its failure. A read-only local
+tree-object packing probe produced59,432,913 bytes for that successful branch
+and68,196,209 bytes for b939. Both exceed16MiB, so this approximation cannot
+establish a branch-specific object-size cause. It is not the original CI pack,
+an execution of repository preparation, or permission to replay the uncertain
+operation. The original CI cause remains unknown.
