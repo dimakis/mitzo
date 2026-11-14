@@ -308,3 +308,41 @@ compare the accepted commit/tree against the tested combined candidate; PR test
 artifacts retain their original provenance and no post-merge full CI result is
 claimed. Accepted service composition and fresh final PR CI/review are still
 pending.
+
+## Required repository workflow remains unfinished
+
+Source assessment at local `9e6031f543f037de8c9be1f7a2da8b0aae33c292`
+and accepted base `416faccb366f64ab858897f5b4bfa465e91ef385` confirms a
+separate retained gap: an ordinary Claude chat starting in MGMT cannot yet use
+managed discovery, inspection and isolated preparation, adopt the checkout in
+the same conversation, then execute the next admitted turn there. Native SDK
+edit/check/commit probes starting in an already supplied checkout do not qualify
+this workflow. No full-parity completion is claimed.
+
+The existing catalog restricts repository tools to `codex-owned-local`.
+`captureNativeHostToolContext` requires a genuine `CodexConversation`,
+`OwnedLocalCodexChatAdmission`, pending native callback and original read facet.
+Production repository readers and the qualified preparation actor retain that
+owner. Same-chat adoption executes through the Codex `beforeRuntimeAdmission`
+barrier and `adoptPreparedRepositoryAtBoundary`, using the existing transition
+proof and Codex conversation/admission stores. Claude's existing SDK authority
+checks original account/operator/workspace custody but does not produce these
+repository facets or supply an equivalent next-turn adoption hook. Reusing the
+ordinary preparation account authority alone does not bridge these boundaries.
+
+The concrete dependency is a reviewed Claude SDK authority producer for the
+canonical repository/read owners plus integration with SDK admission/adoption.
+Adding route flags, constructing a native context from MCP input, or borrowing
+TaskExecution authority cannot satisfy it. This assessment adds no authority
+producer, registration or runtime behavior. Existing repository slice
+`44ef3681c6c8d7b7` remains active at item revision
+`50d7034f9a9ba7e182ed615b9ae9cdb82347516eaebd92436a08ad546e71ce01`
+and work-context revision
+`aada1f6a3aea9597ba119fd1c7dd56a5449abd6e32e38b069813cda01cfb00c4`,
+with no assigned worker. Placement and technical custody require coordination
+with the existing repository/adoption owners; this ordinary recovery session
+has not replaced that assignment or started another feature programme. Required
+qualification must begin in a MGMT-like root and prove actual next-turn execution
+after adoption, including the retained profile, source/base, dirty-work,
+denial/cancellation/revocation and uncertain-receipt controls. This is a source
+assessment and retained delivery dependency, not an implementation or test result.
