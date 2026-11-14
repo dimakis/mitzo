@@ -233,6 +233,9 @@ for (const theme of ['light', 'dark'] as const)
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
       ).toBe(true);
       await expect(input).toBeInViewport();
+      const normalNameWidth = await agents
+        .locator('.conversation-participant-names')
+        .evaluate((node) => node.getBoundingClientRect().width);
       await page.screenshot({ path: info.outputPath(`ordinary-responsive-${width}-${theme}.png`) });
       await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
       await expect(input).toBeInViewport();
@@ -285,9 +288,28 @@ for (const theme of ['light', 'dark'] as const)
       // contract, so a failure remains an inspectable visual comparison.
       await expect(agents.locator('.conversation-participant-names')).toBeVisible();
       const participantGeometry = await agents.evaluate((button) => {
+        const measure = (node: Element) => {
+          const box = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          return {
+            className: node.className,
+            label: node.getAttribute('aria-label'),
+            width: box.width,
+            left: box.left,
+            right: box.right,
+            minWidth: style.minWidth,
+            maxWidth: style.maxWidth,
+            flex: style.flex,
+            gap: style.gap,
+            padding: style.padding,
+            overflow: style.overflow,
+            fontSize: style.fontSize,
+          };
+        };
         const names = button.querySelector('.conversation-participant-names')!;
         const box = names.getBoundingClientRect();
         const buttonBox = button.getBoundingClientRect();
+        const header = button.closest('.workspace-controls');
         return {
           width: box.width,
           left: box.left,
@@ -295,12 +317,39 @@ for (const theme of ['light', 'dark'] as const)
           buttonWidth: buttonBox.width,
           text: names.textContent,
           textScale: getComputedStyle(document.documentElement).fontSize,
+          ancestors: [names, names.parentElement!, button, button.parentElement!].map(measure),
+          actions: [...(header?.querySelectorAll('button,a') ?? [])].map(measure),
+          counts: [
+            ...button.querySelectorAll(
+              '.conversation-participant-count,.conversation-participant-wide-count',
+            ),
+          ]
+            .map(measure)
+            .filter((node) => node.width > 0),
         };
       });
-      expect(participantGeometry.width).toBeGreaterThanOrEqual(64);
-      expect(participantGeometry.left).toBeGreaterThanOrEqual(0);
-      expect(participantGeometry.right).toBeLessThanOrEqual(width);
-      observations.push({ width, theme, participantGeometry });
+      observations.push({ width, theme, normalNameWidth, participantGeometry });
+      await writeFile(
+        info.outputPath(`ordinary-responsive-checkpoint-${width}.json`),
+        JSON.stringify({ ...buildIdentity, observations }, null, 2),
+      );
+      expect.soft(normalNameWidth).toBeGreaterThanOrEqual(64);
+      expect.soft(participantGeometry.width).toBeGreaterThanOrEqual(64);
+      expect.soft(participantGeometry.left).toBeGreaterThanOrEqual(0);
+      expect.soft(participantGeometry.right).toBeLessThanOrEqual(width);
+      for (const count of participantGeometry.counts)
+        expect.soft(count.right).toBeLessThanOrEqual(width);
+      if (width < 768) {
+        await expect
+          .soft(page.getByRole('button', { name: 'Links & access', exact: true }))
+          .toBeInViewport({ ratio: 1 });
+        await expect
+          .soft(page.getByRole('button', { name: 'New chat', exact: true }))
+          .toBeInViewport({ ratio: 1 });
+        await expect
+          .soft(page.getByRole('link', { name: 'Back to chats', exact: true }))
+          .toBeInViewport({ ratio: 1 });
+      }
     }
     expect(writes.filter((path) => path.endsWith('/messages') || path.endsWith('/joins'))).toEqual(
       [],

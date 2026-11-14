@@ -361,3 +361,34 @@ That simultaneous control case is component evidence: the actual native
 application journey verifies reviewer-only uncertain Stop and concurrent source
 activity separately, not simultaneous independently running SDK source Stop.
 Hosted render/full-CI/exact-head review must be observed again on the successor.
+
+## Large-text header failure and correction candidate
+
+Corrected reference capture in hosted run `43593515922`, head `d450b3da5`,
+merge `65e3c022eef27a935fa67a49a3342b24d49ed941`, reaches the real header
+assertion. All six engine/theme cases fail at 320px/200% text: name width 52px
+against the 64px minimum. Inspection of paired mobile screenshots also shows
+trailing link/new-chat controls outside the captured header at that text size.
+`hosted-render-d450b3da5-name-width-failure.log` and `render-d450b3da5/` retain
+the failure, six original paired screenshots and full artifact hashes/index.
+The standalone approved reference lacks its preview host's global `lucide`,
+leaving blank reference icon slots; this comparison establishes no pixel parity.
+
+Slice 1 correction `bf5dde859e479fc3f58f3769299147552f7691c4` is integrated as
+`88ee54cf6`. It reflows existing named header controls and reserves count space;
+the owner also strengthens its narrow fixture using real workspace controls and
+access actions. The independent responsive test keeps its assertion, adds normal
+and large-text computed parent/action geometry, retains checkpoint JSON before
+assertions, and requires phone Back/access/new-chat controls fully in the viewport.
+`header-reflow-88ee54cf6-design.log` records 118 passes and one existing skip in
+eight files. Runtime registration is `v1.0.1161-symposium-integrated-acceptance`.
+Hosted acceptance of this correction remains pending.
+
+At `9553bfc9e`, hosted application job `132444537520` in run `43594003357`
+passes the stronger packet/body/order journey; compile/source preflight and
+frontend build pass in full CI `43594003418`. Its render job still fails before
+the correction. Native GitHub REST artifact/log retrieval then reached the same
+account's hourly quota (reset `2026-11-14T12:30:55Z`); GraphQL check summaries
+remain readable through that existing account. No account/credential switch is
+used. [Current acceptance matrix](acceptance-matrix.md) separates all observed
+results and remaining consumer, visual, phone and runtime gaps.
