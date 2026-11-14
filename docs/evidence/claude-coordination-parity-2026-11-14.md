@@ -55,6 +55,14 @@ durable ACK recovery. Full CI is reported on the draft PR. Local review found no
 blocking issues; its wait-test
 coverage observation was addressed by synchronizing on subscription.
 
+The first hosted run, `43551595340`, exposed two stale Session Access assertions
+that still rejected explicit Claude profiles selecting the now-qualified saved-profile
+helpers. The correction checks default exposure, explicit selection, empty-profile
+exclusion and the active skill ceiling for all six coordination helpers on personal
+Claude and Vertex. The unrelated `RequestWebAccess` route restriction remains covered.
+This is a consumer-test correction; the runtime sources and reviewed pins are unchanged.
+The correction still requires its own hosted CI and Centaur verification.
+
 ## Integration custody and limits
 
 PR #1342 remains draft/open/conflicting at `b2675af8199ab8a99f3628d3d93c4e65145c7244`

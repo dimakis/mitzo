@@ -12,7 +12,11 @@ import { projectSessionAccess, createSessionAccessRouter } from '../session-acce
 const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('../logger.js', () => ({ createLogger: () => ({ warn }) }));
 
-function fixture(provider = 'anthropic-claude', location = 'local', profile?: { tools: [] }) {
+function fixture(
+  provider = 'anthropic-claude',
+  location = 'local',
+  profile?: { tools: Array<{ id: string; version: 1 }> },
+) {
   const session = {
     sessionId: 'chat',
     model: 'selected-model',
@@ -143,7 +147,7 @@ describe('Session Access configured helper support', () => {
       tools: expect.arrayContaining([expect.objectContaining({ name, state: 'restricted' })]),
     });
   });
-  it.each(['RequestWebAccess', 'SymposiumReadProfiles', 'SymposiumProposeProfile'])(
+  it.each(['RequestWebAccess'])(
     'distinguishes default SDK exposure from explicit-profile eligibility for %s',
     (name) => {
       const f = fixture();
@@ -160,6 +164,38 @@ describe('Session Access configured helper support', () => {
           'claude-sdk',
         ),
       ).toThrow(/unavailable/);
+    },
+  );
+  it.each(
+    ['anthropic-claude', 'anthropic-vertex'].flatMap((provider) =>
+      [
+        'SymposiumReadProfiles',
+        'SymposiumProposeProfile',
+        'StartSession',
+        'SchedulePrompt',
+        'SessionTimers',
+        'SendSessionMessage',
+      ].map((name) => [provider, name]),
+    ),
+  )(
+    'projects selected coordination helper %s %s with profile and skill limits',
+    (provider, name) => {
+      const support = (state: string) => ({
+        tools: expect.arrayContaining([expect.objectContaining({ name, state })]),
+      });
+      expect(fixture(provider).read().helperSupport).toMatchObject(support('supported'));
+      expect(fixture(provider, 'local', { tools: [] }).read().helperSupport).toMatchObject(
+        support('excluded'),
+      );
+      const profile = { tools: [{ id: `mitzo:${name}`, version: 1 as const }] };
+      expect(() => assertAgentToolRoute(profile as never, 'claude-sdk')).not.toThrow();
+      const selected = fixture(provider, 'local', profile);
+      expect(selected.read().helperSupport).toMatchObject(support('supported'));
+      selected.session.activeSkillPolicy = new Set(['Read']);
+      expect(selected.read().helperSupport).toMatchObject(support('restricted'));
+      selected.session.activeSkillPolicy = new Set([`mcp__mitzo-connections__${name}`]);
+      expect(selected.read().helperSupport).toMatchObject(support('supported'));
+      expect(selected.session.sessionAllowList.size).toBe(0);
     },
   );
   it('keeps unqualified routes, lost owners and mismatched identities unknown', () => {
