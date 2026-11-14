@@ -293,3 +293,29 @@ the exact one-line correction from owner `bb219f4218b73ce5946b04d63649480d48040b
 is integrated separately from that owner's standalone registry. The earlier
 server/pin checks pass. Full combined CI and the new visible-name assertion must
 be observed on the later head before extending this acceptance claim.
+
+## Fresh accepted-main integration and named-header checkpoint
+
+Accepted main advanced to `19aa8a19b274ae1fee416f0f187c772111251366`
+(Claude queue continuation). Local merge `13926ac13` retains those owner changes
+and both repair slices; the only conflict was reviewed source registration.
+Its registered keys were preserved and hashes regenerated from the combined
+bytes as runtime revision `v1.0.1158-symposium-integrated-acceptance`.
+This local verification-branch merge does not merge a GitHub PR or deploy.
+
+Slice 1 header fix `f6b7119e1` is integrated as `f9d752fe6344c0e5b5e44333c4d6af0239898021`.
+It enables names on the existing compact Agents action after sharing; the
+slice 2 history/activity wrapper remains intact. At that exact combined source,
+`accepted-main-19aa-header-f9d752f.log` records **131 passes and one existing skip
+across 11 files**, including the actual authenticated application journey,
+five required-owner omission controls, retained composer/status consumers and
+109 design checks. The route is `/chat/:sessionId`, widths 320/390/1280, Node
+24.10.0, Vitest source transpilation/JSDOM. This establishes no visual pass.
+
+The pending hosted render check preserves fresh-setup and closed-dialog
+conversation reference screenshots, asserts visible participant names and at
+least 64px of name width at 200% text, and records their actual bounds. Full CI,
+hosted geometry/visual comparison and exact-head independent review remain
+required on this successor. The retained icon-only render failure evidence,
+original phone-incident identifier gap and physical-phone/live-runtime limits
+remain unchanged.

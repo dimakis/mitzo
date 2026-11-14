@@ -275,6 +275,23 @@ for (const theme of ['light', 'dark'] as const)
       // Retain both render artifacts before asserting the approved visible-name
       // contract, so a failure remains an inspectable visual comparison.
       await expect(agents.locator('.conversation-participant-names')).toBeVisible();
+      const participantGeometry = await agents.evaluate((button) => {
+        const names = button.querySelector('.conversation-participant-names')!;
+        const box = names.getBoundingClientRect();
+        const buttonBox = button.getBoundingClientRect();
+        return {
+          width: box.width,
+          left: box.left,
+          right: box.right,
+          buttonWidth: buttonBox.width,
+          text: names.textContent,
+          textScale: getComputedStyle(document.documentElement).fontSize,
+        };
+      });
+      expect(participantGeometry.width).toBeGreaterThanOrEqual(64);
+      expect(participantGeometry.left).toBeGreaterThanOrEqual(0);
+      expect(participantGeometry.right).toBeLessThanOrEqual(width);
+      observations.push({ width, theme, participantGeometry });
     }
     expect(writes.filter((path) => path.endsWith('/messages') || path.endsWith('/joins'))).toEqual(
       [],

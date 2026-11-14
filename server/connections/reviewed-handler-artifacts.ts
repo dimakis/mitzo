@@ -34,7 +34,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputHost.test.tsx':
     'bf330f2120b2c37b577fc10be3cad83fadf4edf37f540d07e499d060be053aba',
   '../../frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx':
-    '5db2246ee5fac185f0cfcec84c6ff5399344598b69797f91a1aca52ab9849d37',
+    'c1d80330a35f494b848bfe2c016b011c027bc32383940cb06731d8910fce1b7b',
   '../../frontend/src/lib/chat-input-mount.ts':
     '8f28e9efb545d02c0a625cc46b2be920e4bee4cb4b48eb7362d813e3c220d246',
   '../../frontend/src/lib/shared-conversation-composer.ts':
@@ -54,7 +54,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/support/application-event-source.ts':
     'da2d0fd6614485c42048e85449c79a0ab5a999f340fc29f7db4e02a90cbec973',
   '../../tests/offline/symposium-ordinary-responsive.spec.ts':
-    '9dd5ccbbbf09e10736bb541b5ee1814b9ae877030a24d5b8053def5ab2d42c0a',
+    '14387ccd08c112f21805112eca2093d57aa54f0a4c497b2b899d0e138f645cce',
   '../session-conversation-list.ts':
     '5ba1ca1e183a6fd5a6636a98fdd089ae6f20186464617b666a1344818a3388fb',
   '../../packages/protocol/src/conversation-activity.ts':
@@ -691,7 +691,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     '7f291e2b57ccffb5f31da98b809f90d21a5cd2d71949b38c8fb1683a4b4100e4',
   '../../frontend/src/components/SharedConversation.tsx':
-    '082f8f72eed48f957e293133439151df203ca7e3139d344b5135f3d9bc78cb14',
+    'bab897b2b12f90909d0bdf91aec2b90a685379c94e3dd7d435dfe6e0e83e3840',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
     '72047b4b24c6477ed7090001e4ffeefe36889b33fed6f5f0a66e31eab07d1067',
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
@@ -2384,9 +2384,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../frontend/src/components/ConversationAgents.tsx':
-    '1cae7c41c6c7c4580d2758b87ef9aea438669066a24f027a2e95961b05879179',
+    '28791885c34ecabe7f5bf18ac97c3c416ab2369cc3d30c1d3e2566b316b364ea',
   '../../frontend/src/components/ConversationAgents.css':
-    'e970fb2b3d1d20d6983077d5feb5ff3428bd99f192b56ad35f0b0009b28215e0',
+    '7406806aa6277a4a91760927c0c8d8922dad0e57c776b97aa47c79372c1cc367',
   '../../frontend/src/components/ComposerResponders.tsx':
     'b4bd7467859874c67e8bdac851ddc94cd71f9b4abfcf4ca7fd3437775c71be36',
   '../../frontend/src/components/ComposerResponders.css':
