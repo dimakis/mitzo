@@ -138,7 +138,10 @@ export function createOrdinaryLocalVertexSdkQuery<
   inputChanged(queue: AsyncQueue<SDKUserMessage>): void;
   /** Retain and deliver a refused input before abort retires its live viewer. */
   onUnsent(message: SDKUserMessage, error: SessionRuntimeError): void;
-  peerMessages?(): Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> | undefined;
+  peerMessages?():
+    | (Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> &
+        Partial<Pick<SdkAgentMessageRuntime, 'cancelInput'>>)
+    | undefined;
   mcpServers?(state: {
     retired: boolean;
     completing: boolean;
@@ -223,24 +226,31 @@ export function createOrdinaryLocalVertexSdkQuery<
       try {
         owners.authorizeSync(owners.controller.signal);
         const state = states.get(current());
-        const peerInput = owners
-          .peerMessages?.()
-          ?.beforeInput(message, !!state && !state.retired && !state.completing, state);
-        if (peerInput === false) continue;
+        const peers = owners.peerMessages?.();
+        const commandId = (message as SDKUserMessage & { mitzoMessageId?: unknown }).mitzoMessageId;
+        const ordinary = typeof commandId === 'string' && /^\S{1,200}$/.test(commandId);
         if (owners.beforeInput) {
-          const commandId = (message as SDKUserMessage & { mitzoMessageId?: unknown })
-            .mitzoMessageId;
-          if (typeof commandId === 'string' && /^\S{1,200}$/.test(commandId)) {
+          if (ordinary) {
             const allowed = owners.beforeInput!(commandId);
             assertOrdinarySynchronousFence(commandId, () =>
               typeof allowed === 'boolean' ? undefined : allowed,
             );
             if (allowed === false) {
+              // Stop's positive cancellation settles the ordinary input before
+              // the peer guard observes the now-paused recipient. No stdin ran.
+              peers?.cancelInput?.(message);
               continue;
             }
-          } else if (peerInput !== true)
-            throw Error('Original SDK input command identity unavailable');
+          }
         }
+        const peerInput = peers?.beforeInput(
+          message,
+          !!state && !state.retired && !state.completing,
+          state,
+        );
+        if (peerInput === false) continue;
+        if (owners.beforeInput && !ordinary && peerInput !== true)
+          throw Error('Original SDK input command identity unavailable');
       } catch (error) {
         refuseInput(message, error, 'ordinary_input_authority');
       }
@@ -252,7 +262,7 @@ export function createOrdinaryLocalVertexSdkQuery<
     const state: State = createSdkCallbackState();
     const { hooks, canUseTool } = sdkCallbackOptions(owners.options, owners.lifetime, () => state);
     const cliGuidance =
-      '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, inspect workspace instructions and available local CLI tools before concluding access is unavailable. For Google Workspace, check command -v gws and gws --help with Bash; a missing Sheets MCP tool does not establish that the local CLI is unavailable. CLI presence does not establish authentication: try only the authorized service read and report its actual result. Do not run gws auth login or search for credentials to repair access.\n';
+      '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, use the selected Connections and Tool Library helpers and their existing access flow. Use GoogleWorkspaceRead when available for Google Workspace reads; it keeps authentication with the configured Google account owner. Tool or CLI presence does not establish service access. Report missing selection or configuration precisely. Do not run gws auth login or search for credentials to repair access.\n';
     const systemPrompt = owners.options.systemPrompt;
     const options: Options = {
       ...owners.options,

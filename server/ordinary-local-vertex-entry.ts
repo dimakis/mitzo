@@ -92,6 +92,7 @@ export async function sendOwnedLocalVertexCommand(input: {
   operatorConnectionId: string;
   signal?: AbortSignal;
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+  sdkRetrySourceCommandId?: string;
   assertCurrent?(): void;
 }) {
   const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
@@ -110,6 +111,7 @@ export async function sendOwnedLocalVertexCommand(input: {
       input.signal,
       input.assertCurrent,
       input.ordinaryTurnLifecycle,
+      input.sdkRetrySourceCommandId,
     )),
     sessionId: input.sessionId,
   };
@@ -126,6 +128,7 @@ export async function startOwnedLocalVertexCommand(
     resume?: boolean;
     signal?: AbortSignal;
     ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    sdkRetrySourceCommandId?: string;
     preparationOperationId?: string;
     onSessionPrepared?(session: ManagedSession): void;
   },
@@ -164,7 +167,11 @@ export async function startOwnedLocalVertexCommand(
     await selected.owner.assertSetup(selected.commandId);
     if (started) {
       if (!queue) throw unavailable();
-      await queue.enqueue(selected.commandId, selected.preparationSignal);
+      await queue.enqueue(
+        selected.commandId,
+        selected.preparationSignal,
+        selected.sdkRetrySourceCommandId,
+      );
       return;
     }
     if (selected.resume) await owner.restoreAcknowledgedQueue();
@@ -197,7 +204,9 @@ export async function startOwnedLocalVertexCommand(
         ? [dirname(process.env.MITZO_ACCOUNT_PROFILES_FILE)]
         : [],
     });
-    const oldest = eventStore.getPendingOrdinaryLocalVertexCommandIds(sessionId)[0];
+    const oldest = selected.sdkRetrySourceCommandId
+      ? selected.commandId
+      : eventStore.getPendingOrdinaryLocalVertexCommandIds(sessionId)[0];
     const firstSelection = oldest
       ? eventStore.getOrdinaryLocalVertexCommandAdmission(oldest)!.selection
       : selected.expected.selection;
@@ -220,6 +229,7 @@ export async function startOwnedLocalVertexCommand(
         clientMsgId: selected.commandId,
         operatorConnectionId: options.ownerConnectionId,
         ordinarySdkAuthority: authority,
+        ordinarySdkRetrySourceCommandId: selected.sdkRetrySourceCommandId,
         ordinarySdkCommandOwner: (nativeQuery, push, reopen, control) => {
           queue = new OrdinaryLocalVertexCommandOwner({
             store: eventStore,
@@ -260,7 +270,7 @@ export async function startOwnedLocalVertexCommand(
             authSessionId: owner.authSessionId,
             identity: owner,
             initialCommandId: command.clientMsgId,
-            admit: (input, signal, current, lifecycle) => {
+            admit: (input, signal, current, lifecycle, retrySource) => {
               const parsed = OrdinaryLocalVertexCommandRequestSchema.parse(input);
               if (lifecycle) {
                 const old = turnLifecycles.get(parsed.clientMsgId);
@@ -268,7 +278,7 @@ export async function startOwnedLocalVertexCommand(
                   throw Error('Original SDK turn observer already retained');
                 turnLifecycles.set(parsed.clientMsgId, lifecycle);
               }
-              return owner.admitContinuation(input, signal, current).catch((error) => {
+              return owner.admitContinuation(input, signal, current, retrySource).catch((error) => {
                 if (!eventStore.getSendCommand(parsed.clientMsgId))
                   turnLifecycles.delete(parsed.clientMsgId);
                 throw error;
@@ -326,7 +336,7 @@ export async function startOwnedLocalVertexCommand(
   try {
     release = eventStore.reserveOrdinaryStartup([sessionId]);
     const result = await (options.resume
-      ? owner.admitResume(options.command)
+      ? owner.admitResume(options.command, options.sdkRetrySourceCommandId)
       : owner.admit(options.command));
     if (!result.dispatched && !started) owner.close();
     return { ...result, sessionId };

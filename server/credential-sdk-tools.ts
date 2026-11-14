@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { GoogleWorkspaceReadSchema } from './google-workspace-read.js';
+import { registerGoogleWorkspaceSdkTool } from './google-workspace-sdk.js';
 import {
+  StartSessionInputSchema,
   TelosCreateSessionInputSchema,
   AgentReadTasksSchema,
   AgentTaskProposalInputSchema,
@@ -11,8 +14,7 @@ import {
 } from './session-history-tools.js';
 import { sessionSdkHistoryTools } from './session-history-sdk.js';
 import type { EventStore } from './event-store.js';
-import { sessionLaunchTools } from './session-launch-tools.js';
-import { telosSessionLaunchDefinition } from './telos-session-launch-tool.js';
+import { sessionLaunchTools, sessionLaunchDefinitions } from './session-launch-tools.js';
 import { learningToolSchemas, learningToolDefinitions } from './session-learning-tools.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
@@ -45,6 +47,7 @@ import {
 import {
   credentialConnectionSchemas,
   credentialConnectionToolDefinitions,
+  nativeConnectionToolNames,
 } from './credential-connection-tools.js';
 import { sessionCredentialTools } from './session-credential-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
@@ -62,6 +65,8 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  GoogleWorkspaceRead: GoogleWorkspaceReadSchema,
+  StartSession: StartSessionInputSchema,
   AgentReadTasks: AgentReadTasksSchema,
   AgentProposeTask: AgentTaskProposalInputSchema,
   ...sessionHistoryToolSchemas,
@@ -189,14 +194,14 @@ export function createCredentialSdkServer(
     },
   };
   let current: { id: string; tools: ReturnType<typeof sessionCredentialTools> } | undefined;
-  return createSdkMcpServer({
+  const server = createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
     tools: filterAgentTools(session, [
       ...(boundary?.profilesOnly
         ? [
-            ...credentialConnectionToolDefinitions.filter(
-              (tool) => tool.name === 'ListConnections',
+            ...credentialConnectionToolDefinitions.filter((tool) =>
+              nativeConnectionToolNames.has(tool.name),
             ),
             ...profileToolDefinitions,
             ...sessionPromptDefinitions,
@@ -207,14 +212,12 @@ export function createCredentialSdkServer(
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
       ...(boundary?.historyEvents ? sessionHistoryToolDefinitions : []),
-      ...(boundary ? [telosSessionLaunchDefinition] : []),
+      ...(boundary ? sessionLaunchDefinitions : []),
     ]).map((definition) =>
       tool(
         definition.name,
-        boundary?.profilesOnly && definition.name === 'ListConnections'
-          ? 'List configured Mitzo connections and their access state. Returns metadata only; this Claude route does not expose connection access requests or service requests. Credentials remain private. Open Connections to configure services.'
-          : definition.description,
-        schemas[definition.name as keyof typeof schemas].shape,
+        definition.description,
+        schemas[definition.name as Exclude<keyof typeof schemas, 'GoogleWorkspaceRead'>].shape,
         async (input, extra) => {
           const callSignal =
             extra !== null &&
@@ -294,7 +297,11 @@ export function createCredentialSdkServer(
                     }),
                   );
                 }
-                if (definition.name === 'TelosCreateSession' && authority) {
+                if (
+                  (definition.name === 'StartSession' ||
+                    definition.name === 'TelosCreateSession') &&
+                  authority
+                ) {
                   await authority.assertCurrent(signal);
                   const result = await sessionLaunchTools({
                     sessionId: id,
@@ -312,7 +319,7 @@ export function createCredentialSdkServer(
                         (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
                       ),
                     },
-                    'TelosCreateSession',
+                    definition.name,
                   );
                   await authority.assertCurrent(signal);
                   return {
@@ -421,4 +428,7 @@ export function createCredentialSdkServer(
       ),
     ),
   });
+  if (boundary)
+    registerGoogleWorkspaceSdkTool(server.instance, sessionId, session, registry, boundary);
+  return server;
 }
