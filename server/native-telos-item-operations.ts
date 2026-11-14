@@ -9,6 +9,7 @@ import type { TelosItemStore } from './telos-item-store.js';
 import type { TelosWorkStore } from './telos-work-store.js';
 import { TelosGetItemInput, TelosUpdateItemInput } from './telos-item-tools.js';
 import type { TelosToolResult } from './telos-tool.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 
 type Name = 'TelosGetItem' | 'TelosUpdateItem';
 export interface NativeTelosItemOwners {
@@ -106,7 +107,7 @@ export async function executeNativeTelosItemOperation(
     return { content: JSON.stringify({ ok: true, ...receipt }), isError: false };
   } catch (error) {
     const expired = expiredApprovalToolResult(error);
-    if (expired) return expired;
+    if (expired) return retainCallbackOutcome(expired, 'settled');
     const message = error instanceof Error ? error.message : '';
     const known = [
       'Telos item changed;',

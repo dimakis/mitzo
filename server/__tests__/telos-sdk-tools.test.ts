@@ -47,6 +47,7 @@ async function fixture(explicit: boolean | 'excluded' = false) {
   const registry = new SessionRegistry();
   cleanup.push(() => registry.dispose());
   let approved = true;
+  let expire = false;
   let beforeApproval = () => {};
   registry.register('client', {
     sessionId: 'planning',
@@ -61,7 +62,14 @@ async function fixture(explicit: boolean | 'excluded' = false) {
           const permId = event.permId;
           queueMicrotask(() => {
             beforeApproval();
-            resolvePending(permId, approved ? 'once' : 'deny');
+            const clock = expire
+              ? vi.spyOn(Date, 'now').mockReturnValue(Number(event.expiresAt) + 1)
+              : undefined;
+            try {
+              resolvePending(permId, approved ? 'once' : 'deny');
+            } finally {
+              clock?.mockRestore();
+            }
           });
         }
       },
@@ -124,6 +132,9 @@ async function fixture(explicit: boolean | 'excluded' = false) {
     value,
     assert,
     revoke,
+    expireApproval: () => {
+      expire = true;
+    },
     deny: () => {
       approved = false;
     },
@@ -134,6 +145,88 @@ async function fixture(explicit: boolean | 'excluded' = false) {
       beforeApproval = fn;
     },
   };
+}
+
+function ordinaryQuery(f: Awaited<ReturnType<typeof fixture>>, cold = false) {
+  const controller = new AbortController();
+  cleanup.push(() => controller.abort());
+  return createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+    options: cold ? { resume: 'planning' } : { sessionId: 'planning' },
+    input: new AsyncQueue(),
+    controller,
+    lifetime: new SdkHookLifetime(),
+    sdkSessionId: 'planning',
+    cwd: '/fixture',
+    authorize: async () => {},
+    authorizeSync: () => {},
+    adapt: (q) => q as never,
+    settings: (selection) => ({ model: selection.model }),
+    inputChanged: () => {},
+    onUnsent: vi.fn(),
+    mcpServers: (state) => ({
+      telos: createTelosSdkServer({
+        session: f.session,
+        registry: f.registry,
+        events: f.events,
+        runCallback: state.runCallback,
+        assertCurrent: async (signal) => {
+          f.assert(signal);
+          if (state.retired || state.completing) throw Error('retired query');
+        },
+        assertCurrentSync: (signal) => {
+          f.assert(signal);
+          if (state.retired || state.completing) throw Error('retired query');
+        },
+      }),
+    }),
+  });
+}
+
+function assignLead(f: Awaited<ReturnType<typeof fixture>>) {
+  f.work.execute(
+    {
+      operation: 'classify',
+      itemId: 'studio',
+      requestId: 'kind',
+      expectedRevision: f.work.read('studio', f.actor).revision,
+      kind: 'outcome',
+    },
+    f.actor,
+  );
+  const binding = {
+    accountId: 'offline',
+    accountLabel: 'Offline',
+    provider: 'anthropic-claude' as const,
+    profileRevision: 'r1',
+    model: 'synthetic',
+  };
+  f.events.upsertSession({ sessionId: 'planning', accountBinding: binding });
+  retainTelosWorkRoleContext(
+    f.events,
+    'planning',
+    binding,
+    reviewTelosWorkRoleContext({
+      work: f.work,
+      artifacts: f.artifacts,
+      actor: f.actor,
+      itemId: 'studio',
+      role: 'lead',
+      selectedSourceSnapshotIds: [],
+      selectedArtifactRefs: [],
+    }),
+  );
+  f.work.execute(
+    {
+      operation: 'setup_role',
+      itemId: 'studio',
+      requestId: 'lead',
+      expectedRevision: f.work.read('studio', f.actor).revision,
+      expectedAssignmentRevision: 0,
+      role: 'lead',
+      conversationId: 'planning',
+    },
+    f.actor,
+  );
 }
 
 it('omits excluded tools and refuses direct MCP invocations', async () => {
@@ -184,40 +277,7 @@ it.each([false, true])(
       requests.push(request.options!);
       return { close: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
     });
-    const construct = (cold: boolean) => {
-      const controller = new AbortController();
-      cleanup.push(() => controller.abort());
-      return createOrdinaryLocalVertexSdkQuery({
-        options: cold ? { resume: 'planning' } : { sessionId: 'planning' },
-        input: new AsyncQueue(),
-        controller,
-        lifetime: new SdkHookLifetime(),
-        sdkSessionId: 'planning',
-        cwd: '/fixture',
-        authorize: async () => {},
-        authorizeSync: () => {},
-        adapt: (q) => q as never,
-        settings: (selection) => ({ model: selection.model }),
-        inputChanged: () => {},
-        onUnsent: vi.fn(),
-        mcpServers: (state) => ({
-          telos: createTelosSdkServer({
-            session: f.session,
-            registry: f.registry,
-            events: f.events,
-            runCallback: state.runCallback,
-            assertCurrent: async (signal) => {
-              f.assert(signal);
-              if (state.retired || state.completing) throw Error('retired query');
-            },
-            assertCurrentSync: (signal) => {
-              f.assert(signal);
-              if (state.retired || state.completing) throw Error('retired query');
-            },
-          }),
-        }),
-      });
-    };
+    const construct = (cold: boolean) => ordinaryQuery(f, cold);
     const connect = async () => {
       const server = requests.at(-1)!.mcpServers!.telos as ReturnType<typeof createTelosSdkServer>;
       const [a, b] = InMemoryTransport.createLinkedPair();
@@ -278,50 +338,7 @@ it.each([false, true])(
   async (explicit) => {
     const f = await fixture(explicit);
     expect((await f.call('TelosGetItem', { itemId: 'studio' })).isError).toBe(true);
-    f.work.execute(
-      {
-        operation: 'classify',
-        itemId: 'studio',
-        requestId: 'kind',
-        expectedRevision: f.work.read('studio', f.actor).revision,
-        kind: 'outcome',
-      },
-      f.actor,
-    );
-    const binding = {
-      accountId: 'offline',
-      accountLabel: 'Offline',
-      provider: 'anthropic-claude' as const,
-      profileRevision: 'r1',
-      model: 'synthetic',
-    };
-    f.events.upsertSession({ sessionId: 'planning', accountBinding: binding });
-    retainTelosWorkRoleContext(
-      f.events,
-      'planning',
-      binding,
-      reviewTelosWorkRoleContext({
-        work: f.work,
-        artifacts: f.artifacts,
-        actor: f.actor,
-        itemId: 'studio',
-        role: 'lead',
-        selectedSourceSnapshotIds: [],
-        selectedArtifactRefs: [],
-      }),
-    );
-    f.work.execute(
-      {
-        operation: 'setup_role',
-        itemId: 'studio',
-        requestId: 'lead',
-        expectedRevision: f.work.read('studio', f.actor).revision,
-        expectedAssignmentRevision: 0,
-        role: 'lead',
-        conversationId: 'planning',
-      },
-      f.actor,
-    );
+    assignLead(f);
     const read = f.value(await f.call('TelosGetItem', { itemId: 'studio' }));
     expect(read, JSON.stringify(read)).toHaveProperty('item');
     const input = {
@@ -393,6 +410,122 @@ it('saves through the guarded canonical owner and finds/reads through the existi
   expect(revoked.isError).toBe(true);
   expect(JSON.stringify(revoked)).not.toContain(input.content);
 });
+
+it.each([false, true])(
+  'settles expired mutations through the ordinary query callback owner (explicit=%s)',
+  async (explicit) => {
+    const f = await fixture(explicit);
+    assignLead(f);
+    const read = f.value(await f.call('TelosGetItem', { itemId: 'studio' }));
+    const before = f.db.prepare('SELECT * FROM items ORDER BY id').all();
+    const artifacts = f.artifacts.list({ itemId: 'studio' });
+    const events = new AsyncQueue<Record<string, unknown>>();
+    cleanup.push(() => events.close());
+    let options!: Options;
+    vi.mocked(query).mockImplementation((request) => {
+      options = request.options!;
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+      } as never;
+    });
+    const owner = ordinaryQuery(f);
+    const server = options.mcpServers!.telos as ReturnType<typeof createTelosSdkServer>;
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.instance.connect(a);
+    const client = new Client({ name: 'expiring-provider', version: '1' });
+    await client.connect(b);
+    cleanup.push(async () => {
+      await client.close();
+      await server.instance.close();
+    });
+    f.expireApproval();
+    const update = {
+      itemId: 'studio',
+      requestId: 'expired-progress',
+      expectedRevision: read.item.revision,
+      note: 'Must not be saved',
+    };
+    for (const [name, input] of [
+      [
+        'TelosCreateFeature',
+        {
+          requestId: 'expired-feature',
+          summary: 'Must not exist',
+          intent: 'Expiry',
+          rationale: 'Known refusal',
+          acceptanceCriteria: ['No effect'],
+          note: 'Offline',
+        },
+      ],
+      ['TelosManageItem', { ...update, operation: 'update' }],
+      ['TelosUpdateItem', update],
+      [
+        'TelosSaveArtifact',
+        {
+          itemId: 'studio',
+          requestId: 'expired-artifact',
+          filename: 'expired.md',
+          title: 'Must not be saved',
+          content: 'Unapproved draft',
+        },
+      ],
+    ] as const) {
+      const result = await client.callTool({ name, arguments: input });
+      expect(result.isError).toBe(true);
+      expect(f.value(result).failure).toMatchObject({
+        code: 'approval_expired',
+        phase: 'approval',
+        effectStatus: 'not_started',
+      });
+    }
+    expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
+    expect(f.artifacts.list({ itemId: 'studio' })).toEqual(artifacts);
+    events.push({ type: 'result', session_id: 'planning' });
+    await expect(owner.query[Symbol.asyncIterator]().next()).resolves.toMatchObject({
+      value: { type: 'result', session_id: 'planning' },
+    });
+  },
+);
+
+it.each([undefined, 1])(
+  'refuses retained private artifact bytes through SDK and HTTP (revision=%s)',
+  async (revision) => {
+    const f = await fixture();
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createTelosArtifactRouter({
+        dbPath: () => f.dbPath,
+        verifyInternal: () => true,
+        sessionId: (client) => f.registry.get(client)?.sessionId,
+        readFile: async () => {
+          throw Error('No fixture filesystem access');
+        },
+      }),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        const response = await request(app)
+          .post(new URL(url).pathname)
+          .set(init.headers as Record<string, string>)
+          .send(JSON.parse(init.body as string));
+        return new Response(JSON.stringify(response.body), { status: response.status });
+      }),
+    );
+    const input = { id: f.material.id, ...(revision === undefined ? {} : { revision }) };
+    expect(f.value(await f.call('TelosReadArtifact', input)).artifact.content).toBe(
+      'The reviewed panel layout.',
+    );
+    f.db.prepare("UPDATE items SET profile='lifeops' WHERE id='studio'").run();
+    const hydrate = vi.spyOn(TelosArtifactStore.prototype, 'readBoundedRevision');
+    const result = await f.call('TelosReadArtifact', input);
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('The reviewed panel layout.');
+    expect(hydrate).not.toHaveBeenCalled();
+  },
+);
 
 it.each(['cancel', 'operator', 'runtime', 'skill', 'workspace'] as const)(
   'prevents artifact save after %s authority changes during workspace reading',

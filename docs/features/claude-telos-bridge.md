@@ -44,6 +44,13 @@ keep their current assigned-lead scope; ordinary maintenance uses
 - Excluded profiles, restricted skills, denied review, cancelled calls, expired
   or detached operator authority and retired runtime authority cannot grant an
   effect. Artifact read results are withheld if authority changes during I/O.
+- Approval expiry retains the canonical known-not-started callback outcome.
+  Real MCP calls for backlog mutations, assigned progress and artifact saves
+  leave the ordinary query able to settle its terminal result, for default and
+  explicit profiles, without saving an item, update or artifact.
+- Internal artifact reads reuse the public document reader's current item
+  eligibility and bounded byte checks. Latest and explicit-revision reads of an
+  artifact retained before its item changes to LifeOps refuse before loading bytes.
 - Workspace artifact saves reuse the existing guarded native operation through
   its minimal caller interface. Cancellation, operator/runtime/skill revocation
   and workspace replacement during file reading prevent a new artifact or receipt.
@@ -78,8 +85,14 @@ adapter does not broaden transcript or artifact visibility. Any uncertain write
 must use its original request and receipt. A queued command is not completed work.
 
 The local full TypeScript check exceeded the repository's 1 GiB process budget;
-full typecheck/build belong to CI. No real model calls, real worker starts,
-merge, deployment or production acceptance are part of this change.
+full typecheck/build run in CI. No real model calls, real worker starts,
+deployment or production acceptance are part of this change.
+
+Separate existing follow-up: the legacy internal HTTP artifact-save route still
+awaits its workspace reader before an unguarded save. Remaining callers of that
+route need qualification through the existing guarded operation and commit owner.
+The ordinary Claude bridge uses that guarded owner directly; no replacement
+store, approval flow or launcher is needed.
 
 Shared catalog and `chat.ts` additions must be retained alongside the parallel
 history/Knowledge/Agent Library, Connections/Tool Library and coordination

@@ -14,6 +14,7 @@ import type { TelosSourceApprovalStore } from './telos-source-approval-store.js'
 import type { TelosToolResult } from './telos-tool.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import { reportToolFailure } from './tool-failure-reporting.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 
 type Name = 'TelosSaveArtifact' | 'TelosReadArtifact';
 export interface NativeTelosArtifactOwners {
@@ -210,7 +211,7 @@ export async function executeNativeTelosArtifactOperation(
     return result({ ...artifact, encoding, content: bytes.toString(encoding) });
   } catch (error) {
     const expired = expiredApprovalToolResult(error);
-    if (expired) return expired;
+    if (expired) return retainCallbackOutcome(expired, 'settled');
     const failure = reportToolFailure(error, {
       sessionId: owners.context.conversationId,
       tool: name,
