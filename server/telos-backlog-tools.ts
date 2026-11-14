@@ -7,9 +7,13 @@ import {
   TelosCreateChildInputSchema,
   TelosCreateFeatureInputSchema,
 } from '@mitzo/protocol';
-import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { ToolDefinition } from '@mitzo/harness';
-import { throwIfApprovalExpired, expiredApprovalToolResult } from '@mitzo/harness';
+import {
+  throwIfApprovalExpired,
+  expiredApprovalToolResult,
+  permissionRefusalContent,
+  type ApprovalPermissionResult,
+} from '@mitzo/harness';
 import type { TelosItemStore } from './telos-item-store.js';
 import { TelosWorkError, type TelosWorkStore } from './telos-work-store.js';
 import type { TelosToolResult } from './telos-tool.js';
@@ -112,7 +116,7 @@ export async function executeTelosBacklogOperation(
       name: TelosBacklogToolName,
       input: Record<string, unknown>,
       signal: AbortSignal,
-    ): Promise<PermissionResult>;
+    ): Promise<ApprovalPermissionResult>;
   },
   name: TelosBacklogToolName,
   raw: unknown,
@@ -149,7 +153,9 @@ export async function executeTelosBacklogOperation(
       if (permission.behavior !== 'allow')
         throw new TelosWorkError(
           'unauthorized',
-          'Telos change did not receive approval. No update was applied; reconnect the chat if its approval card could not be delivered.',
+          permission.failure
+            ? permissionRefusalContent(permission)
+            : 'Telos change did not receive approval. No update was applied; reconnect the chat if its approval card could not be delivered.',
         );
       if (!isDeepStrictEqual(permission.updatedInput, input))
         throw new TelosWorkError(

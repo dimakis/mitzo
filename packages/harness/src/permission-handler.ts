@@ -639,6 +639,7 @@ export function buildPermissionHandler(
       return {
         behavior: 'deny',
         message: 'Tool input is too large to review safely. Split it into smaller operations.',
+        failure: toolFailure('invalid_input', 'approval', 'not_started'),
       };
     const inputSummary = summarizeToolInput(toolName, _toolInput);
     const tier = getToolTier(toolName);

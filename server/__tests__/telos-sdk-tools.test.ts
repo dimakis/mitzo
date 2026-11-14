@@ -274,6 +274,37 @@ async function ordinaryClient(f: Awaited<ReturnType<typeof fixture>>) {
   return { client, terminal };
 }
 
+it('preserves the real oversized review refusal through the SDK without displaying a card or mutating work', async () => {
+  const f = await fixture();
+  const items = new TelosItemStore(f.dbPath);
+  cleanup.push(() => items.close());
+  const before = items.read('studio');
+  let cards = 0;
+  f.beforeApproval(() => cards++);
+  const result = await f.call('TelosManageItem', {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'oversized-review',
+    expectedRevision: before.revision,
+    intent: 'i'.repeat(7000),
+    rationale: 'r'.repeat(4000),
+    note: 'Synthetic oversized request',
+  });
+  expect(result.isError).toBe(true);
+  expect(f.value(result)).toMatchObject({
+    message: 'Tool input is too large to review safely. Split it into smaller operations.',
+    failure: {
+      code: 'invalid_input',
+      phase: 'approval',
+      effectStatus: 'not_started',
+      recovery: 'correct_input',
+    },
+  });
+  expect(cards).toBe(0);
+  expect(items.read('studio')).toEqual(before);
+  expect(f.outcome()).toBe('settled');
+});
+
 it.each([
   'denied',
   'denied-native',
