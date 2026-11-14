@@ -128,6 +128,9 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
     const registry = new SessionRegistry();
     const cards: Record<string, unknown>[] = [];
     let current = true;
+    let interruptReceipt: Promise<void> | undefined;
+    let interruptAcknowledged = false;
+    let interruptFailed = false;
     registry.register('native-fixture', {
       sessionId: 'native-fixture',
       cwd,
@@ -140,7 +143,15 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
           if (event.type !== 'permission_request') return;
           cards.push(event);
           queueMicrotask(() => {
-            if (decision === 'interrupt') void native!.interrupt();
+            if (decision === 'interrupt')
+              interruptReceipt = native!.interrupt().then(
+                () => {
+                  interruptAcknowledged = true;
+                },
+                () => {
+                  interruptFailed = true;
+                },
+              );
             else if (decision === 'cancel') sessionController.abort();
             else {
               if (decision === 'revoked') current = false;
@@ -187,6 +198,7 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
       ...(provider === 'enmaas-like' ? { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' } : {}),
     };
     let stderr = '';
+    let watchdogFired = false;
     let native: ReturnType<typeof query> | undefined;
     const observe = () => ({
       ...scenario,
@@ -198,8 +210,15 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
       insideWritten: existsSync(join(cwd, 'probe.txt')),
       siblingWritten: existsSync(join(root, 'second-repo', 'probe.txt')),
       stderr,
+      watchdogFired,
+      interruptRequested: interruptReceipt !== undefined,
+      interruptAcknowledged,
+      interruptFailed,
     });
-    const timer = setTimeout(() => controller.abort(Error('Offline Bash probe deadline')), 20000);
+    const timer = setTimeout(() => {
+      watchdogFired = true;
+      controller.abort(Error('Offline Bash probe deadline'));
+    }, 20000);
     try {
       native = query({
         prompt: 'Run the supplied offline repository probe.',
@@ -234,8 +253,10 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
       for await (const message of native) {
         if (message.type === 'result' && message.is_error) stderr += JSON.stringify(message);
       }
+      await interruptReceipt;
       observations.push(observe());
     } catch (error) {
+      await interruptReceipt;
       observations.push({ ...observe(), error: String(error) });
     } finally {
       clearTimeout(timer);
@@ -260,6 +281,10 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
       cards: ['once', 'deny', 'cancel', 'revoked', 'interrupt'].includes(scenario.decision) ? 1 : 0,
       retainedGrants: 0,
       pendingAtResult: 0,
+      watchdogFired: false,
+      interruptRequested: scenario.decision === 'interrupt',
+      interruptAcknowledged: scenario.decision === 'interrupt',
+      interruptFailed: false,
       ...(scenario.decision === 'interrupt'
         ? {}
         : {
