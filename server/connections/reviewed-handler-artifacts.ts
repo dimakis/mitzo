@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1168-claude-parity-consolidated';
+  'v1.0.1169-claude-parity-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2680,7 +2680,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../query-loop.ts': 'b841743271240b9d8833f477412d235d8156fbc148e72bc50e42677b81dd2b65',
+  '../query-loop.ts': 'de3b9abbdc0bfeab639be4c65186da961fca7a463ad64aa097755dacd06e2722',
   '../account-profiles.ts': '594631b5682fe15043a0b7a87c0c94415a2557c2d25394702290dea427479f10',
   '../ordinary-turn-lifecycle.ts':
     'ccbde06e916e717798a298c12c6d75e14411a3a29030d4f3f103f8e2ab201df1',
@@ -3617,7 +3617,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '1d029642727f578aed93dc2278778aa86afc08046ea55afc3c6fb14bc365dfbe',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    'fe73b06b0ce444d158f6b55297883f5db7b2228fdd20df9612329294681409ab',
+    'd9a0cf1728860b6c185c147249b97785ae595f190695f2de17822c179368068f',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
@@ -4049,7 +4049,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-terminal-closure.test.ts':
     'd6901e8051b00e4ff7817748bc8e3910aa36e1455f16cc9dc055030b83b90ec7',
   '../__tests__/query-loop.test.ts':
-    'e79c30eecebe8b530200dd40159527c8cd7d442bac3f25f9958bdc211c9db3db',
+    '2ed7ab9b0c09faf6c9e19cb7853f25206416dbfbe90fc15312a10228b0bbd386',
   '../__tests__/reconstruct-messages.test.ts':
     '6065815614e06a546e8547ca314f1307717a2b7fa0683daca8fafce6481f0821',
   '../__tests__/session-credential-tools.test.ts':

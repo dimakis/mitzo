@@ -2121,11 +2121,13 @@ async function _runQueryLoopInner(
       loopFinished = true;
       clearTimeout(firstEventTimer);
       // An input refusal aborts the SDK after retaining its diagnostic. The SDK
-      // may then end its iterator normally, without entering the catch above.
+      // may then close normally or throw a generic AbortError. Preserve a caught
+      // runtime failure, but do not let an SDK abort hide the retained refusal
+      // from the terminal callback and its outer chat.start span.
       const retainedAbort = findSessionRuntimeError(abortController.signal.reason);
       if (retainedAbort) {
         caughtError = true;
-        terminalError ??= retainedAbort;
+        if (!findSessionRuntimeError(terminalError)) terminalError = retainedAbort;
         recordRuntimeFailure(span, retainedAbort);
       }
       // Reporting is fallible (store writes and trusted observers can throw).

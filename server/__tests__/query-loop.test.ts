@@ -633,6 +633,27 @@ describe('runQueryLoop', () => {
     },
   );
 
+  it('retains the refusal outcome when the SDK throws a generic AbortError', async () => {
+    const failure = new SessionRuntimeError('input_not_dispatched');
+    const onTerminalOutcome = vi.fn();
+    const stream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          abortController.abort(failure);
+          throw Object.assign(new Error('SDK query aborted'), { name: 'AbortError' });
+        },
+      }),
+    };
+    await runQueryLoop(stream, clientId, registry, abortController, undefined, undefined, {
+      onTerminalOutcome,
+    });
+    expect(onTerminalOutcome).toHaveBeenCalledExactlyOnceWith(failure);
+    const span = recordedSpans.filter((span) => span.name === 'session').at(-1)!;
+    expect(span.status.code).toBe(2);
+    expect(span.attributes['runtime.diagnostic_id']).toBe(failure.diagnosticId);
+    expect(span.endCount).toBe(1);
+  });
+
   it('admits the first provider event exactly once', async () => {
     const onFirstEventOutcome = vi.fn();
 

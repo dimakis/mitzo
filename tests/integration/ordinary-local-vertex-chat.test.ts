@@ -246,19 +246,23 @@ it.each(
       ),
     ),
     ...[false, true].flatMap((personal) =>
-      ['mode', 'workspace'].map((authorityFailure) => ({
-        personal,
-        managed: personal,
-        refuseStartup: false,
-        stdinRevocation: false,
-        idleSuccess: false,
-        startupProbe: true,
-        probeMode: 'auto',
-        authorityFailure,
-      })),
+      ['mode', 'workspace'].flatMap((authorityFailure) =>
+        ['original', 'close', 'abort-error'].map((refusalExit) => ({
+          personal,
+          managed: personal,
+          refuseStartup: false,
+          stdinRevocation: false,
+          idleSuccess: false,
+          startupProbe: true,
+          probeMode: 'auto',
+          authorityFailure,
+          refusalExit,
+        })),
+      ),
     ),
   ].map((scenario) => ({
     authorityFailure: 'none',
+    refusalExit: 'original',
     eagerProbe: false,
     startupProbe: false,
     probeMode: 'agent',
@@ -267,7 +271,7 @@ it.each(
     ...scenario,
   })),
 )(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure startupProbe=$startupProbe probeMode=$probeMode eagerProbe=$eagerProbe authorityFailure=$authorityFailure',
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure startupProbe=$startupProbe probeMode=$probeMode eagerProbe=$eagerProbe authorityFailure=$authorityFailure refusalExit=$refusalExit',
   async ({
     personal,
     managed,
@@ -280,6 +284,7 @@ it.each(
     probeMode,
     eagerProbe,
     authorityFailure,
+    refusalExit,
   }) => {
     const nextModel = managed ? 'opus' : 'next-model';
     const nextThinking = managed ? null : 'high';
@@ -454,7 +459,18 @@ it.each(
                 yield* { [Symbol.asyncIterator]: () => eagerInputs };
               })()
             : request.prompt[Symbol.asyncIterator]();
-          for await (const message of { [Symbol.asyncIterator]: () => inputs }) {
+          const sdkInputs = (async function* () {
+            try {
+              yield* { [Symbol.asyncIterator]: () => inputs };
+            } catch (error) {
+              if (authorityFailure === 'none' || refusalExit === 'original') throw error;
+              // Model both SDK outcomes after the owner has retained the refusal.
+              expect(request.options.abortController.signal.reason).toBe(error);
+              if (refusalExit === 'abort-error')
+                throw Object.assign(new Error('SDK query aborted'), { name: 'AbortError' });
+            }
+          })();
+          for await (const message of sdkInputs) {
             if (closed.value) break;
             const inputUuid = message.uuid ?? `input-${message.mitzoMessageId}`;
             history.push(message.mitzoMessageId);
