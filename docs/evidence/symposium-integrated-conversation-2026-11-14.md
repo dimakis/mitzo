@@ -180,6 +180,15 @@ checks list/bundle; lint and formatting pass. Rendered execution remains pending
 The same CI run's separate CT07/09 non-Git joined-browser contract timed out at
 120 seconds; its original log is retained, with no root cause established here.
 
+Accepted main `0ad803cda` (ordinary Claude information tools, #1349) is integrated.
+The sole conflict was the source registry; all 2,458 unique entries from both
+parents remain, with hashes regenerated from the combined source. The auto-merged
+`chat.ts` retains ordinary ownership and accepted information-tool instructions.
+Both real application UI journeys plus the affected Claude-information/SDK-effect
+owners pass: 31 checks across four files, plus 36 original-owner dispatch checks.
+Current combined CI and exact-head
+Centaur verification remain pending.
+
 Full CI exposed the existing forwarding UI fixture's old zero-recipient
 assumption: selecting Reviewer also retained the new original-agent selection,
 although that historical source intentionally has no live ordinary owner. Its

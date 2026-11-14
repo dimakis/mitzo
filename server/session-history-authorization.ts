@@ -1,18 +1,31 @@
 import type { EventStore } from './event-store.js';
-import type { NativeHostToolContext } from './native-host-tool-context.js';
+import type { ManagedSession } from '@mitzo/harness';
 import type { HistoryAccess } from './session-history-tools.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
 
-/** Called only by the original verified owned-local native callback. The raw
- * native context already binds middleware-authenticated operator, exact runtime,
- * workspace, account, mode, selected tool, skill ceiling and pending native call.
+/** Minimal caller facet supplied by the verified native or SDK adapter. */
+export interface SessionHistoryCaller {
+  readonly session?: ManagedSession;
+  readonly signal: AbortSignal;
+  readonly toolName: string;
+  readonly turnId: string;
+  readonly callId: string;
+  assertCurrentSync(): void;
+  assertCurrent(): Promise<void>;
+  dispose(): void;
+}
+
+/** Called only by the original verified callback. Its context already binds
+ * authenticated operator, exact runtime, account, selected tool and skill ceiling.
  * Naming a target here never creates an account/workspace/session grant. */
 export function captureSessionHistoryAuthorization(owners: {
-  context: NativeHostToolContext;
+  context: SessionHistoryCaller;
   events: Pick<EventStore, 'getSession' | 'captureReconnectState'>;
   call: ProfileToolCall;
   toolName: 'SearchPastSessions' | 'ReadPastSession';
+  /** Native names are unprefixed; SDK skills use the exact MCP wire name. */
+  permissionPrefix?: string;
 }): HistoryAccess {
   const { context, events } = owners;
   const targets = new Map<string, { assertIdentity(): void }>();
@@ -22,7 +35,8 @@ export function captureSessionHistoryAuthorization(owners: {
     return (
       !!session &&
       agentToolAllowed(session, 'ReadPastSession') &&
-      (!session.activeSkillPolicy || session.activeSkillPolicy.has('ReadPastSession'))
+      (!session.activeSkillPolicy ||
+        session.activeSkillPolicy.has((owners.permissionPrefix ?? '') + 'ReadPastSession'))
     );
   };
   const assertCurrent = () => {
@@ -67,6 +81,7 @@ export function captureSessionHistoryAuthorization(owners: {
   };
   assertCurrent();
   return {
+    conversationId: context.session?.sessionId,
     signal: context.signal,
     assertCurrent,
     assertCurrentAsync,
