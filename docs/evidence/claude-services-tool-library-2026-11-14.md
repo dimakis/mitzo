@@ -155,3 +155,34 @@ owned by PR #1348. Source review found no consumption of a new PR #1351
 authorization contract. Final main integration, combined fingerprints, CI and
 Centaur approval remain necessary at the assigned merge turn. No deployment or
 production activation is authorized by this evidence.
+
+## Final coordination composition
+
+Accepted main `416faccb366f64ab858897f5b4bfa465e91ef385` has the same tree as
+reviewed coordination head `186807ceb3938352a37a7bc6e4477c9f3c65c68d`.
+The disposable composition passed **428 focused tests in 19 suites** and all
+**22 SDK integration cases**, including Stop, reconnect, cold Send, failed-turn
+Retry and FIFO/native selection. Two opt-in physical sandbox cases remain
+skipped. The final accepted composition reuses the four reviewed conflict
+resolutions; both focused reviewers confirmed preservation of both parents'
+registration, approval, credential and query-owner contracts. Query mechanics
+match the coordination source; the query module's only services delta is guidance
+to use canonical Connections, Tool Library and Google Workspace handlers.
+
+Hosted run `43615462748` on `3e4f83ec90d162e367f45deaa5527c791be03164`
+found one failing Connections lifecycle fixture in unit shard 2. The fake SDK
+never consumed its first input but expected its successor to resume history.
+This reproduced locally as 33 passes and one failure. The fixture now pushes and
+consumes first, successor and cold inputs through the actual query owner before
+service invocation. All existing resume, retired-query refusal and service-call
+assertions remain. The Connections and SDK query-owner suites then passed all
+**59 tests**. This correction changes no runtime behavior and weakens no timeout
+or assertion. Both focused reviewers verified this narrow delta.
+
+The combined runtime revision is
+`v1.0.1166-claude-services-final-composition`, with the union of 2,453 registered
+source artifacts regenerated. Fresh hosted CI and trusted exact-head final
+Centaur approval are required for the published composition. The coordinator
+has reserved the next landing turn; actual merge release remains gated. No live
+model, external-service write, physical sandbox qualification or deployment is
+claimed.

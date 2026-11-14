@@ -276,3 +276,21 @@ The final combined tree passed all22 SDK journeys in163.59s and199 focused
 checks across nine suites. These include the43 Google/library cases and34 direct
 connection cases, TaskExecution/coordination invocation, capability projections,
 and stale/late SDK authority. Counts overlap earlier results; do not sum them.
+
+The later service candidate `8b45b9cb64e579b0cc88ca994cfa40fc9518fb07`
+was also composed locally, preserving accepted coordination ancestry `416faccb`.
+Its runtime bytes are unchanged from the earlier composition. The stronger
+Connections fixture consumes and checks the exact first, successor and cold SDK
+inputs; the original query's `checkTool` wiring remains. Capability labels and
+TaskExecution/coordination registration retain the reconciled parity behavior.
+All 2,453 incoming artifact keys remain in the combined 2,468-key manifest, with
+runtime revision `v1.0.1167-claude-parity-services-fixture`.
+
+The affected Connections, SDK query-owner, Google, Tool Library, canonical freezer
+and SDK command-skill boundary suites passed all **127 cases across six suites**,
+with one worker and a 1 GiB heap. This replaces only the affected fixture evidence;
+the prior full SDK/consumer results remain applicable to unchanged runtime bytes.
+The service candidate is still unaccepted. Any further service workflow changes,
+its actual accepted commit, hosted CI, exact-head final review and the released
+merge turn remain necessary before delivery. No publication, merge, live service
+write or deployment is claimed for this local preview.
