@@ -501,9 +501,12 @@ it('keeps explicit routing and retained send/Stop identity when the selected par
   expect(screen.getByRole('button', { name: 'Choose who replies' }).textContent).toContain(
     'Unavailable',
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop original agent' }));
+  expect(f.ordinaryStop).toHaveBeenCalledOnce();
+  expect(f.stops).toHaveLength(0);
   fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
   await waitFor(() => expect(f.stops).toEqual([original]));
-  expect(f.ordinaryStop).not.toHaveBeenCalled();
+  expect(f.ordinaryStop).toHaveBeenCalledOnce();
   expect(getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend).toMatchObject({
     input: original,
     stopRequested: true,

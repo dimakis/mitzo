@@ -1767,8 +1767,14 @@ scrolling transcript and one mounted composer. Rich ordinary blocks, live replie
 permissions and recovery controls retain their original owners. Source echoes use
 conversation/message/command identity; independent equal text remains visible.
 Transcript order follows retained sequence, without comparing independent clocks.
+Native delivery packets are suppressed by exact command identity; each projected
+operator body keeps its own identity. Source rows awaiting reconciliation follow
+their command rather than moving into the pre-sharing history.
 The responsive input portal retains draft, attachments, context, selection and focus
 through status qualification; its routing updates independently of source activity.
+Navigating to a different conversation retires that input's dispatch fence. The
+original agent's Stop and a retained shared request's Stop keep separate owners,
+including when a reviewer request is uncertain while the original agent runs.
 The initial explicit recipient remains the original agent. Saved empty choices stay
 empty, with Choose who replies opening the existing picker. Unsupported shared
 attachments remain available to remove with a precise explanation. Refresh checks

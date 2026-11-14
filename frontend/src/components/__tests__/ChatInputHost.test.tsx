@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatInput } from '../ChatInput';
 import { ChatInputHost, RetainedChatInputSlot } from '../ChatInputHost';
@@ -8,6 +8,8 @@ import { ComposerStatusProvider, ComposerStatusRail } from '../ComposerStatus';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 import { SharedConversationComposerContext } from '../../lib/shared-conversation-composer';
 import { installDialogStub } from './dialog-stub';
+import { chatStorage } from '../../lib/large-chat-storage';
+import { queuedButton } from '../../test-utils/queued-draft-controls';
 
 afterEach(() => {
   cleanup();
@@ -181,3 +183,67 @@ it('cannot expose another conversation draft while the next page is qualifying',
   expect(screen.queryByRole('textbox')).toBeNull();
   expect(screen.getByText('Checking new conversation')).toBeTruthy();
 });
+
+it.each(['send', 'steer'] as const)(
+  'retires an old %s awaiting durable preparation when navigating to a qualifying conversation',
+  async (kind) => {
+    localStorage.setItem(
+      'mitzo-queue-source',
+      JSON.stringify([
+        {
+          text: 'Old queued prompt',
+          contextBlocks: [],
+          queueEntryId: 'old-queued-command',
+          ...(kind === 'steer'
+            ? {
+                requiresRetry: true,
+                dispatchPending: true,
+                dispatchKind: 'steer',
+                steeringTargetCommandId: 'original-turn',
+              }
+            : {}),
+        },
+      ]),
+    );
+    let release!: () => void;
+    const flush = vi.spyOn(chatStorage, 'flush').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const send = vi.fn(() => true);
+    const steer = vi.fn();
+    const tree = (sessionId = 'source', running = true) => (
+      <MemoryRouter>
+        <ChatInputHost sessionId={sessionId}>
+          {sessionId === 'source' ? (
+            <ChatInput
+              sessionId={sessionId}
+              guardedConversation
+              running={running}
+              onSend={send}
+              onInterrupt={steer}
+              interruptLabel="Steer current turn"
+              onStop={() => {}}
+            />
+          ) : (
+            <RetainedChatInputSlot sessionId={sessionId}>
+              <p>Checking next conversation</p>
+            </RetainedChatInputSlot>
+          )}
+        </ChatInputHost>
+      </MemoryRouter>
+    );
+    const { rerender } = render(tree());
+    if (kind === 'steer') fireEvent.click(queuedButton('Check delivery of queued prompt 1'));
+    else rerender(tree('source', false));
+    await waitFor(() => expect(flush).toHaveBeenCalledOnce());
+    rerender(tree('next'));
+    await act(async () => release());
+    expect(send).not.toHaveBeenCalled();
+    expect(steer).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(localStorage.getItem('mitzo-queue-source')).toContain('Old queued prompt');
+  },
+);

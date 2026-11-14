@@ -118,6 +118,18 @@ identity without inference. The 97 focused participant/shared/native-presentatio
 tests and 109 design checks pass. Actual ordinary-page name width, overflow and
 paired screenshot acceptance remain slice 3's hosted rendering gate.
 
+Centaur's `bb219f421` review identified four further blocking regressions. Focused
+owner tests reproduce all four before their fixes: encoded native delivery packets
+replacing multiple operator bodies, source finalization/tool-only rows moving above
+their shared prompt, reviewer uncertainty hiding the independent original Stop,
+and a queued send awaiting durable preparation dispatching after navigation. The
+fix retains projected operator bodies/IDs and suppresses their exact native echo;
+anchors unreconciled source rows by command and source order; retains both Stop
+owners; and scopes the retained portal store to the conversation identity. Both
+queued sends and corrections now refuse dispatch after navigation while keeping
+their retained queue rows. Responsive transitions within the same conversation
+continue to preserve the same input. Fresh Centaur verification remains required.
+
 `tests/offline/symposium-ordinary-surface.spec.ts` adds the actual ordinary production
 composition to the offline browser matrix: remote joining, one transcript, exact
 input preservation at 320/390/1280 px, source activity and empty selection in dark/
