@@ -97,7 +97,7 @@ export function createTelosWorkRouter(options: {
   const run = (
     res: Response,
     action: (store: TelosWorkStore) => unknown,
-    mode: 'write' | 'record' | 'lifecycle' | 'collection' = 'write',
+    mode: 'write' | 'record' | 'lifecycle' | 'collection' | 'team' = 'write',
     diagnostic?: { operation: string; requestHash: string },
   ) => {
     let store: TelosWorkStore | undefined;
@@ -108,11 +108,13 @@ export function createTelosWorkRouter(options: {
         sourceConversation: options.sourceConversation,
       };
       store =
-        mode === 'record'
-          ? TelosWorkStore.openForRecordRead(options.dbPath(), policy)
-          : mode === 'lifecycle' || mode === 'collection'
-            ? TelosWorkStore.openForLifecycleListRead(options.dbPath(), policy)
-            : new TelosWorkStore(options.dbPath(), policy);
+        mode === 'team'
+          ? TelosWorkStore.openForTeamRead(options.dbPath(), policy)
+          : mode === 'record'
+            ? TelosWorkStore.openForRecordRead(options.dbPath(), policy)
+            : mode === 'lifecycle' || mode === 'collection'
+              ? TelosWorkStore.openForLifecycleListRead(options.dbPath(), policy)
+              : new TelosWorkStore(options.dbPath(), policy);
       phase = 'execute_operation';
       let result: unknown;
       try {
@@ -233,7 +235,7 @@ export function createTelosWorkRouter(options: {
     run(
       res,
       (store) => store.readTeam(itemId.data, authority),
-      'write',
+      'team',
       teamDiagnostic('team_read', itemId.data),
     );
   });

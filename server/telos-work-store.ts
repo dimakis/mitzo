@@ -206,6 +206,27 @@ export class TelosWorkStore {
       return new TelosWorkStore(path, policy);
     }
   }
+  /** Warm roster reads never acquire a schema writer. Only a genuinely missing
+   * additive team layout initializes through the canonical schema owner. */
+  static openForTeamRead(path: string, policy: TelosWorkStorePolicy): TelosWorkStore {
+    const store = TelosWorkStore.openForRecordRead(path, policy);
+    try {
+      store.db
+        .prepare('SELECT membership_id,item_id,data,seq FROM telos_work_team_memberships LIMIT 0')
+        .all();
+      return store;
+    } catch (error) {
+      store.close();
+      if (
+        !(error instanceof Error) ||
+        !('code' in error) ||
+        error.code !== 'SQLITE_ERROR' ||
+        error.message !== 'no such table: telos_work_team_memberships'
+      )
+        throw error;
+      return new TelosWorkStore(path, policy);
+    }
+  }
   constructor(
     path: string,
     private readonly policy: TelosWorkStorePolicy,

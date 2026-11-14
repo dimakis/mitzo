@@ -441,6 +441,27 @@ describe('authorized Telos work API', () => {
     }
   }, 15000);
 
+  it('reads the committed team while another canonical writer holds uncommitted work', async () => {
+    const canonical = createTelosCanonicalData();
+    const writer = new Database(canonical.dbPath);
+    try {
+      const expected = canonical.work.readTeam('studio', canonical.actor);
+      const f = await setup({ dbPath: () => canonical.dbPath });
+      writer.exec('BEGIN IMMEDIATE');
+      writer.prepare("UPDATE items SET summary='Uncommitted writer value' WHERE id='studio'").run();
+      const response = await request(f.app)
+        .get('/api/telos/work/items/studio/team')
+        .set('x-operator', 'authenticated');
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(expected);
+      expect(writer.inTransaction).toBe(true);
+    } finally {
+      if (writer.inTransaction) writer.exec('ROLLBACK');
+      writer.close();
+      canonical.close();
+    }
+  }, 15000);
+
   it('preserves full extension initialization for a cold record read', async () => {
     const f = await setup();
     const response = await request(f.app)
