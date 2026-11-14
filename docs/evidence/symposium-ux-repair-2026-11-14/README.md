@@ -4,6 +4,52 @@ Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.
 
+## Latest bounded checkpoint
+
+Hosted run [43596283360](https://github.com/dimakis/mitzo/actions/runs/43596283360),
+PR head `1cab1837c36c616de1d2db39bef3375bc072954b`, merge build
+`7bfd73b8af35950748e7d38e0d293e047d52e331`, passed all nine application checks
+and all 14 browser cases/probes. It includes accepted main `19aa8a19b` and both
+repair slices through desktop header correction `a1d9f1d4c` (integrated as
+`d286b7d3d`). `hosted-application-1cab1837c.log`,
+`hosted-render-1cab1837c.log` and `render-1cab1837c/` retain exact receipts,
+bundle hashes, six engine/theme manifests and selected paired screenshots.
+The artifact index identifies every original file and its SHA256. Browser
+execution used the workflow's digest-pinned Playwright 1.63.0 container and
+Node 24.22.1; local browser execution remains unavailable.
+
+Phone name tracks now meet 64px at 320/390px with normal and 200% text. Desktop
+1280px/200% tracks measure 144.19px (Chromium) and 144.48px (WebKit), replacing
+the retained 52px failure. Manual inspection of the desktop dark/large capture
+and approved conversation confirms the compact header, single transcript and
+composer structure; it does not establish pixel parity. The ordinary fixture
+also exposes unrelated unavailable link-service state and does not configure
+voice/token availability. Reference icon slots remain blank without its preview
+host's lucide library. These are explicit presentation qualification limits.
+
+Successor `8b65d6880` adds same-mounted actual responsive-owner checks: exact
+textarea, draft, focus and selection across 390→320→1280→390. Those assertions
+passed in every engine/theme case, and the application suite passed nine checks.
+Run [43596662277](https://github.com/dimakis/mitzo/actions/runs/43596662277) had
+13 browser passes and one WebKit/light page error during the earlier full-page
+navigation between screenshot widths. `webkit-navigation-8b65d6880.json.txt`
+retains original trace events, artifact/hash identity and cancelled old-document
+fetches; `hosted-render-8b65d6880-navigation-failure.log` retains the failure.
+The progress hook catches request rejection, but browser document teardown is
+not proven to be the complete cause. Captures now retain one mounted ordinary
+route across widths, reset text scale and keep the empty-page-error assertion.
+That successor still requires hosted verification. Reload/restart acceptance
+continues independently through the real application journey.
+
+Dimitri's subsequent correction requires an icon-only ordinary shared recipient
+control and retention of available context/microphone controls. Slice 1 owns
+that pending production delta; the final combined result must verify it before
+closing this slice. Full CI run `43596283347` was cancelled (not success); `43596662341` is
+queued at the 8b65 successor. A job-list filter initially led to an incorrect
+chat gate report, corrected against the top-level run receipt.
+Full combined CI, exact-head final Centaur review, physical
+phone and live-runtime qualification remain separate open gates.
+
 ## Source and test boundary
 
 Baseline accepted main: `9af764899302cbcc55c60ed0d2e7f159b266a045`.

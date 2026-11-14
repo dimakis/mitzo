@@ -160,6 +160,9 @@ for (const theme of ['light', 'dark'] as const)
           '/api/config': { quickActions: [], contextBlocks: {} },
           '/api/agent-library': { drafts: [], versions: inventory.agentProfiles },
           '/api/service-health': { services: [], checkedAt: 0 },
+          // The real link reader requires its list envelope. An untyped []
+          // would inject an unrelated service failure into every screenshot.
+          '/api/session-launch/requests': { requests: [], links: [] },
           '/api/tasks/loop': { state: 'idle' },
           '/api/version': {
             version: 'offline-render',
@@ -198,9 +201,13 @@ for (const theme of ['light', 'dark'] as const)
     });
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
     const observations: unknown[] = [];
+    await page.goto('/chat/architect');
     for (const width of [320, 390, 1280]) {
+      // Keep one ordinary document alive across captures. Reload/restart belongs
+      // to the application-owner journey; document teardown during intercepted
+      // WebKit fetches can report a navigation cancellation as a page error.
+      await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
       await page.setViewportSize({ width, height: 844 });
-      await page.goto('/chat/architect');
       const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
       await expect(input).toBeVisible();
       await expect(page.locator('.chat-messages')).toHaveCount(1);
@@ -352,7 +359,7 @@ for (const theme of ['light', 'dark'] as const)
       }
     }
     // Exercise the actual responsive page owners in one mounted conversation,
-    // beyond the independent viewport captures above and the narrow fixture.
+    // beyond the viewport captures above and the narrow fixture.
     await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
     const retainedInput = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     await retainedInput.fill('Same ordinary draft across actual responsive owners');

@@ -1,0 +1,236 @@
+{
+  "run": 43596662277,
+  "sourceHead": "8b65d6880459b1f09788f2ce4f388f0f853842a8",
+  "mergeBuild": "5d5b67e2333cfb6c7d0b2c1612db1def76c3aaea",
+  "artifactId": 14114977434,
+  "artifactSha256": "03ffa5e0f6f2dde9a423270af3e3a8e5814f97933aa150ee8a96e1fc7e67faee",
+  "traceSha256": "736b0442517235c1f0e4361862064afbc3ad274247590d963723b58c74beafce",
+  "events": [
+    {
+      "source": "test.trace",
+      "event": {
+        "type": "before",
+        "callId": "pw:api@43",
+        "stepId": "pw:api@43",
+        "startTime": 8159.087,
+        "class": "Test",
+        "method": "pw:api",
+        "title": "Navigate",
+        "subtitle": "/chat/architect",
+        "params": {
+          "url": "/chat/architect"
+        },
+        "stack": [
+          {
+            "file": "/home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts",
+            "line": 203,
+            "column": 18
+          }
+        ]
+      }
+    },
+    {
+      "source": "test.trace",
+      "event": {
+        "type": "before",
+        "callId": "pw:api@131",
+        "stepId": "pw:api@131",
+        "startTime": 14415.747,
+        "class": "Test",
+        "method": "pw:api",
+        "title": "Navigate",
+        "subtitle": "/chat/architect",
+        "params": {
+          "url": "/chat/architect"
+        },
+        "stack": [
+          {
+            "file": "/home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts",
+            "line": 203,
+            "column": 18
+          }
+        ]
+      }
+    },
+    {
+      "source": "test.trace",
+      "event": {
+        "type": "before",
+        "callId": "pw:api@217",
+        "stepId": "pw:api@217",
+        "startTime": 18338.614,
+        "class": "Test",
+        "method": "pw:api",
+        "title": "Navigate",
+        "subtitle": "/chat/architect",
+        "params": {
+          "url": "/chat/architect"
+        },
+        "stack": [
+          {
+            "file": "/home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts",
+            "line": 203,
+            "column": 18
+          }
+        ]
+      }
+    },
+    {
+      "source": "1-trace.trace",
+      "event": {
+        "type": "event",
+        "time": 18755.999,
+        "class": "BrowserContext",
+        "method": "pageError",
+        "params": {
+          "error": {
+            "error": {
+              "message": "/mitzo-ui.test/api/session-collaborations/00000000-0000-4000-8000-000000000001/progress due to access control checks.",
+              "stack": "Fetch API cannot load http://mitzo-ui.test/api/session-collaborations/00000000-0000-4000-8000-000000000001/progress due to access control checks.\n    at ut (http://mitzo-ui.test/fixture.js:1:154371)\n    at request (http://mitzo-ui.test/fixture.js:88:68229)\n    at unknown (http://mitzo-ui.test/fixture.js:3732:242115)\n    at unknown (http://mitzo-ui.test/fixture.js:3732:242713)",
+              "name": "Fetch API cannot load http"
+            }
+          },
+          "location": {
+            "url": "http://mitzo-ui.test/fixture.js",
+            "line": 0,
+            "column": 154370
+          }
+        },
+        "pageId": "page@d5ae60beb95bd56e85131f213967710d"
+      }
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18581.141,
+      "url": "http://mitzo-ui.test/api/sessions/architect/meta",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18545.956,
+      "url": "http://mitzo-ui.test/api/sessions/architect/meta",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18583.412,
+      "url": "http://mitzo-ui.test/api/telos/work/links",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18587.388,
+      "url": "http://mitzo-ui.test/api/home/preferences",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18587.694,
+      "url": "http://mitzo-ui.test/api/home/briefing-chats?sessionId=architect",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18583.778,
+      "url": "http://mitzo-ui.test/api/sessions/architect/symposium/status",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18587.981,
+      "url": "http://mitzo-ui.test/api/session-launch/requests?sessionId=architect",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18545.663,
+      "url": "http://mitzo-ui.test/api/sessions/architect/meta",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18546.146,
+      "url": "http://mitzo-ui.test/api/sessions/architect/meta",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18540.345,
+      "url": "http://mitzo-ui.test/api/sessions",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18542.701,
+      "url": "http://mitzo-ui.test/api/config",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18542.927,
+      "url": "http://mitzo-ui.test/api/version",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18703.463,
+      "url": "http://mitzo-ui.test/api/chat/runtime/capabilities?workspaceDefaults=1&sessionId=architect",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18592.767,
+      "url": "http://mitzo-ui.test/api/sessions/architect/meta",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18592.957,
+      "url": "http://mitzo-ui.test/api/sessions/architect/compactions",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18584.041,
+      "url": "http://mitzo-ui.test/api/sessions/architect/meta",
+      "status": -1,
+      "failure": "Load request cancelled"
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18735.426,
+      "url": "http://mitzo-ui.test/chat/architect",
+      "status": 200,
+      "failure": null
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18901.662,
+      "url": "http://mitzo-ui.test/fixture.css",
+      "status": 200,
+      "failure": null
+    },
+    {
+      "source": "1-trace.network",
+      "time": 18903.415,
+      "url": "http://mitzo-ui.test/fixture.js",
+      "status": 200,
+      "failure": null
+    }
+  ]
+}
