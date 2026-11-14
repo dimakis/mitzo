@@ -50,6 +50,87 @@ const sourceStream = (commandId: string): StreamingMessage => ({
   blockOrder: ['text'],
 });
 
+it('suppresses a native delivery packet while retaining each operator body and projection identity', () => {
+  const view = sharedConversationView();
+  view.messages = [
+    { ...sharedPrompt, text: 'Earlier operator body' },
+    {
+      ...sharedPrompt,
+      messageId: uuid(80),
+      projectionId: uuid(81),
+      sequence: 2,
+      text: 'Latest operator body',
+    },
+  ];
+  const { container } = render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([
+          {
+            messageId: 'ordinary-architect',
+            role: 'user',
+            blocks: [
+              {
+                blockId: 'packet',
+                blockType: 'text',
+                content: 'Internal delivery instructions and discussion JSON',
+              },
+            ],
+          },
+        ])}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByText('Internal delivery instructions and discussion JSON')).toBeNull();
+  expect(screen.getAllByText('Earlier operator body')).toHaveLength(1);
+  expect(screen.getAllByText('Latest operator body')).toHaveLength(1);
+  expect(container.querySelectorAll(`[data-command-request="${uuid(3)}"]`)).toHaveLength(1);
+  expect(container.querySelectorAll(`[data-command-request="${uuid(81)}"]`)).toHaveLength(1);
+});
+
+it('anchors unfinished source reconciliation and tool-only messages after their shared command', () => {
+  const view = sharedConversationView();
+  view.messages = [sharedPrompt];
+  const finalized: FinishedMessage = {
+    messageId: sharedReply.source!.messageId,
+    replyToMessageId: sharedReply.source!.commandId,
+    role: 'assistant',
+    blocks: [{ blockId: 'text', blockType: 'text', content: sharedReply.text }],
+  };
+  const tool: FinishedMessage = {
+    messageId: 'tool-only',
+    replyToMessageId: 'ordinary-architect',
+    role: 'assistant',
+    blocks: [{ blockId: 'text', blockType: 'text', content: 'Retained ordinary tool observation' }],
+  };
+  const tree = () => (
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        ordinary={sourceChat([tool, finalized])}
+      />
+    </MemoryRouter>
+  );
+  const { container, rerender } = render(tree());
+  const order = () => container.querySelector('.chat-messages')!.textContent!;
+  expect(order().indexOf(sharedPrompt.text)).toBeLessThan(
+    order().indexOf('Retained ordinary tool observation'),
+  );
+  expect(order().indexOf('Retained ordinary tool observation')).toBeLessThan(
+    order().indexOf(sharedReply.text),
+  );
+  view.messages.push(sharedReply);
+  rerender(tree());
+  expect(order().indexOf(sharedPrompt.text)).toBeLessThan(
+    order().indexOf('Retained ordinary tool observation'),
+  );
+  expect(order().indexOf('Retained ordinary tool observation')).toBeLessThan(
+    order().indexOf(sharedReply.text),
+  );
+  expect(screen.getAllByText(sharedReply.text)).toHaveLength(1);
+});
+
 it('deduplicates ordinary finished/live source echoes using command identity without collapsing equal reviewer text', () => {
   const view = sharedConversationView();
   view.messages = [view.messages[0]];

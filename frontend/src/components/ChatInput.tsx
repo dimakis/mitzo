@@ -201,7 +201,9 @@ function ChatInputOwner(props: Props) {
       ? {
           ...props,
           ...shared.props,
-          sourceStop: props.running && !shared.props.running ? props.onStop : undefined,
+          // These are independent operation owners. A retained shared request
+          // (for example Reviewer's uncertain send) cannot hide source control.
+          sourceStop: props.running ? props.onStop : undefined,
         }
       : props;
   return sink ? (

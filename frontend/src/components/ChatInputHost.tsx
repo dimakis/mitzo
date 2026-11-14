@@ -42,6 +42,8 @@ export function ChatInputHost({
   children: ReactNode;
   sessionId?: string;
 }) {
+  // A new conversation retires the previous portal owner and its mounted
+  // dispatch fences. Responsive changes within this identity keep the store.
   const store = useMemo(() => {
     const container = document.createElement('div');
     container.className = 'chat-input-host';
@@ -52,7 +54,7 @@ export function ChatInputHost({
       statusActive: false,
       statusView: null,
     };
-    let contentSessionId: string | undefined;
+    let contentSessionId: string | undefined = sessionId;
     let target: HTMLElement | null = null;
     let focus: HTMLElement | null = null;
     const listeners = new Set<() => void>();
@@ -132,7 +134,7 @@ export function ChatInputHost({
         return detach;
       },
     };
-  }, []);
+  }, [sessionId]);
   const context = useMemo(
     () => ({
       ...store,
