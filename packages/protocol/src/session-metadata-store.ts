@@ -552,10 +552,17 @@ export class SessionMetadataStore {
       ).all() as SearchSession[];
       const byId = new Map(rows.map((row) => [row.session_id, row]));
       const relations = presentation();
+      const recency = new Map(rows.map((row) => [row.session_id, row.updated_at]));
+      for (const row of rows) {
+        const source = byId.get(relations[row.session_id]);
+        if (source)
+          recency.set(source.session_id, Math.max(recency.get(source.session_id)!, row.updated_at));
+      }
       return rows.map((row) => {
         const source = byId.get(relations[row.session_id]);
         return {
           ...row,
+          updated_at: recency.get(source?.session_id ?? row.session_id)!,
           conversation_id: source?.session_id ?? row.session_id,
           conversation_summary: source ? source.summary : row.summary,
         };
@@ -619,7 +626,8 @@ export class SessionMetadataStore {
     const pattern = `%${escaped}%`;
     const rows = this.db!.prepare(
       `WITH navigation AS (SELECT s.*, coalesce(p.value,s.session_id) AS conversation_id,
-        coalesce(source.summary,s.summary) AS conversation_summary
+        CASE WHEN source.session_id IS NOT NULL THEN source.summary ELSE s.summary END AS conversation_summary,
+        max(s.updated_at) OVER (PARTITION BY coalesce(p.value,s.session_id)) AS conversation_updated_at
         FROM sessions s LEFT JOIN json_each(?) p ON p.key=s.session_id
         LEFT JOIN sessions source ON source.session_id=p.value AND source.is_hidden=0), candidates AS (SELECT
         s.conversation_id AS session_id,
@@ -628,7 +636,7 @@ export class SessionMetadataStore {
         e.payload,
         e.created_at AS matched_at,
         e.seq AS matched_seq,
-        s.updated_at,
+        s.conversation_updated_at AS updated_at,
         1 AS content_match
       FROM events e
       JOIN navigation s ON s.session_id = e.session_id
@@ -641,7 +649,7 @@ export class SessionMetadataStore {
         )
       UNION ALL
       SELECT s.conversation_id, s.conversation_summary, s.session_id, json_object('text', s.summary),
-        s.updated_at AS matched_at, 0 AS matched_seq, s.updated_at, 0 AS content_match
+        s.updated_at AS matched_at, 0 AS matched_seq, s.conversation_updated_at, 0 AS content_match
       FROM navigation s
       WHERE s.is_hidden = 0 AND ${REGISTERED_CONVERSATION_SQL}
         AND s.summary LIKE ? ESCAPE '\\'

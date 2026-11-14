@@ -81,7 +81,13 @@ it('groups async and synchronous search before the result limit and retains the 
   for (let i = 0; i < 4; i++) {
     joinParticipant(store, group, `peer-${i}`);
     store.append(`peer-${i}`, 'user_message', { text: 'Needle participant history' });
+    store.upsertSession({
+      sessionId: `peer-${i}`,
+      updatedAt: 1000 + i,
+      summary: 'Participant title',
+    });
   }
+  store.upsertSession({ sessionId: 'source', updatedAt: 10 });
   store.upsertSession({
     sessionId: 'standalone',
     conversationSource: 'mitzo',
@@ -96,6 +102,11 @@ it('groups async and synchronous search before the result limit and retains the 
     expect(results.find((r) => r.sessionId === 'source')).toMatchObject({
       summary: 'Original conversation',
       matchedSessionId: expect.stringMatching(/^peer-/),
+      updatedAt: 1003,
     });
   }
+  store.upsertSession({ sessionId: 'source', summary: null, updatedAt: 10 });
+  expect(
+    store.searchSessions('Needle', 2).find((r) => r.sessionId === 'source')?.summary,
+  ).toBeNull();
 });

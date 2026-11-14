@@ -21,12 +21,13 @@ export function sessionConversationPage(store: EventStore, offset = 0, limit = 2
       );
     return true;
   });
+  const metadata = new Map(all.map((m) => [m.sessionId, m]));
   const rows = new Map<string, Session>(
     all.map((m) => [
       m.sessionId,
       {
         id: m.sessionId,
-        summary: sessionDisplayName(m, () => store.getSessionNamingEvents(m.sessionId)),
+        summary: m.summary ?? '',
         lastModified: m.updatedAt,
         branch: m.branch ?? undefined,
         cwd: m.cwd ?? undefined,
@@ -43,7 +44,14 @@ export function sessionConversationPage(store: EventStore, offset = 0, limit = 2
   }
   const grouped = [...rows.values()].sort((a, b) => b.lastModified - a.lastModified);
   return {
-    sessions: grouped.slice(offset, offset + limit),
+    sessions: grouped
+      .slice(offset, offset + limit)
+      .map((row) => ({
+        ...row,
+        summary: sessionDisplayName(metadata.get(row.id)!, () =>
+          store.getSessionNamingEvents(row.id),
+        ),
+      })),
     hasMore: grouped.length > offset + limit,
   };
 }
