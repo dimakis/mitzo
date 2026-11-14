@@ -118,6 +118,18 @@ identity without inference. The 97 focused participant/shared/native-presentatio
 tests and 109 design checks pass. Actual ordinary-page name width, overflow and
 paired screenshot acceptance remain slice 3's hosted rendering gate.
 
+Slice 3's corrected hosted reference adapter subsequently reached the real 320px/
+200% text assertion: all six engine/theme cases retained a 52px name track, and
+the captured header pushed Links & access/New chat outside the visible row. This
+is a confirmed rendering blocker, despite the earlier component checks. The
+named ordinary heading now permits flex wrapping, and its text track reserves
+space for the adjacent count. The narrow ordinary browser fixture now includes
+the production WorkspaceControls, participant action and SessionAccess alongside
+the real composer, with unchanged 64px minimum-name and 44px action checks at
+200% text. It bundles/lists; 123 owner/design checks pass with one existing skip.
+Fresh hosted geometry and screenshot acceptance remain required; local browser
+execution remains blocked as described below.
+
 Centaur's `bb219f421` review identified four further blocking regressions. Focused
 owner tests reproduce all four before their fixes: encoded native delivery packets
 replacing multiple operator bodies, source finalization/tool-only rows moving above

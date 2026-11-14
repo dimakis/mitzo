@@ -140,12 +140,29 @@ for (const theme of ['dark', 'light'])
       await expect(input).toHaveValue('Draft retained through joining and resizing');
       await expect(page.locator('.chat-messages')).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
+      await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
+      const heading = page.locator('.workspace-controls-heading');
+      await heading.screenshot({
+        path: info.outputPath(`ordinary-header-large-${width}-${theme}.png`),
+      });
+      const names = heading.locator('.conversation-participant-names');
+      expect((await names.boundingBox())!.width).toBeGreaterThanOrEqual(64);
+      for (const action of await heading.getByRole('button').all()) {
+        const bounds = (await action.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+        expect(bounds.width).toBeGreaterThanOrEqual(44);
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
+      }
+      await expect(input).toBeInViewport();
+      await expect(input).toHaveAttribute('data-retained', 'original');
+      await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
     }
     await page.getByRole('button', { name: 'Toggle source running' }).click();
     await expect(input).toHaveAttribute('data-retained', 'original');
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
     await page.getByRole('button', { name: 'Choose who replies' }).click();
-    await page.getByRole('checkbox', { name: 'Current agent', exact: true }).uncheck();
+    await page.getByRole('checkbox', { name: 'Architect', exact: true }).uncheck();
     await page.getByRole('button', { name: 'Done choosing replies' }).click();
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
     await page.screenshot({ path: info.outputPath(`ordinary-${theme}.png`), fullPage: true });

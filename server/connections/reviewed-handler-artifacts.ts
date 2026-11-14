@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1160-symposium-integrated-acceptance';
+  'v1.0.1161-symposium-integrated-acceptance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+
   '../../frontend/src/components/__tests__/CollaborationTranscript.test.tsx':
     'f1db019d95f4f2b586e65cc050d65df9740f7618aadc4b5d7ca2ce4186e5965a',
 
@@ -47,17 +48,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-turn-observers.ts':
     'fba10dda652de5533b98efd6b8803ab16de376ca7f59ac8c2a28b7e1fbbe9a49',
   '../../tests/fixtures/symposium-ordinary-surface.tsx':
-    '0102c4afb4155713c54e8cef15b0ba16c91b675b42d245e420592d8134381573',
+    '4999c16ebccde4b86fddd91a965ccb5e672b3a14228a19ce2b4ceead819e5e8a',
   '../../tests/integration/symposium-ordinary-acceptance.test.tsx':
     '44ed23e9feca024544fb0ede5f237ae8946657b5f7323137587d31c93bb16124',
   '../../tests/integration/symposium-required-owners.test.ts':
     'dfb7f311eab054c9f27e5401610819a5e743516ac2e22461fae1596e6b79aa01',
   '../../tests/offline/symposium-ordinary-surface.spec.ts':
-    '0cd508186a76a90ed8acf484fead64d3f86623ddfe72214bebec1e3fcf5dd363',
+    '3ae691a87c3691d9151d4312b4f74c110e252729a36be98f8cef515383cd8b0c',
   '../../tests/support/application-event-source.ts':
     'da2d0fd6614485c42048e85449c79a0ab5a999f340fc29f7db4e02a90cbec973',
   '../../tests/offline/symposium-ordinary-responsive.spec.ts':
-    '89cd7de59603a92b56dfd25e264ae5c8eb4d81d800e4819b93b8b2c5163320b7',
+    '108e968d2716ae6b9da58a2d21efc24ad07dc848726537f4dcc639dc27439521',
   '../session-conversation-list.ts':
     '5ba1ca1e183a6fd5a6636a98fdd089ae6f20186464617b666a1344818a3388fb',
   '../../packages/protocol/src/conversation-activity.ts':
@@ -1193,7 +1194,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '571c301305df453eccebba1626f3acd53985e792b53dadab30da0fa4ba3d8ecf',
+    'f23f4846500025c4db04690d941335079fb2543fd0a82a34a679c32d37d1a2eb',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
@@ -2389,7 +2390,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.tsx':
     '28791885c34ecabe7f5bf18ac97c3c416ab2369cc3d30c1d3e2566b316b364ea',
   '../../frontend/src/components/ConversationAgents.css':
-    '7406806aa6277a4a91760927c0c8d8922dad0e57c776b97aa47c79372c1cc367',
+    'aca82ef1b7b130ec1ce202705deb2999911922f6676eec320c4cb370deae8a0b',
   '../../frontend/src/components/ComposerResponders.tsx':
     'b4bd7467859874c67e8bdac851ddc94cd71f9b4abfcf4ca7fd3437775c71be36',
   '../../frontend/src/components/ComposerResponders.css':

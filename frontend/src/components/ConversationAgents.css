@@ -20,6 +20,9 @@
   flex: 1;
   min-inline-size: calc(2 * var(--space-6) + var(--control-height));
 }
+.workspace-controls-heading:has(.conversation-agents-entry--named) {
+  flex-wrap: wrap;
+}
 .conversation-participants {
   flex: none;
   justify-content: space-between;
@@ -417,6 +420,11 @@
   min-width: min(100%, calc(2 * var(--space-6)));
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Reserve the adjacent count inside the compact trigger's text track. Enlarged
+   text reflows the header actions instead of pushing them outside the viewport. */
+.conversation-agents-entry--named .conversation-participant-names {
+  min-inline-size: min(calc(2 * var(--space-6)), calc(100% - 2ch - var(--space-1)));
 }
 .conversation-participant-wide-count {
   flex: none;
