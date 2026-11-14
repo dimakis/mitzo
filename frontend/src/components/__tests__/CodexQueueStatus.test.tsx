@@ -840,44 +840,51 @@ it('keeps the reconnect fallback available when recovery fails', async () => {
   expect(screen.getByRole('button', { name: 'Continue chat' })).toBeTruthy();
 });
 
-it('offers an explicit retry for the saved failed turn without queued follow-ups', async () => {
-  vi.mocked(apiFetch)
-    .mockResolvedValueOnce(
-      meta({
-        paused: true,
-        connected: true,
-        queued: 0,
-        interrupted: 0,
-        failed: 1,
-        recovering: false,
-      }),
-    )
-    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
-    .mockResolvedValueOnce(
-      meta({
-        paused: false,
-        connected: true,
-        queued: 0,
-        interrupted: 0,
-        failed: 0,
-        recovering: false,
+it.each([undefined, 'claude-failed-source'])(
+  'retries the saved failed turn with its displayed source (%s)',
+  async (sourceCommandId) => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce(
+        meta({
+          paused: true,
+          connected: true,
+          queued: 0,
+          interrupted: 0,
+          failed: 1,
+          recovering: false,
+          ...(sourceCommandId ? { retrySourceCommandId: sourceCommandId } : {}),
+        }),
+      )
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
+      .mockResolvedValueOnce(
+        meta({
+          paused: false,
+          connected: true,
+          queued: 0,
+          interrupted: 0,
+          failed: 0,
+          recovering: false,
+        }),
+      );
+
+    render(<CodexQueueStatus sessionId="failed" />);
+    expect(await screen.findByText('Previous turn failed. Retry when available.')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry saved turn' }));
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/sessions/failed/codex-queue/retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmAmbiguous: false,
+          ...(sourceCommandId ? { sourceCommandId } : {}),
+        }),
+        signal: expect.any(AbortSignal),
       }),
     );
-
-  render(<CodexQueueStatus sessionId="failed" />);
-  expect(await screen.findByText('Previous turn failed. Retry when available.')).toBeTruthy();
-  await userEvent.click(screen.getByRole('button', { name: 'Retry saved turn' }));
-
-  await waitFor(() =>
-    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/failed/codex-queue/retry', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirmAmbiguous: false }),
-      signal: expect.any(AbortSignal),
-    }),
-  );
-  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
-});
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+  },
+);
 
 it('honors the provider retry window before enabling the saved turn', async () => {
   const retryAvailableAt = Date.now() + 9_000;

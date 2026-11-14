@@ -132,6 +132,46 @@ responses; no live provider or production effects were used. Source pins advance
 to `v1.0.1159-claude-native-profile-selection`; hosted CI and exact-head review of
 this follow-up remain required.
 
+## Explicit failed-turn Retry and pre-input peer Stop
+
+The existing queue Retry action now accepts an explicit displayed source command.
+It derives one deterministic child through the ordinary prompt, admission and SDK
+queue owners. The source's complete payload (including images), exact selection,
+binding, workspace and captured skill context are retained. Later queued settings
+cannot replace that scope. The original consumed/error receipt is never reset.
+An SDK-settled failed result requires the existing explicit confirmation because
+prior effects may have completed. A positively proved preparation cancellation
+(terminal abandoned, exact pre-input cancellation error, no SDK turn events) can
+retry without that confirmation. Generic failures and unresolved outcomes remain
+blocked. Identical requests recover the child's immutable receipt; reserved or
+uncertain receipts cannot dispatch again. An explicit retry precedes the retained
+successors, whose relative FIFO order remains unchanged.
+
+Centaur comment `6877521469` verified the earlier Telos finding resolved on
+`b2c6bd8e`, whose CI `43592238143` passed, and reported a new blocker,
+`CEN-B4FFA12A4338`. Stop during idle peer input's asynchronous account check ran
+the peer's stopped-recipient guard before the ordinary cancellation owner could
+settle the execution. The ordinary synchronous pre-input fence now runs first.
+The existing peer owner records cancellation only with positive consumed,
+stopped, exact pre-input-error and zero-SDK-event proof; its normal final guard
+still runs immediately before every allowed input yield.
+
+Four composed HTTP/runtime cases pass: live Vertex failed-turn retry preserving
+an image-bearing slash-skill source ahead of differently configured successors;
+personal cold retry plus peer Stop/Continue/cold Send; refusal of an unknown
+post-input failure; and positive preparation cancellation followed by explicit
+retry, subsequent Send and cold Send. They cover missing/stale source IDs,
+confirmation, foreign login, duplicate recovery and retained original receipts.
+Another 126 focused owner/query/router/UI checks pass. Changed-file lint and
+format checks pass. Root TypeScript checking exceeded the prescribed 1 GiB local
+heap; the original diagnostic is retained and hosted compilation remains required.
+Earlier fixture failures (synchronous transaction returning a Promise, per-request
+test listener transport failures, and an overstrict retained retry guard) were
+diagnosed and corrected; original local logs remain retained. No retry assertions,
+authority checks or production timeouts were weakened. Source pins advance to
+`v1.0.1160-claude-explicit-failed-turn-retry`. Current-head CI and trusted final
+review must verify these changes before merge; source tests do not close Centaur.
+
 ## Integration custody and limits
 
 PR #1342 remains draft/open/conflicting at `b2675af8199ab8a99f3628d3d93c4e65145c7244`

@@ -30,6 +30,7 @@ const Queue = z.object({
   retryAvailableAt: z.number().int().positive().optional(),
   retryable: z.boolean().optional(),
   requiresRetryConfirmation: z.boolean().optional(),
+  retrySourceCommandId: z.string().min(1).max(200).optional(),
   capacityRecovery: CapacityRecovery.optional(),
   operation: z
     .object({
@@ -495,7 +496,10 @@ export function CodexQueueStatus({
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ confirmAmbiguous: !!queue.requiresRetryConfirmation }),
+          body: JSON.stringify({
+            confirmAmbiguous: !!queue.requiresRetryConfirmation,
+            ...(queue.retrySourceCommandId ? { sourceCommandId: queue.retrySourceCommandId } : {}),
+          }),
           signal: AbortSignal.timeout(15000),
         },
       );

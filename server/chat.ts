@@ -1335,6 +1335,7 @@ export async function startChat(
     reattachOnly?: boolean;
     /** Sealed backend-owned SDK authority; never read from a client request. */
     ordinarySdkAuthority?: OrdinaryLocalVertexSdkAuthority;
+    ordinarySdkRetrySourceCommandId?: string;
     ordinarySdkCommandOwner?: (
       query: Query,
       push: (
@@ -1539,6 +1540,7 @@ async function _startChatInner(
     reattachOnly?: boolean;
     /** Sealed backend-owned SDK authority; never read from a client request. */
     ordinarySdkAuthority?: OrdinaryLocalVertexSdkAuthority;
+    ordinarySdkRetrySourceCommandId?: string;
     ordinarySdkCommandOwner?: (
       query: Query,
       push: (
@@ -3288,7 +3290,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         );
         abortController.signal.addEventListener('abort', stopSdkAgentMessageWatch, { once: true });
         if (abortController.signal.aborted) stopSdkAgentMessageWatch();
-        await liveOrdinarySdkOwner.enqueue(initialMessageId);
+        await liveOrdinarySdkOwner.enqueue(
+          initialMessageId,
+          undefined,
+          options.ordinarySdkRetrySourceCommandId,
+        );
       } else {
         q = createSdkTurnQuery({
           input: inputQueue,

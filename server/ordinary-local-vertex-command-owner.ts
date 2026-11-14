@@ -11,6 +11,10 @@ import {
 } from './ordinary-turn-lifecycle.js';
 import type { OrdinarySdkTurnEvidence } from './ordinary-sdk-turn-evidence.js';
 import type { OrdinarySdkQueryControl } from './ordinary-local-vertex-sdk-query.js';
+import {
+  ordinarySdkRetryCommandId,
+  readOwnedVertexRetrySource,
+} from './ordinary-local-vertex-queue.js';
 
 /** A FIFO controller for one existing SDK query. The durable queue is the existing
  * ordinary/send ledger; this object only tracks the live query's active command. */
@@ -204,12 +208,27 @@ export class OrdinaryLocalVertexCommandOwner {
       ? this.#active.commandId
       : undefined;
   }
-  enqueue(commandId: string, preparationSignal?: AbortSignal): Promise<void> {
+  enqueue(
+    commandId: string,
+    preparationSignal?: AbortSignal,
+    retrySourceCommandId?: string,
+  ): Promise<void> {
     return this.#serialize(
       async () => {
         preparationSignal?.throwIfAborted();
         await this.#fence();
         preparationSignal?.throwIfAborted();
+        if (
+          retrySourceCommandId &&
+          (this.#active ||
+            commandId !== ordinarySdkRetryCommandId(retrySourceCommandId) ||
+            !readOwnedVertexRetrySource(
+              this.owners.store,
+              this.owners.sessionId,
+              retrySourceCommandId,
+            ))
+        )
+          throw Error('Original SDK retry source unavailable');
         const command = this.owners.store.getSendCommand(commandId);
         const admission = this.owners.store.getOrdinaryLocalVertexCommandAdmission(commandId);
         if (command?.sessionId !== this.owners.sessionId || !admission)
@@ -232,6 +251,8 @@ export class OrdinaryLocalVertexCommandOwner {
           !this.#pending.includes(commandId)
         )
           this.#pending.push(commandId);
+        if (retrySourceCommandId)
+          this.#pending = [commandId, ...this.#pending.filter((id) => id !== commandId)];
         if (!this.#active) this.#paused = false;
         await this.#dispatch(preparationSignal, commandId);
       },
@@ -262,7 +283,7 @@ export class OrdinaryLocalVertexCommandOwner {
           .turnLifecycle?.(commandId)
           ?.terminal(commandId, inputUuid, failed ? 'failed' : 'completed');
       }
-      this.#paused = stopping;
+      this.#paused = stopping || failed;
       this.#active = undefined;
       this.#inputDispatched = undefined;
       this.#inputYielded = false;

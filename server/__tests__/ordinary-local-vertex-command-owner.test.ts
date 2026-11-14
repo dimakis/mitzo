@@ -6,6 +6,10 @@ import type { OrdinaryTurnLifecycle } from '../ordinary-turn-lifecycle.js';
 import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
 import { randomUUID } from 'node:crypto';
 import { replayEventsToMessages } from '../conversation-transcript.js';
+import {
+  ordinarySdkRetryCommandId,
+  readOwnedVertexRetrySource,
+} from '../ordinary-local-vertex-queue.js';
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
 const binding = {
@@ -82,6 +86,61 @@ function setup(turnLifecycle?: OrdinaryTurnLifecycle, recordEvidence = false) {
   });
   return { store, owner, calls, query, assertCurrent, assertCurrentSync };
 }
+it('retries a positively cancelled preparation as a new exact intent without resetting its failed receipt', async () => {
+  const f = setup();
+  const controller = new AbortController();
+  let release!: () => void;
+  f.query.setModel.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const pending = f.owner.enqueue('first', controller.signal);
+  const refused = expect(pending).rejects.toThrow('Explicit preparation deadline');
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  controller.abort(Error('Explicit preparation deadline'));
+  release();
+  await refused;
+  expect(f.query.push).not.toHaveBeenCalled();
+  expect(f.query.abort).not.toHaveBeenCalled();
+  const original = f.store.getSendCommand('first');
+  expect(original?.error).toBe('Cancelled before SDK dispatch');
+  expect(readOwnedVertexRetrySource(f.store, 'session')).toMatchObject({
+    sourceCommandId: 'first',
+    requiresConfirmation: false,
+  });
+  expect(() => f.store.withOrdinaryDerivedCommandContext('session', 'first', () => {})).toThrow(
+    /source admission failed/i,
+  );
+  const childId = ordinarySdkRetryCommandId('first');
+  f.store.withOrdinaryUnsentSdkRetryContext('session', 'first', (current) => {
+    current();
+    f.store.admitOrdinaryLocalVertexContinuation(meta, binding, {
+      ...command(childId),
+      payload: original!.payload,
+    });
+  });
+  await f.owner.enqueue(childId, undefined, 'first');
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual([childId]);
+  expect(f.store.getSendCommand('first')).toEqual(original);
+  expect(f.store.getOrdinaryLocalVertexCommandAdmission('first')?.state).toBe('consumed');
+  await f.owner.complete(childId);
+});
+
+it('refuses generic failed pre-input evidence without the original cancellation or settled SDK result', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  const token = f.store.getExecutionAdmission('session', 'first')!.token;
+  f.store.transitionExecution(token, 'TERMINAL', 'failed');
+  f.store.failSendCommand('first', 'Unknown provider or tool outcome');
+  expect(readOwnedVertexRetrySource(f.store, 'session')).toBeUndefined();
+  expect(() => f.store.withOrdinaryUnsentSdkRetryContext('session', 'first', () => {})).toThrow(
+    /proof unavailable/i,
+  );
+  expect(f.query.push).toHaveBeenCalledOnce();
+});
+
 it('renews only the exact active, not-yet-acknowledged SDK input at its final yield', async () => {
   const lifecycle = { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() };
   const f = setup(lifecycle, true);

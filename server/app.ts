@@ -1,6 +1,9 @@
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import { agentMessageRuntime } from './agent-message-runtime.js';
-import { continueOwnedLocalVertexQueue } from './ordinary-local-vertex-entry.js';
+import {
+  continueOwnedLocalVertexQueue,
+  canResumeOwnedLocalVertexDriver,
+} from './ordinary-local-vertex-entry.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
@@ -58,6 +61,7 @@ import {
   readOwnedVertexQueue,
   readOwnedVertexQueueOverview,
   cancelOwnedVertexQueuedCommand,
+  retryOwnedVertexFailedTurn,
 } from './ordinary-local-vertex-queue.js';
 import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
 import { recoverableLocalCodexCommand } from './retained-local-codex-recovery.js';
@@ -3682,16 +3686,17 @@ const collaborationForwarding = new CollaborationApplicationForwarding(
   eventStore,
   createCollaborationRetainedArtifactPort(telosDatabasePath),
 );
+const ordinaryPromptPort = createSessionPromptPort({
+  eventStore,
+  ordinaryCommands: getCodexConversationStore,
+  sessionRegistry: registry,
+  connRegistry: {
+    broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),
+  },
+});
 const collaborationMessaging = new ApplicationCollaborationMessaging(
   eventStore,
-  createSessionPromptPort({
-    eventStore,
-    ordinaryCommands: getCodexConversationStore,
-    sessionRegistry: registry,
-    connRegistry: {
-      broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),
-    },
-  }),
+  ordinaryPromptPort,
   collaborationForwarding,
 );
 setSpecialistConsultations(
@@ -4004,6 +4009,13 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
     const owner = registry.findBySessionId(meta.sessionId)?.session.ordinaryRuntimeOwner;
     codexQueue = {
       ...codexQueue,
+      retryable: Boolean(
+        codexQueue.retryable &&
+        auth &&
+        auth.expiresAt > Date.now() &&
+        (owner?.authSessionId === auth.id ||
+          canResumeOwnedLocalVertexDriver(meta.sessionId, auth.id)),
+      ),
       canContinue: Boolean(
         !meta.isHidden &&
         codexQueue.paused &&
@@ -4507,7 +4519,18 @@ mountObservedRouter(
         });
       return result;
     },
-    retry: async (id, _binding, confirmAmbiguous) => {
+    retry: async (id, _binding, confirmAmbiguous, context) => {
+      if (eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk') {
+        if (!context?.sourceCommandId) return 'not_retryable';
+        return retryOwnedVertexFailedTurn(
+          eventStore,
+          ordinaryPromptPort,
+          id,
+          context.sourceCommandId,
+          confirmAmbiguous,
+          context.authorization,
+        );
+      }
       const session = registry.findBySessionId(id)?.session;
       const runtime = session ? getCodexRuntime(session) : undefined;
       return runtime ? runtime.retryLatestFailed(confirmAmbiguous) : 'unavailable';
