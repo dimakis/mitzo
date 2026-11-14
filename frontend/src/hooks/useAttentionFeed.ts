@@ -1,5 +1,6 @@
 import type { UiIconName } from '../components/UiIcon';
 import { sessionAttentionReason } from '../lib/session-attention';
+import { conversationActivities } from '../lib/conversation-activity';
 import { useState, useEffect, useMemo } from 'react';
 import { useTodoData } from './useTodoData';
 import { eventBus } from '../lib/event-bus-singleton';
@@ -272,7 +273,7 @@ export function useAttentionFeed(): UseAttentionFeedReturn {
   const feed = useMemo(() => {
     const telosItems = telosToAttention(todos);
     const atbItems = atbToAttention(tasks);
-    const sessionItems = sessionsToAttention(activities);
+    const sessionItems = sessionsToAttention(conversationActivities(activities));
     return sortAttention([...telosItems, ...atbItems, ...sessionItems]);
   }, [todos, tasks, activities]);
 
