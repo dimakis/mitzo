@@ -1,0 +1,885 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 320px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 320px keeps one transcript/composer after silent joining[33m 1838[2mms[22m[39m
+[31m   → expected …(2) to have a length of 1 but got 2[39m
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 390px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 390px keeps one transcript/composer after silent joining[32m 268[2mms[22m[39m
+[31m   → expected …(2) to have a length of 1 but got 2[39m
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 1280px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps explicit recipients, draft and focused composer through concurrent source activity
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 1280px keeps one transcript/composer after silent joining[32m 283[2mms[22m[39m
+[31m   → expected …(2) to have a length of 1 but got 2[39m
+{"level":30,"time":1794651765046,"pid":27896,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps explicit recipients, draft and focused composer through concurrent source activity[32m 287[2mms[22m[39m
+[31m   → Unable to find an accessible element with the role "button" and name "Choose who replies"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "Conversation":
+  [36m<h1[31m
+    [33mclass[31m=[32m"sr-only"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  link:
+
+  Name "Back to chats":
+  [36m<a[31m
+    [33maria-label[31m=[32m"Back to chats"[31m
+    [33mclass[31m=[32m"chat-top-action"[31m
+    [33mdata-discover[31m=[32m"true"[31m
+    [33mhref[31m=[32m"/sessions"[31m
+  [36m/>[31m
+
+  Name "Terminal":
+  [36m<a[31m
+    [33maria-label[31m=[32m"Terminal"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mdata-discover[31m=[32m"true"[31m
+    [33mhref[31m=[32m"/terminal?sessionId=existing-chat&returnTo=%2Fchat%2Fexisting-chat"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[31m
+    [33mclass[31m=[32m"workspace-controls-profile"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  button:
+
+  Name "Workspace controls, Settings, Default Mitzo, Legacy account, Model unknown, Thinking: unknown":
+  [36m<button[31m
+    [33maria-controls[31m=[32m"_r_1u_"[31m
+    [33maria-describedby[31m=[32m"_r_1u_-status"[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Workspace controls, Settings, Default Mitzo, Legacy account, Model unknown, Thinking: unknown"[31m
+    [33mclass[31m=[32m"workspace-controls-toggle header-action"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Agents, Independent reviewer, Default Mitzo":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Agents, Independent reviewer, Default Mitzo"[31m
+    [33mclass[31m=[32m"conversation-participants-trigger header-action"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Links & access":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Links & access"[31m
+    [33mclass[31m=[32m"session-access-trigger header-action"[31m
+    [33mtitle[31m=[32m"Links & access"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "New chat":
+  [36m<button[31m
+    [33maria-label[31m=[32m"New chat"[31m
+    [33mclass[31m=[32m"chat-top-action"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Share excerpt":
+  [36m<button[31m
+    [33mclass[31m=[32m"symposium-share-action"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Refresh links":
+  [36m<button[31m
+    [33mclass[31m=[32m"session-links-new"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Conversation status details":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"dialog"[31m
+    [33maria-label[31m=[32m"Conversation status details"[31m
+    [33mclass[31m=[32m"composer-status-details"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "More composer actions":
+  [36m<button[31m
+    [33maria-controls[31m=[32m"_r_2i_"[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"More composer actions"[31m
+    [33mclass[31m=[32m"chat-input-btn composer-tools-toggle"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Commands":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Commands"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--skills"[31m
+    [33mtitle[31m=[32m"Commands"[31m
+  [36m/>[31m
+
+  Name "Attach images or PDF":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Attach images or PDF"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--attach"[31m
+    [33mtitle[31m=[32m"Attach images or PDF"[31m
+  [36m/>[31m
+
+  Name "Schedule prompt":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Schedule prompt"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mtitle[31m=[32m"Schedule prompt"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Expand input":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Expand input"[31m
+    [33maria-pressed[31m=[32m"false"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Open session tray":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Open session tray"[31m
+    [33mclass[31m=[32m"chat-input-btn composer-session-trigger"[31m
+    [33mtitle[31m=[32m"Session resources"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Symposium collaboration":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Symposium collaboration"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mtitle[31m=[32m"Symposium collaboration"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Token usage":
+  [36m<button[31m
+    [33maria-describedby[31m=[32m"_r_2k_"[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Token usage"[31m
+    [33mclass[31m=[32m"token-bar token-bar--unknown"[31m
+    [33mtitle[31m=[32m"Token usage — press for details"[31m
+  [36m/>[31m
+
+  Name "Stop generation":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Stop generation"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--stop"[31m
+    [33mtitle[31m=[32m"Stop generation"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "Reconnecting":
+  [36m<span[31m
+    [33mclass[31m=[32m"composer-status-summary"[31m
+    [33mrole[31m=[32m"status"[31m
+    [33mtitle[31m=[32m"Reconnecting"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  group:
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-actions"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  alert:
+
+  Name "":
+  [36m<p[31m
+    [33mrole[31m=[32m"alert"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[31m
+    [33mclass[31m=[32m"chat-empty"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  region:
+
+  Name "Conversation status":
+  [36m<div[31m
+    [33maria-label[31m=[32m"Conversation status"[31m
+    [33mclass[31m=[32m"composer-status"[31m
+    [33mdata-tone[31m=[32m"normal"[31m
+    [33mrole[31m=[32m"region"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Message Mitzo":
+  [36m<textarea[31m
+    [33maria-label[31m=[32m"Message Mitzo"[31m
+    [33mclass[31m=[32m"chat-input-field"[31m
+    [33mplaceholder[31m=[32m"Message Mitzo..."[31m
+    [33mrows[31m=[32m"1"[31m
+    [33mstyle[31m=[32m"height: 0px;"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div />[31m
+  [36m<div />[31m
+  [36m<div />[31m
+  [36m<div>[31m
+    [36m<div[31m
+      [33mclass[31m=[32m"chat-page workspace-chat"[31m
+    [36m>[31m
+      [36m<section[31m
+        [33mclass[31m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"chat-mobile-topbar"[31m
+        [36m>[31m
+          [36m<h1[31m
+            [33mclass[31m=[32m"sr-only"[31m
+          [36m>[31m
+            [0mConversation[0m
+          [36m</h1>[31m
+          [36m<section[31m
+            [33mclass[31m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"workspace-controls-heading"[31m
+            [36m>[31m
+              [36m<a[31m
+                [33maria-label[31m=[32m"Back to chats"[31m
+                [33mclass[31m=[32m"chat-top-action"[31m
+                [33mdata-discover[31m=[32m"true"[31m
+                [33mhref[31m=[32m"/sessions"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"back"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-linejoin[31m=[32m"round"[31m
+                  [33mstroke-width[31m=[32m"1.7"[31m
+                  [33mviewBox[31m=[32m"0 0 24 24"[31m
+                  [33mwidth[31m=[32m"20"[31m
+                [36m>[31m
+                  [36m<path[31m
+                    [33md[31m=[32m"m14 6-6 6 6 6"[31m
+                  [36m/>[31m
+                [36m</svg>[31m
+              [36m</a>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"workspace-controls-context"[31m
+              [36m>[31m
+                [36m<strong[31m
+                  [33mclass[31m=[32m"workspace-controls-profile"[31m
+                [36m>[31m
+                  [0mChat[0m
+                [36m</strong>[31m
+                [36m<span>[31m
+                  [0mDefault Mitzo · Legacy account · Model unknown · Thinking: unknown[0m
+                [36m</span>[31m
+              [36m</div>[31m
+              [36m<button[31m
+                [33maria-controls[31m=[32m"_r_1u_"[31m
+                [33maria-describedby[31m=[32m"_r_1u_-status"[31m
+                [33maria-expanded[31m=[32m"false"[31m
+                [33maria-label[31m=[32m"Workspace controls, Settings, Default Mitzo, Legacy account, Model unknown, Thinking: unknown"[31m
+                [33mclass[31m=[32m"workspace-controls-toggle header-action"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"settings"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-linejoin[31m=[32m"round"[31m
+                  [33mstroke-width[31m=[32m"1.7"[31m
+                  [33mviewBox[31m=[32m"0 0 24 24"[31m
+                  [33mwidth[31m=[32m"20"[31m
+                [36m>[31m
+                  [36m<path[31m
+                    [33md[31m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[31m
+                  [36m/>[31m
+                [36m</svg>[31m
+                [36m<span[31m
+                  [33mclass[31m=[32m"workspace-controls-label"[31m
+                [36m>[31m
+                  [0mSettings[0m
+                [36m</span>[31m
+              [36m</button>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"conversation-state sr-only"[31m
+                [33mid[31m=[32m"_r_1u_-status"[31m
+              [36m>[31m
+                [0mWorking[0m
+              [36m</span>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"conversation-agents-entry"[31m
+              [36m>[31m
+                [36m<button[31m
+                  [33maria-expanded[31m=[32m"false"[31m
+                  [33maria-label[31m=[32m"Agents, Independent reviewer, Default Mitzo"[31m
+                  [33mclass[31m=[32m"conversation-participants-trigger header-action"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"bot"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</button>[31m
+              [36m</div>[31m
+              [36m<button[31m
+                [33maria-label[31m=[32m"Links & access"[31m
+                [33mclass[31m=[32m"session-access-trigger header-action"[31m
+                [33mtitle[31m=[32m"Links & access"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"connections"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-linejoin[31m=[32m"round"[31m
+                  [33mstroke-width[31m=[32m"1.7"[31m
+             ...[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 4 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 320px keeps one transcript/composer after silent joining
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 390px keeps one transcript/composer after silent joining
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 1280px keeps one transcript/composer after silent joining
+[31m[1mAssertionError[22m: expected …(2) to have a length of 1 but got 2[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+[36m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m81:69[22m[39m
+    [90m 79|[39m     expect(screen.getAllByRole('textbox', { name: 'Message Mitzo' })).…
+    [90m 80|[39m     expect(screen.getAllByText('Synthetic design requirement')).toHave…
+    [90m 81|[39m     expect(mounted.ui.container.querySelectorAll('.chat-messages')).to…
+    [90m   |[39m                                                                     [31m^[39m
+    [90m 82|[39m   } [35mfinally[39m {
+    [90m 83|[39m     mounted[33m.[39m[34mclose[39m()[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps explicit recipients, draft and focused composer through concurrent source activity
+[31m[1mTestingLibraryElementError[22m[39m: Unable to find an accessible element with the role "button" and name "Choose who replies"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "Conversation":
+  [36m<h1[39m
+    [33mclass[39m=[32m"sr-only"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  link:
+
+  Name "Back to chats":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Back to chats"[39m
+    [33mclass[39m=[32m"chat-top-action"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/sessions"[39m
+  [36m/>[39m
+
+  Name "Terminal":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Terminal"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/terminal?sessionId=existing-chat&returnTo=%2Fchat%2Fexisting-chat"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"workspace-controls-profile"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Workspace controls, Settings, Default Mitzo, Legacy account, Model unknown, Thinking: unknown":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_1u_"[39m
+    [33maria-describedby[39m=[32m"_r_1u_-status"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Workspace controls, Settings, Default Mitzo, Legacy account, Model unknown, Thinking: unknown"[39m
+    [33mclass[39m=[32m"workspace-controls-toggle header-action"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Agents, Independent reviewer, Default Mitzo":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Agents, Independent reviewer, Default Mitzo"[39m
+    [33mclass[39m=[32m"conversation-participants-trigger header-action"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Links & access":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Links & access"[39m
+    [33mclass[39m=[32m"session-access-trigger header-action"[39m
+    [33mtitle[39m=[32m"Links & access"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "New chat":
+  [36m<button[39m
+    [33maria-label[39m=[32m"New chat"[39m
+    [33mclass[39m=[32m"chat-top-action"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Share excerpt":
+  [36m<button[39m
+    [33mclass[39m=[32m"symposium-share-action"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Refresh links":
+  [36m<button[39m
+    [33mclass[39m=[32m"session-links-new"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Conversation status details":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"Conversation status details"[39m
+    [33mclass[39m=[32m"composer-status-details"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "More composer actions":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_2i_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"More composer actions"[39m
+    [33mclass[39m=[32m"chat-input-btn composer-tools-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Commands":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Commands"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--skills"[39m
+    [33mtitle[39m=[32m"Commands"[39m
+  [36m/>[39m
+
+  Name "Attach images or PDF":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Attach images or PDF"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--attach"[39m
+    [33mtitle[39m=[32m"Attach images or PDF"[39m
+  [36m/>[39m
+
+  Name "Schedule prompt":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Schedule prompt"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mtitle[39m=[32m"Schedule prompt"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Expand input":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Expand input"[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Open session tray":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Open session tray"[39m
+    [33mclass[39m=[32m"chat-input-btn composer-session-trigger"[39m
+    [33mtitle[39m=[32m"Session resources"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Symposium collaboration":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Symposium collaboration"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mtitle[39m=[32m"Symposium collaboration"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Token usage":
+  [36m<button[39m
+    [33maria-describedby[39m=[32m"_r_2k_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Token usage"[39m
+    [33mclass[39m=[32m"token-bar token-bar--unknown"[39m
+    [33mtitle[39m=[32m"Token usage — press for details"[39m
+  [36m/>[39m
+
+  Name "Stop generation":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Stop generation"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--stop"[39m
+    [33mtitle[39m=[32m"Stop generation"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "Reconnecting":
+  [36m<span[39m
+    [33mclass[39m=[32m"composer-status-summary"[39m
+    [33mrole[39m=[32m"status"[39m
+    [33mtitle[39m=[32m"Reconnecting"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-actions"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  alert:
+
+  Name "":
+  [36m<p[39m
+    [33mrole[39m=[32m"alert"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"chat-empty"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Conversation status":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Conversation status"[39m
+    [33mclass[39m=[32m"composer-status"[39m
+    [33mdata-tone[39m=[32m"normal"[39m
+    [33mrole[39m=[32m"region"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Message Mitzo":
+  [36m<textarea[39m
+    [33maria-label[39m=[32m"Message Mitzo"[39m
+    [33mclass[39m=[32m"chat-input-field"[39m
+    [33mplaceholder[39m=[32m"Message Mitzo..."[39m
+    [33mrows[39m=[32m"1"[39m
+    [33mstyle[39m=[32m"height: 0px;"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+  [36m<div />[39m
+  [36m<div />[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"chat-page workspace-chat"[39m
+    [36m>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"chat-mobile-topbar"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"sr-only"[39m
+          [36m>[39m
+            [0mConversation[0m
+          [36m</h1>[39m
+          [36m<section[39m
+            [33mclass[39m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"workspace-controls-heading"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33maria-label[39m=[32m"Back to chats"[39m
+                [33mclass[39m=[32m"chat-top-action"[39m
+                [33mdata-discover[39m=[32m"true"[39m
+                [33mhref[39m=[32m"/sessions"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"back"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.7"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"20"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"m14 6-6 6 6 6"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</a>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"workspace-controls-context"[39m
+              [36m>[39m
+                [36m<strong[39m
+                  [33mclass[39m=[32m"workspace-controls-profile"[39m
+                [36m>[39m
+                  [0mChat[0m
+                [36m</strong>[39m
+                [36m<span>[39m
+                  [0mDefault Mitzo · Legacy account · Model unknown · Thinking: unknown[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<button[39m
+                [33maria-controls[39m=[32m"_r_1u_"[39m
+                [33maria-describedby[39m=[32m"_r_1u_-status"[39m
+                [33maria-expanded[39m=[32m"false"[39m
+                [33maria-label[39m=[32m"Workspace controls, Settings, Default Mitzo, Legacy account, Model unknown, Thinking: unknown"[39m
+                [33mclass[39m=[32m"workspace-controls-toggle header-action"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"settings"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.7"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"20"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"workspace-controls-label"[39m
+                [36m>[39m
+                  [0mSettings[0m
+                [36m</span>[39m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"conversation-state sr-only"[39m
+                [33mid[39m=[32m"_r_1u_-status"[39m
+              [36m>[39m
+                [0mWorking[0m
+              [36m</span>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"conversation-agents-entry"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33maria-expanded[39m=[32m"false"[39m
+                  [33maria-label[39m=[32m"Agents, Independent reviewer, Default Mitzo"[39m
+                  [33mclass[39m=[32m"conversation-participants-trigger header-action"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"bot"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</button>[39m
+              [36m</div>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Links & access"[39m
+                [33mclass[39m=[32m"session-access-trigger header-action"[39m
+                [33mtitle[39m=[32m"Links & access"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"connections"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.7"[39m
+             ...
+[90m [2m❯[22m Object.getElementError node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m97:19[22m[39m
+    [90m 95|[39m     input[33m.[39m[34mfocus[39m()[33m;[39m
+    [90m 96|[39m     act(() => mounted.store.setState((s) => ({ messages: { ...s.messag…
+    [90m 97|[39m     expect(screen.getByRole('button', { name: 'Choose who replies' }))…
+    [90m   |[39m                   [31m^[39m
+    [90m 98|[39m     expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toB…
+    [90m 99|[39m     expect((input as HTMLTextAreaElement).value).toBe('Unsent draft mu…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m4 failed[39m[22m[90m (4)[39m
+[2m   Start at [22m 10:22:35
+[2m   Duration [22m 9.26s[2m (transform 4.61s, setup 0ms, import 661ms, tests 8.00s, environment 511ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice
