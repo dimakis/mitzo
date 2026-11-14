@@ -92,20 +92,32 @@ the exact SDK identity and settling completed read failures only after fresh
 authority, consent and cancellation checks. Explicit uncertainty, cancellation
 and retired ownership still prevent settlement.
 
-The correction validation passed **137 tests in eight focused suites**, plus
+An independent full source/test/fixture pass found the same settlement defect
+also affected Google preparation failures. An export-failure regression reproduced
+`callbacks_failed` before the additional repair. Preparation and resource reads
+now share the same guarded failure classification. Preparation cancellation,
+retired ownership and an explicit original-service uncertainty receipt remain
+blocking; credential-provider diagnostics remain sanitized by their existing owner.
+
+The correction validation passed **141 tests in eight focused suites**, plus
 targeted lint, formatting and registered source fingerprints. A separate local
 Tool Library run passed 16 tests. Two focused read-only local reviews inspected
-the original adapters; a follow-up security review inspected the correction.
-These local reviews do not replace trusted exact-head Centaur approval.
+the original adapters; a follow-up security review inspected the first correction,
+and an independent full pass found the preparation case. The attempted saved
+Vertex specialist authorization and its original-request read both returned
+`specialist_tool_failed`; no cross-model contribution was confirmed. Local
+reviews do not replace trusted exact-head Centaur approval.
 
 Hosted run `43552259394`, unit shard 2, found eight failures in two older suites
 whose assertions still expected the newly enabled services and explicit web
 selection to be unavailable. Their updated assertions retain profile exclusion,
 unknown execution readiness and empty grants, and exercise rejection of an
 unrecognized connection through the actual MCP handler. The capability projector
-suite passes locally. A local integration run reached real SDK-owner callbacks
-but was terminated by its mistakenly selected ten-second executor envelope;
-it is not counted as a passing suite. Fresh hosted CI must qualify the update.
+suite passes locally. A local integration run was terminated by its mistakenly
+selected ten-second executor envelope. After inspecting that interrupted attempt,
+the complete SDK-owner integration suite passed all **13 tests in 41.35 seconds**
+within a 120-second executor bound. The interrupted attempt is not counted as a
+pass. Fresh hosted CI must qualify the update.
 
 The merge coordinator retains the serialized landing order. Full Stop/reconnect
 and cold Send recovery qualification requires the repaired lifecycle behavior

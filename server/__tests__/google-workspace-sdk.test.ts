@@ -24,8 +24,9 @@ afterEach(async () => {
 });
 async function fixture(selected?: boolean) {
   const google = googleReadFixture();
+  const service = new GoogleWorkspaceManagement(google.options);
   setConnectionsRuntime({
-    googleWorkspace: new GoogleWorkspaceManagement(google.options),
+    googleWorkspace: service,
   } as never);
   const registry = new SessionRegistry();
   cleanups.push(() => registry.dispose());
@@ -67,6 +68,7 @@ async function fixture(selected?: boolean) {
     client.callTool({ name: 'GoogleWorkspaceRead', arguments: args });
   return {
     google,
+    service,
     registry,
     session,
     client,
@@ -126,6 +128,16 @@ it('returns a sanitized visible diagnostic for a failed Google read', async () =
   expect(JSON.stringify(result)).not.toContain('SECRET');
   await expect(f.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
 });
+it('settles a sanitized Google preparation failure without starting a resource read', async () => {
+  const f = await fixture();
+  f.google.exportCredentials.mockRejectedValueOnce(Error('SECRET_EXPORT_FAILURE'));
+  const result = await f.read();
+  expect(result.isError).toBe(true);
+  expect(JSON.stringify(result)).toContain('diagnosticId');
+  expect(JSON.stringify(result)).not.toContain('SECRET');
+  expect(f.google.readRequest).not.toHaveBeenCalled();
+  await expect(f.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
+});
 it.each([false, true])(
   'retains Ask-mode Google consent, existing session grant=%s',
   async (granted) => {
@@ -160,6 +172,27 @@ it.each(['cancelled', 'retired', 'uncertain'] as const)(
         : Error('SECRET_UPSTREAM');
     });
     expect((await f.read()).isError).toBe(true);
+    await expect(f.callbacks.settle(new AbortController().signal)).rejects.toThrow();
+  },
+);
+it.each(['cancelled', 'retired', 'uncertain'] as const)(
+  'does not settle a Google preparation failure after %s',
+  async (reason) => {
+    const f = await fixture();
+    // Only an original trusted service owner can attach an uncertainty receipt.
+    // Raw credential-provider errors are sanitized inside that owner.
+    if (reason === 'uncertain')
+      vi.spyOn(f.service, 'prepareRead').mockRejectedValueOnce(
+        retainCallbackOutcome(Error('SECRET_UNCERTAIN'), 'unknown'),
+      );
+    else
+      f.google.exportCredentials.mockImplementationOnce(async () => {
+        if (reason === 'cancelled') f.session.abortController.abort();
+        if (reason === 'retired') f.retire();
+        throw Error('SECRET_EXPORT_FAILURE');
+      });
+    expect((await f.read()).isError).toBe(true);
+    expect(f.google.readRequest).not.toHaveBeenCalled();
     await expect(f.callbacks.settle(new AbortController().signal)).rejects.toThrow();
   },
 );

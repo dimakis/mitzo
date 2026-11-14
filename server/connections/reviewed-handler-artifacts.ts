@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1148-claude-services-review';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1149-claude-google-read-preparation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../google-workspace-sdk.ts': '3dcb7032e8de8fa807b9a0b1905eb17a0fcfd1a62c77dbe7663f4e8cafe7af73',
   '../tool-library-sdk.ts': 'c71a4732714c333821f5402c0092d9ec2480fb74b08932409549926856cf905f',
   '../__tests__/google-workspace-sdk.test.ts':
-    '2f40e194ce6f0dee4882fc91584a8887d14336fe9af41c2e84edb858f15e03c3',
+    'a337e31409ce118d92d1b73356e76f29d5c612229d3cf79086c61380add8cae5',
   '../__tests__/tool-library-sdk.test.ts':
     'edb5a071e164785d5025e69053cafb893ac93c94c17b8989ae200f2e6e1dbd54',
   '../__tests__/claude-native-development.test.ts':
@@ -4409,7 +4410,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../google-workspace-management.ts':
     'a779bd5c9793ecd908a60c86a09c142d43b16fe52dc1f9c13def640fbc61ce31',
   '../session-google-workspace-tools.ts':
-    'd9bd0f597db0e6c00f6f326c77d23bd0bd8f48fd8e832c42516df05d1b79b638',
+    '2318ad33c06dfeff85eb6f70ea2410050260edffbea75453170ace89d784f921',
   '../google-workspace-read.ts': '4101c150646b8371e6fbab26797638817265a585b15973075163352082f4815e',
   '../../frontend/src/components/__tests__/ChatInputInterruptReceipt.test.tsx':
     'f56472dc3bbc283e50e96774b73bf0bd4a8efa40ab8b98d8c7899df5ee3bf442',

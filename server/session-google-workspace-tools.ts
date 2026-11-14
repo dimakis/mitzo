@@ -65,11 +65,34 @@ export function sessionGoogleWorkspaceTools(options: {
         options.session.abortController.signal,
         AbortSignal.timeout(30_000),
       ]);
+      const observeRead = async <T>(
+        work: () => Promise<T>,
+        assertCurrent: () => Promise<void>,
+      ): Promise<T> => {
+        try {
+          return await work();
+        } catch (error) {
+          // Preparation and resource-read failures are completed observations
+          // while original authority and consent remain current. Cancellation
+          // and explicit uncertainty must still block terminal settlement.
+          await assertCurrent();
+          combined.throwIfAborted();
+          if (
+            callbackOutcome(error) === 'settled' &&
+            !(error instanceof Error && error.name === 'AbortError')
+          )
+            throw retainCallbackOutcome(
+              new Error('Google read failed', { cause: error }),
+              'settled',
+            );
+          throw error;
+        }
+      };
       try {
         const request = GoogleWorkspaceReadSchema.parse(input);
         combined.throwIfAborted();
         await guard();
-        const prepared = await service!.prepareRead(request, combined);
+        const prepared = await observeRead(() => service!.prepareRead(request, combined), guard);
         await guard();
         combined.throwIfAborted();
         const review = { account: prepared.email, request };
@@ -124,22 +147,7 @@ export function sessionGoogleWorkspaceTools(options: {
         if (!isDeepStrictEqual(permission.updatedInput, review))
           throw Error('Google read approval changed');
         onAuthorized?.(readCurrent);
-        const content = await prepared.read(readGuard).catch(async (error: unknown) => {
-          // A returned read failure is a completed observation while its original
-          // authority and consent remain current. Cancellation and explicit
-          // uncertainty must still block terminal settlement.
-          await readGuard();
-          combined.throwIfAborted();
-          if (
-            callbackOutcome(error) === 'settled' &&
-            !(error instanceof Error && error.name === 'AbortError')
-          )
-            throw retainCallbackOutcome(
-              new Error('Google read failed', { cause: error }),
-              'settled',
-            );
-          throw error;
-        });
+        const content = await observeRead(() => prepared.read(readGuard), readGuard);
         await readGuard();
         combined.throwIfAborted();
         return { content, isError: false };
