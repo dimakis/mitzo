@@ -456,6 +456,17 @@ environment before claiming the interruption handoff works end to end.
 
 ## Browser journey readiness
 
+On 14 November, native repository run `43535298136` retained a publication
+helper deadline failure during final owner validation on a loaded macOS runner.
+The registration fixture now makes deep synchronous profiling opt-in with
+`MITZO_NATIVE_READ_PROFILE=1`, matching the standalone reader fixture. Basic
+timing, identity, ownership, receipt and helper diagnostics remain enabled;
+every assertion and deadline remains unchanged. Profiling overhead is a
+hypothesis, not a proved cause. A separate discovery result was
+`inspection-unavailable` without a retained underlying cause. Helper diagnostics
+now retain sanitized failure classifications and timestamps for its next run;
+the evidence does not justify changing production discovery or its bounds.
+
 Observe each navigation or chooser action before it starts. Fresh draft runtime inventory must be consumed before configuring ordinary settings; role review depends on those settings, so its ten-second response phase follows configuration. Retain existing UI assertions and interaction deadlines. Require exact item/role or conversation identity, successful status and completed schema-valid bodies; task-page waits match a valid task tree by exact task ID. Deliberately delayed collection reads remain outside chooser readiness when canonical record/work reads are the tested dependency.
 
 The worker-replacement journey now observes its fresh item-work GET from the

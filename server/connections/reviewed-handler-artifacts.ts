@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1146-personal-claude-native-readiness';
+  'v1.0.1146-personal-claude-native-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1635,7 +1635,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-openshell-login-continuation.test.ts':
     'c41c01fa298dd64e31b63baf589a07d785b873f9d633d6ca6dc22da0fd5eba80',
   '../__tests__/fixtures/native-repository-registered-workflow.ts':
-    'cbce22154a1a60a3ddf538ddf8e5f9b7100bb6c76bbe5009998469b26f08f369',
+    'bd980cedc124027d3b72c93ab12a8f5b056b7fef7fa2a67d34cc21334e9ecbb9',
   '../__tests__/native-local-repository-read-registration-api.test.ts':
     'a9727a723647947bef931292a467765a910a09361ad6b1651032813552b87a15',
   '../__tests__/native-repository-object-store.test.ts':
@@ -1683,11 +1683,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/materialized-prepared-repository.ts':
     '4db550b99366022ab922172459a1dad125df059bc1dafc7cf916d1d7fb190deb',
   '../__tests__/fixtures/preparation-attempt-diagnostics.ts':
-    '202b3be83a32ccf83793590a8def8d441305b6bdfc98ee361389f2b8f950575c',
+    'd418b6ea5168b5a908e744d62a42110e5704dbf764b984430206a8112f4bf4a3',
   '../__tests__/fixtures/preparation-service-diagnostics.ts':
     '6b9bf792a00a4e13c1a0d6cba1b7eeade26cc6a439ea409e1ee0d96ef48f26aa',
   '../__tests__/preparation-attempt-diagnostics.test.ts':
-    'e97bef5dbcdae783baa36e174c67bbda2aa4d6341ab7dbcb59fb519b4829fa15',
+    '06c10125505c9961a1ca0017e1154cca1667d9afca08c9b420ee4a1d7318f569',
   '../__tests__/preparation-service-diagnostics.test.ts':
     '3951f40b9968f083d99742f8af4c2981279b5b431ea2014b8e8376b2550318bb',
   '../__tests__/pending-host-task-error-cause.test.ts':
@@ -3368,7 +3368,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-read-registration.test.ts':
     '60ce30ac6cbbd0d36d50a6ad090c93687ec014ddf0765a7bb00700c00045e19b',
   '../__tests__/native-local-repository-read-tools.test.ts':
-    'c1aaf46f145a3a97fccede208488ffd5291238fac6852d1978d44d350f8c95eb',
+    '674d5e59965c02f881dfd04c056db496ed564710b1ead2f001335e03b110e505',
   '../../frontend/src/components/LegacyNativeContinuation.css':
     '00f73a01cb6cf04f77db2bc131b82555f4c936db1c7eaf15c56fc705bae7e9a6',
   '../../frontend/src/components/LegacyNativeContinuation.tsx':
