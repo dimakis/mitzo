@@ -555,6 +555,7 @@ export function buildPermissionHandler(
 
     const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput, {
       onDemandCreate: handlerOpts?.onDemandCreate,
+      signal: opts.signal,
     });
     if (worktreeViolation) {
       return { behavior: 'deny', message: worktreeViolation };

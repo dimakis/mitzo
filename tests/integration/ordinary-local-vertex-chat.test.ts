@@ -212,9 +212,26 @@ it.each(
       anthropicApi: true,
       credentialFailure,
     })),
-  ].map((scenario) => ({ anthropicApi: false, credentialFailure: 'none', ...scenario })),
+    ...[false, true].flatMap((personal) =>
+      ['default', 'explicit', 'excluded'].map((repositoryProfile) => ({
+        personal,
+        managed: false,
+        refuseStartup: false,
+        stdinRevocation: false,
+        idleSuccess: false,
+        repositoryTransfer: true,
+        repositoryProfile,
+      })),
+    ),
+  ].map((scenario) => ({
+    anthropicApi: false,
+    credentialFailure: 'none',
+    repositoryTransfer: false,
+    repositoryProfile: 'default',
+    ...scenario,
+  })),
 )(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure',
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure repositoryTransfer=$repositoryTransfer repositoryProfile=$repositoryProfile',
   async ({
     personal,
     managed,
@@ -223,6 +240,8 @@ it.each(
     idleSuccess,
     anthropicApi,
     credentialFailure,
+    repositoryTransfer,
+    repositoryProfile,
   }) => {
     const nextModel = managed ? 'opus' : 'next-model';
     const nextThinking = managed ? null : 'high';
@@ -238,7 +257,191 @@ it.each(
       managed,
       anthropicApi: anthropicApi || (refuseStartup && !personal),
       ...(idleSuccess ? { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } : {}),
+      ...(repositoryProfile !== 'default'
+        ? {
+            tools: [
+              'Bash',
+              'Read',
+              'Write',
+              'Edit',
+              'AskUserQuestion',
+              'RequestWebAccess',
+              'AgentCommunication',
+              'SearchPastSessions',
+              'ReadPastSession',
+              'ReadKnowledge',
+              'SaveKnowledgeDraft',
+              'AgentReadTasks',
+              'AgentProposeTask',
+              'ListConnections',
+              'RequestConnectionAccess',
+              'ConnectionRequest',
+              'PrepareConnectionSetup',
+            ]
+              .filter((name) => repositoryProfile !== 'excluded' || name !== 'Write')
+              .map((name) => ({ id: `mitzo:${name}`, version: 1 as const })),
+          }
+        : {}),
     });
+    // Start in the ordinary MGMT-like task, with two unrelated configured sources.
+    // Only provider inference is simulated; preparation, permissions and Git run.
+    const transferred = new Map<string, string>();
+    const transferCalls: string[] = [];
+    const { join: repoJoin } = await import('node:path');
+    const { mkdtemp, readFile, realpath, rm, writeFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { execFileSync } = await import('node:child_process');
+    const targetRoot = repositoryTransfer
+      ? await realpath(await mkdtemp(repoJoin(tmpdir(), 'mitzo-transfer-')))
+      : f.root;
+    if (repositoryTransfer) cleanups.push(() => rm(targetRoot, { recursive: true, force: true }));
+    const repositorySources = ['mitzo', 'another'].map((name) => ({
+      name,
+      path: repoJoin(targetRoot, name),
+      head: '',
+    }));
+    const git = (path: string, ...args: string[]) =>
+      execFileSync(
+        'git',
+        ['-C', path, '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
+        {
+          encoding: 'utf8',
+          env: {
+            PATH: process.env.PATH,
+            GIT_CONFIG_GLOBAL: '/dev/null',
+            GIT_CONFIG_SYSTEM: '/dev/null',
+          },
+        },
+      ).trim();
+    if (repositoryTransfer) {
+      for (const source of repositorySources) {
+        execFileSync('git', ['init', '-q', '-b', 'main', source.path]);
+        git(source.path, 'config', 'user.name', 'Offline');
+        git(source.path, 'config', 'user.email', 'fixture@example.test');
+        await writeFile(repoJoin(source.path, 'app.txt'), 'Original source\n');
+        git(source.path, 'add', 'app.txt');
+        git(source.path, 'commit', '-qm', 'Initial source');
+        source.head = git(source.path, 'rev-parse', 'HEAD');
+        await writeFile(repoJoin(source.path, 'app.txt'), 'User dirty work\n');
+      }
+      await writeFile(
+        repoJoin(f.root, '.mitzo.json'),
+        JSON.stringify({
+          repos: Object.fromEntries(repositorySources.map((s) => [s.name, s.path])),
+        }),
+      );
+    }
+    async function transferRepository(options: Options, commandId: string) {
+      if (!repositoryTransfer) return;
+      if (![f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold'].includes(commandId))
+        return;
+      const session = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+      const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
+      const useTool = async (name: string, input: Record<string, unknown>, toolUseID: string) => {
+        const result = options.canUseTool!(name, input, {
+          signal: new AbortController().signal,
+          toolUseID,
+          requestId: toolUseID,
+        });
+        let settled = false;
+        void result.then(
+          () => {
+            settled = true;
+          },
+          () => {
+            settled = true;
+          },
+        );
+        await vi.waitFor(
+          () => {
+            const pending = getPendingRequestsBySession(f.reservation.conversationId);
+            if (pending.length) {
+              expect(pending).toHaveLength(1);
+              expect(resolvePending(pending[0].permId, 'once')).toBe(true);
+            }
+            expect(settled || pending.length === 1).toBe(true);
+          },
+          { timeout: 10_000 },
+        );
+        return result;
+      };
+      const sources =
+        commandId === f.request.clientMsgId ? repositorySources.slice(0, 1) : repositorySources;
+      for (const source of sources) {
+        if (repositoryProfile === 'excluded') {
+          expect(
+            await useTool(
+              'Write',
+              { file_path: repoJoin(source.path, 'app.txt'), content: 'Never admitted' },
+              `${commandId}-${source.name}-excluded`,
+            ),
+          ).toMatchObject({ behavior: 'deny' });
+          expect(session.worktreePaths.has(source.name)).toBe(false);
+          expect(
+            git(source.path, 'worktree', 'list', '--porcelain').match(/^worktree /gm),
+          ).toHaveLength(1);
+          expect(git(source.path, 'rev-parse', 'HEAD')).toBe(source.head);
+          expect(await readFile(repoJoin(source.path, 'app.txt'), 'utf8')).toBe(
+            'User dirty work\n',
+          );
+          continue;
+        }
+        if (!session.worktreePaths.has(source.name)) {
+          const result = await useTool(
+            'Write',
+            { file_path: repoJoin(source.path, 'app.txt'), content: 'Requested task edit' },
+            `${commandId}-${source.name}-prepare`,
+          );
+          expect(result.behavior).toBe('deny'); // Redirect the original source write.
+          const created = session.worktreePaths.get(source.name)?.path;
+          expect(created, JSON.stringify(result)).toBeDefined();
+          expect(JSON.stringify(result)).toContain(created);
+          if (transferred.has(source.name)) expect(created).toBe(transferred.get(source.name));
+          transferred.set(source.name, created!);
+        }
+        const task = session.worktreePaths.get(source.name)!.path;
+        expect(task).not.toBe(source.path);
+        const path = repoJoin(task, 'app.txt');
+        const content = `Completed in ${commandId}\n`;
+        expect(
+          await useTool('Write', { file_path: path, content }, `${commandId}-${source.name}-edit`),
+        ).toMatchObject({ behavior: 'allow' });
+        await writeFile(path, content);
+        expect(await readFile(path, 'utf8')).toBe(content);
+        const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+        expect(
+          await useTool(
+            'Bash',
+            { command: `git -C ${quote(task)} diff --check` },
+            `${commandId}-${source.name}-check`,
+          ),
+        ).toMatchObject({ behavior: 'allow' });
+        git(task, 'diff', '--check');
+        expect(
+          await useTool(
+            'Bash',
+            {
+              command: `git -C ${quote(task)} add -- app.txt && git -C ${quote(task)} commit -m ${quote(commandId)}`,
+            },
+            `${commandId}-${source.name}-commit`,
+          ),
+        ).toMatchObject({ behavior: 'allow' });
+        git(task, 'add', 'app.txt');
+        git(
+          task,
+          '-c',
+          'user.name=Offline',
+          '-c',
+          'user.email=fixture@example.test',
+          'commit',
+          '-qm',
+          commandId,
+        );
+        expect(git(source.path, 'rev-parse', 'HEAD')).toBe(source.head);
+        expect(await readFile(repoJoin(source.path, 'app.txt'), 'utf8')).toBe('User dirty work\n');
+      }
+      transferCalls.push(commandId);
+    }
     const informationCalls: string[] = [];
     async function invokeInformation(options: Options, commandId: string) {
       if (idleSuccess) return; // This scenario intentionally selects only communication.
@@ -384,6 +587,7 @@ it.each(
                 message: { role: 'user', content: message.message.content },
               };
             await invokeInformation(request.options as Options, message.mitzoMessageId);
+            await transferRepository(request.options as Options, message.mitzoMessageId);
             // Exercise the installed callback on each first/queued/cold query,
             // while its original ordinary command still owns the SDK input.
             const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
@@ -704,7 +908,7 @@ it.each(
         ),
       ).resolves.toMatchObject({ behavior: 'deny' });
     }
-    if (personal) {
+    if (personal && repositoryProfile === 'default') {
       const sdkOptions = services.requests[0].options as Options;
       expect(sdkOptions.sandbox).toBeUndefined();
       for (const tool of ['Grep', 'Glob']) {
@@ -1094,6 +1298,13 @@ it.each(
     );
     for (const request of services.requests.slice(1))
       await inspectConnections(request.options as Options);
+    if (repositoryTransfer)
+      expect(transferCalls).toEqual([
+        f.request.clientMsgId,
+        'queued',
+        'retained-cold-tail',
+        'cold',
+      ]);
     if (!idleSuccess)
       expect(informationCalls).toEqual(
         expect.arrayContaining([f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold']),

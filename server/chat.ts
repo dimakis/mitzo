@@ -235,7 +235,12 @@ import { fileURLToPath } from 'url';
 import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { createHash, randomUUID } from 'crypto';
 import { homedir } from 'os';
-import { createWorktreeAsync, symlinkRuntimeDirs, discoverSessionWorktrees } from './worktree.js';
+import {
+  createWorktreeAsync,
+  fetchWorktreeBase,
+  symlinkRuntimeDirs,
+  discoverSessionWorktrees,
+} from './worktree.js';
 import type { OnDemandCreateFn } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -962,8 +967,18 @@ function buildMcpAllowedTools(clientId?: string): string[] {
  * Build an on-demand worktree creation callback for the permission handler.
  * Maps an absolute path to a configured repo and creates a worktree if needed.
  */
-function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
-  return async (absolutePath: string) => {
+function buildOnDemandCreate(
+  wtId: string,
+  clientId: string,
+  sdkAuthority?: OrdinaryLocalVertexSdkAuthority,
+): OnDemandCreateFn {
+  return async (absolutePath: string, signal?: AbortSignal) => {
+    const current = async () => {
+      signal?.throwIfAborted();
+      if (sdkAuthority) await sdkAuthority.assertCurrent(signal ?? new AbortController().signal);
+      signal?.throwIfAborted();
+    };
+    await current();
     const config = getRepoConfig();
     const allRepos: [string, string][] = [];
     if (BASE_REPO) allRepos.push(['primary', BASE_REPO]);
@@ -973,7 +988,15 @@ function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
     for (const [name, repoPath] of allRepos) {
       if (!absolutePath.startsWith(repoPath + '/') && absolutePath !== repoPath) continue;
       try {
-        const worktreePath = await createWorktreeAsync(wtId, repoPath);
+        const startPoint = sdkAuthority ? await fetchWorktreeBase(repoPath, signal) : undefined;
+        await current();
+        const worktreePath = await createWorktreeAsync(wtId, repoPath, {
+          abortSignal: signal,
+          ...(sdkAuthority
+            ? { startPoint, safeLocalPreparation: true, safeLocalBeforeEffect: current }
+            : {}),
+        });
+        await current();
         const sessionId = registry.get(clientId)?.sessionId;
         if (sessionId) {
           eventStore.append(sessionId, 'worktree_opened', {
@@ -2108,7 +2131,9 @@ async function _startChatInner(
 
   abortController.signal.throwIfAborted();
   // Generate session-scoped worktree ID and create worktrees in all repos
-  const wtId = generateWtId();
+  // SDK secondary worktrees belong to the retained SDK conversation. A cold
+  // query must reopen those same branches, including their unfinished commits.
+  const wtId = options.ordinarySdkAuthority?.sdkSessionId() ?? generateWtId();
   let sessionWorktrees: Awaited<ReturnType<typeof createSessionWorktrees>>;
   try {
     // Keep an already accepted chat routable before its first metadata await.
@@ -2805,7 +2830,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     } else {
       const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
-          onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
+          onDemandCreate:
+            repositoryWorkspace && !options.ordinarySdkAuthority
+              ? undefined
+              : buildOnDemandCreate(wtId, clientId, options.ordinarySdkAuthority),
           ...(options.ordinarySdkAuthority
             ? {
                 assertCurrentSync: () =>

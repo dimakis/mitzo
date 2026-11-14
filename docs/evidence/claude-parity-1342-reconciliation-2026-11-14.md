@@ -309,7 +309,7 @@ artifacts retain their original provenance and no post-merge full CI result is
 claimed. Accepted service composition and fresh final PR CI/review are still
 pending.
 
-## Required repository workflow remains unfinished
+## Repository workflow assessment and subsequent repair
 
 Source assessment at local `9e6031f543f037de8c9be1f7a2da8b0aae33c292`
 and accepted base `416faccb366f64ab858897f5b4bfa465e91ef385` confirms a
@@ -339,9 +339,10 @@ producer, registration or runtime behavior. Existing repository slice
 `50d7034f9a9ba7e182ed615b9ae9cdb82347516eaebd92436a08ad546e71ce01`
 and work-context revision
 `aada1f6a3aea9597ba119fd1c7dd56a5449abd6e32e38b069813cda01cfb00c4`,
-with no assigned worker. Placement and technical custody require coordination
-with the existing repository/adoption owners; this ordinary recovery session
-has not replaced that assignment or started another feature programme. Required
+with no assigned worker. This was an initial assessment of the newer managed
+repository tools. Dimitri subsequently assigned the repository handoff repair to
+this ordinary session in existing #1342; the separate session proposal is obsolete
+and unstarted. Formal Telos assignments remain unchanged. Required
 qualification must begin in a MGMT-like root and prove actual next-turn execution
 after adoption, including the retained profile, source/base, dirty-work,
 denial/cancellation/revocation and uncertain-receipt controls. This is a source
@@ -361,3 +362,52 @@ and the exact route of the user's historical success is not yet established.
 Before selecting a repair, trace this existing worktree mechanism through current
 SDK authority and workspace admission; the missing newer managed adapter alone
 does not prove the older working workflow requires that adapter or a new backend.
+
+### Configured secondary repositories restored through the existing SDK owner
+
+The reproduced ordinary-chat failure occurs before target worktree preparation:
+SDK startup supplies `repositoryWorkspace`, which disabled `buildOnDemandCreate`
+even when the genuine ordinary SDK authority was present. A native Write into a
+configured target was refused as outside the session worktrees and no isolated
+target was registered. This is a demonstrated defect, not proof of the separate
+reported `input_authority` failure whose diagnostic cause was unavailable.
+
+The repair restores that existing callback for the owned SDK route. Personal
+Claude and Vertex use the same callback and canonical account/workspace owner.
+The first attempted target write prepares an isolated worktree, returns the
+existing redirect refusal, and records the worktree in the same session. The
+next attempt and subsequent ordinary inputs can edit, check and commit there.
+No dedicated Vertex-only repository tool or second repository manager is added.
+
+Preparation pins the source commit through `fetchWorktreeBase`, uses the existing
+safe local Git materializer, and rechecks original SDK authority before and after
+asynchronous work and before fixed filesystem/Git effects. The actual permission
+callback's cancellation signal reaches preparation and final map registration.
+The retained SDK conversation ID keys secondary worktrees, so cold queries reopen
+the same branches and unfinished commits. Profile exclusions are checked before
+allocation. Source branches and dirty files remain untouched.
+
+Offline validation, one worker and a 1 GiB Node heap:
+
+- Six actual public Send/queue/cold SDK journeys pass: personal and Vertex with
+  default, explicit native selection, and Write-excluded profiles. Positive cases
+  start in a MGMT-like root and use two separately configured Git repositories,
+  with actual isolated worktree creation, edits, shell checks and local commits
+  through the production permission callback. Both source heads and dirty files
+  remain unchanged. Exclusion cases create no target worktree. Provider inference
+  and SDK process execution are simulated; these are not live account tests.
+- All 206 affected checks across six suites pass, covering permission handling,
+  worktree lifecycle, SDK authority, TaskExecution and immutable skill ceilings.
+  Four new Write/Bash controls prove cancellation before and during preparation
+  cannot register a late target worktree.
+- The three changed production files have zero scoped TypeScript diagnostics
+  against source aliases. This is not a claim that a full build or test-file
+  typecheck passed; hosted combined-result CI remains required.
+
+The configured path is relevant to the user's environment: MGMT's public
+`.mitzo.json` already lists Mitzo and the other repository roots. This does not
+expose the newer managed Discover/Inspect/Prepare tools to Claude, change the
+primary SDK cwd or fabricate primary-workspace adoption authority. It restores
+the existing same-chat secondary-worktree workflow; primary task adoption and
+unconfigured repositories are not qualified by this evidence. No live account,
+model, service, device, GitHub publication or deployment was used by these tests.

@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1168-claude-parity-pr-ci';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1169-claude-repository-workflow';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -48,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-native-development.test.ts':
     '5b4f3ca5f844921e7fb660e53f8027ae7ad306d6680692ba69b8b1f013d79379',
   '../../packages/harness/src/worktree-guard.ts':
-    '0e2280cdc706abee7b9cea3686231f29988f425620f6a3ade841beae1fb16e68',
+    '776398f9043c216ab108f5fea3540b64713ba11cf5b78fa7163d705e3eacea23',
   '../../packages/harness/__tests__/sdk-write-scope.test.ts':
     'a9d8f82c2719a402d3704a7ed80dc10cff38ae42f151b47dc3feed3fe3e77d40',
   '../../packages/harness/__tests__/permission-live-authority.test.ts':
@@ -2661,7 +2662,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     'cc79b091161db6d4c150353b822f5035143606c609d769ca632aa6a79b484207',
   '../../packages/harness/src/permission-handler.ts':
-    '7606a8078400e5a86b11794579a99dfcce29caa0712ccc923773e1d12dde910c',
+    'b6f46f12ab87237cb9898bb0b71aa94373c4d20ce48e853b56e005f336a7d5ca',
   '../../packages/harness/src/permissions.ts':
     '270fe368651d74c25e4b7068429b9926ca4dd791f3eb81d78f6621afdebf02a4',
   '../../packages/protocol/src/session-approval-scope.ts':
@@ -2722,7 +2723,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': '2677f80aefbb1c0a540483c8c20e92dda04c4f82fe9e19e37d4e4c97003999b6',
+  '../chat.ts': '02659be3a135b79fd373e431ddba06255cecdaf773d7253e183f8494361115ed',
   '../../packages/harness/src/session-registry.ts':
     '10cf82b67a8c1b635090fef511c6d0c8fbe447423de3c55aa1ca0a425ec6391a',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -3634,7 +3635,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '2953c08904d4c7780346a8723add6bd956937358773d26bc5fea9c6ac48debdf',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '7d9d110edba303dda1d9752c8eb2820a3bcdbff1e8089770747bfea039cd1364',
+    'fd82497ddfc66229a30fe45f22592ef1e1ee37d38cf4a64b25ac929ea910aebe',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
