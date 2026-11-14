@@ -14,6 +14,33 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('ToolPill', () => {
+  it('labels approval expiry without presenting it as an execution failure', () => {
+    render(
+      wrap(
+        <ToolPill
+          block={{
+            blockId: 'expired',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'PrepareLocalRepository',
+            toolError: true,
+            toolResult: JSON.stringify({
+              failure: {
+                code: 'approval_expired',
+                phase: 'approval',
+                effectStatus: 'not_started',
+                recovery: 'renew_approval',
+              },
+            }),
+          }}
+        />,
+      ),
+    );
+    expect(
+      screen.getByRole('button', { name: /PrepareLocalRepository.*Approval timed out/ }),
+    ).toBeTruthy();
+    expect(screen.queryByText('Failed', { exact: true })).toBeNull();
+  });
   it('shows why outcome creation failed without opening the tool group or raw call', () => {
     const failed: FinishedBlock = {
       blockId: 'outcome-failed',

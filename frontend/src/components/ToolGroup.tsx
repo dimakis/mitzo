@@ -2,7 +2,7 @@ import { ToolSetupCards } from './ToolSetupCards';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useId, useState } from 'react';
-import { getToolStatus, type ToolBlock } from '../lib/tool-status';
+import { getToolStatus, isApprovalTimeout, type ToolBlock } from '../lib/tool-status';
 import { ToolPill } from './ToolPill';
 
 interface Props {
@@ -16,9 +16,15 @@ export function ToolGroup({ tools, sessionId }: Props) {
   // A single operation already has its own detail disclosure. Show its useful
   // summary directly instead of requiring a second, count-only disclosure.
   if (tools.length === 1) return <ToolPill block={tools[0]} sessionId={sessionId} />;
-  const statuses = tools.map(getToolStatus);
+  const statuses = tools.map((tool) => ({
+    ...getToolStatus(tool),
+    approvalTimeout: isApprovalTimeout(tool),
+  }));
   const doneCount = statuses.filter((status) => status.done).length;
-  const failedCount = statuses.filter((status) => status.done && status.hasError).length;
+  const failedCount = statuses.filter(
+    (status) => status.done && status.hasError && !status.approvalTimeout,
+  ).length;
+  const expiredCount = statuses.filter((status) => status.approvalTimeout).length;
   const runningCount = statuses.filter((status) => status.running).length;
   const interruptedCount = statuses.filter((status) => status.interrupted).length;
   const summary =
@@ -28,6 +34,7 @@ export function ToolGroup({ tools, sessionId }: Props) {
   const statusSummary = [
     summary,
     interruptedCount > 0 ? `${interruptedCount} interrupted` : '',
+    expiredCount > 0 ? `${expiredCount} approval${expiredCount === 1 ? '' : 's'} timed out` : '',
     failedCount > 0 ? `${failedCount} failed` : '',
   ]
     .filter(Boolean)
@@ -47,7 +54,7 @@ export function ToolGroup({ tools, sessionId }: Props) {
           {tools.slice(0, 8).map((t, i) => (
             <span
               key={t.blockId || i}
-              className={`tool-pill-dot ${statuses[i].interrupted ? 'tool-pill-dot--interrupted' : statuses[i].done ? (statuses[i].hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
+              className={`tool-pill-dot ${statuses[i].interrupted || statuses[i].approvalTimeout ? 'tool-pill-dot--interrupted' : statuses[i].done ? (statuses[i].hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
             />
           ))}
           {tools.length > 8 && <span className="tool-group-dots-more">+{tools.length - 8}</span>}

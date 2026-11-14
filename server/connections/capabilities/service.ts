@@ -1,4 +1,7 @@
 import { safeGithubSeedFailure } from '../../github-seeded-source.js';
+import { ApprovalExpiredError } from '@mitzo/harness';
+import { toolFailure } from '@mitzo/protocol';
+import { createLogger } from '../../logger.js';
 import {
   consumeGithubPublicationNotDispatched,
   safeGithubPublicationReviewFailure,
@@ -21,6 +24,7 @@ import type {
 
 const secretKey = /(?:secret|token|password|credential|authorization|api[-_]?key)/i;
 const MAX_RESULT_BYTES = 32 * 1024;
+const log = createLogger('capability-service');
 
 function failCode(error: unknown): string {
   return error instanceof Error && error.name === 'AbortError'
@@ -432,9 +436,15 @@ export class CapabilityService {
     // execute a second mutation.
     if (!begun.created) {
       if (this.inFlight.has(begun.operation.id)) return begun.operation;
-      return this.reconcile(template, begun.operation, signal, assertRuntimeCurrent);
+      if (
+        begun.operation.status === 'cancelled' &&
+        begun.operation.failureCode === 'APPROVAL_EXPIRED'
+      )
+        begun.operation = this.options.store.renewExpiredApproval(begun.operation);
+      else return this.reconcile(template, begun.operation, signal, assertRuntimeCurrent);
     }
     let operation = begun.operation;
+    let preflightReleased = false;
     this.inFlight.set(operation.id, null);
     const observePhase: NonNullable<
       import('./types.js').CapabilityExecutionContext['observePhase']
@@ -579,6 +589,31 @@ export class CapabilityService {
       });
     } catch (error) {
       const current = this.options.store.get(operation.id);
+      if (error instanceof ApprovalExpiredError && current?.status === 'pending_approval') {
+        // Finish old scratch ownership before advertising renewable expiry.
+        // The status is still pending throughout cleanup, so another process
+        // cannot renew this identity while old cleanup might touch its files.
+        preflightReleased = true;
+        try {
+          await this.options.executorRegistry.resolve(template).releasePreflight?.(operation.id);
+        } catch (cause) {
+          log.warn('Expired approval cleanup failed; renewal remains blocked', {
+            code: 'approval_expiry_cleanup_failed',
+            stage: 'cleanup',
+            operationId: operation.id,
+            errorType: cause instanceof Error ? cause.name : 'non-Error',
+          });
+          this.options.store.recordCleanupFailure(operation.id);
+          return this.options.store.transition(operation.id, 'pending_approval', 'failed', {
+            failureCode: 'APPROVAL_EXPIRY_CLEANUP_FAILED',
+            result: { failure: { ...toolFailure('approval_expired', 'cleanup', 'unknown') } },
+          });
+        }
+        return this.options.store.transition(operation.id, 'pending_approval', 'cancelled', {
+          failureCode: 'APPROVAL_EXPIRED',
+          result: { failure: { ...error.failure } },
+        });
+      }
       const notDispatched = consumeGithubPublicationNotDispatched(error);
       if (
         !current ||
@@ -599,11 +634,24 @@ export class CapabilityService {
       // Cleanup failure cannot turn a verified write into an apparent failure.
       // The host publisher retains its own custody if cleanup is unconfirmed.
       try {
-        await this.options.executorRegistry.resolve(template).releasePreflight?.(operation.id);
-      } catch {
+        if (!preflightReleased)
+          await this.options.executorRegistry.resolve(template).releasePreflight?.(operation.id);
+      } catch (error) {
+        log.warn('Capability preflight cleanup failed', {
+          code: 'capability_cleanup_failed',
+          stage: 'cleanup',
+          operationId: operation.id,
+          errorType: error instanceof Error ? error.name : 'non-Error',
+        });
         try {
           this.options.store.recordCleanupFailure(operation.id);
-        } catch {
+        } catch (cause) {
+          log.error('Capability cleanup audit failed', {
+            code: 'capability_cleanup_audit_failed',
+            stage: 'cleanup',
+            operationId: operation.id,
+            errorType: cause instanceof Error ? cause.name : 'non-Error',
+          });
           // A failed cleanup audit must also preserve the durable operation result.
         }
       }

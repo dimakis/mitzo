@@ -7,6 +7,26 @@ import {
 import { normalizeMcpToolResult } from '../codex-tool-result.js';
 import { toolFailure } from '@mitzo/protocol';
 
+it('retains file approval expiry through file completion and the terminal notice', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+  m.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+  m.notification('item/started', {
+    threadId: 'thread',
+    item: { type: 'fileChange', id: 'file', changes: [] },
+  });
+  m.recordNativeFailure('file', toolFailure('approval_expired', 'approval', 'not_started'));
+  m.notification('item/completed', {
+    threadId: 'thread',
+    item: { type: 'fileChange', id: 'file', changes: [], status: 'declined' },
+  });
+  m.notification('turn/completed', {
+    threadId: 'thread',
+    turn: { id: 'turn', status: 'completed' },
+  });
+  expect(events.at(-1)).toMatchObject({ tool_failure: { code: 'approval_expired' } });
+});
+
 it('preserves an authoritative approval expiry through the terminal recovery notice', () => {
   const events: Record<string, unknown>[] = [];
   const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));

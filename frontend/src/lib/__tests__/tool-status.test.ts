@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StreamingBlock } from '../../types/chat';
-import { getToolStatus } from '../tool-status';
+import { getToolStatus, isApprovalTimeout } from '../tool-status';
 
 const pending: StreamingBlock = {
   blockId: 'tool',
@@ -9,6 +9,24 @@ const pending: StreamingBlock = {
   done: false,
   toolName: 'Bash',
 };
+it('recognizes an approval timeout without confusing a denied or executing operation', () => {
+  const result = (code: string, effectStatus = 'not_started') => ({
+    ...pending,
+    toolError: true,
+    toolResult: JSON.stringify({
+      failure: {
+        code,
+        phase: 'approval',
+        effectStatus,
+        recovery: effectStatus === 'unknown' ? 'inspect_operation' : 'renew_approval',
+      },
+    }),
+  });
+  expect(isApprovalTimeout(result('approval_expired'))).toBe(true);
+  expect(isApprovalTimeout(result('permission_denied'))).toBe(false);
+  expect(isApprovalTimeout(result('approval_expired', 'unknown'))).toBe(false);
+  expect(isApprovalTimeout({ ...pending, toolResult: 'not JSON' })).toBe(false);
+});
 describe('actual tool reply and interruption observations', () => {
   it.each([undefined, false])(
     'keeps unresolved tools running without an explicit true marker (%s)',

@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { runBoundedToolCleanup, ToolGuardTimeoutError } from '@mitzo/harness';
-import { toolFailure } from '@mitzo/protocol';
+import {
+  ApprovalExpiredError,
+  PERMISSION_EXPIRED_MESSAGE,
+  runBoundedToolCleanup,
+  ToolGuardTimeoutError,
+} from '@mitzo/harness';
+import { toolFailure, toolFailureAction } from '@mitzo/protocol';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import { PendingHostTaskError } from './pending-host-task.js';
@@ -9,6 +14,7 @@ import type { CodexToolResult } from './codex-tool-result.js';
 export type ToolFailureCode =
   | 'cancelled'
   | 'approval_unavailable'
+  | 'approval_expired'
   | 'permission_denied'
   | 'stale_owner'
   | 'invalid_input'
@@ -26,6 +32,7 @@ const FailureDetailSchema = z.strictObject({
     'unknown',
     'cancelled',
     'approval_unavailable',
+    'approval_expired',
     'filesystem_denied',
     'deadline',
     'storage_full',
@@ -192,11 +199,13 @@ function failureProjection(
     };
   }
   const typed = chain.find((failure) => failure instanceof CodexToolFailure);
+  const expired = chain.find((failure) => failure instanceof ApprovalExpiredError);
   const timeout = chain.find((failure) => failure instanceof ToolGuardTimeoutError);
   const boundary = chain.find((failure) => failure instanceof PendingHostTaskError);
   const code: ToolFailureCode = chain.some((failure) => failure.name === 'AbortError')
     ? 'cancelled'
     : (typed?.code ??
+      (expired || timeout?.phase === 'approval' ? 'approval_expired' : undefined) ??
       (boundary?.code === 'pending_host_task_ownership_changed'
         ? 'stale_owner'
         : boundary?.code === 'pending_host_task_invalid_input'
@@ -218,7 +227,9 @@ function failureProjection(
       ].includes(value as string),
     );
   const reason: CodexToolFailureDiagnostic['reason'] = timeout
-    ? 'deadline'
+    ? timeout.phase === 'approval'
+      ? 'approval_expired'
+      : 'deadline'
     : resourceCode === 'ENOMEM'
       ? 'memory_exhausted'
       : ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND'].includes(String(resourceCode))
@@ -238,11 +249,20 @@ function failureProjection(
                     : code === 'invalid_input'
                       ? 'invalid_input'
                       : 'unknown';
-  const diagnostic = typed?.diagnostic ?? {
-    stage: boundary ? ('repository_preparation' as const) : stage,
-    reason,
-    effectStatus: 'unknown' as const,
-  };
+  const diagnostic =
+    typed?.diagnostic ??
+    (expired
+      ? {
+          stage,
+          phase: 'approval' as const,
+          reason: 'approval_expired' as const,
+          effectStatus: 'not_started' as const,
+        }
+      : {
+          stage: boundary ? ('repository_preparation' as const) : stage,
+          reason,
+          effectStatus: 'unknown' as const,
+        });
   return {
     code,
     diagnostic: {
@@ -268,6 +288,7 @@ export function codexToolFailureResult(
     ...(checkedIdentity.success ? checkedIdentity.data : {}),
   };
   const actions: Record<ToolFailureCode, string> = {
+    approval_expired: PERMISSION_EXPIRED_MESSAGE,
     approval_unavailable:
       'Execution was not approved. Resolve the reported approval/session condition before requesting another approval.',
     cancelled:
@@ -289,17 +310,21 @@ export function codexToolFailureResult(
   return {
     content: JSON.stringify({
       message:
-        diagnostic.reason === 'memory_exhausted'
-          ? 'The tool ran out of memory. Reduce its workload and inspect partial results before retrying.'
-          : diagnostic.reason === 'connection_unavailable'
-            ? 'The tool could not reach its service. Check service availability and the original operation receipt before retrying.'
-            : diagnostic.reason === 'deadline'
-              ? 'The tool exceeded its time limit. Inspect the original operation before retrying.'
-              : diagnostic.reason === 'filesystem_denied'
-                ? 'The filesystem denied the tool access. Check the permitted path and operation.'
-                : diagnostic.reason === 'storage_full'
-                  ? 'The tool could not write because storage is full. Preserve partial work and restore capacity.'
-                  : 'The tool failed. Its diagnostic and recovery action follow.',
+        code === 'approval_expired'
+          ? diagnostic.effectStatus === 'unknown'
+            ? 'Approval timed out. Cleanup or earlier effects remain unconfirmed; inspect the retained operation before retrying.'
+            : PERMISSION_EXPIRED_MESSAGE
+          : diagnostic.reason === 'memory_exhausted'
+            ? 'The tool ran out of memory. Reduce its workload and inspect partial results before retrying.'
+            : diagnostic.reason === 'connection_unavailable'
+              ? 'The tool could not reach its service. Check service availability and the original operation receipt before retrying.'
+              : diagnostic.reason === 'deadline'
+                ? 'The tool exceeded its time limit. Inspect the original operation before retrying.'
+                : diagnostic.reason === 'filesystem_denied'
+                  ? 'The filesystem denied the tool access. Check the permitted path and operation.'
+                  : diagnostic.reason === 'storage_full'
+                    ? 'The tool could not write because storage is full. Preserve partial work and restore capacity.'
+                    : 'The tool failed. Its diagnostic and recovery action follow.',
       failure: toolFailure(
         diagnostic.reason === 'deadline' ? 'tool_timeout' : code,
         diagnostic.phase ?? (diagnostic.cleanup?.length ? 'cleanup' : 'execution'),
@@ -308,10 +333,16 @@ export function codexToolFailureResult(
       error: code,
       action: correctRepositoryInput
         ? 'Choose exactly one selector: path for an existing absolute checkout OR source for existing/clone/new, never both. For a new managed checkout use {"source":{"kind":"new","name":"my-project"}} without path. path is not a destination; this tool assigns the task directory. For a project at a requested destination, use native shell with exact filesystem permission instead. Use only documented fields. Correct the arguments and retry; this call did not start repository preparation. Do not reconcile an unrelated repository.'
-        : actions[code],
+        : code === 'approval_expired' && diagnostic.effectStatus === 'unknown'
+          ? toolFailureAction(toolFailure(code, diagnostic.phase ?? 'approval', 'unknown'))
+          : actions[code],
       diagnosticId: randomUUID(),
       diagnostic,
-      retry: correctRepositoryInput ? 'after_correction' : 'after_reconciliation',
+      retry: correctRepositoryInput
+        ? 'after_correction'
+        : code === 'approval_expired' && diagnostic.effectStatus === 'not_started'
+          ? 'after_user_returns'
+          : 'after_reconciliation',
     }),
     isError: true,
   };

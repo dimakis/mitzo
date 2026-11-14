@@ -902,5 +902,4 @@ it.each(['manual', 'lead'] as const)(
     expect(getClientId).not.toHaveBeenCalled();
     markCt09Phase('journey-complete');
   },
-  60_000,
 );

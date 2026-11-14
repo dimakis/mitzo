@@ -8,13 +8,13 @@ import { withToolGuardPhase } from './tool-guard.js';
 import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
 import {
-  registerPending,
-  resolvePending,
-  removePending,
-  hasPending,
-  PERMISSION_EXPIRED_MESSAGE,
-} from './permissions.js';
+  ApprovalExpiredError,
+  expiredApprovalResult,
+  type ApprovalPermissionResult,
+} from './approval-outcome.js';
+import { toolFailure } from '@mitzo/protocol';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
   sendPermissionNotification as pushoverSendPermission,
@@ -208,6 +208,9 @@ function snapshotDecisionInput(input: Record<string, unknown>) {
 
 export interface PermissionHandlerOptions {
   onDemandCreate?: OnDemandCreateFn;
+  /** Recheck the existing caller/account/workspace owner before allowing a tool
+   * or retaining its approval. The adapter owns these facts, not the card. */
+  assertCurrentSync?(): void;
 }
 
 export function buildPermissionHandler(
@@ -264,7 +267,7 @@ export function buildPermissionHandler(
       /** Private original native scope, never permission response or tool JSON. */
       nativeSourceScope?: { readonly operatorId: string; assertCurrentSync(): void };
     },
-  ): Promise<PermissionResult> => {
+  ): Promise<ApprovalPermissionResult> => {
     const session = registry.get(clientId);
     if (!session) return { behavior: 'deny', message: 'Session not found' };
     const telosReview = [
@@ -319,6 +322,48 @@ export function buildPermissionHandler(
     const onDecision = originalOptions.onDecision;
     const originalInput = _toolInput;
     const originalSignal = originalOptions.signal;
+    const approvalSignals = new Set([originalSignal, session.abortController.signal]);
+    const approvalSignal = AbortSignal.any([...approvalSignals]);
+    const cancelled = (): ApprovalPermissionResult => ({
+      behavior: 'deny',
+      message: 'Tool approval cancelled because the operation was aborted',
+      failure: toolFailure('cancelled', 'approval', 'not_started'),
+    });
+    const authorityRefusal = (): ApprovalPermissionResult | undefined => {
+      if (approvalSignal.aborted)
+        return approvalSignal.reason instanceof ApprovalExpiredError
+          ? expiredApprovalResult()
+          : cancelled();
+      try {
+        const result: unknown = handlerOpts?.assertCurrentSync?.();
+        if (result !== undefined) {
+          void Promise.resolve(result).catch((error: unknown) => {
+            log.warn('Asynchronous tool authority check rejected', {
+              err: error,
+              sessionId: session.sessionId,
+              toolName,
+              toolUseID: originalOptions.toolUseID,
+              stage: 'approval_authority',
+              code: 'tool_approval_authority_async_rejected',
+            });
+          });
+          throw Error('Tool authority check must finish synchronously');
+        }
+      } catch (error) {
+        log.warn('Original tool authority changed during permission check', {
+          err: error,
+          sessionId: session.sessionId,
+          toolName,
+          code: 'tool_approval_authority_changed',
+        });
+        return {
+          behavior: 'deny',
+          message: 'Original tool authority is no longer current; retry under current permissions',
+        };
+      }
+    };
+    const initialRefusal = authorityRefusal();
+    if (initialRefusal) return initialRefusal;
     const originalToolUseID = originalOptions.toolUseID;
     const originalControlPlane = originalOptions.controlPlane;
     const originalSessionId = session.sessionId;
@@ -518,6 +563,8 @@ export function buildPermissionHandler(
     // The mode may have changed while the worktree check was awaiting I/O.
     const deniedAfterWorktree = askDenial();
     if (deniedAfterWorktree) return deniedAfterWorktree;
+    const afterWorktreeRefusal = authorityRefusal();
+    if (afterWorktreeRefusal) return afterWorktreeRefusal;
     if (!nativeScopeCurrent())
       return { behavior: 'deny', message: 'Original approval scope changed' };
     if (!observationCurrent())
@@ -609,8 +656,9 @@ export function buildPermissionHandler(
       };
 
     const pending = new Promise<PermissionResult>((resolve) => {
-      if (originalSignal.aborted || !nativeScopeCurrent()) {
-        resolve({ behavior: 'deny', message: 'Aborted' });
+      const pendingRefusal = authorityRefusal();
+      if (pendingRefusal || !nativeScopeCurrent()) {
+        resolve(pendingRefusal ?? { behavior: 'deny', message: 'Original approval scope changed' });
         return;
       }
 
@@ -624,6 +672,8 @@ export function buildPermissionHandler(
       const revalidateAllow = (result: PermissionResult): PermissionResult => {
         try {
           if (result.behavior !== 'allow') return result;
+          const refusal = authorityRefusal();
+          if (refusal) return refusal;
           const activeClient = currentClientId();
           const modeDenial = askDenial();
           if (!nativeScopeCurrent())
@@ -633,6 +683,7 @@ export function buildPermissionHandler(
           if (modeDenial) return modeDenial;
           if (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
             return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+          if (request.expiresAt! <= Date.now()) return expiredApprovalResult();
           if (onDecision) {
             try {
               if (
@@ -641,8 +692,7 @@ export function buildPermissionHandler(
                 !decisionInput ||
                 snapshotDecisionInput(result.updatedInput ?? {}).serialized !==
                   decisionInput.serialized ||
-                originalSignal.aborted ||
-                request.expiresAt! <= Date.now()
+                originalSignal.aborted
               )
                 throw Error('Original one-shot decision is no longer current');
             } catch {
@@ -662,12 +712,12 @@ export function buildPermissionHandler(
           };
         }
       };
-      const wrappedResolve = (result: PermissionResult) => {
+      const wrappedResolve = (result: ApprovalPermissionResult) => {
         if (settled) return settledResult;
         settled = true;
         clearTimeout(timeout);
         clearTimeout(notificationTimer);
-        originalSignal.removeEventListener('abort', onAbort);
+        for (const signal of approvalSignals) signal.removeEventListener('abort', onAbort);
         untrackScope();
         result = revalidateAllow(result);
         if (onDecision && result.behavior === 'allow') {
@@ -714,7 +764,13 @@ export function buildPermissionHandler(
           for (const pending of pendingScopeApprovals.get(session)?.get(grantKey) ?? [])
             void pending.acceptRetainedGrant();
         }
-        const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };
+        if (result.failure?.code === 'approval_expired') resolutionEvent = 'permission_timeout';
+        const resolved = {
+          type: resolutionEvent,
+          permId,
+          sessionId: session.sessionId,
+          ...(result.failure ? { failure: result.failure } : {}),
+        };
         for (const transport of registry.getPermissionTransports(session))
           transportSend(transport, resolved);
         resolve(result);
@@ -724,14 +780,13 @@ export function buildPermissionHandler(
       const onAbort = () => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          removePending(permId, 'cancelled');
-          wrappedResolve({
-            behavior: 'deny',
-            message: 'Tool approval cancelled because the operation was aborted',
-          });
+          const expired = approvalSignal.reason instanceof ApprovalExpiredError;
+          removePending(permId, expired ? 'expired' : 'cancelled');
+          wrappedResolve(expired ? expiredApprovalResult() : cancelled());
         }
       };
-      originalSignal.addEventListener('abort', onAbort, { once: true });
+      for (const signal of approvalSignals)
+        signal.addEventListener('abort', onAbort, { once: true });
 
       const approvalScope =
         opts.approvalScope ?? (opts.allowSessionGrant === false ? 'request' : 'session');
@@ -814,10 +869,7 @@ export function buildPermissionHandler(
                 errorType: error instanceof Error ? error.name : 'non-Error',
               });
             }
-            wrappedResolve({
-              behavior: 'deny',
-              message: PERMISSION_EXPIRED_MESSAGE,
-            });
+            wrappedResolve(expiredApprovalResult());
           }
         },
         Math.max(0, request.expiresAt! - Date.now()),
@@ -875,7 +927,7 @@ export function buildPermissionHandler(
     });
     return withToolGuardPhase('approval', () => pending);
   };
-  return async (...args: Parameters<typeof decide>): Promise<PermissionResult> => {
+  return async (...args: Parameters<typeof decide>): Promise<ApprovalPermissionResult> => {
     const sessionId = registry.get(clientId)?.sessionId;
     try {
       const result = await decide(...args);
@@ -885,7 +937,14 @@ export function buildPermissionHandler(
         sessionId,
         toolName: args[0],
         toolUseID: args[2].toolUseID,
-        outcome: result.behavior === 'allow' ? 'allowed' : 'denied',
+        outcome:
+          result.behavior === 'allow'
+            ? 'allowed'
+            : result.failure?.code === 'approval_expired'
+              ? 'expired'
+              : result.failure?.code === 'cancelled'
+                ? 'cancelled'
+                : 'denied',
       });
       return result;
     } catch (error) {

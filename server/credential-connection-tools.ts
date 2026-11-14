@@ -11,7 +11,11 @@ import {
   validateDashboardRequest,
   DashboardRequestError,
 } from './home-assistant-dashboard.js';
-import type { buildPermissionHandler, ToolDefinition } from '@mitzo/harness';
+import {
+  permissionRefusalContent,
+  type buildPermissionHandler,
+  type ToolDefinition,
+} from '@mitzo/harness';
 import {
   CredentialConnections,
   ConnectionRequestSchema,
@@ -144,7 +148,8 @@ export function createCredentialConnectionTools(
         },
       );
       approvalSignal.throwIfAborted();
-      if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
+      if (decision.behavior !== 'allow')
+        return { content: permissionRefusalContent(decision), isError: true };
       if (
         !stillAllowed('RequestConnectionAccess') ||
         !isDeepStrictEqual(decision.updatedInput, input)

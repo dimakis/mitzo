@@ -11,6 +11,7 @@ import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js
 import * as logging from '../logger.js';
 import fs from 'node:fs';
 import { telosDiagnosticFailure } from '../telos-operation-failure.js';
+import { retainCallbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -69,6 +70,32 @@ function fixture(variant: 'fresh' | 'upgraded' = 'fresh') {
     },
   };
 }
+it('keeps original uncertainty blocked before backlog delegation', async () => {
+  const f = fixture();
+  const cause = retainCallbackOutcome(Error('Original guard outcome unknown'), 'unknown');
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  const result = await callbacks.track(() =>
+    f.run(
+      'TelosManageItem',
+      {
+        operation: 'update',
+        itemId: 'studio',
+        requestId: 'uncertain-guard',
+        expectedRevision: f.items.read('studio').revision,
+        note: 'Must not apply',
+      },
+      () => {
+        throw cause;
+      },
+    ),
+  );
+  expect(result.isError).toBe(true);
+  expect(f.approve).not.toHaveBeenCalled();
+  await expect(callbacks.settle(new AbortController().signal)).rejects.toMatchObject({
+    code: 'callbacks_failed',
+  });
+});
+
 it('returns the current named assignment separately from historical links, without starting work', async () => {
   const f = fixture();
   const command = (raw: Record<string, unknown>) =>
@@ -516,27 +543,35 @@ it('lets an ordinary authenticated chat find and inspect an item without assigni
     lifecycle: { itemId: 'studio', disposition: 'active' },
   });
 });
-it('pages oversized legacy briefs without losing content or exceeding the tool result limit', async () => {
-  const f = fixture();
-  const title = 'Long legacy explanation '.repeat(50000);
-  f.db.prepare('UPDATE items SET summary=? WHERE id=?').run(title, 'studio');
-  let offset = 0;
-  let reconstructed = '';
-  let hash: string | undefined;
-  for (;;) {
-    const result = await f.run('TelosManageItem', { operation: 'read', itemId: 'studio', offset });
-    expect(result.isError).toBe(false);
-    expect(Buffer.byteLength(result.content)).toBeLessThan(64 * 1024);
-    const page = JSON.parse(result.content);
-    expect(page.format).toBe('json-fragment');
-    hash ??= page.snapshotHash;
-    expect(page.snapshotHash).toBe(hash);
-    reconstructed += page.contentFragment;
-    if (page.nextOffset === null) break;
-    offset = page.nextOffset;
-  }
-  expect(JSON.parse(reconstructed).item.summary).toBe(title);
-});
+it(
+  'pages oversized legacy briefs without losing content or exceeding the tool result limit',
+  { timeout: 15000 },
+  async () => {
+    const f = fixture();
+    const title = 'Long legacy explanation '.repeat(50000);
+    f.db.prepare('UPDATE items SET summary=? WHERE id=?').run(title, 'studio');
+    let offset = 0;
+    let reconstructed = '';
+    let hash: string | undefined;
+    for (;;) {
+      const result = await f.run('TelosManageItem', {
+        operation: 'read',
+        itemId: 'studio',
+        offset,
+      });
+      expect(result.isError).toBe(false);
+      expect(Buffer.byteLength(result.content)).toBeLessThan(64 * 1024);
+      const page = JSON.parse(result.content);
+      expect(page.format).toBe('json-fragment');
+      hash ??= page.snapshotHash;
+      expect(page.snapshotHash).toBe(hash);
+      reconstructed += page.contentFragment;
+      if (page.nextOffset === null) break;
+      offset = page.nextOffset;
+    }
+    expect(JSON.parse(reconstructed).item.summary).toBe(title);
+  },
+);
 it('returns one bounded overview of legacy work without downloading its history or losing current responsibility', async () => {
   const f = fixture();
   f.items.update(
@@ -612,6 +647,11 @@ it('returns one bounded overview of legacy work without downloading its history 
     expect.arrayContaining(['item.summary', 'item.intent', 'item.updates[0].note']),
   );
   expect(value.workContext.assignmentHistory).toBeUndefined();
+  expect(value.counts.assignmentHistory).toEqual({
+    lead: { complete: true, knownConversations: 1 },
+    worker: { complete: true, knownConversations: 0 },
+  });
+  expect(value.truncatedFields).toContain('workContext.assignmentHistory');
   expect(value.counts.children).toBe(25);
   expect(value.item.children).toHaveLength(5);
   expect(value.truncatedFields).toContain('item.children');

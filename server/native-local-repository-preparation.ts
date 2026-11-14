@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { canRenewRepositoryApproval } from './local-repository-approval-recovery.js';
 import { isAbsolute, resolve } from 'node:path';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import { withCodexToolCleanup } from './codex-tool-failure.js';
@@ -131,7 +132,7 @@ export async function executeNativeLocalRepositoryPreparation(
           };
         }
         current();
-        if (existing) {
+        if (existing && !canRenewRepositoryApproval(existing)) {
           if (
             (!existing.retirement || existing.retirement.disposition === 'restored') &&
             existing.state === 'claimed' &&

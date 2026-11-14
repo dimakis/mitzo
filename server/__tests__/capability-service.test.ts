@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApprovalExpiredError } from '@mitzo/harness';
 import type { CapabilityTemplate, JsonSchema, JsonValue } from '../connections/types.js';
 import { CapabilityOperationStore } from '../connections/capabilities/operation-store.js';
 import { CapabilityExecutorRegistry } from '../connections/capabilities/registry.js';
@@ -149,6 +150,38 @@ function request(overrides: Record<string, unknown> = {}) {
 }
 
 describe('CapabilityService', () => {
+  it('renews a timed-out approval on the same operation without dispatching twice', async () => {
+    const f = await fixture();
+    f.approve.mockRejectedValueOnce(new ApprovalExpiredError());
+    const expired = await f.service.invoke(request(), new AbortController().signal);
+    expect(expired).toMatchObject({
+      status: 'cancelled',
+      failureCode: 'APPROVAL_EXPIRED',
+      result: {
+        failure: {
+          code: 'approval_expired',
+          phase: 'approval',
+          effectStatus: 'not_started',
+          recovery: 'renew_approval',
+        },
+      },
+    });
+    expect(f.execute).not.toHaveBeenCalled();
+    const renewed = await f.service.invoke(request(), new AbortController().signal);
+    expect(renewed).toMatchObject({ id: expired.id, status: 'succeeded' });
+    expect(f.approve).toHaveBeenCalledTimes(2);
+    expect(f.execute).toHaveBeenCalledOnce();
+    f.store.close();
+  });
+  it('never reopens a denied operation as an expired approval', async () => {
+    const f = await fixture({ approved: false });
+    const denied = await f.service.invoke(request(), new AbortController().signal);
+    await f.service.invoke(request(), new AbortController().signal);
+    expect(denied.status).toBe('denied');
+    expect(f.approve).toHaveBeenCalledOnce();
+    expect(f.execute).not.toHaveBeenCalled();
+    f.store.close();
+  });
   it.each([true, false])(
     'retains uncertainty unless the publication executor proves no dispatch (%s)',
     async (proved) => {

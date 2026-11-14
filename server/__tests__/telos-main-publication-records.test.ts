@@ -15,7 +15,7 @@ import {
 } from './fixtures/github-main-publication.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { TelosMainPublicationRecords } from '../telos-main-publication-records.js';
-import { SessionRegistry, resolvePending } from '@mitzo/harness';
+import { ApprovalExpiredError, SessionRegistry, resolvePending } from '@mitzo/harness';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 import { approveGithubMainPublication } from '../github-main-publication-permission.js';
 import type { MainPublicationPins } from '../telos-main-publication-contract.js';
@@ -527,6 +527,28 @@ function backend(
   return { owner: new TelosMainPublication(work, host), gh };
 }
 const requestSignal = () => new AbortController().signal;
+it('an approval timeout preserves the request for fresh approval without denying or merging it', async () => {
+  const f = fixture();
+  f.setReply((event) => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Number(event.expiresAt) + 1);
+    try {
+      return resolvePending(String(event.permId), 'once');
+    } finally {
+      clock.mockRestore();
+    }
+  });
+  const b = backend(f);
+  await expect(b.owner.request(f.pins.input, requestSignal())).rejects.toBeInstanceOf(
+    ApprovalExpiredError,
+  );
+  expect(f.records().prepare(f.pins).state).toBe('requested');
+  f.setReply((event) => {
+    return resolvePending(String(event.permId), 'once');
+  });
+  const result = await b.owner.request(f.pins.input, requestSignal());
+  expect(result.state).toBe('accepted');
+  expect(f.requests).toHaveLength(2);
+});
 it('normal backend: real permission, released hold and changed current main yield one verified squash with distinct observations', async () => {
   const f = fixture();
   const h = f.hold();

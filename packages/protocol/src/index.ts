@@ -1,6 +1,11 @@
 export * from './markdown-paths.js';
 export * from './ordinary-turn.js';
-export { ToolFailureSchema, toolFailure, toolFailureAction } from './tool-failure.js';
+export {
+  ToolFailureSchema,
+  toolFailure,
+  toolFailureAction,
+  APPROVAL_TIMEOUT_MESSAGE,
+} from './tool-failure.js';
 export type { ToolFailure } from './tool-failure.js';
 export { stripMarkdownCodeBlocks } from './markdown-code-blocks.js';
 export { interruptUnansweredToolBlocks } from './tool-lifecycle.js';

@@ -87,6 +87,7 @@ import {
   preflightStartupProviderCommand,
   nativeStartupSessionId,
   stopChat,
+  stopOrdinaryChat,
   closeSessionByUser,
   isActive,
   reattachChat,
@@ -1352,7 +1353,8 @@ export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerC
     const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
     const cancelledStartup = ctx.sessionRegistry.abortStartup?.(msg.sessionId);
     if (found && (!cancelledStartup || ctx.sessionRegistry.get(found.clientId) === found.session)) {
-      stopChat(found.clientId);
+      if (found.session.ordinaryRuntimeOwner?.sdkTurns) stopOrdinaryChat(found.clientId);
+      else stopChat(found.clientId);
       log.info('stop', { connectionId, sessionId: msg.sessionId });
     }
   });

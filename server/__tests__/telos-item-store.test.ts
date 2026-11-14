@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, renameSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TelosItemStore } from '../telos-item-store.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from '../turn-callbacks.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() =>
@@ -41,6 +42,18 @@ function fixture() {
 }
 
 describe('Telos item progress', () => {
+  it('preserves original unknown evidence before a guarded write', () => {
+    const f = fixture();
+    const input = f.update();
+    const cause = retainCallbackOutcome(Error('Unsettled original owner'), 'unknown');
+    expect(() =>
+      f.store.updateGuarded(input, 'session', () => {
+        throw cause;
+      }),
+    ).toThrow(cause);
+    expect(retainedCallbackOutcome(cause)).toBe('unknown');
+    expect(f.store.read('child').updates).toEqual([]);
+  });
   it('reads the contract and exact milestone IDs without creating schema', () => {
     const { store, db, path } = fixture();
     expect(store.read('parent')).toMatchObject({

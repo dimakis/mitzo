@@ -3,6 +3,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   buildPermissionHandler,
+  throwIfApprovalExpired,
+  expiredApprovalToolResult,
   checkSkillPolicy,
   effectivePermissionMode,
   type ManagedSession,
@@ -17,6 +19,7 @@ import { safeKnowledgePath } from './knowledge-library-source.js';
 import { readHostKnowledge, publishedKnowledgeFailureReason } from './published-host-knowledge.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
 import { createLogger } from './logger.js';
+import { retainToolResultAuthority } from './codex-tool-result.js';
 
 const log = createLogger('session-knowledge');
 const revision = z.string().regex(/^[a-f0-9]{40,64}$/);
@@ -141,7 +144,10 @@ export function sessionKnowledgeTools(
             throw new KnowledgeToolProblem(
               'No accepted host memory view was selected for this turn. No checkout fallback was used.',
             );
-          return { content: JSON.stringify(result), isError: false };
+          return retainToolResultAuthority(
+            { content: JSON.stringify(result), isError: false },
+            assert,
+          );
         }
         const runtime = await selectedLoader?.();
         assert();
@@ -162,22 +168,28 @@ export function sessionKnowledgeTools(
             const catalog = await runtime.source.catalog(signal);
             await assertAsync();
             const offset = request.offset ?? 0;
-            return {
-              content: JSON.stringify({
-                sourceIdentity: runtime.sourceIdentity,
-                revision: catalog.revision,
-                documents: catalog.documents.slice(offset, offset + 100),
-                nextOffset: offset + 100 < catalog.documents.length ? offset + 100 : null,
-              }),
-              isError: false,
-            };
+            return retainToolResultAuthority(
+              {
+                content: JSON.stringify({
+                  sourceIdentity: runtime.sourceIdentity,
+                  revision: catalog.revision,
+                  documents: catalog.documents.slice(offset, offset + 100),
+                  nextOffset: offset + 100 < catalog.documents.length ? offset + 100 : null,
+                }),
+                isError: false,
+              },
+              assert,
+            );
           }
           const document = await runtime.source.read(request.path!, request.revision!, signal);
           await assertAsync();
-          return {
-            content: JSON.stringify({ ...document, sourceIdentity: runtime.sourceIdentity }),
-            isError: false,
-          };
+          return retainToolResultAuthority(
+            {
+              content: JSON.stringify({ ...document, sourceIdentity: runtime.sourceIdentity }),
+              isError: false,
+            },
+            assert,
+          );
         }
 
         const request = parsed.data as z.infer<typeof knowledgeToolSchemas.SaveKnowledgeDraft>;
@@ -197,6 +209,7 @@ export function sessionKnowledgeTools(
         );
         await assertRuntimeCurrent?.();
         assert();
+        throwIfApprovalExpired(decision);
         if (
           decision.behavior !== 'allow' ||
           (decision.updatedInput && !isDeepStrictEqual(decision.updatedInput, request))
@@ -252,27 +265,32 @@ export function sessionKnowledgeTools(
           draft = runtime.store.create(request.title, request.baseRevision, documents, draftId);
         }
         await assertAsync();
-        return {
-          content: JSON.stringify({
-            status: draft.state === 'draft' ? 'draft-saved' : draft.state,
-            draftId: draft.id,
-            version: draft.version,
-            title: draft.title,
-            documents: draft.documents.map((d) => d.path),
-            libraryUrl: '/knowledge',
-            accepted: draft.state === 'accepted',
-            nextAction:
-              draft.state === 'accepted'
-                ? 'Source accepted. Publication and chat adoption require their own confirmation.'
-                : draft.state === 'closed'
-                  ? 'This draft is closed. Start a new proposal for further changes.'
-                  : draft.review?.ready && draft.review.version === draft.version
-                    ? 'Open Knowledge → Drafts to inspect this review and its acceptance gates.'
-                    : 'Open Knowledge → Drafts and send this draft for review.',
-          }),
-          isError: false,
-        };
+        return retainToolResultAuthority(
+          {
+            content: JSON.stringify({
+              status: draft.state === 'draft' ? 'draft-saved' : draft.state,
+              draftId: draft.id,
+              version: draft.version,
+              title: draft.title,
+              documents: draft.documents.map((d) => d.path),
+              libraryUrl: '/knowledge',
+              accepted: draft.state === 'accepted',
+              nextAction:
+                draft.state === 'accepted'
+                  ? 'Source accepted. Publication and chat adoption require their own confirmation.'
+                  : draft.state === 'closed'
+                    ? 'This draft is closed. Start a new proposal for further changes.'
+                    : draft.review?.ready && draft.review.version === draft.version
+                      ? 'Open Knowledge → Drafts to inspect this review and its acceptance gates.'
+                      : 'Open Knowledge → Drafts and send this draft for review.',
+            }),
+            isError: false,
+          },
+          assert,
+        );
       } catch (error) {
+        const expired = expiredApprovalToolResult(error);
+        if (expired) return expired;
         if (!(error instanceof KnowledgeToolProblem || error instanceof KnowledgeDraftConflict)) {
           // Retain the upstream exception internally; telemetry never includes source bytes or paths.
           const failure = new SessionRuntimeError('knowledge_unavailable', { cause: error });

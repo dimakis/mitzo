@@ -132,6 +132,7 @@ interface PermissionTimeoutMsg {
   type: 'permission_timeout';
   permId: string;
   sessionId?: string;
+  failure?: import('@mitzo/protocol').ToolFailure;
 }
 
 interface PermissionResolvedMsg {

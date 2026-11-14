@@ -22,6 +22,11 @@ import {
   installSignedNativeReadStages,
   NativeReadBoundaryProfile,
 } from './fixtures/synchronous-stage-profiler.js';
+import {
+  createPreparationAttemptDiagnostics,
+  preparationDiagnosticFailure,
+  type PreparationAttemptDiagnostics,
+} from './fixtures/preparation-attempt-diagnostics.js';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -46,7 +51,11 @@ vi.setConfig({ testTimeout: 30000 });
 // Exercise the real factory/descriptor helpers with scratch-only fixture bytes.
 // Only the lowest sandbox process boundary is replaced; this is lifecycle and
 // protocol evidence, not another kernel-enforcement qualification.
-function offlineHelper(beforeSpawn?: () => void, boundaries?: NativeReadBoundaryProfile) {
+function offlineHelper(
+  beforeSpawn?: () => void,
+  boundaries?: NativeReadBoundaryProfile,
+  diagnostics?: PreparationAttemptDiagnostics,
+) {
   const runs: Array<Parameters<typeof sandbox.executeSandboxedCommand>[0]> = [];
   const execute = async (request: Parameters<typeof sandbox.executeSandboxedCommand>[0]) => {
     runs.push(request);
@@ -75,8 +84,10 @@ function offlineHelper(beforeSpawn?: () => void, boundaries?: NativeReadBoundary
       finish?.(success);
     }
   };
-  vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(execute);
-  vi.spyOn(sandbox, 'executePrivateRepositoryObservation').mockImplementation(execute);
+  const observed = (request: Parameters<typeof execute>[0]) =>
+    diagnostics ? diagnostics.capture('helper', () => execute(request)) : execute(request);
+  vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(observed);
+  vi.spyOn(sandbox, 'executePrivateRepositoryObservation').mockImplementation(observed);
   return runs;
 }
 
@@ -133,7 +144,8 @@ async function signedReadPositive(
   // unchanged deadline. Set MITZO_NATIVE_READ_PROFILE=1 for stage accounting.
   const profiling = process.env.MITZO_NATIVE_READ_PROFILE === '1';
   if (profiling) cleanups.push(installSignedNativeReadStages(profile, boundaries));
-  const runs = offlineHelper(undefined, boundaries);
+  const diagnostics = createPreparationAttemptDiagnostics();
+  const runs = offlineHelper(undefined, boundaries, diagnostics);
   let setupProfile: ReturnType<typeof profile.snapshot> | undefined;
   let metrics: AdmissionMetrics | undefined;
   let setupMetrics: ReturnType<typeof metricSnapshot> | undefined;
@@ -147,7 +159,7 @@ async function signedReadPositive(
       try {
         return await inspect(...args);
       } catch (error) {
-        failure = error;
+        failure = preparationDiagnosticFailure(error);
         throw error;
       }
     });
@@ -156,7 +168,7 @@ async function signedReadPositive(
       try {
         return await facts(...args);
       } catch (error) {
-        failure = error;
+        failure = preparationDiagnosticFailure(error);
         throw error;
       }
     });
@@ -321,6 +333,7 @@ async function signedReadPositive(
         setupSynchronous: setupProfile ?? (callStarted === undefined ? profile.snapshot() : null),
         callAndVerificationSynchronous: callStarted === undefined ? null : profile.snapshot(),
         boundaries: boundaries.snapshot(),
+        helperDiagnostics: diagnostics.snapshot(),
         accounting:
           'Inclusive stages, async admission timings and helper wall times can overlap; exclusive stages sum to instrumented synchronous time. Windows classify call entry. Joined tool disposal is inside call; outer fixture cleanup is excluded.',
       }),

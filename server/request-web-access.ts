@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
-import type { ToolDefinition } from '@mitzo/harness';
+import { permissionRefusalContent, type ToolDefinition } from '@mitzo/harness';
+import type { ToolFailure } from '@mitzo/protocol';
 
 const reason = z.string().trim().min(1).max(1000);
 export const WebAccessToolFields = {
@@ -52,6 +53,7 @@ interface WebAccessDependencies {
     behavior: 'allow' | 'deny';
     updatedInput?: Record<string, unknown>;
     message?: string;
+    failure?: ToolFailure;
   }>;
   search(query: string, signal: AbortSignal): Promise<string>;
   fetchPage(url: string, signal: AbortSignal, view?: 'summary' | 'full'): Promise<string>;
@@ -91,7 +93,14 @@ export async function executeWebAccess(
         : await deps.approve(request, signal);
       signal.throwIfAborted();
       if (decision.behavior !== 'allow')
-        return { content: decision.message ?? 'Web access declined', isError: true };
+        return {
+          content: permissionRefusalContent({
+            behavior: 'deny',
+            message: decision.message ?? 'Web access declined',
+            failure: decision.failure,
+          }),
+          isError: true,
+        };
       if (!isDeepStrictEqual(decision.updatedInput, request) || !deps.isCurrent())
         return { content: 'Web access request changed during approval; retry', isError: true };
       const operationSignal =

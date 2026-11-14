@@ -3988,6 +3988,27 @@ export class EventStore {
     return this.executionLedger.getExecutionAdmission(sessionId, clientMsgId);
   }
 
+  /** Positive pre-input cancellation evidence, not an inference from missing
+   * SDK history or missing acknowledgements. Every execution must be covered. */
+  hasOnlyCancelledOrdinarySdkInputs(sessionId: string): boolean {
+    const meta = this.getSession(sessionId);
+    if (meta?.executionPhase !== 'TERMINAL') return false;
+    const commands = this.db!.prepare(
+      'SELECT client_msg_id FROM execution_admissions WHERE session_id = ?',
+    ).all(sessionId) as Array<{ client_msg_id: string }>;
+    if (!commands.length || commands.length !== meta.executionGeneration) return false;
+    return commands.every(({ client_msg_id: id }) => {
+      const execution = this.getExecutionAdmission(sessionId, id)!;
+      const terminal = this.getExecutionTerminalReason(execution.token);
+      return (
+        (terminal === 'stopped' || terminal === 'abandoned') &&
+        this.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed' &&
+        this.getSendCommand(id)?.error === 'Cancelled before SDK dispatch' &&
+        this.getOrdinarySdkTurnEvents(sessionId, id).length === 0
+      );
+    });
+  }
+
   /** Start one durable provider dispatch owned by the exact active execution token. */
   beginProviderAttempt(
     executionToken: ExecutionToken,
@@ -4405,7 +4426,17 @@ export class EventStore {
       )
         return;
       const stopped = this.transitionExecution(execution, 'STOPPING');
-      if (!stopped.applied) return;
+      // User Stop can precede the SDK input echo. It pauses the execution then;
+      // the exact native interrupt is claimed only after that echo arrives.
+      // An already-claimed native effect still cannot be replayed under a new ID.
+      if (!stopped.applied && stopped.status !== 'already_stopping') return;
+      if (
+        this.db!.prepare(
+          `SELECT 1 FROM events WHERE session_id = ? AND type = 'ordinary_sdk_interrupt_claimed'
+         AND json_extract(payload, '$.target.commandId') = ? LIMIT 1`,
+        ).get(sessionId, target.commandId)
+      )
+        return;
       this.append(sessionId, 'ordinary_sdk_interrupt_claimed', receipt);
       return { fresh: true, receipt };
     }).immediate();

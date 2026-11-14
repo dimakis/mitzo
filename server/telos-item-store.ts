@@ -12,6 +12,7 @@ import { initializeTelosSchema } from './telos-schema.js';
 import { initializeTelosWorkKinds } from './telos-work-schema.js';
 import { assertTelosItemActive } from './telos-lifecycle-facts.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 import {
   TelosEditItemInputSchema,
   type TelosEditItemInput,
@@ -224,28 +225,44 @@ export class TelosItemStore {
     requestId: string,
     fingerprint: unknown,
     assertion: (() => void) | undefined,
-    apply: (inputHash: string, updatesExist: boolean) => T,
+    apply: (inputHash: string, updatesExist: boolean, beforeWrite: () => void) => T,
   ): T {
-    return this.db
-      .transaction(() => {
-        assertCurrent(assertion);
-        const inputHash = createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
-        const updatesExist = this.hasUpdates();
-        if (updatesExist) {
-          const previous = this.updateReceipt(sessionId, requestId);
-          if (previous) {
-            if (previous.input_hash !== inputHash)
-              throw Error('Update request identity reused with different input');
-            return JSON.parse(previous.receipt) as T;
+    // The original writer proves refusal only before its first SQL effect,
+    // including schema creation. A later failure needs receipt reconciliation.
+    let mutationStarted = false;
+    const beforeWrite = () => {
+      mutationStarted = true;
+    };
+    try {
+      return this.db
+        .transaction(() => {
+          assertCurrent(assertion);
+          const inputHash = createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
+          const updatesExist = this.hasUpdates();
+          if (updatesExist) {
+            const previous = this.updateReceipt(sessionId, requestId);
+            if (previous) {
+              if (previous.input_hash !== inputHash)
+                throw Error('Update request identity reused with different input');
+              return JSON.parse(previous.receipt) as T;
+            }
           }
-        }
-        const receipt = apply(inputHash, updatesExist);
-        this.db
-          .prepare('UPDATE telos_item_updates SET receipt=? WHERE session_id=? AND request_id=?')
-          .run(JSON.stringify(receipt), sessionId, requestId);
-        return receipt;
-      })
-      .immediate();
+          const receipt = apply(inputHash, updatesExist, beforeWrite);
+          beforeWrite();
+          this.db
+            .prepare('UPDATE telos_item_updates SET receipt=? WHERE session_id=? AND request_id=?')
+            .run(JSON.stringify(receipt), sessionId, requestId);
+          return receipt;
+        })
+        .immediate();
+    } catch (error) {
+      if (error instanceof Error)
+        retainCallbackOutcome(
+          error,
+          mutationStarted || retainedCallbackOutcome(error) === 'unknown' ? 'unknown' : 'settled',
+        );
+      throw error;
+    }
   }
 
   /** One consistent read; inspection never creates progress tables or changes items. */
@@ -317,7 +334,7 @@ export class TelosItemStore {
       input.requestId,
       { operation: child ? 'create-child' : 'create-feature', input },
       assertion,
-      (inputHash, updatesExist) => {
+      (inputHash, updatesExist, beforeWrite) => {
         const parent = child ? this.snapshot(child.parentId, updatesExist) : undefined;
         if (child && parent?.revision !== child.expectedParentRevision)
           throw Error('Telos item changed; read the parent again before creating a child');
@@ -333,6 +350,7 @@ export class TelosItemStore {
           .digest('hex')
           .slice(0, 16);
         const now = new Date().toISOString();
+        beforeWrite();
         if (!updatesExist) this.ensureUpdates();
         const parentKind = child ? this.workKind(child.parentId) : null;
         const kind =
@@ -411,7 +429,11 @@ export class TelosItemStore {
 
   /** Repair an unclassified backlog item without changing retained role context.
    * Classification shares the canonical edit transaction and replay receipt. */
-  private classifyUnassigned(itemId: string, level: NonNullable<TelosEditItemInput['workLevel']>) {
+  private classifyUnassigned(
+    itemId: string,
+    level: NonNullable<TelosEditItemInput['workLevel']>,
+    beforeWrite: () => void,
+  ) {
     const kind = { outcome: 'coordinator', feature: 'outcome', slice: 'work_item' }[level];
     const existing = this.workKind(itemId);
     if (existing === kind) return;
@@ -453,9 +475,11 @@ export class TelosItemStore {
       this.db.prepare('SELECT 1 FROM items WHERE parent_id=? LIMIT 1').get(itemId)
     )
       throw Error('Telos work level slice cannot contain child work');
-    initializeTelosWorkKinds(this.db);
     if (
       level === 'outcome' &&
+      this.db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='telos_work_kinds'")
+        .get() &&
       this.db
         .prepare(
           "SELECT 1 FROM items i JOIN telos_work_kinds k ON k.item_id=i.id WHERE i.parent_id=? AND k.kind='work_item' LIMIT 1",
@@ -463,6 +487,8 @@ export class TelosItemStore {
         .get(itemId)
     )
       throw Error('Telos work level outcome requires feature children');
+    beforeWrite();
+    initializeTelosWorkKinds(this.db);
     this.db.prepare('INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,?)').run(itemId, kind);
   }
 
@@ -491,10 +517,10 @@ export class TelosItemStore {
       input.requestId,
       edit ? { operation: 'edit', input } : input,
       assertion,
-      (inputHash, updatesExist) => {
+      (inputHash, updatesExist, beforeWrite) => {
         const before = this.snapshot(input.itemId, updatesExist);
         if (before.revision !== input.expectedRevision)
-          throw new Error('Telos item changed; read it again before updating');
+          throw Error('Telos item changed; read it again before updating');
         if (input.status === 'completed') {
           const unfinished = this.db
             .prepare(
@@ -504,14 +530,15 @@ export class TelosItemStore {
         ) SELECT id FROM descendants WHERE status!='completed' LIMIT 1`,
             )
             .get(input.itemId);
-          if (unfinished) throw new Error('Unfinished milestones; complete them before the parent');
+          if (unfinished) throw Error('Unfinished milestones; complete them before the parent');
         }
         // No authority callback runs after a status/history/receipt effect.
         assertCurrent(assertion);
         // Fresh-effect eligibility must not hide a known committed receipt.
         assertCurrent(beforeApply);
+        if (edit?.workLevel) this.classifyUnassigned(input.itemId, edit.workLevel, beforeWrite);
+        beforeWrite();
         if (!updatesExist) this.ensureUpdates();
-        if (edit?.workLevel) this.classifyUnassigned(input.itemId, edit.workLevel);
         const status = input.status ?? before.status;
         const now = new Date().toISOString();
         if (edit)

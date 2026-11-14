@@ -9,6 +9,7 @@ import {
 } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { ToolDefinition } from '@mitzo/harness';
+import { throwIfApprovalExpired, expiredApprovalToolResult } from '@mitzo/harness';
 import type { TelosItemStore } from './telos-item-store.js';
 import { TelosWorkError, type TelosWorkStore } from './telos-work-store.js';
 import type { TelosToolResult } from './telos-tool.js';
@@ -21,6 +22,7 @@ import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import type { EventStore } from './event-store.js';
 import { telosWorkContext } from './telos-work-observation.js';
 import { telosWorkOverview } from './telos-work-overview.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 
 export const telosBacklogSchemas = {
   TelosListItems: TelosListItemsInputSchema,
@@ -115,6 +117,8 @@ export async function executeTelosBacklogOperation(
   name: TelosBacklogToolName,
   raw: unknown,
 ): Promise<TelosToolResult> {
+  // Once delegated, only the original mutation owner can prove a refusal.
+  let mutationStarted = false;
   try {
     const { context: ctx } = owners;
     const current = () => {
@@ -141,6 +145,7 @@ export async function executeTelosBacklogOperation(
       const permission = await owners.approve(name, structuredClone(input), ctx.signal);
       await ctx.assertCurrent();
       current();
+      throwIfApprovalExpired(permission);
       if (permission.behavior !== 'allow')
         throw new TelosWorkError(
           'unauthorized',
@@ -160,6 +165,7 @@ export async function executeTelosBacklogOperation(
           : undefined;
       const input = child ?? TelosCreateFeatureInputSchema.parse(structuredClone(raw));
       await approve(input);
+      mutationStarted = true;
       const receipt = child
         ? owners.items.createChildGuarded(child, ctx.conversationId, current, () =>
             owners.items.assertLifecycleActive(child.parentId),
@@ -224,6 +230,7 @@ export async function executeTelosBacklogOperation(
         }
       } else {
         await approve(input);
+        mutationStarted = true;
         if (input.operation === 'edit') {
           const { operation, ...edit } = input;
           void operation;
@@ -271,6 +278,10 @@ export async function executeTelosBacklogOperation(
     }
     return { content, isError: false };
   } catch (error) {
+    const outcome = error instanceof Error ? retainedCallbackOutcome(error) : undefined;
+    const expired = expiredApprovalToolResult(error);
+    if (expired)
+      return retainCallbackOutcome(expired, outcome === 'unknown' ? 'unknown' : 'settled');
     const known =
       error instanceof TelosWorkError ||
       (error instanceof Error &&
@@ -290,7 +301,7 @@ export async function executeTelosBacklogOperation(
         { tool: name, code },
       );
     }
-    return {
+    const result = {
       isError: true,
       content:
         error instanceof z.ZodError
@@ -299,5 +310,13 @@ export async function executeTelosBacklogOperation(
             ? (error as Error).message
             : 'Telos backlog operation unavailable; mutation not confirmed. Preserve the exact requestId and input for recovery.',
     };
+    return retainCallbackOutcome(
+      result,
+      outcome === 'unknown'
+        ? 'unknown'
+        : !mutationStarted || outcome === 'settled'
+          ? 'settled'
+          : 'unknown',
+    );
   }
 }

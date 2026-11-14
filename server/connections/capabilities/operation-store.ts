@@ -302,6 +302,26 @@ export class CapabilityOperationStore {
       };
     })();
   }
+  /** Re-arm only a proved pre-dispatch timeout, after its owner joined cleanup.
+   * Existing audit rows retain the expired attempt; no old decision is reused. */
+  renewExpiredApproval(previous: CapabilityOperation): CapabilityOperation {
+    if (previous.status !== 'cancelled' || previous.failureCode !== 'APPROVAL_EXPIRED')
+      throw Error('Operation has no renewable approval timeout');
+    return this.db.transaction(() => {
+      const changed = this.db
+        .prepare(
+          `UPDATE capability_operations SET status='pending_approval',
+        approval_input_json=NULL, approval_hash=NULL, recovery_intent_json=NULL,
+        result_json=NULL, failure_code=NULL, phase=NULL, updated_at=?
+        WHERE id=? AND status='cancelled' AND failure_code='APPROVAL_EXPIRED'
+        AND updated_at=? AND external_result_id IS NULL`,
+        )
+        .run(Date.now(), previous.id, previous.updatedAt);
+      if (changed.changes !== 1) throw Error('Capability approval renewal changed');
+      this.audit(previous.id, 'approval_renewed', 'pending', null, Date.now());
+      return this.get(previous.id)!;
+    })();
+  }
   recordPreflight(
     id: string,
     input: { approvalInput: JsonValue; approvalHash: string; recoveryIntent?: JsonValue },

@@ -125,6 +125,28 @@ function setup(
   return f;
 }
 
+it.each(['item/fileChange/requestApproval', 'item/permissions/requestApproval'] as const)(
+  'reports %s expiry without cancelling the conversation',
+  async (method) => {
+    const f = setup('agent', 20);
+    const observeFailure = vi.fn();
+    const params =
+      method === 'item/fileChange/requestApproval'
+        ? { threadId: 'thread', turnId: 'turn', itemId: 'file', startedAtMs: Date.now() }
+        : f.params;
+    await f.handler(method, params, f.controller.signal, { ...f.context, observeFailure });
+    expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        code: 'approval_expired',
+        phase: 'approval',
+        effectStatus: 'not_started',
+        recovery: 'renew_approval',
+      }),
+    );
+    expect(f.controller.signal.aborted).toBe(false);
+  },
+);
+
 it.each([
   { approvalId: 'subcommand' },
   { networkApprovalContext: { host: 'example.test', protocol: 'https' } },

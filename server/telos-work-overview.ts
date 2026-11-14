@@ -9,7 +9,8 @@ export function telosWorkOverview(value: {
   workContext: ReturnType<typeof telosWorkContext>;
 }) {
   const { item, lifecycle, workContext: context } = value;
-  const truncatedFields: string[] = [];
+  const truncatedFields: string[] = ['workContext.assignmentHistory', 'lifecycle.history'];
+  const assignmentHistory = context.assignmentHistory;
   const text = (field: string, source: string, limit: number) => {
     if (source.length <= limit) return source;
     truncatedFields.push(field);
@@ -74,7 +75,17 @@ export function telosWorkOverview(value: {
       children: item.children.length,
       acceptanceCriteria: item.acceptanceCriteria.length,
       updatesInFullReadWindow: item.updates.length,
-      assignmentHistory: context.assignmentHistory.length,
+      assignmentHistory: assignmentHistory
+        ? Object.fromEntries(
+            (['lead', 'worker'] as const).map((role) => [
+              role,
+              {
+                complete: assignmentHistory[role].complete,
+                knownConversations: assignmentHistory[role].conversationIds.length,
+              },
+            ]),
+          )
+        : null,
       lifecycleHistory: lifecycle.history.length,
     },
     lifecycle: {
@@ -82,6 +93,7 @@ export function telosWorkOverview(value: {
       revision: lifecycle.revision,
       disposition: lifecycle.disposition,
       effectiveDisposition: lifecycle.effectiveDisposition,
+      inheritedFrom: lifecycle.inheritedFrom,
       pause: { stage: lifecycle.pause.stage, controlCount: lifecycle.pause.controls.length },
     },
     workContext: {
@@ -102,6 +114,7 @@ export function telosWorkOverview(value: {
       startExistingWorker: context.startExistingWorker,
     },
     truncatedFields,
+    unknownEvidence: assignmentHistory ? [] : ['workContext.assignmentHistory'],
     details: {
       tool: 'TelosManageItem',
       input: { operation: 'read', itemId: item.id, view: 'full' },

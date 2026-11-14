@@ -1,4 +1,9 @@
-import { ordinarySdkConnectionHelperTools } from './ordinary-sdk-helper-registration.js';
+import {
+  ordinarySdkConnectionHelperTools,
+  ordinarySdkTelosTools,
+} from './ordinary-sdk-helper-registration.js';
+import { createTelosSdkServer, telosSdkPermission } from './telos-sdk-tools.js';
+import { telosBacklogInstructions } from './telos-backlog-tools.js';
 import {
   reconcilableLocalCodexCommand,
   retainedLocalCodexRecoveryReservation,
@@ -19,7 +24,7 @@ import {
 import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
 import { createSdkTurnQuery } from './sdk-turn-query.js';
 import { reportClaudeChildDiagnostic } from './claude-child-diagnostics.js';
-import { claudePersonalSandbox, claudePersonalToolPermission } from './claude-personal-policy.js';
+import { claudePersonalToolPermission } from './claude-personal-policy.js';
 import { readClaudeAccountHistory } from './claude-account-history.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
@@ -129,7 +134,11 @@ import {
   createWorkspaceRuntimeCommandRunner,
   type ProtectedSdkCommandRunner,
 } from './protected-sdk-command.js';
-import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
+import {
+  createCredentialSdkServer,
+  credentialSdkPermission,
+  sdkInformationInstructions,
+} from './credential-sdk-tools.js';
 import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
@@ -2528,6 +2537,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           (options.contributorGuidance === undefined
             ? telosArtifactInstructions(!!agentContext)
             : '') +
+          (options.ordinarySdkAuthority
+            ? telosBacklogInstructions(
+                options.contributorGuidance ?? telosArtifactInstructions(!!agentContext),
+              )
+            : '') +
           '- Read operations are fine without asking.\n' +
           '- Keep responses concise — small screen.\n' +
           (agentContext
@@ -2785,6 +2799,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
           onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
+          ...(options.ordinarySdkAuthority
+            ? {
+                assertCurrentSync: () =>
+                  options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+              }
+            : {}),
         }),
       );
       const sdkAgentCommunication = options.ordinarySdkAuthority
@@ -2819,6 +2839,27 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 getCodexRuntime(recipient)?.peerMessageState() ?? 'unavailable',
             })
         : undefined;
+      const sdkTelos = (
+        state?: Pick<
+          import('./ordinary-local-vertex-sdk-query.js').SdkCallbackState,
+          'retired' | 'completing' | 'runCallback'
+        >,
+      ) =>
+        createTelosSdkServer({
+          session,
+          registry,
+          events: eventStore,
+          runCallback: state?.runCallback,
+          assertCurrentSync: (signal) => {
+            if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
+            options.ordinarySdkAuthority!.assertCurrentSync(signal);
+          },
+          assertCurrent: async (signal) => {
+            if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
+            await options.ordinarySdkAuthority!.assertCurrent(signal);
+            if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
+          },
+        });
       const connectionServer = createCredentialSdkServer(
         () => session.sessionId ?? options.resume ?? newSdkSessionId,
         session,
@@ -2828,6 +2869,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               profilesOnly: true,
               connectionBoundary: 'sdk-callback',
               agentCommunication: sdkAgentCommunication,
+              historyEvents: eventStore,
               assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
               assertCurrentSync: (signal) =>
                 options.ordinarySdkAuthority!.assertCurrentSync(signal),
@@ -2886,7 +2928,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             message: 'This helper is unavailable for the selected conversation route.',
           };
         try {
-          const keychain = credentialSdkPermission(name, input, clientId, registry, session);
+          const keychain =
+            (options.ordinarySdkAuthority &&
+              telosSdkPermission(name, input, clientId, registry, session)) ||
+            credentialSdkPermission(name, input, clientId, registry, session);
           return keychain && !opts.forcePrompt
             ? keychain
             : await existingDecision(name, input, opts);
@@ -3026,9 +3071,6 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         ...(options.ordinarySdkAuthority?.executable()
           ? { pathToClaudeCodeExecutable: options.ordinarySdkAuthority.executable() }
           : {}),
-        ...(options.ordinarySdkAuthority?.configDirectory()
-          ? { sandbox: claudePersonalSandbox(options.ordinarySdkAuthority.configDirectory()!) }
-          : {}),
         abortController,
         includePartialMessages: true,
         settingSources:
@@ -3052,13 +3094,13 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               currentSystemPromptAppend() +
               WEB_ACCESS_INSTRUCTIONS +
               (options.ordinarySdkAuthority
-                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
+                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + sdkInformationInstructions(session) + '\n'
                 : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
           };
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
-          ? [...ordinarySdkConnectionHelperTools, WEB_ACCESS_SDK_TOOL]
+          ? [...ordinarySdkConnectionHelperTools, ...ordinarySdkTelosTools, WEB_ACCESS_SDK_TOOL]
           : [
               ...(sdkCredentialIsolation ? [] : mcpAllowed),
               ...extraTools,
@@ -3077,7 +3119,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         ...(resolvedResume ? { resume: resolvedResume } : {}),
         ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
         mcpServers: options.ordinarySdkAuthority
-          ? { 'mitzo-connections': connectionServer, 'mitzo-web-access': webAccess }
+          ? {
+              'mitzo-connections': connectionServer,
+              'mitzo-web-access': webAccess,
+              telos: sdkTelos(),
+            }
           : {
               ...(sdkCredentialIsolation ? {} : allMcpServers),
               'mitzo-web-access': webAccess,
@@ -3118,7 +3164,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
           beforeInput: (commandId) => {
             if (!liveOrdinarySdkOwner) throw Error('Original SDK command owner unavailable');
-            liveOrdinarySdkOwner.assertInputCurrent(commandId);
+            return liveOrdinarySdkOwner.assertInputCurrent(commandId);
           },
           adapt: adaptSdkQuery,
           settings: (selection) => ({
@@ -3131,6 +3177,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           },
           peerMessages: () => sdkPeerMessages,
           mcpServers: (state) => ({
+            telos: sdkTelos(state),
             'mitzo-web-access': createSdkWebAccess(state),
             'mitzo-connections': createCredentialSdkServer(
               () => session.sessionId,
@@ -3140,6 +3187,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 profilesOnly: true,
                 connectionBoundary: 'sdk-callback',
                 agentCommunication: sdkAgentCommunication,
+                historyEvents: eventStore,
                 runCallback: state.runCallback,
                 assertCurrentSync: (signal) => {
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');
@@ -5884,6 +5932,27 @@ export function stopOrdinaryChat(clientId: string): void {
   const session = registry.get(clientId);
   if (session?.sessionId)
     assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'stop');
+  const turns = session?.ordinaryRuntimeOwner?.sdkTurns;
+  if (turns && session.sessionId) {
+    const sessionId = session.sessionId;
+    const phase = eventStore.getSession(sessionId)?.executionPhase;
+    // Keep the original query alive to observe its settled result. Closing it
+    // here loses the only evidence that permits the next SDK command to run.
+    if (phase === 'STOPPING') return;
+    if (phase && phase !== 'TERMINAL') {
+      const target = turns.captureInterruptTarget();
+      const report = (cause: unknown) =>
+        reportRetainedRuntimeFailure({
+          store: eventStore,
+          sessionId,
+          commandId: target?.commandId,
+          session,
+          error: new SessionRuntimeError('unsettled_effects', { cause }),
+        });
+      void turns.stop(randomUUID()).catch(report);
+      return;
+    }
+  }
   stopChat(clientId);
 }
 export function stopChat(clientId: string) {
