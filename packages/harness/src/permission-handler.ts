@@ -337,7 +337,16 @@ export function buildPermissionHandler(
       try {
         const result: unknown = handlerOpts?.assertCurrentSync?.();
         if (result !== undefined) {
-          void Promise.resolve(result).catch(() => {});
+          void Promise.resolve(result).catch((error: unknown) => {
+            log.warn('Asynchronous tool authority check rejected', {
+              err: error,
+              sessionId: session.sessionId,
+              toolName,
+              toolUseID: originalOptions.toolUseID,
+              stage: 'approval_authority',
+              code: 'tool_approval_authority_async_rejected',
+            });
+          });
           throw Error('Tool authority check must finish synchronously');
         }
       } catch (error) {

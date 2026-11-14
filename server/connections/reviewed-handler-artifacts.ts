@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1147-claude-live-approval-authority';
+  'v1.0.1148-claude-approval-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,7 +30,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/__tests__/sdk-write-scope.test.ts':
     'a9d8f82c2719a402d3704a7ed80dc10cff38ae42f151b47dc3feed3fe3e77d40',
   '../../packages/harness/__tests__/permission-live-authority.test.ts':
-    '7c863f3ce1b48b174b2b97cd068a003afc4055a20850c7b631f209022897a9f8',
+    '66a1c90d0751fdb6df9f1898070772acb957084247e6abf9b1fd1d18ff2d7767',
   '../__tests__/symposium-recording-runtime.test.ts':
     'df304c9f5a82e7f8034aaf5b88717ffdf3bd8cfc28cfef22410ec06b61205820',
   '../specialist-review-routing.ts':
@@ -2616,7 +2616,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     'cc79b091161db6d4c150353b822f5035143606c609d769ca632aa6a79b484207',
   '../../packages/harness/src/permission-handler.ts':
-    'f4563dbee746f5db2a2c9d52a5543e2d48c1f3c876a998c99140889d6c839499',
+    '63da4781fa65d27f2ea27f5d072ad616a6a8cade2230be200914ef86126a7032',
   '../../packages/harness/src/permissions.ts':
     '270fe368651d74c25e4b7068429b9926ca4dd791f3eb81d78f6621afdebf02a4',
   '../../packages/protocol/src/session-approval-scope.ts':

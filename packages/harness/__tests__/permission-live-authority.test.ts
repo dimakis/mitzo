@@ -3,11 +3,17 @@ import { buildPermissionHandler } from '../src/permission-handler.js';
 import { SessionRegistry } from '../src/session-registry.js';
 import { getPendingRequestsBySession, resolvePending } from '../src/permissions.js';
 
+const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../src/logger.js', () => ({
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() }),
+}));
+
 const registries: SessionRegistry[] = [];
 const callbacks: AbortController[] = [];
 afterEach(() => {
   for (const callback of callbacks.splice(0)) callback.abort();
   for (const registry of registries.splice(0)) registry.dispose();
+  warn.mockClear();
 });
 
 function fixture() {
@@ -28,6 +34,42 @@ function fixture() {
 }
 
 describe('live SDK approval authority', () => {
+  it('refuses asynchronous authority checks and preserves their rejection cause internally', async () => {
+    const { registry, callback, send } = fixture();
+    const cause = Error('private asynchronous account identity changed');
+    const result = await buildPermissionHandler('client', registry, {
+      assertCurrentSync: () => Promise.reject(cause),
+    })(
+      'Read',
+      { file_path: '/repo/a' },
+      {
+        signal: callback.signal,
+        toolUseID: 'async-authority',
+      },
+    );
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      message: 'Original tool authority is no longer current; retry under current permissions',
+    });
+    expect(JSON.stringify(result)).not.toContain(cause.message);
+    expect(send).not.toHaveBeenCalled();
+    expect(registry.get('client')!.sessionAllowList.size).toBe(0);
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        'Asynchronous tool authority check rejected',
+        expect.objectContaining({
+          err: cause,
+          sessionId: 'conversation',
+          toolName: 'Read',
+          toolUseID: 'async-authority',
+          stage: 'approval_authority',
+          code: 'tool_approval_authority_async_rejected',
+        }),
+      ),
+    );
+  });
+
   it('cancels the original card when its session ends even if the SDK callback signal stays live', async () => {
     const { registry, owner, callback, send } = fixture();
     const pending = buildPermissionHandler('client', registry)(
