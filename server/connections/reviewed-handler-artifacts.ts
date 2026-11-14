@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1172-symposium-singleton-read-boundary';
+  'v1.0.1174-symposium-assignment-retained-history';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,11 +24,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatInputHost.tsx':
-    '01bad99b8699b1b10be61189479bcaffc02372669101ffea7aab09dbe5c8f41e',
+    'c698ce453116753c350e3c553863f959f1987466a028fdebce8ed5721f93a8e6',
   '../../frontend/src/components/ChatInputHost.css':
     '6ac695e0ec3850781d32e6257738c2900657499c2545303321f200488e3ccc20',
   '../../frontend/src/lib/chat-input-mount.ts':
-    '8f28e9efb545d02c0a625cc46b2be920e4bee4cb4b48eb7362d813e3c220d246',
+    '5fe0f7789265cad56ea0ba83a179a98536ab23aadc3a926ef6412f471a5faa2c',
   '../../frontend/src/lib/shared-conversation-composer.ts':
     'cf1faa7501c2e11c845e38caab5352d4c7d6831def7e8519dda74b4e59a46392',
   '../../frontend/src/components/__tests__/ChatInputHost.test.tsx':
@@ -36,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx':
     '2cab5bb2a89f625abb01339426b3c25220138495e7052e6dca19b41dac8d23e2',
   '../../frontend/src/components/__tests__/CollaborationTranscript.test.tsx':
-    'f1db019d95f4f2b586e65cc050d65df9740f7618aadc4b5d7ca2ce4186e5965a',
+    'db6e08cdd49983ced1b5ac305b505bb7a5fa2959e18a23295413c966fad14ea9',
   '../ordinary-turn-observers.ts':
     'fba10dda652de5533b98efd6b8803ab16de376ca7f59ac8c2a28b7e1fbbe9a49',
   '../__tests__/ordinary-turn-observers.test.ts':
@@ -660,9 +660,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     '7f291e2b57ccffb5f31da98b809f90d21a5cd2d71949b38c8fb1683a4b4100e4',
   '../../frontend/src/components/SharedConversation.tsx':
-    '6b5f1147e99e510d7c36ee20ec5dc5e69400da1e19cabb3c429eace05a2e1149',
+    '2b6f271ab97bab77b0e666ce6dd77bdac1137df8fe6b6e70c37a053caedfcf00',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
-    '72047b4b24c6477ed7090001e4ffeefe36889b33fed6f5f0a66e31eab07d1067',
+    '33f497bb0a00a41abf93477af92007b7b8f2ca898f76d224c3c904f5dc9e2263',
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
     '2d8a00374b236ad7526f74ed0e376972e5adc67cec3a2832f1e095642f0d7262',
   '../../frontend/src/hooks/useConversationSending.ts':
@@ -1159,7 +1159,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '54594ba539d53869300d904b0a7cdb1bbc303887fcddf369fe58fffa0993f9c3',
+    'a0a037c51b67e681562db49e7e1ade79562642dccfb38ff6f609265c705ece4b',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
@@ -2379,15 +2379,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/collaboration-api.ts':
     '94c6bee8cd68c9d1dd942bf119a9e9801eb3bdec99c1d01effa82aafb5c8cff0',
   '../../packages/client/src/collaboration-projection.ts':
-    '21d7a01d964476e9b188dbfdf65228e06a0e8762eb6953a6d076d182f4caf1e7',
+    'eb719f32622219dee371dbfedea5a141d734505089e219fe3c57934b9a2c1623',
+  '../../packages/client/src/__tests__/collaboration-conversation.test.ts':
+    '91e1c75c1b6f27327fec21c1b8ea6a5d27b1438ab6dca873c45dc50403bb4fc5',
   '../../packages/client/src/index.ts':
-    '393564c9323d6e3091c2c858be71cc18816d84f97603de510fa017bcf3188131',
+    'c00426223eb67c0b841fc216599d8c767dffa304899e1b99cb4846178cc52081',
   '../../frontend/src/components/CollaborationTranscript.tsx':
-    '2c606773b8dbbd807c7817f1df77be6caf5a706fd8300ce14c9dbcc5cfe551a6',
+    'f67520f68d080aeff31000981799f268ad4b51d6c9c57e6115b07f97b5ae5476',
   '../../frontend/src/components/CollaborationTranscript.css':
     'e617da58d37e75e41c4f165ff976675017d4bd650c8949a6b0f2f4fe1634c392',
   '../../frontend/src/hooks/useConversationPresentation.ts':
-    'e223cb76e0c2b71d155df51823ca32d86779ce204f1f6fb82519488ef6b7df9f',
+    '4d0d3e5708dfb7ccea00297124f04f460800721fd222440b939e355aab5f4eb5',
   '../../frontend/src/lib/conversation-presentation.ts':
     'cfa1861c873fade059f18e9a03a4c9cebed42f7c032b1517d43b3b7c7a67ded1',
   '../openshell-cli-environment.ts':
@@ -2536,7 +2538,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    '3d01f81c4fb4664df93101a8b0b6b798adaf7357a60f019322a1ed194e47f6f1',
+    '858918f826165f52bd226604855ccbdb0a3ca60c18ffd4aa66cc2c6056f2d72d',
   '../../frontend/src/components/ComposerTools.tsx':
     '4d12ffa29195b6f3b60277e5e76e87120ec18da8bed6080b49a4813c052a2e6d',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -4010,7 +4012,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputSavedDraft.test.tsx':
     '30a651a1ccdcbdb728652e03d954d477ad1a5d953004355de3da0a1ff93b3ad7',
   '../../frontend/src/components/__tests__/ChatInputSendReceipt.test.tsx':
-    'e7ada49043f44a9f28eedb5c243c3c7524a94ddb37b6fb3799f6485e37081575',
+    '018c5a6f77bf64adb5dddd47e81e97f88b1c71eced59af89c75d87de502f5233',
   '../../frontend/src/components/__tests__/ChatInputVoiceOwnership.test.tsx':
     '82238d2c7c27b41424cbe633ffc4c4603191f4edcc9a15595445ad05f94d4c2b',
   '../../frontend/src/components/__tests__/RetainedConversationComposer.test.tsx':

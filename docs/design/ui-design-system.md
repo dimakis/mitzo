@@ -1770,9 +1770,16 @@ Transcript order follows retained sequence, without comparing independent clocks
 Native delivery packets are suppressed by exact command identity; each projected
 operator body keeps its own identity. Source rows awaiting reconciliation follow
 their command rather than moving into the pre-sharing history.
+The fifty-message live window does not retire earlier bodies or command anchors.
+On reopen, existing authorized event pages reconstruct retained sequence history
+before native rows are exposed; later refreshes read only the new event delta.
+Failed or cancelled reads preserve the prior complete presentation and its recovery
+controls without publishing a partial reconstruction.
 The responsive input portal retains draft, attachments, context, selection and focus
 through status qualification; its routing updates independently of source activity.
-Navigating to a different conversation retires that input's dispatch fence. The
+An exact current send's correlated assignment or fork transfers the existing input,
+later edits and remaining queued prompts. Unrelated navigation retires that input's
+dispatch fence; late assignments cannot transfer it to another conversation. The
 original agent's Stop and a retained shared request's Stop keep separate owners,
 including when a reviewer request is uncertain while the original agent runs.
 The initial explicit recipient remains the original agent. Saved empty choices stay

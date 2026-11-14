@@ -231,6 +231,42 @@ queued sends and corrections now refuse dispatch after navigation while keeping
 their retained queue rows. Responsive transitions within the same conversation
 continue to preserve the same input. Fresh Centaur verification remains required.
 
+Centaur's combined `b93961fb7` review then identified two additional blockers:
+`CEN-6CFB95D6132C` (assignment/fork remount loses the draft and remaining queue)
+and `CEN-A5B18F62570B` (native delivery packets resurface after the fifty-message
+shared window rolls over). The real-client send-receipt fixture now mounts the
+actual `ChatInputHost`: four assignment/fork cases failed before the production
+fix while the unrelated-navigation controls still passed. The live-window test
+also reproduced the encoded native packet becoming visible. Original red logs
+remain in the task's `slice1-validation/slice1-host-assignment-red.log` and
+`slice1-rollover-packet-red.log`; slice 3 independently retains application-level
+rollover/reopen/restart failures and correlated assignment/fork failures.
+
+The portal now transfers only when the current submitted operation records its
+exact source/assigned identity and still owns its draft scope. Existing assignment
+receipts, edits, focus and queue stay with that mounted input. Navigation, New,
+unmount and late foreign assignments retain their existing retirement fences.
+The projection separately retains earlier messages when its live window shifts.
+An authenticated reopen reconstructs exact bodies and delivery revisions from
+the existing paged event API up to the frozen snapshot cursor; later refreshes
+read only deltas. No new endpoint, reader authority, inference or text matching is
+introduced. History validation rejects sequence/scope/identity gaps and passes the
+current abort signal to each read. A failed read keeps the last complete projection;
+initial loading defers native rows until command suppression can be verified.
+
+Current focused validation passes 234 tests across ten affected owner suites,
+including 32 real-client send receipts through the retained input and 11 client
+projection cases. These cover old delivery revision updates, delta-only refresh,
+cancelled reconstruction and malformed/foreign history. Both existing actual
+application UI journeys pass; design checks pass 109 with one existing skip.
+The production-wrapper failure control verifies the native packet remains absent
+before association, during a deferred page read, and after an incomplete response;
+the same textarea/draft and explicit Refresh conversation action remain available.
+The client package builds and focused lint passes without warnings. The earlier
+hosted 11-application/56-browser checkpoint predates these two fixes; independent
+combined application/browser qualification and exact-head Centaur verification of
+this successor remain required. These findings are not marked reviewer-closed.
+
 `tests/offline/symposium-ordinary-surface.spec.ts` adds the actual ordinary production
 composition to the offline browser matrix: remote joining, one transcript, exact
 input preservation at 320/390/1280 px, source activity and empty selection in dark/

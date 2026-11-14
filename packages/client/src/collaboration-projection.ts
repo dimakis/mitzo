@@ -2,15 +2,119 @@ import {
   CollaborationViewSchema,
   CollaborationEventsSchema,
   type CollaborationView,
+  type CollaborationMessage,
 } from '@mitzo/protocol';
+import type { CollaborationApiClient } from './collaboration-api.js';
 
 export interface CollaborationProjection {
   view: CollaborationView;
   needsRefresh: boolean;
   eventIds: Record<number, string>;
+  /** Retained sequence history, independent of the bounded live view. */
+  earlierMessages?: CollaborationMessage[];
+  historyComplete?: boolean;
 }
 export function createCollaborationProjection(raw: unknown): CollaborationProjection {
-  return { view: CollaborationViewSchema.parse(raw), needsRefresh: false, eventIds: {} };
+  const view = CollaborationViewSchema.parse(raw);
+  return {
+    view,
+    needsRefresh: false,
+    eventIds: {},
+    earlierMessages: [],
+    historyComplete: !view.hasEarlierMessages,
+  };
+}
+
+/** Reconstruct exact retained bodies/deliveries through the existing authorized
+ * event pages. Reopening starts at zero; subsequent refreshes read only deltas.
+ * This never dispatches work or treats a display window as delivery identity. */
+export async function refreshCollaborationProjection(
+  api: Pick<CollaborationApiClient, 'events'>,
+  rawView: CollaborationView,
+  starting: CollaborationProjection | null,
+  signal?: AbortSignal,
+): Promise<CollaborationProjection> {
+  const next = createCollaborationProjection(rawView);
+  const { view } = next;
+  if (!view.hasEarlierMessages) return next;
+  if (
+    starting &&
+    (starting.view.collaborationId !== view.collaborationId || starting.view.cursor > view.cursor)
+  )
+    throw Error('Conversation history scope or cursor changed. Refresh this conversation.');
+  const complete = starting && (starting.historyComplete ?? !starting.view.hasEarlierMessages);
+  const messages = new Map<string, CollaborationMessage>(
+    (complete
+      ? structuredClone([...(starting.earlierMessages ?? []), ...starting.view.messages])
+      : []
+    ).map((message) => [message.messageId, message]),
+  );
+  let cursor = complete ? starting.view.cursor : 0;
+  const projections = new Set([...messages.values()].map((message) => message.projectionId));
+  const fail = () => {
+    throw Error('Conversation history identity changed. Refresh this conversation.');
+  };
+  while (cursor < view.cursor) {
+    signal?.throwIfAborted();
+    const page = CollaborationEventsSchema.parse(
+      await api.events(view.collaborationId, cursor, signal),
+    );
+    signal?.throwIfAborted();
+    if (
+      !page.events.length ||
+      page.cursor !== page.events.at(-1)!.sequence ||
+      page.highWatermark < view.cursor ||
+      page.highWatermark < page.cursor ||
+      (!page.hasMore && page.highWatermark !== page.cursor) ||
+      (page.hasMore && page.highWatermark === page.cursor) ||
+      page.events.some(
+        (event, index) =>
+          event.collaborationId !== view.collaborationId || event.sequence !== cursor + index + 1,
+      )
+    )
+      fail();
+    for (const event of page.events) {
+      if (event.sequence > view.cursor) break;
+      const change = event.change;
+      if (change.kind === 'message') {
+        if (
+          change.message.sequence !== event.sequence ||
+          messages.has(change.message.messageId) ||
+          projections.has(change.message.projectionId)
+        )
+          fail();
+        messages.set(change.message.messageId, structuredClone(change.message));
+        projections.add(change.message.projectionId);
+      } else if (change.kind === 'delivery') {
+        const message = messages.get(change.messageId);
+        const previous = message?.deliveries.find(
+          (delivery) => delivery.deliveryId === change.delivery.deliveryId,
+        );
+        if (
+          !message ||
+          !previous ||
+          previous.sessionId !== change.delivery.sessionId ||
+          previous.purpose !== change.delivery.purpose ||
+          previous.revision + 1 !== change.delivery.revision
+        )
+          fail();
+        message!.deliveries = message!.deliveries.map((delivery) =>
+          delivery.deliveryId === change.delivery.deliveryId ? change.delivery : delivery,
+        );
+      }
+      cursor = event.sequence;
+    }
+  }
+  for (const message of view.messages)
+    if (JSON.stringify(messages.get(message.messageId)) !== JSON.stringify(message)) fail();
+  const visible = new Set(view.messages.map((message) => message.messageId));
+  return {
+    ...next,
+    historyComplete: true,
+    earlierMessages: [...messages.values()]
+      .filter((message) => !visible.has(message.messageId))
+      .sort((a, b) => a.sequence - b.sequence),
+  };
 }
 /** Metadata projection only. Never reduce collaboration events into ordinary send/queue actions. */
 export function applyCollaborationEvents(
@@ -82,17 +186,24 @@ export function applyCollaborationEvents(
             (m) =>
               m.messageId === change.message.messageId ||
               m.projectionId === change.message.projectionId,
+          ) ||
+          (next.earlierMessages ?? []).some(
+            (m) =>
+              m.messageId === change.message.messageId ||
+              m.projectionId === change.message.projectionId,
           )
         )
           return refuse();
         view.messages.push(change.message);
         if (view.messages.length > 50) {
-          view.messages.shift();
+          next.earlierMessages = [...(next.earlierMessages ?? []), view.messages.shift()!];
           view.hasEarlierMessages = true;
         }
         break;
       case 'delivery': {
-        const message = view.messages.find((m) => m.messageId === change.messageId);
+        const message = [...(next.earlierMessages ?? []), ...view.messages].find(
+          (m) => m.messageId === change.messageId,
+        );
         const current = message?.deliveries.find(
           (d) => d.deliveryId === change.delivery.deliveryId,
         );

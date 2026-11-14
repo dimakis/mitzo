@@ -289,6 +289,7 @@ function ChatInputContent({
     assignment: DraftSessionAssignment;
     composerGeneration: number;
   } | null>(null);
+  const inputHost = useContext(ChatInputMountContext);
   const proof = assignedDraft.current;
   if (
     proof &&
@@ -925,6 +926,11 @@ function ChatInputContent({
             latestDraft.current.scope === submitted.scope
           ) {
             pending.assignedSessionId = assignedSessionId;
+            inputHost?.recordAssignment(
+              submitted.sessionId,
+              assignedSessionId,
+              () => mounted.current && latestDraft.current.scope === submitted.scope,
+            );
             if (draftStorageKey === undefined)
               assignedDraft.current = {
                 composerGeneration: submitted.composerGeneration,
@@ -946,6 +952,7 @@ function ChatInputContent({
       return sent;
     },
     [
+      inputHost,
       onSend,
       onClearReply,
       restoreRejected,
