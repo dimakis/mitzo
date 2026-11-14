@@ -16,6 +16,9 @@ ceiling is the intersection of every declared ceiling in the transitive instruct
 dependency graph. An unrestricted wrapper cannot remove a dependency's ceiling.
 Missing dependencies, malformed metadata and cycles refuse resolution before
 provider dispatch. No dependency grants additional tools.
+An opened metadata header without its closing delimiter also remains an invalid
+selected definition. It cannot reveal an unrestricted lower-precedence skill,
+either directly or through a dependency; the ordinary composer shows its refusal.
 
 The ceiling further restricts the published profile, mode, workspace and current
 approval owners. It grants none of those permissions. SDK PreToolUse checks the

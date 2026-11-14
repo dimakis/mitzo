@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1170-claude-worktree-completion';
+  'v1.0.1171-claude-skill-frontmatter';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -134,7 +134,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/skill-policy.ts':
     '24d3908f87b6d0534de4e8c5153ecc48ff7befed1fc7f7dfb7c9cd4d87ec8103',
   '../__tests__/restricted-skill-enforcement.test.ts':
-    '9394bc96140ef8841b499ff989a8456a9a7dc11ee3fa172bb58865dea9d34569',
+    '5f15196f80391361117bf768d9ecb433788456eda712553ac699405679b58b96',
   '../__tests__/skills-registry.test.ts':
     'f55b3f0ae95b9243c61e2ebcdafb3568be5a76037bc98387f4333abb564c0e73',
   '../__tests__/ws-handler-v2.test.ts':
@@ -1024,7 +1024,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '475ce9ab4166a8ac7d250e675ec02195d5def4c79f05388f308b6190eca28090',
   '../skill-registry-runtime.ts':
     'e117a1a9a4ae2215836e886bc1be9af5e2c6b9e5bb85daeb86b176adea69d538',
-  '../skills.ts': 'eca19df04fb3b331fe8fc0cf4482b00000b49003ecc7f4e16f20a0f7b9497877',
+  '../skills.ts': '8aaf3f60ee435a20c6039b023f8f71e8e9a0e84f6fb2be26754a72658e46eb4b',
   '../__tests__/ordinary-composer-skills.test.ts':
     'c0b9b0bdc9225e81f2cd55ad7c74448390139c82e9892da9786323800fb8fb2b',
   '../../frontend/src/lib/chat-composer-capabilities.ts':

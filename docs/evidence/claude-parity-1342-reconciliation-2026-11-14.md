@@ -448,3 +448,18 @@ journeys all pass in 176.34s. All 208 affected checks across six suites pass in
 19.39s, including the two new mapping controls. Both runs retain one worker and
 a 1 GiB heap. These are local correction evidence; only a new exact-head trusted
 review can close the two Centaur findings for landing.
+
+The independent permission assessment of `2499da8b1` additionally reproduced an
+inherited parser gap against this PR's fail-closed metadata contract: an opened
+header without a closing delimiter was skipped, allowing an unrestricted bundled
+definition to replace the higher-priority restricted skill. The parser now
+retains that selected definition with an invalid-metadata error and no prompt
+body. Existing resolution refuses it rather than falling through.
+
+Two repo/user precedence regressions fail before this correction and pass after
+it. They drive the actual registry, slash resolution, executable consumer,
+ordinary composer and transitive dependency refusal. Valid unrestricted and
+closed restricted definitions remain explicit controls. All 107 affected checks
+across five suites pass locally, one worker and a 1 GiB heap. This is a focused
+correction; independent full-pass completion and exact-head final review remain
+separate requirements.

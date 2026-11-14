@@ -152,6 +152,50 @@ it.each(['', 'description: null\n', 'description: 7\n'])(
   },
 );
 
+it.each(['repo', 'user'] as const)(
+  'refuses an unclosed %s header without unrestricted scope or dependency fallback',
+  (scope) => {
+    const bundled = skills({ selected: '', wrapper: 'requires-skills: [selected]' });
+    expect(
+      executableSkillResolution(resolveSlashCommand('/selected', bundled, new Set())),
+    ).toMatchObject({ type: 'skill', allowedTools: undefined });
+    const higher = skills({ selected: 'allowed-tools: [Read]' });
+    const file = higher.get('selected')!.filePath;
+    const dir = dirname(dirname(file));
+    writeFileSync(file, '---\ndescription: Restricted\nallowed-tools: [Read]\nRestricted body');
+    const registry = new SkillRegistry({
+      bundledDir: dirname(dirname(bundled.get('selected')!.filePath)),
+      ...(scope === 'repo' ? { repoDir: dir } : { userDir: dir }),
+    });
+    expect(registry.get('selected')).toMatchObject({
+      scope,
+      policyError: expect.any(String),
+    });
+    for (const name of ['selected', 'wrapper']) {
+      expect(
+        executableSkillResolution(resolveSlashCommand(`/${name}`, registry, new Set())),
+      ).toMatchObject({ type: 'error' });
+      expect(() => resolveOrdinarySkillPrompt(`/${name}`, registry)).toThrow();
+      expect(
+        ordinarySkillEntries(registry).find((entry) => entry.name === name)?.unavailableReason,
+      ).toBeTruthy();
+    }
+    writeFileSync(
+      file,
+      '---\ndescription: Restricted\nallowed-tools: [Read]\n---\nRestricted body',
+    );
+    registry.invalidate();
+    expect(registry.get('selected')).toMatchObject({ scope, allowedTools: ['Read'] });
+    expect(resolveSlashCommand('/selected', registry, new Set())).toMatchObject({
+      type: 'skill',
+      allowedTools: ['Read'],
+    });
+    expect(
+      executableSkillResolution(resolveSlashCommand('/selected', registry, new Set())),
+    ).toMatchObject({ type: 'error' });
+  },
+);
+
 it('enforces exact names for auto-approved and MCP tools through SDK PreToolUse', async () => {
   const f = owner();
   setSkillPolicy(f.registry, 'client', ['Read']);

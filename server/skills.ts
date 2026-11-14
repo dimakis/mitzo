@@ -54,7 +54,12 @@ function parseFrontmatter(raw: string): {
 } | null {
   if (!raw.startsWith('---')) return null;
   const endIdx = raw.indexOf('\n---', 3);
-  if (endIdx === -1) return null;
+  if (endIdx === -1)
+    return {
+      meta: { description: 'Invalid skill metadata' },
+      body: '',
+      policyError: 'Unclosed skill frontmatter; add a closing --- delimiter.',
+    };
 
   const yamlBlock = raw.slice(4, endIdx).trim();
   const body = raw.slice(endIdx + 4).trim();
