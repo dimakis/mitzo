@@ -463,3 +463,37 @@ closed restricted definitions remain explicit controls. All 107 affected checks
 across five suites pass locally, one worker and a 1 GiB heap. This is a focused
 correction; independent full-pass completion and exact-head final review remain
 separate requirements.
+
+### Historical completion after checkout removal
+
+All 33 hosted CI jobs passed on `2cc799f6f`, but trusted Centaur follow-up
+`5906670419` returned `human_decision`: primary mapping protection was verified
+resolved; `CEN-32EA2ABAD1F7` remained blocking because an old completion event
+could authorize recreation after a checkout was removed. Interrupting that
+recreation left a partial directory that the same historical event could admit.
+
+The SDK now supplies the existing safe materializer with mutually exclusive
+initial-allocation or existing-checkout requirements. A retained completion can
+reopen its checkout, including unfinished edits and commits, but cannot allocate
+a replacement when that checkout is missing. No new event type or recovery store
+is added. The incomplete-preparation review thread is reopened pending this
+correction's exact-head verification.
+
+The public SDK regression first completes a fourth configured worktree through
+the actual permission callback, removes it through Git, then cold-resumes with
+the old completion event retained. Its cancellation hook calls the real SDK
+authority check before interrupting any new `--no-checkout` registration. The
+prior source reproduces that interrupted recreation. The correction must refuse
+before registration, preserve the source and historical event, and leave no new
+directory or admitted mapping. Existing completed-worktree continuation remains
+an explicit positive control. Provider inference is simulated; Git, permissions,
+materialization and public command recovery execute against disposable sources.
+
+All six strengthened repository journeys pass in 184.29s with one worker and a
+1 GiB heap. Nine upstream/preparation caller checks pass; all 24 preservation
+checks pass after disabling commit signing for the disposable fixtures (the
+first preservation run failed during fixture commits under host signing config,
+before exercising the changed path). Both changed production sources have zero
+scoped TypeScript diagnostics; lint, formatting and runtime source pins pass.
+The prior independent full permission baseline remains retained; this runtime
+delta still needs independent verification, new hosted CI and trusted follow-up.

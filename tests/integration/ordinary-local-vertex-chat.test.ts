@@ -296,7 +296,7 @@ it.each(
       ? await realpath(await mkdtemp(repoJoin(tmpdir(), 'mitzo-transfer-')))
       : f.root;
     if (repositoryTransfer) cleanups.push(() => rm(targetRoot, { recursive: true, force: true }));
-    const repositorySources = ['mitzo', 'another', 'interrupted'].map((name) => ({
+    const repositorySources = ['mitzo', 'another', 'interrupted', 'removed'].map((name) => ({
       name,
       path: repoJoin(targetRoot, name),
       head: '',
@@ -348,9 +348,14 @@ it.each(
         return;
       const session = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
       const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
-      const useTool = async (name: string, input: Record<string, unknown>, toolUseID: string) => {
+      const useTool = async (
+        name: string,
+        input: Record<string, unknown>,
+        toolUseID: string,
+        signal = new AbortController().signal,
+      ) => {
         const result = options.canUseTool!(name, input, {
-          signal: new AbortController().signal,
+          signal,
           toolUseID,
           requestId: toolUseID,
         });
@@ -428,6 +433,73 @@ it.each(
         expect(existsSync(repoJoin(partial, 'app.txt'))).toBe(false);
         expect(git(source.path, 'rev-parse', 'HEAD')).toBe(source.head);
         expect(await readFile(repoJoin(source.path, 'app.txt'), 'utf8')).toBe('User dirty work\n');
+
+        const removed = repositorySources[3];
+        expect(
+          await useTool(
+            'Write',
+            { file_path: repoJoin(removed.path, 'app.txt'), content: 'Prepare completed checkout' },
+            `${commandId}-removed-source`,
+          ),
+        ).toMatchObject({ behavior: 'deny' });
+        const completed = session.worktreePaths.get(removed.name)!.path;
+        expect(await readFile(repoJoin(completed, 'app.txt'), 'utf8')).toBe('Original source\n');
+        expect(chat.eventStore.getLatestWorktreePath(session.sessionId!, removed.name)).toBe(
+          completed,
+        );
+        git(removed.path, 'worktree', 'remove', completed);
+        expect(existsSync(completed)).toBe(false);
+      }
+      if (commandId === 'retained-cold-tail' && repositoryProfile !== 'excluded') {
+        const removed = repositorySources[3];
+        const completed = chat.eventStore.getLatestWorktreePath(session.sessionId!, removed.name)!;
+        expect(completed).toBeTruthy();
+        expect(existsSync(completed)).toBe(false);
+        expect(session.worktreePaths.has(removed.name)).toBe(false);
+        const controller = new AbortController();
+        const { OrdinaryLocalVertexSdkAuthority } =
+          await import('../../server/ordinary-local-vertex-sdk-authority.js');
+        const original = OrdinaryLocalVertexSdkAuthority.prototype.assertCurrent;
+        const authority = vi
+          .spyOn(OrdinaryLocalVertexSdkAuthority.prototype, 'assertCurrent')
+          .mockImplementation(async function (
+            this: InstanceType<typeof OrdinaryLocalVertexSdkAuthority>,
+            signal,
+          ) {
+            await original.call(this, signal);
+            if (existsSync(repoJoin(completed, '.git'))) {
+              controller.abort(Error('Interrupted recreation after historical completion'));
+              controller.signal.throwIfAborted();
+            }
+          });
+        try {
+          expect(
+            await useTool(
+              'Write',
+              {
+                file_path: repoJoin(removed.path, 'app.txt'),
+                content: 'Never recreate uncertainty',
+              },
+              `${commandId}-removed-source`,
+              controller.signal,
+            ),
+          ).toMatchObject({ behavior: 'deny' });
+          expect(existsSync(completed)).toBe(false);
+          expect(controller.signal.aborted).toBe(false); // Refuse before any recreation.
+          expect(session.worktreePaths.has(removed.name)).toBe(false);
+          expect(chat.eventStore.getLatestWorktreePath(session.sessionId!, removed.name)).toBe(
+            completed,
+          );
+          expect(
+            git(removed.path, 'worktree', 'list', '--porcelain').match(/^worktree /gm),
+          ).toHaveLength(1);
+          expect(git(removed.path, 'rev-parse', 'HEAD')).toBe(removed.head);
+          expect(await readFile(repoJoin(removed.path, 'app.txt'), 'utf8')).toBe(
+            'User dirty work\n',
+          );
+        } finally {
+          authority.mockRestore();
+        }
       }
       const sources = repositorySources.slice(0, commandId === f.request.clientMsgId ? 1 : 2);
       for (const source of sources) {

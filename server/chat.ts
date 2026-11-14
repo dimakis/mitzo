@@ -1013,9 +1013,10 @@ function buildOnDemandCreate(
                 startPoint,
                 safeLocalPreparation: true,
                 safeLocalBeforeEffect: current,
-                // Only a completed opening in the existing event ledger permits
-                // reuse. A cancelled --no-checkout registration is not a checkout.
+                // Completion authorizes reopening only. Never recreate a missing
+                // checkout under historical evidence, or adopt an initial partial one.
                 safeLocalRequireNew: completedPath === null,
+                safeLocalRequireExisting: completedPath !== null,
               }
             : {}),
         });
