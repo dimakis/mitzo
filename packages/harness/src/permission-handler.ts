@@ -322,7 +322,8 @@ export function buildPermissionHandler(
     const onDecision = originalOptions.onDecision;
     const originalInput = _toolInput;
     const originalSignal = originalOptions.signal;
-    const approvalSignal = AbortSignal.any([originalSignal, session.abortController.signal]);
+    const approvalSignals = new Set([originalSignal, session.abortController.signal]);
+    const approvalSignal = AbortSignal.any([...approvalSignals]);
     const cancelled = (): ApprovalPermissionResult => ({
       behavior: 'deny',
       message: 'Tool approval cancelled because the operation was aborted',
@@ -707,7 +708,7 @@ export function buildPermissionHandler(
         settled = true;
         clearTimeout(timeout);
         clearTimeout(notificationTimer);
-        approvalSignal.removeEventListener('abort', onAbort);
+        for (const signal of approvalSignals) signal.removeEventListener('abort', onAbort);
         untrackScope();
         result = revalidateAllow(result);
         if (onDecision && result.behavior === 'allow') {
@@ -775,7 +776,8 @@ export function buildPermissionHandler(
           wrappedResolve(expired ? expiredApprovalResult() : cancelled());
         }
       };
-      approvalSignal.addEventListener('abort', onAbort, { once: true });
+      for (const signal of approvalSignals)
+        signal.addEventListener('abort', onAbort, { once: true });
 
       const approvalScope =
         opts.approvalScope ?? (opts.allowSessionGrant === false ? 'request' : 'session');
