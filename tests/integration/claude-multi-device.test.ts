@@ -1,3 +1,5 @@
+// @vitest-environment node-compatible-dom
+import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import { resetOfflineUserEnvironment } from '../../server/__tests__/fixtures/offline-user-home.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
@@ -6,12 +8,14 @@ import {
 } from '../../server/__tests__/fixtures/sdk-query-peer.js';
 import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Server } from 'node:http';
+import type { CatalogModel } from '../../server/model-catalog.js';
 import { parseServerMessage, type WsMsg } from '../../packages/client/src/index.js';
 
 const services = vi.hoisted(() => ({
   workspace: undefined as unknown,
   library: undefined as unknown,
   query: vi.fn(),
+  models: [] as CatalogModel[],
 }));
 vi.mock('../../server/repository-workspace-runtime.js', async (original) => ({
   ...(await original<object>()),
@@ -23,6 +27,9 @@ vi.mock('../../server/agent-library-runtime.js', async (original) => ({
   getAgentLibrary: () => services.library,
 }));
 vi.mock('../../server/mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+vi.mock('../../server/claude-model-discovery.js', () => ({
+  discoverClaudeModels: async () => services.models,
+}));
 vi.mock('../../server/credential-sdk-boundary.js', () => ({
   credentialSdkBoundary: (...args: unknown[]) => sdkFixtureBoundary(...(args as [])),
   runtimeFilesystemSdkBoundary: () => undefined,
@@ -60,6 +67,8 @@ vi.mock('../../server/account-use-store.js', () => ({
 const cleanups: Array<() => void | Promise<void>> = [];
 beforeEach(resetOfflineUserEnvironment);
 afterEach(async () => {
+  cleanup();
+  localStorage.clear();
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -81,6 +90,10 @@ it.each([
     const f = await ownedVertexRuntimeFixture(cleanups, { ...account, chatRoute: true });
     services.workspace = f.workspace;
     services.library = f.library;
+    const { loadAccountProfiles } = await import('../../server/account-profiles.js');
+    services.models = loadAccountProfiles()
+      .catalog()
+      .find((entry) => entry.id === f.request.runtime.account.accountId)!.models;
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     if (account.personal) {
       const { ClaudeSubscriptionCustody } =
@@ -149,9 +162,9 @@ it.each([
     const origin = `http://127.0.0.1:${address.port}`;
     const localFetch = globalThis.fetch;
     vi.stubGlobal('fetch', ((input, init) => {
-      if (!String(input).startsWith(`${origin}/`))
-        throw Error('No external network in this fixture');
-      return localFetch(input, init);
+      const url = String(input).startsWith('/') ? `${origin}${input}` : String(input);
+      if (!url.startsWith(`${origin}/`)) throw Error('No external network in this fixture');
+      return localFetch(url, init);
     }) satisfies typeof fetch);
     cleanups.push(async () => {
       hold = false;
@@ -243,6 +256,42 @@ it.each([
     expect(retained.session.ownerConnectionId).toBe(desktop.connectionId);
     expect(queries).toHaveLength(1);
     expect(inputs).toEqual([wire.clientMsgId]);
+    // Consume real second-login metadata through the composer hook. Direct
+    // continuation POSTs alone miss a disabled normal Send control.
+    localStorage.setItem('mitzo_auth_token', mobile.token);
+    const { useExplicitLocalChat } =
+      await import('../../frontend/src/hooks/useExplicitLocalChat.js');
+    const composer = renderHook(() => useExplicitLocalChat('mobile', null, id, true));
+    await waitFor(() => expect(composer.result.current.metadataPending).toBe(false));
+    expect(composer.result.current.commandAvailable).toBe(true);
+    expect(composer.result.current.continuation).toBe(true);
+    expect(composer.result.current.binding).toEqual(chat.eventStore.getSessionRuntimeBinding(id));
+    await waitFor(() => expect(composer.result.current.reason).toBeUndefined());
+    const { prepareLocalContinuationCommand } =
+      await import('../../frontend/src/lib/explicit-local-chat.js');
+    const prepared = prepareLocalContinuationCommand(
+      composer.result.current.intent,
+      composer.result.current.inventory,
+      {
+        sessionId: id,
+        clientMsgId: `queued-${id}`,
+        mode: 'agent',
+        text: 'Retain mobile work',
+        repositoryWorkspaceId: composer.result.current.repositoryWorkspaceId,
+        retainedAgentProfile: composer.result.current.agentProfile,
+        retainedAgentContext: composer.result.current.agentContext,
+      },
+    );
+    expect(prepared.reason).toBeUndefined();
+    expect(prepared.request).not.toBeNull();
+    const mobileMetadata = await fetch(`${origin}/api/sessions/${id}/meta`, {
+      headers: { Authorization: `Bearer ${mobile.token}` },
+    }).then((response) => response.json());
+    expect(mobileMetadata.runtimeCommandScope).toBe('conversation');
+    composer.unmount();
+    const { ordinaryCodexContinuationStatus } =
+      await import('../../server/ordinary-codex-continuation-status.js');
+    expect(ordinaryCodexContinuationStatus(id, 'unverified-login').available).toBe(false);
     const parsed = mobile.events.map((event) =>
       parseServerMessage(
         event as WsMsg,
@@ -344,12 +393,7 @@ it.each([
         decision: 'once',
       }),
     ).toMatchObject({ status: 409 });
-    const queued = {
-      ...wire,
-      sessionId: id,
-      clientMsgId: `queued-${id}`,
-      payload: { text: 'Retain mobile work' },
-    };
+    const queued = prepared.request!;
     expect(await mobile.post('/api/chat/runtime/continue', queued)).toMatchObject({ status: 202 });
     const raced = {
       ...queued,
@@ -365,10 +409,24 @@ it.each([
     expect(retries.map((response) => response.status).sort()).toEqual([202, 409]);
     expect(await mobile.post('/api/chat/runtime/continue', raced)).toMatchObject({ status: 202 });
     expect(inputs).toEqual([wire.clientMsgId]);
-    expect(await mobile.post('/api/chat/stop', { type: 'stop', sessionId: id })).toMatchObject({
-      status: 200,
+    const { createSessionPromptPort } = await import('../../server/session-prompt-dispatch.js');
+    const controls = createSessionPromptPort({
+      eventStore: chat.eventStore,
+      sessionRegistry: chat.registry,
+      connRegistry: connections,
     });
+    cleanups.push(() => controls.close());
+    const stopId = `mobile-stop-${id}`;
+    await expect(
+      controls.stopOrdinary!(mobile.actor, id, wire.clientMsgId, stopId, () => {
+        if (!auth.isAuthSessionCurrent(mobile.actor)) throw Error('Login revoked');
+      }),
+    ).resolves.toBe('requested');
     await vi.waitFor(() => expect(interrupt).toHaveBeenCalledOnce());
+    await expect(
+      controls.stopOrdinary!(desktop.actor, id, wire.clientMsgId, stopId, () => {}),
+    ).resolves.toBe('uncertain');
+    expect(interrupt).toHaveBeenCalledOnce();
     expect(await mobile.post(`/api/sessions/${id}/codex-queue/continue`, {})).toMatchObject({
       status: 409,
     });
@@ -407,6 +465,10 @@ it.each([
       status: 404,
     });
     const renewed = await client();
+    const renewedMetadata = await fetch(`${origin}/api/sessions/${id}/meta`, {
+      headers: { Authorization: `Bearer ${renewed.token}` },
+    }).then((response) => response.json());
+    expect(renewedMetadata.runtimeCommandScope).toBe('conversation');
     expect(
       await renewed.post('/api/chat/reconnect', {
         type: 'reconnect',
@@ -431,6 +493,11 @@ it.each([
     expect(
       await renewed.post('/api/chat/stop', { type: 'stop', sessionId: id }, foreign),
     ).toMatchObject({ status: 401 });
+    expect(
+      await fetch(`${origin}/api/sessions/${id}/meta`, {
+        headers: { Authorization: `Bearer ${foreign}` },
+      }),
+    ).toHaveProperty('status', 401);
     // Cold reopening is observational. Explicit Send resumes the retained SDK
     // session/account/workspace after terminal proof, preserving immutable custody.
     chat.registry.findBySessionId(id)!.session.ordinaryRuntimeOwner!.close();
@@ -452,6 +519,14 @@ it.each([
       await renewed.post('/api/chat/stop', { type: 'stop', sessionId: id }, desktop.token),
     ).toMatchObject({ status: 403 });
     auth.revokeAuthSession(renewed.actor);
+    expect(
+      await fetch(`${origin}/api/sessions/${id}/meta`, {
+        headers: { Authorization: `Bearer ${renewed.token}` },
+      }),
+    ).toHaveProperty('status', 401);
+    await expect(
+      controls.stopOrdinary!(renewed.actor, id, cold.clientMsgId, `revoked-${id}`, () => {}),
+    ).rejects.toThrow('authorization');
     expect(await renewed.post('/api/chat/stop', { type: 'stop', sessionId: id })).toMatchObject({
       status: 401,
     });

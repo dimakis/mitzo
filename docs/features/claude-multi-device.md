@@ -90,3 +90,35 @@ this incident. Their narrow overlapping operator checks and shared source pins
 need normal integration review after the earlier stack. Required combined CI and
 Centaur final LGTM remain mandatory. No merge, staging or production activation is
 implied by these offline results.
+
+## Consolidated parity follow-up
+
+Review of `7fbee608` identified two remaining creating-login comparisons: live
+continuation metadata still advertised `first-command-only` to a second login,
+disabling the composer's normal Send, and the ordinary prompt port's targeted
+Claude Stop returned `unavailable`. Both now use the same existing operator check.
+The original command target, interrupt receipt, account/runtime binding, current
+session/owner generation, revocation and post-await checks remain in place.
+
+The public-route regression now mounts the real `useExplicitLocalChat` hook with
+authenticated HTTP metadata and capabilities, prepares its actual continuation
+request and submits that request through admission. All four account rows prove
+that Send stays available and the original runtime owns the queued work. They
+also exercise targeted Stop through the production prompt port and SDK queue,
+then retry its original receipt without issuing another interrupt. Model catalog
+discovery uses canned configured models; no provider control plane is invoked.
+
+Before the repair, all four consumer cases reported `commandAvailable: false`;
+the second-login targeted Stop case returned `unavailable`. The expanded prompt
+port matrix covers both original and second logins, including successor commands,
+existing claims, settled turns, changed session/owner/binding, wrong command
+session, authorization loss and cancellation after awaiting the interrupt.
+Unverified identities remain denied. The two focused suites pass 54 checks; the
+eight-suite run including continuation, identity, queue, runtime and consumer
+recovery regressions passes 93 checks.
+
+These follow-up commits are source contributions for the integration owner of
+draft PR #1362, with no independent landing of #1357. The unsupported legacy
+`permission_response.sessionId` fixture correction is already in the bundle and
+is deliberately not repeated here. Final composed-head CI, Centaur review and
+physical-device qualification remain separate requirements.

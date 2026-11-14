@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1169-claude-parity-diagnostics';
+  'v1.0.1170-claude-parity-controls';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -44,7 +44,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-claude-information.test.ts':
     'a56fa994583c78ddde1e1e6e8883fbdee0b38cdd800ba65770fb810822f04e73',
   '../../tests/integration/claude-multi-device.test.ts':
-    'ddd00f8a5a5bfe4be4d9ff57e9f15b12fd80cd613e59b502f2432fbf71886588',
+    '23b1d7945df8d1159ac119a57c4b0d16fcf480b67e81cb174b0843aa8313d5e2',
   '../telos-sdk-definitions.ts': 'f3b20b90e8f1bea646ab32847b592ce0736f662e1e6b26b094ec8396f9469871',
   '../telos-sdk-tools.ts': '29aa446b96aca0c05e1aee6163a84162c2e6c144804ebc06385b41f33d93d61d',
   '../__tests__/telos-sdk-tools.test.ts':
@@ -1177,7 +1177,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-timers.css':
     'd1aadc713e86019158354ddf4535a6d7c39d25487c01b9f9a1c8ddec7a77c0bc',
   '../__tests__/session-prompt-dispatch.test.ts':
-    '38ae86eddbe481e289767ce0d80a817f53382678fdb25c6c86f76f05570f9a13',
+    'f191b8cca07d475289046e00d321f2d663dbb0d2f763cbe7b5326f44bb95a99f',
   '../__tests__/session-prompt-router.test.ts':
     'd41780d41d76cab07a60b56300dbb1c977a2b4285fb7d0c37bd2645a47745549',
   '../__tests__/session-prompt-tools.test.ts':
@@ -1185,7 +1185,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-prompt-definitions.ts':
     '6ee1ad79a9c33a04c33ee89fd7e17df60fa5ae591f21d135f441d9339c05ac90',
   '../session-prompt-dispatch.ts':
-    'd034ce01dea42c17a01eaaa4060b028a4aadab487ccf4568d97d836a1f9acfcf',
+    'cb52cde103bb7534163f5384e689208b33ccecfbb008dbe23d7a5bf31bec71b7',
   '../peer-message-instructions.ts':
     '11340f52b528ac6dc44f69636bd7b58d181d2b4d9a47eb533255ef572400fd18',
   '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',
@@ -3005,7 +3005,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-lifecycle-controller.ts':
     'a064563244ca9757a114b92874f578a3852d32dd4eca30f87142f8212eac5c05',
   '../ordinary-codex-continuation-status.ts':
-    '46eb839de2e92e345854396f2c1b66fccdec8af1a3da6b0cd52ebe9013365adc',
+    '12db3f640c27191c00a420f103d7d5e474aa69e279d7c0a49153d7f4ce8b8394',
   '../ordinary-openshell-codex-entry-owner.ts':
     'afa4868dcb236c1317e1cc496f47bee719bea5c9750cb19741f5093c5ca3f4d9',
   '../ordinary-openshell-codex-entry.ts':

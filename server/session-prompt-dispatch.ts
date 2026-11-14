@@ -396,7 +396,12 @@ export function createSessionPromptPort(
         current();
         const live = ctx.sessionRegistry.findBySessionId(sessionId);
         const owner = live?.session.ordinaryRuntimeOwner;
-        if (!live || !owner?.sdkTurns || owner.authSessionId !== auth.id) return 'unavailable';
+        if (
+          !live ||
+          !owner?.sdkTurns ||
+          !ordinaryOperatorOwnsConversation(owner.authSessionId, auth.id)
+        )
+          return 'unavailable';
         const target = owner.sdkTurns.captureInterruptTarget();
         if (target?.commandId !== commandId) return 'uncertain';
         current();
