@@ -81,16 +81,8 @@ export function createTelosArtifactRouter(options: {
       reportFailure(error, 'close_storage');
     }
   };
-  const assertResponseEligibility = (
-    store: TelosArtifactStore,
-    metadata: TelosArtifactMetadata,
-  ) => {
-    // Scoped source packets keep their existing interactive operator read path.
-    if (metadata.sourceKind !== 'source_capture' && !store.userUploadAllowed(metadata.itemId))
-      throw Object.assign(new Error('Saved artifact unavailable'), { status: 403 });
-  };
   const readResponseArtifact = (store: TelosArtifactStore, expected: TelosArtifactMetadata) => {
-    assertResponseEligibility(store, expected);
+    store.assertResponseEligibility(expected);
     const current = store.readBoundedRevision(
       expected.id,
       expected.revision,
@@ -102,7 +94,7 @@ export function createTelosArtifactRouter(options: {
       createHash('sha256').update(bytes).digest('hex') !== expected.sha256
     )
       throw new Error('Saved artifact custody changed');
-    assertResponseEligibility(store, metadata);
+    store.assertResponseEligibility(metadata);
     return current;
   };
   const authorizeSourceRead = async (req: Request, res: Response) => {
@@ -190,7 +182,7 @@ export function createTelosArtifactRouter(options: {
       const metadata = revision
         ? store.metadataForRevision(id.data, revision.data!)
         : store.latestMetadata(id.data);
-      assertResponseEligibility(store, metadata);
+      store.assertResponseEligibility(metadata);
       if (metadata.sourceKind === 'source_capture' && !(await authorizeSourceRead(req, res)))
         return;
       const artifact = readResponseArtifact(store, metadata);
@@ -198,7 +190,7 @@ export function createTelosArtifactRouter(options: {
         artifact,
         artifact.sourceKind !== 'source_capture' && store.userUploadAllowed(artifact.itemId),
       );
-      assertResponseEligibility(store, metadata);
+      store.assertResponseEligibility(metadata);
       res.setHeader('Cache-Control', 'private, no-store');
       res.json(document);
     } catch (error) {
@@ -452,7 +444,7 @@ export function createTelosArtifactRouter(options: {
         input.data.revision === undefined
           ? store.latestMetadata(input.data.id)
           : store.metadataForRevision(input.data.id, input.data.revision);
-      assertResponseEligibility(store, metadata);
+      store.assertResponseEligibility(metadata);
       if (metadata.sourceKind === 'source_capture' && !(await authorizeSourceRead(req, res)))
         return;
       const artifact = readResponseArtifact(store, metadata);

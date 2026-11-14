@@ -2542,6 +2542,10 @@ it.each([true, false])(
           is_error: true,
           content: expect.stringMatching(/conflict/i),
         });
+        expect(JSON.parse(calls.taskResults[2].content)).toMatchObject({
+          error: 'proposal_idempotency_conflict',
+          effectStatus: 'not_started',
+        });
         const receipt = JSON.parse(calls.taskResults[0].content);
         expect(receipt).toMatchObject({
           status: 'awaiting_user_review',
