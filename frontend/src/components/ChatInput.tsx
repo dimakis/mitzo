@@ -15,6 +15,7 @@ import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
 import { SharedConversationComposerContext } from '../lib/shared-conversation-composer';
 import { ChatInputMountContext } from '../lib/chat-input-mount';
+import { ChatInputStatusBridge } from './ChatInputHost';
 import { ActiveContext } from '../lib/composer-status-context';
 import {
   useState,
@@ -183,7 +184,13 @@ export function ChatInput(props: Props) {
       mounted.updateStatus(slot.current, sink, statusActive);
     }
   });
-  return mounted ? <div className="chat-input-mount" ref={slot} /> : content;
+  return mounted ? (
+    <div className="chat-input-mount" ref={slot}>
+      <ChatInputStatusBridge target={slot} host={mounted} />
+    </div>
+  ) : (
+    content
+  );
 }
 
 function ChatInputOwner(props: Props) {

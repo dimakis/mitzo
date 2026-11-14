@@ -1,18 +1,23 @@
 import {
   useContext,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useSyncExternalStore,
   type ReactNode,
+  type RefObject,
+  type ContextType,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatInputMountContext } from '../lib/chat-input-mount';
 import {
   ActiveContext,
   SinkContext,
+  ViewContext,
   useComposerStatusSink,
   type ComposerStatusSink,
+  type ComposerStatusView,
 } from '../lib/composer-status-context';
 import {
   SharedConversationComposerContext,
@@ -25,6 +30,7 @@ type InputSnapshot = {
   routing: SharedConversationComposerRouting;
   sink: ComposerStatusSink | null;
   statusActive: boolean;
+  statusView: ComposerStatusView | null;
 };
 
 /** One ordinary input across phone/desktop page owners. Moving its DOM target
@@ -44,6 +50,7 @@ export function ChatInputHost({
       routing: null,
       sink: null,
       statusActive: false,
+      statusView: null,
     };
     let contentSessionId: string | undefined;
     let target: HTMLElement | null = null;
@@ -102,6 +109,11 @@ export function ChatInputHost({
       },
       updateRouting(nextTarget: HTMLElement, routing: SharedConversationComposerRouting) {
         update(nextTarget, snapshot.content, routing);
+      },
+      updateStatusView(nextTarget: HTMLElement, statusView: ComposerStatusView | null) {
+        if (target !== nextTarget || snapshot.statusView === statusView) return;
+        snapshot = { ...snapshot, statusView };
+        listeners.forEach((listener) => listener());
       },
       hasRetained: (id?: string) => !!snapshot.content && contentSessionId === id,
       attachRetained(nextTarget: HTMLElement, id?: string) {
@@ -173,7 +185,29 @@ export function RetainedChatInputSlot({
       retained.updateStatus(slot.current, sink, statusActive);
     }
   });
-  return retained ? <div className="chat-input-mount" ref={slot} /> : children;
+  return retained ? (
+    <div className="chat-input-mount" ref={slot}>
+      <ChatInputStatusBridge target={slot} host={retained} />
+    </div>
+  ) : (
+    children
+  );
+}
+
+/** The status reader lives inside ChatInput. Forward its view independently of
+ * the input's props so reporting a notice cannot rerender and re-report itself. */
+export function ChatInputStatusBridge({
+  target,
+  host,
+}: {
+  target: RefObject<HTMLElement | null>;
+  host: NonNullable<ContextType<typeof ChatInputMountContext>>;
+}) {
+  const view = useContext(ViewContext);
+  useEffect(() => {
+    if (target.current) host.updateStatusView(target.current, view);
+  }, [host, target, view]);
+  return null;
 }
 function InputPortal({
   store,
@@ -188,9 +222,11 @@ function InputPortal({
   return createPortal(
     <SharedConversationComposerContext.Provider value={snapshot.routing}>
       <SinkContext.Provider value={snapshot.sink}>
-        <ActiveContext.Provider value={snapshot.statusActive}>
-          {snapshot.content}
-        </ActiveContext.Provider>
+        <ViewContext.Provider value={snapshot.statusView}>
+          <ActiveContext.Provider value={snapshot.statusActive}>
+            {snapshot.content}
+          </ActiveContext.Provider>
+        </ViewContext.Provider>
       </SinkContext.Provider>
     </SharedConversationComposerContext.Provider>,
     store.container,
