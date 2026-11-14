@@ -17,6 +17,13 @@ import {
   isAvailableTelosSourceConversation,
 } from '../telos-work-conversation.js';
 import type { SessionLaunchConfig } from '@mitzo/protocol';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { SessionRegistry } from '@mitzo/harness';
+import { createCredentialSdkServer } from '../credential-sdk-tools.js';
+import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { bindAgentToolSelection } from '../agent-tool-selection.js';
+import * as launchController from '../session-launch-controller.js';
 // Isolate chat's legacy startup metadata before imports. This is not a Git source
 // or an admitted workspace; every actual task must use its separate private ID/cwd.
 const startup = await vi.hoisted(async () => {
@@ -163,6 +170,8 @@ it.each([
 
 it.each([
   'recovery',
+  'sdk-default',
+  'sdk-explicit',
   'existing adoption',
   'changed thinking adoption',
   'lost completed adoption',
@@ -456,7 +465,7 @@ it.each([
     ).rejects.toThrow(/revision/i);
     const proposal = await host.propose(sourceSessionId, input, authority);
     const edits = { title: input.title, prompt: input.prompt, configuration };
-    const record = store.propose({
+    let record = store.propose({
       ...edits,
       ...proposal,
       sourceSessionId,
@@ -466,6 +475,72 @@ it.each([
     });
     const ordinary = { validate: vi.fn(), start: vi.fn(), inspect: vi.fn() };
     const service = new SessionLaunchService(store, ordinary, host);
+    if (scenario.startsWith('sdk-')) {
+      const controller = vi.spyOn(launchController, 'getSessionLaunches').mockReturnValue({
+        launches: service,
+        telos: host,
+        changed: vi.fn(),
+        defaults: { get: () => ({ configuration }) } as never,
+      });
+      const registry = new SessionRegistry();
+      registry.register('sdk-lead', {
+        sessionId: sourceSessionId,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        abortController: new AbortController(),
+        transport: { isOpen: () => true, send: vi.fn() },
+      });
+      const session = registry.get('sdk-lead')!;
+      const unbind = bindAgentLibraryTransport('sdk-lead', {
+        id: f.actor.id,
+        expiresAt: Date.now() + 60_000,
+      });
+      bindAgentToolSelection(
+        session,
+        scenario === 'sdk-explicit'
+          ? ({
+              tools: [{ id: 'mitzo:TelosCreateSession', version: 1 }],
+            } as never)
+          : undefined,
+        'claude-sdk',
+      );
+      const server = createCredentialSdkServer(() => sourceSessionId, session, registry, {
+        profilesOnly: true,
+        connectionBoundary: 'sdk-callback',
+        assertCurrent: async (signal) => signal.throwIfAborted(),
+        assertCurrentSync: (signal) => signal.throwIfAborted(),
+      });
+      const client = new Client({ name: 'synthetic-claude', version: '1' });
+      const [a, b] = InMemoryTransport.createLinkedPair();
+      await server.instance.connect(a);
+      await client.connect(b);
+      try {
+        // Use a fresh request to reach the actual canonical proposal handler,
+        // then recover it with unchanged input before any reviewed allocation.
+        const sdkInput = { ...input, requestId: randomUUID() };
+        for (let i = 0; i < 2; i++) {
+          const result = await client.callTool({ name: 'TelosCreateSession', arguments: sdkInput });
+          expect(result.isError).toBe(false);
+          const receipt = JSON.parse((result.content as Array<{ text: string }>)[0].text);
+          expect(receipt).toMatchObject({
+            state: 'pending',
+            childSessionId: null,
+            telos: { itemId: child.item.id },
+          });
+          expect(store.forRequest(sourceSessionId, 'user', sdkInput.requestId)?.proposalId).toBe(
+            receipt.proposalId,
+          );
+          record = store.get(receipt.proposalId, 'user');
+        }
+        expect(f.native.events.getOrdinaryInitialCommandId(sourceSessionId)).toBeUndefined();
+      } finally {
+        await client.close();
+        await server.instance.close();
+        unbind();
+        registry.dispose();
+        controller.mockRestore();
+      }
+    }
     const before = f.native.events.listSessions().length;
     const hiddenOriginReservation =
       scenario === 'stale Symposium origin before allocation'
