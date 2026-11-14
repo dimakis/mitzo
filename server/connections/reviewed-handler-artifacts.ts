@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1159-claude-information-read-delivery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1160-telos-control-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1982,7 +1981,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '324faccb14b704747bcf3c5d3edbd7d5ffa99b6255d743efb118134232b315c8',
   '../telos-work-control-tools.ts':
     '716f889418970118c872d70c8718f4d268077fedc299f002b72446c205ef3b7d',
-  '../telos-work-controls.ts': '684ebfd505612cd01074773b468bd11439909b85da8562ae2c167c0207bddf97',
+  '../telos-work-controls.ts': 'fdbe3956ea381d6611184f50bde4e276ba3cf6a67b88c6388efc0493406c0409',
   '../../frontend/src/components/ChatStatusMessage.css':
     'b2d59e64bcd29465cc2ff0e3458cfb139d663ea5852fc64246a08a7de7830aaa',
   '../../frontend/src/components/ChatStatusMessage.tsx':
@@ -2260,7 +2259,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-artifact-routes.test.ts':
     '0f78378fb63cd4226ef824af938cfb5098a20b7723ea68bf99226bdb81eedfec',
   '../telos-operation-failure.ts':
-    '76e90a09d67036800ddd2ac787dd004d2a8100df29942f2df3cae2f1644a2112',
+    '926b7f25b580f383ee4aef7f680046c0eda15d5c9d9f841b83817f982880833e',
   '../../frontend/src/hooks/useTelosSourceNavigation.ts':
     'b2a461e208923889e0286efdd3faa41705af58693de41446aa6021eaa4b73fd8',
   '../telos-outcome-handler.ts': 'fd01a401e79d08b8330aac5da419d11c49e07d767edf2bab34bea990cf04168f',

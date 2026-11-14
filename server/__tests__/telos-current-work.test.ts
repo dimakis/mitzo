@@ -2,7 +2,10 @@ import { expect, it, vi } from 'vitest';
 import { readTelosCurrentWork, type CurrentWorkTeam } from '../telos-current-work.js';
 
 const actor = { kind: 'operator' as const, id: 'offline-operator' };
-const member = (id: string, state: 'current' | 'former' = 'current') => ({
+const member = (
+  id: string,
+  state: 'current' | 'former' = 'current',
+): CurrentWorkTeam['members'][number] => ({
   membershipId: id,
   conversationId: `chat-${id}`,
   displayName: `Participant ${id}`,
@@ -17,7 +20,7 @@ const member = (id: string, state: 'current' | 'former' = 'current') => ({
   replacedByMembershipId: null,
   reportsToMembershipId: null,
 });
-function fixture(members = [member('worker')]) {
+function fixture(members: CurrentWorkTeam['members'] = [member('worker')]) {
   let team: CurrentWorkTeam = { itemId: 'feature', revision: 'a'.repeat(64), members };
   const readTeam = vi.fn(() => structuredClone(team));
   return {
