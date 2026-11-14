@@ -79,3 +79,37 @@ The shared-information, Telos and coordination sessions separately own their
 registrations. Their tool IDs and handlers are outside this patch. Source pins
 must be regenerated for the combined result. Merge, deployment, independent
 review and live provider acceptance remain separate outcomes.
+
+## Landing corrections
+
+Centaur review `5901465931` at `1c01ef34690f69a6946db53b26c45d28236fd2e7`
+reported two blocking Google-read findings. `CEN-178D2B344567` omitted the exact
+SDK identity from the Ask read-only allowlist. `CEN-23A947D2DF61` marked ordinary
+read failures uncertain, preventing terminal callback settlement. Regressions
+reproduced three failures before the repair: fresh Ask consent, retained Ask
+consent, and settlement after a sanitized failed read. They pass after adding
+the exact SDK identity and settling completed read failures only after fresh
+authority, consent and cancellation checks. Explicit uncertainty, cancellation
+and retired ownership still prevent settlement.
+
+The correction validation passed **137 tests in eight focused suites**, plus
+targeted lint, formatting and registered source fingerprints. A separate local
+Tool Library run passed 16 tests. Two focused read-only local reviews inspected
+the original adapters; a follow-up security review inspected the correction.
+These local reviews do not replace trusted exact-head Centaur approval.
+
+Hosted run `43552259394`, unit shard 2, found eight failures in two older suites
+whose assertions still expected the newly enabled services and explicit web
+selection to be unavailable. Their updated assertions retain profile exclusion,
+unknown execution readiness and empty grants, and exercise rejection of an
+unrecognized connection through the actual MCP handler. The capability projector
+suite passes locally. A local integration run reached real SDK-owner callbacks
+but was terminated by its mistakenly selected ten-second executor envelope;
+it is not counted as a passing suite. Fresh hosted CI must qualify the update.
+
+The merge coordinator retains the serialized landing order. Full Stop/reconnect
+and cold Send recovery qualification requires the repaired lifecycle behavior
+owned by PR #1348. Source review found no consumption of a new PR #1351
+authorization contract. Final main integration, combined fingerprints, CI and
+Centaur approval remain necessary at the assigned merge turn. No deployment or
+production activation is authorized by this evidence.

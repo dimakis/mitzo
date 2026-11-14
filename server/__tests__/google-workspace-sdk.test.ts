@@ -12,6 +12,9 @@ import {
 import { setConnectionsRuntime } from '../connections-runtime.js';
 import { GoogleWorkspaceManagement } from '../google-workspace-management.js';
 import { googleReadFixture } from './fixtures/google-workspace-read.js';
+import { resolvePending } from '../../packages/harness/src/permissions.js';
+import { googleReadSessionApproval } from '../google-workspace-read.js';
+import { TurnCallbacks, retainCallbackOutcome } from '../turn-callbacks.js';
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -30,6 +33,7 @@ async function fixture(selected?: boolean) {
     sessionId: 'google-chat',
     mode: 'auto',
     abortController: new AbortController(),
+    sessionAllowList: new Set(),
   } as never);
   const session = registry.get('owner')!;
   if (selected !== undefined) {
@@ -43,11 +47,13 @@ async function fixture(selected?: boolean) {
   const assert = () => {
     if (!current) throw Error('original query retired');
   };
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
   const server = createCredentialSdkServer(() => session.sessionId, session, registry, {
     profilesOnly: true,
     connectionBoundary: 'sdk-callback',
     assertCurrent: async () => assert(),
     assertCurrentSync: assert,
+    runCallback: (work) => callbacks.track(work),
   });
   const client = new Client({ name: 'offline-google', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -65,6 +71,7 @@ async function fixture(selected?: boolean) {
     session,
     client,
     read,
+    callbacks,
     retire: () => {
       current = false;
     },
@@ -117,7 +124,45 @@ it('returns a sanitized visible diagnostic for a failed Google read', async () =
   expect(result.isError).toBe(true);
   expect(JSON.stringify(result)).toContain('diagnosticId');
   expect(JSON.stringify(result)).not.toContain('SECRET');
+  await expect(f.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
 });
+it.each([false, true])(
+  'retains Ask-mode Google consent, existing session grant=%s',
+  async (granted) => {
+    const f = await fixture(true);
+    f.session.mode = 'ask';
+    const send = vi.fn((event: { type: string; permId: string }) => {
+      if (event.type === 'permission_request')
+        queueMicrotask(() => resolvePending(event.permId, 'once'));
+    });
+    f.session.transport = { isOpen: () => true, send } as never;
+    if (granted)
+      f.session.sessionAllowList.add(
+        googleReadSessionApproval(f.session, 'fixture@example.test').sessionGrantKey,
+      );
+    expect((await f.read()).isError).not.toBe(true);
+    expect(f.google.readRequest).toHaveBeenCalledOnce();
+    expect(send.mock.calls.filter(([event]) => event.type === 'permission_request')).toHaveLength(
+      granted ? 0 : 1,
+    );
+    await expect(f.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
+  },
+);
+it.each(['cancelled', 'retired', 'uncertain'] as const)(
+  'does not settle a Google read failure after %s',
+  async (reason) => {
+    const f = await fixture();
+    f.google.readRequest.mockImplementationOnce(async () => {
+      if (reason === 'cancelled') f.session.abortController.abort();
+      if (reason === 'retired') f.retire();
+      throw reason === 'uncertain'
+        ? retainCallbackOutcome(Error('SECRET_UNCERTAIN'), 'unknown')
+        : Error('SECRET_UPSTREAM');
+    });
+    expect((await f.read()).isError).toBe(true);
+    await expect(f.callbacks.settle(new AbortController().signal)).rejects.toThrow();
+  },
+);
 it('uses the existing web handler for explicitly selected SDK web profiles', () => {
   const session = {};
   const profile = { tools: [{ id: 'mitzo:RequestWebAccess', version: 1 }] } as never;

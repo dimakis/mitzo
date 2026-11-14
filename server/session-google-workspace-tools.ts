@@ -18,6 +18,7 @@ import {
 } from './google-workspace-read.js';
 import { captureSessionCapability } from './session-capability-grants.js';
 import { reportToolFailure } from './tool-failure-reporting.js';
+import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 
 /** The admitted Local Mac owner supplies both fences; no shell credential access is granted. */
 export function sessionGoogleWorkspaceTools(options: {
@@ -123,7 +124,22 @@ export function sessionGoogleWorkspaceTools(options: {
         if (!isDeepStrictEqual(permission.updatedInput, review))
           throw Error('Google read approval changed');
         onAuthorized?.(readCurrent);
-        const content = await prepared.read(readGuard);
+        const content = await prepared.read(readGuard).catch(async (error: unknown) => {
+          // A returned read failure is a completed observation while its original
+          // authority and consent remain current. Cancellation and explicit
+          // uncertainty must still block terminal settlement.
+          await readGuard();
+          combined.throwIfAborted();
+          if (
+            callbackOutcome(error) === 'settled' &&
+            !(error instanceof Error && error.name === 'AbortError')
+          )
+            throw retainCallbackOutcome(
+              new Error('Google read failed', { cause: error }),
+              'settled',
+            );
+          throw error;
+        });
         await readGuard();
         combined.throwIfAborted();
         return { content, isError: false };

@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1147-claude-services-tool-library';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1148-claude-services-review';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../google-workspace-sdk.ts': '3dcb7032e8de8fa807b9a0b1905eb17a0fcfd1a62c77dbe7663f4e8cafe7af73',
   '../tool-library-sdk.ts': 'c71a4732714c333821f5402c0092d9ec2480fb74b08932409549926856cf905f',
   '../__tests__/google-workspace-sdk.test.ts':
-    'e561452e97cefe980e069e477465a174da4ad17fc924255e46fb5c6b56943652',
+    '2f40e194ce6f0dee4882fc91584a8887d14336fe9af41c2e84edb858f15e03c3',
   '../__tests__/tool-library-sdk.test.ts':
     'edb5a071e164785d5025e69053cafb893ac93c94c17b8989ae200f2e6e1dbd54',
   '../__tests__/claude-native-development.test.ts':
@@ -2429,7 +2428,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-item-tools.ts': '6338abf7d20c0a7ee4f68de4c85e49a75acb8a76545822fba14246d86efe6abf',
   '../telos-mcp-server.ts': '06e4c5f62691696f36f387d930660704f9e56dc1a877fdc9062957bf786dd28a',
   '../../packages/harness/src/tool-tiers.ts':
-    '03e9e7036f3e5d935211879f53a7c222aa6e8f8a298fa92f3e90fc850230d884',
+    '425837411f38235c560af47f98d15f4e187a0ba629310ed540c793ca02ed64d0',
   '../../frontend/src/components/ChatWelcome.tsx':
     'be4dd3a9269459ddbfeeab8daa3b55c3fdc12bad84f12446a4dece772036ae5f',
   '../../frontend/src/components/CompactionMarker.tsx':
@@ -3585,7 +3584,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     'e2871cf01a3e4876ac2230ad61fa002e8106c897178b4eaf2bac932cd2261a98',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    'd8d98e4dc84a4ce64030fbc452fc140f54f03c94c398ebbce583fd9775a528b4',
+    '119469a6de40949574b0018d27e7af26d0f7e27ee37f1f31998aeb9e98d81dda',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
@@ -4410,7 +4409,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../google-workspace-management.ts':
     'a779bd5c9793ecd908a60c86a09c142d43b16fe52dc1f9c13def640fbc61ce31',
   '../session-google-workspace-tools.ts':
-    'a38670ca376e825def7c12bc22c4122ce20ef945617a22160bb598082cb1ee52',
+    'd9bd0f597db0e6c00f6f326c77d23bd0bd8f48fd8e832c42516df05d1b79b638',
   '../google-workspace-read.ts': '4101c150646b8371e6fbab26797638817265a585b15973075163352082f4815e',
   '../../frontend/src/components/__tests__/ChatInputInterruptReceipt.test.tsx':
     'f56472dc3bbc283e50e96774b73bf0bd4a8efa40ab8b98d8c7899df5ee3bf442',
