@@ -1700,13 +1700,13 @@ export function handlePermissionResponseV2(
           (found ? getOwnerConnection(found.clientId) : undefined);
         const binding = ctx.eventStore.getSessionRuntimeBinding?.(pendingSessionId);
         const samePrimaryOperator =
-          binding?.harness.implementation === 'codex' &&
+          ['codex', 'claude-sdk'].includes(binding?.harness.implementation ?? '') &&
           ordinaryOperatorOwnsConversation(
             found?.session?.ownedLocalAuthSessionId,
             liveTransportAuthSessionId(connectionId),
           );
         // A live authenticated operator device may answer its watched
-        // Codex card without transferring the native execution attachment.
+        // runtime card without transferring the execution attachment.
         const sameOwnerWatcher =
           ownerConnection !== undefined &&
           liveTransportAuthSessionId(connectionId) !== undefined &&
