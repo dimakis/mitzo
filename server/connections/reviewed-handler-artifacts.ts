@@ -27,7 +27,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work-team.ts':
     '59cc8b2253885eeca8bdeec5aaef8f2834b63fda4be8af8345a259a722ffff43',
   '../__tests__/telos-work-team.test.ts':
-    'c6fa44c13880427c0aaea13a037fcb5b7d7cce16ce086d16d032cd24af88fce6',
+    '1468234a26a05e9ac67bac47c57c5786faf0ce3d7632695f2535ce5247c03d93',
   '../telos-work-team.ts': 'fc18fb01bd7ef4443dcf2368bdb45124a8b026f216d9edaa8abcf4e2d40ed213',
   '../session-history-sdk.ts': 'c62546f1e2ada88a976b97a5a32354713a3a537c7871c634d42f3d62c86d455e',
   '../__tests__/ordinary-claude-information.test.ts':
@@ -2311,7 +2311,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/telos-work-api.ts':
     '9ed6a275becdc3084307d01b6c5ee65084ec7989e4ccb9bca2fc18668f2bb1d8',
   '../telos-work-schema.ts': '6c9406ceec10bee8bf13f57c7b7f6e003805ee58071bdda8f5cc4c0738cd62e4',
-  '../telos-work-store.ts': '7740e38c417dbd173e7c3c0d529b365a7d9e150ec61ad72e3dbf147b49412563',
+  '../telos-work-store.ts': '38eb9f9f1fbbc3ac3a42796bb87700649eed76ba196bbd0f4c7be5b346e029fa',
   '../../packages/protocol/src/telos-work-api.ts':
     '9eb4b68f714866d7a8c321f6ec193f1b4d6563b896520b1a83d60362a10e9be7',
   '../tool-input-error.ts': '84137699ec55ee4ff47c1516e567f3ea605b1f76a51e9d1600b6a56ddb41eb5b',

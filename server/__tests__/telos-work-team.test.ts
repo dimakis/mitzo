@@ -25,7 +25,10 @@ function fixture() {
   const available = new Set(['owner-a', 'owner-b', 'reviewer', 'investigator']);
   const stores: TelosWorkStore[] = [];
   const open = () => {
-    const store = new TelosWorkStore(path, { ordinaryConversation: (id) => available.has(id) });
+    const store = new TelosWorkStore(path, {
+      ordinaryConversation: (id) => available.has(id),
+      sourceConversation: (id) => available.has(id) || id === 'shared-discussion',
+    });
     stores.push(store);
     return store;
   };
@@ -56,6 +59,19 @@ function fixture() {
 }
 
 describe('explicit canonical Telos team', () => {
+  it('retains explicit Symposium participation without granting ordinary runtime or item-read authority', () => {
+    const f = fixture();
+    const receipt = f.link('shared-discussion', 'reviewer');
+    expect(receipt.team.members[0]).toMatchObject({
+      conversationId: 'shared-discussion',
+      role: 'reviewer',
+      state: 'current',
+    });
+    expect(() => f.store.read('item', { kind: 'conversation', id: 'shared-discussion' })).toThrow(
+      /authorized/,
+    );
+    expect(f.store.read('item', operator).links).toEqual([]);
+  });
   it('starts empty without inferring a roster from formal role links or assignments', () => {
     const f = fixture();
     f.store.execute(

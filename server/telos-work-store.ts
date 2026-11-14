@@ -1710,10 +1710,13 @@ export class TelosWorkStore {
     const result = new TelosWorkTeam(this.db).execute(raw, `operator:${actor.id}`, (input) => {
       this.item(input.itemId);
       this.assertLifecycleActive(input.itemId);
-      if (input.operation !== 'unlink' && !this.policy.ordinaryConversation(input.conversationId))
+      if (
+        input.operation !== 'unlink' &&
+        !this.availableConversation('origin', input.conversationId)
+      )
         throw new TelosWorkError(
           'invalid',
-          'An available compatible ordinary conversation is required',
+          'An available compatible Mitzo conversation is required',
         );
       assertBeforeApply?.();
     });
