@@ -1,5 +1,5 @@
 import { clearPublicationControllerSessionGrants } from './symposium-publication-approval.js';
-import { ownedLocalControlStatus } from './owned-local-codex-control.js';
+import { ownedLocalControlStatus, OWNED_LOCAL_CONTROL_ERROR } from './owned-local-codex-control.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import {
@@ -314,10 +314,13 @@ function allowOwnedLocalControl(
     ) !== 'denied'
   )
     return true;
+  const diagnostic = { code: 'session_operator_denied', stage: 'session_control', sessionId };
+  log.warn('Session control denied', { ...diagnostic, connectionId });
   ctx.connRegistry.get(connectionId)?.transport.send({
     type: 'error',
-    sessionId,
-    error: 'Owned local session belongs to another login',
+    ...diagnostic,
+    nonfatal: true,
+    error: OWNED_LOCAL_CONTROL_ERROR,
   });
   return false;
 }

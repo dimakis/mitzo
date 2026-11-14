@@ -12,6 +12,9 @@ export type OwnedLocalControlContext = {
   eventStore: Pick<EventStore, 'getSessionRuntimeBinding'>;
 };
 
+export const OWNED_LOCAL_CONTROL_ERROR =
+  'Owned local session belongs to another login. Sign in to Mitzo again, reopen this conversation and review its activity before continuing.';
+
 /** Retained execution custody is independent of the operator's viewing login. */
 export function ownedLocalControlStatus(
   connectionId: string,
@@ -67,7 +70,7 @@ export function assertLegacyOwnedControlAllowed(
         sessionId === pendingSessionId &&
         binding?.execution.location === 'local')
     )
-      throw Error('Owned local session belongs to another login');
+      throw Error(OWNED_LOCAL_CONTROL_ERROR);
     if (status === 'authorized') {
       // The assigned connection carries auth. A reattached driver key never replaces it.
       try {
@@ -75,7 +78,7 @@ export function assertLegacyOwnedControlAllowed(
         captured.assertCurrent();
         if (captured.auth.id !== liveTransportAuthSessionId(connectionId)) throw Error();
       } catch {
-        throw Error('Owned local session belongs to another login');
+        throw Error(OWNED_LOCAL_CONTROL_ERROR);
       }
     }
     if ((message.type === 'send' || message.type === 'set_mode') && binding)
