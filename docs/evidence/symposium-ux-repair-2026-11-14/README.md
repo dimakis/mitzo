@@ -4,7 +4,35 @@ Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.
 
-## Review blocks approval: independent stronger regressions
+## Current integrated source and approval gates
+
+Accepted main416faccb366f64ab858897f5b4bfa465e91ef385 (#1350) is integrated in
+917c671018bbe629a7caa600bcc9f6b6a2485090. Owner6807db803 is integrated as27ba38c4b;
+the independent responsive SDK journey and helper are committed indc22cf2c9.
+The merge preserves both exact SDK cancellation evidence and main's current
+execution-command owner; source registrations retain all2,488 parent keys,
+v1.0.1180. Protocol/harness/client builds and source verification pass.
+
+At917c67101, the focused set passes19 checks:14 authenticated application and
+five client/portal controls. The SDK journey now independently exercises actual
+ResponsiveChatView, authenticated Send → pre-input Stop → visible Check,
+390/320/1280 owner retention, exact retry and SQLite/application-owner restart.
+It proves zero additional SDK input/interrupt and no fabricated provider terminal
+or SDK acceptance. The imported-history case waits for the enabled, qualified
+ordinary portal before supported typing; changing a disabled initial placeholder
+was a fixture error, with the original diagnostic retained. See the
+[matrix](acceptance-matrix.md) and [follow-up](review-blockers-followup.md).
+
+The previous b6a review7492 is terminal **fix**, review5905799501, with new blocker
+CEN-E14D2A07CA06 (imported history); both earlier assignment/rollover blockers
+were verified resolved. Owner6807 plus the independent imported-history check
+address that new blocker locally. This successor still requires hosted combined
+CI, new render captures and a terminal exact-head Centaur verdict. Earlier b6a
+full CI fails native repository object capture with unknown cause/effect and no
+verified owner/fix. No merge, deployment, physical-phone or live-runtime approval
+follows. Older checkpoints below remain historical evidence.
+
+## Earlier review blocks and stronger regressions
 
 Centaur review5905022505 at b93961fb7 is `human_decision`, with unresolved
 assignment/fork transfer and native-packet rollover blockers. New independent

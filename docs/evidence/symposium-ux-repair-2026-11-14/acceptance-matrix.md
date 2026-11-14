@@ -1,5 +1,41 @@
 # Integrated ordinary-chat acceptance
 
+## Current source: accepted-main merge917c67101
+
+Branch `test/symposium-integrated-acceptance`, draft1355. Accepted main
+416faccb366f64ab858897f5b4bfa465e91ef385 (#1350) is integrated as
+917c671018bbe629a7caa600bcc9f6b6a2485090, after owner6807db803 was integrated
+as27ba38c4b and independent harnessdc22cf2c9. Both EventStore owner methods and
+all2,488 source keys/v1.0.1180 are preserved. Protocol/harness/client builds and
+source verification pass. The focused19 checks pass locally:14 authenticated
+application checks and five client/portal checks. JSDOM proves behavior and owner
+retention, not visual geometry. New hosted render/full-CI/review evidence is pending.
+
+| Current case                                                                                                                                                           | Observed result                                                 | Exact source/test/artifact and limits                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full ordinary-chat setup, silent join, stream, concurrency, partial failure, lost response, Stop, refresh/reconnect, SQLite restart and inspectable single Chats entry | PASS                                                            | A at917c67101; `core-917c67101-green.log`, 31-turn actual ResponsiveChatView + authenticated router/application/owners, deterministic external execution. Original failures remain retained.                                                                                                                                                                      |
+| Required owner omission controls                                                                                                                                       | PASS five authenticated checks                                  | `tests/integration/symposium-required-owners.test.ts`; same core log. Missing owner cannot be replaced by canned browser endpoints.                                                                                                                                                                                                                               |
+| Assignment/fork transfer and unrelated-navigation retirement                                                                                                           | PASS five client/portal controls                                | `tests/integration/symposium-composer-transfer.test.tsx`; same core log. This is not authenticated application assignment coverage or geometry.                                                                                                                                                                                                                   |
+| Imported SDK ordinary history and responsive draft                                                                                                                     | PASS                                                            | A fifth case: exact readable history and server-proven `ordinary_history`, zero group/execution, enabled qualified textarea retained390→1280 with draft/focus/selection. Original b6a loss log retained. Initial disabled-placeholder mutation was a corrected fixture error, not production draft loss.                                                          |
+| SDK pre-input Stop → visible Check → exact retry → owner restart                                                                                                       | PASS actual responsive/authenticated application                | `tests/integration/symposium-sdk-responsive-recovery.test.tsx`, `sdk-existing-917c67101-green.log`; widths390/320/1280, exact request/commands, same input/later draft, terminal original receipt after restart, zero extra SDK inputs/interrupts, no invented SDK acceptance/provider terminal. Paired old4ba source fails earlier Stop; it never reaches Check. |
+| Owner SDK Stop/Check and older application UI journeys                                                                                                                 | PASS three application checks                                   | Owner recovery case in core log; two older UI cases in SDK log. Counts overlap the19 focused set. Older Claude SDK journeys are selected separately with owner regressions.                                                                                                                                                                                       |
+| Native packet rollover, reopen/restart and exact participant search/Open                                                                                               | PASS all three phases and history route                         | A canonical operator body/projection once, exact native command absent; qualified participant-only history and explicit shared reply route, no new dispatch.                                                                                                                                                                                                      |
+| Responsive rendering/reference comparison                                                                                                                              | HISTORICAL PASS62 browser tests/probes atb6a; successor pending | `render-b6a755c1f/`, sourceb6a755c1f/merge1d444a267/run43612253406. Chromium/WebKit, light/dark,320/390/1280,200% text; exact bundle/route/checkpoints retained. New integrated bytes require new capture. Reference icon/pixel parity remains open.                                                                                                              |
+| Combined CI and exact-head review                                                                                                                                      | BLOCKED/PENDING                                                 | Prior b6a review7492 terminal fix/review5905799501: CEN-E14D2A07CA06, locally addressed; earlier two blockers verified resolved. Prior full native object_capture failure has unknown cause/effect and no verified owner/fix. New exact-head CI/review required, no merge/deploy authority.                                                                       |
+
+A SHA256 `f059e98471c4f9bac5ceef1aab5633fbadaa7f0a33dd837d25dc4c27b320b965`;
+SDK journey `f11a6d38e1b254a791a132ee765221efe789844703f4ebe5beb73cb12c07f172`;
+common composition helper `42eb9e00454505f599674923eb2b3a47febb7cc4101b9fb6458796d6b1fec159`;
+real SSE transport `da2d0fd6614485c42048e85449c79a0ab5a999f340fc29f7db4e02a90cbec973`.
+Local Node24.10.0/Vitest source transpilation; actual routes `/chat/:sessionId`
+and `/chat/existing-chat`. Complete operation IDs and production SDK-source hash
+are in the logs. No live model calls. Hard browser reload, original phone IDs/build,
+hardware/audio/live runtime/production, simultaneous independent SDK Stop during
+reviewer uncertainty and rich participant dispatch remain unqualified. Approved
+reference SHA and exact earlier cases remain below; these snapshots are historical.
+
+## Preserved earlier checkpoints
+
 **Combined approval remains blocked.** The last published-head Centaur review
 5905022505 at b93961fb7 is `human_decision`. Independent regressions reproduced
 CEN-6CFB95D6132C (assignment/fork draft+queue transfer) and CEN-A5B18F62570B

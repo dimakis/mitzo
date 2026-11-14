@@ -1,5 +1,36 @@
 # Independent review blocker follow-up
 
+## Accepted-main integration and current local verification
+
+Merge917c671018bbe629a7caa600bcc9f6b6a2485090 combines accepted main
+416faccb366f64ab858897f5b4bfa465e91ef385 (#1350) withdc22cf2c9/27ba38c4b.
+The EventStore conflict preserves BOTH getOrdinarySdkInputCancellation and
+getCurrentExecutionCommandId; registry union preserves all2,488 keys/v1.0.1180.
+Source verification and protocol/harness/client builds pass. Main integration
+does not establish a native repository object-capture fix or release the merge hold.
+
+`core-917c67101-green.log` records16 checks/four files; the separately selected
+`sdk-existing-917c67101-green.log` records three checks/three files. Together these
+are the19 focused workflow cases (14 authenticated application, five client/portal),
+without double counting. The second command included an unmatched legacy SDK
+filename; its actual three-file selection is explicit, and the real older Claude
+application file is selected separately in the owner regression run. No unmatched
+filter is counted as coverage.
+
+`owner-design-917c67101-green.log` records280 passing checks/15 files plus one
+existing design skip, including the real older Claude application journeys,
+SDK evidence negatives, command ownership/explicit retry, source setup/navigation,
+shared composition, queue status and design rules. Counts overlap the focused set
+and are not additive. Targeted lint passes. The original attributed b6a review is
+retained as `centaur-b6a-terminal-review.json` with its exact commit and author.
+
+Centaur7492 at published b6a is terminal **fix**, attributed review5905799501:
+new CEN-E14D2A07CA06 imported-history blocker, both prior assignment/rollover
+blockers verified resolved. Owner6807 and the independent valid imported-history
+and SDK controls address the new history/Stop issues locally. Original imported
+history failure and pre-input Stop baseline remain retained. This is not a final
+approval; successor exact-head review and complete CI remain required.
+
 Latest local production integration is27ba38c4b (owner6807db803), adding qualified
 ordinary imported history and exact positive SDK pre-input cancellation evidence.
 The newer SDK/ordinary application evidence below supersedes the earlier pending
