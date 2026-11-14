@@ -631,6 +631,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       ).toBe(true),
     );
     stage = 'long_history';
+    const searchHistoryMarker = 'Retain original operation through lost response and Stop.';
     // Grow acknowledged history beyond the shared page while the real
     // responsive ordinary composition and original draft remain mounted.
     await act(async () => {
@@ -653,11 +654,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     });
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(30);
     expect((await h.api.view(group)).hasEarlierMessages).toBe(true);
-    await screen.findByText(
-      'Earlier messages are outside this retained page.',
-      {},
-      { timeout: 10000 },
-    );
+    await screen.findByText('Acceptance long-history turn 24', {}, { timeout: 10000 });
     const assertRolledSourceDelivery = async (phase: string) => {
       const page = await h.api.view(group);
       expect(page.hasEarlierMessages).toBe(true);
@@ -671,18 +668,29 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
         ),
         `${phase}: the original authenticated history must still contain the exact native packet`,
       ).toBe(true);
-      expect
+      await expect
         .soft(
-          mounted.ui.container.querySelector(`[data-command-request="${sourceCommand}"]`),
-          `${phase}: an old encoded native packet must remain suppressed after the shared page rolls`,
+          waitFor(
+            () => {
+              expect(
+                mounted.ui.container.querySelector(`[data-command-request="${sourceCommand}"]`),
+                `${phase}: an old encoded native packet must remain suppressed after the shared page rolls`,
+              ).toBeNull();
+              expect(
+                screen.queryAllByText(acceptedFanout.text, { exact: true }),
+                `${phase}: retained history must preserve the original operator body exactly once`,
+              ).toHaveLength(1);
+              expect(
+                mounted.ui.container.querySelectorAll(
+                  `[data-command-request="${acceptedFanout.projectionId}"]`,
+                ),
+                `${phase}: retained operator identity cannot be replaced by the native command ID`,
+              ).toHaveLength(1);
+            },
+            { timeout: 5000 },
+          ),
         )
-        .toBeNull();
-      expect
-        .soft(
-          screen.queryByText(acceptedFanout.text, { exact: true }),
-          `${phase}: a native packet cannot resurrect an operator prompt outside the visible shared page`,
-        )
-        .toBeNull();
+        .resolves.toBeUndefined();
     };
     stage = 'source_delivery_after_page_rollover';
     await assertRolledSourceDelivery('live rollover');
@@ -869,6 +877,51 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       0,
     );
     expect(runtime.requests).toHaveLength(0);
+    stage = 'desktop_grouped_search_exact_participant_history';
+    // Keep the authenticated search/router/history owners together. A matching
+    // participant title is grouped under the source row, while its preview and
+    // Open action must retain the original matching execution's history.
+    await h.typedApi.renameSession(recipient, 'Acceptance Reviewer Search Trail');
+    act(() => mounted.resize(1280));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search conversations' }), {
+      target: { value: 'Acceptance Reviewer Search Trail' },
+    });
+    const searchRow = await waitFor(
+      () => {
+        const row = mounted.ui.container.querySelector(
+          `.conversation-results [data-motion-key="${source}"] .session-item`,
+        );
+        expect(row).not.toBeNull();
+        return within(row! as HTMLElement).getByRole('button', { name: /^Preview / });
+      },
+      { timeout: 10000 },
+    );
+    fireEvent.click(searchRow);
+    const inspector = await screen.findByRole('complementary', { name: 'Conversation preview' });
+    await within(inspector).findByText(searchHistoryMarker, {}, { timeout: 10000 });
+    expect(within(inspector).queryByText('Live original ordinary source activity')).toBeNull();
+    expect(h.fetch.mock.calls.some(([url]) => url === `/api/sessions/${recipient}/messages`)).toBe(
+      true,
+    );
+    expect(mounted.ui.container.querySelectorAll(`[data-motion-key="${recipient}"]`)).toHaveLength(
+      0,
+    );
+    fireEvent.click(
+      within(inspector).getByRole('button', { name: 'Open conversation', exact: true }),
+    );
+    await waitFor(() => expect(mounted.store.getState().sessions.active).toBe(recipient), {
+      timeout: 10000,
+    });
+    await waitFor(
+      () => {
+        expect(mounted.store.getState().historyError).toBeNull();
+        expect(mounted.ui.container.querySelector('.chat-messages')?.textContent).toContain(
+          searchHistoryMarker,
+        );
+      },
+      { timeout: 10000 },
+    );
+    expect(runtime.requests).toHaveLength(0);
     console.info(
       'ORDINARY_ACCEPTANCE_COMPLETE',
       JSON.stringify({
@@ -886,6 +939,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
           'remount',
           'application_owner_restart',
           'one_chats_conversation_inspectable_participants',
+          'desktop_grouped_search_exact_participant_history',
         ],
         beforeRestartNativeTurns: 31,
         afterRestartNativeRequests: runtime.requests.length,
@@ -900,6 +954,15 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       'OFFLINE_COMPOSER_DIAGNOSTIC',
       JSON.stringify({
         stage,
+        historyState: {
+          loading: mounted.store.getState().historyLoading,
+          error: mounted.store.getState().historyError,
+          active: mounted.store.getState().sessions.active,
+          messageCount: mounted.store.getState().messages.messages.length,
+          renderedTail: mounted.ui.container
+            .querySelector('.chat-messages')
+            ?.textContent?.slice(-1600),
+        },
         input: (
           screen.queryByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement | null
         )?.value,

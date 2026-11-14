@@ -1,5 +1,22 @@
 # Independent review blocker follow-up
 
+The strengthened rollover check preserves the same native-command suppression
+assertion and also requires each original operator body/projection ID exactly
+once after authorized earlier-event hydration. The API display page remains50;
+that does not require the UI to discard authorized retained history. An initial
+negative old-body assertion assumed only that page could be shown and was
+corrected to this stronger context-retention check. Original baseline failures
+remain immutable; this interpretation does not waive native-packet leakage.
+
+Slice2 successor7bdb364c0 contributes narrow matched-history and title-ranking
+fixes, integrated as01887f67c without its merge/pins or duplicate accepted-main
+changes. The independent actual application journey now additionally exercises
+authenticated participant rename, desktop grouped search, exact saved participant
+history preview and Open, with no new inference after restart. The preview's
+existing last-three-message policy requires the unique last reviewer-only prompt,
+not a discarded early stream delta or identical canned final text. No external
+recording-runtime fixture change was retained for this assertion.
+
 Centaur [review5905022505](https://github.com/dimakis/mitzo/pull/1355#pullrequestreview-5905022505)
 at source b93961fb79790b38a62395920c084fb0e018598f reports `human_decision`:
 two unresolved blockers, no approval. The prior11-application/56-browser checkpoint
