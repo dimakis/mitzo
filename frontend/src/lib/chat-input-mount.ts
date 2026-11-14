@@ -5,6 +5,8 @@ import type { ComposerStatusSink, ComposerStatusView } from './composer-status-c
 /** A responsive screen supplies a slot, never a second draft/delivery owner. */
 export const ChatInputMountContext = createContext<{
   sessionId?: string;
+  /** Exact correlated send callback, valid only while its submitting scope lives. */
+  recordAssignment(from: string | undefined, to: string, current: () => boolean): void;
   attach(
     target: HTMLElement,
     content: ReactNode,

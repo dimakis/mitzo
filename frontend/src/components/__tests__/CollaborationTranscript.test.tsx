@@ -131,6 +131,65 @@ it('anchors unfinished source reconciliation and tool-only messages after their 
   expect(screen.getAllByText(sharedReply.text)).toHaveLength(1);
 });
 
+it('retains exact source packet suppression and operator bodies across the fifty-message window', () => {
+  const view = sharedConversationView();
+  view.messages = [sharedPrompt];
+  view.cursor = sharedPrompt.sequence;
+  let projection = createCollaborationProjection(view);
+  const tree = () => (
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={projection}
+        ordinary={sourceChat([
+          {
+            messageId: 'ordinary-architect',
+            role: 'user',
+            blocks: [
+              { blockId: 'packet', blockType: 'text', content: 'Encoded native delivery packet' },
+            ],
+          },
+        ])}
+      />
+    </MemoryRouter>
+  );
+  const mounted = render(tree());
+  for (let index = 0; index < 51; index++) {
+    const sequence = projection.view.cursor + 1;
+    projection = applyCollaborationEvents(projection, {
+      events: [
+        {
+          version: 1,
+          eventId: uuid(600 + index),
+          collaborationId: view.collaborationId,
+          sequence,
+          change: {
+            kind: 'message',
+            message: {
+              ...sharedPrompt,
+              sequence,
+              messageId: uuid(200 + index),
+              projectionId: uuid(400 + index),
+              text: 'Later operator ' + index,
+              responders: [],
+              readers: [],
+              settings: {},
+              deliveries: [],
+            },
+          },
+        },
+      ],
+      cursor: sequence,
+      highWatermark: sequence,
+      hasMore: false,
+    });
+  }
+  expect(projection.view.messages).toHaveLength(50);
+  expect(projection.view.hasEarlierMessages).toBe(true);
+  mounted.rerender(tree());
+  expect(screen.queryByText('Encoded native delivery packet')).toBeNull();
+  expect(screen.getAllByText(sharedPrompt.text)).toHaveLength(1);
+});
+
 it('deduplicates ordinary finished/live source echoes using command identity without collapsing equal reviewer text', () => {
   const view = sharedConversationView();
   view.messages = [view.messages[0]];

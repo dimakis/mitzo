@@ -379,11 +379,7 @@ it('mounts the retained shared transcript through the production wrapper while p
       >
         <SharedConversationBody
           sourceConversationId="architect"
-          ordinaryHistory={
-            <div ref={scrollRef} data-testid="ordinary-history">
-              Original ordinary history
-            </div>
-          }
+          ordinaryHistory={<div data-testid="ordinary-history">Original ordinary history</div>}
           ordinaryComposer={
             <ChatInput sessionId="architect" onSend={() => false} onStop={stop} running={running} />
           }
@@ -413,6 +409,95 @@ it('mounts the retained shared transcript through the production wrapper while p
   fireEvent.click(screen.getByRole('button', { name: 'Stop original agent' }));
   expect(stop).toHaveBeenCalledOnce();
   expect(screen.getByText(view.messages[1].text)).toBeTruthy();
+});
+
+it('defers native history through retained-page loading and failed reconstruction without replacing the draft', async () => {
+  const view = { ...sharedConversationView(), hasEarlierMessages: true };
+  let finish!: (response: Response) => void;
+  const fetch = vi.fn(async (url: string, _options?: RequestInit) => {
+    if (url.includes('source-setup'))
+      return Response.json({
+        state: 'selected',
+        sourceConversationId: 'architect',
+        collaboration: {
+          version: 1,
+          collaborationId: view.collaborationId,
+          revision: view.membershipRevision,
+          participantSessionIds: view.participantSessionIds,
+        },
+      });
+    if (url.endsWith('/conversation')) return Response.json(view);
+    if (url.includes('/events'))
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    throw Error('Unexpected read: ' + url);
+  });
+  const proof = () => 'login';
+  render(
+    <MemoryRouter>
+      <SharedConversationHost
+        sourceConversationId="architect"
+        api={new MitzoApiClient(fetch)}
+        clientId="client"
+        authScope="login"
+        getVerifiedAuthScope={proof}
+      >
+        <SharedConversationBody
+          sourceConversationId="architect"
+          ordinaryComposer={
+            <ChatInput
+              sessionId="architect"
+              onSend={() => false}
+              onStop={() => {}}
+              running={false}
+            />
+          }
+          chat={{
+            messages: [
+              {
+                messageId: 'ordinary-architect',
+                role: 'user',
+                blocks: [
+                  {
+                    blockId: 'packet',
+                    blockType: 'text',
+                    content: 'Private encoded native delivery packet',
+                  },
+                ],
+              },
+            ],
+            current: null,
+            running: false,
+            permission: null,
+            onPermissionRespond: () => {},
+          }}
+        >
+          Ordinary fallback
+        </SharedConversationBody>
+      </SharedConversationHost>
+    </MemoryRouter>,
+  );
+  // Before association, during page loading, and after an incomplete response,
+  // no unverified native packet may enter the ordinary transcript.
+  expect(screen.queryByText('Private encoded native delivery packet')).toBeNull();
+  const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: 'Keep the current safe draft' } });
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
+  expect(screen.queryByText('Private encoded native delivery packet')).toBeNull();
+  expect(screen.getByText('Checking retained discussion history…')).toBeTruthy();
+  await act(async () =>
+    finish(Response.json({ events: [], cursor: 0, highWatermark: view.cursor, hasMore: true })),
+  );
+  await screen.findByText('Conversation history identity changed. Refresh this conversation.');
+  expect(screen.queryByText('Private encoded native delivery packet')).toBeNull();
+  expect(screen.queryByText(view.messages[0].text)).toBeNull();
+  expect(screen.getByRole('textbox')).toBe(input);
+  expect(input.value).toBe('Keep the current safe draft');
+  expect(screen.getByRole('button', { name: 'Refresh conversation' })).toBeTruthy();
+  expect(
+    fetch.mock.calls.every(([, options]) => !options?.method || options.method === 'GET'),
+  ).toBe(true);
 });
 
 it('preserves the ordinary screen while the first source identity is assigned or changes', () => {

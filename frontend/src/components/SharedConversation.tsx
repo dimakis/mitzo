@@ -527,7 +527,22 @@ export function SharedConversationBody({
       {ordinaryComposer || ordinaryHistory || host.active ? (
         <CollaborationTranscript
           {...history}
-          ordinary={{ ...history, sessionId: sourceConversationId }}
+          ordinary={{
+            ...history,
+            sessionId: sourceConversationId,
+            ...(!projection && (host.active || host.resolving || host.error)
+              ? {
+                  messages: [],
+                  current: null,
+                  currentByMessage: {},
+                  beforeMessages: (
+                    <p className="conversation-replay-status">
+                      Checking retained discussion history…
+                    </p>
+                  ),
+                }
+              : {}),
+          }}
           projection={host.active ? (projection ?? undefined) : undefined}
           progress={progress.progress}
           names={names}

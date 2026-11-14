@@ -85,7 +85,10 @@ export function CollaborationTranscript({
         afterMessages={afterMessages}
       />
     );
-  const { view } = projection;
+  const view = {
+    ...projection.view,
+    messages: [...(projection.earlierMessages ?? []), ...projection.view.messages],
+  };
   const name = (id: string) => {
     const label = names[id] || `Agent · ${id}`;
     return names[id] &&
@@ -309,7 +312,7 @@ export function CollaborationTranscript({
                 : 'The live reply could not be verified. Check the original request.'}
             </p>
           ))}
-          {view.hasEarlierMessages && (
+          {view.hasEarlierMessages && !projection.historyComplete && (
             <p className="conversation-replay-status">
               Earlier messages are outside this retained page.
             </p>

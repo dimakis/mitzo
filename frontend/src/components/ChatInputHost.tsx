@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
   type ReactNode,
   type RefObject,
@@ -42,9 +43,7 @@ export function ChatInputHost({
   children: ReactNode;
   sessionId?: string;
 }) {
-  // A new conversation retires the previous portal owner and its mounted
-  // dispatch fences. Responsive changes within this identity keep the store.
-  const store = useMemo(() => {
+  const createStore = (initialSessionId?: string) => {
     const container = document.createElement('div');
     container.className = 'chat-input-host';
     let snapshot: InputSnapshot = {
@@ -54,7 +53,8 @@ export function ChatInputHost({
       statusActive: false,
       statusView: null,
     };
-    let contentSessionId: string | undefined = sessionId;
+    let contentSessionId = initialSessionId;
+    let assignment: { from?: string; to: string; current(): boolean } | null = null;
     let target: HTMLElement | null = null;
     let focus: HTMLElement | null = null;
     const listeners = new Set<() => void>();
@@ -88,6 +88,17 @@ export function ChatInputHost({
     };
     return {
       container,
+      recordAssignment(from: string | undefined, to: string, current: () => boolean) {
+        if (contentSessionId === from && to && current()) assignment = { from, to, current };
+      },
+      acceptsAssignment(from: string | undefined, to: string | undefined) {
+        return (
+          assignment !== null &&
+          assignment.from === from &&
+          assignment.to === to &&
+          assignment.current()
+        );
+      },
       getSnapshot: () => snapshot,
       subscribe(listener: () => void) {
         listeners.add(listener);
@@ -134,7 +145,19 @@ export function ChatInputHost({
         return detach;
       },
     };
-  }, [sessionId]);
+  };
+  const [owner, setOwner] = useState(() => ({ sessionId, store: createStore(sessionId) }));
+  if (owner.sessionId !== sessionId) {
+    // Only the exact current send callback can transfer this owner. Navigation
+    // still retires its pending dispatch fences before another page commits.
+    setOwner({
+      sessionId,
+      store: owner.store.acceptsAssignment(owner.sessionId, sessionId)
+        ? owner.store
+        : createStore(sessionId),
+    });
+  }
+  const store = owner.store;
   const context = useMemo(
     () => ({
       ...store,
