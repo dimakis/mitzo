@@ -1773,6 +1773,11 @@ The initial explicit recipient remains the original agent. Saved empty choices s
 empty, with Choose who replies opening the existing picker. Unsupported shared
 attachments remain available to remove with a precise explanation. Refresh checks
 stale state; uncertain sends and Stop keep their original request identity.
+Active ordinary sharing also keeps participant names visible in its existing header
+action. On phone the named trigger takes the former metadata summary's space;
+settings retain those details. The bot, back, access, settings and new-chat controls
+keep their owners and touch targets. The existing name/count container rules reserve
+the readable source-name track and collapse additional names at narrow widths.
 This restores the approved `symposium-fresh-agent` surface using existing controls
 and tokens; it introduces no new visual theme or dispatch authority. See
 [slice 1 evidence](../evidence/symposium-integrated-conversation-2026-11-14.md).

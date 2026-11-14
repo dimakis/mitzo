@@ -105,6 +105,19 @@ reimport of the same database. The later narrow fixes and final combined head st
 require slice 3's fresh acceptance/CI results. Source order is identified by exact
 thread/command identity; global turn ordinals are not source identity.
 
+Hosted ordinary-page screenshots subsequently exposed another approved-reference
+gap: both real responsive pages passed `compact` to the Agents action, which omitted
+all participant names even after sharing. The special-preview reference tests did
+not exercise that branch. The existing compact action now shows the approved name/
+count span when the shared host is active, retaining its button and Agents dialog.
+On phone this uses the old metadata summary's space, with settings preserving the
+details and existing header actions. Existing tokens provide a readable name track;
+the bot remains visible and the redundant phone chevron is omitted. A red/green
+ordinary compact-header joining regression proves names and unchanged input/button
+identity without inference. The 97 focused participant/shared/native-presentation
+tests and 109 design checks pass. Actual ordinary-page name width, overflow and
+paired screenshot acceptance remain slice 3's hosted rendering gate.
+
 `tests/offline/symposium-ordinary-surface.spec.ts` adds the actual ordinary production
 composition to the offline browser matrix: remote joining, one transcript, exact
 input preservation at 320/390/1280 px, source activity and empty selection in dark/
