@@ -11,8 +11,13 @@ import {
   type ComponentProps,
 } from 'react';
 import { MitzoApiClient } from '@mitzo/client';
+import { useInRouterContext, useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
-import { CollaborationBeginSchema, SessionCollaborationIdSchema } from '@mitzo/protocol';
+import {
+  CollaborationBeginSchema,
+  SessionCollaborationIdSchema,
+  type CollaborationMessage,
+} from '@mitzo/protocol';
 import {
   apiFetch,
   currentVerifiedAuthSessionId,
@@ -36,7 +41,10 @@ import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
-import { SharedConversationComposerContext } from '../lib/shared-conversation-composer';
+import {
+  SharedConversationComposerContext,
+  type SharedConversationComposerRouting,
+} from '../lib/shared-conversation-composer';
 import { useSessionOverview } from '../hooks/useSessionOverview';
 import { sessionActivityLabel } from '../lib/session-activity';
 
@@ -121,6 +129,7 @@ function useSharedConversation({
     group?: string;
     begun?: boolean;
     shared?: boolean;
+    historySource?: string;
     error?: string;
   }>({ owner });
   const association = associationState.owner === owner ? associationState : { owner };
@@ -139,6 +148,15 @@ function useSharedConversation({
       .sourceSetup(sourceConversationId, clientId, controller.signal)
       .then((setup) => {
         if (controller.signal.aborted || getVerifiedAuthScope() !== authScope) return;
+        if (setup.state === 'participant_history') {
+          setAssociation({
+            owner,
+            group: setup.collaboration.collaborationId,
+            begun: true,
+            historySource: setup.originalConversationId,
+          });
+          return;
+        }
         if (setup.state === 'unavailable')
           throw Error('This conversation’s collaboration needs review. No new group was created.');
         const key = 'mitzo-shared-begin:' + authScope + ':' + sourceConversationId;
@@ -198,7 +216,13 @@ function useSharedConversation({
   const view = presentation.projection?.view;
   const refresh = presentation.refresh;
   const joiningOwner = useMemo(() => {
-    if (!association.group || !clientId || !authScope || getVerifiedAuthScope() !== authScope)
+    if (
+      association.historySource ||
+      !association.group ||
+      !clientId ||
+      !authScope ||
+      getVerifiedAuthScope() !== authScope
+    )
       return undefined;
     const group = association.group;
     const applicationOwner = createConversationJoiningApplicationOwner({
@@ -233,6 +257,7 @@ function useSharedConversation({
     };
   }, [
     association.group,
+    association.historySource,
     owner,
     association.begun,
     clientId,
@@ -297,7 +322,7 @@ function useSharedConversation({
   )
     sharedMode.current.active = true;
   // Losing a participant cannot hand a retained operation back to ordinary send.
-  const active = sharedMode.current.active;
+  const active = !association.historySource && sharedMode.current.active;
   const progress = useConversationProgress({
     api: api.collaborations,
     // Existing collaboration observation survives a temporary singleton. Its
@@ -330,6 +355,7 @@ function useSharedConversation({
     joiningOwner,
     names,
     active,
+    historySource: association.historySource,
     resolving:
       !!sourceConversationId &&
       !!clientId &&
@@ -387,15 +413,21 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
       agents={agents}
       showParticipantNames={host.active || props.showParticipantNames}
       joiningOwner={host.joiningOwner}
-      unavailableReason={host.error}
+      unavailableReason={
+        host.error ?? (host.historySource ? 'Reply in the shared conversation.' : undefined)
+      }
       policyUnavailableReason={
-        presentation.policyDisabled ? 'Refresh discussion sharing before changing it.' : undefined
+        host.historySource
+          ? 'Discussion sharing is managed in the shared conversation.'
+          : presentation.policyDisabled
+            ? 'Refresh discussion sharing before changing it.'
+            : undefined
       }
       policyFeedback={
         presentation.policyError ? <p role="alert">{presentation.policyError}</p> : undefined
       }
       onPolicyChange={
-        presentation.policyDisabled
+        host.historySource || presentation.policyDisabled
           ? undefined
           : (id, policy) => void presentation.setPolicy(id, policy)
       }
@@ -424,6 +456,24 @@ export function SharedConversationBody({
   if (!host || host.sourceConversationId !== sourceConversationId) return children;
   const { presentation, sending, progress, promptContext, forwarding, names } = host;
   const { draft, projection, composerResponders } = presentation;
+  // This route inspects one existing participant's provider history. Canonical
+  // prompts replace its native packets without importing other agents' replies.
+  const forHistory = (message: CollaborationMessage) =>
+    message.author === 'operator'
+      ? message.deliveries.some((delivery) => delivery.sessionId === sourceConversationId)
+      : message.source?.conversationId === sourceConversationId;
+  const displayedProjection =
+    host.historySource && projection
+      ? {
+          ...projection,
+          earlierMessages: projection.earlierMessages?.filter(forHistory),
+          view: {
+            ...projection.view,
+            participantSessionIds: [sourceConversationId],
+            messages: projection.view.messages.filter(forHistory),
+          },
+        }
+      : projection;
   const canShare =
     !sending.pending && !promptContext.busy && !promptContext.attached && !forwarding.retained;
   const history =
@@ -505,24 +555,8 @@ export function SharedConversationBody({
   const routing = { ...composer };
   delete routing.savedChatDraft;
   delete routing.sessionId;
-  return (
-    <SharedConversationComposerContext.Provider
-      value={
-        host.active
-          ? { sourceConversationId, props: routing }
-          : host.resolving || host.error
-            ? {
-                sourceConversationId,
-                props: {
-                  sendDisabledReason: host.error ?? 'Checking discussion recipients…',
-                  sendDisabledAction: host.error
-                    ? { label: 'Refresh collaboration', onClick: host.retry }
-                    : undefined,
-                },
-              }
-            : null
-      }
-    >
+  const surface = (
+    <>
       {beforeTranscript}
       {ordinaryComposer || ordinaryHistory || host.active ? (
         <CollaborationTranscript
@@ -530,7 +564,7 @@ export function SharedConversationBody({
           ordinary={{
             ...history,
             sessionId: sourceConversationId,
-            ...(!projection && (host.active || host.resolving || host.error)
+            ...(!projection && (host.active || host.historySource || host.resolving || host.error)
               ? {
                   messages: [],
                   current: null,
@@ -543,7 +577,9 @@ export function SharedConversationBody({
                 }
               : {}),
           }}
-          projection={host.active ? (projection ?? undefined) : undefined}
+          projection={
+            host.active || host.historySource ? (displayedProjection ?? undefined) : undefined
+          }
           progress={progress.progress}
           names={names}
           onRefresh={() => void presentation.refresh()}
@@ -554,7 +590,11 @@ export function SharedConversationBody({
       {ordinaryTools}
       {!host.active && (
         <ChatStatusMessage
-          error={host.error ?? (host.joiningOwner ? presentation.error : null) ?? progress.error}
+          error={
+            host.error ??
+            (host.joiningOwner || host.historySource ? presentation.error : null) ??
+            progress.error
+          }
           action={{ label: 'Refresh collaboration', onClick: host.retry }}
         />
       )}
@@ -608,6 +648,101 @@ export function SharedConversationBody({
         </p>
       )}
       {sendFailure && <p role="alert">{sendFailure}</p>}
+    </>
+  );
+  return (
+    <ConversationBodyRouting
+      sessionId={sourceConversationId}
+      originalConversationId={host.historySource}
+      routing={
+        host.active
+          ? { sourceConversationId, props: routing }
+          : host.resolving || host.error
+            ? {
+                sourceConversationId,
+                props: {
+                  sendDisabledReason: host.error ?? 'Checking discussion recipients…',
+                  sendDisabledAction: host.error
+                    ? { label: 'Refresh collaboration', onClick: host.retry }
+                    : undefined,
+                },
+              }
+            : null
+      }
+    >
+      {surface}
+    </ConversationBodyRouting>
+  );
+}
+
+/** Qualified inspection keeps the existing history/draft owner but cannot
+ * dispatch to a participant through this relationship-selection route. */
+function ConversationBodyRouting({
+  children,
+  ...props
+}: {
+  sessionId: string;
+  originalConversationId?: string;
+  routing: SharedConversationComposerRouting;
+  children: ReactNode;
+}) {
+  const routed = useInRouterContext();
+  // Legacy embedded consumers need no router for their ordinary controls. A
+  // qualified history relation still cannot turn that fallback into send authority.
+  if (!routed)
+    return (
+      <SharedConversationComposerContext.Provider
+        value={
+          props.originalConversationId
+            ? {
+                sourceConversationId: props.sessionId,
+                props: {
+                  onSend: () => false,
+                  onInterrupt: undefined,
+                  sendDisabledReason: 'Open the shared conversation from Chats to reply.',
+                },
+              }
+            : props.routing
+        }
+      >
+        {children}
+      </SharedConversationComposerContext.Provider>
+    );
+  return <RoutedConversationBodyRouting {...props}>{children}</RoutedConversationBodyRouting>;
+}
+function RoutedConversationBodyRouting({
+  sessionId,
+  originalConversationId,
+  routing,
+  children,
+}: {
+  sessionId: string;
+  originalConversationId?: string;
+  routing: SharedConversationComposerRouting;
+  children: ReactNode;
+}) {
+  const navigate = useNavigate();
+  return (
+    <SharedConversationComposerContext.Provider
+      value={
+        originalConversationId
+          ? {
+              sourceConversationId: sessionId,
+              props: {
+                onSend: () => false,
+                onInterrupt: undefined,
+                sendDisabledReason:
+                  'This is the agent’s retained history. Reply in the shared conversation.',
+                sendDisabledAction: {
+                  label: 'Open shared conversation',
+                  onClick: () => navigate('/chat/' + encodeURIComponent(originalConversationId)),
+                },
+              },
+            }
+          : routing
+      }
+    >
+      {children}
     </SharedConversationComposerContext.Provider>
   );
 }
