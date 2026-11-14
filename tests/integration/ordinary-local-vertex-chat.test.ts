@@ -256,6 +256,7 @@ it.each(
     let idleInputReady: Promise<void> | undefined;
     let first = true;
     const history: string[] = [];
+    const approvedInputs: string[] = [];
     const providerInputs: string[] = [];
     services.query.mockImplementation((request) => {
       services.requests.push(request);
@@ -319,6 +320,49 @@ it.each(
                 parent_tool_use_id: null,
                 message: { role: 'user', content: message.message.content },
               };
+            // Exercise the installed callback on each first/queued/cold query,
+            // while its original ordinary command still owns the SDK input.
+            const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
+            const permission = request.options.canUseTool(
+              'Bash',
+              { command: 'pwd' },
+              {
+                signal: new AbortController().signal,
+                toolUseID: `native-${message.mitzoMessageId}`,
+              },
+            );
+            if (idleSuccess) {
+              expect(await permission).toMatchObject({ behavior: 'deny' });
+              expect(getPendingRequestsBySession(f.reservation.conversationId)).toEqual([]);
+            } else {
+              await vi.waitFor(() =>
+                expect(getPendingRequestsBySession(f.reservation.conversationId)).toHaveLength(1),
+              );
+              const card = getPendingRequestsBySession(f.reservation.conversationId)[0];
+              expect(card).toMatchObject({
+                toolName: 'Bash',
+                toolInput: 'pwd',
+                sessionId: f.reservation.conversationId,
+              });
+              expect(
+                chat.registry.findBySessionId(f.reservation.conversationId)!.session
+                  .ownedLocalAuthSessionId,
+              ).toBe(f.auth.id);
+              expect(resolvePending(card.permId, 'once', undefined, 'foreign-conversation')).toBe(
+                false,
+              );
+              expect(
+                resolvePending(card.permId, 'once', undefined, f.reservation.conversationId),
+              ).toBe(true);
+              expect(await permission).toMatchObject({
+                behavior: 'allow',
+                updatedInput: { command: 'pwd' },
+              });
+              expect(
+                resolvePending(card.permId, 'once', undefined, f.reservation.conversationId),
+              ).toBe(false);
+              approvedInputs.push(message.mitzoMessageId);
+            }
             if (first) {
               first = false;
               const completed = new Promise<void>((resolve) => {
@@ -928,6 +972,11 @@ it.each(
       model: f.request.selection.model,
       ...(managed ? {} : { effort: 'low' }),
     });
+    await vi.waitFor(() =>
+      expect(approvedInputs).toEqual(
+        idleSuccess ? [] : [f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold'],
+      ),
+    );
     // The actual owner recreates its MCP surface for queued and cold queries.
     // Their terminal callbacks are retired; inspect exposure without re-executing them.
     for (const request of services.requests.slice(1))

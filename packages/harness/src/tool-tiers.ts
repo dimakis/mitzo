@@ -67,6 +67,7 @@ const DEFAULT_TOOL_TIERS: Record<string, ToolTier> = {
   Edit: 'standard',
   StrReplace: 'standard',
   EditNotebook: 'standard',
+  NotebookEdit: 'standard',
 
   Bash: 'elevated',
   Shell: 'elevated',
