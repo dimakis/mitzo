@@ -542,13 +542,25 @@ export class SessionMetadataStore {
     limit = 20,
     signal?: AbortSignal,
     cacheDirectory?: string,
+    presentation: () => Record<string, string> = () => ({}),
   ): Promise<SessionSearchResult[]> {
     if (!query.trim()) return [];
-    const sessions = () =>
-      this.db!.prepare(
+    const sessions = () => {
+      const rows = this.db!.prepare(
         `SELECT s.session_id,s.summary,s.updated_at
       FROM sessions s WHERE s.is_hidden=0 AND ${REGISTERED_CONVERSATION_SQL}`,
       ).all() as SearchSession[];
+      const byId = new Map(rows.map((row) => [row.session_id, row]));
+      const relations = presentation();
+      return rows.map((row) => {
+        const source = byId.get(relations[row.session_id]);
+        return {
+          ...row,
+          conversation_id: source?.session_id ?? row.session_id,
+          conversation_summary: source ? source.summary : row.summary,
+        };
+      });
+    };
     this.searchIndex ??= new SessionSearchIndex(
       {
         highWater: () =>
@@ -584,6 +596,9 @@ export class SessionMetadataStore {
       .filter((hit) => visible.has(hit.session_id))
       .map((hit) => ({
         sessionId: hit.session_id,
+        ...(hit.matched_session_id && hit.matched_session_id !== hit.session_id
+          ? { matchedSessionId: hit.matched_session_id }
+          : {}),
         summary: visible.get(hit.session_id)!.summary,
         snippet: extractSnippet(hit.payload, query),
         matchedAt: hit.matched_at,
@@ -591,21 +606,29 @@ export class SessionMetadataStore {
       }));
   }
 
-  searchSessions(query: string, limit = 20): SessionSearchResult[] {
+  searchSessions(
+    query: string,
+    limit = 20,
+    presentation: Record<string, string> = {},
+  ): SessionSearchResult[] {
     if (!query.trim()) return [];
     const escaped = query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     const pattern = `%${escaped}%`;
     const rows = this.db!.prepare(
-      `WITH candidates AS (SELECT
-        e.session_id,
-        s.summary,
+      `WITH navigation AS (SELECT s.*, coalesce(p.value,s.session_id) AS conversation_id,
+        coalesce(source.summary,s.summary) AS conversation_summary
+        FROM sessions s LEFT JOIN json_each(?) p ON p.key=s.session_id
+        LEFT JOIN sessions source ON source.session_id=p.value AND source.is_hidden=0), candidates AS (SELECT
+        s.conversation_id AS session_id,
+        s.conversation_summary AS summary,
+        e.session_id AS matched_session_id,
         e.payload,
         e.created_at AS matched_at,
         e.seq AS matched_seq,
         s.updated_at,
         1 AS content_match
       FROM events e
-      JOIN sessions s ON s.session_id = e.session_id
+      JOIN navigation s ON s.session_id = e.session_id
       WHERE s.is_hidden = 0
         AND ${REGISTERED_CONVERSATION_SQL}
         AND e.type IN ('user_message', 'block_delta')
@@ -614,9 +637,9 @@ export class SessionMetadataStore {
           OR json_extract(e.payload, '$.delta') LIKE ? ESCAPE '\\'
         )
       UNION ALL
-      SELECT s.session_id, s.summary, json_object('text', s.summary),
+      SELECT s.conversation_id, s.conversation_summary, s.session_id, json_object('text', s.summary),
         s.updated_at AS matched_at, 0 AS matched_seq, s.updated_at, 0 AS content_match
-      FROM sessions s
+      FROM navigation s
       WHERE s.is_hidden = 0 AND ${REGISTERED_CONVERSATION_SQL}
         AND s.summary LIKE ? ESCAPE '\\'
       ), matches AS (
@@ -625,8 +648,9 @@ export class SessionMetadataStore {
         ) AS match_rank FROM candidates
       ) SELECT * FROM matches WHERE match_rank = 1
       ORDER BY matched_at DESC, matched_seq DESC LIMIT ?`,
-    ).all(pattern, pattern, pattern, limit) as Array<{
+    ).all(JSON.stringify(presentation), pattern, pattern, pattern, limit) as Array<{
       session_id: string;
+      matched_session_id: string;
       summary: string | null;
       payload: string;
       matched_at: number;
@@ -635,6 +659,9 @@ export class SessionMetadataStore {
 
     return rows.map((row) => ({
       sessionId: row.session_id,
+      ...(row.matched_session_id !== row.session_id
+        ? { matchedSessionId: row.matched_session_id }
+        : {}),
       summary: row.summary,
       snippet: extractSnippet(row.payload, query),
       matchedAt: row.matched_at,
