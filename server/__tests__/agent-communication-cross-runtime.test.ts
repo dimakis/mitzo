@@ -470,10 +470,23 @@ it.each([
         });
       }
       expect(target.steer).toHaveBeenCalledOnce();
+      let subscribed!: () => void;
+      const subscriptionReady = new Promise<void>((resolve) => {
+        subscribed = resolve;
+      });
+      const subscribe = f.events.agentCommunication.subscribe.bind(f.events.agentCommunication);
+      const subscription = vi
+        .spyOn(f.events.agentCommunication, 'subscribe')
+        .mockImplementation((...args) => {
+          const release = subscribe(...args);
+          subscribed();
+          return release;
+        });
       const waiting = client.callTool({
         name: 'AgentCommunication',
         arguments: { operation: 'wait', after: 0, timeoutMs: 1000 },
       });
+      await subscriptionReady;
       const reply = f.events.agentCommunication.reserve(
         recipient,
         f.auth.id,
@@ -486,6 +499,7 @@ it.each([
         },
       );
       const waited = await waiting;
+      subscription.mockRestore();
       expect(waited.isError).not.toBe(true);
       expect(JSON.parse((waited.content as Array<{ text: string }>)[0].text)).toMatchObject({
         changed: true,

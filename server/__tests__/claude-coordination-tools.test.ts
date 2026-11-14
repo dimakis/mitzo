@@ -147,7 +147,7 @@ async function fixture(explicit = true) {
       expect(permission?.behavior).toBe('allow');
       const result = await client.callTool({ name, arguments: input });
       const text = (result.content as Array<{ text: string }>)[0].text;
-      return { ...result, value: result.isError ? text : JSON.parse(text) };
+      return { isError: result.isError === true, value: result.isError ? text : JSON.parse(text) };
     };
   };
   return { session, registry, connect, makeServer, port, service, store, launches };

@@ -1,0 +1,84 @@
+# Ordinary Claude coordination qualification
+
+Source baseline: `f801f8df6cac9c1305727b85a7235928eef2e175`, refreshed from main on
+14 November 2026. Claude Agent SDK: `0.3.322`. This batch covers ordinary Local
+Mac Claude callers, including personal subscriptions and guarded Vertex.
+
+## Implementation
+
+- Admit the already registered `SchedulePrompt`, `SessionTimers` and
+  `SendSessionMessage` callbacks through the ordinary SDK allowlist.
+- Register `StartSession` with the same `sessionLaunchTools` owner used by native
+  callers. The returned object remains a pending, editable review proposal;
+  allocation and startup still belong to the existing reviewed launch flow.
+- Qualify explicit Claude profiles for those four tools and the existing
+  `SymposiumReadProfiles` / `SymposiumProposeProfile` handlers. Keep the existing
+  `SymposiumConsult` and `AgentCommunication` registrations.
+- Omit absent optional consultation fields before invoking the consultation
+  owner. Previously, an explicit `reviewOf: undefined` survived parsing but not
+  persistence, causing identical tool retries to report a request conflict.
+
+Business logic, authorization, durable scheduling, revision checks and recovery
+remain with their existing owners. The SDK transport is its existing in-process
+MCP server. No new service, registry, scheduler or provider abstraction is added.
+
+## Offline evidence
+
+`claude-coordination-tools.test.ts` invokes the real SDK MCP server through an
+in-memory MCP client, with real disposable profile, proposal, launch and timer
+stores. It verifies default and explicit profiles, SDK skill names, pending
+launch proposals and replay, timer edits/stale revisions/cancellation, queued
+messages, uncertain delivery and accepted-receipt reconciliation. A synthetic
+SDK query exercises first, successor and cold-continuation MCP handler calls;
+the retired query refuses further calls.
+
+`claude-coordination-consultation.test.ts` uses the actual application and
+consultation owners with a synthetic native provider. MCP catalog and bounded
+authorization lead to an attributed terminal contribution. Exact retry and
+recovery preserve its receipt and issue one provider turn. A lost response after
+durable joining returns sanitized uncertainty; recovery retains the original
+session/workspace and completes with one provider turn for that attempt.
+
+`agent-communication-cross-runtime.test.ts` exercises personal Claude and Vertex
+fixture senders through the actual MCP handler: discovery, send, read, lookup,
+inbox and subscribed wait, correlated replies, exact retry, provider ACK and
+unavailable-recipient results. Existing cases preserve unsupported-runtime,
+foreign-operator, revoked-owner, stopped-recipient and uncertain-retry behavior.
+
+Local server compilation/build, ESLint on changed TypeScript, formatting and
+reviewed source-artifact checks pass. The broader regression batch completed
+207 tests in 22 suites before the bounded command timeout interrupted the
+remaining native-runtime suite. That full 74-case suite also exceeded the
+standalone command limit; five targeted native consumer checks passed separately.
+These include Claude MCP steering, uncertain retry, queued-grant rechecks and
+durable ACK recovery. Full CI is reported on the draft PR. Local review found no
+blocking issues; its wait-test
+coverage observation was addressed by synchronizing on subscription.
+
+## Integration custody and limits
+
+PR #1342 remains draft/open/conflicting at `b2675af8199ab8a99f3628d3d93c4e65145c7244`
+when inspected. Its branch, TaskExecution, approval and notification work remain
+untouched. Feature `8e186fdf-9058-4ad6-af18-8fd6797bf935` retains its existing lead
+and assignments; this ordinary chat has no claimed worker assignment.
+
+Shared integration files are `ordinary-sdk-helper-registration.ts`,
+`agent-tool-catalog.ts`, `credential-sdk-tools.ts`, the browser catalog fixture
+and reviewed source pins. Apply tool-ID additions sequentially with the
+information, Connections/Tool Library and Telos batches, then regenerate pins.
+The existing parity lead and PR #1342 integrator were unavailable when refreshed.
+Current peer ownership was confirmed from public session handoffs:
+
+- Lifecycle/bootstrap: `ef3feaac-87b0-8499-9c14-fbe13425c78e`.
+- Information/history: `7f7d15b5-7912-8b1e-9b99-10c6ce0c6429`.
+- Connections/Tool Library: `032e8e84-8d41-8627-aa75-03159d853ade`.
+- Telos: `dee6448c-996e-8ebd-b78c-94ee16fc27ea`.
+- Approval adapters: `0bdfbc75-7db1-82c8-b5b0-064a4423b55e`.
+
+These are source/fixture results. No live specialist models, external services,
+production messages, timers or child sessions were invoked for qualification.
+Public Stop/Continue/reconnect and full queued delivery against the lifecycle
+repair remain with that owner and need combined integration evidence. Existing
+reviewed child runtime restrictions remain explicit in StartSession. Telos work
+creation, assignment and start are outside this batch. Merge and deployment
+remain separate.
