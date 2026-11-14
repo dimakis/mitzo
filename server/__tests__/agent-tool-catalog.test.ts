@@ -10,10 +10,10 @@ it.each([
   'TelosCreateChild',
   'TelosCreateFeature',
 ])(
-  'makes %s selectable for ordinary native backlog triage without requiring a lead role',
+  'makes %s selectable for ordinary native and Claude backlog triage without requiring a lead role',
   (name) => {
     expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
-      routes: ['codex-owned-local'],
+      routes: ['codex-owned-local', 'claude-sdk'],
       behavior:
         name === 'TelosManageItem' ? 'mixed' : name.startsWith('TelosCreate') ? 'write' : 'read',
       requirement: expect.stringContaining('operator'),
@@ -212,29 +212,31 @@ it('limits the configured main merge tool to explicit owned native selection', (
 });
 
 it.each(['TelosStartSlice', 'TelosWorkControl'])(
-  'selects existing %s only on the owned local route without granting a role',
+  'selects existing %s on owned local and Claude routes without granting a role',
   (name) => {
     const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
     expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
-      routes: ['codex-owned-local'],
-      requirement: expect.stringContaining('current retained lead'),
+      routes: ['codex-owned-local', 'claude-sdk'],
+      requirement: expect.stringContaining('current retained'),
     });
     expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
-    for (const route of ['local-api', 'codex', 'openshell', 'claude-sdk', 'symposium'])
+    expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+    for (const route of ['local-api', 'codex', 'openshell', 'symposium'])
       expect(() => assertAgentToolRoute(definition, route)).toThrow();
   },
 );
 
 it.each(['TelosGetItem', 'TelosUpdateItem'])(
-  'enrolls %s only as an explicitly selected owned-local current-lead operation',
+  'enrolls %s as an owned-local and Claude current-lead operation',
   (name) => {
     const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
     expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
-      routes: ['codex-owned-local'],
-      requirement: expect.stringContaining('current retained lead'),
+      routes: ['codex-owned-local', 'claude-sdk'],
+      requirement: expect.stringContaining('retained lead'),
     });
     expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
-    for (const route of ['local-api', 'codex', 'openshell', 'claude-sdk', 'symposium'])
+    expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+    for (const route of ['local-api', 'codex', 'openshell', 'symposium'])
       expect(() => assertAgentToolRoute(definition, route)).toThrow();
     expect(() =>
       assertAgentToolRoute(

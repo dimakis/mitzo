@@ -11,6 +11,7 @@ import {
 } from '@mitzo/protocol';
 import { toolInputError } from './tool-input-error.js';
 import type { ToolDefinition } from '@mitzo/harness';
+import { reportToolFailure } from './tool-failure-reporting.js';
 
 export const TELOS_CREATE_OUTCOME_TOOL = 'TelosCreateOutcome';
 
@@ -210,12 +211,20 @@ async function executeReviewedSource(
     if (result.data.operation.kind !== operation)
       return { content: 'Reviewed Telos operation differs; save not confirmed.', isError: true };
     return formatTelosSourceResult(result.data);
-  } catch {
-    return {
-      content:
-        'Reviewed Telos receipt unavailable. Retry the exact original invocation to recover its receipt.',
-      isError: true,
-    };
+  } catch (error) {
+    const failure = reportToolFailure(error, {
+      sessionId: 'unresolved',
+      tool: operation === 'create' ? 'TelosCreateOutcome' : 'TelosAdoptSource',
+      callId: __mitzoTelosApproval as string,
+      signal: signal ?? new AbortController().signal,
+    });
+    failure.content = JSON.stringify({
+      ...JSON.parse(failure.content),
+      approvalReceiptId: __mitzoTelosApproval,
+      action:
+        'Recover the original reviewed Telos save in this conversation. Keep its request and receipt; do not submit a new creation or source review to recover delivery.',
+    });
+    return failure;
   }
 }
 export function executeTelosCreateOutcome(

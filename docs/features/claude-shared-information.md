@@ -67,6 +67,19 @@ ordinary Local Mac Claude without broadening the legacy route or Codex routes.
 - Existing catalog, selection, legacy SDK, native Codex history, shared history
   and task tests exercise the shared contracts alongside the new adapter tests.
 
+Combined-base qualification includes accepted approval parity (#1351) and Telos
+SDK tools (#1352), from main `9af764899302cbcc55c60ed0d2e7f159b266a045`.
+Both SDK registration families and their existing authority checks remain present.
+The ordinary fixture executes information calls and native approval checks on the
+same first, queued and cold queries. It waits for the existing terminal boundary
+before checking completed approvals, retaining the approval assertion and timeout.
+Local qualification passed 208 checks across 11 affected suites, all 13 ordinary
+personal/Vertex integration cases and five additional Codex selection checks.
+The catalog fixture matches the executable
+catalog, and all 2,447 registered source fingerprints were retained and verified.
+Centaur review `5901795578` is the approved baseline; the integration candidate
+requires its own CI and targeted Centaur verification before landing.
+
 No real model or production-service calls are required for these checks. This
 does not qualify Claude on OpenShell, arbitrary provider transcript imports,
 repository/bootstrap helpers, messaging/timers, Telos execution or changes to
