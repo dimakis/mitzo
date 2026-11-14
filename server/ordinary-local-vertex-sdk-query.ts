@@ -244,7 +244,7 @@ export function createOrdinaryLocalVertexSdkQuery<
     const state: State = createSdkCallbackState();
     const { hooks, canUseTool } = sdkCallbackOptions(owners.options, owners.lifetime, () => state);
     const cliGuidance =
-      '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, inspect workspace instructions and available local CLI tools before concluding access is unavailable. For Google Workspace, check command -v gws and gws --help with Bash; a missing Sheets MCP tool does not establish that the local CLI is unavailable. CLI presence does not establish authentication: try only the authorized service read and report its actual result. Do not run gws auth login or search for credentials to repair access.\n';
+      '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, use the selected Connections and Tool Library helpers and their existing access flow. Use GoogleWorkspaceRead when available for Google Workspace reads; it keeps authentication with the configured Google account owner. Tool or CLI presence does not establish service access. Report missing selection or configuration precisely. Do not run gws auth login or search for credentials to repair access.\n';
     const systemPrompt = owners.options.systemPrompt;
     const options: Options = {
       ...owners.options,

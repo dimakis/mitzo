@@ -16,7 +16,8 @@ import { admitApiTools } from './api-tool-execution.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
 import type { ApiToolCatalog } from './api-tool-catalog.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
-import { loadMcpServers } from './mcp-config.js';
+import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
+import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { agentToolAllowed, bindConfiguredAgentTools } from './agent-tool-selection.js';
 import { copyCallbackOutcome, type TurnCallbackRunner } from './turn-callbacks.js';
 import { reportToolFailure } from './tool-failure-reporting.js';
@@ -36,7 +37,8 @@ export async function createSdkToolLibrary(
     sessionId: string;
     session: ManagedSession;
     registry: SessionRegistry;
-    refs: AgentToolReference[];
+    refs?: AgentToolReference[];
+    defaultMcpServers?: Record<string, McpServerConfig>;
     cwd: string;
     env: Record<string, string>;
     configured?: Pick<ConfiguredCatalogOptions, 'readSources' | 'connect'> & {
@@ -45,9 +47,10 @@ export async function createSdkToolLibrary(
     apiCatalog?: ApiToolCatalog;
   },
 ) {
-  const mcpRefs = options.refs.filter((ref) => ref.id.startsWith('mcp:'));
-  const apiRefs = options.refs.filter((ref) => ref.id.startsWith('api:'));
-  if (!mcpRefs.length && !apiRefs.length) return undefined;
+  const mcpRefs = options.refs?.filter((ref) => ref.id.startsWith('mcp:')) ?? [];
+  const apiRefs = options.refs?.filter((ref) => ref.id.startsWith('api:')) ?? [];
+  const defaultSources = options.refs === undefined ? (options.defaultMcpServers ?? {}) : {};
+  if (!mcpRefs.length && !apiRefs.length && !Object.keys(defaultSources).length) return undefined;
   const signal = options.session.abortController.signal;
   const service = getCredentialConnectionsRuntime();
   const current = (boundary: Boundary) => {
@@ -113,7 +116,18 @@ export async function createSdkToolLibrary(
             assertRuntimeCurrent: assertCurrent,
           },
         )
-      : undefined;
+      : Object.keys(defaultSources).length
+        ? {
+            ...(await connectCodexMcpTools(defaultSources, {
+              cwd: options.cwd,
+              env: options.env,
+              signal,
+              connect: options.configured?.connect,
+              assertRuntimeCurrent: assertCurrent,
+            })),
+            admitted: [],
+          }
+        : undefined;
     return {
       api,
       mcp,
@@ -122,14 +136,16 @@ export async function createSdkToolLibrary(
       admitted: [...(mcp?.admitted ?? []), ...(api?.admitted ?? [])],
     };
   };
-  // Qualify publication before exposing any schema. No MCP process is launched here.
+  // Explicit profiles qualify publication without a launch. Defaults use the shared
+  // configured-source discovery path, just as the existing Vertex/Codex owners do.
   const initial = await admit(options);
   await initial.mcp?.close();
   const definitions = initial.definitions;
-  bindConfiguredAgentTools(
-    options.session,
-    initial.admitted.flatMap((entry) => [entry, { ...entry, wireName: prefix + entry.wireName }]),
-  );
+  if (options.refs !== undefined)
+    bindConfiguredAgentTools(
+      options.session,
+      initial.admitted.flatMap((entry) => [entry, { ...entry, wireName: prefix + entry.wireName }]),
+    );
   const names = new Set(definitions.map((tool) => tool.name));
   return {
     allowedTools: definitions.map((tool) => prefix + tool.name),
@@ -201,15 +217,21 @@ export async function createSdkToolLibrary(
       });
       instance.server.onclose = () => {
         if (admitted)
-          void admitted
-            .then((result) => result.mcp?.close())
-            .catch((error) => {
-              reportToolFailure(error, {
-                sessionId: options.sessionId,
-                tool: 'ToolLibraryCleanup',
-                signal,
-              });
-            });
+          void admitted.then(
+            async (result) => {
+              try {
+                await result.mcp?.close();
+              } catch (error) {
+                reportToolFailure(error, {
+                  sessionId: options.sessionId,
+                  tool: 'ToolLibraryCleanup',
+                  signal,
+                });
+              }
+            },
+            // Failed admission has no peer to close; its call already reported the error.
+            () => undefined,
+          );
       };
       return { type: 'sdk', name: 'mitzo-tool-library', instance };
     },

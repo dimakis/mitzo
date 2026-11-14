@@ -75,6 +75,13 @@ it.each(['async', 'sync', 'wrapped'] as const)(
     });
     expect([...sdk.handlers.keys()]).toEqual([
       'ListConnections',
+      'RequestConnectionAccess',
+      'ConnectionRequest',
+      'ConnectionWebSocket',
+      'HomeAssistantDashboard',
+      'GetConnectionGuide',
+      'PrepareConnectionSetup',
+      'GetConnectionSetup',
       'SymposiumConsult',
       'SymposiumProposeProfile',
       'SymposiumReadProfiles',
