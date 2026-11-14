@@ -4,6 +4,61 @@ Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.
 
+## Fully passing expanded focused acceptance
+
+Run [43601886056](https://github.com/dimakis/mitzo/actions/runs/43601886056),
+PR source `845caf2dd6800cfa35c92af91816e057201ee6eb`, merge build
+`930b44f1c23deefe57021d05a6dda5e7e3dbb978`, completed successfully: all11
+application checks and all56 browser tests/probes. This includes actual ordinary
+ResponsiveChatView/icon-only composition, narrow available wheel/mic retention,
+and all42 corrected legacy scenarios. The strict singleton zero-write assertion
+passes; its exact work-links read is modeled without accepting other mutations.
+`hosted-application-845caf2dd.log`, `hosted-render-845caf2dd.log` and
+`render-845caf2dd/` retain receipts, all six responsive manifests and the original
+artifact-file hash index. Frontend bundle hashes match the paired bb868 captures.
+
+Render artifact `14117335044` SHA256
+`0f258136991d59bab5422b8e09847e44eb8701de72010de585036c1ae9d5b674`;
+application artifact `14116538231` SHA256
+`292a70c8580e7af7efbc3033647a100f09d01a2444f4c36aa4cb8cd4bc5044ab`.
+Node24.22.1, pinned Playwright1.63.0 container, source/build/route/viewport/theme
+and compiler bundle hashes are preserved in the manifests and workflow.
+
+A final acceptance-only extension records wheel/mic bounds/enabled state and
+checks full viewport visibility and trial-click actionability at normal/200%
+text after responsive changes and source activity. Trial clicks execute no audio
+or callbacks. This addresses a remaining concern that DOM visibility alone could
+hide an occluded hit target. The stronger successor still needs hosted execution;
+no production change is made. Full combined CI, exact-head final review, browser
+hard reload, live runtime and physical-phone qualification remain separate gates.
+The original incident IDs/build/operation/receipt remain absent. The diagnostics
+proposal now also describes bounded correlated progress-read failure/recovery
+transitions, coordinated with the implementation owner; it adds no instrumentation.
+
+## Expanded hosted checkpoint and exact singleton read correction
+
+Expanded run `43600918311`, PR head `e668edff968a1e9a0b40a3803db39ec25ca9bcb4`,
+merge build `7464091c70a4442804c6be19d56c3e0a9d61d2ae`, passes all 11 application
+checks and 50/56 browser cases. The application log is
+`hosted-application-e668edff9.log`; render log and original failure are
+`hosted-render-e668edff9-singleton-read-failure.log`. `render-e668edff9/` retains
+all six responsive manifests, available-control screenshots and original artifact
+index. Every responsive frontend bundle hash equals its paired bb868 screenshot
+bundle. The narrow Agent label correction passes all six wheel/microphone cases.
+
+The remaining six singleton tests count one exact POST `/api/telos/work/links`,
+body `{namespace: "mitzo", conversationId: "architect"}`, as a write and abort it.
+The original trace identifies it as the only non-GET; authenticated
+`server/telos-work-routes.ts:498` performs a `forConversation` navigation read.
+`singleton-read-e668edff9-trace.json.txt` retains request, receipt, trace and
+artifact SHA256. This is not inference or an observed phone operation.
+Owner test-only `9f60b0ed30c2df211f5f64a5d36ed482059ca903` is integrated as
+`845caf2dd6800cfa35c92af91816e057201ee6eb`. It accepts only that exact
+path/method/body as a read; all other non-GETs still count and the zero-write
+assertion remains. The 2,476-key union is regenerated as v1.0.1173. Source/lint/
+format checks pass; no production delta. Current expanded focused `43601886056`
+and full CI `43601886047` remain in progress. No complete-CI or final review claim.
+
 ## Hosted icon-only ordinary composition and narrow selector failure
 
 At production/accepted-main head `bb8680279a5eccf24bf68e8e53b3b04b20c4a14a`,

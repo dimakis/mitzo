@@ -1,0 +1,23 @@
+{
+  "run": 43600918311,
+  "sourceHead": "e668edff968a1e9a0b40a3803db39ec25ca9bcb4",
+  "mergeHead": "7464091c70a4442804c6be19d56c3e0a9d61d2ae",
+  "artifactId": 14116124654,
+  "artifactSha256": "204e3308ba680993c7bed7f9abe7ac3525884cc3f7ccc83df97f985a573cb23a",
+  "originalTracePath": ".cache/symposium-ci-e668/render/test-results/offline/symposium-composer-shared--1909a-singleton-membership-light--mobile-webkit/trace.zip",
+  "originalTraceSha256": "28f453ee222f950051cdf7c64ff47df3bcff2c9353b45c9f674ebec4147bb5a7",
+  "nonGetRequests": [
+    {
+      "time": 19140.238,
+      "method": "POST",
+      "url": "http://mitzo-ui.test/api/telos/work/links",
+      "body": {
+        "namespace": "mitzo",
+        "conversationId": "architect"
+      },
+      "responseStatus": -1,
+      "failure": "Blocked by Web Inspector"
+    }
+  ],
+  "sourceClassification": "server/telos-work-routes.ts:498; authenticated forConversation read"
+}

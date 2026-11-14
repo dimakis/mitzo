@@ -125,6 +125,29 @@ for (const theme of ['dark', 'light'])
     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
     const wheel = page.getByRole('button', { name: 'Token usage', exact: true });
     const mic = page.getByRole('button', { name: 'Record voice message' });
+    const assertAvailableControlTargets = async (phase: string) => {
+      await info.attach(`available-control-targets-${phase}`, {
+        body: JSON.stringify({
+          route: '/',
+          viewport: page.viewportSize(),
+          textScale: await page.evaluate(() => getComputedStyle(document.documentElement).fontSize),
+          boundary: 'Narrow production composition with deterministic token/voice props; no audio',
+          controls: await Promise.all(
+            [wheel, mic].map(async (control) => ({
+              label: await control.getAttribute('aria-label'),
+              bounds: await control.boundingBox(),
+              enabled: await control.isEnabled(),
+            })),
+          ),
+        }),
+        contentType: 'application/json',
+      });
+      for (const control of [wheel, mic]) {
+        await expect(control).toBeInViewport({ ratio: 1 });
+        // Check the real hit target without executing audio or changing state.
+        await control.click({ trial: true });
+      }
+    };
     for (const control of [wheel, mic]) {
       await expect(control).toBeVisible();
       await control.evaluate((node) => {
@@ -159,6 +182,7 @@ for (const theme of ['dark', 'light'])
         await expect(control).toBeVisible();
         await expect(control).toHaveAttribute('data-retained', 'original');
       }
+      await assertAvailableControlTargets(`normal-${width}`);
       await expect(page.locator('.chat-messages')).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
       await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
@@ -176,6 +200,7 @@ for (const theme of ['dark', 'light'])
         expect(bounds.height).toBeGreaterThanOrEqual(44);
       }
       await expect(input).toBeInViewport();
+      await assertAvailableControlTargets(`large-${width}`);
       await expect(input).toHaveAttribute('data-retained', 'original');
       await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
     }
@@ -183,6 +208,7 @@ for (const theme of ['dark', 'light'])
     await expect(input).toHaveAttribute('data-retained', 'original');
     await expect(wheel).toHaveAttribute('data-retained', 'original');
     await expect(mic).toHaveAttribute('data-retained', 'original');
+    await assertAvailableControlTargets('source-busy');
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
     await page.getByRole('button', { name: 'Choose who replies' }).click();
     await page.getByRole('checkbox', { name: 'Architect', exact: true }).uncheck();

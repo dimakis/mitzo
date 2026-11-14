@@ -1,0 +1,2584 @@
+﻿2026-11-14T13:40:25.4486467Z Current runner version: '2.338.2'
+2026-11-14T13:40:25.4513549Z ##[group]Runner Image Provisioner
+2026-11-14T13:40:25.4514671Z Hosted Compute Agent
+2026-11-14T13:40:25.4515360Z Version: 20261103.629
+2026-11-14T13:40:25.4516118Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-14T13:40:25.4516886Z Build Date: 2026-11-03T17:26:59Z
+2026-11-14T13:40:25.4517653Z Worker ID: {255e54a6-ee1c-4797-abeb-041de88f25e0}
+2026-11-14T13:40:25.4518403Z Region: eastus2
+2026-11-14T13:40:25.4518961Z Cloud: Azure
+2026-11-14T13:40:25.4519632Z ##[endgroup]
+2026-11-14T13:40:25.4521568Z ##[group]Operating System
+2026-11-14T13:40:25.4522390Z Ubuntu
+2026-11-14T13:40:25.4522945Z 24.04.5
+2026-11-14T13:40:25.4523465Z LTS
+2026-11-14T13:40:25.4524137Z ##[endgroup]
+2026-11-14T13:40:25.4524740Z ##[group]Runner Image
+2026-11-14T13:40:25.4525403Z Image: ubuntu-24.04
+2026-11-14T13:40:25.4526000Z Version: 20261111.370.1
+2026-11-14T13:40:25.4527338Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.370/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-14T13:40:25.4528947Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.370
+2026-11-14T13:40:25.4530346Z ##[endgroup]
+2026-11-14T13:40:25.4531592Z ##[group]GITHUB_TOKEN Permissions
+2026-11-14T13:40:25.4534033Z Contents: read
+2026-11-14T13:40:25.4534737Z Metadata: read
+2026-11-14T13:40:25.4535324Z ##[endgroup]
+2026-11-14T13:40:25.4537662Z Secret source: Actions
+2026-11-14T13:40:25.4538615Z Cache mode: write
+2026-11-14T13:40:25.4539713Z Prepare workflow directory
+2026-11-14T13:40:25.4883713Z Prepare all required actions
+2026-11-14T13:40:25.4932824Z Getting action download info
+2026-11-14T13:40:25.7183087Z Download action repository 'actions/checkout@v7' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-14T13:40:25.8826930Z Download action repository 'actions/upload-artifact@v7' (SHA:cf430e030ddbb5b0abf93d22962f4752f3646cd9)
+2026-11-14T13:40:26.0723427Z Complete job name: Ordinary authenticated application owners
+2026-11-14T13:40:26.1670834Z ##[group]Run actions/checkout@v7
+2026-11-14T13:40:26.1671816Z with:
+2026-11-14T13:40:26.1672295Z   persist-credentials: false
+2026-11-14T13:40:26.1672857Z   repository: dimakis/mitzo
+2026-11-14T13:40:26.1676868Z   token: ***
+2026-11-14T13:40:26.1677319Z   ssh-strict: true
+2026-11-14T13:40:26.1677897Z   ssh-user: git
+2026-11-14T13:40:26.1678347Z   clean: true
+2026-11-14T13:40:26.1678812Z   sparse-checkout-cone-mode: true
+2026-11-14T13:40:26.1679351Z   fetch-depth: 1
+2026-11-14T13:40:26.1679801Z   fetch-tags: false
+2026-11-14T13:40:26.1680450Z   show-progress: true
+2026-11-14T13:40:26.1680917Z   lfs: false
+2026-11-14T13:40:26.1681349Z   submodules: false
+2026-11-14T13:40:26.1681827Z   set-safe-directory: true
+2026-11-14T13:40:26.1682353Z   allow-unsafe-pr-checkout: false
+2026-11-14T13:40:26.1683185Z ##[endgroup]
+2026-11-14T13:40:26.4992922Z Syncing repository: dimakis/mitzo
+2026-11-14T13:40:26.4995857Z ##[group]Getting Git version info
+2026-11-14T13:40:26.4997171Z Working directory is '/home/runner/work/mitzo/mitzo'
+2026-11-14T13:40:26.4999283Z [command]/usr/bin/git version
+2026-11-14T13:40:26.5139677Z git version 2.56.1
+2026-11-14T13:40:26.5174309Z ##[endgroup]
+2026-11-14T13:40:26.5186513Z Temporarily overriding HOME='/home/runner/work/_temp/aaa9b281-5b3d-4653-ab09-52f84431457a' before making global git config changes
+2026-11-14T13:40:26.5188465Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T13:40:26.5191074Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T13:40:26.5254978Z Deleting the contents of '/home/runner/work/mitzo/mitzo'
+2026-11-14T13:40:26.5260267Z ##[group]Determining repository object format
+2026-11-14T13:40:26.5262291Z ##[endgroup]
+2026-11-14T13:40:26.5264149Z ##[group]Initializing the repository
+2026-11-14T13:40:26.5268264Z [command]/usr/bin/git init /home/runner/work/mitzo/mitzo
+2026-11-14T13:40:26.5433591Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-14T13:40:26.5435934Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-14T13:40:26.5437030Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-14T13:40:26.5437925Z hint: call:
+2026-11-14T13:40:26.5438438Z hint:
+2026-11-14T13:40:26.5439130Z hint: 	git config --global init.defaultBranch <name>
+2026-11-14T13:40:26.5440437Z hint:
+2026-11-14T13:40:26.5441327Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-14T13:40:26.5442419Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-14T13:40:26.5443311Z hint:
+2026-11-14T13:40:26.5444141Z hint: 	git branch -m <name>
+2026-11-14T13:40:26.5445175Z hint:
+2026-11-14T13:40:26.5446533Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-14T13:40:26.5448528Z Initialized empty Git repository in /home/runner/work/mitzo/mitzo/.git/
+2026-11-14T13:40:26.5465483Z [command]/usr/bin/git remote add origin https://github.com/dimakis/mitzo
+2026-11-14T13:40:26.5558606Z ##[endgroup]
+2026-11-14T13:40:26.5560713Z ##[group]Disabling automatic garbage collection
+2026-11-14T13:40:26.5562220Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-14T13:40:26.5611493Z ##[endgroup]
+2026-11-14T13:40:26.5613782Z ##[group]Setting up auth
+2026-11-14T13:40:26.5615415Z Removing SSH command configuration
+2026-11-14T13:40:26.5617700Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T13:40:26.5724168Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T13:40:26.6197687Z Removing HTTP extra header
+2026-11-14T13:40:26.6204352Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T13:40:26.6258357Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T13:40:26.6503638Z Removing includeIf entries pointing to credentials config files
+2026-11-14T13:40:26.6509004Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T13:40:26.6557985Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T13:40:26.6818772Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-14T13:40:26.6876672Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git.path /home/runner/work/_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config
+2026-11-14T13:40:26.6925305Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config
+2026-11-14T13:40:26.6975199Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config
+2026-11-14T13:40:26.7021513Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config
+2026-11-14T13:40:26.7064096Z ##[endgroup]
+2026-11-14T13:40:26.7070667Z ##[group]Fetching the repository
+2026-11-14T13:40:26.7072248Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +7464091c70a4442804c6be19d56c3e0a9d61d2ae:refs/remotes/pull/1355/merge
+2026-11-14T13:40:30.1070237Z From https://github.com/dimakis/mitzo
+2026-11-14T13:40:30.1072466Z  * [new ref]         7464091c70a4442804c6be19d56c3e0a9d61d2ae -> pull/1355/merge
+2026-11-14T13:40:30.1076352Z ##[endgroup]
+2026-11-14T13:40:30.1077933Z ##[group]Determining the checkout info
+2026-11-14T13:40:30.1081326Z ##[endgroup]
+2026-11-14T13:40:30.1083833Z [command]/usr/bin/git sparse-checkout disable
+2026-11-14T13:40:30.1165232Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-14T13:40:30.1210646Z ##[group]Checking out the ref
+2026-11-14T13:40:30.1215293Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1355/merge
+2026-11-14T13:40:30.8715330Z Note: switching to 'refs/remotes/pull/1355/merge'.
+2026-11-14T13:40:30.8716012Z 
+2026-11-14T13:40:30.8716434Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-14T13:40:30.8717348Z changes and commit them, and you can discard any commits you make in this
+2026-11-14T13:40:30.8718277Z state without impacting any branches by switching back to a branch.
+2026-11-14T13:40:30.8718852Z 
+2026-11-14T13:40:30.8719265Z If you want to create a new branch to retain commits you create, you may
+2026-11-14T13:40:30.8720463Z do so (now or later) by using -c with the switch command. Example:
+2026-11-14T13:40:30.8720946Z 
+2026-11-14T13:40:30.8721178Z   git switch -c <new-branch-name>
+2026-11-14T13:40:30.8721544Z 
+2026-11-14T13:40:30.8721782Z Or undo this operation with:
+2026-11-14T13:40:30.8722136Z 
+2026-11-14T13:40:30.8722343Z   git switch -
+2026-11-14T13:40:30.8722641Z 
+2026-11-14T13:40:30.8723137Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-14T13:40:30.8737050Z 
+2026-11-14T13:40:30.8751793Z HEAD is now at 7464091 Merge e668edff968a1e9a0b40a3803db39ec25ca9bcb4 into 0ad803cdae56ed6e22c89273ae800d3e7aeb9706
+2026-11-14T13:40:30.8765842Z ##[endgroup]
+2026-11-14T13:40:30.8840514Z [command]/usr/bin/git log -1 --format=%H
+2026-11-14T13:40:30.8895432Z 7464091c70a4442804c6be19d56c3e0a9d61d2ae
+2026-11-14T13:40:30.8935401Z ##[group]Removing auth
+2026-11-14T13:40:30.8936394Z Removing SSH command configuration
+2026-11-14T13:40:30.8937779Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T13:40:30.8977923Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T13:40:30.9239331Z Removing HTTP extra header
+2026-11-14T13:40:30.9243981Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T13:40:30.9288073Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T13:40:30.9546129Z Removing includeIf entries pointing to credentials config files
+2026-11-14T13:40:30.9551640Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T13:40:30.9592677Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T13:40:30.9593570Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T13:40:30.9594151Z includeif.gitdir:/github/workspace/.git.path
+2026-11-14T13:40:30.9594538Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T13:40:30.9602722Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T13:40:30.9639068Z /home/runner/work/_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config
+2026-11-14T13:40:30.9652884Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-459ad6fd\-2b14\-4b75\-a6cd\-c7608919a3b9\.config
+2026-11-14T13:40:30.9708913Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T13:40:30.9753667Z /home/runner/work/_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config
+2026-11-14T13:40:30.9763729Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-459ad6fd\-2b14\-4b75\-a6cd\-c7608919a3b9\.config
+2026-11-14T13:40:30.9811617Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-14T13:40:30.9847699Z /github/runner_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config
+2026-11-14T13:40:30.9856319Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-459ad6fd\-2b14\-4b75\-a6cd\-c7608919a3b9\.config
+2026-11-14T13:40:30.9908065Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T13:40:30.9945625Z /github/runner_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config
+2026-11-14T13:40:30.9954398Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-459ad6fd\-2b14\-4b75\-a6cd\-c7608919a3b9\.config
+2026-11-14T13:40:31.0000976Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T13:40:31.0255794Z Removing credentials config '/home/runner/work/_temp/git-credentials-459ad6fd-2b14-4b75-a6cd-c7608919a3b9.config'
+2026-11-14T13:40:31.0265413Z ##[endgroup]
+2026-11-14T13:40:31.0549165Z Prepare all required actions
+2026-11-14T13:40:31.0549755Z Getting action download info
+2026-11-14T13:40:31.1325034Z Download action repository 'actions/setup-node@v7' (SHA:949feb2413d6458794dcd2491c4babbbce0c15c1)
+2026-11-14T13:40:31.2353456Z ##[group]Run ./.github/actions/ci-node
+2026-11-14T13:40:31.2353775Z with:
+2026-11-14T13:40:31.2353984Z   node-version: 24.22.1
+2026-11-14T13:40:31.2354205Z ##[endgroup]
+2026-11-14T13:40:31.2414342Z ##[start-action display=Run actions/setup-node@v7;id=__self.__actions_setup-node]
+2026-11-14T13:40:31.2511756Z ##[group]Run actions/setup-node@v7
+2026-11-14T13:40:31.2512038Z with:
+2026-11-14T13:40:31.2512258Z   node-version: 24.22.1
+2026-11-14T13:40:31.2512483Z   cache: npm
+2026-11-14T13:40:31.2512681Z   check-latest: false
+2026-11-14T13:40:31.2515359Z   token: ***
+2026-11-14T13:40:31.2515583Z   package-manager-cache: true
+2026-11-14T13:40:31.2515832Z ##[endgroup]
+2026-11-14T13:40:31.3851619Z Attempting to download 24.22.1...
+2026-11-14T13:40:31.9455403Z Acquiring 24.22.1 - x64 from https://github.com/actions/node-versions/releases/download/24.22.1-39619001896/node-24.22.1-linux-x64.tar.gz
+2026-11-14T13:40:32.3707924Z Extracting ...
+2026-11-14T13:40:32.3864766Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/1c47cc45-17b5-4a28-915e-f1c1f488b430 -f /home/runner/work/_temp/23e4073c-2786-485d-b080-ac9c18a4def6
+2026-11-14T13:40:33.6230489Z Adding to the cache ...
+2026-11-14T13:40:35.4318185Z ##[group]Environment details
+2026-11-14T13:40:35.6779041Z node: v24.22.1
+2026-11-14T13:40:35.6779476Z npm: 11.19.1
+2026-11-14T13:40:35.6779798Z yarn: 1.22.22
+2026-11-14T13:40:35.6780843Z ##[endgroup]
+2026-11-14T13:40:35.6796965Z [command]/opt/hostedtoolcache/node/24.22.1/x64/bin/npm config get cache
+2026-11-14T13:40:35.7879159Z /home/runner/.npm
+2026-11-14T13:40:35.8789538Z Cache hit for: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T13:40:36.9281123Z Received 260046848 of 422744543 (61.5%), 247.8 MBs/sec
+2026-11-14T13:40:37.9264244Z Received 415236096 of 422744543 (98.2%), 197.8 MBs/sec
+2026-11-14T13:40:38.0280133Z Received 422744543 of 422744543 (100.0%), 191.7 MBs/sec
+2026-11-14T13:40:38.0281194Z Cache Size: ~403 MB (422744543 B)
+2026-11-14T13:40:38.0451769Z [command]/usr/bin/tar -xf /home/runner/work/_temp/421c4571-c748-4965-b023-f957b8752566/cache.tzst -P -C /home/runner/work/mitzo/mitzo --use-compress-program unzstd
+2026-11-14T13:40:38.9741004Z Cache restored successfully
+2026-11-14T13:40:38.9921210Z Cache restored from key: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T13:40:39.0124946Z ##[end-action id=__self.__actions_setup-node;outcome=success;conclusion=success;duration_ms=7770]
+2026-11-14T13:40:39.0128178Z ##[start-action display=Run npm install --global npm@11.18.0;id=__self.__run]
+2026-11-14T13:40:39.0167948Z ##[group]Run npm install --global npm@11.18.0
+2026-11-14T13:40:39.0168387Z [36;1mnpm install --global npm@11.18.0[0m
+2026-11-14T13:40:39.0196326Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T13:40:39.0196690Z ##[endgroup]
+2026-11-14T13:40:40.9984562Z 
+2026-11-14T13:40:40.9992771Z changed 18 packages in 2s
+2026-11-14T13:40:40.9993050Z 
+2026-11-14T13:40:40.9993265Z 15 packages are looking for funding
+2026-11-14T13:40:40.9993608Z   run `npm fund` for details
+2026-11-14T13:40:41.0530275Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=2040]
+2026-11-14T13:40:41.0533025Z ##[start-action display=Run npm install --no-audit;id=__self.__run_2]
+2026-11-14T13:40:41.0557428Z ##[group]Run npm install --no-audit
+2026-11-14T13:40:41.0557780Z [36;1mnpm install --no-audit[0m
+2026-11-14T13:40:41.0578330Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T13:40:41.0578685Z ##[endgroup]
+2026-11-14T13:40:42.0991802Z npm warn skipping integrity check for git dependency ssh://git@github.com/dimakis/contexgin.git
+2026-11-14T13:40:48.0168501Z npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+2026-11-14T13:40:49.1158008Z npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+2026-11-14T13:41:06.8844835Z npm warn gitignore-fallback No .npmignore file found, using .gitignore for file exclusion. Consider creating a .npmignore file to explicitly control published files.
+2026-11-14T13:41:17.0930195Z 
+2026-11-14T13:41:17.0930868Z > mitzo@1.0.0 postinstall
+2026-11-14T13:41:17.0931955Z > node scripts/prepare-terminal-native.mjs
+2026-11-14T13:41:17.0932524Z 
+2026-11-14T13:41:17.1834056Z 
+2026-11-14T13:41:17.1839097Z > mitzo@1.0.0 prepare
+2026-11-14T13:41:17.1839675Z > husky || true
+2026-11-14T13:41:17.1840230Z 
+2026-11-14T13:41:17.3725452Z 
+2026-11-14T13:41:17.3726110Z added 1026 packages in 36s
+2026-11-14T13:41:17.3726370Z 
+2026-11-14T13:41:17.3727366Z 280 packages are looking for funding
+2026-11-14T13:41:17.3729247Z   run `npm fund` for details
+2026-11-14T13:41:17.3748333Z npm warn allow-scripts 6 packages have install scripts not yet covered by allowScripts:
+2026-11-14T13:41:17.3749630Z npm warn allow-scripts   better-sqlite3@13.0.3 (install: node-gyp rebuild)
+2026-11-14T13:41:17.3751296Z npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)
+2026-11-14T13:41:17.3752625Z npm warn allow-scripts   esbuild@0.28.2 (postinstall: node install.js)
+2026-11-14T13:41:17.3754223Z npm warn allow-scripts   node-pty@1.1.0 (install: node scripts/prebuild.js || node-gyp rebuild; postinstall: node scripts/post-install.js)
+2026-11-14T13:41:17.3755870Z npm warn allow-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+2026-11-14T13:41:17.3757027Z npm warn allow-scripts   esbuild@0.25.12 (postinstall: node install.js)
+2026-11-14T13:41:17.3757758Z npm warn allow-scripts
+2026-11-14T13:41:17.3758895Z npm warn allow-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+2026-11-14T13:41:17.5115185Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=36458]
+2026-11-14T13:41:17.5158328Z ##[group]Run npm run check:source-artifacts
+2026-11-14T13:41:17.5158710Z [36;1mnpm run check:source-artifacts[0m
+2026-11-14T13:41:17.5179505Z shell: /usr/bin/bash -e {0}
+2026-11-14T13:41:17.5179766Z ##[endgroup]
+2026-11-14T13:41:17.6198535Z 
+2026-11-14T13:41:17.6199222Z > mitzo@1.0.0 check:source-artifacts
+2026-11-14T13:41:17.6200352Z > node scripts/check-reviewed-handler-artifacts.mjs --source
+2026-11-14T13:41:17.6200854Z 
+2026-11-14T13:41:18.0319360Z Reviewed handler artifacts verified for v1.0.2; Connections runtime v1.0.1171-symposium-integrated-acceptance.
+2026-11-14T13:41:18.0684414Z ##[group]Run set -o pipefail
+2026-11-14T13:41:18.0684764Z [36;1mset -o pipefail[0m
+2026-11-14T13:41:18.0686089Z [36;1mnpx vitest run tests/integration/symposium-ordinary-acceptance.test.tsx tests/integration/symposium-required-owners.test.ts server/__tests__/collaboration-application-fresh-agent-ui.test.tsx server/__tests__/collaboration-application-ui.test.tsx --maxWorkers=1 --reporter=verbose 2>&1 | tee symposium-application.log[0m
+2026-11-14T13:41:18.0708431Z shell: /usr/bin/bash -e {0}
+2026-11-14T13:41:18.0708694Z env:
+2026-11-14T13:41:18.0708937Z   NODE_OPTIONS: --max-old-space-size=1024
+2026-11-14T13:41:18.0709218Z ##[endgroup]
+2026-11-14T13:41:18.6385062Z 
+2026-11-14T13:41:18.6387149Z [1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/home/runner/work/mitzo/mitzo[39m
+2026-11-14T13:41:18.6388121Z 
+2026-11-14T13:41:20.8297190Z [90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx
+2026-11-14T13:41:20.8300486Z [22m[39mORDINARY_ACCEPTANCE_SOURCE {"head":"7464091c70a4442804c6be19d56c3e0a9d61d2ae","branch":"detached HEAD","testSha256":"1b8770cf9657151664f0c0909abcb4aca1dbfaa9eb714bca2e27fd0090d2fe19","node":"v24.22.1","build":"Vitest source transpilation","route":"/chat/:sessionId","widths":[320,390,1280],"renderer":"JSDOM; no visual acceptance","externalExecution":"deterministic RPC"}
+2026-11-14T13:41:20.8303072Z 
+2026-11-14T13:41:33.7537720Z {"level":30,"time":1794663693752,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663693692-1pxnut","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:34.1382931Z {"level":30,"time":1794663694137,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663693692-1pxnut","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:34.6204643Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 320px keeps one transcript/composer after silent joining
+2026-11-14T13:41:34.6206548Z [22m[39mSession links could not be refreshed {
+2026-11-14T13:41:34.6207351Z   code: [32m'session_launch_read_failed'[39m,
+2026-11-14T13:41:34.6208033Z   stage: [32m'read'[39m,
+2026-11-14T13:41:34.6208641Z   sessionId: [32m'existing-chat'[39m,
+2026-11-14T13:41:34.6209197Z   cause: [32m'Error'[39m
+2026-11-14T13:41:34.6209603Z }
+2026-11-14T13:41:34.6209815Z 
+2026-11-14T13:41:35.0473373Z  [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 320px keeps one transcript/composer after silent joining[33m 4293[2mms[22m[39m
+2026-11-14T13:41:35.1223965Z {"level":30,"time":1794663695121,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663695068-qgo31q","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:35.2226860Z {"level":30,"time":1794663695222,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663695068-qgo31q","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:35.6224789Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 390px keeps one transcript/composer after silent joining
+2026-11-14T13:41:35.6225903Z [22m[39mSession links could not be refreshed {
+2026-11-14T13:41:35.6226334Z   code: [32m'session_launch_read_failed'[39m,
+2026-11-14T13:41:35.6226677Z   stage: [32m'read'[39m,
+2026-11-14T13:41:35.6227128Z   sessionId: [32m'existing-chat'[39m,
+2026-11-14T13:41:35.6227445Z   cause: [32m'Error'[39m
+2026-11-14T13:41:35.6227696Z }
+2026-11-14T13:41:35.6227806Z 
+2026-11-14T13:41:35.9700858Z  [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 390px keeps one transcript/composer after silent joining[33m 923[2mms[22m[39m
+2026-11-14T13:41:36.0425089Z {"level":30,"time":1794663696042,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663695987-zwjsxk","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:36.1563597Z {"level":30,"time":1794663696155,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663695987-zwjsxk","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:36.7362895Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 1280px keeps one transcript/composer after silent joining
+2026-11-14T13:41:36.7364406Z [22m[39mSession links could not be refreshed {
+2026-11-14T13:41:36.7365090Z   code: [32m'session_launch_read_failed'[39m,
+2026-11-14T13:41:36.7365670Z   stage: [32m'read'[39m,
+2026-11-14T13:41:36.7366249Z   sessionId: [32m'existing-chat'[39m,
+2026-11-14T13:41:36.7366903Z   cause: [32m'Error'[39m
+2026-11-14T13:41:36.7367426Z }
+2026-11-14T13:41:36.7367692Z 
+2026-11-14T13:41:37.1596251Z  [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 1280px keeps one transcript/composer after silent joining[33m 1189[2mms[22m[39m
+2026-11-14T13:41:37.2339352Z {"level":30,"time":1794663697233,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663697180-kd69c3","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:37.3100635Z {"level":30,"time":1794663697309,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663697180-kd69c3","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:37.6619821Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:37.6621885Z [22m[39mSession links could not be refreshed {
+2026-11-14T13:41:37.6622591Z   code: [32m'session_launch_read_failed'[39m,
+2026-11-14T13:41:37.6623241Z   stage: [32m'read'[39m,
+2026-11-14T13:41:37.6623775Z   sessionId: [32m'existing-chat'[39m,
+2026-11-14T13:41:37.6624280Z   cause: [32m'Error'[39m
+2026-11-14T13:41:37.6624926Z }
+2026-11-14T13:41:37.6625118Z 
+2026-11-14T13:41:37.9736208Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:37.9738815Z [22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+2026-11-14T13:41:37.9739618Z 
+2026-11-14T13:41:37.9740781Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:37.9741243Z 
+2026-11-14T13:41:37.9741364Z act(() => {
+2026-11-14T13:41:37.9741701Z   /* fire events that update state */
+2026-11-14T13:41:37.9742077Z });
+2026-11-14T13:41:37.9742364Z /* assert on the output */
+2026-11-14T13:41:37.9742569Z 
+2026-11-14T13:41:37.9743356Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:37.9744362Z An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+2026-11-14T13:41:37.9744758Z 
+2026-11-14T13:41:37.9745128Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:37.9745510Z 
+2026-11-14T13:41:37.9745606Z act(() => {
+2026-11-14T13:41:37.9745868Z   /* fire events that update state */
+2026-11-14T13:41:37.9746161Z });
+2026-11-14T13:41:37.9746396Z /* assert on the output */
+2026-11-14T13:41:37.9746564Z 
+2026-11-14T13:41:37.9747210Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:37.9747799Z 
+2026-11-14T13:41:37.9771064Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:37.9772216Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:37.9772577Z 
+2026-11-14T13:41:37.9772911Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:37.9773236Z 
+2026-11-14T13:41:37.9773319Z act(() => {
+2026-11-14T13:41:37.9773564Z   /* fire events that update state */
+2026-11-14T13:41:37.9773821Z });
+2026-11-14T13:41:37.9774030Z /* assert on the output */
+2026-11-14T13:41:37.9774186Z 
+2026-11-14T13:41:37.9774747Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:37.9775244Z 
+2026-11-14T13:41:37.9888622Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:37.9890487Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:37.9890892Z 
+2026-11-14T13:41:37.9891314Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:37.9891729Z 
+2026-11-14T13:41:37.9891828Z act(() => {
+2026-11-14T13:41:37.9892124Z   /* fire events that update state */
+2026-11-14T13:41:37.9892440Z });
+2026-11-14T13:41:37.9892689Z /* assert on the output */
+2026-11-14T13:41:37.9892879Z 
+2026-11-14T13:41:37.9893589Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:37.9894605Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:37.9895013Z 
+2026-11-14T13:41:37.9895406Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:37.9895811Z 
+2026-11-14T13:41:37.9895921Z act(() => {
+2026-11-14T13:41:37.9896335Z   /* fire events that update state */
+2026-11-14T13:41:37.9896773Z });
+2026-11-14T13:41:37.9897129Z /* assert on the output */
+2026-11-14T13:41:37.9897388Z 
+2026-11-14T13:41:37.9898339Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:37.9899784Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:37.9900412Z 
+2026-11-14T13:41:37.9900741Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:37.9901063Z 
+2026-11-14T13:41:37.9901144Z act(() => {
+2026-11-14T13:41:37.9901376Z   /* fire events that update state */
+2026-11-14T13:41:37.9901627Z });
+2026-11-14T13:41:37.9901832Z /* assert on the output */
+2026-11-14T13:41:37.9901983Z 
+2026-11-14T13:41:37.9902525Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:37.9903275Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:37.9903545Z 
+2026-11-14T13:41:37.9903850Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:37.9904179Z 
+2026-11-14T13:41:37.9904262Z act(() => {
+2026-11-14T13:41:37.9904488Z   /* fire events that update state */
+2026-11-14T13:41:37.9904734Z });
+2026-11-14T13:41:37.9904938Z /* assert on the output */
+2026-11-14T13:41:37.9905084Z 
+2026-11-14T13:41:37.9905633Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:37.9906122Z 
+2026-11-14T13:41:37.9907014Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:37.9908034Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:37.9908711Z 
+2026-11-14T13:41:37.9909152Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:37.9909475Z 
+2026-11-14T13:41:37.9909561Z act(() => {
+2026-11-14T13:41:37.9909789Z   /* fire events that update state */
+2026-11-14T13:41:37.9910243Z });
+2026-11-14T13:41:37.9910481Z /* assert on the output */
+2026-11-14T13:41:37.9910750Z 
+2026-11-14T13:41:37.9911298Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:37.9912087Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:37.9912408Z 
+2026-11-14T13:41:37.9912716Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:37.9913031Z 
+2026-11-14T13:41:37.9913109Z act(() => {
+2026-11-14T13:41:37.9913340Z   /* fire events that update state */
+2026-11-14T13:41:37.9913584Z });
+2026-11-14T13:41:37.9913790Z /* assert on the output */
+2026-11-14T13:41:37.9913985Z 
+2026-11-14T13:41:37.9914524Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:37.9915009Z 
+2026-11-14T13:41:38.0134370Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:38.0135575Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0135929Z 
+2026-11-14T13:41:38.0136466Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0137039Z 
+2026-11-14T13:41:38.0137188Z act(() => {
+2026-11-14T13:41:38.0137661Z   /* fire events that update state */
+2026-11-14T13:41:38.0138102Z });
+2026-11-14T13:41:38.0138478Z /* assert on the output */
+2026-11-14T13:41:38.0138719Z 
+2026-11-14T13:41:38.0139654Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0141269Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0141874Z 
+2026-11-14T13:41:38.0142407Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0142980Z 
+2026-11-14T13:41:38.0143120Z act(() => {
+2026-11-14T13:41:38.0143504Z   /* fire events that update state */
+2026-11-14T13:41:38.0143931Z });
+2026-11-14T13:41:38.0144268Z /* assert on the output */
+2026-11-14T13:41:38.0144507Z 
+2026-11-14T13:41:38.0145454Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0146841Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0147440Z 
+2026-11-14T13:41:38.0147993Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0148632Z 
+2026-11-14T13:41:38.0148798Z act(() => {
+2026-11-14T13:41:38.0149203Z   /* fire events that update state */
+2026-11-14T13:41:38.0149644Z });
+2026-11-14T13:41:38.0150234Z /* assert on the output */
+2026-11-14T13:41:38.0150506Z 
+2026-11-14T13:41:38.0151471Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0152804Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0153289Z 
+2026-11-14T13:41:38.0153834Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0154176Z 
+2026-11-14T13:41:38.0154260Z act(() => {
+2026-11-14T13:41:38.0154508Z   /* fire events that update state */
+2026-11-14T13:41:38.0154771Z });
+2026-11-14T13:41:38.0154976Z /* assert on the output */
+2026-11-14T13:41:38.0155137Z 
+2026-11-14T13:41:38.0156011Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0156772Z 
+2026-11-14T13:41:38.0242447Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:38.0243570Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0243925Z 
+2026-11-14T13:41:38.0244252Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0244582Z 
+2026-11-14T13:41:38.0244665Z act(() => {
+2026-11-14T13:41:38.0244910Z   /* fire events that update state */
+2026-11-14T13:41:38.0245164Z });
+2026-11-14T13:41:38.0245372Z /* assert on the output */
+2026-11-14T13:41:38.0245525Z 
+2026-11-14T13:41:38.0246088Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0246916Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0247248Z 
+2026-11-14T13:41:38.0247573Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0247910Z 
+2026-11-14T13:41:38.0247996Z act(() => {
+2026-11-14T13:41:38.0248233Z   /* fire events that update state */
+2026-11-14T13:41:38.0248490Z });
+2026-11-14T13:41:38.0248701Z /* assert on the output */
+2026-11-14T13:41:38.0248850Z 
+2026-11-14T13:41:38.0249405Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0250321Z 
+2026-11-14T13:41:38.0429342Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:38.0431408Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0431771Z 
+2026-11-14T13:41:38.0432481Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0433105Z 
+2026-11-14T13:41:38.0433280Z act(() => {
+2026-11-14T13:41:38.0433733Z   /* fire events that update state */
+2026-11-14T13:41:38.0434214Z });
+2026-11-14T13:41:38.0434600Z /* assert on the output */
+2026-11-14T13:41:38.0434905Z 
+2026-11-14T13:41:38.0435488Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0436618Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0437249Z 
+2026-11-14T13:41:38.0437878Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0438474Z 
+2026-11-14T13:41:38.0438574Z act(() => {
+2026-11-14T13:41:38.0439015Z   /* fire events that update state */
+2026-11-14T13:41:38.0439521Z });
+2026-11-14T13:41:38.0440167Z /* assert on the output */
+2026-11-14T13:41:38.0440497Z 
+2026-11-14T13:41:38.0441621Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0442766Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0443189Z 
+2026-11-14T13:41:38.0443766Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0444426Z 
+2026-11-14T13:41:38.0444597Z act(() => {
+2026-11-14T13:41:38.0445045Z   /* fire events that update state */
+2026-11-14T13:41:38.0445465Z });
+2026-11-14T13:41:38.0445686Z /* assert on the output */
+2026-11-14T13:41:38.0445848Z 
+2026-11-14T13:41:38.0446963Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0448034Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:38.0448317Z 
+2026-11-14T13:41:38.0448854Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:38.0449633Z 
+2026-11-14T13:41:38.0449726Z act(() => {
+2026-11-14T13:41:38.0450302Z   /* fire events that update state */
+2026-11-14T13:41:38.0450569Z });
+2026-11-14T13:41:38.0450784Z /* assert on the output */
+2026-11-14T13:41:38.0450943Z 
+2026-11-14T13:41:38.0451500Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:38.0452000Z 
+2026-11-14T13:41:39.3440380Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:39.3441646Z [22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+2026-11-14T13:41:39.3442032Z 
+2026-11-14T13:41:39.3442424Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:39.3442841Z 
+2026-11-14T13:41:39.3442983Z act(() => {
+2026-11-14T13:41:39.3443284Z   /* fire events that update state */
+2026-11-14T13:41:39.3443606Z });
+2026-11-14T13:41:39.3443854Z /* assert on the output */
+2026-11-14T13:41:39.3444042Z 
+2026-11-14T13:41:39.3444746Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:39.3445387Z 
+2026-11-14T13:41:39.3609435Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:39.3611844Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:39.3612549Z 
+2026-11-14T13:41:39.3613100Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:39.3613482Z 
+2026-11-14T13:41:39.3613587Z act(() => {
+2026-11-14T13:41:39.3613857Z   /* fire events that update state */
+2026-11-14T13:41:39.3614158Z });
+2026-11-14T13:41:39.3614423Z /* assert on the output */
+2026-11-14T13:41:39.3614609Z 
+2026-11-14T13:41:39.3615262Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:39.3616213Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:39.3616583Z 
+2026-11-14T13:41:39.3616954Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:39.3617334Z 
+2026-11-14T13:41:39.3617423Z act(() => {
+2026-11-14T13:41:39.3617688Z   /* fire events that update state */
+2026-11-14T13:41:39.3617977Z });
+2026-11-14T13:41:39.3618203Z /* assert on the output */
+2026-11-14T13:41:39.3618374Z 
+2026-11-14T13:41:39.3619017Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:39.3620181Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:39.3620559Z 
+2026-11-14T13:41:39.3620925Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:39.3621301Z 
+2026-11-14T13:41:39.3621394Z act(() => {
+2026-11-14T13:41:39.3621649Z   /* fire events that update state */
+2026-11-14T13:41:39.3621929Z });
+2026-11-14T13:41:39.3622156Z /* assert on the output */
+2026-11-14T13:41:39.3622319Z 
+2026-11-14T13:41:39.3622957Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:39.3623818Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:39.3624127Z 
+2026-11-14T13:41:39.3624446Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:39.3624779Z 
+2026-11-14T13:41:39.3624860Z act(() => {
+2026-11-14T13:41:39.3625092Z   /* fire events that update state */
+2026-11-14T13:41:39.3625334Z });
+2026-11-14T13:41:39.3625531Z /* assert on the output */
+2026-11-14T13:41:39.3626499Z 
+2026-11-14T13:41:39.3627208Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:39.3627720Z 
+2026-11-14T13:41:39.4313739Z {"level":30,"time":1794663699430,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663699374-y3gzop","sessionId":"ba5e6500-804e-805e-bfbd-4b51a925c1f9","cursor":19,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:39.5637236Z {"level":30,"time":1794663699563,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663699374-y3gzop","sessionId":"ba5e6500-804e-805e-bfbd-4b51a925c1f9","cursor":19,"msg":"cursor reset on reconnect"}
+2026-11-14T13:41:44.1842881Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:44.1845139Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:44.1845832Z 
+2026-11-14T13:41:44.1846439Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:44.1847073Z 
+2026-11-14T13:41:44.1847282Z act(() => {
+2026-11-14T13:41:44.1847742Z   /* fire events that update state */
+2026-11-14T13:41:44.1848164Z });
+2026-11-14T13:41:44.1848517Z /* assert on the output */
+2026-11-14T13:41:44.1848780Z 
+2026-11-14T13:41:44.1849785Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:44.1851038Z 
+2026-11-14T13:41:44.1852453Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:44.1854250Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:44.1854923Z 
+2026-11-14T13:41:44.1855508Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:44.1856088Z 
+2026-11-14T13:41:44.1856248Z act(() => {
+2026-11-14T13:41:44.1856674Z   /* fire events that update state */
+2026-11-14T13:41:44.1857133Z });
+2026-11-14T13:41:44.1857508Z /* assert on the output */
+2026-11-14T13:41:44.1857774Z 
+2026-11-14T13:41:44.1858811Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:44.1859725Z 
+2026-11-14T13:41:44.1977246Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:44.1979284Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:44.1979848Z 
+2026-11-14T13:41:44.1980777Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:44.1981383Z 
+2026-11-14T13:41:44.1981533Z act(() => {
+2026-11-14T13:41:44.1981957Z   /* fire events that update state */
+2026-11-14T13:41:44.1982382Z });
+2026-11-14T13:41:44.1982731Z /* assert on the output */
+2026-11-14T13:41:44.1983004Z 
+2026-11-14T13:41:44.1983936Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:44.1985336Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:44.1985876Z 
+2026-11-14T13:41:44.1986426Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:44.1987299Z 
+2026-11-14T13:41:44.1987796Z act(() => {
+2026-11-14T13:41:44.1988471Z   /* fire events that update state */
+2026-11-14T13:41:44.1988986Z });
+2026-11-14T13:41:44.1989378Z /* assert on the output */
+2026-11-14T13:41:44.1989624Z 
+2026-11-14T13:41:44.1990995Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:44.1993269Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:44.1993781Z 
+2026-11-14T13:41:44.1994336Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:44.1994905Z 
+2026-11-14T13:41:44.1995083Z act(() => {
+2026-11-14T13:41:44.1995572Z   /* fire events that update state */
+2026-11-14T13:41:44.1996008Z });
+2026-11-14T13:41:44.1996353Z /* assert on the output */
+2026-11-14T13:41:44.1996648Z 
+2026-11-14T13:41:44.1997672Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:44.1998589Z 
+2026-11-14T13:41:44.2323873Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:44.2325239Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:44.2325711Z 
+2026-11-14T13:41:44.2326102Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:44.2326489Z 
+2026-11-14T13:41:44.2326589Z act(() => {
+2026-11-14T13:41:44.2326867Z   /* fire events that update state */
+2026-11-14T13:41:44.2327165Z });
+2026-11-14T13:41:44.2327402Z /* assert on the output */
+2026-11-14T13:41:44.2327584Z 
+2026-11-14T13:41:44.2328325Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:44.2328933Z 
+2026-11-14T13:41:44.2419016Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:44.2420492Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:44.2420828Z 
+2026-11-14T13:41:44.2421186Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:44.2421587Z 
+2026-11-14T13:41:44.2421675Z act(() => {
+2026-11-14T13:41:44.2421934Z   /* fire events that update state */
+2026-11-14T13:41:44.2422211Z });
+2026-11-14T13:41:44.2422431Z /* assert on the output */
+2026-11-14T13:41:44.2422599Z 
+2026-11-14T13:41:44.2423210Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:44.2423755Z 
+2026-11-14T13:41:44.2604081Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:44.2606242Z [22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+2026-11-14T13:41:44.2606831Z 
+2026-11-14T13:41:44.2607428Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:44.2608026Z 
+2026-11-14T13:41:44.2608233Z act(() => {
+2026-11-14T13:41:44.2608683Z   /* fire events that update state */
+2026-11-14T13:41:44.2609138Z });
+2026-11-14T13:41:44.2609475Z /* assert on the output */
+2026-11-14T13:41:44.2609748Z 
+2026-11-14T13:41:44.2611057Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:44.2611976Z 
+2026-11-14T13:41:44.3249464Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:44.3251765Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:44.3252268Z 
+2026-11-14T13:41:44.3252834Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:44.3253416Z 
+2026-11-14T13:41:44.3253566Z act(() => {
+2026-11-14T13:41:44.3254019Z   /* fire events that update state */
+2026-11-14T13:41:44.3254955Z });
+2026-11-14T13:41:44.3255346Z /* assert on the output */
+2026-11-14T13:41:44.3255931Z 
+2026-11-14T13:41:44.3256956Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:44.3257777Z 
+2026-11-14T13:41:48.8336718Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:48.8338807Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8339455Z 
+2026-11-14T13:41:48.8340312Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8340919Z 
+2026-11-14T13:41:48.8341015Z act(() => {
+2026-11-14T13:41:48.8341283Z   /* fire events that update state */
+2026-11-14T13:41:48.8341553Z });
+2026-11-14T13:41:48.8341769Z /* assert on the output */
+2026-11-14T13:41:48.8341934Z 
+2026-11-14T13:41:48.8342558Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8343372Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8343696Z 
+2026-11-14T13:41:48.8344016Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8344341Z 
+2026-11-14T13:41:48.8344430Z act(() => {
+2026-11-14T13:41:48.8344663Z   /* fire events that update state */
+2026-11-14T13:41:48.8344911Z });
+2026-11-14T13:41:48.8345121Z /* assert on the output */
+2026-11-14T13:41:48.8345267Z 
+2026-11-14T13:41:48.8345816Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8346308Z 
+2026-11-14T13:41:48.8347177Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:48.8348186Z [22m[39mAn update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8348510Z 
+2026-11-14T13:41:48.8348818Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8349140Z 
+2026-11-14T13:41:48.8349226Z act(() => {
+2026-11-14T13:41:48.8349458Z   /* fire events that update state */
+2026-11-14T13:41:48.8349711Z });
+2026-11-14T13:41:48.8350267Z /* assert on the output */
+2026-11-14T13:41:48.8350492Z 
+2026-11-14T13:41:48.8351059Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8351856Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8352154Z 
+2026-11-14T13:41:48.8352470Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8352784Z 
+2026-11-14T13:41:48.8352874Z act(() => {
+2026-11-14T13:41:48.8353123Z   /* fire events that update state */
+2026-11-14T13:41:48.8353396Z });
+2026-11-14T13:41:48.8353602Z /* assert on the output */
+2026-11-14T13:41:48.8353758Z 
+2026-11-14T13:41:48.8354301Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8355068Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8355356Z 
+2026-11-14T13:41:48.8355668Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8355988Z 
+2026-11-14T13:41:48.8356075Z act(() => {
+2026-11-14T13:41:48.8356301Z   /* fire events that update state */
+2026-11-14T13:41:48.8356544Z });
+2026-11-14T13:41:48.8356739Z /* assert on the output */
+2026-11-14T13:41:48.8356886Z 
+2026-11-14T13:41:48.8357426Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8358641Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8358936Z 
+2026-11-14T13:41:48.8359246Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8359740Z 
+2026-11-14T13:41:48.8360114Z act(() => {
+2026-11-14T13:41:48.8360535Z   /* fire events that update state */
+2026-11-14T13:41:48.8360996Z });
+2026-11-14T13:41:48.8361358Z /* assert on the output */
+2026-11-14T13:41:48.8361619Z 
+2026-11-14T13:41:48.8362617Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8363509Z 
+2026-11-14T13:41:48.8572033Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:48.8574078Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8574746Z 
+2026-11-14T13:41:48.8575352Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8575928Z 
+2026-11-14T13:41:48.8576089Z act(() => {
+2026-11-14T13:41:48.8576535Z   /* fire events that update state */
+2026-11-14T13:41:48.8576983Z });
+2026-11-14T13:41:48.8577358Z /* assert on the output */
+2026-11-14T13:41:48.8577634Z 
+2026-11-14T13:41:48.8578716Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8580327Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8580843Z 
+2026-11-14T13:41:48.8581447Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8582031Z 
+2026-11-14T13:41:48.8582184Z act(() => {
+2026-11-14T13:41:48.8582621Z   /* fire events that update state */
+2026-11-14T13:41:48.8583084Z });
+2026-11-14T13:41:48.8583465Z /* assert on the output */
+2026-11-14T13:41:48.8583750Z 
+2026-11-14T13:41:48.8585039Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8586646Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8587362Z 
+2026-11-14T13:41:48.8588272Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8588894Z 
+2026-11-14T13:41:48.8589055Z act(() => {
+2026-11-14T13:41:48.8589485Z   /* fire events that update state */
+2026-11-14T13:41:48.8590169Z });
+2026-11-14T13:41:48.8590542Z /* assert on the output */
+2026-11-14T13:41:48.8590818Z 
+2026-11-14T13:41:48.8591985Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8593494Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8594125Z 
+2026-11-14T13:41:48.8595482Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8596135Z 
+2026-11-14T13:41:48.8596279Z act(() => {
+2026-11-14T13:41:48.8596699Z   /* fire events that update state */
+2026-11-14T13:41:48.8597152Z });
+2026-11-14T13:41:48.8597518Z /* assert on the output */
+2026-11-14T13:41:48.8597790Z 
+2026-11-14T13:41:48.8598813Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8600507Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8600916Z 
+2026-11-14T13:41:48.8601248Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8601587Z 
+2026-11-14T13:41:48.8601677Z act(() => {
+2026-11-14T13:41:48.8601915Z   /* fire events that update state */
+2026-11-14T13:41:48.8602182Z });
+2026-11-14T13:41:48.8602402Z /* assert on the output */
+2026-11-14T13:41:48.8602564Z 
+2026-11-14T13:41:48.8603587Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8604418Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8604747Z 
+2026-11-14T13:41:48.8605077Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8605402Z 
+2026-11-14T13:41:48.8605492Z act(() => {
+2026-11-14T13:41:48.8605730Z   /* fire events that update state */
+2026-11-14T13:41:48.8605994Z });
+2026-11-14T13:41:48.8606204Z /* assert on the output */
+2026-11-14T13:41:48.8606364Z 
+2026-11-14T13:41:48.8606915Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8607719Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8608030Z 
+2026-11-14T13:41:48.8608343Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8608681Z 
+2026-11-14T13:41:48.8608763Z act(() => {
+2026-11-14T13:41:48.8608997Z   /* fire events that update state */
+2026-11-14T13:41:48.8609247Z });
+2026-11-14T13:41:48.8609451Z /* assert on the output */
+2026-11-14T13:41:48.8609603Z 
+2026-11-14T13:41:48.8610613Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8611957Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8612356Z 
+2026-11-14T13:41:48.8612671Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8612991Z 
+2026-11-14T13:41:48.8613077Z act(() => {
+2026-11-14T13:41:48.8613308Z   /* fire events that update state */
+2026-11-14T13:41:48.8613558Z });
+2026-11-14T13:41:48.8613761Z /* assert on the output */
+2026-11-14T13:41:48.8613907Z 
+2026-11-14T13:41:48.8614460Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8615194Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8615462Z 
+2026-11-14T13:41:48.8615774Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8616083Z 
+2026-11-14T13:41:48.8616168Z act(() => {
+2026-11-14T13:41:48.8616396Z   /* fire events that update state */
+2026-11-14T13:41:48.8616648Z });
+2026-11-14T13:41:48.8616844Z /* assert on the output */
+2026-11-14T13:41:48.8616992Z 
+2026-11-14T13:41:48.8617523Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8618250Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8618511Z 
+2026-11-14T13:41:48.8618818Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8619140Z 
+2026-11-14T13:41:48.8619225Z act(() => {
+2026-11-14T13:41:48.8619451Z   /* fire events that update state */
+2026-11-14T13:41:48.8619698Z });
+2026-11-14T13:41:48.8620220Z /* assert on the output */
+2026-11-14T13:41:48.8620397Z 
+2026-11-14T13:41:48.8620951Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8621688Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:48.8621961Z 
+2026-11-14T13:41:48.8622280Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:48.8622602Z 
+2026-11-14T13:41:48.8622687Z act(() => {
+2026-11-14T13:41:48.8622913Z   /* fire events that update state */
+2026-11-14T13:41:48.8623169Z });
+2026-11-14T13:41:48.8623373Z /* assert on the output */
+2026-11-14T13:41:48.8623520Z 
+2026-11-14T13:41:48.8624067Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:48.8624864Z 
+2026-11-14T13:41:49.4265912Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:49.4267431Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:49.4268058Z 
+2026-11-14T13:41:49.4268675Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:49.4269295Z 
+2026-11-14T13:41:49.4269637Z act(() => {
+2026-11-14T13:41:49.4270468Z   /* fire events that update state */
+2026-11-14T13:41:49.4271007Z });
+2026-11-14T13:41:49.4271385Z /* assert on the output */
+2026-11-14T13:41:49.4271652Z 
+2026-11-14T13:41:49.4272679Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:49.4273660Z 
+2026-11-14T13:41:49.4275520Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:49.4277349Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:49.4278019Z 
+2026-11-14T13:41:49.4278646Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:49.4279229Z 
+2026-11-14T13:41:49.4279380Z act(() => {
+2026-11-14T13:41:49.4279749Z   /* fire events that update state */
+2026-11-14T13:41:49.4280518Z });
+2026-11-14T13:41:49.4280906Z /* assert on the output */
+2026-11-14T13:41:49.4281210Z 
+2026-11-14T13:41:49.4282260Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:49.4283244Z 
+2026-11-14T13:41:49.4568105Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:49.4570171Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:49.4570694Z 
+2026-11-14T13:41:49.4571190Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:49.4571691Z 
+2026-11-14T13:41:49.4571837Z act(() => {
+2026-11-14T13:41:49.4572233Z   /* fire events that update state */
+2026-11-14T13:41:49.4572635Z });
+2026-11-14T13:41:49.4572935Z /* assert on the output */
+2026-11-14T13:41:49.4573188Z 
+2026-11-14T13:41:49.4574016Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:49.4575414Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:41:49.4575969Z 
+2026-11-14T13:41:49.4576505Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:49.4577094Z 
+2026-11-14T13:41:49.4577234Z act(() => {
+2026-11-14T13:41:49.4577623Z   /* fire events that update state */
+2026-11-14T13:41:49.4578018Z });
+2026-11-14T13:41:49.4578339Z /* assert on the output */
+2026-11-14T13:41:49.4578595Z 
+2026-11-14T13:41:49.4579557Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:49.4581082Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:49.4581544Z 
+2026-11-14T13:41:49.4582072Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:49.4582594Z 
+2026-11-14T13:41:49.4582724Z act(() => {
+2026-11-14T13:41:49.4583061Z   /* fire events that update state */
+2026-11-14T13:41:49.4583431Z });
+2026-11-14T13:41:49.4583735Z /* assert on the output */
+2026-11-14T13:41:49.4583963Z 
+2026-11-14T13:41:49.4584829Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:49.4586012Z 
+2026-11-14T13:41:49.5098311Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:49.5100731Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:49.5101394Z 
+2026-11-14T13:41:49.5102015Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:49.5102648Z 
+2026-11-14T13:41:49.5102821Z act(() => {
+2026-11-14T13:41:49.5103258Z   /* fire events that update state */
+2026-11-14T13:41:49.5103735Z });
+2026-11-14T13:41:49.5104129Z /* assert on the output */
+2026-11-14T13:41:49.5104402Z 
+2026-11-14T13:41:49.5105442Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:49.5106370Z 
+2026-11-14T13:41:49.5375919Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:49.5377832Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:49.5378406Z 
+2026-11-14T13:41:49.5379017Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:49.5379575Z 
+2026-11-14T13:41:49.5379727Z act(() => {
+2026-11-14T13:41:49.5380435Z   /* fire events that update state */
+2026-11-14T13:41:49.5380866Z });
+2026-11-14T13:41:49.5381212Z /* assert on the output */
+2026-11-14T13:41:49.5381467Z 
+2026-11-14T13:41:49.5382490Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:49.5383415Z 
+2026-11-14T13:41:50.1534785Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:50.1536400Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:50.1536838Z 
+2026-11-14T13:41:50.1537233Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:50.1537624Z 
+2026-11-14T13:41:50.1537719Z act(() => {
+2026-11-14T13:41:50.1537991Z   /* fire events that update state */
+2026-11-14T13:41:50.1538289Z });
+2026-11-14T13:41:50.1538522Z /* assert on the output */
+2026-11-14T13:41:50.1538697Z 
+2026-11-14T13:41:50.1539351Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:50.1540627Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:50.1541005Z 
+2026-11-14T13:41:50.1541369Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:50.1541745Z 
+2026-11-14T13:41:50.1541859Z act(() => {
+2026-11-14T13:41:50.1542129Z   /* fire events that update state */
+2026-11-14T13:41:50.1542419Z });
+2026-11-14T13:41:50.1542675Z /* assert on the output */
+2026-11-14T13:41:50.1543251Z 
+2026-11-14T13:41:50.1543984Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:50.1544604Z 
+2026-11-14T13:41:50.1665799Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:50.1667588Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:50.1667960Z 
+2026-11-14T13:41:50.1668464Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:50.1668878Z 
+2026-11-14T13:41:50.1669068Z act(() => {
+2026-11-14T13:41:50.1669492Z   /* fire events that update state */
+2026-11-14T13:41:50.1670174Z });
+2026-11-14T13:41:50.1671148Z /* assert on the output */
+2026-11-14T13:41:50.1671670Z 
+2026-11-14T13:41:50.1730822Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:50.1731763Z 
+2026-11-14T13:41:50.1961489Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:50.1962781Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:50.1963211Z 
+2026-11-14T13:41:50.1963616Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:50.1964007Z 
+2026-11-14T13:41:50.1964104Z act(() => {
+2026-11-14T13:41:50.1964389Z   /* fire events that update state */
+2026-11-14T13:41:50.1964697Z });
+2026-11-14T13:41:50.1964938Z /* assert on the output */
+2026-11-14T13:41:50.1965121Z 
+2026-11-14T13:41:50.1965842Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:50.1966870Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:41:50.1967277Z 
+2026-11-14T13:41:50.1967673Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:50.1968088Z 
+2026-11-14T13:41:50.1968202Z act(() => {
+2026-11-14T13:41:50.1968492Z   /* fire events that update state */
+2026-11-14T13:41:50.1968810Z });
+2026-11-14T13:41:50.1969077Z /* assert on the output */
+2026-11-14T13:41:50.1969259Z 
+2026-11-14T13:41:50.1970201Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:50.1970940Z 
+2026-11-14T13:41:50.2105931Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:41:50.2107669Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:41:50.2108065Z 
+2026-11-14T13:41:50.2108461Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:41:50.2108872Z 
+2026-11-14T13:41:50.2108976Z act(() => {
+2026-11-14T13:41:50.2109262Z   /* fire events that update state */
+2026-11-14T13:41:50.2109578Z });
+2026-11-14T13:41:50.2110132Z /* assert on the output */
+2026-11-14T13:41:50.2110405Z 
+2026-11-14T13:41:50.2111123Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:41:50.2111764Z 
+2026-11-14T13:42:02.9045174Z {"level":30,"time":1794663722903,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663722893-5l9xy2","sessionId":"ba5e6500-804e-805e-bfbd-4b51a925c1f9","cursor":64,"msg":"cursor reset on reconnect"}
+2026-11-14T13:42:14.1362423Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:14.1363769Z [22m[39mAn update to CodexQueueStatus inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.1364195Z 
+2026-11-14T13:42:14.1364612Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.1365029Z 
+2026-11-14T13:42:14.1365148Z act(() => {
+2026-11-14T13:42:14.1365449Z   /* fire events that update state */
+2026-11-14T13:42:14.1365799Z });
+2026-11-14T13:42:14.1366059Z /* assert on the output */
+2026-11-14T13:42:14.1366249Z 
+2026-11-14T13:42:14.1366825Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.1367622Z An update to CodexQueueStatus inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.1367926Z 
+2026-11-14T13:42:14.1368245Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.1369046Z 
+2026-11-14T13:42:14.1369146Z act(() => {
+2026-11-14T13:42:14.1369394Z   /* fire events that update state */
+2026-11-14T13:42:14.1369651Z });
+2026-11-14T13:42:14.1370119Z /* assert on the output */
+2026-11-14T13:42:14.1370346Z 
+2026-11-14T13:42:14.1370913Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.1371690Z An update to CodexQueueStatus inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.1371990Z 
+2026-11-14T13:42:14.1372309Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.1372630Z 
+2026-11-14T13:42:14.1372719Z act(() => {
+2026-11-14T13:42:14.1372950Z   /* fire events that update state */
+2026-11-14T13:42:14.1373208Z });
+2026-11-14T13:42:14.1373415Z /* assert on the output */
+2026-11-14T13:42:14.1373573Z 
+2026-11-14T13:42:14.1374123Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.1374882Z An update to CodexQueueStatus inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.1375166Z 
+2026-11-14T13:42:14.1375481Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.1375800Z 
+2026-11-14T13:42:14.1375888Z act(() => {
+2026-11-14T13:42:14.1376130Z   /* fire events that update state */
+2026-11-14T13:42:14.1376381Z });
+2026-11-14T13:42:14.1376584Z /* assert on the output */
+2026-11-14T13:42:14.1376735Z 
+2026-11-14T13:42:14.1377271Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.1377754Z 
+2026-11-14T13:42:14.2487794Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:14.2489745Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.2490528Z 
+2026-11-14T13:42:14.2490927Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.2491324Z 
+2026-11-14T13:42:14.2491421Z act(() => {
+2026-11-14T13:42:14.2491699Z   /* fire events that update state */
+2026-11-14T13:42:14.2491997Z });
+2026-11-14T13:42:14.2492235Z /* assert on the output */
+2026-11-14T13:42:14.2492410Z 
+2026-11-14T13:42:14.2493072Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.2494021Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.2494401Z 
+2026-11-14T13:42:14.2494779Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.2495157Z 
+2026-11-14T13:42:14.2495252Z act(() => {
+2026-11-14T13:42:14.2495516Z   /* fire events that update state */
+2026-11-14T13:42:14.2495818Z });
+2026-11-14T13:42:14.2496053Z /* assert on the output */
+2026-11-14T13:42:14.2496222Z 
+2026-11-14T13:42:14.2496867Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.2497451Z 
+2026-11-14T13:42:14.5570966Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:14.5572819Z [22m[39mAn update to SymposiumConversation inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5573370Z 
+2026-11-14T13:42:14.5573874Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5574366Z 
+2026-11-14T13:42:14.5574493Z act(() => {
+2026-11-14T13:42:14.5574836Z   /* fire events that update state */
+2026-11-14T13:42:14.5575214Z });
+2026-11-14T13:42:14.5575874Z /* assert on the output */
+2026-11-14T13:42:14.5576096Z 
+2026-11-14T13:42:14.5577177Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5578566Z An update to SymposiumConversation inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5579106Z 
+2026-11-14T13:42:14.5579639Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5580446Z 
+2026-11-14T13:42:14.5580580Z act(() => {
+2026-11-14T13:42:14.5580958Z   /* fire events that update state */
+2026-11-14T13:42:14.5581426Z });
+2026-11-14T13:42:14.5581797Z /* assert on the output */
+2026-11-14T13:42:14.5582069Z 
+2026-11-14T13:42:14.5582981Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5584411Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5584939Z 
+2026-11-14T13:42:14.5585549Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5586149Z 
+2026-11-14T13:42:14.5586288Z act(() => {
+2026-11-14T13:42:14.5586677Z   /* fire events that update state */
+2026-11-14T13:42:14.5587117Z });
+2026-11-14T13:42:14.5587475Z /* assert on the output */
+2026-11-14T13:42:14.5587750Z 
+2026-11-14T13:42:14.5588785Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5590452Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5591003Z 
+2026-11-14T13:42:14.5591584Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5592184Z 
+2026-11-14T13:42:14.5592331Z act(() => {
+2026-11-14T13:42:14.5592744Z   /* fire events that update state */
+2026-11-14T13:42:14.5593202Z });
+2026-11-14T13:42:14.5593560Z /* assert on the output */
+2026-11-14T13:42:14.5593847Z 
+2026-11-14T13:42:14.5594854Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5596156Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5596707Z 
+2026-11-14T13:42:14.5597288Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5597892Z 
+2026-11-14T13:42:14.5598036Z act(() => {
+2026-11-14T13:42:14.5598450Z   /* fire events that update state */
+2026-11-14T13:42:14.5598902Z });
+2026-11-14T13:42:14.5599266Z /* assert on the output */
+2026-11-14T13:42:14.5599543Z 
+2026-11-14T13:42:14.5600805Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5602283Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5602873Z 
+2026-11-14T13:42:14.5603475Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5604073Z 
+2026-11-14T13:42:14.5604224Z act(() => {
+2026-11-14T13:42:14.5604705Z   /* fire events that update state */
+2026-11-14T13:42:14.5605155Z });
+2026-11-14T13:42:14.5605524Z /* assert on the output */
+2026-11-14T13:42:14.5605787Z 
+2026-11-14T13:42:14.5606746Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5608111Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5608661Z 
+2026-11-14T13:42:14.5609201Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5609737Z 
+2026-11-14T13:42:14.5610151Z act(() => {
+2026-11-14T13:42:14.5610583Z   /* fire events that update state */
+2026-11-14T13:42:14.5611031Z });
+2026-11-14T13:42:14.5611390Z /* assert on the output */
+2026-11-14T13:42:14.5611943Z 
+2026-11-14T13:42:14.5613182Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5614576Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5615136Z 
+2026-11-14T13:42:14.5615679Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5616232Z 
+2026-11-14T13:42:14.5616386Z act(() => {
+2026-11-14T13:42:14.5616773Z   /* fire events that update state */
+2026-11-14T13:42:14.5617204Z });
+2026-11-14T13:42:14.5617556Z /* assert on the output */
+2026-11-14T13:42:14.5617813Z 
+2026-11-14T13:42:14.5618768Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5620285Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5620778Z 
+2026-11-14T13:42:14.5621340Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5621923Z 
+2026-11-14T13:42:14.5622060Z act(() => {
+2026-11-14T13:42:14.5622446Z   /* fire events that update state */
+2026-11-14T13:42:14.5622873Z });
+2026-11-14T13:42:14.5623213Z /* assert on the output */
+2026-11-14T13:42:14.5623473Z 
+2026-11-14T13:42:14.5624437Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5625828Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5626388Z 
+2026-11-14T13:42:14.5626928Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5627491Z 
+2026-11-14T13:42:14.5627628Z act(() => {
+2026-11-14T13:42:14.5628007Z   /* fire events that update state */
+2026-11-14T13:42:14.5628428Z });
+2026-11-14T13:42:14.5628763Z /* assert on the output */
+2026-11-14T13:42:14.5629019Z 
+2026-11-14T13:42:14.5630215Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5631513Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5631977Z 
+2026-11-14T13:42:14.5632545Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5633100Z 
+2026-11-14T13:42:14.5633229Z act(() => {
+2026-11-14T13:42:14.5633613Z   /* fire events that update state */
+2026-11-14T13:42:14.5634034Z });
+2026-11-14T13:42:14.5634365Z /* assert on the output */
+2026-11-14T13:42:14.5634615Z 
+2026-11-14T13:42:14.5635527Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5636912Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5637457Z 
+2026-11-14T13:42:14.5637997Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5638558Z 
+2026-11-14T13:42:14.5638701Z act(() => {
+2026-11-14T13:42:14.5639084Z   /* fire events that update state */
+2026-11-14T13:42:14.5639502Z });
+2026-11-14T13:42:14.5640043Z /* assert on the output */
+2026-11-14T13:42:14.5640299Z 
+2026-11-14T13:42:14.5641250Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5642669Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5643221Z 
+2026-11-14T13:42:14.5643762Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5644320Z 
+2026-11-14T13:42:14.5644456Z act(() => {
+2026-11-14T13:42:14.5644832Z   /* fire events that update state */
+2026-11-14T13:42:14.5645247Z });
+2026-11-14T13:42:14.5645575Z /* assert on the output */
+2026-11-14T13:42:14.5645821Z 
+2026-11-14T13:42:14.5646993Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5648458Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5648923Z 
+2026-11-14T13:42:14.5649472Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5650202Z 
+2026-11-14T13:42:14.5650345Z act(() => {
+2026-11-14T13:42:14.5650725Z   /* fire events that update state */
+2026-11-14T13:42:14.5651148Z });
+2026-11-14T13:42:14.5651479Z /* assert on the output */
+2026-11-14T13:42:14.5651734Z 
+2026-11-14T13:42:14.5652688Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5653959Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5654405Z 
+2026-11-14T13:42:14.5654941Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5655497Z 
+2026-11-14T13:42:14.5655629Z act(() => {
+2026-11-14T13:42:14.5656009Z   /* fire events that update state */
+2026-11-14T13:42:14.5656421Z });
+2026-11-14T13:42:14.5656739Z /* assert on the output */
+2026-11-14T13:42:14.5656981Z 
+2026-11-14T13:42:14.5657899Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5659127Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5659579Z 
+2026-11-14T13:42:14.5660309Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5660842Z 
+2026-11-14T13:42:14.5660977Z act(() => {
+2026-11-14T13:42:14.5661340Z   /* fire events that update state */
+2026-11-14T13:42:14.5661736Z });
+2026-11-14T13:42:14.5662058Z /* assert on the output */
+2026-11-14T13:42:14.5662290Z 
+2026-11-14T13:42:14.5663205Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5664591Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:14.5665045Z 
+2026-11-14T13:42:14.5665566Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:14.5666095Z 
+2026-11-14T13:42:14.5666218Z act(() => {
+2026-11-14T13:42:14.5666582Z   /* fire events that update state */
+2026-11-14T13:42:14.5666983Z });
+2026-11-14T13:42:14.5667300Z /* assert on the output */
+2026-11-14T13:42:14.5667535Z 
+2026-11-14T13:42:14.5668453Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:14.5669332Z 
+2026-11-14T13:42:17.6728519Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:17.6729797Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:17.6730576Z 
+2026-11-14T13:42:17.6730982Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:17.6731364Z 
+2026-11-14T13:42:17.6731459Z act(() => {
+2026-11-14T13:42:17.6731741Z   /* fire events that update state */
+2026-11-14T13:42:17.6732033Z });
+2026-11-14T13:42:17.6732265Z /* assert on the output */
+2026-11-14T13:42:17.6732441Z 
+2026-11-14T13:42:17.6733099Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:17.6733690Z 
+2026-11-14T13:42:17.8162144Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:17.8164587Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:17.8165072Z 
+2026-11-14T13:42:17.8165483Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:17.8166605Z 
+2026-11-14T13:42:17.8166761Z act(() => {
+2026-11-14T13:42:17.8167139Z   /* fire events that update state */
+2026-11-14T13:42:17.8167542Z });
+2026-11-14T13:42:17.8167860Z /* assert on the output */
+2026-11-14T13:42:17.8168098Z 
+2026-11-14T13:42:17.8168994Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:17.8170563Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:17.8171087Z 
+2026-11-14T13:42:17.8171604Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:17.8172120Z 
+2026-11-14T13:42:17.8172256Z act(() => {
+2026-11-14T13:42:17.8172631Z   /* fire events that update state */
+2026-11-14T13:42:17.8173034Z });
+2026-11-14T13:42:17.8173358Z /* assert on the output */
+2026-11-14T13:42:17.8173586Z 
+2026-11-14T13:42:17.8174499Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:17.8175810Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:17.8176324Z 
+2026-11-14T13:42:17.8176825Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:17.8177354Z 
+2026-11-14T13:42:17.8177483Z act(() => {
+2026-11-14T13:42:17.8177879Z   /* fire events that update state */
+2026-11-14T13:42:17.8178353Z });
+2026-11-14T13:42:17.8178683Z /* assert on the output */
+2026-11-14T13:42:17.8178938Z 
+2026-11-14T13:42:17.8179645Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:17.8181243Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:17.8181704Z 
+2026-11-14T13:42:17.8182226Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:17.8182790Z 
+2026-11-14T13:42:17.8182932Z act(() => {
+2026-11-14T13:42:17.8183303Z   /* fire events that update state */
+2026-11-14T13:42:17.8183711Z });
+2026-11-14T13:42:17.8184038Z /* assert on the output */
+2026-11-14T13:42:17.8184273Z 
+2026-11-14T13:42:17.8185194Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:17.8186013Z 
+2026-11-14T13:42:17.8527665Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:17.8529661Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:17.8530593Z 
+2026-11-14T13:42:17.8531411Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:17.8532052Z 
+2026-11-14T13:42:17.8532461Z act(() => {
+2026-11-14T13:42:17.8532899Z   /* fire events that update state */
+2026-11-14T13:42:17.8533452Z });
+2026-11-14T13:42:17.8533836Z /* assert on the output */
+2026-11-14T13:42:17.8534099Z 
+2026-11-14T13:42:17.8535198Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:17.8536184Z 
+2026-11-14T13:42:18.0011373Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:18.0012776Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.0013185Z 
+2026-11-14T13:42:18.0013597Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.0014016Z 
+2026-11-14T13:42:18.0014130Z act(() => {
+2026-11-14T13:42:18.0014441Z   /* fire events that update state */
+2026-11-14T13:42:18.0014769Z });
+2026-11-14T13:42:18.0015045Z /* assert on the output */
+2026-11-14T13:42:18.0015795Z 
+2026-11-14T13:42:18.0016672Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.0017707Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.0018139Z 
+2026-11-14T13:42:18.0018548Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.0019056Z 
+2026-11-14T13:42:18.0019202Z act(() => {
+2026-11-14T13:42:18.0019511Z   /* fire events that update state */
+2026-11-14T13:42:18.0019793Z });
+2026-11-14T13:42:18.0020341Z /* assert on the output */
+2026-11-14T13:42:18.0020514Z 
+2026-11-14T13:42:18.0021120Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.0021998Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.0022356Z 
+2026-11-14T13:42:18.0022710Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.0023066Z 
+2026-11-14T13:42:18.0023157Z act(() => {
+2026-11-14T13:42:18.0023398Z   /* fire events that update state */
+2026-11-14T13:42:18.0023667Z });
+2026-11-14T13:42:18.0023880Z /* assert on the output */
+2026-11-14T13:42:18.0024044Z 
+2026-11-14T13:42:18.0024643Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.0025450Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.0025749Z 
+2026-11-14T13:42:18.0026090Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.0026438Z 
+2026-11-14T13:42:18.0026709Z act(() => {
+2026-11-14T13:42:18.0027039Z   /* fire events that update state */
+2026-11-14T13:42:18.0027311Z });
+2026-11-14T13:42:18.0027523Z /* assert on the output */
+2026-11-14T13:42:18.0027714Z 
+2026-11-14T13:42:18.0028317Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.0028866Z 
+2026-11-14T13:42:18.0061885Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:18.0062951Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.0063306Z 
+2026-11-14T13:42:18.0063626Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.0063944Z 
+2026-11-14T13:42:18.0064032Z act(() => {
+2026-11-14T13:42:18.0064268Z   /* fire events that update state */
+2026-11-14T13:42:18.0064522Z });
+2026-11-14T13:42:18.0064737Z /* assert on the output */
+2026-11-14T13:42:18.0064883Z 
+2026-11-14T13:42:18.0065437Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.0066265Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.0066582Z 
+2026-11-14T13:42:18.0066899Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.0067216Z 
+2026-11-14T13:42:18.0067296Z act(() => {
+2026-11-14T13:42:18.0067533Z   /* fire events that update state */
+2026-11-14T13:42:18.0067783Z });
+2026-11-14T13:42:18.0067982Z /* assert on the output */
+2026-11-14T13:42:18.0068133Z 
+2026-11-14T13:42:18.0068686Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.0069169Z 
+2026-11-14T13:42:18.1502786Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:18.1504076Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.1504888Z 
+2026-11-14T13:42:18.1505304Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.1505715Z 
+2026-11-14T13:42:18.1505823Z act(() => {
+2026-11-14T13:42:18.1506196Z   /* fire events that update state */
+2026-11-14T13:42:18.1506633Z });
+2026-11-14T13:42:18.1507026Z /* assert on the output */
+2026-11-14T13:42:18.1507336Z 
+2026-11-14T13:42:18.1508078Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.1509088Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.1509495Z 
+2026-11-14T13:42:18.1510181Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.1510607Z 
+2026-11-14T13:42:18.1510716Z act(() => {
+2026-11-14T13:42:18.1511000Z   /* fire events that update state */
+2026-11-14T13:42:18.1511341Z });
+2026-11-14T13:42:18.1511588Z /* assert on the output */
+2026-11-14T13:42:18.1511778Z 
+2026-11-14T13:42:18.1512450Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.1513260Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.1513581Z 
+2026-11-14T13:42:18.1513903Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.1514224Z 
+2026-11-14T13:42:18.1514303Z act(() => {
+2026-11-14T13:42:18.1514543Z   /* fire events that update state */
+2026-11-14T13:42:18.1514790Z });
+2026-11-14T13:42:18.1514999Z /* assert on the output */
+2026-11-14T13:42:18.1515152Z 
+2026-11-14T13:42:18.1515698Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.1516437Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:18.1516717Z 
+2026-11-14T13:42:18.1517037Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:18.1517357Z 
+2026-11-14T13:42:18.1517445Z act(() => {
+2026-11-14T13:42:18.1517677Z   /* fire events that update state */
+2026-11-14T13:42:18.1517925Z });
+2026-11-14T13:42:18.1518134Z /* assert on the output */
+2026-11-14T13:42:18.1518280Z 
+2026-11-14T13:42:18.1518821Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:18.1519308Z 
+2026-11-14T13:42:18.8404906Z {"level":30,"time":1794663738840,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663738706-ss7y7f","sessionId":"ba5e6500-804e-805e-bfbd-4b51a925c1f9","cursor":450,"msg":"cursor reset on reconnect"}
+2026-11-14T13:42:18.8930400Z {"level":30,"time":1794663738892,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663738706-ss7y7f","sessionId":"ba5e6500-804e-805e-bfbd-4b51a925c1f9","cursor":450,"msg":"cursor reset on reconnect"}
+2026-11-14T13:42:20.3764187Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:20.3765436Z [22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:20.3765827Z 
+2026-11-14T13:42:20.3766213Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:20.3766600Z 
+2026-11-14T13:42:20.3766701Z act(() => {
+2026-11-14T13:42:20.3766972Z   /* fire events that update state */
+2026-11-14T13:42:20.3767266Z });
+2026-11-14T13:42:20.3767501Z /* assert on the output */
+2026-11-14T13:42:20.3767679Z 
+2026-11-14T13:42:20.3768337Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:20.3769250Z 
+2026-11-14T13:42:20.5506790Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:20.5508451Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:20.5508946Z 
+2026-11-14T13:42:20.5509518Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:20.5510481Z 
+2026-11-14T13:42:20.5510647Z act(() => {
+2026-11-14T13:42:20.5511063Z   /* fire events that update state */
+2026-11-14T13:42:20.5511498Z });
+2026-11-14T13:42:20.5511835Z /* assert on the output */
+2026-11-14T13:42:20.5512080Z 
+2026-11-14T13:42:20.5513035Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:20.5514434Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:20.5515014Z 
+2026-11-14T13:42:20.5515568Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:20.5516156Z 
+2026-11-14T13:42:20.5516313Z act(() => {
+2026-11-14T13:42:20.5516704Z   /* fire events that update state */
+2026-11-14T13:42:20.5517135Z });
+2026-11-14T13:42:20.5517470Z /* assert on the output */
+2026-11-14T13:42:20.5517730Z 
+2026-11-14T13:42:20.5518675Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:20.5520312Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:20.5520860Z 
+2026-11-14T13:42:20.5521419Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:20.5521941Z 
+2026-11-14T13:42:20.5522082Z act(() => {
+2026-11-14T13:42:20.5522486Z   /* fire events that update state */
+2026-11-14T13:42:20.5522943Z });
+2026-11-14T13:42:20.5523310Z /* assert on the output */
+2026-11-14T13:42:20.5523622Z 
+2026-11-14T13:42:20.5524699Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:20.5526032Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:20.5526492Z 
+2026-11-14T13:42:20.5526997Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:20.5527534Z 
+2026-11-14T13:42:20.5527680Z act(() => {
+2026-11-14T13:42:20.5528064Z   /* fire events that update state */
+2026-11-14T13:42:20.5528526Z });
+2026-11-14T13:42:20.5528915Z /* assert on the output */
+2026-11-14T13:42:20.5529175Z 
+2026-11-14T13:42:20.5530475Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:20.5531354Z 
+2026-11-14T13:42:20.7601734Z {"level":30,"time":1794663740759,"pid":2972,"hostname":"runnervm8axu0","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+2026-11-14T13:42:21.2749534Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:21.2752261Z [22m[39mCapacitor plugin "FileShareBridge" already registered. Cannot register plugins twice.
+2026-11-14T13:42:21.2753003Z 
+2026-11-14T13:42:21.4930976Z {"level":30,"time":1794663741492,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663741349-qnnc7z","sessionId":"ba5e6500-804e-805e-bfbd-4b51a925c1f9","cursor":454,"msg":"cursor reset on reconnect"}
+2026-11-14T13:42:21.5387137Z {"level":30,"time":1794663741538,"pid":2972,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794663741349-qnnc7z","sessionId":"ba5e6500-804e-805e-bfbd-4b51a925c1f9","cursor":454,"msg":"cursor reset on reconnect"}
+2026-11-14T13:42:23.1707882Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.2937572Z [22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.2938053Z 
+2026-11-14T13:42:23.2938437Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.2938827Z 
+2026-11-14T13:42:23.2938930Z act(() => {
+2026-11-14T13:42:23.2939205Z   /* fire events that update state */
+2026-11-14T13:42:23.2939501Z });
+2026-11-14T13:42:23.2939745Z /* assert on the output */
+2026-11-14T13:42:23.2940224Z 
+2026-11-14T13:42:23.2940895Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.2941857Z An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.2942251Z 
+2026-11-14T13:42:23.2942627Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.2943038Z 
+2026-11-14T13:42:23.2943143Z act(() => {
+2026-11-14T13:42:23.2943413Z   /* fire events that update state */
+2026-11-14T13:42:23.2943704Z });
+2026-11-14T13:42:23.2943940Z /* assert on the output */
+2026-11-14T13:42:23.2944121Z 
+2026-11-14T13:42:23.2944763Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.2945347Z 
+2026-11-14T13:42:23.2946320Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.2947507Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.2947921Z 
+2026-11-14T13:42:23.2948251Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.2948584Z 
+2026-11-14T13:42:23.2948678Z act(() => {
+2026-11-14T13:42:23.2948920Z   /* fire events that update state */
+2026-11-14T13:42:23.2949183Z });
+2026-11-14T13:42:23.2949395Z /* assert on the output */
+2026-11-14T13:42:23.2949549Z 
+2026-11-14T13:42:23.2950225Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.2950720Z 
+2026-11-14T13:42:23.3516197Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.3518473Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.3519075Z 
+2026-11-14T13:42:23.3519659Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.3520503Z 
+2026-11-14T13:42:23.3520673Z act(() => {
+2026-11-14T13:42:23.3521059Z   /* fire events that update state */
+2026-11-14T13:42:23.3521375Z });
+2026-11-14T13:42:23.3521619Z /* assert on the output */
+2026-11-14T13:42:23.3521844Z 
+2026-11-14T13:42:23.3522758Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.3524245Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.3524620Z 
+2026-11-14T13:42:23.3524989Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.3525367Z 
+2026-11-14T13:42:23.3525463Z act(() => {
+2026-11-14T13:42:23.3525726Z   /* fire events that update state */
+2026-11-14T13:42:23.3526014Z });
+2026-11-14T13:42:23.3526244Z /* assert on the output */
+2026-11-14T13:42:23.3526418Z 
+2026-11-14T13:42:23.3527070Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.3528012Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.3528650Z 
+2026-11-14T13:42:23.3529155Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.3529529Z 
+2026-11-14T13:42:23.3529617Z act(() => {
+2026-11-14T13:42:23.3530080Z   /* fire events that update state */
+2026-11-14T13:42:23.3530423Z });
+2026-11-14T13:42:23.3530633Z /* assert on the output */
+2026-11-14T13:42:23.3530783Z 
+2026-11-14T13:42:23.3531337Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.3532077Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.3532346Z 
+2026-11-14T13:42:23.3532664Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.3532988Z 
+2026-11-14T13:42:23.3533067Z act(() => {
+2026-11-14T13:42:23.3533308Z   /* fire events that update state */
+2026-11-14T13:42:23.3533559Z });
+2026-11-14T13:42:23.3533761Z /* assert on the output */
+2026-11-14T13:42:23.3533923Z 
+2026-11-14T13:42:23.3534474Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.3534958Z 
+2026-11-14T13:42:23.3535846Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.3536859Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.3537212Z 
+2026-11-14T13:42:23.3537534Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.3537856Z 
+2026-11-14T13:42:23.3537935Z act(() => {
+2026-11-14T13:42:23.3538174Z   /* fire events that update state */
+2026-11-14T13:42:23.3538423Z });
+2026-11-14T13:42:23.3538627Z /* assert on the output */
+2026-11-14T13:42:23.3538791Z 
+2026-11-14T13:42:23.3539331Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.3540040Z 
+2026-11-14T13:42:23.5090719Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.5092674Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.5093221Z 
+2026-11-14T13:42:23.5093805Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.5094371Z 
+2026-11-14T13:42:23.5094519Z act(() => {
+2026-11-14T13:42:23.5094935Z   /* fire events that update state */
+2026-11-14T13:42:23.5095409Z });
+2026-11-14T13:42:23.5095783Z /* assert on the output */
+2026-11-14T13:42:23.5096057Z 
+2026-11-14T13:42:23.5097011Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.5098405Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.5098978Z 
+2026-11-14T13:42:23.5099559Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.5100382Z 
+2026-11-14T13:42:23.5100536Z act(() => {
+2026-11-14T13:42:23.5100942Z   /* fire events that update state */
+2026-11-14T13:42:23.5101361Z });
+2026-11-14T13:42:23.5101721Z /* assert on the output */
+2026-11-14T13:42:23.5101984Z 
+2026-11-14T13:42:23.5102932Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.5104257Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.5104771Z 
+2026-11-14T13:42:23.5105313Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.5105902Z 
+2026-11-14T13:42:23.5106041Z act(() => {
+2026-11-14T13:42:23.5106449Z   /* fire events that update state */
+2026-11-14T13:42:23.5107404Z });
+2026-11-14T13:42:23.5107798Z /* assert on the output */
+2026-11-14T13:42:23.5108323Z 
+2026-11-14T13:42:23.5109344Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.5110991Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.5111463Z 
+2026-11-14T13:42:23.5112006Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.5112588Z 
+2026-11-14T13:42:23.5112744Z act(() => {
+2026-11-14T13:42:23.5113125Z   /* fire events that update state */
+2026-11-14T13:42:23.5113560Z });
+2026-11-14T13:42:23.5113901Z /* assert on the output */
+2026-11-14T13:42:23.5114154Z 
+2026-11-14T13:42:23.5115089Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.5115942Z 
+2026-11-14T13:42:23.6432746Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.6434705Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.6435199Z 
+2026-11-14T13:42:23.6435562Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.6435916Z 
+2026-11-14T13:42:23.6436014Z act(() => {
+2026-11-14T13:42:23.6436275Z   /* fire events that update state */
+2026-11-14T13:42:23.6436566Z });
+2026-11-14T13:42:23.6436792Z /* assert on the output */
+2026-11-14T13:42:23.6436954Z 
+2026-11-14T13:42:23.6437574Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.6438457Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.6438804Z 
+2026-11-14T13:42:23.6439150Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.6439506Z 
+2026-11-14T13:42:23.6439595Z act(() => {
+2026-11-14T13:42:23.6440114Z   /* fire events that update state */
+2026-11-14T13:42:23.6440441Z });
+2026-11-14T13:42:23.6440660Z /* assert on the output */
+2026-11-14T13:42:23.6440825Z 
+2026-11-14T13:42:23.6441439Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.6441985Z 
+2026-11-14T13:42:23.7141496Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.7143206Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7143723Z 
+2026-11-14T13:42:23.7144298Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7144854Z 
+2026-11-14T13:42:23.7144997Z act(() => {
+2026-11-14T13:42:23.7145447Z   /* fire events that update state */
+2026-11-14T13:42:23.7145877Z });
+2026-11-14T13:42:23.7146219Z /* assert on the output */
+2026-11-14T13:42:23.7146482Z 
+2026-11-14T13:42:23.7147381Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7148790Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7149353Z 
+2026-11-14T13:42:23.7150218Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7150873Z 
+2026-11-14T13:42:23.7151053Z act(() => {
+2026-11-14T13:42:23.7151434Z   /* fire events that update state */
+2026-11-14T13:42:23.7151853Z });
+2026-11-14T13:42:23.7152202Z /* assert on the output */
+2026-11-14T13:42:23.7152451Z 
+2026-11-14T13:42:23.7153380Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7155399Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7155982Z 
+2026-11-14T13:42:23.7156583Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7157144Z 
+2026-11-14T13:42:23.7157294Z act(() => {
+2026-11-14T13:42:23.7157668Z   /* fire events that update state */
+2026-11-14T13:42:23.7158108Z });
+2026-11-14T13:42:23.7158448Z /* assert on the output */
+2026-11-14T13:42:23.7158732Z 
+2026-11-14T13:42:23.7159671Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7161241Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7161688Z 
+2026-11-14T13:42:23.7162252Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7162789Z 
+2026-11-14T13:42:23.7162920Z act(() => {
+2026-11-14T13:42:23.7163331Z   /* fire events that update state */
+2026-11-14T13:42:23.7163801Z });
+2026-11-14T13:42:23.7164184Z /* assert on the output */
+2026-11-14T13:42:23.7164475Z 
+2026-11-14T13:42:23.7165490Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7166336Z 
+2026-11-14T13:42:23.7167942Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.7169789Z [22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7170644Z 
+2026-11-14T13:42:23.7171250Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7171852Z 
+2026-11-14T13:42:23.7171992Z act(() => {
+2026-11-14T13:42:23.7172408Z   /* fire events that update state */
+2026-11-14T13:42:23.7172861Z });
+2026-11-14T13:42:23.7173216Z /* assert on the output */
+2026-11-14T13:42:23.7173506Z 
+2026-11-14T13:42:23.7174535Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7175447Z 
+2026-11-14T13:42:23.7719752Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.7722385Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7722801Z 
+2026-11-14T13:42:23.7723228Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7723656Z 
+2026-11-14T13:42:23.7723764Z act(() => {
+2026-11-14T13:42:23.7724078Z   /* fire events that update state */
+2026-11-14T13:42:23.7724409Z });
+2026-11-14T13:42:23.7724676Z /* assert on the output */
+2026-11-14T13:42:23.7724875Z 
+2026-11-14T13:42:23.7725926Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7727610Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7728023Z 
+2026-11-14T13:42:23.7728414Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7728826Z 
+2026-11-14T13:42:23.7728930Z act(() => {
+2026-11-14T13:42:23.7729213Z   /* fire events that update state */
+2026-11-14T13:42:23.7729525Z });
+2026-11-14T13:42:23.7729779Z /* assert on the output */
+2026-11-14T13:42:23.7730318Z 
+2026-11-14T13:42:23.7731068Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7732073Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7732484Z 
+2026-11-14T13:42:23.7732890Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7733595Z 
+2026-11-14T13:42:23.7733696Z act(() => {
+2026-11-14T13:42:23.7734115Z   /* fire events that update state */
+2026-11-14T13:42:23.7734433Z });
+2026-11-14T13:42:23.7734680Z /* assert on the output */
+2026-11-14T13:42:23.7734869Z 
+2026-11-14T13:42:23.7735566Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7736501Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7736847Z 
+2026-11-14T13:42:23.7737241Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7737588Z 
+2026-11-14T13:42:23.7737678Z act(() => {
+2026-11-14T13:42:23.7737916Z   /* fire events that update state */
+2026-11-14T13:42:23.7738169Z });
+2026-11-14T13:42:23.7738382Z /* assert on the output */
+2026-11-14T13:42:23.7738529Z 
+2026-11-14T13:42:23.7739076Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7739577Z 
+2026-11-14T13:42:23.7740753Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.7741751Z [22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.7742061Z 
+2026-11-14T13:42:23.7742379Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.7742705Z 
+2026-11-14T13:42:23.7742794Z act(() => {
+2026-11-14T13:42:23.7743020Z   /* fire events that update state */
+2026-11-14T13:42:23.7743268Z });
+2026-11-14T13:42:23.7743467Z /* assert on the output */
+2026-11-14T13:42:23.7743619Z 
+2026-11-14T13:42:23.7744165Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.7744668Z 
+2026-11-14T13:42:23.8270429Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:23.8271782Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.8272175Z 
+2026-11-14T13:42:23.8272591Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.8273003Z 
+2026-11-14T13:42:23.8273116Z act(() => {
+2026-11-14T13:42:23.8273411Z   /* fire events that update state */
+2026-11-14T13:42:23.8273731Z });
+2026-11-14T13:42:23.8273993Z /* assert on the output */
+2026-11-14T13:42:23.8274187Z 
+2026-11-14T13:42:23.8274893Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.8275896Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.8276307Z 
+2026-11-14T13:42:23.8276713Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.8277122Z 
+2026-11-14T13:42:23.8277228Z act(() => {
+2026-11-14T13:42:23.8277538Z   /* fire events that update state */
+2026-11-14T13:42:23.8277902Z });
+2026-11-14T13:42:23.8278132Z /* assert on the output */
+2026-11-14T13:42:23.8278299Z 
+2026-11-14T13:42:23.8278955Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.8280075Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.8280641Z 
+2026-11-14T13:42:23.8281226Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.8281814Z 
+2026-11-14T13:42:23.8281951Z act(() => {
+2026-11-14T13:42:23.8282278Z   /* fire events that update state */
+2026-11-14T13:42:23.8282567Z });
+2026-11-14T13:42:23.8282794Z /* assert on the output */
+2026-11-14T13:42:23.8282967Z 
+2026-11-14T13:42:23.8283852Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.8284960Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T13:42:23.8285283Z 
+2026-11-14T13:42:23.8285646Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:23.8286027Z 
+2026-11-14T13:42:23.8286121Z act(() => {
+2026-11-14T13:42:23.8286396Z   /* fire events that update state */
+2026-11-14T13:42:23.8286684Z });
+2026-11-14T13:42:23.8286921Z /* assert on the output */
+2026-11-14T13:42:23.8287088Z 
+2026-11-14T13:42:23.8287737Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:23.8288291Z 
+2026-11-14T13:42:24.4062869Z [90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T13:42:24.4071683Z [22m[39mORDINARY_ACCEPTANCE_COMPLETE {"stages":["history_and_unsent_draft","fresh_setup_review_silent_join","explicit_attributed_stream","exact_success_retry","responsive_focus_selection","concurrent_source_and_reviewer","partial_failure_selected_retry","long_history","lost_committed_send_and_stop_response","sse_reconnect","remount","application_owner_restart","one_chats_conversation_inspectable_participants"],"beforeRestartNativeTurns":31,"afterRestartNativeRequests":0,"retainedUncertainRequest":"a376b027-f297-42a9-99e9-a330decea35e","retainedMessageId":"2eeda6c2-ea12-42f8-9e2c-3cb4e06a6658","retainedCommandIds":["collaboration:0256c553-858a-4479-b421-2b8b120e6d48"],"physicalDevice":"unobserved"}
+2026-11-14T13:42:24.4076896Z 
+2026-11-14T13:42:24.4079052Z  [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins[33m 47247[2mms[22m[39m
+2026-11-14T13:42:24.4594366Z {"level":30,"time":1794663744458,"pid":2972,"hostname":"runnervm8axu0","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+2026-11-14T13:42:31.1539369Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:31.1541376Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1541839Z 
+2026-11-14T13:42:31.1542243Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1542661Z 
+2026-11-14T13:42:31.1542772Z act(() => {
+2026-11-14T13:42:31.1543068Z   /* fire events that update state */
+2026-11-14T13:42:31.1543385Z });
+2026-11-14T13:42:31.1543647Z /* assert on the output */
+2026-11-14T13:42:31.1543830Z 
+2026-11-14T13:42:31.1544542Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1557260Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1557632Z 
+2026-11-14T13:42:31.1557974Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1558306Z 
+2026-11-14T13:42:31.1558405Z act(() => {
+2026-11-14T13:42:31.1558652Z   /* fire events that update state */
+2026-11-14T13:42:31.1558938Z });
+2026-11-14T13:42:31.1559161Z /* assert on the output */
+2026-11-14T13:42:31.1559323Z 
+2026-11-14T13:42:31.1560168Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1560773Z 
+2026-11-14T13:42:31.1665974Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:31.1668014Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1668994Z 
+2026-11-14T13:42:31.1669831Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1670735Z 
+2026-11-14T13:42:31.1670912Z act(() => {
+2026-11-14T13:42:31.1671304Z   /* fire events that update state */
+2026-11-14T13:42:31.1671736Z });
+2026-11-14T13:42:31.1672096Z /* assert on the output */
+2026-11-14T13:42:31.1672389Z 
+2026-11-14T13:42:31.1673286Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1674794Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1675420Z 
+2026-11-14T13:42:31.1676010Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1676616Z 
+2026-11-14T13:42:31.1676775Z act(() => {
+2026-11-14T13:42:31.1677207Z   /* fire events that update state */
+2026-11-14T13:42:31.1677652Z });
+2026-11-14T13:42:31.1678040Z /* assert on the output */
+2026-11-14T13:42:31.1678323Z 
+2026-11-14T13:42:31.1679361Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1681005Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1681605Z 
+2026-11-14T13:42:31.1682235Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1682855Z 
+2026-11-14T13:42:31.1683027Z act(() => {
+2026-11-14T13:42:31.1683459Z   /* fire events that update state */
+2026-11-14T13:42:31.1684017Z });
+2026-11-14T13:42:31.1684403Z /* assert on the output */
+2026-11-14T13:42:31.1684688Z 
+2026-11-14T13:42:31.1685733Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1687294Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1687930Z 
+2026-11-14T13:42:31.1688566Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1689183Z 
+2026-11-14T13:42:31.1689345Z act(() => {
+2026-11-14T13:42:31.1689800Z   /* fire events that update state */
+2026-11-14T13:42:31.1690580Z });
+2026-11-14T13:42:31.1690984Z /* assert on the output */
+2026-11-14T13:42:31.1691277Z 
+2026-11-14T13:42:31.1692219Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1693709Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1694336Z 
+2026-11-14T13:42:31.1694947Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1695552Z 
+2026-11-14T13:42:31.1695716Z act(() => {
+2026-11-14T13:42:31.1696158Z   /* fire events that update state */
+2026-11-14T13:42:31.1696648Z });
+2026-11-14T13:42:31.1697066Z /* assert on the output */
+2026-11-14T13:42:31.1697367Z 
+2026-11-14T13:42:31.1698415Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1700219Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1700855Z 
+2026-11-14T13:42:31.1701461Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1702085Z 
+2026-11-14T13:42:31.1702269Z act(() => {
+2026-11-14T13:42:31.1702709Z   /* fire events that update state */
+2026-11-14T13:42:31.1703212Z });
+2026-11-14T13:42:31.1703607Z /* assert on the output */
+2026-11-14T13:42:31.1703901Z 
+2026-11-14T13:42:31.1704923Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1705885Z 
+2026-11-14T13:42:31.1777688Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:31.1779322Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1779781Z 
+2026-11-14T13:42:31.1780556Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1780975Z 
+2026-11-14T13:42:31.1781083Z act(() => {
+2026-11-14T13:42:31.1781370Z   /* fire events that update state */
+2026-11-14T13:42:31.1781696Z });
+2026-11-14T13:42:31.1781951Z /* assert on the output */
+2026-11-14T13:42:31.1782145Z 
+2026-11-14T13:42:31.1782849Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1783498Z 
+2026-11-14T13:42:31.1883684Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:31.1885167Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1885626Z 
+2026-11-14T13:42:31.1886047Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1886462Z 
+2026-11-14T13:42:31.1886570Z act(() => {
+2026-11-14T13:42:31.1886858Z   /* fire events that update state */
+2026-11-14T13:42:31.1887182Z });
+2026-11-14T13:42:31.1887442Z /* assert on the output */
+2026-11-14T13:42:31.1887632Z 
+2026-11-14T13:42:31.1888341Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1889374Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1889777Z 
+2026-11-14T13:42:31.1890473Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1890889Z 
+2026-11-14T13:42:31.1890987Z act(() => {
+2026-11-14T13:42:31.1891287Z   /* fire events that update state */
+2026-11-14T13:42:31.1891724Z });
+2026-11-14T13:42:31.1892135Z /* assert on the output */
+2026-11-14T13:42:31.1892433Z 
+2026-11-14T13:42:31.1893482Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1894168Z 
+2026-11-14T13:42:31.1895407Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:31.1896747Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1897095Z 
+2026-11-14T13:42:31.1897413Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1897731Z 
+2026-11-14T13:42:31.1897820Z act(() => {
+2026-11-14T13:42:31.1898048Z   /* fire events that update state */
+2026-11-14T13:42:31.1898319Z });
+2026-11-14T13:42:31.1898527Z /* assert on the output */
+2026-11-14T13:42:31.1898685Z 
+2026-11-14T13:42:31.1899224Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1900899Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1901286Z 
+2026-11-14T13:42:31.1901621Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1901944Z 
+2026-11-14T13:42:31.1902026Z act(() => {
+2026-11-14T13:42:31.1902272Z   /* fire events that update state */
+2026-11-14T13:42:31.1902526Z });
+2026-11-14T13:42:31.1902730Z /* assert on the output */
+2026-11-14T13:42:31.1902883Z 
+2026-11-14T13:42:31.1903432Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.1903924Z 
+2026-11-14T13:42:31.1995411Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:31.1996859Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.1997215Z 
+2026-11-14T13:42:31.1997538Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.1997862Z 
+2026-11-14T13:42:31.1997947Z act(() => {
+2026-11-14T13:42:31.1998189Z   /* fire events that update state */
+2026-11-14T13:42:31.1998445Z });
+2026-11-14T13:42:31.1998651Z /* assert on the output */
+2026-11-14T13:42:31.1998806Z 
+2026-11-14T13:42:31.1999362Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.2000579Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.2000917Z 
+2026-11-14T13:42:31.2001254Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.2001581Z 
+2026-11-14T13:42:31.2001669Z act(() => {
+2026-11-14T13:42:31.2001903Z   /* fire events that update state */
+2026-11-14T13:42:31.2002155Z });
+2026-11-14T13:42:31.2002368Z /* assert on the output */
+2026-11-14T13:42:31.2002515Z 
+2026-11-14T13:42:31.2003064Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.2003563Z 
+2026-11-14T13:42:31.2060710Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:31.2062196Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.2062651Z 
+2026-11-14T13:42:31.2063048Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.2063481Z 
+2026-11-14T13:42:31.2063593Z act(() => {
+2026-11-14T13:42:31.2063898Z   /* fire events that update state */
+2026-11-14T13:42:31.2064220Z });
+2026-11-14T13:42:31.2064489Z /* assert on the output */
+2026-11-14T13:42:31.2064672Z 
+2026-11-14T13:42:31.2065374Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.2066374Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.2066692Z 
+2026-11-14T13:42:31.2067009Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.2067320Z 
+2026-11-14T13:42:31.2067410Z act(() => {
+2026-11-14T13:42:31.2067645Z   /* fire events that update state */
+2026-11-14T13:42:31.2067904Z });
+2026-11-14T13:42:31.2068106Z /* assert on the output */
+2026-11-14T13:42:31.2068258Z 
+2026-11-14T13:42:31.2068791Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.2069302Z 
+2026-11-14T13:42:31.2135154Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:31.2137212Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.2137622Z 
+2026-11-14T13:42:31.2137987Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.2138346Z 
+2026-11-14T13:42:31.2138442Z act(() => {
+2026-11-14T13:42:31.2138694Z   /* fire events that update state */
+2026-11-14T13:42:31.2138977Z });
+2026-11-14T13:42:31.2139200Z /* assert on the output */
+2026-11-14T13:42:31.2139370Z 
+2026-11-14T13:42:31.2140356Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.2141688Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:31.2142043Z 
+2026-11-14T13:42:31.2142392Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:31.2142748Z 
+2026-11-14T13:42:31.2142834Z act(() => {
+2026-11-14T13:42:31.2143086Z   /* fire events that update state */
+2026-11-14T13:42:31.2143361Z });
+2026-11-14T13:42:31.2143579Z /* assert on the output */
+2026-11-14T13:42:31.2143745Z 
+2026-11-14T13:42:31.2144352Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:31.2144893Z 
+2026-11-14T13:42:34.0763991Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:34.0765435Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:34.0765934Z 
+2026-11-14T13:42:34.0766357Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:34.0766780Z 
+2026-11-14T13:42:34.0766887Z act(() => {
+2026-11-14T13:42:34.0767178Z   /* fire events that update state */
+2026-11-14T13:42:34.0767495Z });
+2026-11-14T13:42:34.0767756Z /* assert on the output */
+2026-11-14T13:42:34.0767941Z 
+2026-11-14T13:42:34.0768647Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:34.0769285Z 
+2026-11-14T13:42:35.6241573Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:35.6243095Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.6243549Z 
+2026-11-14T13:42:35.6243957Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.6244419Z 
+2026-11-14T13:42:35.6244529Z act(() => {
+2026-11-14T13:42:35.6244838Z   /* fire events that update state */
+2026-11-14T13:42:35.6245159Z });
+2026-11-14T13:42:35.6245410Z /* assert on the output */
+2026-11-14T13:42:35.6245607Z 
+2026-11-14T13:42:35.6246328Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.6246968Z 
+2026-11-14T13:42:35.6451693Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:35.6454097Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.6454871Z 
+2026-11-14T13:42:35.6455830Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.6456591Z 
+2026-11-14T13:42:35.6456980Z act(() => {
+2026-11-14T13:42:35.6457565Z   /* fire events that update state */
+2026-11-14T13:42:35.6458157Z });
+2026-11-14T13:42:35.6458569Z /* assert on the output */
+2026-11-14T13:42:35.6458868Z 
+2026-11-14T13:42:35.6460463Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.6462146Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.6462887Z 
+2026-11-14T13:42:35.6464124Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.6464787Z 
+2026-11-14T13:42:35.6464955Z act(() => {
+2026-11-14T13:42:35.6465393Z   /* fire events that update state */
+2026-11-14T13:42:35.6465866Z });
+2026-11-14T13:42:35.6466256Z /* assert on the output */
+2026-11-14T13:42:35.6466561Z 
+2026-11-14T13:42:35.6467619Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.6469044Z 
+2026-11-14T13:42:35.6627700Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:35.6630227Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.6630920Z 
+2026-11-14T13:42:35.6631518Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.6632091Z 
+2026-11-14T13:42:35.6632258Z act(() => {
+2026-11-14T13:42:35.6632668Z   /* fire events that update state */
+2026-11-14T13:42:35.6633110Z });
+2026-11-14T13:42:35.6633691Z /* assert on the output */
+2026-11-14T13:42:35.6633960Z 
+2026-11-14T13:42:35.6634968Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.6636408Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.6636967Z 
+2026-11-14T13:42:35.6637500Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.6638099Z 
+2026-11-14T13:42:35.6638271Z act(() => {
+2026-11-14T13:42:35.6638705Z   /* fire events that update state */
+2026-11-14T13:42:35.6639191Z });
+2026-11-14T13:42:35.6639592Z /* assert on the output */
+2026-11-14T13:42:35.6640443Z 
+2026-11-14T13:42:35.6641448Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.6642363Z 
+2026-11-14T13:42:35.6818985Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:35.6821463Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.6822127Z 
+2026-11-14T13:42:35.6822734Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.6823290Z 
+2026-11-14T13:42:35.6823440Z act(() => {
+2026-11-14T13:42:35.6823829Z   /* fire events that update state */
+2026-11-14T13:42:35.6824283Z });
+2026-11-14T13:42:35.6824642Z /* assert on the output */
+2026-11-14T13:42:35.6824918Z 
+2026-11-14T13:42:35.6825906Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.6827285Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.6827868Z 
+2026-11-14T13:42:35.6828454Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.6829040Z 
+2026-11-14T13:42:35.6829193Z act(() => {
+2026-11-14T13:42:35.6829608Z   /* fire events that update state */
+2026-11-14T13:42:35.6830372Z });
+2026-11-14T13:42:35.6830774Z /* assert on the output */
+2026-11-14T13:42:35.6831085Z 
+2026-11-14T13:42:35.6832123Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.6832966Z 
+2026-11-14T13:42:35.6975256Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:35.6977699Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.6978517Z 
+2026-11-14T13:42:35.6979192Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.6979768Z 
+2026-11-14T13:42:35.6980177Z act(() => {
+2026-11-14T13:42:35.6980619Z   /* fire events that update state */
+2026-11-14T13:42:35.6981055Z });
+2026-11-14T13:42:35.6981400Z /* assert on the output */
+2026-11-14T13:42:35.6981659Z 
+2026-11-14T13:42:35.6983037Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.6984183Z 
+2026-11-14T13:42:35.6985974Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:35.6987915Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.6988593Z 
+2026-11-14T13:42:35.6989199Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.6989791Z 
+2026-11-14T13:42:35.6990203Z act(() => {
+2026-11-14T13:42:35.6990667Z   /* fire events that update state */
+2026-11-14T13:42:35.6991157Z });
+2026-11-14T13:42:35.6991538Z /* assert on the output */
+2026-11-14T13:42:35.6991821Z 
+2026-11-14T13:42:35.6992885Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.6993793Z 
+2026-11-14T13:42:35.7094595Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:35.7096797Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:35.7097401Z 
+2026-11-14T13:42:35.7097980Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:35.7098564Z 
+2026-11-14T13:42:35.7098715Z act(() => {
+2026-11-14T13:42:35.7099140Z   /* fire events that update state */
+2026-11-14T13:42:35.7099589Z });
+2026-11-14T13:42:35.7100219Z /* assert on the output */
+2026-11-14T13:42:35.7100469Z 
+2026-11-14T13:42:35.7101382Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:35.7102152Z 
+2026-11-14T13:42:38.0143292Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:38.0145538Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0146185Z 
+2026-11-14T13:42:38.0146777Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0147389Z 
+2026-11-14T13:42:38.0147551Z act(() => {
+2026-11-14T13:42:38.0147972Z   /* fire events that update state */
+2026-11-14T13:42:38.0148420Z });
+2026-11-14T13:42:38.0148764Z /* assert on the output */
+2026-11-14T13:42:38.0149032Z 
+2026-11-14T13:42:38.0150319Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0151768Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0152332Z 
+2026-11-14T13:42:38.0152954Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0153535Z 
+2026-11-14T13:42:38.0153686Z act(() => {
+2026-11-14T13:42:38.0154104Z   /* fire events that update state */
+2026-11-14T13:42:38.0154571Z });
+2026-11-14T13:42:38.0154944Z /* assert on the output */
+2026-11-14T13:42:38.0155225Z 
+2026-11-14T13:42:38.0156259Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0157190Z 
+2026-11-14T13:42:38.0158967Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:38.0161253Z [22m[39mAn update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0161856Z 
+2026-11-14T13:42:38.0162457Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0163475Z 
+2026-11-14T13:42:38.0163646Z act(() => {
+2026-11-14T13:42:38.0164320Z   /* fire events that update state */
+2026-11-14T13:42:38.0164820Z });
+2026-11-14T13:42:38.0165202Z /* assert on the output */
+2026-11-14T13:42:38.0165490Z 
+2026-11-14T13:42:38.0166522Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0167974Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0168511Z 
+2026-11-14T13:42:38.0169099Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0169698Z 
+2026-11-14T13:42:38.0169848Z act(() => {
+2026-11-14T13:42:38.0170501Z   /* fire events that update state */
+2026-11-14T13:42:38.0170970Z });
+2026-11-14T13:42:38.0171335Z /* assert on the output */
+2026-11-14T13:42:38.0171615Z 
+2026-11-14T13:42:38.0172639Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0174136Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0174733Z 
+2026-11-14T13:42:38.0175328Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0175929Z 
+2026-11-14T13:42:38.0176079Z act(() => {
+2026-11-14T13:42:38.0176500Z   /* fire events that update state */
+2026-11-14T13:42:38.0176950Z });
+2026-11-14T13:42:38.0177317Z /* assert on the output */
+2026-11-14T13:42:38.0177590Z 
+2026-11-14T13:42:38.0178624Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0180332Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0180892Z 
+2026-11-14T13:42:38.0181495Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0182094Z 
+2026-11-14T13:42:38.0182250Z act(() => {
+2026-11-14T13:42:38.0182670Z   /* fire events that update state */
+2026-11-14T13:42:38.0183131Z });
+2026-11-14T13:42:38.0183485Z /* assert on the output */
+2026-11-14T13:42:38.0183753Z 
+2026-11-14T13:42:38.0184774Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0186204Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0186739Z 
+2026-11-14T13:42:38.0187319Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0187926Z 
+2026-11-14T13:42:38.0188078Z act(() => {
+2026-11-14T13:42:38.0188488Z   /* fire events that update state */
+2026-11-14T13:42:38.0188935Z });
+2026-11-14T13:42:38.0189288Z /* assert on the output */
+2026-11-14T13:42:38.0189559Z 
+2026-11-14T13:42:38.0190841Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0191796Z 
+2026-11-14T13:42:38.0433281Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:38.0435203Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0435979Z 
+2026-11-14T13:42:38.0436848Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0437561Z 
+2026-11-14T13:42:38.0437927Z act(() => {
+2026-11-14T13:42:38.0438400Z   /* fire events that update state */
+2026-11-14T13:42:38.0438861Z });
+2026-11-14T13:42:38.0439234Z /* assert on the output */
+2026-11-14T13:42:38.0439526Z 
+2026-11-14T13:42:38.0440800Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0442274Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0443006Z 
+2026-11-14T13:42:38.0443529Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0443915Z 
+2026-11-14T13:42:38.0444015Z act(() => {
+2026-11-14T13:42:38.0444284Z   /* fire events that update state */
+2026-11-14T13:42:38.0444583Z });
+2026-11-14T13:42:38.0444837Z /* assert on the output */
+2026-11-14T13:42:38.0445012Z 
+2026-11-14T13:42:38.0445659Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0446433Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0446731Z 
+2026-11-14T13:42:38.0447046Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0447368Z 
+2026-11-14T13:42:38.0447453Z act(() => {
+2026-11-14T13:42:38.0447688Z   /* fire events that update state */
+2026-11-14T13:42:38.0447941Z });
+2026-11-14T13:42:38.0448157Z /* assert on the output */
+2026-11-14T13:42:38.0448334Z 
+2026-11-14T13:42:38.0448878Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0449638Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0450254Z 
+2026-11-14T13:42:38.0450632Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0450966Z 
+2026-11-14T13:42:38.0451048Z act(() => {
+2026-11-14T13:42:38.0451291Z   /* fire events that update state */
+2026-11-14T13:42:38.0451546Z });
+2026-11-14T13:42:38.0451756Z /* assert on the output */
+2026-11-14T13:42:38.0451913Z 
+2026-11-14T13:42:38.0452467Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0453260Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0453589Z 
+2026-11-14T13:42:38.0453903Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0454227Z 
+2026-11-14T13:42:38.0454315Z act(() => {
+2026-11-14T13:42:38.0454547Z   /* fire events that update state */
+2026-11-14T13:42:38.0454798Z });
+2026-11-14T13:42:38.0455009Z /* assert on the output */
+2026-11-14T13:42:38.0455159Z 
+2026-11-14T13:42:38.0455709Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0456468Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0456764Z 
+2026-11-14T13:42:38.0457075Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0457390Z 
+2026-11-14T13:42:38.0457475Z act(() => {
+2026-11-14T13:42:38.0457700Z   /* fire events that update state */
+2026-11-14T13:42:38.0457953Z });
+2026-11-14T13:42:38.0458157Z /* assert on the output */
+2026-11-14T13:42:38.0458311Z 
+2026-11-14T13:42:38.0458850Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0459640Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0460608Z 
+2026-11-14T13:42:38.0460981Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0461321Z 
+2026-11-14T13:42:38.0461406Z act(() => {
+2026-11-14T13:42:38.0461651Z   /* fire events that update state */
+2026-11-14T13:42:38.0461908Z });
+2026-11-14T13:42:38.0462119Z /* assert on the output */
+2026-11-14T13:42:38.0462280Z 
+2026-11-14T13:42:38.0462830Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0463617Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0464205Z 
+2026-11-14T13:42:38.0464663Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0465124Z 
+2026-11-14T13:42:38.0465294Z act(() => {
+2026-11-14T13:42:38.0465568Z   /* fire events that update state */
+2026-11-14T13:42:38.0465820Z });
+2026-11-14T13:42:38.0466032Z /* assert on the output */
+2026-11-14T13:42:38.0466179Z 
+2026-11-14T13:42:38.0466718Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0467501Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0467825Z 
+2026-11-14T13:42:38.0468134Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0468450Z 
+2026-11-14T13:42:38.0468528Z act(() => {
+2026-11-14T13:42:38.0468760Z   /* fire events that update state */
+2026-11-14T13:42:38.0469002Z });
+2026-11-14T13:42:38.0469202Z /* assert on the output */
+2026-11-14T13:42:38.0469356Z 
+2026-11-14T13:42:38.0470176Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0470994Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0471294Z 
+2026-11-14T13:42:38.0471603Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0471924Z 
+2026-11-14T13:42:38.0472010Z act(() => {
+2026-11-14T13:42:38.0472241Z   /* fire events that update state */
+2026-11-14T13:42:38.0472489Z });
+2026-11-14T13:42:38.0472696Z /* assert on the output */
+2026-11-14T13:42:38.0472841Z 
+2026-11-14T13:42:38.0473371Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0474140Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0474451Z 
+2026-11-14T13:42:38.0474775Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0475086Z 
+2026-11-14T13:42:38.0475171Z act(() => {
+2026-11-14T13:42:38.0475393Z   /* fire events that update state */
+2026-11-14T13:42:38.0475641Z });
+2026-11-14T13:42:38.0475835Z /* assert on the output */
+2026-11-14T13:42:38.0475981Z 
+2026-11-14T13:42:38.0476507Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0477277Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.0477579Z 
+2026-11-14T13:42:38.0477882Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.0478193Z 
+2026-11-14T13:42:38.0478271Z act(() => {
+2026-11-14T13:42:38.0478498Z   /* fire events that update state */
+2026-11-14T13:42:38.0478739Z });
+2026-11-14T13:42:38.0478936Z /* assert on the output */
+2026-11-14T13:42:38.0479087Z 
+2026-11-14T13:42:38.0479617Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.0480286Z 
+2026-11-14T13:42:38.1080864Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:38.1082252Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.1082678Z 
+2026-11-14T13:42:38.1083061Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.1083447Z 
+2026-11-14T13:42:38.1083546Z act(() => {
+2026-11-14T13:42:38.1083812Z   /* fire events that update state */
+2026-11-14T13:42:38.1084110Z });
+2026-11-14T13:42:38.1084341Z /* assert on the output */
+2026-11-14T13:42:38.1084516Z 
+2026-11-14T13:42:38.1085165Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.1086262Z 
+2026-11-14T13:42:38.1176378Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:38.1177810Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.1178264Z 
+2026-11-14T13:42:38.1178693Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.1179104Z 
+2026-11-14T13:42:38.1179213Z act(() => {
+2026-11-14T13:42:38.1179502Z   /* fire events that update state */
+2026-11-14T13:42:38.1179823Z });
+2026-11-14T13:42:38.1180415Z /* assert on the output */
+2026-11-14T13:42:38.1180606Z 
+2026-11-14T13:42:38.1181309Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.1182363Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:38.1182764Z 
+2026-11-14T13:42:38.1183160Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:38.1183566Z 
+2026-11-14T13:42:38.1183668Z act(() => {
+2026-11-14T13:42:38.1183952Z   /* fire events that update state */
+2026-11-14T13:42:38.1184261Z });
+2026-11-14T13:42:38.1184507Z /* assert on the output */
+2026-11-14T13:42:38.1184693Z 
+2026-11-14T13:42:38.1185386Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:38.1186009Z 
+2026-11-14T13:42:39.0023141Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:39.0025309Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.0026019Z 
+2026-11-14T13:42:39.0026622Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.0027192Z 
+2026-11-14T13:42:39.0027351Z act(() => {
+2026-11-14T13:42:39.0027777Z   /* fire events that update state */
+2026-11-14T13:42:39.0028258Z });
+2026-11-14T13:42:39.0028625Z /* assert on the output */
+2026-11-14T13:42:39.0028898Z 
+2026-11-14T13:42:39.0030212Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.0031733Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.0032310Z 
+2026-11-14T13:42:39.0032902Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.0033512Z 
+2026-11-14T13:42:39.0033663Z act(() => {
+2026-11-14T13:42:39.0034093Z   /* fire events that update state */
+2026-11-14T13:42:39.0034543Z });
+2026-11-14T13:42:39.0034930Z /* assert on the output */
+2026-11-14T13:42:39.0035207Z 
+2026-11-14T13:42:39.0036217Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.0037134Z 
+2026-11-14T13:42:39.0125447Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:39.0127451Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.0128048Z 
+2026-11-14T13:42:39.0128635Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.0129174Z 
+2026-11-14T13:42:39.0129323Z act(() => {
+2026-11-14T13:42:39.0129736Z   /* fire events that update state */
+2026-11-14T13:42:39.0130483Z });
+2026-11-14T13:42:39.0130807Z /* assert on the output */
+2026-11-14T13:42:39.0131057Z 
+2026-11-14T13:42:39.0132696Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.0134224Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.0134821Z 
+2026-11-14T13:42:39.0135412Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.0135974Z 
+2026-11-14T13:42:39.0136142Z act(() => {
+2026-11-14T13:42:39.0136602Z   /* fire events that update state */
+2026-11-14T13:42:39.0137069Z });
+2026-11-14T13:42:39.0137466Z /* assert on the output */
+2026-11-14T13:42:39.0137854Z 
+2026-11-14T13:42:39.0138911Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.0139819Z 
+2026-11-14T13:42:39.1249280Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:39.1251650Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.1252330Z 
+2026-11-14T13:42:39.1252968Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.1253576Z 
+2026-11-14T13:42:39.1253739Z act(() => {
+2026-11-14T13:42:39.1254166Z   /* fire events that update state */
+2026-11-14T13:42:39.1254654Z });
+2026-11-14T13:42:39.1255052Z /* assert on the output */
+2026-11-14T13:42:39.1255328Z 
+2026-11-14T13:42:39.1256396Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.1257965Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.1258580Z 
+2026-11-14T13:42:39.1259145Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.1259752Z 
+2026-11-14T13:42:39.1260214Z act(() => {
+2026-11-14T13:42:39.1260694Z   /* fire events that update state */
+2026-11-14T13:42:39.1261179Z });
+2026-11-14T13:42:39.1261559Z /* assert on the output */
+2026-11-14T13:42:39.1261849Z 
+2026-11-14T13:42:39.1262890Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.1263813Z 
+2026-11-14T13:42:39.1395694Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:39.1397749Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.1420893Z 
+2026-11-14T13:42:39.1431520Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.1432197Z 
+2026-11-14T13:42:39.1432366Z act(() => {
+2026-11-14T13:42:39.1432817Z   /* fire events that update state */
+2026-11-14T13:42:39.1433347Z });
+2026-11-14T13:42:39.1433751Z /* assert on the output */
+2026-11-14T13:42:39.1434043Z 
+2026-11-14T13:42:39.1435090Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.1436609Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.1437224Z 
+2026-11-14T13:42:39.1437836Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.1438441Z 
+2026-11-14T13:42:39.1438612Z act(() => {
+2026-11-14T13:42:39.1439032Z   /* fire events that update state */
+2026-11-14T13:42:39.1439509Z });
+2026-11-14T13:42:39.1440252Z /* assert on the output */
+2026-11-14T13:42:39.1440587Z 
+2026-11-14T13:42:39.1441629Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.1442580Z 
+2026-11-14T13:42:39.4103891Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:39.4105605Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.4106074Z 
+2026-11-14T13:42:39.4106516Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.4106966Z 
+2026-11-14T13:42:39.4107074Z act(() => {
+2026-11-14T13:42:39.4107391Z   /* fire events that update state */
+2026-11-14T13:42:39.4107723Z });
+2026-11-14T13:42:39.4107987Z /* assert on the output */
+2026-11-14T13:42:39.4108189Z 
+2026-11-14T13:42:39.4108927Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.4109580Z 
+2026-11-14T13:42:39.4389374Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:39.4391083Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:39.4391503Z 
+2026-11-14T13:42:39.4391880Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:39.4392271Z 
+2026-11-14T13:42:39.4392369Z act(() => {
+2026-11-14T13:42:39.4392634Z   /* fire events that update state */
+2026-11-14T13:42:39.4392930Z });
+2026-11-14T13:42:39.4393168Z /* assert on the output */
+2026-11-14T13:42:39.4393338Z 
+2026-11-14T13:42:39.4393995Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:39.4394590Z 
+2026-11-14T13:42:43.5173199Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:43.5175581Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:43.5176338Z 
+2026-11-14T13:42:43.5177100Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:43.5177796Z 
+2026-11-14T13:42:43.5177944Z act(() => {
+2026-11-14T13:42:43.5178428Z   /* fire events that update state */
+2026-11-14T13:42:43.5178944Z });
+2026-11-14T13:42:43.5179403Z /* assert on the output */
+2026-11-14T13:42:43.5179741Z 
+2026-11-14T13:42:43.5181196Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:43.5182375Z 
+2026-11-14T13:42:43.5378975Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:43.5381347Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:43.5382043Z 
+2026-11-14T13:42:43.5382657Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:43.5383256Z 
+2026-11-14T13:42:43.5383402Z act(() => {
+2026-11-14T13:42:43.5383822Z   /* fire events that update state */
+2026-11-14T13:42:43.5384270Z });
+2026-11-14T13:42:43.5384630Z /* assert on the output */
+2026-11-14T13:42:43.5384897Z 
+2026-11-14T13:42:43.5385901Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:43.5387172Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:43.5387512Z 
+2026-11-14T13:42:43.5387849Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:43.5388183Z 
+2026-11-14T13:42:43.5388272Z act(() => {
+2026-11-14T13:42:43.5388515Z   /* fire events that update state */
+2026-11-14T13:42:43.5389067Z });
+2026-11-14T13:42:43.5389287Z /* assert on the output */
+2026-11-14T13:42:43.5389576Z 
+2026-11-14T13:42:43.5390460Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:43.5390991Z 
+2026-11-14T13:42:43.5391962Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:43.5393064Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:43.5393414Z 
+2026-11-14T13:42:43.5393735Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:43.5394064Z 
+2026-11-14T13:42:43.5394153Z act(() => {
+2026-11-14T13:42:43.5394402Z   /* fire events that update state */
+2026-11-14T13:42:43.5394664Z });
+2026-11-14T13:42:43.5394878Z /* assert on the output */
+2026-11-14T13:42:43.5395039Z 
+2026-11-14T13:42:43.5395604Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:43.5396105Z 
+2026-11-14T13:42:43.5801532Z [90mstderr[2m | server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22m[2madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply
+2026-11-14T13:42:43.5803548Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:43.5804158Z 
+2026-11-14T13:42:43.5804687Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:43.5805237Z 
+2026-11-14T13:42:43.5805386Z act(() => {
+2026-11-14T13:42:43.5805798Z   /* fire events that update state */
+2026-11-14T13:42:43.5806218Z });
+2026-11-14T13:42:43.5806574Z /* assert on the output */
+2026-11-14T13:42:43.5806843Z 
+2026-11-14T13:42:43.5807866Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:43.5809346Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T13:42:43.5810168Z 
+2026-11-14T13:42:43.5810819Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:43.5811411Z 
+2026-11-14T13:42:43.5811567Z act(() => {
+2026-11-14T13:42:43.5811981Z   /* fire events that update state */
+2026-11-14T13:42:43.5812465Z });
+2026-11-14T13:42:43.5812814Z /* assert on the output */
+2026-11-14T13:42:43.5813075Z 
+2026-11-14T13:42:43.5814019Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:43.5814922Z 
+2026-11-14T13:42:43.6558636Z  [32m✓[39m server/__tests__/collaboration-application-fresh-agent-ui.test.tsx[2m > [22madds an agent, edits and refreezes its brief, silently joins and sends an attributed reply[33m 17922[2mms[22m[39m
+2026-11-14T13:42:43.6674622Z {"level":30,"time":1794663763666,"pid":3373,"hostname":"runnervm8axu0","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+2026-11-14T13:42:51.1924017Z [90mstderr[2m | server/__tests__/collaboration-application-ui.test.tsx[2m > [22m[2msends first and later selected prompts from the production shared composer after remount
+2026-11-14T13:42:51.1926362Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T13:42:51.1926893Z 
+2026-11-14T13:42:51.1927379Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T13:42:51.1927866Z 
+2026-11-14T13:42:51.1927993Z act(() => {
+2026-11-14T13:42:51.1928330Z   /* fire events that update state */
+2026-11-14T13:42:51.1928762Z });
+2026-11-14T13:42:51.1929221Z /* assert on the output */
+2026-11-14T13:42:51.1929585Z 
+2026-11-14T13:42:51.1930935Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T13:42:51.1931900Z 
+2026-11-14T13:43:17.0062768Z  [32m✓[39m server/__tests__/collaboration-application-ui.test.tsx[2m > [22msends first and later selected prompts from the production shared composer after remount[33m 28523[2mms[22m[39m
+2026-11-14T13:43:17.0114490Z {"level":30,"time":1794663797010,"pid":3567,"hostname":"runnervm8axu0","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+2026-11-14T13:43:21.0185546Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the review owner omitted[32m 6[2mms[22m[39m
+2026-11-14T13:43:21.0188603Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the joining owner omitted[32m 3[2mms[22m[39m
+2026-11-14T13:43:21.0191846Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the messaging owner omitted[32m 9[2mms[22m[39m
+2026-11-14T13:43:22.1285583Z {"level":30,"time":1794663802127,"pid":4085,"hostname":"runnervm8axu0","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+2026-11-14T13:43:22.1459517Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the reply owner omitted[33m 1148[2mms[22m[39m
+2026-11-14T13:43:22.1461397Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the admission owner omitted[32m 68[2mms[22m[39m
+2026-11-14T13:43:22.1493735Z 
+2026-11-14T13:43:22.1498881Z [2m Test Files [22m [1m[32m4 passed[39m[22m[90m (4)[39m
+2026-11-14T13:43:22.1500993Z [2m      Tests [22m [1m[32m11 passed[39m[22m[90m (11)[39m
+2026-11-14T13:43:22.1501780Z [2m   Start at [22m 13:41:18
+2026-11-14T13:43:22.1502830Z [2m   Duration [22m 123.40s[2m (transform 9.60s, setup 0ms, import 2.52s, tests 118.39s, environment 1.94s)[22m
+2026-11-14T13:43:22.1503829Z 
+2026-11-14T13:43:22.3033854Z ##[group]Run actions/upload-artifact@v7
+2026-11-14T13:43:22.3034174Z with:
+2026-11-14T13:43:22.3034514Z   name: symposium-application-7464091c70a4442804c6be19d56c3e0a9d61d2ae-1
+2026-11-14T13:43:22.3034933Z   path: symposium-application.log
+2026-11-14T13:43:22.3035193Z   retention-days: 7
+2026-11-14T13:43:22.3035419Z   if-no-files-found: warn
+2026-11-14T13:43:22.3035658Z   compression-level: 6
+2026-11-14T13:43:22.3035872Z   overwrite: false
+2026-11-14T13:43:22.3036091Z   include-hidden-files: false
+2026-11-14T13:43:22.3036324Z   archive: true
+2026-11-14T13:43:22.3036521Z ##[endgroup]
+2026-11-14T13:43:22.4576640Z With the provided path, there will be 1 file uploaded
+2026-11-14T13:43:22.4615701Z Artifact name is valid!
+2026-11-14T13:43:22.4621258Z Root directory input is valid!
+2026-11-14T13:43:22.6526452Z Uploading artifact: symposium-application-7464091c70a4442804c6be19d56c3e0a9d61d2ae-1.zip
+2026-11-14T13:43:22.6568275Z Beginning upload of artifact content to blob storage
+2026-11-14T13:43:22.7553323Z Uploaded bytes 3567
+2026-11-14T13:43:22.7776429Z Finished uploading artifact content to blob storage!
+2026-11-14T13:43:22.7777989Z SHA256 digest of uploaded artifact is e1ae9c4b6f24d76cefef884ea2afe635c3e583781ca4fb5f18d5f68f1fb0aa27
+2026-11-14T13:43:22.7779449Z Finalizing artifact upload
+2026-11-14T13:43:23.1105503Z Artifact symposium-application-7464091c70a4442804c6be19d56c3e0a9d61d2ae-1 successfully finalized. Artifact ID 14116302506
+2026-11-14T13:43:23.1108097Z Artifact symposium-application-7464091c70a4442804c6be19d56c3e0a9d61d2ae-1 has been successfully uploaded! Final size is 3567 bytes. Artifact ID is 14116302506
+2026-11-14T13:43:23.1110640Z Artifact download URL: https://github.com/dimakis/mitzo/actions/runs/43600918311/artifacts/14116302506
+2026-11-14T13:43:23.1302830Z Post job cleanup.
+2026-11-14T13:43:23.1306401Z ##[start-action display=Run actions/setup-node@v7;id=__eda75afd-bca9-44f3-a95f-2e10c7e1bf6f.__actions_setup-node]
+2026-11-14T13:43:23.1370209Z Post job cleanup.
+2026-11-14T13:43:23.2567391Z Cache hit occurred on the primary key node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af, not saving cache.
+2026-11-14T13:43:23.2642310Z ##[end-action id=__eda75afd-bca9-44f3-a95f-2e10c7e1bf6f.__actions_setup-node;outcome=success;conclusion=success;duration_ms=133]
+2026-11-14T13:43:23.2718910Z Post job cleanup.
+2026-11-14T13:43:23.3750314Z [command]/usr/bin/git version
+2026-11-14T13:43:23.3807086Z git version 2.56.1
+2026-11-14T13:43:23.3850783Z Temporarily overriding HOME='/home/runner/work/_temp/f0a2a226-52e9-4b22-8be1-4b1e0fb60a29' before making global git config changes
+2026-11-14T13:43:23.3852578Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T13:43:23.3856606Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T13:43:23.3901342Z Removing SSH command configuration
+2026-11-14T13:43:23.3909812Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T13:43:23.3962350Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T13:43:23.4260516Z Removing HTTP extra header
+2026-11-14T13:43:23.4271974Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T13:43:23.4326555Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T13:43:23.4663544Z Removing includeIf entries pointing to credentials config files
+2026-11-14T13:43:23.4673327Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T13:43:23.4732977Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T13:43:23.5184556Z Cleaning up orphan processes
