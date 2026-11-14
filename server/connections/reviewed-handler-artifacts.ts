@@ -2311,7 +2311,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/telos-work-api.ts':
     '9ed6a275becdc3084307d01b6c5ee65084ec7989e4ccb9bca2fc18668f2bb1d8',
   '../telos-work-schema.ts': '6c9406ceec10bee8bf13f57c7b7f6e003805ee58071bdda8f5cc4c0738cd62e4',
-  '../telos-work-store.ts': 'e8eb10b941f8cf712814d25dfc29beb86b200a361314eb9eb4504d411198f73a',
+  '../telos-work-store.ts': 'aa564b68375bdbc97b0d8ba3e33ef23f2f83e1bfe1b182d48ea0470169ac3fd7',
   '../../packages/protocol/src/telos-work-api.ts':
     '9eb4b68f714866d7a8c321f6ec193f1b4d6563b896520b1a83d60362a10e9be7',
   '../tool-input-error.ts': '84137699ec55ee4ff47c1516e567f3ea605b1f76a51e9d1600b6a56ddb41eb5b',
@@ -4177,7 +4177,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-backlog.test.ts':
     'e682d8e975298dd997b05183e6b676cefe9fd9944f229cee1f2f6f235237f32e',
   '../__tests__/telos-work-routes.test.ts':
-    'fe69f6bc3121e32171e87c3b034408119f87c3c48a7d3f829596bef699fa494b',
+    '1b9033ce1106ddff3791246f89c1fc1bf7dc31c7116a20c50bb898dff36af9ac',
   '../telos-backlog-tools.ts': 'e4577776c46ee0ab27bcaf3e2e105e53e5117f744f947a073c156548895de360',
   '../../tests/offline/telos-outcomes-workspace.spec.ts':
     'c01a12965a4e4679fee8b053959e717614c35899649ff1996eaff8d80746db0b',

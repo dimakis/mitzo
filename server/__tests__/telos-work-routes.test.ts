@@ -462,6 +462,48 @@ describe('authorized Telos work API', () => {
     }
   }, 15000);
 
+  it('preserves a failed team reader cause when cleanup also fails and never escalates it to a writer', async () => {
+    const f = await setup();
+    await f.read();
+    const db = new Database(f.dbPath());
+    db.exec('DROP TABLE telos_work_team_memberships');
+    const cleanupCause = new Error('private cleanup failure');
+    const close = TelosWorkStore.prototype.close;
+    const retained = vi
+      .spyOn(telosFailure, 'retainTelosDiagnosticFailure')
+      .mockImplementation(() => {});
+    vi.spyOn(TelosWorkStore.prototype, 'close').mockImplementationOnce(function (
+      this: TelosWorkStore,
+    ) {
+      close.call(this);
+      throw cleanupCause;
+    });
+    try {
+      const response = await request(f.app)
+        .get('/api/telos/work/items/item/team')
+        .set('x-operator', 'authenticated');
+      expect(response.status).toBe(503);
+      expect(retained).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'SQLITE_ERROR' }),
+        cleanupCause,
+        expect.objectContaining({ stage: 'close_team_reader', operation: 'team_read' }),
+      );
+      expect(diagnostics.warn).toHaveBeenCalledWith(
+        'Telos work operation failed',
+        expect.objectContaining({
+          errorCode: 'SQLITE_ERROR',
+          reason: 'sqlite_unavailable',
+          operation: 'team_read',
+        }),
+      );
+      expect(
+        db.prepare("SELECT name FROM sqlite_master WHERE name='telos_work_team_memberships'").get(),
+      ).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
   it('preserves full extension initialization for a cold record read', async () => {
     const f = await setup();
     const response = await request(f.app)

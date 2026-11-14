@@ -1,5 +1,6 @@
 import { renewDueTelosSnoozes } from './telos-snooze.js';
 import { TelosWorkTeam } from './telos-work-team.js';
+import { retainTelosDiagnosticFailure } from './telos-operation-failure.js';
 import { TelosWorkIdSchema, type TelosTeamReceipt, type TelosTeamView } from '@mitzo/protocol';
 import { publishTelosWorkUpdate } from './telos-work-updates.js';
 import type { EventStore } from './event-store.js';
@@ -216,7 +217,16 @@ export class TelosWorkStore {
         .all();
       return store;
     } catch (error) {
-      store.close();
+      try {
+        store.close();
+      } catch (cleanupCause) {
+        retainTelosDiagnosticFailure(error, cleanupCause, {
+          stage: 'close_team_reader',
+          operation: 'team_read',
+        });
+        // A failed close cannot replace the read cause or permit a writer.
+        throw error;
+      }
       if (
         !(error instanceof Error) ||
         !('code' in error) ||
