@@ -376,6 +376,8 @@ export interface SessionContextUsage {
 export interface Session {
   id: string;
   summary: string;
+  /** Presentation membership only. Each participant retains its execution owner. */
+  participantSessionIds?: string[];
   /** Navigation metadata only; never task, runtime or transcript authority. */
   parentConversationId?: string;
   parentConversationTitle?: string;
@@ -422,6 +424,10 @@ export type WaitReason = 'permission' | 'review' | 'blocked';
 
 export interface SessionActivity {
   sessionId: string;
+  /** Chats destination only; sessionId remains the approval/Stop/history owner. */
+  presentationConversation?: { id: string; title: string };
+  /** Navigation projection only; raw participant evidence retains original IDs. */
+  participantActivities?: SessionActivity[];
   clientId: string;
   title: string;
   model?: string;
@@ -487,6 +493,8 @@ export interface StoredEvent {
 
 export interface SessionSearchResult {
   sessionId: string;
+  /** Exact matching history when the row represents a shared conversation. */
+  matchedSessionId?: string;
   summary: string | null;
   model?: string;
   modelUnavailable?: boolean;

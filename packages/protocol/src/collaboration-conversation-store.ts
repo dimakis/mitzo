@@ -1,7 +1,10 @@
 import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { resolveCollaborationSourceSetup } from './collaboration-source-setup-owner.js';
+import {
+  collaborationOrigin,
+  resolveCollaborationSourceSetup,
+} from './collaboration-source-setup-owner.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   CollaborationForwardPrepareInputSchema,
@@ -66,6 +69,7 @@ function sha(value: unknown) {
   return createHash('sha256').update(canonical(value)).digest('hex');
 }
 interface Owners {
+  navigationUnavailable?(identity: { collaborationId: string; sessionId: string }): void;
   membership(id: string): SessionCollaboration | null;
   setMembership(id: string, input: unknown): SessionCollaboration;
   beginMembership(id: string, sourceSessionId: string): SessionCollaboration;
@@ -158,6 +162,7 @@ function validateCapacityWitnesses(
  * saveSnapshot/acceptMessage/recordDelivery/recordAllocation are trusted host ports, not HTTP writes.
  */
 export class CollaborationConversationStore {
+  private navigationFailures = new Set<string>();
   constructor(
     private readonly db: Database.Database,
     private readonly owners: Owners,
@@ -281,6 +286,70 @@ export class CollaborationConversationStore {
       },
       sha,
     );
+  }
+  /** Chats presentation only. No membership mutation, allocation or control authority.
+   * Unknown/ambiguous older records keep their independent navigation. */
+  navigation(): Array<{
+    sessionId: string;
+    sourceConversationId: string;
+    collaborationId: string;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.collaboration_id, r.participant_session_ids FROM session_collaboration_revisions r
+      WHERE NOT EXISTS (SELECT 1 FROM session_collaboration_revisions n
+      WHERE n.collaboration_id=r.collaboration_id AND n.revision>r.revision) ORDER BY r.collaboration_id`,
+      )
+      .all() as Array<{ collaboration_id: string; participant_session_ids: string }>;
+    const groups = rows.map((r) => ({
+      id: r.collaboration_id,
+      members: z.array(z.string()).parse(JSON.parse(r.participant_session_ids)),
+    }));
+    const associations = new Map<string, number>();
+    for (const group of groups)
+      for (const id of group.members) associations.set(id, (associations.get(id) ?? 0) + 1);
+    return groups.flatMap((group) => {
+      const source = collaborationOrigin(this.db, group.id, sha);
+      if (
+        !source ||
+        !group.members.includes(source) ||
+        associations.get(source) !== 1 ||
+        !this.owners.available(source)
+      )
+        return [];
+      return group.members.flatMap((sessionId) => {
+        if (
+          sessionId === source ||
+          associations.get(sessionId) !== 1 ||
+          !this.owners.available(sessionId)
+        )
+          return [];
+        try {
+          const join = this.getLinkedJoinForSession(group.id, sessionId);
+          if (!join || !this.continuousMember(this.group(group.id), 1, source)) return [];
+          this.navigationFailures.delete(`${group.id}:${sessionId}`);
+          return [{ sessionId, sourceConversationId: source, collaborationId: group.id }];
+        } catch (error) {
+          // Discontinued membership/ambiguous allocations are expected historical
+          // states, not permission to erase the independent session. Storage and
+          // validation failures propagate to the existing route/emitter diagnostic.
+          if (
+            error instanceof ContractError &&
+            ['allocation_conflict', 'snapshot_changed'].includes(error.code)
+          )
+            return [];
+          if (error instanceof z.ZodError) {
+            const key = `${group.id}:${sessionId}`;
+            if (!this.navigationFailures.has(key)) {
+              this.owners.navigationUnavailable?.({ collaborationId: group.id, sessionId });
+              this.navigationFailures.add(key);
+            }
+            return [];
+          }
+          throw error;
+        }
+      });
+    });
   }
   begin(group: string, raw: unknown) {
     const input = CollaborationBeginSchema.parse(raw);

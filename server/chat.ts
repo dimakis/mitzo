@@ -257,7 +257,6 @@ import {
   SESSION_PAGE_SIZE,
   SESSION_MESSAGES_LIMIT,
   USER_CLOSEOUT_TIMEOUT_MS,
-  ZERO_TURN_GRACE_MS,
   DEFAULT_AGENT_NAME,
   DEFAULT_CONTEXGIN_URL,
 } from './constants.js';
@@ -426,7 +425,8 @@ import {
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { shouldAutoRename } from './auto-rename.js';
-import { sessionDisplayName, sessionNamingPrompts } from './session-naming-context.js';
+import { sessionNamingPrompts } from './session-naming-context.js';
+import { sessionConversationPage } from './session-conversation-list.js';
 import {
   registerSession,
   updateSessionTitle,
@@ -450,7 +450,7 @@ function initEventStore(): EventStore {
   const mitzoDir = join(repoPath, '.mitzo');
   mkdirSync(mitzoDir, { recursive: true });
   const dbPath = join(mitzoDir, 'events.db');
-  const store = new EventStore(dbPath);
+  const store = new EventStore(dbPath, log);
   const recover = Reflect.get(store, 'recoverSymposiumDeliveries') as
     EventStore['recoverSymposiumDeliveries'] | undefined;
   const recovered =
@@ -6223,36 +6223,7 @@ export async function listImportableSdkConversations() {
  * Returns the same shape as getSessions() for API compatibility.
  */
 export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
-  const now = Date.now();
-  const all = eventStore.listSessions().filter((m) => {
-    if (m.isHidden || !isRegisteredConversation(m)) return false;
-    if (m.conversationSource === 'external_import') return true;
-    if (m.symposiumConfig) return true;
-    // Hide sessions that were never used through Mitzo (e.g. automated
-    // code review sessions discovered from filesystem).  Active sessions
-    // always show regardless of turn count. Controller-created conversations
-    // get the startup grace period; provider files cannot grant ownership.
-    if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) {
-      return (
-        Boolean(m.initialPrompt || m.accountBinding || m.conversationSource === 'mitzo') &&
-        now - m.createdAt < ZERO_TURN_GRACE_MS
-      );
-    }
-    return true;
-  });
-  all.sort((a, b) => b.updatedAt - a.updatedAt);
-  const page = all.slice(offset, offset + limit);
-  const hasMore = all.length > offset + limit;
-  return {
-    sessions: page.map((m) => ({
-      id: m.sessionId,
-      summary: sessionDisplayName(m, () => eventStore.getSessionNamingEvents(m.sessionId)),
-      lastModified: m.updatedAt,
-      branch: m.branch ?? undefined,
-      cwd: m.cwd ?? undefined,
-    })),
-    hasMore,
-  };
+  return sessionConversationPage(eventStore, offset, limit);
 }
 
 /**

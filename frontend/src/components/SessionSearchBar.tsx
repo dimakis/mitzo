@@ -86,7 +86,7 @@ export function SessionSearchBar({
               <button
                 key={r.sessionId}
                 className="session-search-result"
-                onClick={() => handleSelect(r.sessionId)}
+                onClick={() => handleSelect(r.matchedSessionId ?? r.sessionId)}
               >
                 <div className="session-search-result-summary">
                   {r.summary || 'Untitled session'}
