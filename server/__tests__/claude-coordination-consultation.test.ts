@@ -98,7 +98,7 @@ it('executes a bounded consultation through the SDK bridge to a terminal attribu
     expect(catalog.value.profiles).toEqual(
       expect.arrayContaining([expect.objectContaining({ role: 'planner' })]),
     );
-    const policy = await call({
+    const authorization = {
       operation: 'authorize',
       requestId: crypto.randomUUID(),
       connectionId: catalog.value.repositories[0].connectionId,
@@ -116,7 +116,8 @@ it('executes a bounded consultation through the SDK bridge to a terminal attribu
           targetId: 'offline-observation',
         },
       ],
-    });
+    };
+    const policy = await call(authorization);
     expect(policy.isError).toBe(false);
     const input = {
       operation: 'consult',
@@ -161,6 +162,61 @@ it('executes a bounded consultation through the SDK bridge to a terminal attribu
     const rejected = await call({ ...input, requestId: crypto.randomUUID() });
     expect(rejected.isError).toBe(true);
     expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    const recoveryPolicy = await call({ ...authorization, requestId: crypto.randomUUID() });
+    expect(recoveryPolicy.isError).toBe(false);
+    const { OrdinaryCollaborationJoining } = await import('../collaboration-joining-owner.js');
+    const confirm = OrdinaryCollaborationJoining.prototype.confirm;
+    let originalSessionId: string | null = null;
+    const lost = vi
+      .spyOn(OrdinaryCollaborationJoining.prototype, 'confirm')
+      .mockImplementationOnce(async function (
+        this: InstanceType<typeof OrdinaryCollaborationJoining>,
+        ...args
+      ) {
+        const joined = await confirm.apply(this, args);
+        originalSessionId = joined.sessionId;
+        throw Error('Synthetic private upstream detail after durable joining');
+      });
+    const interruptedInput = {
+      ...input,
+      requestId: crypto.randomUUID(),
+      policyId: recoveryPolicy.value.policyId,
+    };
+    let interrupted;
+    try {
+      interrupted = await call(interruptedInput);
+      expect(interrupted).toMatchObject({
+        isError: true,
+        value: {
+          status: 'uncertain',
+          terminal: false,
+          receipt: { requestId: interruptedInput.requestId },
+        },
+      });
+      expect(JSON.stringify(interrupted)).not.toContain('private upstream detail');
+      expect(lost).toHaveBeenCalledOnce();
+      expect(originalSessionId).toBeTruthy();
+      expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    } finally {
+      lost.mockRestore();
+    }
+    call = await connect();
+    const recovered = await call({ operation: 'recover', requestId: interruptedInput.requestId });
+    expect(recovered.value.receipt).toMatchObject({
+      sessionId: originalSessionId,
+      workspaceId: interrupted.value.receipt.workspaceId,
+    });
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await call({ operation: 'read', requestId: interruptedInput.requestId })).value,
+        ).toMatchObject({ status: 'completed', terminal: true }),
+      { timeout: 5000 },
+    );
+    expect(
+      (await call({ operation: 'recover', requestId: interruptedInput.requestId })).value.status,
+    ).toBe('completed');
+    expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
   } finally {
     for (const { client, server } of peers.reverse()) {
       await client.close();
