@@ -17,16 +17,19 @@ import {
   googleReadSessionApproval,
 } from './google-workspace-read.js';
 import { captureSessionCapability } from './session-capability-grants.js';
+import { reportToolFailure } from './tool-failure-reporting.js';
 
 /** The admitted Local Mac owner supplies both fences; no shell credential access is granted. */
 export function sessionGoogleWorkspaceTools(options: {
   sessionId: string;
   session: ManagedSession;
   registry: SessionRegistry;
+  toolName?: string;
   assertCurrent(): Promise<void>;
   assertCurrentSync(): void;
 }) {
   const name = googleWorkspaceReadDefinition.name;
+  const policyName = options.toolName ?? name;
   const service = getConnectionsRuntime()?.googleWorkspace;
   const current = () => {
     options.assertCurrentSync();
@@ -36,7 +39,7 @@ export function sessionGoogleWorkspaceTools(options: {
       owner.session !== options.session ||
       options.session.abortController.signal.aborted ||
       !agentToolAllowed(options.session, name) ||
-      checkSkillPolicy(options.registry, owner.clientId, name) === 'deny' ||
+      checkSkillPolicy(options.registry, owner.clientId, policyName) === 'deny' ||
       !service ||
       getConnectionsRuntime()?.googleWorkspace !== service
     )
@@ -99,7 +102,7 @@ export function sessionGoogleWorkspaceTools(options: {
         const permission =
           consent || autoRead
             ? { behavior: 'allow' as const, updatedInput: review }
-            : await buildPermissionHandler(owner.clientId, options.registry)(name, review, {
+            : await buildPermissionHandler(owner.clientId, options.registry)(policyName, review, {
                 signal: combined,
                 toolUseID: randomUUID(),
                 // Reads are never tier auto-allowed outside Auto; a retained
@@ -124,14 +127,13 @@ export function sessionGoogleWorkspaceTools(options: {
         await readGuard();
         combined.throwIfAborted();
         return { content, isError: false };
-      } catch {
+      } catch (error) {
         // OAuth, CLI and HTTP diagnostics can contain secrets. Never return causes.
-        return {
-          content: combined.aborted
-            ? 'Google read cancelled or timed out.'
-            : 'Google read unavailable. Check the configured Google sign-in, resource access and current chat permissions, then retry.',
-          isError: true,
-        };
+        return reportToolFailure(error, {
+          sessionId: options.sessionId,
+          tool: name,
+          signal: combined,
+        });
       }
     },
   };

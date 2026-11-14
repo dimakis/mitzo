@@ -5,6 +5,7 @@
 export const SDK_CONNECTION_PREFIX = 'mcp__mitzo-connections__';
 const connectionHelpers: readonly string[] = Object.freeze([
   ...nativeConnectionToolNames,
+  'GoogleWorkspaceRead',
   'SymposiumReadProfiles',
   'SymposiumConsult',
   'SymposiumProposeProfile',

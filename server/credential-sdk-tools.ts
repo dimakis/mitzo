@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { GoogleWorkspaceReadSchema } from './google-workspace-read.js';
+import { registerGoogleWorkspaceSdkTool } from './google-workspace-sdk.js';
 import { TelosCreateSessionInputSchema } from '@mitzo/protocol';
 import { sessionLaunchTools } from './session-launch-tools.js';
 import { telosSessionLaunchDefinition } from './telos-session-launch-tool.js';
@@ -46,6 +48,7 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  GoogleWorkspaceRead: GoogleWorkspaceReadSchema,
   TelosCreateSession: TelosCreateSessionInputSchema,
   AgentCommunication: AgentCommunicationSdkInput,
   ...sessionPromptSchemas,
@@ -132,7 +135,7 @@ export function createCredentialSdkServer(
     },
   };
   let current: { id: string; tools: ReturnType<typeof sessionCredentialTools> } | undefined;
-  return createSdkMcpServer({
+  const server = createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
     tools: filterAgentTools(session, [
@@ -152,7 +155,7 @@ export function createCredentialSdkServer(
       tool(
         definition.name,
         definition.description,
-        schemas[definition.name as keyof typeof schemas].shape,
+        schemas[definition.name as Exclude<keyof typeof schemas, 'GoogleWorkspaceRead'>].shape,
         async (input, extra) => {
           const callSignal =
             extra !== null &&
@@ -304,4 +307,7 @@ export function createCredentialSdkServer(
       ),
     ),
   });
+  if (boundary)
+    registerGoogleWorkspaceSdkTool(server.instance, sessionId, session, registry, boundary);
+  return server;
 }
