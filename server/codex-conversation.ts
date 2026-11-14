@@ -199,6 +199,8 @@ export interface CodexConversationOptions {
    * Selected before constructing the owner; absent retains exact legacy behavior. */
   providerContextRevision?: string;
   enableToolFailureContinuation?: boolean;
+  /** An exact externally observed command cannot start an implicit successor. */
+  toolFailureContinuationAllowed?(commandId: string): boolean;
   /** Original live owner admits the exact durable child under unchanged authority. */
   admitToolFailureContinuation?(input: CodexCommandInput): boolean | void;
   /** Trusted execution policy, never provider/model input. */
@@ -3958,6 +3960,7 @@ export class CodexConversation {
         !this.active.interruptRequested &&
         !this.active.callbackEffectsUnknown &&
         this.opts.enableToolFailureContinuation !== false &&
+        (this.opts.toolFailureContinuationAllowed?.(this.active.command.id) ?? true) &&
         this.opts.ownerKind !== 'symposium' &&
         !this.opts.adviserScope &&
         (!this.opts.canClaimCommand || this.opts.admitToolFailureContinuation)

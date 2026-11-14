@@ -234,6 +234,7 @@ export async function startOwnedLocalVertexCommand(
           session.ownedLocalAuthSessionId = owner.authSessionId;
           retainNativeHostToolOperator(session, options.operatorConnectionId);
           session.ordinaryRuntimeOwner = {
+            supportsTurnLifecycle: true,
             location: 'local',
             authSessionId: owner.authSessionId,
             identity: owner,

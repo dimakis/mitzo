@@ -51,6 +51,8 @@ export interface ManagedSession {
     /** Frozen server entry identity; absent resume is the ordinary first-command path. */
     initialPreparationOperationId?: string;
     initialResume?: boolean;
+    /** This live owner retains exact per-command dispatch/acceptance fences. */
+    supportsTurnLifecycle?: true;
     admit(
       command: unknown,
       preparationSignal?: AbortSignal,
