@@ -51,6 +51,20 @@ request visible and functional without replacing the input. CI-reported timer an
 session-prompt fixture typing errors were corrected with explicit timer handles and
 schema-validated collaboration settings.
 
+The stronger actual application recovery assertion subsequently exposed a second
+status-owner omission: the portal carried the sink and active state but omitted
+`ViewContext`, which the status rail inside `ChatInput` reads. The preceding unit
+test had supplied an external rail and masked that topology. Removing the extra
+rail reproduces missing recovery/details controls. An isolated status-view bridge
+now forwards the page's reader state without making notice reports rerender their
+own input. The corrected test opens the real status details and retains the exact
+textarea through qualification. API recovery alone did not establish this UI gate;
+slice 3 subsequently verified the independent application assertion on combined
+`ee2b8440e`: 21 checks across four files passed. The actual lost-response UI opens
+Conversation status details and checks the original request without another turn,
+then completes the 31-turn Stop/reconnect/restart continuation. Status details
+legitimately groups multiple notices; the visible details-to-Check path is the gate.
+
 The original-owner dispatch test first failed with “Choose a fresh configured group
 participant.” It now checks original authenticated Codex/SDK owner reuse, unchanged
 transport/client identity, lifecycle forwarding and rejection of another login.
@@ -100,9 +114,15 @@ dependency installation downloaded Chromium but failed downloading FFmpeg. The
 supported executor's attempt to launch that installed Chromium failed macOS Mach
 bootstrap/socket registration permissions. No denied launch was repeated or sandbox
 guard bypassed. Hosted browser execution and capture inspection remain required.
+The first hosted traces also exposed an external fixture prerequisite: its socket
+builder intentionally threw while the store connected, preventing rendering. Slice
+3 supplied an inert deterministic welcome transport in `06ad8abd7`; its exact
+narrow-fixture correction is retained here. This is a fixture-only correction,
+with fresh hosted rendering and capture inspection still required.
 
-The full frontend typecheck exceeded the local 1 GiB heap. Full frontend/server
-compilation and production build remain hosted CI checks. Physical-device behavior,
+The full frontend typecheck exceeded the local 1 GiB heap. Hosted preflight and
+frontend production build subsequently passed on `159358c08`; the status-view
+successor still requires fresh compilation and browser checks. Physical-device behavior,
 the user's exact failing phone build/request and production acceptance remain
 unverified. No real model calls, credentials or private reasoning were used.
 
