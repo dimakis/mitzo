@@ -2,6 +2,7 @@ import { OperatorAuthorizationError } from './agent-library-transport.js';
 import { UnsettledTaskExecutionError } from './task-execution-store.js';
 import { toolFailure, toolFailureAction, type ToolFailure } from '@mitzo/protocol';
 import { z } from 'zod';
+import { ApprovalExpiredError } from '@mitzo/harness';
 
 export class TaskExecutionRefusal extends Error {
   constructor(
@@ -22,22 +23,27 @@ export function taskExecutionFailure(
   cancelled = false,
 ) {
   const authenticationRequired = cause instanceof OperatorAuthorizationError;
+  const expired = cause instanceof ApprovalExpiredError;
   const outcomeUnknown = effectMayHaveStarted || cause instanceof UnsettledTaskExecutionError;
   const failure = toolFailure(
     cancelled
       ? 'cancelled'
       : authenticationRequired
         ? 'operator_authentication_required'
-        : cause instanceof TaskExecutionRefusal
-          ? cause.code
-          : cause instanceof z.ZodError
-            ? 'invalid_input'
-            : 'internal_failure',
-    cause instanceof TaskExecutionRefusal
-      ? cause.phase
-      : effectMayHaveStarted
-        ? 'execution'
-        : 'admission',
+        : expired
+          ? 'approval_expired'
+          : cause instanceof TaskExecutionRefusal
+            ? cause.code
+            : cause instanceof z.ZodError
+              ? 'invalid_input'
+              : 'internal_failure',
+    expired
+      ? 'approval'
+      : cause instanceof TaskExecutionRefusal
+        ? cause.phase
+        : effectMayHaveStarted
+          ? 'execution'
+          : 'admission',
     outcomeUnknown ? 'unknown' : 'not_started',
   );
   const reconcile =
@@ -56,7 +62,9 @@ export function taskExecutionFailure(
     requestId,
     effectStatus: failure.effectStatus,
     recovery:
-      failure.recovery === 'none' || failure.recovery === 'correct_input'
+      failure.recovery === 'none' ||
+      failure.recovery === 'correct_input' ||
+      failure.recovery === 'renew_approval'
         ? toolFailureAction(failure)
         : authenticationRequired
           ? toolFailureAction(failure) + (outcomeUnknown ? ' ' + reconcile : '')

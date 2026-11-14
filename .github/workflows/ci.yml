@@ -980,6 +980,17 @@ jobs:
       - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
+      - name: Prepare Linux SDK sandbox prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bubblewrap socat
+          # EnMaaS subprocess scrubbing requires the installed SDK's sandbox.
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+          if sudo sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: Require both immutable producer artifact IDs
         env:
           CI_SERVER_ARTIFACT_ID: ${{ needs.preflight.outputs.build_artifact_id }}

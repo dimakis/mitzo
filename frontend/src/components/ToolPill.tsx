@@ -4,7 +4,7 @@ import { UiIcon } from './UiIcon';
 import { useState, useCallback, useId } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
-import { getToolStatus, type ToolBlock } from '../lib/tool-status';
+import { getToolStatus, isApprovalTimeout, type ToolBlock } from '../lib/tool-status';
 import { SubagentCard } from './SubagentCard';
 import { CodeBlock } from './CodeBlock';
 import { ToolResultContent } from './ToolResultContent';
@@ -157,6 +157,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
   const [expanded, setExpanded] = useState(false);
   const detailId = useId();
   const { done, hasError, interrupted, running } = getToolStatus(block);
+  const approvalTimeout = isApprovalTimeout(block);
   const input = block.toolInput || '';
   const webOutcome = webAccessOutcome(block);
   const webSummary = webAccessSummary(input);
@@ -176,7 +177,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
 
   return (
     <div
-      className={`tool-pill ${interrupted ? 'tool-pill--interrupted' : done ? (hasError ? 'tool-pill--error' : 'tool-pill--done') : 'tool-pill--running'}`}
+      className={`tool-pill ${interrupted || approvalTimeout ? 'tool-pill--interrupted' : done ? (hasError ? 'tool-pill--error' : 'tool-pill--done') : 'tool-pill--running'}`}
     >
       <button
         type="button"
@@ -186,11 +187,13 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
         aria-controls={detailId}
       >
         <span
-          className={`tool-pill-dot ${interrupted ? 'tool-pill-dot--interrupted' : done ? (hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
+          className={`tool-pill-dot ${interrupted || approvalTimeout ? 'tool-pill-dot--interrupted' : done ? (hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
         />
         <span className="tool-pill-name">{webOutcome ? webSummary.name : block.toolName}</span>
         <span className="tool-pill-input">{webOutcome ? webSummary.target : input}</span>
-        {interrupted ? (
+        {approvalTimeout ? (
+          <span className="tool-pill-status">Approval timed out</span>
+        ) : interrupted ? (
           <span className="tool-pill-status">Interrupted</span>
         ) : webOutcome ? (
           <span className="tool-pill-status">{webOutcome}</span>

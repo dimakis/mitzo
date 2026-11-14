@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   checkSkillPolicy,
   type buildPermissionHandler,
+  throwIfApprovalExpired,
   type SessionRegistry,
 } from '@mitzo/harness';
 import type { ManagedSession } from './session-registry.js';
@@ -98,6 +99,7 @@ export async function authorizeGitHubRead(
           : {}),
       });
   signal.throwIfAborted();
+  throwIfApprovalExpired(permission);
   if (permission.behavior !== 'allow') throw Error(permission.message);
   if (!isDeepStrictEqual(permission.updatedInput, input))
     throw Error('Tool input changed during approval; retry the tool');

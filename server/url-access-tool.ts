@@ -8,6 +8,7 @@ import { canonicalPublicDnsAddress } from './connections/iana-address-policy.js'
 import { captureSessionCapability, blockSessionPublicOrigin } from './session-capability-grants.js';
 import {
   buildPermissionHandler,
+  permissionRefusalContent,
   checkSkillPolicy,
   effectivePermissionMode,
   type ManagedSession,
@@ -212,7 +213,8 @@ export function createUrlAccessTool(
         }
         await assertRuntimeCurrent?.();
         signal.throwIfAborted();
-        if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
+        if (decision.behavior !== 'allow')
+          return { content: permissionRefusalContent(decision), isError: true };
         flight.assertCapabilityCurrent?.();
         if (
           !allowed(current.clientId, current.session) ||

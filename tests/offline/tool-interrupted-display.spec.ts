@@ -66,6 +66,10 @@ for (const theme of ['dark', 'light'] as const)
       });
     });
     await page.goto('/');
+    const expired = page.getByRole('region', { name: 'Expired approval', exact: true });
+    await expect(expired.getByText('Approval timed out', { exact: true })).toBeVisible();
+    await expect(expired.getByText('Failed', { exact: true })).toHaveCount(0);
+    await expect(expired.locator('.tool-pill--interrupted')).toBeVisible();
     const command = page.getByRole('region', { name: 'Owned command', exact: true });
     const web = page.getByRole('region', { name: 'Owned web request', exact: true });
     const group = page.getByRole('region', { name: 'Mixed tool group', exact: true });
@@ -92,7 +96,10 @@ for (const theme of ['dark', 'light'] as const)
     }));
     expect(neutral.animation).toBe('none');
     expect(neutral.color).toBe(neutral.muted);
-    await page.screenshot({ path: info.outputPath('interrupted-consumers.png'), fullPage: true });
+    await page.screenshot({
+      path: info.outputPath('approval-timeout-consumers.png'),
+      fullPage: true,
+    });
     await page.keyboard.press(key);
     await page.keyboard.press(key);
     const commandToggle = command.getByRole('button', { name: /Bash.*Interrupted/ });
@@ -122,7 +129,10 @@ for (const theme of ['dark', 'light'] as const)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       isMobile ? 320 : 1280,
     );
-    await page.screenshot({ path: info.outputPath('late-real-output.png'), fullPage: true });
+    await page.screenshot({
+      path: info.outputPath('approval-timeout-late-output.png'),
+      fullPage: true,
+    });
     expect(errors).toEqual([]);
     expect(unexpected).toEqual([]);
   });

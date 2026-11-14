@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ApprovalExpiredError } from '@mitzo/harness';
 import { z } from 'zod';
 import type { TelosWorkStore } from './telos-work-store.js';
 import {
@@ -115,6 +116,7 @@ export class TelosMainPublication {
     // Historical requested pins cannot acquire the amended permission/effect.
     if (pins.contract !== normalPrPublicationContract) return this.deny(pins);
     let inspectedMainHead: string | undefined;
+    let admitted = false;
     try {
       this.host.assertCurrent(pins);
       records.assertWorkCurrent(pins);
@@ -131,7 +133,6 @@ export class TelosMainPublication {
         signal,
       );
       if (!permission?.receiptId) return this.deny(pins, inspectedMainHead);
-      let admitted = false;
       const observed = await capability.merge(
         pins,
         signal,
@@ -153,7 +154,10 @@ export class TelosMainPublication {
       if (admitted && observed.state === 'conflicted')
         return records.accept(pins, observed.observed);
       return this.deny(pins, inspectedMainHead); // Admitted operations remain uncertain.
-    } catch {
+    } catch (error) {
+      // A missed approval is not a denial. Keep the original unadmitted
+      // request renewable; all current review/CI/authority gates run again.
+      if (error instanceof ApprovalExpiredError && !admitted) throw error;
       // deny never converts uncertainty/acceptance to a safe-to-repeat state.
       return this.deny(pins, inspectedMainHead);
     }

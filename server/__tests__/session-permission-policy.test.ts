@@ -7,6 +7,9 @@ import {
 } from '../session-permission-policy.js';
 
 describe('provider-independent permission authority', () => {
+  it('blocks SDK callback validation/transport failures on the merged permission owner', () => {
+    expect(buildSessionPermissionHooks(vi.fn()).PreToolUse![0].onFailure).toBe('block');
+  });
   it('reuses CI read consent through the SDK hook and prompts again after account changes', async () => {
     const registry = new SessionRegistry();
     const abort = new AbortController();

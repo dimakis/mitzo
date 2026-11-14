@@ -54,7 +54,13 @@ import {
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
 import { executeNativeTelosItemOperation } from './native-telos-item-operations.js';
 import { TELOS_WORKFLOW_INSTRUCTIONS } from './telos-workflow-instructions.js';
-import { sessionLearningGuidance, parseSessionLearningPolicy } from '@mitzo/protocol';
+import {
+  sessionLearningGuidance,
+  parseSessionLearningPolicy,
+  ToolFailureSchema,
+  toolFailure,
+  toolFailureAction,
+} from '@mitzo/protocol';
 import {
   telosBacklogDefinitions,
   isTelosBacklogTool,
@@ -207,6 +213,8 @@ import {
 import { contextDigest } from './agent-context-compiler.js';
 import {
   buildPermissionHandler,
+  permissionRefusalContent,
+  throwIfApprovalExpired,
   checkSkillPolicy,
   type ManagedSession,
   type SessionRegistry,
@@ -1603,7 +1611,7 @@ async function openCodexChatBound(
     signal.throwIfAborted();
     if (decision.behavior !== 'allow') {
       turn?.denied.add(provider);
-      return { content: decision.message, isError: true };
+      return { content: permissionRefusalContent(decision), isError: true };
     }
     if (!isDeepStrictEqual(decision.updatedInput, approvedInput))
       return { content: 'Provider grant changed during approval; retry', isError: true };
@@ -3461,12 +3469,18 @@ async function openCodexChatBound(
       if (runtimeManager) markOpenShellLifecycleIdle(options.conversationId);
       finish();
     },
-    requestUserInput: async (params, signal) => {
+    requestUserInput: async (params, signal, context) => {
       if (options.adviserScope) throw Error('Adviser interactive tools unavailable');
       await assertHostCurrent();
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
-      const result = await requestCodexUserInput(params, signal, owner.clientId, options.registry);
+      const result = await requestCodexUserInput(
+        params,
+        signal,
+        owner.clientId,
+        options.registry,
+        context?.observeFailure,
+      );
       await assertHostCurrent();
       return result;
     },
@@ -3631,6 +3645,7 @@ async function openCodexChatBound(
           });
           await assertHostCurrent();
           current();
+          throwIfApprovalExpired(permission);
           if (
             permission.behavior !== 'allow' ||
             !isDeepStrictEqual(permission.updatedInput, original.input)
@@ -3933,7 +3948,8 @@ async function openCodexChatBound(
           onDemandCreate: options.onDemandCreate,
         })(name, parsed.data, { signal, toolUseID: randomUUID(), allowSessionGrant: true });
         assertWorkerScope();
-        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (permission.behavior !== 'allow')
+          return { content: permissionRefusalContent(permission), isError: true };
         if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
           return { content: 'Delegated task input changed during approval', isError: true };
         await assertHostCurrent();
@@ -3987,7 +4003,8 @@ async function openCodexChatBound(
           onDemandCreate: options.onDemandCreate,
         })(name, parsed.data, { signal, toolUseID: randomUUID(), allowSessionGrant: false });
         assertControlOwner();
-        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (permission.behavior !== 'allow')
+          return { content: permissionRefusalContent(permission), isError: true };
         if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
           return { content: 'Scoped control input changed during approval', isError: true };
         await assertHostCurrent();
@@ -4033,7 +4050,8 @@ async function openCodexChatBound(
           allowSessionGrant: !parsed.data.execute,
         });
         assertLead();
-        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (permission.behavior !== 'allow')
+          return { content: permissionRefusalContent(permission), isError: true };
         if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
           return {
             content: 'Telos delegation input changed during approval; retry the exact request',
@@ -4174,11 +4192,31 @@ async function openCodexChatBound(
           capabilityApprovalForConversation(options.registry, options.conversationId),
           assertCapabilityCurrent,
         );
+        const retainedResult = operation.result;
+        const failure = ToolFailureSchema.safeParse(
+          retainedResult && typeof retainedResult === 'object' && !Array.isArray(retainedResult)
+            ? retainedResult.failure
+            : undefined,
+        );
+        // Provider output may itself contain a schema-shaped "failure".
+        // Only the host's pre-dispatch journal states establish expiry.
+        const expectedExpiry =
+          operation.status === 'cancelled' && operation.failureCode === 'APPROVAL_EXPIRED'
+            ? toolFailure('approval_expired', 'approval', 'not_started')
+            : operation.status === 'failed' &&
+                operation.failureCode === 'APPROVAL_EXPIRY_CLEANUP_FAILED'
+              ? toolFailure('approval_expired', 'cleanup', 'unknown')
+              : undefined;
+        const expired =
+          expectedExpiry && failure.success && isDeepStrictEqual(failure.data, expectedExpiry);
         return {
           content: JSON.stringify({
             operationId: operation.id,
             status: operation.status,
             result: operation.result,
+            ...(expired
+              ? { failure: expectedExpiry, message: toolFailureAction(expectedExpiry) }
+              : {}),
           }),
           isError: operation.status !== 'succeeded',
         };
@@ -4354,7 +4392,8 @@ async function openCodexChatBound(
             'Inspect or update existing Telos work with a session-attributed evidence note.',
         });
         signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (permission.behavior !== 'allow')
+          return { content: permissionRefusalContent(permission), isError: true };
         if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
           return { content: 'Telos input changed during approval; retry the tool', isError: true };
         if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
@@ -4435,7 +4474,8 @@ async function openCodexChatBound(
             'Telos stores task documents on the host so future sessions can recover them.',
         });
         signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (permission.behavior !== 'allow')
+          return { content: permissionRefusalContent(permission), isError: true };
         if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
           return { content: 'Telos input changed during approval; retry the tool', isError: true };
         if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
@@ -4500,6 +4540,8 @@ async function openCodexChatBound(
                 : 'This adds the reviewed source to the selected Telos item.',
           });
           sourceSignal.throwIfAborted();
+          if (permission.behavior === 'deny' && permission.failure)
+            return { content: permissionRefusalContent(permission), isError: true };
           if (permission.behavior !== 'allow')
             return formatTelosPermissionDenial(
               permission.message,

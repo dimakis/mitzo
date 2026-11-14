@@ -1,4 +1,5 @@
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
+import { telosSdkToolNames, telosSdkPrefix } from './telos-sdk-definitions.js';
 import type { AgentToolReference, SymposiumProfileDefinition } from '@mitzo/protocol';
 import { agentToolCatalog } from './agent-tool-catalog.js';
 import { TASK_MCP_SERVER_NAME } from './host-mcp-servers.js';
@@ -103,10 +104,11 @@ export function agentToolAllowed(session: object, name: string): boolean {
   const selection = selections.get(session);
   if (selection === undefined) return true;
   if (configuredSelections.get(session)?.includes(name)) return true;
+  const telosName = name.startsWith(telosSdkPrefix) ? name.slice(telosSdkPrefix.length) : '';
   const canonical = name.startsWith(sdkPrefix)
     ? name.slice(sdkPrefix.length)
-    : name === 'mcp__telos__TelosCreateSession'
-      ? 'TelosCreateSession'
+    : telosName === 'TelosCreateSession' || telosSdkToolNames.includes(telosName)
+      ? telosName
       : name;
   const route = selectionRoutes.get(session) ?? 'local-api';
   const entry = agentToolCatalog().find(

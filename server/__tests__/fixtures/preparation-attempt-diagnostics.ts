@@ -27,6 +27,8 @@ const errorCodes = new Set([
   'pending_host_task_ownership_changed',
   'pending_host_task_uncertain',
   'pending_host_task_invalid_input',
+  'private_helper_deadline_exceeded',
+  'private_native_file_helper_unavailable',
   'fixture_preservation_check_failed',
   'fixture_setup_check_failed',
   'SQLITE_CONSTRAINT_TRIGGER',

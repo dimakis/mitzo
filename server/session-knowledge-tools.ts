@@ -3,6 +3,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   buildPermissionHandler,
+  throwIfApprovalExpired,
+  expiredApprovalToolResult,
   checkSkillPolicy,
   effectivePermissionMode,
   type ManagedSession,
@@ -197,6 +199,7 @@ export function sessionKnowledgeTools(
         );
         await assertRuntimeCurrent?.();
         assert();
+        throwIfApprovalExpired(decision);
         if (
           decision.behavior !== 'allow' ||
           (decision.updatedInput && !isDeepStrictEqual(decision.updatedInput, request))
@@ -273,6 +276,8 @@ export function sessionKnowledgeTools(
           isError: false,
         };
       } catch (error) {
+        const expired = expiredApprovalToolResult(error);
+        if (expired) return expired;
         if (!(error instanceof KnowledgeToolProblem || error instanceof KnowledgeDraftConflict)) {
           // Retain the upstream exception internally; telemetry never includes source bytes or paths.
           const failure = new SessionRuntimeError('knowledge_unavailable', { cause: error });

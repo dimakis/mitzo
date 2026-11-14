@@ -1,4 +1,8 @@
-import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
+import {
+  buildPermissionHandler,
+  throwIfApprovalExpired,
+  type SessionRegistry,
+} from '@mitzo/harness';
 import { isDeepStrictEqual } from 'node:util';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { lstat, realpath } from 'node:fs/promises';
@@ -193,6 +197,7 @@ export async function authorizeNativeLocalRepositoryRemote(
         }),
       },
     );
+    throwIfApprovalExpired(result);
     if (
       result.behavior !== 'allow' ||
       result.decisionClassification !== 'user_temporary' ||

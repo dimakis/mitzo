@@ -261,7 +261,19 @@ it.each(['abort', 'timeout'])('broadcasts exactly one terminal event on %s', asy
     await expect(result).resolves.toMatchObject({ behavior: 'deny' });
     expect(
       sent.filter((m) => m.type === 'permission_resolved' || m.type === 'permission_timeout'),
-    ).toEqual([{ type: 'permission_timeout', permId: sent[0].permId, sessionId: 'conversation' }]);
+    ).toEqual([
+      {
+        type: 'permission_timeout',
+        permId: sent[0].permId,
+        sessionId: 'conversation',
+        failure: {
+          code: cause === 'abort' ? 'cancelled' : 'approval_expired',
+          phase: 'approval',
+          effectStatus: 'not_started',
+          recovery: cause === 'abort' ? 'none' : 'renew_approval',
+        },
+      },
+    ]);
   } finally {
     vi.useRealTimers();
   }

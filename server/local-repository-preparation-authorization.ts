@@ -1,7 +1,12 @@
 import type { LocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
 import { localRepositoryPreparationId, repositorySourceIdentity } from './local-repository-base.js';
 import { retainPreparationPackedRefs } from './local-repository-preparation-packed-refs.js';
-import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
+import {
+  buildPermissionHandler,
+  ApprovalExpiredError,
+  throwIfApprovalExpired,
+  type SessionRegistry,
+} from '@mitzo/harness';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -419,6 +424,13 @@ export async function captureLocalRepositoryPreparationAuthorization(
       approvalStarted = true;
       await owner.assertCurrent();
       let observed: PendingHostTaskDecision | undefined;
+      const expireObserved = (cause?: unknown) => {
+        context.signal.throwIfAborted();
+        if (observed && observed.evidence.expiresAt <= Date.now()) {
+          owners.workspaces.retainLocalRepositoryApprovalExpiry(request, owner);
+          throw new ApprovalExpiredError(cause === undefined ? undefined : { cause });
+        }
+      };
       const result = await buildPermissionHandler(context.clientId, owners.registry)(
         context.toolName,
         payload,
@@ -452,6 +464,10 @@ export async function captureLocalRepositoryPreparationAuthorization(
         },
       );
       owner.assertCurrentSync();
+      if (result.failure?.code === 'approval_expired') {
+        owners.workspaces.retainLocalRepositoryApprovalExpiry(request, owner);
+        throwIfApprovalExpired(result);
+      }
       if (
         result.behavior !== 'allow' ||
         result.decisionClassification !== 'user_temporary' ||
@@ -460,14 +476,21 @@ export async function captureLocalRepositoryPreparationAuthorization(
         pendingHostTaskDecisionHash(result.updatedInput) !== payloadHash
       )
         throw new PendingHostTaskError('pending_host_task_authority_required');
-      await owner.assertCurrent();
-      owner.assertCurrentSync();
-      return owners.workspaces.finalizePendingHostTaskDecision(
-        request,
-        scope,
-        observed.evidence,
-        owner,
-      );
+      expireObserved();
+      try {
+        await owner.assertCurrent();
+        expireObserved();
+        owner.assertCurrentSync();
+        return owners.workspaces.finalizePendingHostTaskDecision(
+          request,
+          scope,
+          observed.evidence,
+          owner,
+        );
+      } catch (error) {
+        expireObserved(error);
+        throw error;
+      }
     },
   });
 }

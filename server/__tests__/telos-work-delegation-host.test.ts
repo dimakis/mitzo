@@ -20,6 +20,13 @@ import { TaskStore } from '../task-store.js';
 import { isAvailableTelosWorkConversation } from '../telos-work-conversation.js';
 import { captureTelosWorkerFirstCommandAuthority } from '../telos-worker-start-authority.js';
 import { createJoiningFixture, cleanupJoiningFixtures } from './fixtures/collaboration-joining.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { SessionRegistry, resolvePending } from '@mitzo/harness';
+import { createTelosSdkServer } from '../telos-sdk-tools.js';
+import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { bindAgentToolSelection } from '../agent-tool-selection.js';
+import { INTERNAL_TOKEN } from '../internal-token.js';
 
 vi.mock('../chat.js', () => ({ sendToChat: vi.fn() }));
 
@@ -375,56 +382,148 @@ it('retains startup uncertainty without replay when ordinary dispatch fails befo
   expect(f.dispatch).toHaveBeenCalledTimes(1);
 });
 
-it('passes explicit execution through the mounted lead route and shared tool consumer', async () => {
-  const f = await executionFixture();
-  const app = express();
-  app.use(express.json());
-  app.use(
-    createTelosWorkRouter({
-      dbPath: () => f.path,
-      operatorAuth: (_req, res) => {
-        res.sendStatus(403);
-      },
-      verifyInternal: (req) => req.headers['x-internal-token'] === 'offline-token',
-      sessionId: (id) => (id === 'exact-client' ? f.leadId : undefined),
-      ordinaryConversation: (id) =>
-        isAvailableTelosWorkConversation(f.ordinary.store.getSession(id)),
-      delegateSlice: async (req) => {
-        const allocation = await f.host().delegate(req);
-        return (req.raw as { execute?: true }).execute
-          ? f.starter()(allocation, f.authority)
-          : allocation;
-      },
-    }),
-  );
-  const { executeTelosWorkTool } = await import('../telos-work-tools.js');
-  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
-    const res = await request(app)
-      .post('/api/internal/telos/work/delegate')
-      .set(init.headers as Record<string, string>)
-      .send(JSON.parse(init.body as string));
-    return new Response(JSON.stringify(res.body), { status: res.status });
-  });
-  vi.stubGlobal('fetch', fetch);
-  try {
-    const result = await executeTelosWorkTool(
-      'http://fixture',
-      'exact-client',
-      f.leadId,
-      'offline-token',
-      'TelosStartSlice',
-      { ...f.input, execute: true },
+it.each(['shared', 'sdk-default', 'sdk-explicit'])(
+  'passes explicit execution through the mounted lead route and %s consumer',
+  async (consumer) => {
+    const f = await executionFixture();
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createTelosWorkRouter({
+        dbPath: () => f.path,
+        operatorAuth: (_req, res) => {
+          res.sendStatus(403);
+        },
+        verifyInternal: (req) => req.headers['x-internal-token'] === INTERNAL_TOKEN,
+        sessionId: (id) => (id === 'exact-client' ? f.leadId : undefined),
+        ordinaryConversation: (id) =>
+          isAvailableTelosWorkConversation(f.ordinary.store.getSession(id)),
+        delegateSlice: async (req) => {
+          const allocation = await f.host().delegate(req);
+          return (req.raw as { execute?: true }).execute
+            ? f.starter()(allocation, f.authority)
+            : allocation;
+        },
+      }),
     );
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toMatchObject({
-      allocation: f.allocation,
-      execution: { state: 'admitted' },
+    const { executeTelosWorkTool } = await import('../telos-work-tools.js');
+    let loseResponse = false;
+    const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      const res = await request(app)
+        .post(new URL(url).pathname)
+        .set(init.headers as Record<string, string>)
+        .send(JSON.parse(init.body as string));
+      if (loseResponse) {
+        loseResponse = false;
+        throw Error('Synthetic lost response after admission');
+      }
+      return new Response(JSON.stringify(res.body), { status: res.status });
     });
-    expect(f.dispatch).toHaveBeenCalledTimes(1);
-  } finally {
-    vi.unstubAllGlobals();
-  }
-});
+    vi.stubGlobal('fetch', fetch);
+    try {
+      let invoke = () =>
+        executeTelosWorkTool(
+          'http://fixture',
+          'exact-client',
+          f.leadId,
+          INTERNAL_TOKEN,
+          'TelosStartSlice',
+          { ...f.input, execute: true },
+        );
+      if (consumer !== 'shared') {
+        const registry = new SessionRegistry();
+        registry.register('exact-client', {
+          sessionId: f.leadId,
+          mode: 'agent',
+          sessionAllowList: new Set(),
+          abortController: new AbortController(),
+          transport: {
+            isOpen: () => true,
+            send: (event) => {
+              if (event.type === 'permission_request' && typeof event.permId === 'string') {
+                const permId = event.permId;
+                queueMicrotask(() => resolvePending(permId, 'once'));
+              }
+            },
+          },
+        });
+        const session = registry.get('exact-client')!;
+        const release = bindAgentLibraryTransport('exact-client', {
+          id: 'operator',
+          expiresAt: Date.now() + 60_000,
+        });
+        bindAgentToolSelection(
+          session,
+          consumer === 'sdk-explicit'
+            ? ({
+                tools: ['TelosStartSlice', 'TelosWorkControl'].map((name) => ({
+                  id: `mitzo:${name}`,
+                  version: 1,
+                })),
+              } as never)
+            : undefined,
+          'claude-sdk',
+        );
+        const server = createTelosSdkServer({
+          session,
+          registry,
+          events: f.ordinary.store,
+          assertCurrent: async () => f.request().assertAuthorized(),
+          assertCurrentSync: () => f.request().assertAuthorized(),
+        });
+        const client = new Client({ name: 'synthetic-provider', version: '1' });
+        const [a, b] = InMemoryTransport.createLinkedPair();
+        await server.instance.connect(a);
+        await client.connect(b);
+        cleanups.push(() => {
+          release();
+          registry.dispose();
+        });
+        // Teardown the protocol before its canonical fixture owners.
+        const resultFrom = (result: Awaited<ReturnType<typeof client.callTool>>) => ({
+          content: (result.content as Array<{ text: string }>)[0].text,
+          isError: Boolean(result.isError),
+        });
+        invoke = async () =>
+          resultFrom(
+            await client.callTool({
+              name: 'TelosStartSlice',
+              arguments: { ...f.input, execute: true },
+            }),
+          );
+        try {
+          loseResponse = true;
+          expect((await invoke()).isError).toBe(true);
+          const recovered = await invoke();
+          expect(recovered.isError).toBe(false);
+          expect(JSON.parse(recovered.content).execution.state).toBe('admitted');
+          expect(f.dispatch).toHaveBeenCalledTimes(1);
+          const inbox = resultFrom(
+            await client.callTool({
+              name: 'TelosWorkControl',
+              arguments: { command: { operation: 'inbox', itemId: 'outcome' } },
+            }),
+          );
+          expect(inbox.isError, inbox.content).toBe(false);
+          expect(JSON.parse(inbox.content)).toEqual([]);
+        } finally {
+          await client.close();
+          await server.instance.close();
+        }
+        return;
+      }
+      const result = await invoke();
+      expect(result.isError).toBe(false);
+      expect(JSON.parse(result.content)).toMatchObject({
+        allocation: f.allocation,
+        execution: { state: 'admitted' },
+      });
+      expect(f.dispatch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
 it('refuses ambiguous or forged scope before allocating another conversation', async () => {
   const f = await fixture();
   const before = f.ordinary.store.listSessions().length;

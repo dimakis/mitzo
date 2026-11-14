@@ -3,6 +3,7 @@ import { isAuthSessionCurrent } from './auth.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from './github-publication-approval.js';
 import { createHash, randomUUID } from 'node:crypto';
+import { toolFailure, toolFailureAction } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { toolInputError } from './tool-input-error.js';
@@ -17,6 +18,7 @@ import {
 const publicationLog = createLogger('github-publication');
 import {
   buildPermissionHandler,
+  permissionRefusalContent,
   checkSkillPolicy,
   effectivePermissionMode,
   type SessionRegistry,
@@ -454,7 +456,7 @@ export function createGithubPublishingTool(
         signal.throwIfAborted();
         if (decision.behavior !== 'allow')
           return {
-            content: `${decision.message}. Local changes are preserved.`,
+            content: permissionRefusalContent(decision),
             isError: true,
           };
         const approvedRepository = await runtime.resolveGithubPublishingRepository(
@@ -582,6 +584,14 @@ export function createGithubPublishingTool(
           phase: operation.phase,
           result: operation.result,
           failureCode: operation.failureCode,
+          ...(operation.failureCode === 'APPROVAL_EXPIRED'
+            ? {
+                failure: toolFailure('approval_expired', 'approval', 'not_started'),
+                message: toolFailureAction(
+                  toolFailure('approval_expired', 'approval', 'not_started'),
+                ),
+              }
+            : {}),
           ...(githubSeedFailureMessage(operation.failureCode)
             ? { message: githubSeedFailureMessage(operation.failureCode) }
             : githubPublicationReviewFailureMessage(operation.failureCode)
