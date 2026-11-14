@@ -135,7 +135,11 @@ import {
   createWorkspaceRuntimeCommandRunner,
   type ProtectedSdkCommandRunner,
 } from './protected-sdk-command.js';
-import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
+import {
+  createCredentialSdkServer,
+  credentialSdkPermission,
+  sdkInformationInstructions,
+} from './credential-sdk-tools.js';
 import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
@@ -2850,7 +2854,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const sdkTelos = (
         state?: Pick<
           import('./ordinary-local-vertex-sdk-query.js').SdkCallbackState,
-          'retired' | 'completing' | 'runCallback'
+          'retired' | 'completing' | 'runCallback' | 'checkTool'
         >,
       ) =>
         createTelosSdkServer({
@@ -2858,6 +2862,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           registry,
           events: eventStore,
           runCallback: state?.runCallback,
+          checkTool: state && ((name) => state.checkTool(name)),
           assertCurrentSync: (signal) => {
             if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
             options.ordinarySdkAuthority!.assertCurrentSync(signal);
@@ -2877,6 +2882,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               profilesOnly: true,
               connectionBoundary: 'sdk-callback',
               agentCommunication: sdkAgentCommunication,
+              historyEvents: eventStore,
               assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
               assertCurrentSync: (signal) =>
                 options.ordinarySdkAuthority!.assertCurrentSync(signal),
@@ -3031,13 +3037,20 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         retired: boolean;
         completing: boolean;
         runCallback: TurnCallbackRunner;
+        checkTool(name: string): 'allow' | 'deny';
       }) => {
+        const assertWebTool = () => {
+          if (state && state.checkTool(WEB_ACCESS_SDK_TOOL) !== 'allow')
+            throw Error('Tool not allowed by the frozen command skill ceiling');
+        };
         const assertWebCurrent = async () => {
+          assertWebTool();
           assertTurnCallbackEffects();
           if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
           await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
           assertTurnCallbackEffects();
           if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
+          assertWebTool();
         };
         return createWebAccessSdkServer(
           createWebAccessTool(
@@ -3054,6 +3067,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                   ? {
                       assertCurrent: assertWebCurrent,
                       assertCurrentSync: (signal) => {
+                        assertWebTool();
                         if (state?.retired || state?.completing)
                           throw Error('Completed SDK query retired');
                         options.ordinarySdkAuthority!.assertCurrentSync(signal);
@@ -3068,6 +3082,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           abortController.signal,
           options.ordinarySdkAuthority ? undefined : githubPublishing,
           state?.runCallback,
+          state && ((name) => state.checkTool(name)),
         );
       };
       const webAccess = createSdkWebAccess();
@@ -3106,6 +3121,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                     : '') +
                   '\n' +
                   PEER_MESSAGE_INSTRUCTIONS +
+                  sdkInformationInstructions(session) +
                   '\n'
                 : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
           };
@@ -3199,6 +3215,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 profilesOnly: true,
                 connectionBoundary: 'sdk-callback',
                 agentCommunication: sdkAgentCommunication,
+                historyEvents: eventStore,
                 runCallback: state.runCallback,
                 checkTool: (name) => state.checkTool(name),
                 assertCurrentSync: (signal) => {

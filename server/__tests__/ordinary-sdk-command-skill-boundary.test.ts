@@ -265,6 +265,27 @@ it('rechecks the original command after an awaited project hook', async () => {
   release();
   await expect(pending).rejects.toThrow('Original runtime revoked');
 });
+it('keeps a stopped restricted input unreleased and binds only the retained FIFO successor on Continue', async () => {
+  const f = fixture();
+  f.admit('first', ['Read']);
+  await f.owner.enqueue('first');
+  expect(() => f.states[0].checkTool('Read')).toThrow();
+  f.admit('second', []);
+  await f.owner.enqueue('second');
+  await f.owner.stop('stop-before-yield');
+  const stoppedInput = f.requests[0].input[Symbol.asyncIterator]().next();
+  await vi.waitFor(() => expect(f.store.getSession('session')?.executionPhase).toBe('TERMINAL'));
+  expect(f.store.getSendCommand('first')?.error).toBe('Cancelled before SDK dispatch');
+  expect(f.requests).toHaveLength(1);
+  expect(() => f.states[0].checkTool('Read')).toThrow();
+  await f.owner.resumeQueue();
+  expect(await stoppedInput).toMatchObject({ done: true });
+  expect(f.requests).toHaveLength(2);
+  await f.requests[1].input[Symbol.asyncIterator]().next();
+  expect(f.states[1].commandId()).toBe('second');
+  expect(await f.permission(1, 'Read')).toMatchObject({ behavior: 'deny' });
+  expect(await f.hook(0, 'Read')).toMatchObject({ continue: false });
+});
 it('keeps the active command ceiling when an authorized peer input reaches the same query', async () => {
   const f = fixture({ acceptPeerInput: true });
   f.admit('first', ['Read']);

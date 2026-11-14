@@ -46,8 +46,8 @@ afterEach(async () => {
 });
 
 async function fixture(
-  provider: 'anthropic-claude' | 'anthropic-vertex',
-  selected = true,
+  provider: 'anthropic-claude' | 'anthropic-vertex' | 'anthropic-api',
+  selected: boolean | 'default' = true,
   frozenTools?: string[],
   managedName = 'TaskExecution',
 ) {
@@ -84,7 +84,10 @@ async function fixture(
     bindAgentLibraryTransport('owner', { id: 'operator', expiresAt: Date.now() + 600000 }),
   );
   const session = registry.get('owner')!;
-  const profile = { tools: selected ? [{ id: `mitzo:${managedName}`, version: 1 }] : [] } as never;
+  const profile =
+    selected === 'default'
+      ? undefined
+      : ({ tools: selected ? [{ id: `mitzo:${managedName}`, version: 1 }] : [] } as never);
   assertAgentToolRoute(profile, 'claude-sdk');
   bindAgentToolSelection(session, profile, 'claude-sdk');
   const authority = {
@@ -237,11 +240,15 @@ async function authorize(f: Fixture, decision: 'once' | 'deny' = 'once') {
   return pending;
 }
 
-it.each(['anthropic-claude', 'anthropic-vertex'] as const)(
-  'reuses one %s SDK task decision and alert for command variants, then fences revocation',
-  async (provider) => {
-    const f = await fixture(provider);
-    expect((await f.client.listTools()).tools.map((tool) => tool.name)).toEqual(['TaskExecution']);
+it.each(
+  (['anthropic-claude', 'anthropic-vertex', 'anthropic-api'] as const).flatMap((provider) =>
+    ([true, 'default'] as const).map((selected) => ({ provider, selected })),
+  ),
+)(
+  'reuses one $provider SDK task decision and alert across command variants (profile: $selected)',
+  async ({ provider, selected }) => {
+    const f = await fixture(provider, selected);
+    expect((await f.client.listTools()).tools.map((tool) => tool.name)).toContain('TaskExecution');
     expect(
       credentialSdkPermission(
         'mcp__mitzo-connections__TaskExecution',
@@ -283,15 +290,29 @@ it.each(['anthropic-claude', 'anthropic-vertex'] as const)(
   },
 );
 
-it('keeps omitted tools absent and refuses a retired SDK owner before dispatch', async () => {
-  const omitted = await fixture('anthropic-claude', false);
-  await expect(omitted.client.listTools()).rejects.toThrow(/Method not found/);
-  const f = await fixture('anthropic-claude');
-  f.authority.current = false;
-  expect((await f.call({ operation: 'status' })).isError).toBe(true);
-  expect(execution.calls).toHaveLength(0);
-  expect(f.sent).toHaveLength(0);
-});
+it.each(['anthropic-claude', 'anthropic-vertex', 'anthropic-api'] as const)(
+  'keeps omitted tools absent and refuses a retired %s SDK owner before dispatch',
+  async (provider) => {
+    const omitted = await fixture(provider, false);
+    await expect(omitted.client.listTools()).rejects.toThrow(/Method not found/);
+    expect(
+      credentialSdkPermission(
+        'mcp__mitzo-connections__TaskExecution',
+        { operation: 'status' },
+        'owner',
+        omitted.registry,
+        omitted.session,
+      ),
+    ).toMatchObject({ behavior: 'deny' });
+    await expect(omitted.call({ operation: 'status' })).rejects.toThrow(/Method not found/);
+    expect(omitted.sent).toHaveLength(0);
+    const f = await fixture(provider);
+    f.authority.current = false;
+    expect((await f.call({ operation: 'status' })).isError).toBe(true);
+    expect(execution.calls).toHaveLength(0);
+    expect(f.sent).toHaveLength(0);
+  },
+);
 
 it('retains a denied decision without a task grant or command effect', async () => {
   const f = await fixture('anthropic-claude');
