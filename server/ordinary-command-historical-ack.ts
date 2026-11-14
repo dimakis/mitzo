@@ -180,7 +180,7 @@ function assertHistoricalAcknowledgement(
     const custody = events.getOrdinaryLocalVertexCustody(sessionId);
     if (
       !custody ||
-      custody.authSessionId !== authSessionId ||
+      !ordinaryOperatorOwnsConversation(custody.authSessionId, authSessionId) ||
       !isDeepStrictEqual(custody.binding, binding) ||
       custody.cwd !== receipt.workspace.cwd ||
       custody.repositoryWorkspaceId !== workspaceId

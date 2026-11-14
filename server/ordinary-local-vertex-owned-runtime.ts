@@ -20,6 +20,7 @@ import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import {
   OrdinaryLocalVertexTarget,
@@ -324,7 +325,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       if (
         !hasPersistentRevocationAuthority() ||
         !custody ||
-        custody.authSessionId !== this.authSessionId ||
+        !ordinaryOperatorOwnsConversation(custody.authSessionId, this.authSessionId) ||
         !isDeepStrictEqual(
           custody.binding,
           this.owners.eventStore.getSessionRuntimeBinding(this.owners.reservation.conversationId),
