@@ -94,3 +94,59 @@ fallback was deleted without a legitimate failing case.
 Full acceptance remains pending canonical membership integration, #1345 peer-reply
 composition, shared priority fixes, CI/Centaur and final workflow verification.
 Publication remains a draft. No ready, auto-merge, merge or deployment is authorized.
+
+## Canonical membership qualification
+
+A later independent offline check qualified the actual `readTeam` seam against
+membership draft #1361 at `e094d629fe2778500319b8cd2498ab8211cedba6`, based on
+`0ad803cdae56ed6e22c89273ae800d3e7aeb9706`. The owner's canonical foundation is
+now available; this supersedes the earlier uncommitted-source checkpoint above.
+It remains unmerged and its full review/CI acceptance is separate.
+
+The retained fixture is
+`tests/fixtures/telos-current-work-team.contract.mjs`. It requires the canonical
+membership source and is copied to
+`server/__tests__/telos-current-work-team.test.mjs` only in a disposable composition.
+There is no conditional skip or fabricated roster owner. The fixture uses the
+accepted fresh/upgraded canonical SQLite schemas and actual `TelosWorkStore` ports.
+
+All six new cases first failed on the unchanged #1359 source because `readTeam`
+did not exist. In a snapshot of exact #1361 source with only #1359's adapter and
+four projection tests added, all 17 tests passed: six cross-owner checks, seven
+membership checks and four projection checks. This is not a test of full branch
+composition or of #1345's messaging/overview changes. The new checks verify:
+
+- Formal roles do not seed the operational roster; explicit Symposium membership
+  does not grant item or operator roster-read authority or dispatch any command.
+- Replacement retains exact transition identity across restart, while existing
+  reports to a former owner have no current route.
+- Unlink replay returns the original receipt after later changes/unavailability;
+  fresh discovery uses the current canonical revision rather than that old receipt.
+- Revision-bound pages survive restart and reject a changed roster; former
+  participants do not reappear as current owners.
+
+The exact dependency source-artifact check passes in the disposable snapshot.
+No adapter, control, schema, registry or source branch needed a compatibility fix.
+Neither source PR was merged into the other. Preserve the fixture as a dependency
+qualification artifact until accepted source composition permits promoting it
+to an ordinary test. The broader 61-test #1359 result and these 17 checks overlap
+in their four projection tests; they are not 78 distinct checks.
+
+To reproduce inside an admitted isolated task with existing offline dependencies:
+
+1. Materialize a disposable snapshot of exact #1361 source under `.mitzo-devtools`.
+2. Overlay `server/telos-current-work.ts` and
+   `server/__tests__/telos-current-work.test.ts` from #1359 `adbd93954`.
+3. Copy the retained contract fixture to the test path above; provide that
+   snapshot's isolated dependency/native bindings without changing another checkout.
+4. Run with one worker and `NODE_OPTIONS=--max-old-space-size=1024`:
+   `node node_modules/vitest/vitest.mjs run server/__tests__/telos-current-work-team.test.mjs server/__tests__/telos-current-work.test.ts server/__tests__/telos-work-team.test.ts --maxWorkers=1`.
+5. Run `node scripts/check-reviewed-handler-artifacts.mjs --source` there.
+
+#1345's owner subsequently supplied draft head
+`0d65a690799ba18d7d8843c2e3672bb40e79d738`, superseding `28b658c5`; it adds explicit
+lifecycle-control truncation evidence. Its overlap with #1361 in
+`telos-work-store.ts` and priority #1342/#1350 integration still require their
+owners' source composition. Tool/runtime/UI wiring remains blocked behind
+accepted parity, then Symposium. Canonical dependency/blocker/next-action/review
+facts and the operational consumer remain unresolved in this slice.
