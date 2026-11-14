@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { SessionRegistry, setSkillPolicy, resolvePending } from '@mitzo/harness';
 import {
   createCredentialSdkServer,
@@ -163,8 +164,11 @@ async function fixture(selected?: string[], mode: 'ask' | 'agent' | 'auto' = 'au
     await server.instance.close();
   });
   const call = async (name: string, args: Record<string, unknown>) => {
-    const result = await client.callTool({ name, arguments: args });
-    const text = (result.content as Array<{ text: string }>).map((x) => x.text).join('');
+    const result = CallToolResultSchema.parse(await client.callTool({ name, arguments: args }));
+    const text = result.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('');
     return { ...result, text };
   };
   return {

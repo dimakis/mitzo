@@ -25,7 +25,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-history-sdk.ts': 'c62546f1e2ada88a976b97a5a32354713a3a537c7871c634d42f3d62c86d455e',
   '../__tests__/ordinary-claude-information.test.ts':
-    '1ea8a9de832e86702ab448938809a396c35ccf5e8a4a862933fe2730aca3ba9c',
+    '1971863e2f5170e89dbcc314cabec32260467899cfb3ec4bd72aff36eec3aec2',
   '../__tests__/claude-native-development.test.ts':
     'a293ebc1a90cb0bbe07d6b74ad81e298effce42d47a90ef224ba1631b2d3a9c8',
   '../__tests__/symposium-recording-runtime.test.ts':
