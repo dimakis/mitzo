@@ -11,6 +11,7 @@ import { TelosItemStore } from '../telos-item-store.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
+import * as harness from '@mitzo/harness';
 import { createTelosSdkServer, telosSdkPermission } from '../telos-sdk-tools.js';
 import { telosSdkDefinitions } from '../telos-sdk-definitions.js';
 import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
@@ -27,6 +28,7 @@ import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { bindAgentToolSelection, assertAgentToolRoute } from '../agent-tool-selection.js';
 import { reviewTelosWorkRoleContext } from '../telos-work-role-review.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
+import { retainedCallbackOutcome } from '../turn-callbacks.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<typeof import('@anthropic-ai/claude-agent-sdk')>()),
   query: vi.fn(),
@@ -49,6 +51,7 @@ async function fixture(explicit: boolean | 'excluded' = false) {
   let approved = true;
   let expire = false;
   let beforeApproval = () => {};
+  let afterCurrent = () => {};
   registry.register('client', {
     sessionId: 'planning',
     cwd: dirname(data.dbPath),
@@ -100,6 +103,7 @@ async function fixture(explicit: boolean | 'excluded' = false) {
   assertAgentToolRoute(definition as never, 'claude-sdk');
   bindAgentToolSelection(session, definition as never, 'claude-sdk');
   let current = true;
+  let outcome: ReturnType<typeof retainedCallbackOutcome>;
   const assert = (signal: AbortSignal) => {
     signal.throwIfAborted();
     if (!current) throw Error('retired');
@@ -108,7 +112,16 @@ async function fixture(explicit: boolean | 'excluded' = false) {
     session,
     registry,
     events: data.events,
-    assertCurrent: async (signal) => assert(signal),
+    runCallback: async (work) => {
+      const result = await work();
+      outcome =
+        result !== null && typeof result === 'object' ? retainedCallbackOutcome(result) : undefined;
+      return result;
+    },
+    assertCurrent: async (signal) => {
+      assert(signal);
+      afterCurrent();
+    },
     assertCurrentSync: assert,
   });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -132,6 +145,7 @@ async function fixture(explicit: boolean | 'excluded' = false) {
     value,
     assert,
     revoke,
+    outcome: () => outcome,
     expireApproval: () => {
       expire = true;
     },
@@ -143,6 +157,9 @@ async function fixture(explicit: boolean | 'excluded' = false) {
     },
     beforeApproval: (fn: () => void) => {
       beforeApproval = fn;
+    },
+    afterCurrent: (fn: () => void) => {
+      afterCurrent = fn;
     },
   };
 }
@@ -524,6 +541,70 @@ it.each([undefined, 1])(
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result)).not.toContain('The reviewed panel layout.');
     expect(hydrate).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  [false, undefined, 'authority'],
+  [true, 1, 'authority'],
+  [false, 1, 'cleanup'],
+  [true, undefined, 'cleanup'],
+] as const)(
+  'withholds artifact bytes when eligibility changes at delivery (explicit=%s revision=%s phase=%s)',
+  async (explicit, revision, phase) => {
+    const f = await fixture(explicit);
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createTelosArtifactRouter({
+        dbPath: () => f.dbPath,
+        verifyInternal: () => true,
+        sessionId: (client) => f.registry.get(client)?.sessionId,
+        readFile: async () => {
+          throw Error('No fixture filesystem access');
+        },
+      }),
+    );
+    let responseReady = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        const response = await request(app)
+          .post(new URL(url).pathname)
+          .set(init.headers as Record<string, string>)
+          .send(JSON.parse(init.body as string));
+        expect(response.body.artifact.content).toBe('The reviewed panel layout.');
+        responseReady = true;
+        return new Response(JSON.stringify(response.body), { status: response.status });
+      }),
+    );
+    const makePrivate = () => {
+      if (responseReady) f.db.prepare("UPDATE items SET profile='lifeops' WHERE id='studio'").run();
+    };
+    if (phase === 'authority') f.afterCurrent(makePrivate);
+    else {
+      const guarded = harness.runGuardedTool;
+      vi.spyOn(harness, 'runGuardedTool').mockImplementation((options, execute) =>
+        guarded(
+          {
+            ...options,
+            onSettled: (observation) => {
+              options.onSettled?.(observation);
+              if (observation.outcome === 'completed') makePrivate();
+            },
+          },
+          execute,
+        ),
+      );
+    }
+    const result = await f.call('TelosReadArtifact', {
+      id: f.material.id,
+      ...(revision === undefined ? {} : { revision }),
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('The reviewed panel layout.');
+    expect(responseReady).toBe(true);
+    expect(f.outcome()).toBe('settled');
   },
 );
 

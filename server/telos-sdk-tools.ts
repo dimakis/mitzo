@@ -22,6 +22,7 @@ import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.j
 import { getTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { executeTelosBacklogOperation, isTelosBacklogTool } from './telos-backlog-tools.js';
 import { executeTelosArtifactTool, isTelosArtifactTool } from './telos-artifact-tools.js';
+import type { TelosArtifactMetadata } from './telos-artifact-store.js';
 import { isTelosItemTool } from './telos-item-tools.js';
 import { executeNativeTelosItemOperation } from './native-telos-item-operations.js';
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
@@ -37,7 +38,11 @@ import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { telosSdkDefinitions, telosSdkSchemas, telosSdkPrefix } from './telos-sdk-definitions.js';
-import { copyCallbackOutcome, type TurnCallbackRunner } from './turn-callbacks.js';
+import {
+  copyCallbackOutcome,
+  retainCallbackOutcome,
+  type TurnCallbackRunner,
+} from './turn-callbacks.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 
 /** The registered handler owns operation approval, just as other SDK helpers do. */
@@ -98,6 +103,7 @@ export function createTelosSdkServer(owners: {
     const input = request.params.arguments ?? {};
     const signal = AbortSignal.any([session.abortController.signal, extra.signal]);
     return (owners.runCallback ?? ((work) => work()))(async () => {
+      let assertDelivery = () => {};
       try {
         const result = await runGuardedTool(
           {
@@ -296,9 +302,36 @@ export function createTelosSdkServer(owners: {
                   parsed,
                   joined,
                 );
+                if (name === 'TelosReadArtifact' && !result.isError) {
+                  const runtime = getTelosMainPublicationRuntime();
+                  if (!runtime?.supportsHost(registry, events))
+                    throw Error('Canonical Telos artifact owner unavailable');
+                  const { content, encoding, ...metadata } = JSON.parse(result.content)
+                    .artifact as TelosArtifactMetadata & {
+                    content: string;
+                    encoding: string;
+                  };
+                  if (
+                    typeof content !== 'string' ||
+                    !['utf8', 'base64'].includes(encoding) ||
+                    metadata.id !== parsed.id ||
+                    (parsed.revision !== undefined && metadata.revision !== parsed.revision)
+                  )
+                    throw Error('Original artifact revision unavailable');
+                  assertDelivery = () => {
+                    try {
+                      runtime.assertArtifactRead(events, metadata, current);
+                    } catch (error) {
+                      if (!signal.aborted && error instanceof Error)
+                        retainCallbackOutcome(error, 'settled');
+                      throw error;
+                    }
+                  };
+                }
                 // Reads must not disclose retained material after authority is
                 // revoked during I/O. Writes retain their known canonical ACK.
                 await assertCurrent();
+                assertDelivery();
                 return result;
               }
               if (name === 'TelosStartSlice')
@@ -324,6 +357,8 @@ export function createTelosSdkServer(owners: {
             }
           },
         );
+        // Guard cleanup can yield after the final SDK authority await.
+        assertDelivery();
         return deliver(qualifyToolResult(definition.name, input, signal, result));
       } catch (error) {
         return deliver(

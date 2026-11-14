@@ -2,6 +2,7 @@ import { createLogger } from './logger.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import { constants, openSync, closeSync, fstatSync, readSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { SessionRegistry } from '@mitzo/harness';
 import type { EventStore } from './event-store.js';
@@ -14,7 +15,7 @@ import {
 } from './github-main-merge-selection.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type { TelosBacklogContext } from './telos-backlog-tools.js';
-import { TelosArtifactStore } from './telos-artifact-store.js';
+import { TelosArtifactStore, type TelosArtifactMetadata } from './telos-artifact-store.js';
 import { TelosItemStore } from './telos-item-store.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
 import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
@@ -198,6 +199,41 @@ export class TelosMainPublicationRuntime {
     } finally {
       items.close();
     }
+  }
+
+  /** Synchronous delivery observation of retained bytes, using the installed canonical owner. */
+  assertArtifactRead(
+    events: EventStore,
+    expected: TelosArtifactMetadata,
+    assertion: () => void,
+  ): void {
+    if (active !== this || events !== this.events || this.retired.signal.aborted)
+      throw unavailable();
+    const result: unknown = assertion();
+    if (result !== undefined) {
+      drainRejectedTelosAuthority(result, 'artifact-authority');
+      throw unavailable();
+    }
+    const artifacts = TelosArtifactStore.openReadOnly(this.database);
+    let failure: { cause: unknown } | undefined;
+    try {
+      const metadata = artifacts.metadataForRevision(expected.id, expected.revision);
+      if (metadata.sourceKind === 'source_capture' || !isDeepStrictEqual(metadata, expected))
+        throw unavailable();
+      artifacts.assertResponseEligibility(metadata);
+    } catch (cause) {
+      failure = { cause };
+    }
+    try {
+      artifacts.close();
+    } catch (cause) {
+      if (failure)
+        throw new AggregateError([failure.cause, cause], 'Artifact read and cleanup failed', {
+          cause,
+        });
+      throw cause;
+    }
+    if (failure) throw failure.cause;
   }
 
   async withItems<T>(

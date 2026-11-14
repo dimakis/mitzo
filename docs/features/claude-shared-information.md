@@ -80,6 +80,23 @@ catalog, and all 2,447 registered source fingerprints were retained and verified
 Centaur review `5901795578` is the approved baseline; the integration candidate
 requires its own CI and targeted Centaur verification before landing.
 
+The combined review identified two Telos integration blockers, CEN-E8293D5E660F
+and CEN-3616B6328BE8. Artifact reads now reuse the canonical response-eligibility
+predicate after the final SDK authority await and guard cleanup. The synchronous
+observation reopens the installed canonical owner read-only and verifies the exact
+retained metadata, without rereading bytes or changing source-packet access.
+Worker startup derives the exact skill name from the existing immutable session
+tool route, retaining native Codex checks and SDK-prefixed skill restrictions.
+Four actual MCP artifact races failed before the fix and pass afterward. The
+mounted delegation tests now reach the production startup consumer for shared,
+default SDK and explicit SDK routes, retaining lost-response recovery without a
+duplicate dispatch and checking skill revocation on pending first-command authority.
+All 75 tests in the four focused SDK/delegation/artifact-route/selection suites pass.
+The wider information/source/effect and native artifact/runtime regression set
+passes 135 tests across nine suites in total (one worker, 1 GiB Node heap).
+The earlier combined candidate's full hosted CI (43585386466) passed; the correction
+requires fresh exact-head CI and Centaur verification.
+
 No real model or production-service calls are required for these checks. This
 does not qualify Claude on OpenShell, arbitrary provider transcript imports,
 repository/bootstrap helpers, messaging/timers, Telos execution or changes to

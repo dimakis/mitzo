@@ -6,7 +6,7 @@ import { retainTelosDiagnosticFailure } from './telos-operation-failure.js';
  * with a correlated, sanitized diagnostic while retaining the upstream cause. */
 export function drainRejectedTelosAuthority(
   result: unknown,
-  stage: 'item-authority' | 'backlog-authority',
+  stage: 'item-authority' | 'backlog-authority' | 'artifact-authority',
   context: { conversationId?: string; requestHash?: string } = {},
 ): void {
   void Promise.resolve(result).catch((cause: unknown) => {
