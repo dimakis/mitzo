@@ -1,4 +1,6 @@
 import { renewDueTelosSnoozes } from './telos-snooze.js';
+import { TelosWorkTeam } from './telos-work-team.js';
+import { TelosWorkIdSchema, type TelosTeamReceipt, type TelosTeamView } from '@mitzo/protocol';
 import { publishTelosWorkUpdate } from './telos-work-updates.js';
 import type { EventStore } from './event-store.js';
 import type { TaskStore } from './task-store.js';
@@ -1687,6 +1689,36 @@ export class TelosWorkStore {
       'SELECT data FROM telos_work_assignment_history WHERE item_id=? ORDER BY seq',
       itemId,
     );
+  }
+  /** Explicit operational roster. Formal assignments and historical allocation
+   * evidence are independent; membership itself confers no scoped read grant. */
+  readTeam(itemId: string, actor: TelosWorkActor): TelosTeamView {
+    this.operator(actor);
+    TelosWorkIdSchema.parse(itemId);
+    return this.db.transaction(() => {
+      this.item(itemId);
+      return new TelosWorkTeam(this.db).read(itemId);
+    })();
+  }
+  executeTeam(
+    raw: unknown,
+    actor: TelosWorkActor,
+    assertBeforeApply?: () => void,
+  ): TelosTeamReceipt {
+    this.operator(actor);
+    const nested = this.db.inTransaction;
+    const result = new TelosWorkTeam(this.db).execute(raw, `operator:${actor.id}`, (input) => {
+      this.item(input.itemId);
+      this.assertLifecycleActive(input.itemId);
+      if (input.operation !== 'unlink' && !this.policy.ordinaryConversation(input.conversationId))
+        throw new TelosWorkError(
+          'invalid',
+          'An available compatible ordinary conversation is required',
+        );
+      assertBeforeApply?.();
+    });
+    if (result.changed && !nested) publishTelosWorkUpdate();
+    return result.receipt;
   }
   execute(
     raw: unknown,

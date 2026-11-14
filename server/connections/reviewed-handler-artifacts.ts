@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1159-claude-information-read-delivery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1159-telos-team-membership.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/telos-work-team.ts':
+    '59cc8b2253885eeca8bdeec5aaef8f2834b63fda4be8af8345a259a722ffff43',
+  '../__tests__/telos-work-team.test.ts':
+    'c6fa44c13880427c0aaea13a037fcb5b7d7cce16ce086d16d032cd24af88fce6',
+  '../telos-work-team.ts': 'fc18fb01bd7ef4443dcf2368bdb45124a8b026f216d9edaa8abcf4e2d40ed213',
   '../session-history-sdk.ts': 'c62546f1e2ada88a976b97a5a32354713a3a537c7871c634d42f3d62c86d455e',
   '../__tests__/ordinary-claude-information.test.ts':
     'a56fa994583c78ddde1e1e6e8883fbdee0b38cdd800ba65770fb810822f04e73',
@@ -2304,8 +2308,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-work-routes.ts': 'de239bc12f1a39629a9e92ce22c7a2f7233d4ff9fca46ddbf02fb2d486f3caa7',
   '../../packages/client/src/telos-work-api.ts':
     '59f80b2ef68f2c1cac294f6d9f5d29e89ffc062025a3aa40e98c0da8136d048a',
-  '../telos-work-schema.ts': 'c52a8052ce3b6b8c9e47ef62a265e2768c2d914fc61178d5b3589946097ee9cf',
-  '../telos-work-store.ts': 'e01432303e1d34e358309ca21acaede24e3658274f6a1b63ca827473dbade065',
+  '../telos-work-schema.ts': '6c9406ceec10bee8bf13f57c7b7f6e003805ee58071bdda8f5cc4c0738cd62e4',
+  '../telos-work-store.ts': '7740e38c417dbd173e7c3c0d529b365a7d9e150ec61ad72e3dbf147b49412563',
   '../../packages/protocol/src/telos-work-api.ts':
     '9eb4b68f714866d7a8c321f6ec193f1b4d6563b896520b1a83d60362a10e9be7',
   '../tool-input-error.ts': '84137699ec55ee4ff47c1516e567f3ea605b1f76a51e9d1600b6a56ddb41eb5b',
@@ -2937,7 +2941,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '2d98dbc07c6c5d225de5b7a7ee47301553afb6b2fb5293efada6a5d27bde68d3',
+    'e36b18250b05c25bc53194658428f1d7facef5beb5bc8da45abf809e4994bc19',
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':

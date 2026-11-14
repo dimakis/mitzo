@@ -7,6 +7,12 @@ import type Database from 'better-sqlite3';
 export function initializeTelosWorkSchema(db: Database.Database) {
   db.transaction(() =>
     db.exec(`
+    CREATE TABLE IF NOT EXISTS telos_work_team_memberships(seq INTEGER PRIMARY KEY,membership_id TEXT NOT NULL UNIQUE,item_id TEXT NOT NULL REFERENCES items(id),data TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS telos_work_team_memberships_item ON telos_work_team_memberships(item_id,seq);
+    CREATE TABLE IF NOT EXISTS telos_work_team_commands(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,receipt TEXT NOT NULL,PRIMARY KEY(actor_id,request_id));
+    CREATE TRIGGER IF NOT EXISTS telos_work_team_commands_no_update BEFORE UPDATE ON telos_work_team_commands BEGIN SELECT RAISE(ABORT,'Team command receipts are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_team_commands_no_delete BEFORE DELETE ON telos_work_team_commands BEGIN SELECT RAISE(ABORT,'Team command receipts are retained'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_team_memberships_no_delete BEFORE DELETE ON telos_work_team_memberships BEGIN SELECT RAISE(ABORT,'Team membership history is retained'); END;
     CREATE TABLE IF NOT EXISTS telos_work_controls(control_id TEXT PRIMARY KEY,coordinator_item_id TEXT NOT NULL REFERENCES items(id),data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS telos_work_control_evidence(seq INTEGER PRIMARY KEY,control_id TEXT NOT NULL REFERENCES telos_work_controls(control_id),data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS telos_work_control_revalidations(control_id TEXT NOT NULL REFERENCES telos_work_controls(control_id),item_id TEXT NOT NULL REFERENCES items(id),main_commit TEXT NOT NULL,work_revision TEXT NOT NULL,evidence_ref TEXT NOT NULL,PRIMARY KEY(control_id,item_id,main_commit,work_revision,evidence_ref));
