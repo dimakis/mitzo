@@ -5,6 +5,7 @@ import { TelosWorkStore } from '../telos-work-store.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 import { executeNativeTelosItemOperation } from '../native-telos-item-operations.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
+import { retainCallbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -132,6 +133,24 @@ function fixture() {
     },
   };
 }
+
+it('keeps original uncertainty blocked before native item delegation', async () => {
+  const f = fixture();
+  const cause = retainCallbackOutcome(Error('Original guard outcome unknown'), 'unknown');
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  const result = await callbacks.track(() =>
+    f.run('TelosUpdateItem', f.update(), {
+      assertCurrentSync: () => {
+        throw cause;
+      },
+    }),
+  );
+  expect(result.isError).toBe(true);
+  expect(f.approve).not.toHaveBeenCalled();
+  await expect(callbacks.settle(new AbortController().signal)).rejects.toMatchObject({
+    code: 'callbacks_failed',
+  });
+});
 
 it('rechecks inherited progress consent inside the canonical mutation guard', async () => {
   const f = fixture();

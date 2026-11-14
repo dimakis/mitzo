@@ -51,7 +51,7 @@ reviewed source-artifact checks pass. The broader regression batch completed
 remaining native-runtime suite. That full 74-case suite also exceeded the
 standalone command limit; five targeted native consumer checks passed separately.
 These include Claude MCP steering, uncertain retry, queued-grant rechecks and
-durable ACK recovery. Full CI is reported on the draft PR. Local review found no
+durable ACK recovery. Full CI is reported on the PR. Local review found no
 blocking issues; its wait-test
 coverage observation was addressed by synchronizing on subscription.
 
@@ -61,7 +61,7 @@ helpers. The correction checks default exposure, explicit selection, empty-profi
 exclusion and the active skill ceiling for all six coordination helpers on personal
 Claude and Vertex. The unrelated `RequestWebAccess` route restriction remains covered.
 This is a consumer-test correction; the runtime sources and reviewed pins are unchanged.
-The correction still requires its own hosted CI and Centaur verification.
+The correction's hosted CI and Centaur verification are retained below.
 
 ## Accepted-base integration
 
@@ -69,15 +69,48 @@ The correction head `68d0851db88e22e0326c264ce9ba1b1b047302b6` passed hosted
 CI `43553851674` and exact-head Centaur review `5901683432` (merge, zero blockers).
 It remains the approved review baseline.
 
-The landing candidate integrates accepted main
+The first integration candidate integrates accepted main
 `9af764899302cbcc55c60ed0d2e7f159b266a045`, including the canonical approval
 and Telos SDK changes from PRs #1351 and #1352. Catalog routes, the SDK helper
 allowlist and the browser fixture retain both batches' tool additions. Source
 registrations retain both sets of tests, and regenerated pins advance the runtime
 revision to `v1.0.1150-claude-coordination-integration`. Focused integration checks
 passed 222 tests across the coordination, cross-runtime delivery, Vertex callbacks,
-Telos, catalog, Session Access and approval-authority suites. The conflict resolutions and combined candidate still
-require hosted CI and targeted Centaur verification before landing.
+Telos, catalog, Session Access and approval-authority suites.
+
+That candidate, `c240a08909dfe73aa47254e67c01793651788319`, passed hosted CI
+`43584473701` at attempt 2. Attempt 1's CT07/09 macOS acceptance journey reached
+its unchanged 120-second deadline while progressing to artifact approval under
+heavy runner load. One diagnosed failed-jobs retry completed that journey in
+60.753 seconds; original logs and artifacts remain retained. Local browser
+reproduction encountered the executor's Chromium launch restriction.
+
+Current-head Centaur comment `6876027888` reported blocking finding
+`CEN-525457E6FF35`: known Telos mutation refusals retained unknown callback
+settlement and blocked the ordinary terminal result. The canonical repair was
+already owned by PR #1348 and was integrated after that PR's acceptance.
+
+## Accepted lifecycle repair integration
+
+The candidate now also integrates accepted main
+`19aa8a19b274ae1fee416f0f187c772111251366` (PR #1348). Existing mutation owners
+retain proof of pre-SQL refusals, including denied feature creation and valid
+stale item/native-item/parent revisions. Nested uncertainty, rolled-back writes
+and post-COMMIT faults remain unsettled. No parallel implementation of that repair
+was added. Runtime files merged cleanly; the shared pin revision is
+`v1.0.1158-claude-coordination-recovery-integration`.
+
+Combined offline checks passed 376 tests: 150 SDK, catalog, Session Access,
+command-owner and turn-evidence cases; 217 canonical owner, cross-runtime,
+Vertex-effect and approval cases; and nine composed ordinary-chat cases covering
+first/queued/cold commands plus public Stop, reconnect and Continue. The composed
+fixture retains ten other cases for hosted CI. Refusal tests use actual in-memory
+SDK MCP calls and ordinary terminal settlement, beyond approval expiry, and assert
+that canonical data stays unchanged while actual uncertainty still blocks.
+
+Fresh combined hosted CI and current-head Centaur verification remain required.
+Review `5901683432` remains the accepted baseline; integrating the repair does not
+itself close the current finding.
 
 ## Integration custody and limits
 
@@ -101,8 +134,8 @@ Current peer ownership was confirmed from public session handoffs:
 
 These are source/fixture results. No live specialist models, external services,
 production messages, timers or child sessions were invoked for qualification.
-Public Stop/Continue/reconnect and full queued delivery against the lifecycle
-repair remain with that owner and need combined integration evidence. Existing
-reviewed child runtime restrictions remain explicit in StartSession. Telos work
-creation, assignment and start are outside this batch. Merge and deployment
-remain separate.
+Combined offline Stop/Continue/reconnect and queued-delivery evidence against the
+accepted lifecycle repair is recorded above; hosted validation remains required.
+Existing reviewed child runtime restrictions remain explicit in StartSession.
+Telos work creation, assignment and start are outside this batch. No deployment
+or live runtime acceptance is claimed.
