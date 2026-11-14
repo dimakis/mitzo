@@ -593,7 +593,9 @@ it('retires old native hooks and permissions without executing or aborting the s
     preset: 'claude_code',
     append: expect.stringContaining('Original profile context.'),
   });
-  expect((requests[0].options.systemPrompt as { append: string }).append).toContain('gws --help');
+  expect((requests[0].options.systemPrompt as { append: string }).append).toContain(
+    'GoogleWorkspaceRead when available',
+  );
   expect(requests[0].options.tools).toBeUndefined();
   await owner.apply({ model: 'first' } as never);
   await owner.apply({ model: 'second', thinking: 'high' } as never);
@@ -759,7 +761,7 @@ it('preserves segmented SDK system prompts when appending local CLI guidance', (
   expect(requests[0].options.systemPrompt).toEqual([
     'Original profile.',
     'Original instructions.',
-    expect.stringContaining('gws --help'),
+    expect.stringContaining('GoogleWorkspaceRead when available'),
   ]);
   controller.abort();
 });

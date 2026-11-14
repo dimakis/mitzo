@@ -237,3 +237,42 @@ were regenerated for runtime revision1165 and verified against the combined tree
 
 Fresh combined-head CI, exact-head trusted integration review, required independent
 permission review and actual accepted1350/1353 composition remain landing gates.
+
+## Parallel service composition with #1353
+
+The next local composition consumes exact service candidate
+`3e4f83ec90d162e367f45deaa5527c791be03164`, independently refreshed from its existing
+branch against accepted0ad803cd. Service ownership remains with its existing
+owner. The merge retains its full native Connection eligibility (including
+ListConnections), canonical Google consent, configured/API tool catalogs and SDK
+adapters, alongside TaskExecution, coordination and the original command ceiling.
+
+New service entry points must borrow the original query's per-wire authority.
+Google's separate MCP union-schema registration now checks the actual
+`mcp__mitzo-connections__GoogleWorkspaceRead` name before and after its existing
+authority/credential waits and through its effect owner. Configured/API callbacks
+check their actual `mcp__mitzo-tool-library__...` name. Existing lazy admission
+callbacks retain a bounded cache per registered wire name so one tool's authority
+cannot be reused for another name; all cached peers retain the existing cleanup.
+These caches grant nothing and introduce no permission registry, queue or recovery
+store. Profile, mode, connection, account, receipt and cancellation checks remain
+with their canonical owners.
+
+Six actual MCP invocation regressions failed before this integration wiring and
+passed afterward. They cover original wire refusal and loss of the ceiling during
+asynchronous credential/MCP-source preparation, with zero synthetic effects after
+refusal. Positive MCP/API cases additionally invoke the exact frozen wire through
+three successive/retired adapters. Existing skill, profile exclusion, grant
+revocation, cancellation, exception privacy and uncertain-result controls remain.
+
+The service continuation fixture now consumes a real first SDK input before
+asserting resumed history for its successor; merely registering/invoking an MCP
+handler does not establish SDK conversation history. Its34 cases pass. Full
+combined SDK journeys, focused consumers and source/type/hook results are retained
+in the ordinary checkpoint. No hosted or reviewer approval of these unpublished
+composition changes is claimed.
+
+The final combined tree passed all22 SDK journeys in163.59s and199 focused
+checks across nine suites. These include the43 Google/library cases and34 direct
+connection cases, TaskExecution/coordination invocation, capability projections,
+and stale/late SDK authority. Counts overlap earlier results; do not sum them.

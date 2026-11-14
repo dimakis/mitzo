@@ -1,3 +1,5 @@
+import { nativeConnectionToolNames } from './credential-connection-tools.js';
+
 /** Exact ordinary SDK callback allowlist, shared by its owner and read-only
  * support projection. These names grant nothing and do not change profile
  * eligibility in the executable catalog.
@@ -6,7 +8,8 @@ import { telosSdkToolNames, telosSdkPrefix } from './telos-sdk-definitions.js';
 export const SDK_CONNECTION_PREFIX = 'mcp__mitzo-connections__';
 export const ordinarySdkTelosTools = telosSdkToolNames.map((name) => telosSdkPrefix + name);
 const connectionHelpers: readonly string[] = Object.freeze([
-  'ListConnections',
+  ...nativeConnectionToolNames,
+  'GoogleWorkspaceRead',
   'SymposiumReadProfiles',
   'SymposiumConsult',
   'SymposiumProposeProfile',
