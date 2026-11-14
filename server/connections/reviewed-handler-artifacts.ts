@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1162-claude-retry-fifo-handshake';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1163-claude-source-retry-ui';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1029,7 +1028,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ComposerActivity.lifecycle.test.tsx':
     '2503ac79d17fd29f8adf5e13b81381df532425285f9661935035a1009820e9b9',
   '../../frontend/src/components/__tests__/CodexQueueStatus.test.tsx':
-    'b81133eeff6c1ad3dee4f478ff30594d16d85710b2ac97831c718b7d55e7d1ba',
+    'd9e38992c22136a427eb797a0af8de89821b9cdd28c8a0e823c8c99ab5761ffe',
   '../../frontend/src/components/ActiveSessionsList.tsx':
     'd9099b426156f42f6281d64caec4a576152509feac843b4e18927ac42232730a',
   '../../frontend/src/components/ConversationPins.tsx':
@@ -3053,7 +3052,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/CodexQueueStatus.tsx':
-    '13036d52244d43eb4adeceee749c783f2a32c23f80671a26fef742c38feee5b0',
+    '5fc0af3a8eac42cc7cced366703e87083053b7fbb68518ccfa3575abdff1a190',
   '../ordinary-repository-preparation.ts':
     '47e0072a9532fbd39d04bc35af993edebc0ce7bb74a04ab50b76f3dd72a0f19f',
   '../ordinary-repository-preparation-authority.ts':
@@ -3602,7 +3601,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '4056f8db7885588d05eb37b8626df2f9c7b77d3c80e078a1c1a3e5637d873aca',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '5bd84c5f36eeefe32b47bf4c6e7013ce4aea31e16d175e980efa26e1c0e9fe91',
+    '7276c956885febc4f467874f275500b70bb6aa499d1da6ab4d0ffce4b226ec15',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':

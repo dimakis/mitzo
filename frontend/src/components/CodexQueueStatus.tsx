@@ -280,6 +280,7 @@ export function CodexQueueStatus({
     if (
       !sessionId ||
       !queue ||
+      queue.retrySourceCommandId ||
       queue.capacityRecovery ||
       queue.canContinue === true ||
       queue.operation?.effectStatus === 'unknown' ||
@@ -341,6 +342,7 @@ export function CodexQueueStatus({
     <ChatStatusMessage status={deliveryStatus} error={deliveryError} busy={deliveryBusy} />
   );
   if (!queue) return delivery;
+  const sourceRetry = queue.retryable === true && !!queue.retrySourceCommandId;
   const needsPhaseInspection =
     queue.operation?.state === 'completed' &&
     queue.operation.effectStatus === 'unknown' &&
@@ -374,6 +376,13 @@ export function CodexQueueStatus({
     : 0;
 
   const capacity = queue.capacityRecovery;
+  const canRetry =
+    !capacity &&
+    !operationStatus &&
+    queue.failed > 0 &&
+    queue.retryable !== false &&
+    !queue.recovering &&
+    (sourceRetry || (!queue.retrySourceCommandId && queue.canContinue !== true && queue.connected));
   const capacitySeconds = capacity?.nextRetryAt
     ? Math.max(0, Math.ceil((capacity.nextRetryAt - now) / 1000))
     : 0;
@@ -400,12 +409,12 @@ export function CodexQueueStatus({
           ? 'Starting workspace…'
           : 'Reconnecting…'
         : (operationStatus ??
-          (queue.canContinue === true
+          (queue.canContinue === true && !sourceRetry
             ? 'Chat interrupted. Your work is saved.'
             : queue.failed > 0
-              ? queue.retryable === false
+              ? queue.retryable === false || (!!queue.retrySourceCommandId && !sourceRetry)
                 ? 'This failed turn needs attention and cannot be retried.'
-                : !queue.connected || reattaching
+                : (!queue.connected || reattaching) && !sourceRetry
                   ? 'Restarting provider… The failed turn remains saved.'
                   : retryWaitSeconds > 0
                     ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
@@ -423,7 +432,7 @@ export function CodexQueueStatus({
     notice ||
     deliveryError ||
     (!queue.recovering && !!operationStatus) ||
-    (!queue.recovering && queue.failed > 0 && queue.connected) ||
+    (!queue.recovering && queue.failed > 0 && (queue.connected || sourceRetry)) ||
     (capacity && ['stopped', 'exhausted'].includes(capacity.status))
   );
   const hide = () => {
@@ -441,7 +450,7 @@ export function CodexQueueStatus({
     setCollapsed(false);
   };
   const continueQueue = async () => {
-    if (!sessionId || continuing) return;
+    if (!sessionId || continuing || retrying) return;
     const epoch = sessionEpoch.current;
     setContinuing(true);
     setError('');
@@ -485,7 +494,7 @@ export function CodexQueueStatus({
     }
   };
   const retryFailed = async () => {
-    if (!sessionId || retrying) return;
+    if (!sessionId || retrying || continuing) return;
     const epoch = sessionEpoch.current;
     setRetrying(true);
     setError('');
@@ -500,7 +509,7 @@ export function CodexQueueStatus({
             confirmAmbiguous: !!queue.requiresRetryConfirmation,
             ...(queue.retrySourceCommandId ? { sourceCommandId: queue.retrySourceCommandId } : {}),
           }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(sourceRetry ? ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS : 15000),
         },
       );
       if (!response.ok) {
@@ -602,14 +611,28 @@ export function CodexQueueStatus({
   const continueAction =
     !capacity &&
     !needsPhaseInspection &&
-    (queue.canContinue === true || (queue.paused && queue.connected && queue.queued > 0)) &&
+    (queue.canContinue === true ||
+      (!queue.retrySourceCommandId && queue.paused && queue.connected && queue.queued > 0)) &&
     !queue.recovering
       ? {
           label: continuing ? 'Continuing…' : 'Continue chat',
-          disabled: continuing,
+          disabled: continuing || retrying,
           onClick: () => void continueQueue(),
         }
       : undefined;
+  const retryAction = canRetry
+    ? {
+        label: retrying
+          ? 'Retrying…'
+          : retryWaitSeconds > 0
+            ? `Retry in ${retryWaitSeconds}s`
+            : queue.requiresRetryConfirmation
+              ? 'Retry despite possible repeats'
+              : 'Retry saved turn',
+        disabled: retrying || continuing || retryWaitSeconds > 0,
+        onClick: () => void retryFailed(),
+      }
+    : undefined;
 
   if (collapsed && !combinedStatus) {
     return (
@@ -656,7 +679,7 @@ export function CodexQueueStatus({
         capacity?.status === 'waiting'
       }
       queued={queue.queued}
-      action={operationStatus ? undefined : continueAction}
+      action={operationStatus ? undefined : sourceRetry ? retryAction : continueAction}
     >
       <div className="codex-status-anchor codex-status-anchor--expanded">
         <aside
@@ -740,28 +763,16 @@ export function CodexQueueStatus({
                 {continueAction.label}
               </button>
             )}
-            {!capacity &&
-              !needsPhaseInspection &&
-              queue.canContinue !== true &&
-              queue.failed > 0 &&
-              queue.retryable !== false &&
-              queue.connected &&
-              !queue.recovering && (
-                <button
-                  type="button"
-                  className="codex-queue-status-continue"
-                  disabled={retrying || retryWaitSeconds > 0}
-                  onClick={() => void retryFailed()}
-                >
-                  {retrying
-                    ? 'Retrying…'
-                    : retryWaitSeconds > 0
-                      ? `Retry in ${retryWaitSeconds}s`
-                      : queue.requiresRetryConfirmation
-                        ? 'Retry despite possible repeats'
-                        : 'Retry saved turn'}
-                </button>
-              )}
+            {retryAction && (
+              <button
+                type="button"
+                className="codex-queue-status-continue"
+                disabled={retryAction.disabled}
+                onClick={retryAction.onClick}
+              >
+                {retryAction.label}
+              </button>
+            )}
             {queue.queued > 0 && (
               <button
                 type="button"

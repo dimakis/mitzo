@@ -852,7 +852,7 @@ it.each([undefined, 'claude-failed-source'])(
           interrupted: 0,
           failed: 1,
           recovering: false,
-          ...(sourceCommandId ? { retrySourceCommandId: sourceCommandId } : {}),
+          ...(sourceCommandId ? { retrySourceCommandId: sourceCommandId, retryable: true } : {}),
         }),
       )
       .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
@@ -979,6 +979,118 @@ it('reattaches a disconnected provider in the background while preserving the fa
   expect(screen.getByText('Previous turn failed. Retry when available.')).toBeTruthy();
   expect(screen.queryByText('Provider restarted. The failed turn is ready for review.')).toBeNull();
 });
+
+// These shapes are asserted against actual /meta responses by the composed
+// public failed-turn Retry consumer, including its live and cold owners.
+const sdkRetryStates = [
+  { connected: true, canContinue: true, queued: 2 },
+  { connected: false, canContinue: false, queued: 2 },
+];
+it.each(
+  sdkRetryStates.flatMap((state) => [false, true].map((combined) => ({ ...state, combined }))),
+)(
+  'offers source Retry with queued SDK successors (connected=$connected combined=$combined)',
+  async ({ combined, ...state }) => {
+    let finish!: (response: Response) => void;
+    let submitted = false;
+    const queue = {
+      ...idleQueue,
+      ...state,
+      paused: true,
+      failed: 1,
+      retryable: true,
+      retrySourceCommandId: 'original-sdk-failure',
+      requiresRetryConfirmation: true,
+    };
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).endsWith('/retry')) {
+        const result = await new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+        submitted = result.ok;
+        return result;
+      }
+      if (String(path).endsWith('/codex-queue'))
+        return commands([{ id: 'successor', preview: 'Retained follow-up' }]);
+      return meta(submitted ? { ...idleQueue, queued: 2 } : queue);
+    });
+    const status = <CodexQueueStatus sessionId="sdk-source-retry" />;
+    render(
+      combined ? (
+        <ComposerStatusProvider>
+          {status}
+          <ComposerStatusRail />
+        </ComposerStatusProvider>
+      ) : (
+        status
+      ),
+    );
+    const button = await screen.findByRole('button', { name: 'Retry despite possible repeats' });
+    expect(screen.getByText('Retrying may repeat tool actions that already ran.')).toBeTruthy();
+    expect(screen.queryByText(/Restarting provider/)).toBeNull();
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toHaveLength(0);
+    if (combined)
+      expect(
+        within(screen.getByRole('region', { name: 'Conversation status' })).getByRole('button', {
+          name: 'Retry despite possible repeats',
+        }),
+      ).toBe(button);
+    await userEvent.click(button);
+    expect(screen.getByRole('button', { name: 'Retrying…' })).toHaveProperty('disabled', true);
+    const continueButton = screen.queryByRole('button', { name: 'Continue chat' });
+    if (continueButton) expect(continueButton).toHaveProperty('disabled', true);
+    fireEvent.click(screen.getByRole('button', { name: 'Retrying…' }));
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toEqual([
+      [
+        '/api/sessions/sdk-source-retry/codex-queue/retry',
+        expect.objectContaining({
+          body: JSON.stringify({ confirmAmbiguous: true, sourceCommandId: 'original-sdk-failure' }),
+        }),
+      ],
+    ]);
+    await act(async () => {
+      finish(Response.json({ ok: true, status: 'queued' }));
+    });
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Retry despite/ })).toBeNull());
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toHaveLength(1);
+  },
+);
+
+it.each(
+  sdkRetryStates.flatMap((state) =>
+    [false, undefined].map((retryable) => ({ ...state, retryable })),
+  ),
+)(
+  'keeps SDK Retry server-qualified (connected=$connected retryable=$retryable)',
+  async ({ retryable, ...state }) => {
+    vi.mocked(apiFetch).mockImplementation(async (path) =>
+      String(path).endsWith('/codex-queue')
+        ? commands([])
+        : meta({
+            ...idleQueue,
+            ...state,
+            canContinue: false,
+            paused: true,
+            failed: 1,
+            retryable,
+            retrySourceCommandId: 'unavailable-source',
+          }),
+    );
+    render(<CodexQueueStatus sessionId="unavailable-sdk-retry" />);
+    await screen.findByText('This failed turn needs attention and cannot be retried.');
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Continue chat' })).toBeNull();
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toHaveLength(0);
+  },
+);
 
 it('warns before retrying an ambiguous turn that already invoked tools', async () => {
   vi.mocked(apiFetch)

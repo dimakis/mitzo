@@ -204,6 +204,31 @@ and unit artifacts remain retained. No runtime code changes in this correction.
 Source pins advance to `v1.0.1162-claude-retry-fifo-handshake`; fresh hosted checks
 and exact-head review remain required.
 
+## Server-qualified Retry controls
+
+Candidate `c6ac6b8d` passed full hosted CI `43602315728`. Targeted Centaur
+review `5905066967` verified the peer pre-input Stop correction and reported
+`CEN-EBB462A691CE`: the shared component's legacy Continue/connected visibility
+gates hid Retry with queued SDK successors and cold SDK owners.
+
+The component now presents the server-qualified source Retry in both states,
+including as the existing composer status row's primary action. Continue remains
+a separate explicit queue action. A retained source uses its canonical retry
+endpoint rather than unsupported automatic provider reattachment; confirmation,
+server retryability, uncertainty inspection and busy-action guards remain. Cold
+Retry uses the existing ordinary command receipt deadline. Legacy queues retain
+their provider reattachment path.
+
+All 67 component checks pass, including live/cold source metadata with successors,
+inline and composer presentations, exact source/confirmation submission, no
+automatic mutation, busy controls and server refusal. Three composed HTTP cases
+also pass and assert the actual live/cold `connected` and `canContinue` metadata
+used by these component scenarios. The first negative fixture incorrectly kept
+`canContinue=true` after making the source unauthorized; it now matches the
+server's explicit false value. Original diagnostics are retained. Source pins
+advance to `v1.0.1163-claude-source-retry-ui`; fresh hosted CI and targeted trusted
+review of this correction remain required.
+
 ## Integration custody and limits
 
 PR #1342 remains draft/open/conflicting at `b2675af8199ab8a99f3628d3d93c4e65145c7244`

@@ -1791,6 +1791,8 @@ it.each([
       .set('Connection', 'close');
     expect(metadata.body.codexQueue).toMatchObject({
       paused: true,
+      connected: !cold,
+      canContinue: !cold,
       failed: 1,
       queued: 2,
       retryable: true,
