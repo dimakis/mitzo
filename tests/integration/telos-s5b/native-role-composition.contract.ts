@@ -8,6 +8,7 @@ import {
 } from '@mitzo/protocol';
 import { createJoinedOrdinaryApplication } from '../telos-s9/integrated-candidate/joined-ordinary-application';
 import { actToSourcePermissionReview } from '../telos-s9/integrated-candidate/joined-role-setup-ready';
+import { navigateToChatMetadata } from '../telos-s9/integrated-candidate/task-chat-read-observer';
 import { prepareNativeProviderToolCall } from '../../../server/__tests__/fixtures/native-provider-tool-call.js';
 
 // Requires the reviewed PR1117 fixture dependency on the final combined base.
@@ -370,7 +371,7 @@ it('composes native worker evidence, explicit source review and Read Once with c
   );
   expect(unread.success).toBe(false);
   const { expect: browserExpect } = await import('@playwright/test');
-  await h.page.goto(h.front.origin + '/chat/' + leadId);
+  await navigateToChatMetadata(h.page, h.front.origin + '/chat/' + leadId, leadId);
   await browserExpect(h.page.getByRole('textbox', { name: /message/i })).toBeVisible();
   const sourcePanel = h.page.getByRole('region', { name: 'Telos source review' });
   const sourceScreenshots: string[] = [];

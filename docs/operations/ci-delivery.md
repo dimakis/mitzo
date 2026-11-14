@@ -472,6 +472,14 @@ or history assertions, or wait for unrelated collection hydration.
 
 The complete native non-git journey keeps its 120-second local envelope and uses a finite 180-second CI envelope. Retained hosted-runner evidence completed it in 106–112 seconds and cut off a valid final replay at 120 seconds. This is a composed fixture allowance; production, individual request, helper, approval and handoff deadlines remain unchanged. Timeouts still require diagnosis rather than automatic retry.
 
+On 14 November, run `43535298136` reached the native role-composition lead chat
+but exhausted its five-second textbox assertion after direct navigation. Retained
+metadata's observation time fell within the final second of that window. The journey now reuses
+the exact-conversation metadata observer before navigation, requiring a fresh,
+completed 200 response for the intended lead within the existing ten-second
+readiness allowance. The five-second textbox assertion and whole-case bound
+remain unchanged; the next hosted run must verify the complete journey.
+
 ## Exact Node version for compiled transfers, 30 October 2026
 
 Run [41127643011](https://github.com/dimakis/mitzo/actions/runs/41127643011)
