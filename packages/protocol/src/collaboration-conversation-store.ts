@@ -69,6 +69,7 @@ function sha(value: unknown) {
   return createHash('sha256').update(canonical(value)).digest('hex');
 }
 interface Owners {
+  navigationUnavailable?(identity: { collaborationId: string; sessionId: string }): void;
   membership(id: string): SessionCollaboration | null;
   setMembership(id: string, input: unknown): SessionCollaboration;
   beginMembership(id: string, sourceSessionId: string): SessionCollaboration;
@@ -161,6 +162,7 @@ function validateCapacityWitnesses(
  * saveSnapshot/acceptMessage/recordDelivery/recordAllocation are trusted host ports, not HTTP writes.
  */
 export class CollaborationConversationStore {
+  private navigationFailures = new Set<string>();
   constructor(
     private readonly db: Database.Database,
     private readonly owners: Owners,
@@ -325,6 +327,7 @@ export class CollaborationConversationStore {
         try {
           const join = this.getLinkedJoinForSession(group.id, sessionId);
           if (!join || !this.continuousMember(this.group(group.id), 1, source)) return [];
+          this.navigationFailures.delete(`${group.id}:${sessionId}`);
           return [{ sessionId, sourceConversationId: source, collaborationId: group.id }];
         } catch (error) {
           // Discontinued membership/ambiguous allocations are expected historical
@@ -335,6 +338,14 @@ export class CollaborationConversationStore {
             ['allocation_conflict', 'snapshot_changed'].includes(error.code)
           )
             return [];
+          if (error instanceof z.ZodError) {
+            const key = `${group.id}:${sessionId}`;
+            if (!this.navigationFailures.has(key)) {
+              this.owners.navigationUnavailable?.({ collaborationId: group.id, sessionId });
+              this.navigationFailures.add(key);
+            }
+            return [];
+          }
           throw error;
         }
       });
