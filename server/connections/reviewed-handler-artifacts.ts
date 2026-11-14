@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/integration/symposium-sdk-responsive-recovery.test.tsx':
+    'f11a6d38e1b254a791a132ee765221efe789844703f4ebe5beb73cb12c07f172',
+  '../../tests/support/ordinary-responsive-composition.tsx':
+    '42eb9e00454505f599674923eb2b3a47febb7cc4101b9fb6458796d6b1fec159',
   '../__tests__/collaboration-application-sdk-recovery.test.tsx':
     '1de779700b70c05531a71e4d164ff18009dc33dfd28d65f5d0bf3476df242290',
   '../__tests__/fixtures/symposium-claude-application.ts':
@@ -69,7 +73,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-ordinary-surface.tsx':
     'e9e9b6715a189ef3f3c96a2f1e6345e49cc5439d95ea4a6a2a75151936930ad7',
   '../../tests/integration/symposium-ordinary-acceptance.test.tsx':
-    '0a3a48a4465f1761d0dfe2e98c7e4213db4b764323df6470207dff9395a6be6c',
+    'f059e98471c4f9bac5ceef1aab5633fbadaa7f0a33dd837d25dc4c27b320b965',
   '../../tests/integration/symposium-required-owners.test.ts':
     'dfb7f311eab054c9f27e5401610819a5e743516ac2e22461fae1596e6b79aa01',
   '../../tests/offline/symposium-ordinary-surface.spec.ts':

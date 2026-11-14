@@ -1,0 +1,23 @@
+{
+  "productionHead": "4ba082d5412921fac0244015b6f46252cdad08d5",
+  "branch": "detached HEAD in task-local baseline clone; active verification branch unchanged",
+  "boundary": "Same independent responsive/HTTP/SSE test and deterministic external SDK/account fixture over prior production. Vitest config resolves protocol/client/harness to baseline-local source; dependency node_modules reused. No production overlays.",
+  "overlays": [
+    {
+      "path": "tests/integration/symposium-sdk-responsive-recovery.test.tsx",
+      "sha256": "f11a6d38e1b254a791a132ee765221efe789844703f4ebe5beb73cb12c07f172"
+    },
+    {
+      "path": "tests/support/ordinary-responsive-composition.tsx",
+      "sha256": "42eb9e00454505f599674923eb2b3a47febb7cc4101b9fb6458796d6b1fec159"
+    },
+    {
+      "path": "tests/support/application-event-source.ts",
+      "sha256": "da2d0fd6614485c42048e85449c79a0ab5a999f340fc29f7db4e02a90cbec973"
+    },
+    {
+      "path": "server/__tests__/fixtures/symposium-claude-application.ts",
+      "sha256": "4cb3e4e829b92cfce1a57db15ffb85c8b689a6f1399173249eed367edf5b43ba"
+    }
+  ]
+}

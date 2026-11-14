@@ -1,0 +1,1866 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+[90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx
+[22m[39mORDINARY_ACCEPTANCE_SOURCE {"head":"27ba38c4b8052071e1f0de322138d45c5e88d9fe","branch":"test/symposium-integrated-acceptance","testSha256":"f059e98471c4f9bac5ceef1aab5633fbadaa7f0a33dd837d25dc4c27b320b965","compositionHelperSha256":"42eb9e00454505f599674923eb2b3a47febb7cc4101b9fb6458796d6b1fec159","node":"v24.10.0","build":"Vitest source transpilation","route":"/chat/:sessionId","widths":[320,390,1280],"renderer":"JSDOM; no visual acceptance","externalExecution":"deterministic RPC"}
+
+{"level":30,"time":1794674523473,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674523419-gueehd","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794674523589,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674523419-gueehd","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 320px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 320px keeps one transcript/composer after silent joining[33m 1699[2mms[22m[39m
+{"level":30,"time":1794674523895,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674523842-nujn2g","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794674523934,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674523842-nujn2g","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 390px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 390px keeps one transcript/composer after silent joining[33m 322[2mms[22m[39m
+{"level":30,"time":1794674524213,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674524161-6t2sj8","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794674524244,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674524161-6t2sj8","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 1280px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 1280px keeps one transcript/composer after silent joining[33m 327[2mms[22m[39m
+{"level":30,"time":1794674524542,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674524489-z6bp95","sessionId":"independent-imported-sdk-history","cursor":2,"msg":"cursor reset on reconnect"}
+[90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[22m[39mIMPORTED_INITIAL_INPUT {"disabled":true,"inOrdinaryPortal":false}
+
+{"level":30,"time":1794674524580,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674524489-z6bp95","sessionId":"independent-imported-sdk-history","cursor":2,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'independent-imported-sdk-history'[39m,
+  cause: [32m'Error'[39m
+}
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[22m[39mAn update to WebSearchConsent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to WebSearchConsent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[22m[39mAn update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[22m[39mIMPORTED_INPUT_RETENTION {"phase":"qualified history before resize","sameTextarea":true,"draft":"Independent imported conversation draft","focused":true,"selection":[5,17]}
+IMPORTED_INPUT_RETENTION {"phase":"after phone to desktop resize","sameTextarea":true,"draft":"Independent imported conversation draft","focused":true,"selection":[5,17]}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps persisted imported SDK history readable in the actual ordinary screen without joining[33m 387[2mms[22m[39m
+{"level":30,"time":1794674524940,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674524887-8csvwr","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794674524959,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674524887-8csvwr","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794674526298,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674526244-cf9sdz","sessionId":"7ba0a993-1483-8949-be91-402f6a438b6f","cursor":20,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794674526356,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674526244-cf9sdz","sessionId":"7ba0a993-1483-8949-be91-402f6a438b6f","cursor":20,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794674545499,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674545494-ovzfw3","sessionId":"7ba0a993-1483-8949-be91-402f6a438b6f","cursor":65,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794674550736,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674550666-yg4ksr","sessionId":"7ba0a993-1483-8949-be91-402f6a438b6f","cursor":451,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794674550744,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674550666-yg4ksr","sessionId":"7ba0a993-1483-8949-be91-402f6a438b6f","cursor":451,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794674551536,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mCapacitor plugin "FileShareBridge" already registered. Cannot register plugins twice.
+
+{"level":30,"time":1794674551937,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674551865-fxqtig","sessionId":"7ba0a993-1483-8949-be91-402f6a438b6f","cursor":455,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794674551960,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674551865-fxqtig","sessionId":"7ba0a993-1483-8949-be91-402f6a438b6f","cursor":455,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SessionList inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794674553496,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674551865-fxqtig","sessionId":"f70fb5b0-14f2-87f8-ab01-4dd6240050f8","cursor":456,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794674553507,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674551865-fxqtig","sessionId":"f70fb5b0-14f2-87f8-ab01-4dd6240050f8","cursor":456,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794674554197,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674551865-fxqtig","sessionId":"7ba0a993-1483-8949-be91-402f6a438b6f","cursor":455,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794674554234,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794674551865-fxqtig","sessionId":"7ba0a993-1483-8949-be91-402f6a438b6f","cursor":455,"msg":"cursor reset on reconnect"}
+[90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mORDINARY_ACCEPTANCE_COMPLETE {"stages":["history_and_unsent_draft","fresh_setup_review_silent_join","explicit_attributed_stream","exact_success_retry","responsive_focus_selection","concurrent_source_and_reviewer","partial_failure_selected_retry","long_history","lost_committed_send_and_stop_response","sse_reconnect","remount","application_owner_restart","one_chats_conversation_inspectable_participants","desktop_grouped_search_exact_participant_history","participant_history_explicit_shared_reply_route"],"beforeRestartNativeTurns":31,"afterRestartNativeRequests":0,"retainedUncertainRequest":"9be841c8-59ca-4264-bc44-82bd0215d40c","retainedMessageId":"c302638f-15a6-498c-863a-b55192e25b3c","retainedCommandIds":["collaboration:81d23f56-2fee-4de6-8a63-286bca4cb538"],"physicalDevice":"unobserved"}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins[33m 29376[2mms[22m[39m
+{"level":30,"time":1794674554300,"pid":2571,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22m[2mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+ [32m✓[39m server/__tests__/collaboration-application-sdk-recovery.test.tsx[2m > [22mrecovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay[33m 5133[2mms[22m[39m
+{"level":30,"time":1794674560346,"pid":3638,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the review owner omitted[32m 2[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the joining owner omitted[32m 1[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the messaging owner omitted[32m 2[2mms[22m[39m
+{"level":30,"time":1794674563280,"pid":3834,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the reply owner omitted[33m 1055[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the admission owner omitted[32m 27[2mms[22m[39m
+[90mstdout[2m | tests/integration/symposium-composer-transfer.test.tsx
+[22m[39mORDINARY_TRANSFER_SOURCE {"head":"27ba38c4b8052071e1f0de322138d45c5e88d9fe","branch":"test/symposium-integrated-acceptance","testSha256":"c9bc99ceb3e17211bd03de2d1a771cb714ed78f2ad6608834300876ecb3f9cdc","node":"v24.10.0","build":"Vitest source transpilation","boundary":"Actual client/protocol/ChatInputHost/ChatInput; deterministic wire. No authenticated application or browser geometry qualification."}
+
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers draft/queue through '_send_accepted' from null (correlated acceptance first: false)[32m 136[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers draft/queue through '_send_accepted' from 'original-chat' (correlated acceptance first: false)[32m 71[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers draft/queue through 'session_id' from null (correlated acceptance first: false)[32m 62[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers draft/queue through 'session_id' from 'original-chat' (correlated acceptance first: true)[32m 58[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mretires an unrelated navigation owner and does not promote late assignment into its draft[32m 30[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m4 passed[39m[22m[90m (4)[39m
+[2m      Tests [22m [1m[32m16 passed[39m[22m[90m (16)[39m
+[2m   Start at [22m 16:41:55
+[2m   Duration [22m 48.90s[2m (transform 4.69s, setup 0ms, import 1.78s, tests 45.50s, environment 1.27s)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

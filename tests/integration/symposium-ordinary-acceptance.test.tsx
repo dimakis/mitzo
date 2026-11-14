@@ -1,15 +1,13 @@
 // @vitest-environment node-compatible-dom
-import React from 'react';
 import { afterAll, beforeAll, expect, it, onTestFailed, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { createMitzoStore } from '@mitzo/client';
 import { CollaborationMessageInputSchema } from '@mitzo/protocol';
 import { createApplicationJourney } from '../../server/__tests__/fixtures/symposium-application-journey.js';
 import { recordApplicationMessagingRuntime } from '../../server/__tests__/fixtures/symposium-recording-runtime.js';
 import { installDialogStub } from '../../frontend/src/components/__tests__/dialog-stub';
 import { applicationEventSource } from '../support/application-event-source';
+import { mountResponsiveOrdinary } from '../support/ordinary-responsive-composition';
 import { mkdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -30,6 +28,13 @@ beforeAll(async () => {
         'detached HEAD',
       testSha256: createHash('sha256')
         .update(await readFile(new URL(import.meta.url)))
+        .digest('hex'),
+      compositionHelperSha256: createHash('sha256')
+        .update(
+          await readFile(
+            new URL('../support/ordinary-responsive-composition.tsx', import.meta.url),
+          ),
+        )
         .digest('hex'),
       node: process.version,
       build: 'Vitest source transpilation',
@@ -86,96 +91,7 @@ afterAll(async () => {
 });
 
 async function mountOrdinary(width = 390, source = 'existing-chat', shared = true) {
-  let currentWidth = width;
-  const mediaQueries = new Map<
-    string,
-    { matches: boolean; listeners: Set<(event: { matches: boolean }) => void> }
-  >();
-  Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    value: (query: string) => {
-      let media = mediaQueries.get(query);
-      if (!media) {
-        media = {
-          matches: query === '(min-width: 768px)' && currentWidth >= 768,
-          listeners: new Set(),
-        };
-        mediaQueries.set(query, media);
-      }
-      const selectedMedia = media;
-      return {
-        get matches() {
-          return selectedMedia.matches;
-        },
-        media: query,
-        addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) =>
-          selectedMedia.listeners.add(listener),
-        removeEventListener: (_type: string, listener: (event: { matches: boolean }) => void) =>
-          selectedMedia.listeners.delete(listener),
-      };
-    },
-  });
-  const { ResponsiveChatView } = await import('../../frontend/src/components/ResponsiveChatView');
-  const { SessionList } = await import('../../frontend/src/pages/SessionList');
-  const { MitzoStoreProvider } = await import('@mitzo/client/hooks');
-  const history = await h.typedApi.getSessionMessages(source);
-  const store = createMitzoStore({
-    transport: { fetch: transport.fetch },
-    sseConfig: {
-      baseUrl: '',
-      fetch: transport.fetch,
-      createEventSource: transport.createEventSource,
-    },
-    wsConfig: {
-      buildUrl: () => {
-        throw Error('Unexpected socket: application HTTP owns this journey');
-      },
-      createWebSocket: () => {
-        throw Error('Unexpected socket');
-      },
-    },
-  });
-  store.setState((state) => ({
-    sessions: { ...state.sessions, active: source },
-    messages: {
-      ...state.messages,
-      messages: history,
-    },
-  }));
-  await vi.waitFor(() => expect(store.getState().connection.status).toBe('connected'));
-  await store.getState().switchSession(source);
-  const ui = render(
-    <MitzoStoreProvider value={store}>
-      <MemoryRouter initialEntries={['/chat/' + source]}>
-        <Routes>
-          <Route path="/chat/:sessionId" element={<ResponsiveChatView />} />
-          <Route path="/sessions" element={<SessionList />} />
-        </Routes>
-      </MemoryRouter>
-    </MitzoStoreProvider>,
-  );
-  if (shared) await screen.findByRole('button', { name: 'Choose who replies' }, { timeout: 10000 });
-  else await screen.findByRole('textbox', { name: 'Message Mitzo' }, { timeout: 10000 });
-  return {
-    ui,
-    store,
-    resize(nextWidth: number) {
-      currentWidth = nextWidth;
-      Object.defineProperty(window, 'innerWidth', { configurable: true, value: currentWidth });
-      for (const [query, media] of mediaQueries) {
-        const matches = query === '(min-width: 768px)' && currentWidth >= 768;
-        if (matches === media.matches) continue;
-        media.matches = matches;
-        for (const listener of media.listeners) listener({ matches });
-      }
-      window.dispatchEvent(new Event('resize'));
-    },
-    close() {
-      ui.unmount();
-      store.getState().invalidateAuthentication();
-    },
-  };
+  return mountResponsiveOrdinary({ api: h.typedApi, transport, width, source, shared });
 }
 
 it.each([320, 390, 1280])(
@@ -219,14 +135,53 @@ it('keeps persisted imported SDK history readable in the actual ordinary screen 
   expect(h.events.listSessionCollaborations(imported).collaborations).toEqual([]);
   const mounted = await mountOrdinary(390, imported, false);
   try {
-    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
-    fireEvent.change(input, { target: { value: 'Independent imported conversation draft' } });
+    const initial = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    console.info(
+      'IMPORTED_INITIAL_INPUT',
+      JSON.stringify({
+        disabled: (initial as HTMLTextAreaElement).disabled,
+        inOrdinaryPortal: initial.closest('.chat-input-host') !== null,
+      }),
+    );
     await waitFor(() => expect(screen.getAllByText(marker, { exact: true })).toHaveLength(1), {
       timeout: 5000,
     });
+    const input = await waitFor(() => {
+      const qualified = screen.getByRole('textbox', {
+        name: 'Message Mitzo',
+      }) as HTMLTextAreaElement;
+      expect(qualified.disabled).toBe(false);
+      expect(qualified.closest('.chat-input-host')).not.toBeNull();
+      return qualified;
+    });
+    expect(await h.typedApi.collaborations.sourceSetup(imported, h.clientId)).toEqual({
+      state: 'ordinary_history',
+      sourceConversationId: imported,
+      reason: 'external_import',
+    });
+    await userEvent.type(input, 'Independent imported conversation draft');
+    input.focus();
+    input.setSelectionRange(5, 17);
+    const recordInput = (phase: string) => {
+      const current = screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement;
+      console.info(
+        'IMPORTED_INPUT_RETENTION',
+        JSON.stringify({
+          phase,
+          sameTextarea: current === input,
+          draft: current.value,
+          focused: document.activeElement === current,
+          selection: [current.selectionStart, current.selectionEnd],
+        }),
+      );
+      expect.soft(current).toBe(input);
+      expect.soft(current.value).toBe('Independent imported conversation draft');
+      expect.soft(document.activeElement).toBe(current);
+      expect.soft([current.selectionStart, current.selectionEnd]).toEqual([5, 17]);
+    };
+    recordInput('qualified history before resize');
     act(() => mounted.resize(1280));
-    expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
-    expect((input as HTMLTextAreaElement).value).toBe('Independent imported conversation draft');
+    recordInput('after phone to desktop resize');
     expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
     expect(mounted.store.getState().historyError).toBeNull();
     expect(h.events.listSessionCollaborations(imported).collaborations).toEqual([]);

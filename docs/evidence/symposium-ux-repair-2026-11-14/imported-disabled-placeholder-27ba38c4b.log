@@ -1,0 +1,187 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+[90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx
+[22m[39mORDINARY_ACCEPTANCE_SOURCE {"head":"27ba38c4b8052071e1f0de322138d45c5e88d9fe","branch":"test/symposium-integrated-acceptance","testSha256":"e4439a1cf1365c083437ba70c4d0187f44559b3d5e0e8e63202c44ef45568440","node":"v24.10.0","build":"Vitest source transpilation","route":"/chat/:sessionId","widths":[320,390,1280],"renderer":"JSDOM; no visual acceptance","externalExecution":"deterministic RPC"}
+
+ [2m[90m↓[39m[22m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 320px keeps one transcript/composer after silent joining
+ [2m[90m↓[39m[22m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 390px keeps one transcript/composer after silent joining
+ [2m[90m↓[39m[22m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 1280px keeps one transcript/composer after silent joining
+{"level":30,"time":1794673929884,"pid":88247,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794673929738-naw2ji","sessionId":"independent-imported-sdk-history","cursor":2,"msg":"cursor reset on reconnect"}
+[90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[22m[39mIMPORTED_INITIAL_INPUT {"disabled":true,"inOrdinaryPortal":false}
+
+{"level":30,"time":1794673929909,"pid":88247,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794673929738-naw2ji","sessionId":"independent-imported-sdk-history","cursor":2,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'independent-imported-sdk-history'[39m,
+  cause: [32m'Error'[39m
+}
+
+[90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[22m[39mIMPORTED_INPUT_RETENTION {"phase":"qualified history before resize","sameTextarea":false,"draft":"","focused":true,"selection":[0,0]}
+IMPORTED_INPUT_RETENTION {"phase":"after phone to desktop resize","sameTextarea":false,"draft":"","focused":true,"selection":[0,0]}
+
+{"level":30,"time":1794673930183,"pid":88247,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps persisted imported SDK history readable in the actual ordinary screen without joining[33m 1744[2mms[22m[39m
+[31m   → expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+[31m   → expected '' to be 'Independent imported conversation dra…' // Object.is equality[39m
+[31m   → expected [ +0, +0 ] to deeply equal [ 5, 17 ][39m
+[31m   → expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+[31m   → expected '' to be 'Independent imported conversation dra…' // Object.is equality[39m
+[31m   → expected [ +0, +0 ] to deeply equal [ 5, 17 ][39m
+ [2m[90m↓[39m[22m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[31m[1mAssertionError[22m: expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  <textarea[22m
+[2m    aria-label="Message Mitzo"[22m
+[2m    class="chat-input-field"[22m
+[32m-   disabled=""[39m
+[2m    placeholder="Message Mitzo..."[22m
+[2m    rows="1"[22m
+[31m+   style="height: 0px;"[39m
+[2m  />[22m
+
+[36m [2m❯[22m recordInput tests/integration/symposium-ordinary-acceptance.test.tsx:[2m245:28[22m[39m
+    [90m243|[39m         })[33m,[39m
+    [90m244|[39m       )[33m;[39m
+    [90m245|[39m       expect[33m.[39m[34msoft[39m(current)[33m.[39m[34mtoBe[39m(input)[33m;[39m
+    [90m   |[39m                            [31m^[39m
+    [90m246|[39m       expect.soft(current.value).toBe('Independent imported conversati…
+    [90m247|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(current)[33m;[39m
+[90m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m250:5[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[31m[1mAssertionError[22m: expected '' to be 'Independent imported conversation dra…' // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Independent imported conversation draft[39m
+
+[36m [2m❯[22m recordInput tests/integration/symposium-ordinary-acceptance.test.tsx:[2m246:34[22m[39m
+    [90m244|[39m       )[33m;[39m
+    [90m245|[39m       expect[33m.[39m[34msoft[39m(current)[33m.[39m[34mtoBe[39m(input)[33m;[39m
+    [90m246|[39m       expect.soft(current.value).toBe('Independent imported conversati…
+    [90m   |[39m                                  [31m^[39m
+    [90m247|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(current)[33m;[39m
+    [90m248|[39m       expect.soft([current.selectionStart, current.selectionEnd]).toEq…
+[90m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m250:5[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[31m[1mAssertionError[22m: expected [ +0, +0 ] to deeply equal [ 5, 17 ][39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   5,[39m
+[32m-   17,[39m
+[31m+   0,[39m
+[31m+   0,[39m
+[2m  ][22m
+
+[36m [2m❯[22m recordInput tests/integration/symposium-ordinary-acceptance.test.tsx:[2m248:67[22m[39m
+    [90m246|[39m       expect.soft(current.value).toBe('Independent imported conversati…
+    [90m247|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(current)[33m;[39m
+    [90m248|[39m       expect.soft([current.selectionStart, current.selectionEnd]).toEq…
+    [90m   |[39m                                                                   [31m^[39m
+    [90m249|[39m     }[33m;[39m
+    [90m250|[39m     [34mrecordInput[39m([32m'qualified history before resize'[39m)[33m;[39m
+[90m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m250:5[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[31m[1mAssertionError[22m: expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  <textarea[22m
+[2m    aria-label="Message Mitzo"[22m
+[2m    class="chat-input-field"[22m
+[32m-   disabled=""[39m
+[2m    placeholder="Message Mitzo..."[22m
+[2m    rows="1"[22m
+[31m+   style="height: 0px;"[39m
+[2m  />[22m
+
+[36m [2m❯[22m recordInput tests/integration/symposium-ordinary-acceptance.test.tsx:[2m245:28[22m[39m
+    [90m243|[39m         })[33m,[39m
+    [90m244|[39m       )[33m;[39m
+    [90m245|[39m       expect[33m.[39m[34msoft[39m(current)[33m.[39m[34mtoBe[39m(input)[33m;[39m
+    [90m   |[39m                            [31m^[39m
+    [90m246|[39m       expect.soft(current.value).toBe('Independent imported conversati…
+    [90m247|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(current)[33m;[39m
+[90m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m252:5[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[31m[1mAssertionError[22m: expected '' to be 'Independent imported conversation dra…' // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Independent imported conversation draft[39m
+
+[36m [2m❯[22m recordInput tests/integration/symposium-ordinary-acceptance.test.tsx:[2m246:34[22m[39m
+    [90m244|[39m       )[33m;[39m
+    [90m245|[39m       expect[33m.[39m[34msoft[39m(current)[33m.[39m[34mtoBe[39m(input)[33m;[39m
+    [90m246|[39m       expect.soft(current.value).toBe('Independent imported conversati…
+    [90m   |[39m                                  [31m^[39m
+    [90m247|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(current)[33m;[39m
+    [90m248|[39m       expect.soft([current.selectionStart, current.selectionEnd]).toEq…
+[90m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m252:5[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mkeeps persisted imported SDK history readable in the actual ordinary screen without joining
+[31m[1mAssertionError[22m: expected [ +0, +0 ] to deeply equal [ 5, 17 ][39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   5,[39m
+[32m-   17,[39m
+[31m+   0,[39m
+[31m+   0,[39m
+[2m  ][22m
+
+[36m [2m❯[22m recordInput tests/integration/symposium-ordinary-acceptance.test.tsx:[2m248:67[22m[39m
+    [90m246|[39m       expect.soft(current.value).toBe('Independent imported conversati…
+    [90m247|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(current)[33m;[39m
+    [90m248|[39m       expect.soft([current.selectionStart, current.selectionEnd]).toEq…
+    [90m   |[39m                                                                   [31m^[39m
+    [90m249|[39m     }[33m;[39m
+    [90m250|[39m     [34mrecordInput[39m([32m'qualified history before resize'[39m)[33m;[39m
+[90m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m252:5[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[33m4 skipped[39m[90m (5)[39m
+[2m   Start at [22m 16:32:02
+[2m   Duration [22m 7.99s[2m (transform 4.18s, setup 0ms, import 603ms, tests 6.78s, environment 511ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

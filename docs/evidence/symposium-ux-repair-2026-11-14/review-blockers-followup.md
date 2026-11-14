@@ -1,5 +1,11 @@
 # Independent review blocker follow-up
 
+Latest local production integration is27ba38c4b (owner6807db803), adding qualified
+ordinary imported history and exact positive SDK pre-input cancellation evidence.
+The newer SDK/ordinary application evidence below supersedes the earlier pending
+fix statements; published b6a remains a distinct hosted/review checkpoint until
+the integrated successor is pushed and qualified.
+
 The strengthened rollover check preserves the same native-command suppression
 assertion and also requires each original operator body/projection ID exactly
 once after authorized earlier-event hydration. The API display page remains50;
@@ -119,6 +125,58 @@ This is a retained-data/read/router/UI acceptance fixture, not SDK file discover
 or an actual external import operation. The separate SDK cancellation/recovery
 case still needs its owner fix and integration evidence; the existing native
 lost-response journey does not qualify SDK cancellation before input acceptance.
+
+## Imported history and pre-input SDK successor verification
+
+Owner6807db80378f6d0c65e18fa2e9ad05f695188b4a is integrated as27ba38c4b.
+The independent imported-history case now requires the server-proven
+`ordinary_history / external_import` relation with zero collaboration groups,
+the exact authenticated history body and an enabled qualified ordinary composer.
+Typing through userEvent preserves the same input, draft, focus and selection
+through390→1280. The original b6a history-mask failure remains valid and immutable.
+
+Correction: an initial post-fix assertion typed with fireEvent into the disabled
+Symposium status placeholder before a draft owner existed. It then reported
+replacement, empty draft and reset selection before resize. That is a fixture
+error, not a production draft-loss or responsive-remount finding. The trace
+`imported-disabled-placeholder-27ba38c4b.log` proves initial disabled=true and
+no `.chat-input-host`. The corrected test waits for an enabled portal and uses
+supported typing; it retains the stronger identity/draft/focus/selection checks.
+`imported-input-27ba38c4b-red.log` retains the initial observation with this explicit
+correction. No production guard was weakened or additional fix requested.
+
+`tests/integration/symposium-sdk-responsive-recovery.test.tsx` independently
+extends the owner's deterministic external SDK/account fixture through actual
+ResponsiveChatView, store and real authenticated loopback HTTP/SSE. It holds
+external account renewal before SDK input yield, then exercises actual Send,
+Stop,390→320→1280 retention, visible Check original request, exact cancelled and
+successful request retries, persisted application-owner restart and reopening.
+The same textarea/later draft/selection and recipients survive responsive changes;
+the exact request/message/command remains terminal after restart, draft restores,
+and extra SDK inputs/interrupts stay0. No SDK acceptance, settlement or provider
+terminal event is invented for the positively cancelled command. This is actual
+application/client integration, with JSDOM media adapters and deterministic
+external execution; no geometry, OS-kill or physical-device qualification.
+
+The SDK baseline runs the identical independent test, composition/HTTP adapters
+and external fixture over untouched source1 production4ba082d54 in a task-local
+detached baseline clone. Vitest aliases protocol/client/harness to that clone's
+source; only four test/external-fixture files are overlaid, all SHA-indexed in
+`sdk-preinput-4ba-baseline-manifest.json`. The active verification branch is
+unchanged. `sdk-preinput-4ba-baseline-red.log` fails at the earlier actual Stop
+boundary: the exact command remains RUNNING instead of STOPPING, with no SDK
+input acceptance/events for that command. It therefore does not reach Check;
+the integrated successor advances through Check and restart. This is distinct
+from the owner's direct positive-cancellation-evidence unit reproduction.
+
+The common responsive helper is extracted without behavior changes from A to
+`tests/support/ordinary-responsive-composition.tsx`; both journeys retain the
+actual pages and owners. Source receipts include helper/test/external-fixture
+hashes and, for SDK, the observed ordinary SDK production source hash. The focused
+workflow now selects19 checks:14 authenticated application, five client/portal,
+plus the unchanged62 browser tests/probes. Successor hosted CI and exact-head
+review remain required. Source1's separate successor request7507 at6807 is queue
+acceptance, not approval of #1355 or a terminal LGTM.
 
 ## Separate terminal combined-CI failure
 

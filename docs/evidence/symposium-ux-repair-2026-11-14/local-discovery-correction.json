@@ -1,0 +1,9 @@
+{
+  "requestId": "c4a1eaef-ddea-484c-b370-8bde4447a981",
+  "state": "uncertain_timeout_not_qualification",
+  "cause": "The temporary baseline clone under .cache was accidentally collected by Vitest substring file filters, mixing baseline/current tests and exceeding the command deadline.",
+  "partialLog": ".cache/slice3-sdk-responsive-and-existing-journeys.log",
+  "partialLogSha256": "0c1d410b7930474f255ca5a7a97b727cbf7668687e3dbdef4ebaa5a931bfb091",
+  "reconciliation": "Git tracked state remained expected. Original status receipt remains uncertain; all seven exact log-recorded worker PIDs were not running via signal0 inspection. Global ps execution was denied and not retried. No live external execution; no uncertain external write replay. Baseline clone moved outside the active repository test-discovery root, preserving its files/metadata.",
+  "verifiedNewSelection": "Only five current tests in the four requested files; .cache/slice3-qualified-journey-selection.log. Fresh current-only run passed all five, sdk-existing-journeys-27ba38c4b-green.log."
+}
