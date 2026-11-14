@@ -1101,14 +1101,15 @@ it.each(
 );
 
 it.each([
-  { personal: false, preInput: false, settling: false },
-  { personal: true, preInput: false, settling: false },
-  { personal: true, preInput: true, settling: false },
-  { personal: false, preInput: false, settling: true },
-  { personal: true, preInput: false, settling: true },
+  { personal: false, preInput: false, settling: false, cold: false },
+  { personal: true, preInput: false, settling: false, cold: false },
+  { personal: true, preInput: true, settling: false, cold: false },
+  { personal: true, preInput: true, settling: false, cold: true },
+  { personal: false, preInput: false, settling: true, cold: false },
+  { personal: true, preInput: false, settling: true, cold: false },
 ])(
-  'public Stop, reconnect and Continue retain the SDK development owner (personal=$personal preInput=$preInput settling=$settling)',
-  async ({ personal, preInput, settling }) => {
+  'public Stop, reconnect and Continue retain the SDK development owner (personal=$personal preInput=$preInput settling=$settling cold=$cold)',
+  async ({ personal, preInput, settling, cold }) => {
     vi.resetModules();
     const { ownedVertexRuntimeFixture } =
       await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
@@ -1287,6 +1288,61 @@ it.each([
       }),
     );
     expect(history).toEqual(initialHistory);
+    if (preInput && cold) {
+      const { readClaudeAccountHistory } = await import('../../server/claude-account-history.js');
+      const previousHistory = vi.mocked(readClaudeAccountHistory).getMockImplementation()!;
+      cleanups.push(() => {
+        vi.mocked(readClaudeAccountHistory).mockImplementation(previousHistory);
+      });
+      const actualHistory = await vi.importActual<
+        typeof import('../../server/claude-account-history.js')
+      >('../../server/claude-account-history.js');
+      vi.mocked(readClaudeAccountHistory).mockImplementation(async (sessionId, cwd, config) =>
+        history.length
+          ? ({ info: { sessionId, cwd }, messages: [{ type: 'user', uuid: 'retained' }] } as never)
+          : actualHistory.readClaudeAccountHistory(sessionId, cwd, config),
+      );
+      retained.session.ordinaryRuntimeOwner!.close();
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(id)).toBeNull());
+      const recovered = await post('/fixture/runtime/continue', {
+        ...f.request,
+        sessionId: id,
+        clientMsgId: 'cold-before-first-input',
+        payload: { text: 'Continue the same checkout after first-input cancellation' },
+      });
+      expect(recovered.status, JSON.stringify(recovered.body)).toBe(202);
+      await vi.waitFor(() =>
+        expect(history).toEqual(['queued-development', 'cold-before-first-input']),
+      );
+      await vi.waitFor(() =>
+        expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'),
+      );
+      expect(services.requests[1].options).toMatchObject({ sessionId: id, cwd: original.cwd });
+      expect(services.requests[1].options.resume).toBeUndefined();
+      expect(chat.eventStore.getSession(id)).toMatchObject({
+        cwd: original.cwd,
+        accountBinding: original.accountBinding,
+      });
+      // Once a provider input ran, an absent transcript must never create a replacement history.
+      vi.mocked(readClaudeAccountHistory).mockImplementation(
+        actualHistory.readClaudeAccountHistory,
+      );
+      chat.registry.findBySessionId(id)!.session.ordinaryRuntimeOwner!.close();
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(id)).toBeNull());
+      const count = services.requests.length;
+      expect(
+        (
+          await post('/fixture/runtime/continue', {
+            ...f.request,
+            sessionId: id,
+            clientMsgId: 'missing-used-history',
+            payload: { text: 'Must not invent the missing provider history' },
+          })
+        ).status,
+      ).toBe(409);
+      expect(services.requests).toHaveLength(count);
+      return;
+    }
     chat.detachChat(retained.clientId);
     const reconnect = { isOpen: () => true, send: vi.fn() };
     expect(chat.reattachChat(retained.clientId, reconnect)).toBe(true);

@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1148-claude-stop-boundaries';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1149-claude-cold-preinput';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -135,7 +134,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-claude.test.ts':
     '0b91f49d0aaa73947e52a5b9b3fb6e66db2b53836a6d5b141fedc06643840948',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
-    'dbab2bc45e6dd7d13a5be2b129a627e84588acb013f231e6a57b49576e67e152',
+    'ab9daa1c66cec2165600f02e8eaa8c31abcc5bbc825a8ea5b80ee4e40335e7fe',
   '../__tests__/ordinary-sdk-turn-evidence.test.ts':
     '56bb1430bc6b7b931dbd61e9498b0d04701400becc6fb93db30d0e8c0dc6e808',
   '../ordinary-sdk-turn-evidence.ts':
@@ -2861,7 +2860,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '002a1650cf1d7d6e0468609e0aaf7bb3825a02f4c9000d5715e1396d83ec72ec',
   '../../packages/protocol/src/event-store.ts':
-    '2312e6de51991c5737009aa5b3c47564d5c6c92c6706a26ea8ef83eb6a644115',
+    '871c54be590e94f0b511f85327419db123871458fc65087311dcb3ff2f8edf34',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -3000,13 +2999,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-authority.ts':
     '742e972434b3ec24be9a32a89c9c5604aa26b865b6f66a8e7bf11b5fe26fe0b1',
   '../ordinary-local-vertex-owned-runtime.ts':
-    '46a1d07ff689c07f3a42fbaef03946f47116cb56e6e2052da19b802edf36c283',
+    '73c9e657e7a62a4779a2bff58966c0156045e2394d615e4261d57a5db617a93c',
   '../ordinary-local-vertex-native-history.ts':
-    '0d0115b66be74400f81ac410e62fda7a5fe461d9e2b30381dac3907acba62e01',
+    '728a074550a08eb80ce84414bba54ff64e0bc735a34f89dcd87fc9eb85fbacae',
   '../ordinary-local-vertex-custody.ts':
     '7f1ce782be5190881004a63aacf58d8df69acb0fe46d9bfe952c436cf6c2aed9',
   '../ordinary-local-vertex-entry.ts':
-    '23c2b782f45f828f30b8103f7a67d2e2a03d6078fb165e93f51f051fedd3f95e',
+    '973d29f06ed1b5a72f9310d036f4ca01112c9d0cf40c350dcf9f9d9036dc3734',
   '../ordinary-local-vertex-replay.ts':
     'd7ecdd21c89be167a1b627b024687df00ead20df98c349f51b114d98a8800a75',
   '../ordinary-local-vertex-sdk-query.ts':
@@ -3579,7 +3578,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '5fe0e25012c1d5324c32cf76f25397cc6a9a97321a3a14a5e1b6f6195ebfc5bd',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '5ca5e1bb1287104eb06879cc887b75ce544eb458f7e12385cb6d42ced8b8d61f',
+    'f2cf258a46b70f3a020178bea0983785dd2bce1a77fb81ed31aa1927d447453f',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':

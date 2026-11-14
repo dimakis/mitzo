@@ -204,7 +204,9 @@ export async function startOwnedLocalVertexCommand(
     started = true;
     const admission = new Promise<void>((resolve, reject) => {
       const task = startChat(transport, clientId, selected.payload.text, {
-        ...(selected.resume ? { resume: sessionId } : { initialSessionId: sessionId }),
+        ...(selected.resume && !selected.startWithoutHistory
+          ? { resume: sessionId }
+          : { initialSessionId: sessionId }),
         repositoryWorkspaceId: selected.workspace.id,
         cwd: selected.workspace.directory,
         accountId: selected.binding.accountId,

@@ -1,6 +1,9 @@
 import { expect, it, vi, afterEach } from 'vitest';
 import { getSessionInfo, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
-import { assertOrdinaryLocalVertexHistory } from '../ordinary-local-vertex-native-history.js';
+import {
+  assertOrdinaryLocalVertexHistory,
+  readOrdinaryLocalVertexHistory,
+} from '../ordinary-local-vertex-native-history.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(),
   getSessionMessages: vi.fn(),
@@ -25,4 +28,24 @@ it('requires original SDK UUID, exact project directory and retained messages wi
   vi.mocked(getSessionInfo).mockResolvedValue({ sessionId: 'original', cwd: '/task' } as never);
   vi.mocked(getSessionMessages).mockResolvedValue([]);
   await expect(assertOrdinaryLocalVertexHistory('original', '/task')).rejects.toThrow();
+});
+it('permits genuine absence only with proven pre-input cancellation, never a reader failure or mismatched history', async () => {
+  vi.mocked(getSessionInfo).mockResolvedValue(undefined);
+  vi.mocked(getSessionMessages).mockResolvedValue([]);
+  await expect(assertOrdinaryLocalVertexHistory('original', '/task')).rejects.toThrow();
+  await expect(readOrdinaryLocalVertexHistory('original', '/task', undefined, true)).resolves.toBe(
+    false,
+  );
+  vi.mocked(getSessionMessages).mockResolvedValue([{ uuid: 'input' }] as never);
+  await expect(
+    readOrdinaryLocalVertexHistory('original', '/task', undefined, true),
+  ).rejects.toThrow();
+  vi.mocked(getSessionInfo).mockResolvedValue({ sessionId: 'original', cwd: '/foreign' } as never);
+  await expect(
+    readOrdinaryLocalVertexHistory('original', '/task', undefined, true),
+  ).rejects.toThrow();
+  vi.mocked(getSessionInfo).mockRejectedValue(Error('Reader unavailable'));
+  await expect(
+    readOrdinaryLocalVertexHistory('original', '/task', undefined, true),
+  ).rejects.toThrow('Reader unavailable');
 });

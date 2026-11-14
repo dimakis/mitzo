@@ -146,8 +146,17 @@ it('cancels a stopped input before its final SDK yield and keeps successors paus
   });
   expect(f.store.getOrdinarySdkTurnEvents('session', 'first')).toEqual([]);
   expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+  expect(f.store.hasOnlyCancelledOrdinarySdkInputs('session')).toBe(true);
   await f.owner.resumeQueue();
   expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
+  expect(f.store.hasOnlyCancelledOrdinarySdkInputs('session')).toBe(false);
+  await f.owner.stop(randomUUID());
+  expect(f.owner.assertInputCurrent('second')).toBe(false);
+  expect(f.store.hasOnlyCancelledOrdinarySdkInputs('session')).toBe(true);
+  // A generation without a correlated cancellation receipt invalidates the proof.
+  const uncorrelated = f.store.beginExecution('session').token;
+  f.store.transitionExecution(uncorrelated, 'TERMINAL', 'stopped');
+  expect(f.store.hasOnlyCancelledOrdinarySdkInputs('session')).toBe(false);
   expect(f.query.abort).not.toHaveBeenCalled();
 });
 it('cancels Stop during settings preparation without pushing input or dispatching successors', async () => {

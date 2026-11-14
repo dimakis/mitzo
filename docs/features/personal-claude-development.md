@@ -59,6 +59,11 @@ yielded, the exact interrupt waits for its original echo. A result already being
 settled finishes through that owner and leaves successors paused. Starting the
 next command after a cancelled first input retains the selected account and SDK
 session identity without requiring a transcript that was never created.
+Cold Send uses that same identity after proven first-input cancellation as well:
+every execution generation must have a retained pre-dispatch cancellation and no
+accepted SDK input. The original account's history reader must report absence;
+reader errors, mismatched history and missing history after actual provider work
+still block recovery. Restoring the saved queue remains the existing operation.
 
 The public queue Continue route previously waited for a Codex runtime even for
 Claude. It now calls the retained Claude queue owner, checks the original operator
@@ -83,6 +88,10 @@ Evidence and limits:
   the existing component's signed-header behavior. Owner/evidence tests cover
   settings preparation, delayed input echoes and refusal to replay an interrupt
   using a different request ID.
+- The cancelled-first-input cold journey uses the real SDK filesystem reader in
+  an empty disposable personal-account directory, then verifies both retained
+  FIFO recovery and refusal when a later, used transcript is missing. Provider
+  inference remains canned.
 - The existing integration cases retain cold Send/history continuation, frozen
   settings, credential refusal and abrupt-runtime-loss uncertainty checks.
 - `claude-native-development.test.ts` runs the installed SDK's real Bash tool

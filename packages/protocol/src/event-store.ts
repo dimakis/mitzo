@@ -3988,6 +3988,27 @@ export class EventStore {
     return this.executionLedger.getExecutionAdmission(sessionId, clientMsgId);
   }
 
+  /** Positive pre-input cancellation evidence, not an inference from missing
+   * SDK history or missing acknowledgements. Every execution must be covered. */
+  hasOnlyCancelledOrdinarySdkInputs(sessionId: string): boolean {
+    const meta = this.getSession(sessionId);
+    if (meta?.executionPhase !== 'TERMINAL') return false;
+    const commands = this.db!.prepare(
+      'SELECT client_msg_id FROM execution_admissions WHERE session_id = ?',
+    ).all(sessionId) as Array<{ client_msg_id: string }>;
+    if (!commands.length || commands.length !== meta.executionGeneration) return false;
+    return commands.every(({ client_msg_id: id }) => {
+      const execution = this.getExecutionAdmission(sessionId, id)!;
+      const terminal = this.getExecutionTerminalReason(execution.token);
+      return (
+        (terminal === 'stopped' || terminal === 'abandoned') &&
+        this.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed' &&
+        this.getSendCommand(id)?.error === 'Cancelled before SDK dispatch' &&
+        this.getOrdinarySdkTurnEvents(sessionId, id).length === 0
+      );
+    });
+  }
+
   /** Start one durable provider dispatch owned by the exact active execution token. */
   beginProviderAttempt(
     executionToken: ExecutionToken,
