@@ -14,7 +14,14 @@ import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/workspace-chat.css';
 import '../../frontend/src/styles/home.css';
 
-const store = createMitzoStore({ transport: { fetch: (url, init) => fetch(url, init) } });
+const store = createMitzoStore({
+  transport: { fetch: (url, init) => fetch(url, init) },
+  wsConfig: {
+    buildUrl: () => {
+      throw Error('Unexpected fixture socket');
+    },
+  },
+});
 const api = new MitzoApiClient((url, init) => fetch(url, init));
 const proof = () => 'offline-surface-login';
 const messages = [
