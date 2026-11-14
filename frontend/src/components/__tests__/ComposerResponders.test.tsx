@@ -13,7 +13,7 @@ const members = [
   { id: 'a', name: 'Analyst' },
   { id: 'b', name: 'Reviewer' },
 ];
-function Surface({ maximum }: { maximum?: number }) {
+function Surface({ maximum, iconOnly }: { maximum?: number; iconOnly?: boolean }) {
   const [selectedIds, onChange] = useState<string[]>([]);
   return (
     <>
@@ -21,12 +21,30 @@ function Surface({ maximum }: { maximum?: number }) {
         running={false}
         onStop={() => {}}
         onSend={() => false}
-        responders={{ members, selectedIds, onChange, maximum }}
+        responders={{ members, selectedIds, onChange, maximum, iconOnly }}
       />
       <output aria-label="Selected IDs">{selectedIds.join(',')}</output>
     </>
   );
 }
+it('keeps the compact recipient control icon-only while naming selections in its picker and description', () => {
+  render(<Surface iconOnly />);
+  const trigger = screen.getByRole('button', { name: 'Choose who replies' });
+  expect(trigger.textContent).toBe('');
+  expect(trigger.querySelector('[data-icon="agents"]')).not.toBeNull();
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+  expect(trigger.textContent).toBe('');
+  expect(trigger.title).toBe('Replies: Reviewer');
+  expect(document.getElementById(trigger.getAttribute('aria-describedby')!)?.textContent).toBe(
+    'Replies: Reviewer',
+  );
+  fireEvent.click(trigger);
+  expect((screen.getByRole('checkbox', { name: 'Reviewer' }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+});
 it('uses stable IDs for one, several and all responders without a separate recipient form', () => {
   render(<Surface />);
   expect(screen.queryByRole('combobox', { name: 'Message recipient' })).toBeNull();

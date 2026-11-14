@@ -15,6 +15,7 @@ import {
   sharedReply,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 import { installDialogStub } from './dialog-stub';
+import type { UseVoiceReturn } from '../../hooks/useVoice';
 
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) => select({ connection: null }),
@@ -128,6 +129,24 @@ function fixture(
   const api = new MitzoApiClient(transport);
   const ordinarySend = vi.fn(() => false),
     ordinaryStop = vi.fn();
+  const voice: UseVoiceReturn = {
+    available: true,
+    recording: false,
+    transcribing: false,
+    partialTranscript: '',
+    micBlocked: false,
+    error: null,
+    startRecording: vi.fn(async () => {}),
+    stopRecording: vi.fn(async () => 'Retained voice input'),
+    cancelRecording: vi.fn(),
+    ttsAvailable: false,
+    speaking: false,
+    voices: [],
+    selectedVoice: 'offline',
+    speak: vi.fn(async () => {}),
+    stopSpeaking: vi.fn(),
+    setVoice: vi.fn(),
+  };
   const tree = (source = chat, layout = 'phone', ordinaryConfirmed = true) => (
     <MemoryRouter>
       <SharedConversationHost
@@ -156,6 +175,15 @@ function fixture(
               <div className="conversation-composer">
                 <ChatInput
                   sessionId="architect"
+                  voice={voice}
+                  tokenState={{
+                    agentContext: 5000,
+                    contextCeiling: 200000,
+                    sessionTotal: 9000,
+                    numTurns: 2,
+                    turnIndex: 1,
+                    numCompactions: 0,
+                  }}
                   savedChatDraft={ordinaryDraft}
                   composerCapabilities={{
                     commands: 'ordinary',
@@ -181,6 +209,7 @@ function fixture(
     transport,
     ordinarySend,
     ordinaryStop,
+    voice,
     delayStatus: () => {
       let release!: (value: Response) => void;
       delayedStatus = new Promise<Response>((resolve) => {
@@ -215,7 +244,8 @@ it('keeps the original named agent as the explicit initial recipient', async () 
   const f = fixture(false, undefined, 'Original architect');
   render(f.tree());
   const trigger = await screen.findByRole('button', { name: 'Choose who replies' });
-  await waitFor(() => expect(trigger.textContent).toContain('Original architect'));
+  await waitFor(() => expect(trigger.title).toContain('Original architect'));
+  expect(trigger.textContent).toBe('');
   fireEvent.click(trigger);
   expect(
     (screen.getByRole('checkbox', { name: 'Original architect' }) as HTMLInputElement).checked,
@@ -224,6 +254,39 @@ it('keeps the original named agent as the explicit initial recipient', async () 
     false,
   );
   expect(f.sends).toHaveLength(0);
+});
+
+it('retains the original context wheel, microphone and resource controls through sharing and responsive qualification', async () => {
+  const f = fixture(true, undefined, 'Architect');
+  const h = render(f.tree());
+  const input = screen.getByRole('textbox');
+  const wheel = screen.getByRole('button', { name: 'Token usage' });
+  const mic = screen.getByRole('button', { name: 'Record voice message' });
+  f.join();
+  await poll();
+  const recipients = await screen.findByRole('button', { name: 'Choose who replies' });
+  expect(recipients.textContent).toBe('');
+  fireEvent.click(recipients);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Architect' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+  const release = f.delayStatus();
+  h.rerender(f.tree({ ...chat, running: true }, 'desktop', false));
+  expect(screen.getByRole('textbox')).toBe(input);
+  expect(screen.getByRole('button', { name: 'Token usage' })).toBe(wheel);
+  expect(screen.getByRole('button', { name: 'Record voice message' })).toBe(mic);
+  fireEvent.click(wheel);
+  expect(screen.getByText('Current context')).toBeTruthy();
+  expect(within(wheel.closest('.token-wheel-control')!).getByText('Architect')).toBeTruthy();
+  expect(wheel.title).toContain('Architect');
+  fireEvent.keyDown(document, { key: 'Escape' });
+  fireEvent.click(mic);
+  expect(f.voice.startRecording).toHaveBeenCalledOnce();
+  expect(screen.getByRole('link', { name: 'Terminal' })).toBeTruthy();
+  release();
+  await poll();
+  expect(f.sends).toHaveLength(0);
+  expect(f.ordinarySend).not.toHaveBeenCalled();
 });
 
 it('shows participant names in the ordinary compact header when a reviewer joins', async () => {
@@ -309,7 +372,7 @@ it('keeps the actual ordinary transcript and composer mounted through joining an
   expect(container.querySelector('.chat-messages')).toBe(transcript);
   expect(screen.getByRole('textbox')).toBe(input);
   expect(input.value).toBe('Edited before the reviewer joins');
-  expect(recipients.textContent).toContain('Current agent');
+  expect(recipients.title).toContain('Current agent');
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
       false,
@@ -498,9 +561,7 @@ it('keeps explicit routing and retained send/Stop identity when the selected par
   await poll();
   h.rerender(f.tree({ ...chat, running: true }));
   expect(screen.getByRole('textbox')).toBe(input);
-  expect(screen.getByRole('button', { name: 'Choose who replies' }).textContent).toContain(
-    'Unavailable',
-  );
+  expect(screen.getByRole('button', { name: 'Choose who replies' }).title).toContain('Unavailable');
   fireEvent.click(screen.getByRole('button', { name: 'Stop original agent' }));
   expect(f.ordinaryStop).toHaveBeenCalledOnce();
   expect(f.stops).toHaveLength(0);

@@ -443,6 +443,7 @@ export function SharedConversationBody({
     savedChatDraft: draft ?? undefined,
     sessionId: draft?.id,
     textOnly: true,
+    tokenOwnerName: names[sourceConversationId] ?? 'Original agent',
     boundedFirstCommand: true,
     guardedConversation: false,
     recipientRecovery: !sending.pending && !presentation.error,
@@ -456,6 +457,7 @@ export function SharedConversationBody({
     responders: composerResponders
       ? {
           ...composerResponders,
+          iconOnly: true,
           members: composerResponders.members.map((member) => ({
             ...member,
             name: names[member.id] ?? member.name,
