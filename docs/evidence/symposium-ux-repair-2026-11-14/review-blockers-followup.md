@@ -154,3 +154,23 @@ and68,196,209 bytes for b939. Both exceed16MiB, so this approximation cannot
 establish a branch-specific object-size cause. It is not the original CI pack,
 an execution of repository preparation, or permission to replay the uncertain
 operation. The original CI cause remains unknown.
+
+At current published b6a, fullCI43612253407 native job132500421520 again fails
+the same subscription/API workflows at fixture:679, despite focused16/62 success.
+Original `hosted-b6a755c1f-native-ci-failure.log` SHA256
+11bfc054ccec875f24084a9ab035935de0c756d96b89c9d9b392589ffba10ed1;
+artifact14121555620 SHA256
+b3ed9dc423d6ccae42a151e3572b622d8f491b8236c2f82a1fdc4878baa8e94b.
+`native-ci-b6a755c1f/` retains immutable subscription/API JSON and the18-file index.
+Source qualification succeeds, then object capture fails after3951/4989ms.
+Original diagnostic IDs are81b73f9c-5c62-47bd-8480-3ebb03bf2bc1 and
+77dd9d6c-05a0-4e79-a5a7-11050fa83edb; stage repository_preparation, reason unknown,
+effectStatus unknown. Both service receipts remain not-reached/CAS0, diagnostic
+stage/check maps empty and private-helper boundaries absent. No new cause or
+successful recovery is inferred. The full aggregate still has other pending
+jobs, but cannot be green with this failure.
+
+The bounded origin update request9a6268aa-70c8-42dc-ae98-f903f6cb4292 and its
+exact original lookup both return AgentCommunication unavailable at
+authorization_or_delivery. Delivery is unconfirmed; no alternate send, unknown
+effect replay or new owner assignment was attempted.
