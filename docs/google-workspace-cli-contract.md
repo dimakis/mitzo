@@ -66,7 +66,7 @@ Owned Local Mac Codex chats expose the selectable `GoogleWorkspaceRead` tool
 when the controller Google management runtime is configured. It supports Drive
 search/metadata and text export, Docs/Sheets/Slides reads, and Calendar event
 listing. This uses the existing controller sign-in; it does not give native
-shell commands access to `~/.config/gws`, change OAuth consent, or attach a
+shell commands access to `~/.config/gws` (shell gws uses the broker below), change OAuth consent, or attach a
 provider to the chat's runtime. The existing management switch and reviewed
 provider-policy checks remain mandatory. Qualified Keychain and Knowledge tools use their own controller adapters; see
 `docs/features/codex-native-permission-protocol.md` for their native fences.
@@ -93,6 +93,55 @@ selection, cancellation, the current connection instance and reviewed provider
 identity/revision are rechecked before requesting content and before delivery.
 Errors omit raw OAuth, CLI and HTTP diagnostics. Large approved output uses the
 conversation's bounded `ReadToolOutput` storage and current-owner fences.
+
+## Shell gws broker (all local runtimes)
+
+Agent shells never receive Google credentials; `~/.config/gws` stays denied in
+every sandbox. Instead each local chat (native Codex, the Mitzo native
+executor, and Claude SDK routes) gets `MITZO_GWS_SOCKET`, a per-chat secret
+`MITZO_GWS_TOKEN`, and a client at `~/.local/state/mitzo-gws/bin/gws`
+(`server/gws-broker.ts`). Agents run that path with normal gws arguments, so
+creating Docs, editing Sheets, sending Gmail and changing Calendar events all
+work. Login shells reorder `PATH`, so plain `gws` still resolves to the host
+binary and fails inside the sandbox.
+
+The client sends one request line over the chat's Unix socket and keeps the
+connection open. Same-UID sandboxes can see every socket, so the broker refuses
+a request without that chat's token. Mitzo runs the host `gws` in an empty
+scratch directory:
+
+- **Auto** runs reads and changes without a prompt.
+- **Agent/Ask**: provable reads (`get`, `list`, `export`, `search`, `query`,
+  `batchGet`, `schema`, read helpers) ask as `GwsRead` with **Allow for
+  session** scoped to this chat. Everything else, including `--dry-run` and
+  `--help` forms, is a change and asks every time as `Bash`. Changes are
+  refused in Ask.
+- The broker re-parses every file argument with the same parser the client embeds (`gwsFileArguments`), and each one must be staged at exactly that position. The arguments that actually execute are classified. Staged positions are
+  validated against the parsed flags.
+- The shell skill ceiling (`Bash`) applies in every mode.
+- The owning runtime's own authorization fence (Codex host/workspace, Claude SDK account and adviser scope), runtime ownership, mode and the read grant are rechecked before execution
+  and before results are returned.
+- Closing the client, ending the chat or closing the broker cancels the host
+  command.
+- `--upload`, `--attach`/`-a` and `drive +upload` files are read by the client
+  inside the sandbox and staged. `--output`/`-o` (including `-oFILE`) is
+  returned and written by the client.
+- Other existing host paths, `--output-dir`, `gws auth` and `gws config` are
+  refused.
+
+The shell layer does not prompt again for one literal client command. That
+command is parsed with a strict shell-word parser and may sit inside one
+`sh|bash|zsh -c|-lc` envelope. In that case:
+
+- native Codex accepts its network-only escalation (Agent/Ask need it to reach
+  the socket);
+- the native executor and Claude Bash allow it, subject to the Bash skill
+  ceiling;
+- in Ask, only when it writes no local files.
+
+Substitutions, variables, pipes and chained commands get the ordinary shell
+approval. The broker closes when its chat finishes or is aborted. If its socket cannot be created, the
+chat starts without it.
 
 The regression in `owned-local-codex-native-execution.test.ts` starts the actual
 admitted chat route and production Connections bootstrap, executes synthetic

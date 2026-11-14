@@ -21,7 +21,10 @@ import {
   nativeGithubReadCommand,
 } from './codex-native-approval-scope.js';
 import { createLogger } from './logger.js';
-import { captureNativeDevelopmentGrant } from './native-development-grant.js';
+import {
+  captureNativeDevelopmentGrant,
+  isNativeGwsBrokerEscalation,
+} from './native-development-grant.js';
 const log = createLogger('codex-native-approvals');
 
 export interface PreparedWorkspaceGrantScope {
@@ -303,6 +306,11 @@ export function createCodexNativeApprovalHandler(options: {
         },
         Math.max(0, expiresAt - Date.now()),
       );
+      if (isNativeGwsBrokerEscalation(request)) {
+        assertCurrent();
+        assertGrantCurrent();
+        return grant({ decision: 'accept' });
+      }
       const developmentGrant = captureNativeDevelopmentGrant(session, request);
       if (developmentGrant) {
         assertConsentCurrent = developmentGrant;

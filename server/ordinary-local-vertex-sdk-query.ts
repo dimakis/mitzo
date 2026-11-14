@@ -8,6 +8,7 @@ import {
   type HookCallback,
 } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from './async-queue.js';
+import { gwsShellGuidance } from './gws-shell.js';
 import { TurnCallbacks, type TurnCallbackRunner } from './turn-callbacks.js';
 import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
@@ -252,7 +253,8 @@ export function createOrdinaryLocalVertexSdkQuery<
     const state: State = createSdkCallbackState();
     const { hooks, canUseTool } = sdkCallbackOptions(owners.options, owners.lifetime, () => state);
     const cliGuidance =
-      '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, inspect workspace instructions and available local CLI tools before concluding access is unavailable. For Google Workspace, check command -v gws and gws --help with Bash; a missing Sheets MCP tool does not establish that the local CLI is unavailable. CLI presence does not establish authentication: try only the authorized service read and report its actual result. Do not run gws auth login or search for credentials to repair access.\n';
+      '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, inspect workspace instructions and available local CLI tools before concluding access is unavailable. A missing Sheets MCP tool does not establish that Google Workspace is unavailable.\n' +
+      `${gwsShellGuidance()}\n`;
     const systemPrompt = owners.options.systemPrompt;
     const options: Options = {
       ...owners.options,

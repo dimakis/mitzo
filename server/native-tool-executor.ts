@@ -8,6 +8,8 @@ import {
   readRepositoryWorkspaceForConversation,
 } from './repository-workspace-runtime.js';
 import { executeSandboxedCommand } from './sandboxed-command.js';
+import type { GwsBroker } from './gws-broker.js';
+import { gwsShimInvocation, gwsShimWritesFiles } from './gws-shell.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
 import {
   executeTrustedGitCommit,
@@ -172,6 +174,8 @@ export interface NativeToolOptions {
   env: Record<string, string>;
   /** Server-owned, explicitly enabled host route. Requires the network-aware Bash grant. */
   networkAccess?: 'approved-command' | 'loopback';
+  /** This chat's gws broker; the shell may reach only its socket. */
+  gwsBroker?: Pick<GwsBroker, 'socketPath' | 'shimPath' | 'env'>;
   forcePrompt?: boolean;
   timeoutMs?: number;
   maxOutputBytes?: number;
@@ -254,9 +258,16 @@ export function createNativeToolExecutor(
       assertCurrent();
       const session = registry.get(clientId);
       if (!session?.cwd) return refused('Session workspace is unavailable');
+      // A literal gws client command that writes no local files only reaches
+      // the broker, which refuses Google changes in Ask and asks about reads.
+      const rawCommand = (block.input as { command?: unknown } | undefined)?.command;
+      const gwsArgs =
+        options.gwsBroker && block.name === 'Bash' ? gwsShimInvocation(rawCommand) : undefined;
+      const askGwsShim = !!gwsArgs && !gwsShimWritesFiles(gwsArgs);
       if (
         effectivePermissionMode(session) === 'ask' &&
-        !['Read', 'AskUserQuestion', 'GitHubRead'].includes(block.name)
+        !['Read', 'AskUserQuestion', 'GitHubRead'].includes(block.name) &&
+        !askGwsShim
       )
         return refused('Ask mode only permits read-only native tools');
       if (!Object.hasOwn(schemas, block.name)) return refused('Native tool is unavailable');
@@ -423,27 +434,35 @@ export function createNativeToolExecutor(
           ...(networkAccess ? { networkAccess } : {}),
         };
         const approvalMode = effectivePermissionMode(session);
-        const permission = await canUseTool('Bash', input, {
-          signal,
-          toolUseID: block.id,
-          forcePrompt: options.forcePrompt || parsed.data.require_approval === true,
-          ...(!options.forcePrompt && !parsed.data.require_approval ? taskConsent : {}),
-          ...(networkAccess === 'approved-command'
-            ? {
-                title: 'Run command with network access',
-                description:
-                  'Runs on the local host in this conversation’s Git workspace with network access, including local test servers. Connection credentials remain private to Mitzo.',
-                sessionGrantKey: 'host-network-bash-v1',
-                sessionGrantDescription:
-                  'Bash commands with network access and local test servers in this conversation’s Git workspace.',
-              }
-            : {}),
-        });
+        // The gws broker asks about the Google action itself; a shell prompt
+        // for the client command would duplicate that consent.
+        const gwsShim = !!gwsArgs && !networkAccess && input.command === rawCommand;
+        const permission = gwsShim
+          ? ({ behavior: 'allow', updatedInput: input } as const)
+          : await canUseTool('Bash', input, {
+              signal,
+              toolUseID: block.id,
+              forcePrompt: options.forcePrompt || parsed.data.require_approval === true,
+              ...(!options.forcePrompt && !parsed.data.require_approval ? taskConsent : {}),
+              ...(networkAccess === 'approved-command'
+                ? {
+                    title: 'Run command with network access',
+                    description:
+                      'Runs on the local host in this conversation’s Git workspace with network access, including local test servers. Connection credentials remain private to Mitzo.',
+                    sessionGrantKey: 'host-network-bash-v1',
+                    sessionGrantDescription:
+                      'Bash commands with network access and local test servers in this conversation’s Git workspace.',
+                  }
+                : {}),
+            });
         signal.throwIfAborted();
         if (permission.behavior !== 'allow') return refused(permissionRefusalContent(permission));
         if (!isDeepStrictEqual(permission.updatedInput, input))
           return refused('Tool input changed during approval; retry the tool');
-        if (registry.get(clientId) !== session || effectivePermissionMode(session) === 'ask')
+        if (
+          registry.get(clientId) !== session ||
+          (effectivePermissionMode(session) === 'ask' && !(gwsShim && askGwsShim))
+        )
           return refused('Session permissions changed; retry the tool');
         // Resolve login roots anew; an unreadable account configuration fails closed.
         const deniedRoots = privateCodexRoots(loadAccountProfiles().privateCodexRoots());
@@ -483,7 +502,8 @@ export function createNativeToolExecutor(
           cwd: await realpath(taskCwd ?? session.cwd),
           writableRoots,
           deniedRoots: await Promise.all(deniedRoots.map(canonicalPath)),
-          env: options.env,
+          env: options.gwsBroker ? { ...options.env, ...options.gwsBroker.env() } : options.env,
+          ...(options.gwsBroker ? { unixSockets: [options.gwsBroker.socketPath] } : {}),
           networkAccess,
           signal,
           timeoutMs: options.timeoutMs,
@@ -493,7 +513,7 @@ export function createNativeToolExecutor(
             assertCurrent();
             if (
               registry.get(clientId) !== session ||
-              effectivePermissionMode(session) === 'ask' ||
+              (effectivePermissionMode(session) === 'ask' && !(gwsShim && askGwsShim)) ||
               (approvalMode === 'auto' && effectivePermissionMode(session) !== 'auto') ||
               checkSkillPolicy(registry, clientId, 'Bash') === 'deny'
             )

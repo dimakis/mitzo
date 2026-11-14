@@ -348,6 +348,8 @@ export interface CodexConversationOptions {
   /** Initial trusted selected target policy. Its named profiles are installed
    * once; per-command workspace roots remain owned by the admission authority. */
   nativeExecution?: CodexNativeExecutionPolicy;
+  /** Extra variables for native shell commands (for example the gws broker socket). */
+  nativeShellEnvironment?: Readonly<Record<string, string>>;
   resolveNativeExecutionPolicy?: (input: {
     commandId: string;
     signal: AbortSignal;
@@ -2292,6 +2294,9 @@ export class CodexConversation {
         ),
         ...(this.opts.nativeExecution
           ? codexNativePermissionProfiles(this.opts.nativeExecution)
+          : {}),
+        ...(this.opts.nativeExecution && this.opts.nativeShellEnvironment
+          ? { 'shell_environment_policy.set': { ...this.opts.nativeShellEnvironment } }
           : {}),
       };
       return {
