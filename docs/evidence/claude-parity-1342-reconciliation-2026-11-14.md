@@ -294,3 +294,17 @@ The service candidate is still unaccepted. Any further service workflow changes,
 its actual accepted commit, hosted CI, exact-head final review and the released
 merge turn remain necessary before delivery. No publication, merge, live service
 write or deployment is claimed for this local preview.
+
+Service candidate `08cb792c9953c0e0f20e6c5d5bff456758854f63` adds its
+owner's scoped CI trigger change: the full workflow runs for PR open,
+synchronization and reopen events, without a duplicate main-push run. The exact
+two-line workflow removal and its policy regression/documentation are preserved
+without additional CI changes. All **191 CI policy checks across seven suites**
+pass locally with one worker and a 1 GiB heap; all incoming manifest keys remain
+present and source fingerprints pass at `v1.0.1168-claude-parity-pr-ci`.
+Runtime behavior remains unchanged from the preceding composition. The service
+owner retains hosted-event recovery and landing custody. After acceptance,
+compare the accepted commit/tree against the tested combined candidate; PR test
+artifacts retain their original provenance and no post-merge full CI result is
+claimed. Accepted service composition and fresh final PR CI/review are still
+pending.

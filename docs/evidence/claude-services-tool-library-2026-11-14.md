@@ -186,3 +186,33 @@ Centaur approval are required for the published composition. The coordinator
 has reserved the next landing turn; actual merge release remains gated. No live
 model, external-service write, physical sandbox qualification or deployment is
 claimed.
+
+## Avoid a duplicate full CI run after merge
+
+At Dimitri's request, the final scope also removes the main-push trigger from
+`.github/workflows/ci.yml`. Parsed workflow comparison against `8b45b9cb` proves
+that every PR trigger, job, permission, environment and concurrency setting is
+unchanged. No main-only test/build step was found. Main formerly forced all
+optional owners; PR selection continues to run every affected owner, with full
+selection for unknown paths or incomplete diffs. Core, compiler/source validation,
+full unit discovery, required aggregators and exact-head Centaur remain required.
+
+Inspected repository artifact consumers use immutable IDs from the same CI run.
+Recovery and landing reconciliation already react to PR CI events through their
+accepted default-branch workflows. The separate native-helper workflows retain
+their existing triggers. No new scheduler, artifact adoption or recovery route
+is introduced. External artifact consumers were not independently inventoried.
+
+The intentional tradeoff is the absence of a second full suite on main, including
+optional suites legitimately unselected for a PR. Accepted-commit verification
+must compare GitHub's merged commit/tree with the tested combined candidate;
+PR artifacts retain their original provenance. No post-merge full-suite result
+will be claimed. Existing strict up-to-date branch protection and exact-head
+guarded merge remain necessary.
+
+All **191 focused CI-policy tests in seven files** pass, covering selection,
+required gates, cancellation, trusted recovery, compile preflight, build output
+and landing reconciliation. Both focused reviewers found no blockers in this
+delta. The runtime/source revision advances to
+`v1.0.1167-claude-services-pr-ci`; fresh hosted CI and final Centaur review of the
+published head remain mandatory.
