@@ -709,7 +709,7 @@ it('retains the canonical edit token in an overview and rechecks authority inste
 });
 it('reads current lifecycle counts without materializing historical records, while full remains explicit', async () => {
   const f = fixture();
-  for (const operation of ['archive', 'unarchive'] as const)
+  for (const operation of ['archive', 'unarchive', 'pause'] as const)
     f.work.executeLifecycle(
       {
         itemId: 'studio',
@@ -735,8 +735,9 @@ it('reads current lifecycle counts without materializing historical records, whi
     revision: full.revision,
     effectiveDisposition: 'active',
   });
-  expect(value.counts.lifecycleHistory).toBe(2);
+  expect(value.counts.lifecycleHistory).toBe(3);
   expect(value.truncatedFields).toContain('lifecycle.history');
+  expect(value.truncatedFields).toContain('lifecycle.pause.controls');
   expect(value.lifecycle.history).toBeUndefined();
   historyRead.mockRestore();
   const detailed = await f.run('TelosManageItem', {

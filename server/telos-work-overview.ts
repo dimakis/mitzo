@@ -10,6 +10,7 @@ export function telosWorkOverview(value: {
 }) {
   const { item, lifecycle, workContext: context } = value;
   const truncatedFields: string[] = ['workContext.assignmentHistory', 'lifecycle.history'];
+  if (lifecycle.pause.controls.length) truncatedFields.push('lifecycle.pause.controls');
   const assignmentHistory = context.assignmentHistory;
   const text = (field: string, source: string, limit: number) => {
     if (source.length <= limit) return source;
