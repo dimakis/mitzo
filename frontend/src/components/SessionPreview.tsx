@@ -55,9 +55,12 @@ export function SessionPreview({
 
   useEffect(() => {
     const controller = new AbortController();
-    void apiFetch(`/api/sessions/${encodeURIComponent(session.id)}/messages`, {
-      signal: controller.signal,
-    })
+    void apiFetch(
+      `/api/sessions/${encodeURIComponent(session.matchedSessionId ?? session.id)}/messages`,
+      {
+        signal: controller.signal,
+      },
+    )
       .then(async (response) => {
         if (!response.ok) throw new Error('Preview unavailable');
         const history: FinishedMessage[] = await response.json();
@@ -84,7 +87,7 @@ export function SessionPreview({
         if (!controller.signal.aborted) setError(true);
       });
     return () => controller.abort();
-  }, [session.id]);
+  }, [session.id, session.matchedSessionId]);
 
   return createPortal(
     <dialog

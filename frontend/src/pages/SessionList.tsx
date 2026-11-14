@@ -606,7 +606,7 @@ export function SessionList() {
               session={selectedPreview}
               activity={displayById.get(selectedPreview.id)}
               connected={connected}
-              onOpen={() => openSession(selectedPreview.id)}
+              onOpen={() => openSession(selectedPreview.matchedSessionId ?? selectedPreview.id)}
               onActions={showActions}
             />
           ) : undefined
@@ -840,7 +840,7 @@ export function SessionList() {
         state={menu}
         onClose={closeMenu}
         onOpen={() => {
-          if (menu) openSession(menu.session.id);
+          if (menu) openSession(menu.session.matchedSessionId ?? menu.session.id);
           closeMenu();
         }}
         onRename={() => {
