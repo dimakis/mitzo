@@ -22,7 +22,10 @@ existing design skip, including the real older Claude application journeys,
 SDK evidence negatives, command ownership/explicit retry, source setup/navigation,
 shared composition, queue status and design rules. Counts overlap the focused set
 and are not additive. Targeted lint passes. The original attributed b6a review is
-retained as `centaur-b6a-terminal-review.json` with its exact commit and author.
+retained as `centaur-b6a-terminal-review.json.txt` with its exact commit and author.
+The raw-text extension preserves its original bytes while allowing the format
+gate to check editable JSON normally. The3a272 core failure identified this one
+unformatted raw artifact; renaming it is an evidence-only correction.
 
 Centaur7492 at published b6a is terminal **fix**, attributed review5905799501:
 new CEN-E14D2A07CA06 imported-history blocker, both prior assignment/rollover

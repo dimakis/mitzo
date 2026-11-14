@@ -1,0 +1,19 @@
+{
+  "sourceHead": "3a2724880885f1cac77a422e7bd4c0d9c9a446de",
+  "mergeBuild": "bf61adf846b306c83b9bb391bc0015a8b245e32e",
+  "runId": 43619413917,
+  "applicationJobId": 132521461238,
+  "result": "19 passed: 14 authenticated application, 5 client/portal",
+  "artifactId": 14123173596,
+  "artifactBytes": 6939,
+  "artifactSha256": "2f2d737925a3f124f695cda8e8a7cb11dddc4c9f3e25dfc96811dd9a95ec5761",
+  "jobLogSha256": "51c7da78464f6b29ada2fa707a22811917a497d2980858b822124b897eed9e6f",
+  "files": [
+    {
+      "path": "symposium-application.log",
+      "bytes": 206208,
+      "sha256": "6abaffb90c8845317ab219ab4bd6109ccbfddd6d24770c22695d11e7032d38da"
+    }
+  ],
+  "qualification": "Application behavior only. Rendering/full CI/exact-head final review pending."
+}
