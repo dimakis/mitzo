@@ -1852,10 +1852,15 @@ it.each(['checkout', 'SDK setup'] as const)(
       release = resolve;
     });
     let checkoutSignal: AbortSignal | undefined;
+    let reachedCheckpoint!: () => void;
+    const checkpoint = new Promise<void>((resolve) => {
+      reachedCheckpoint = resolve;
+    });
     if (stage === 'checkout') {
       const original = f.workspace.claimReservedHostTask.bind(f.workspace);
       vi.spyOn(f.workspace, 'claimReservedHostTask').mockImplementation(async (input) => {
         checkoutSignal = input.signal;
+        reachedCheckpoint();
         await deferred;
         return original(input);
       });
@@ -1868,6 +1873,7 @@ it.each(['checkout', 'SDK setup'] as const)(
         async function (this: InstanceType<typeof OrdinaryLocalVertexSdkAuthority>, signal) {
           if (++calls === 2) {
             checkoutSignal = signal;
+            reachedCheckpoint();
             await deferred;
           }
           return original.call(this, signal);
@@ -1892,7 +1898,17 @@ it.each(['checkout', 'SDK setup'] as const)(
       () => 'accepted',
       () => 'refused',
     );
-    await vi.waitFor(() => expect(checkoutSignal).toBeDefined());
+    cleanups.push(async () => {
+      controller.abort();
+      release();
+      await observed;
+    });
+    await Promise.race([
+      checkpoint,
+      pending.then(() => {
+        throw Error('Entry preparation completed before the deferred checkpoint');
+      }),
+    ]);
     controller.abort(new Error('Entry preparation deadline'));
     const aborted = checkoutSignal!.aborted;
     release();

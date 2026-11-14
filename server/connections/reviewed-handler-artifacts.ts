@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1152-claude-stop-telos-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1153-claude-entry-checkpoint';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3595,7 +3594,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '3b6557da14d0d4932e5b3ec6fa0bec4ab5d8874467865540ed09bb5034e15fe0',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '36a3e576a4ccabfd6d85a60c5929fe916bd552ea5840c96f27ea747be90ab302',
+    '9a82326eb191881a0fe08d8189391c220eb83c61ba83f8a540b506c4caa44ce8',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
