@@ -1,0 +1,2081 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+ [31m×[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from null[32m 160[2mms[22m[39m
+[31m   → expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+[31m   → expected '' to be 'Later edit before authenticated assig…' // Object.is equality[39m
+[31m   → expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+[31m   → expected [ +0, +0 ] to deeply equal [ 2, 9 ][39m
+[31m   → Unable to find an accessible element with the role "region" and name "Up next"
+
+Here are the accessible roles:
+
+  region:
+
+  Name "Conversation status":
+  [36m<div[31m
+    [33maria-label[31m=[32m"Conversation status"[31m
+    [33mclass[31m=[32m"composer-status"[31m
+    [33mdata-tone[31m=[32m"normal"[31m
+    [33mrole[31m=[32m"region"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  status:
+
+  Name "Reconnecting":
+  [36m<span[31m
+    [33mclass[31m=[32m"composer-status-summary"[31m
+    [33mrole[31m=[32m"status"[31m
+    [33mtitle[31m=[32m"Reconnecting"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  button:
+
+  Name "Conversation status details":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"dialog"[31m
+    [33maria-label[31m=[32m"Conversation status details"[31m
+    [33mclass[31m=[32m"composer-status-details"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "More composer actions":
+  [36m<button[31m
+    [33maria-controls[31m=[32m"_r_3_"[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"More composer actions"[31m
+    [33mclass[31m=[32m"chat-input-btn composer-tools-toggle"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Commands":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Commands"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--skills"[31m
+    [33mtitle[31m=[32m"Commands"[31m
+  [36m/>[31m
+
+  Name "Attach images or PDF":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Attach images or PDF"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--attach"[31m
+    [33mtitle[31m=[32m"Attach images or PDF"[31m
+  [36m/>[31m
+
+  Name "Schedule prompt":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Schedule prompt"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mtitle[31m=[32m"Schedule prompt"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Expand input":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Expand input"[31m
+    [33maria-pressed[31m=[32m"false"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Open session tray":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Open session tray"[31m
+    [33mclass[31m=[32m"chat-input-btn composer-session-trigger"[31m
+    [33mtitle[31m=[32m"Session resources"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Symposium collaboration":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Symposium collaboration"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mdisabled[31m=[32m""[31m
+    [33mtitle[31m=[32m"Start a supported chat to use Symposium collaboration"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Stop generation":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Stop generation"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--stop"[31m
+    [33mtitle[31m=[32m"Stop generation"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Message Mitzo":
+  [36m<textarea[31m
+    [33maria-label[31m=[32m"Message Mitzo"[31m
+    [33mclass[31m=[32m"chat-input-field"[31m
+    [33mplaceholder[31m=[32m"Message Mitzo..."[31m
+    [33mrows[31m=[32m"1"[31m
+    [33mstyle[31m=[32m"height: 0px;"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  link:
+
+  Name "Terminal":
+  [36m<a[31m
+    [33maria-label[31m=[32m"Terminal"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mdata-discover[31m=[32m"true"[31m
+    [33mhref[31m=[32m"/terminal?sessionId=assigned-chat&returnTo=%2Fchat%2Fassigned-chat"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div>[31m
+    [36m<div[31m
+      [33mclass[31m=[32m"chat-input-mount"[31m
+    [36m>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"chat-input-host"[31m
+      [36m/>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"chat-input-host"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"chat-input chat-input--compact"[31m
+        [36m>[31m
+          [36m<div[31m
+            [33maria-label[31m=[32m"Conversation status"[31m
+            [33mclass[31m=[32m"composer-status"[31m
+            [33mdata-tone[31m=[32m"normal"[31m
+            [33mrole[31m=[32m"region"[31m
+          [36m>[31m
+            [36m<span[31m
+              [33maria-hidden[31m=[32m"true"[31m
+              [33mclass[31m=[32m"composer-status-dot"[31m
+            [36m/>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"composer-status-summary"[31m
+              [33mrole[31m=[32m"status"[31m
+              [33mtitle[31m=[32m"Reconnecting"[31m
+            [36m>[31m
+              [0mReconnecting[0m
+            [36m</span>[31m
+            [36m<button[31m
+              [33maria-expanded[31m=[32m"false"[31m
+              [33maria-haspopup[31m=[32m"dialog"[31m
+              [33maria-label[31m=[32m"Conversation status details"[31m
+              [33mclass[31m=[32m"composer-status-details"[31m
+              [33mtype[31m=[32m"button"[31m
+            [36m>[31m
+              [36m<svg[31m
+                [33maria-hidden[31m=[32m"true"[31m
+                [33mclass[31m=[32m"ui-icon"[31m
+                [33mdata-icon[31m=[32m"info"[31m
+                [33mfill[31m=[32m"none"[31m
+                [33mfocusable[31m=[32m"false"[31m
+                [33mheight[31m=[32m"16"[31m
+                [33mstroke[31m=[32m"currentColor"[31m
+                [33mstroke-linecap[31m=[32m"round"[31m
+                [33mstroke-linejoin[31m=[32m"round"[31m
+                [33mstroke-width[31m=[32m"1.7"[31m
+                [33mviewBox[31m=[32m"0 0 24 24"[31m
+                [33mwidth[31m=[32m"16"[31m
+              [36m>[31m
+                [36m<path[31m
+                  [33md[31m=[32m"M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 11v6m0-10h.01"[31m
+                [36m/>[31m
+              [36m</svg>[31m
+            [36m</button>[31m
+          [36m</div>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"chat-input-row"[31m
+          [36m>[31m
+            [36m<textarea[31m
+              [33maria-label[31m=[32m"Message Mitzo"[31m
+              [33mclass[31m=[32m"chat-input-field"[31m
+              [33mplaceholder[31m=[32m"Message Mitzo..."[31m
+              [33mrows[31m=[32m"1"[31m
+              [33mstyle[31m=[32m"height: 0px;"[31m
+            [36m/>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"composer-toolbar"[31m
+            [36m>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"chat-input-command-strip"[31m
+              [36m>[31m
+                [36m<div[31m
+                  [33mclass[31m=[32m"composer-tools-anchor"[31m
+                [36m>[31m
+                  [36m<button[31m
+                    [33maria-controls[31m=[32m"_r_3_"[31m
+                    [33maria-expanded[31m=[32m"false"[31m
+                    [33maria-label[31m=[32m"More composer actions"[31m
+                    [33mclass[31m=[32m"chat-input-btn composer-tools-toggle"[31m
+                    [33mtype[31m=[32m"button"[31m
+                  [36m>[31m
+                    [36m<svg[31m
+                      [33maria-hidden[31m=[32m"true"[31m
+                      [33mclass[31m=[32m"ui-icon"[31m
+                      [33mdata-icon[31m=[32m"more"[31m
+                      [33mfill[31m=[32m"none"[31m
+                      [33mfocusable[31m=[32m"false"[31m
+                      [33mheight[31m=[32m"20"[31m
+                      [33mstroke[31m=[32m"currentColor"[31m
+                      [33mstroke-linecap[31m=[32m"round"[31m
+                      [33mstroke-linejoin[31m=[32m"round"[31m
+                      [33mstroke-width[31m=[32m"1.7"[31m
+                      [33mviewBox[31m=[32m"0 0 24 24"[31m
+                      [33mwidth[31m=[32m"20"[31m
+                    [36m>[31m
+                      [36m<path[31m
+                        [33md[31m=[32m"M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z"[31m
+                      [36m/>[31m
+                    [36m</svg>[31m
+                  [36m</button>[31m
+                  [36m<div[31m
+                    [33mclass[31m=[32m"composer-tools"[31m
+                    [33mdata-expanded[31m=[32m"false"[31m
+                    [33mid[31m=[32m"_r_3_"[31m
+                  [36m>[31m
+                    [36m<button[31m
+                      [33maria-expanded[31m=[32m"false"[31m
+                      [33maria-label[31m=[32m"Commands"[31m
+                      [33mclass[31m=[32m"chat-input-btn chat-input-btn--skills"[31m
+                      [33mtitle[31m=[32m"Commands"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"command"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"16"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"16"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"chat-input-command-label"[31m
+                      [36m>[31m
+                        [0mCommands[0m
+                      [36m</span>[31m
+                    [36m</button>[31m
+                    [36m<button[31m
+                      [33maria-label[31m=[32m"Attach images or PDF"[31m
+                      [33mclass[31m=[32m"chat-input-btn chat-input-btn--attach"[31m
+                      [33mtitle[31m=[32m"Attach images or PDF"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"plus"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"16"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"16"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"M12 5v14M5 12h14"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"composer-tools-label"[31m
+                      [36m>[31m
+                        [0mAttach images or PDF[0m
+                      [36m</span>[31m
+                    [36m</button>[31m
+                    [36m<button[31m
+                      [33maria-label[31m=[32m"Schedule prompt"[31m
+                      [33mclass[31m=[32m"chat-input-btn"[31m
+                      [33mtitle[31m=[32m"Schedule prompt"[31m
+                      [33mtype[31m=[32m"button"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"clock"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"20"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"20"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20m0 5v5l3 2"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"composer-tools-label"[31m
+                      [36m>[31m
+                        [0mSchedule prompt[0m
+                      [36m</span>[31m
+                    [36m</button>[31m
+                    [36m<a[31m
+                      [33maria-label[31m=[32m"Terminal"[31m
+                      [33mclass[31m=[32m"chat-input-btn"[31m
+                      [33mdata-discover[31m=[32m"true"[31m
+                      [33mhref[31m=[32m"/terminal?sessionId=assigned-chat&returnTo=%2Fchat%2Fassigned-chat"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"terminal"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"20"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"20"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"M3 4h18v16H3Zm4 4 4 4-4 4m6 0h4"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"composer-tools-label"[31m
+                      [36m>[31m
+                        [0mTerminal[0m
+                      [36m</span>[31m
+                    [36m</a>[31m
+                    [36m<button[31m
+                      [33maria-label[31m=[32m"Expand input"[31m
+                      [33maria-pressed[31m=[32m"false"[31m
+                      [33mclass[31m=[32m"chat-input-btn"[31m
+                      [33mtype[31m=[32m"button"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"fullscreen"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"20"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"20"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"M9 3H3v6m12-6h6v6M3 15v6h6m6 0h6v-6"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"composer-tools-label"[31m
+                      [36m>[31m
+                        [0mExpand input[0m
+                      [36m</span>[31m
+                    [36m</button>[31m
+                  [36m</div>[31m
+                [36m</div>[31m
+                [36m<input[31m
+                  [33maccept[31m=[32m"image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf"[31m
+                  [33mclass[31m=[32m"sr-only"[31m
+                  [33mmultiple[31m=[32m""[31m
+                  [33mtype[31m=[32m"file"[31m
+                [36m/>[31m
+                [36m<button[31m
+                  [33maria-expanded[31m=[32m"false"[31m
+                  [33maria-label[31m=[32m"Open session tray"[31m
+                  [33mclass[31m=[32m"chat-input-btn composer-session-trigger"[31m
+                  [33mtitle[31m=[32m"Session resources"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"files"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M3 6h7l2 3h9v11H3Z"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</button>[31m
+                [36m<button[31m
+                  [33maria-label[31m=[32m"Symposium collaboration"[31m
+                  [33mclass[31m=[32m"chat-input-btn"[31m
+                  [33mdisabled[31m=[32m""[31m
+                  [33mtitle[31m=[32m"Start a supported chat to use Symposium collaboration"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"agents"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M8 4h8v6H8ZM4 16h6v5H4Zm10 0h6v5h-6ZM12 10v3M7 16v-3h10v3"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</button>[31m
+              [36m</div>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"composer-actions"[31m
+              [36m>[31m
+                [36m<button[31m
+                  [33maria-label[31m=[32m"Stop generation"[31m
+                  [33mclass[31m=[32m"chat-input-btn chat-input-btn--stop"[31m
+                  [33mtitle[31m=[32m"Stop generation"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"stop"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M7 7h10v10H7Z"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</button>[31m
+              [36m</div>[31m
+            [36m</div>[31m
+          [36m</div>[31m
+        [36m</div>[31m
+      [36m</div>[31m
+    [36m</div>[31m
+  [36m</div>[31m
+[36m</body>[31m[39m
+ [31m×[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from original-chat[32m 86[2mms[22m[39m
+[31m   → expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+[31m   → expected '' to be 'Later edit before authenticated assig…' // Object.is equality[39m
+[31m   → expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+[31m   → expected [ +0, +0 ] to deeply equal [ 2, 9 ][39m
+[31m   → Unable to find an accessible element with the role "region" and name "Up next"
+
+Here are the accessible roles:
+
+  region:
+
+  Name "Conversation status":
+  [36m<div[31m
+    [33maria-label[31m=[32m"Conversation status"[31m
+    [33mclass[31m=[32m"composer-status"[31m
+    [33mdata-tone[31m=[32m"normal"[31m
+    [33mrole[31m=[32m"region"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  status:
+
+  Name "Reconnecting":
+  [36m<span[31m
+    [33mclass[31m=[32m"composer-status-summary"[31m
+    [33mrole[31m=[32m"status"[31m
+    [33mtitle[31m=[32m"Reconnecting"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  button:
+
+  Name "Conversation status details":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"dialog"[31m
+    [33maria-label[31m=[32m"Conversation status details"[31m
+    [33mclass[31m=[32m"composer-status-details"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "More composer actions":
+  [36m<button[31m
+    [33maria-controls[31m=[32m"_r_8_"[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"More composer actions"[31m
+    [33mclass[31m=[32m"chat-input-btn composer-tools-toggle"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Commands":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Commands"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--skills"[31m
+    [33mtitle[31m=[32m"Commands"[31m
+  [36m/>[31m
+
+  Name "Attach images or PDF":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Attach images or PDF"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--attach"[31m
+    [33mtitle[31m=[32m"Attach images or PDF"[31m
+  [36m/>[31m
+
+  Name "Schedule prompt":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Schedule prompt"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mtitle[31m=[32m"Schedule prompt"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Expand input":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Expand input"[31m
+    [33maria-pressed[31m=[32m"false"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Open session tray":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Open session tray"[31m
+    [33mclass[31m=[32m"chat-input-btn composer-session-trigger"[31m
+    [33mtitle[31m=[32m"Session resources"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Symposium collaboration":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Symposium collaboration"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mdisabled[31m=[32m""[31m
+    [33mtitle[31m=[32m"Start a supported chat to use Symposium collaboration"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Stop generation":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Stop generation"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--stop"[31m
+    [33mtitle[31m=[32m"Stop generation"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Message Mitzo":
+  [36m<textarea[31m
+    [33maria-label[31m=[32m"Message Mitzo"[31m
+    [33mclass[31m=[32m"chat-input-field"[31m
+    [33mplaceholder[31m=[32m"Message Mitzo..."[31m
+    [33mrows[31m=[32m"1"[31m
+    [33mstyle[31m=[32m"height: 0px;"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  link:
+
+  Name "Terminal":
+  [36m<a[31m
+    [33maria-label[31m=[32m"Terminal"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mdata-discover[31m=[32m"true"[31m
+    [33mhref[31m=[32m"/terminal?sessionId=assigned-chat&returnTo=%2Fchat%2Fassigned-chat"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div>[31m
+    [36m<div[31m
+      [33mclass[31m=[32m"chat-input-mount"[31m
+    [36m>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"chat-input-host"[31m
+      [36m/>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"chat-input-host"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"chat-input chat-input--compact"[31m
+        [36m>[31m
+          [36m<div[31m
+            [33maria-label[31m=[32m"Conversation status"[31m
+            [33mclass[31m=[32m"composer-status"[31m
+            [33mdata-tone[31m=[32m"normal"[31m
+            [33mrole[31m=[32m"region"[31m
+          [36m>[31m
+            [36m<span[31m
+              [33maria-hidden[31m=[32m"true"[31m
+              [33mclass[31m=[32m"composer-status-dot"[31m
+            [36m/>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"composer-status-summary"[31m
+              [33mrole[31m=[32m"status"[31m
+              [33mtitle[31m=[32m"Reconnecting"[31m
+            [36m>[31m
+              [0mReconnecting[0m
+            [36m</span>[31m
+            [36m<button[31m
+              [33maria-expanded[31m=[32m"false"[31m
+              [33maria-haspopup[31m=[32m"dialog"[31m
+              [33maria-label[31m=[32m"Conversation status details"[31m
+              [33mclass[31m=[32m"composer-status-details"[31m
+              [33mtype[31m=[32m"button"[31m
+            [36m>[31m
+              [36m<svg[31m
+                [33maria-hidden[31m=[32m"true"[31m
+                [33mclass[31m=[32m"ui-icon"[31m
+                [33mdata-icon[31m=[32m"info"[31m
+                [33mfill[31m=[32m"none"[31m
+                [33mfocusable[31m=[32m"false"[31m
+                [33mheight[31m=[32m"16"[31m
+                [33mstroke[31m=[32m"currentColor"[31m
+                [33mstroke-linecap[31m=[32m"round"[31m
+                [33mstroke-linejoin[31m=[32m"round"[31m
+                [33mstroke-width[31m=[32m"1.7"[31m
+                [33mviewBox[31m=[32m"0 0 24 24"[31m
+                [33mwidth[31m=[32m"16"[31m
+              [36m>[31m
+                [36m<path[31m
+                  [33md[31m=[32m"M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 11v6m0-10h.01"[31m
+                [36m/>[31m
+              [36m</svg>[31m
+            [36m</button>[31m
+          [36m</div>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"chat-input-row"[31m
+          [36m>[31m
+            [36m<textarea[31m
+              [33maria-label[31m=[32m"Message Mitzo"[31m
+              [33mclass[31m=[32m"chat-input-field"[31m
+              [33mplaceholder[31m=[32m"Message Mitzo..."[31m
+              [33mrows[31m=[32m"1"[31m
+              [33mstyle[31m=[32m"height: 0px;"[31m
+            [36m/>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"composer-toolbar"[31m
+            [36m>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"chat-input-command-strip"[31m
+              [36m>[31m
+                [36m<div[31m
+                  [33mclass[31m=[32m"composer-tools-anchor"[31m
+                [36m>[31m
+                  [36m<button[31m
+                    [33maria-controls[31m=[32m"_r_8_"[31m
+                    [33maria-expanded[31m=[32m"false"[31m
+                    [33maria-label[31m=[32m"More composer actions"[31m
+                    [33mclass[31m=[32m"chat-input-btn composer-tools-toggle"[31m
+                    [33mtype[31m=[32m"button"[31m
+                  [36m>[31m
+                    [36m<svg[31m
+                      [33maria-hidden[31m=[32m"true"[31m
+                      [33mclass[31m=[32m"ui-icon"[31m
+                      [33mdata-icon[31m=[32m"more"[31m
+                      [33mfill[31m=[32m"none"[31m
+                      [33mfocusable[31m=[32m"false"[31m
+                      [33mheight[31m=[32m"20"[31m
+                      [33mstroke[31m=[32m"currentColor"[31m
+                      [33mstroke-linecap[31m=[32m"round"[31m
+                      [33mstroke-linejoin[31m=[32m"round"[31m
+                      [33mstroke-width[31m=[32m"1.7"[31m
+                      [33mviewBox[31m=[32m"0 0 24 24"[31m
+                      [33mwidth[31m=[32m"20"[31m
+                    [36m>[31m
+                      [36m<path[31m
+                        [33md[31m=[32m"M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z"[31m
+                      [36m/>[31m
+                    [36m</svg>[31m
+                  [36m</button>[31m
+                  [36m<div[31m
+                    [33mclass[31m=[32m"composer-tools"[31m
+                    [33mdata-expanded[31m=[32m"false"[31m
+                    [33mid[31m=[32m"_r_8_"[31m
+                  [36m>[31m
+                    [36m<button[31m
+                      [33maria-expanded[31m=[32m"false"[31m
+                      [33maria-label[31m=[32m"Commands"[31m
+                      [33mclass[31m=[32m"chat-input-btn chat-input-btn--skills"[31m
+                      [33mtitle[31m=[32m"Commands"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"command"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"16"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"16"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"chat-input-command-label"[31m
+                      [36m>[31m
+                        [0mCommands[0m
+                      [36m</span>[31m
+                    [36m</button>[31m
+                    [36m<button[31m
+                      [33maria-label[31m=[32m"Attach images or PDF"[31m
+                      [33mclass[31m=[32m"chat-input-btn chat-input-btn--attach"[31m
+                      [33mtitle[31m=[32m"Attach images or PDF"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"plus"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"16"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"16"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"M12 5v14M5 12h14"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"composer-tools-label"[31m
+                      [36m>[31m
+                        [0mAttach images or PDF[0m
+                      [36m</span>[31m
+                    [36m</button>[31m
+                    [36m<button[31m
+                      [33maria-label[31m=[32m"Schedule prompt"[31m
+                      [33mclass[31m=[32m"chat-input-btn"[31m
+                      [33mtitle[31m=[32m"Schedule prompt"[31m
+                      [33mtype[31m=[32m"button"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"clock"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"20"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"20"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20m0 5v5l3 2"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"composer-tools-label"[31m
+                      [36m>[31m
+                        [0mSchedule prompt[0m
+                      [36m</span>[31m
+                    [36m</button>[31m
+                    [36m<a[31m
+                      [33maria-label[31m=[32m"Terminal"[31m
+                      [33mclass[31m=[32m"chat-input-btn"[31m
+                      [33mdata-discover[31m=[32m"true"[31m
+                      [33mhref[31m=[32m"/terminal?sessionId=assigned-chat&returnTo=%2Fchat%2Fassigned-chat"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"terminal"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"20"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"20"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"M3 4h18v16H3Zm4 4 4 4-4 4m6 0h4"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"composer-tools-label"[31m
+                      [36m>[31m
+                        [0mTerminal[0m
+                      [36m</span>[31m
+                    [36m</a>[31m
+                    [36m<button[31m
+                      [33maria-label[31m=[32m"Expand input"[31m
+                      [33maria-pressed[31m=[32m"false"[31m
+                      [33mclass[31m=[32m"chat-input-btn"[31m
+                      [33mtype[31m=[32m"button"[31m
+                    [36m>[31m
+                      [36m<svg[31m
+                        [33maria-hidden[31m=[32m"true"[31m
+                        [33mclass[31m=[32m"ui-icon"[31m
+                        [33mdata-icon[31m=[32m"fullscreen"[31m
+                        [33mfill[31m=[32m"none"[31m
+                        [33mfocusable[31m=[32m"false"[31m
+                        [33mheight[31m=[32m"20"[31m
+                        [33mstroke[31m=[32m"currentColor"[31m
+                        [33mstroke-linecap[31m=[32m"round"[31m
+                        [33mstroke-linejoin[31m=[32m"round"[31m
+                        [33mstroke-width[31m=[32m"1.7"[31m
+                        [33mviewBox[31m=[32m"0 0 24 24"[31m
+                        [33mwidth[31m=[32m"20"[31m
+                      [36m>[31m
+                        [36m<path[31m
+                          [33md[31m=[32m"M9 3H3v6m12-6h6v6M3 15v6h6m6 0h6v-6"[31m
+                        [36m/>[31m
+                      [36m</svg>[31m
+                      [36m<span[31m
+                        [33mclass[31m=[32m"composer-tools-label"[31m
+                      [36m>[31m
+                        [0mExpand input[0m
+                      [36m</span>[31m
+                    [36m</button>[31m
+                  [36m</div>[31m
+                [36m</div>[31m
+                [36m<input[31m
+                  [33maccept[31m=[32m"image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf"[31m
+                  [33mclass[31m=[32m"sr-only"[31m
+                  [33mmultiple[31m=[32m""[31m
+                  [33mtype[31m=[32m"file"[31m
+                [36m/>[31m
+                [36m<button[31m
+                  [33maria-expanded[31m=[32m"false"[31m
+                  [33maria-label[31m=[32m"Open session tray"[31m
+                  [33mclass[31m=[32m"chat-input-btn composer-session-trigger"[31m
+                  [33mtitle[31m=[32m"Session resources"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"files"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M3 6h7l2 3h9v11H3Z"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</button>[31m
+                [36m<button[31m
+                  [33maria-label[31m=[32m"Symposium collaboration"[31m
+                  [33mclass[31m=[32m"chat-input-btn"[31m
+                  [33mdisabled[31m=[32m""[31m
+                  [33mtitle[31m=[32m"Start a supported chat to use Symposium collaboration"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"agents"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M8 4h8v6H8ZM4 16h6v5H4Zm10 0h6v5h-6ZM12 10v3M7 16v-3h10v3"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</button>[31m
+              [36m</div>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"composer-actions"[31m
+              [36m>[31m
+                [36m<button[31m
+                  [33maria-label[31m=[32m"Stop generation"[31m
+                  [33mclass[31m=[32m"chat-input-btn chat-input-btn--stop"[31m
+                  [33mtitle[31m=[32m"Stop generation"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"stop"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M7 7h10v10H7Z"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</button>[31m
+              [36m</div>[31m
+            [36m</div>[31m
+          [36m</div>[31m
+        [36m</div>[31m
+      [36m</div>[31m
+    [36m</div>[31m
+  [36m</div>[31m
+[36m</body>[31m[39m
+ [32m✓[39m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mretires an unrelated navigation owner and does not promote late assignment into its draft[32m 29[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from null
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from original-chat
+[31m[1mAssertionError[22m: expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -2,8 +2,6 @@[39m
+[2m    aria-label="Message Mitzo"[22m
+[2m    class="chat-input-field"[22m
+[2m    placeholder="Message Mitzo..."[22m
+[2m    rows="1"[22m
+[2m    style="height: 0px;"[22m
+[32m- >[39m
+[32m-   Later edit before authenticated assignment[39m
+[32m- </textarea>[39m
+[31m+ />[39m
+
+[36m [2m❯[22m tests/integration/symposium-composer-transfer.test.tsx:[2m144:30[22m[39m
+    [90m142|[39m       })[33m;[39m
+    [90m143|[39m       await waitFor(() => expect(f.store.getState().sessions.active).t…
+    [90m144|[39m       expect[33m.[39m[34msoft[39m(f[33m.[39m[34minput[39m())[33m.[39m[34mtoBe[39m(originalInput)[33m;[39m
+    [90m   |[39m                              [31m^[39m
+    [90m145|[39m       expect.soft(f.input().value).toBe('Later edit before authenticat…
+    [90m146|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(originalInput)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from null
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from original-chat
+[31m[1mAssertionError[22m: expected '' to be 'Later edit before authenticated assig…' // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Later edit before authenticated assignment[39m
+
+[36m [2m❯[22m tests/integration/symposium-composer-transfer.test.tsx:[2m145:36[22m[39m
+    [90m143|[39m       await waitFor(() => expect(f.store.getState().sessions.active).t…
+    [90m144|[39m       expect[33m.[39m[34msoft[39m(f[33m.[39m[34minput[39m())[33m.[39m[34mtoBe[39m(originalInput)[33m;[39m
+    [90m145|[39m       expect.soft(f.input().value).toBe('Later edit before authenticat…
+    [90m   |[39m                                    [31m^[39m
+    [90m146|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(originalInput)[33m;[39m
+    [90m147|[39m       expect.soft([f.input().selectionStart, f.input().selectionEnd]).…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from null
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from original-chat
+[31m[1mAssertionError[22m: expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -2,8 +2,6 @@[39m
+[2m    aria-label="Message Mitzo"[22m
+[2m    class="chat-input-field"[22m
+[2m    placeholder="Message Mitzo..."[22m
+[2m    rows="1"[22m
+[2m    style="height: 0px;"[22m
+[32m- >[39m
+[32m-   Later edit before authenticated assignment[39m
+[32m- </textarea>[39m
+[31m+ />[39m
+
+[36m [2m❯[22m tests/integration/symposium-composer-transfer.test.tsx:[2m146:43[22m[39m
+    [90m144|[39m       expect[33m.[39m[34msoft[39m(f[33m.[39m[34minput[39m())[33m.[39m[34mtoBe[39m(originalInput)[33m;[39m
+    [90m145|[39m       expect.soft(f.input().value).toBe('Later edit before authenticat…
+    [90m146|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(originalInput)[33m;[39m
+    [90m   |[39m                                           [31m^[39m
+    [90m147|[39m       expect.soft([f.input().selectionStart, f.input().selectionEnd]).…
+    [90m148|[39m       expect[33m.[39m[34msoft[39m([34mqueuedText[39m([32m'Remaining queued work'[39m))[33m.[39m[34mtoBeTruthy[39m()[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from null
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from original-chat
+[31m[1mAssertionError[22m: expected [ +0, +0 ] to deeply equal [ 2, 9 ][39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   2,[39m
+[32m-   9,[39m
+[31m+   0,[39m
+[31m+   0,[39m
+[2m  ][22m
+
+[36m [2m❯[22m tests/integration/symposium-composer-transfer.test.tsx:[2m147:71[22m[39m
+    [90m145|[39m       expect.soft(f.input().value).toBe('Later edit before authenticat…
+    [90m146|[39m       expect[33m.[39m[34msoft[39m(document[33m.[39mactiveElement)[33m.[39m[34mtoBe[39m(originalInput)[33m;[39m
+    [90m147|[39m       expect.soft([f.input().selectionStart, f.input().selectionEnd]).…
+    [90m   |[39m                                                                       [31m^[39m
+    [90m148|[39m       expect[33m.[39m[34msoft[39m([34mqueuedText[39m([32m'Remaining queued work'[39m))[33m.[39m[34mtoBeTruthy[39m()[33m;[39m
+    [90m149|[39m       [34mfireEvent[39m(window[33m,[39m [35mnew[39m [33mEvent[39m([32m'pagehide'[39m))[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from null
+[31m[1mTestingLibraryElementError[22m[39m: Unable to find an accessible element with the role "region" and name "Up next"
+
+Here are the accessible roles:
+
+  region:
+
+  Name "Conversation status":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Conversation status"[39m
+    [33mclass[39m=[32m"composer-status"[39m
+    [33mdata-tone[39m=[32m"normal"[39m
+    [33mrole[39m=[32m"region"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "Reconnecting":
+  [36m<span[39m
+    [33mclass[39m=[32m"composer-status-summary"[39m
+    [33mrole[39m=[32m"status"[39m
+    [33mtitle[39m=[32m"Reconnecting"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Conversation status details":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"Conversation status details"[39m
+    [33mclass[39m=[32m"composer-status-details"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "More composer actions":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_3_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"More composer actions"[39m
+    [33mclass[39m=[32m"chat-input-btn composer-tools-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Commands":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Commands"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--skills"[39m
+    [33mtitle[39m=[32m"Commands"[39m
+  [36m/>[39m
+
+  Name "Attach images or PDF":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Attach images or PDF"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--attach"[39m
+    [33mtitle[39m=[32m"Attach images or PDF"[39m
+  [36m/>[39m
+
+  Name "Schedule prompt":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Schedule prompt"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mtitle[39m=[32m"Schedule prompt"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Expand input":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Expand input"[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Open session tray":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Open session tray"[39m
+    [33mclass[39m=[32m"chat-input-btn composer-session-trigger"[39m
+    [33mtitle[39m=[32m"Session resources"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Symposium collaboration":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Symposium collaboration"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtitle[39m=[32m"Start a supported chat to use Symposium collaboration"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Stop generation":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Stop generation"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--stop"[39m
+    [33mtitle[39m=[32m"Stop generation"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Message Mitzo":
+  [36m<textarea[39m
+    [33maria-label[39m=[32m"Message Mitzo"[39m
+    [33mclass[39m=[32m"chat-input-field"[39m
+    [33mplaceholder[39m=[32m"Message Mitzo..."[39m
+    [33mrows[39m=[32m"1"[39m
+    [33mstyle[39m=[32m"height: 0px;"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  link:
+
+  Name "Terminal":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Terminal"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/terminal?sessionId=assigned-chat&returnTo=%2Fchat%2Fassigned-chat"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"chat-input-mount"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"chat-input-host"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"chat-input-host"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"chat-input chat-input--compact"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"Conversation status"[39m
+            [33mclass[39m=[32m"composer-status"[39m
+            [33mdata-tone[39m=[32m"normal"[39m
+            [33mrole[39m=[32m"region"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"composer-status-dot"[39m
+            [36m/>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"composer-status-summary"[39m
+              [33mrole[39m=[32m"status"[39m
+              [33mtitle[39m=[32m"Reconnecting"[39m
+            [36m>[39m
+              [0mReconnecting[0m
+            [36m</span>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"dialog"[39m
+              [33maria-label[39m=[32m"Conversation status details"[39m
+              [33mclass[39m=[32m"composer-status-details"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"ui-icon"[39m
+                [33mdata-icon[39m=[32m"info"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mfocusable[39m=[32m"false"[39m
+                [33mheight[39m=[32m"16"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"1.7"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"16"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 11v6m0-10h.01"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"chat-input-row"[39m
+          [36m>[39m
+            [36m<textarea[39m
+              [33maria-label[39m=[32m"Message Mitzo"[39m
+              [33mclass[39m=[32m"chat-input-field"[39m
+              [33mplaceholder[39m=[32m"Message Mitzo..."[39m
+              [33mrows[39m=[32m"1"[39m
+              [33mstyle[39m=[32m"height: 0px;"[39m
+            [36m/>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"composer-toolbar"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"chat-input-command-strip"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"composer-tools-anchor"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33maria-controls[39m=[32m"_r_3_"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-label[39m=[32m"More composer actions"[39m
+                    [33mclass[39m=[32m"chat-input-btn composer-tools-toggle"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ui-icon"[39m
+                      [33mdata-icon[39m=[32m"more"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mfocusable[39m=[32m"false"[39m
+                      [33mheight[39m=[32m"20"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"1.7"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"20"[39m
+                    [36m>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                  [36m</button>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"composer-tools"[39m
+                    [33mdata-expanded[39m=[32m"false"[39m
+                    [33mid[39m=[32m"_r_3_"[39m
+                  [36m>[39m
+                    [36m<button[39m
+                      [33maria-expanded[39m=[32m"false"[39m
+                      [33maria-label[39m=[32m"Commands"[39m
+                      [33mclass[39m=[32m"chat-input-btn chat-input-btn--skills"[39m
+                      [33mtitle[39m=[32m"Commands"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"command"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"16"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"16"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"chat-input-command-label"[39m
+                      [36m>[39m
+                        [0mCommands[0m
+                      [36m</span>[39m
+                    [36m</button>[39m
+                    [36m<button[39m
+                      [33maria-label[39m=[32m"Attach images or PDF"[39m
+                      [33mclass[39m=[32m"chat-input-btn chat-input-btn--attach"[39m
+                      [33mtitle[39m=[32m"Attach images or PDF"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"plus"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"16"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"16"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M12 5v14M5 12h14"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"composer-tools-label"[39m
+                      [36m>[39m
+                        [0mAttach images or PDF[0m
+                      [36m</span>[39m
+                    [36m</button>[39m
+                    [36m<button[39m
+                      [33maria-label[39m=[32m"Schedule prompt"[39m
+                      [33mclass[39m=[32m"chat-input-btn"[39m
+                      [33mtitle[39m=[32m"Schedule prompt"[39m
+                      [33mtype[39m=[32m"button"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"clock"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"20"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"20"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20m0 5v5l3 2"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"composer-tools-label"[39m
+                      [36m>[39m
+                        [0mSchedule prompt[0m
+                      [36m</span>[39m
+                    [36m</button>[39m
+                    [36m<a[39m
+                      [33maria-label[39m=[32m"Terminal"[39m
+                      [33mclass[39m=[32m"chat-input-btn"[39m
+                      [33mdata-discover[39m=[32m"true"[39m
+                      [33mhref[39m=[32m"/terminal?sessionId=assigned-chat&returnTo=%2Fchat%2Fassigned-chat"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"terminal"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"20"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"20"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M3 4h18v16H3Zm4 4 4 4-4 4m6 0h4"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"composer-tools-label"[39m
+                      [36m>[39m
+                        [0mTerminal[0m
+                      [36m</span>[39m
+                    [36m</a>[39m
+                    [36m<button[39m
+                      [33maria-label[39m=[32m"Expand input"[39m
+                      [33maria-pressed[39m=[32m"false"[39m
+                      [33mclass[39m=[32m"chat-input-btn"[39m
+                      [33mtype[39m=[32m"button"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"fullscreen"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"20"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"20"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M9 3H3v6m12-6h6v6M3 15v6h6m6 0h6v-6"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"composer-tools-label"[39m
+                      [36m>[39m
+                        [0mExpand input[0m
+                      [36m</span>[39m
+                    [36m</button>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+                [36m<input[39m
+                  [33maccept[39m=[32m"image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf"[39m
+                  [33mclass[39m=[32m"sr-only"[39m
+                  [33mmultiple[39m=[32m""[39m
+                  [33mtype[39m=[32m"file"[39m
+                [36m/>[39m
+                [36m<button[39m
+                  [33maria-expanded[39m=[32m"false"[39m
+                  [33maria-label[39m=[32m"Open session tray"[39m
+                  [33mclass[39m=[32m"chat-input-btn composer-session-trigger"[39m
+                  [33mtitle[39m=[32m"Session resources"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"files"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M3 6h7l2 3h9v11H3Z"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33maria-label[39m=[32m"Symposium collaboration"[39m
+                  [33mclass[39m=[32m"chat-input-btn"[39m
+                  [33mdisabled[39m=[32m""[39m
+                  [33mtitle[39m=[32m"Start a supported chat to use Symposium collaboration"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"agents"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M8 4h8v6H8ZM4 16h6v5H4Zm10 0h6v5h-6ZM12 10v3M7 16v-3h10v3"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</button>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"composer-actions"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33maria-label[39m=[32m"Stop generation"[39m
+                  [33mclass[39m=[32m"chat-input-btn chat-input-btn--stop"[39m
+                  [33mtitle[39m=[32m"Stop generation"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"stop"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M7 7h10v10H7Z"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+[90m [2m❯[22m Object.getElementError node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m queuedRegion frontend/src/test-utils/queued-draft-controls.ts:[2m28:17[22m[39m
+    [90m 26|[39m [35mexport[39m [35mfunction[39m [34mqueuedRegion[39m() {
+    [90m 27|[39m   [34mreviewQueue[39m()[33m;[39m
+    [90m 28|[39m   [35mreturn[39m screen[33m.[39m[34mgetByRole[39m([32m'region'[39m[33m,[39m { name[33m:[39m [32m'Up next'[39m })[33m;[39m
+    [90m   |[39m                 [31m^[39m
+    [90m 29|[39m }
+    [90m 30|[39m [35mexport[39m [35mfunction[39m [34mqueuedText[39m(text[33m:[39m string) {
+[90m [2m❯[22m queuedText frontend/src/test-utils/queued-draft-controls.ts:[2m31:17[22m[39m
+[90m [2m❯[22m tests/integration/symposium-composer-transfer.test.tsx:[2m148:19[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-composer-transfer.test.tsx[2m > [22mtransfers later draft and remaining queue through exact assignment from original-chat
+[31m[1mTestingLibraryElementError[22m[39m: Unable to find an accessible element with the role "region" and name "Up next"
+
+Here are the accessible roles:
+
+  region:
+
+  Name "Conversation status":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Conversation status"[39m
+    [33mclass[39m=[32m"composer-status"[39m
+    [33mdata-tone[39m=[32m"normal"[39m
+    [33mrole[39m=[32m"region"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "Reconnecting":
+  [36m<span[39m
+    [33mclass[39m=[32m"composer-status-summary"[39m
+    [33mrole[39m=[32m"status"[39m
+    [33mtitle[39m=[32m"Reconnecting"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Conversation status details":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"Conversation status details"[39m
+    [33mclass[39m=[32m"composer-status-details"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "More composer actions":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_8_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"More composer actions"[39m
+    [33mclass[39m=[32m"chat-input-btn composer-tools-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Commands":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Commands"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--skills"[39m
+    [33mtitle[39m=[32m"Commands"[39m
+  [36m/>[39m
+
+  Name "Attach images or PDF":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Attach images or PDF"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--attach"[39m
+    [33mtitle[39m=[32m"Attach images or PDF"[39m
+  [36m/>[39m
+
+  Name "Schedule prompt":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Schedule prompt"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mtitle[39m=[32m"Schedule prompt"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Expand input":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Expand input"[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Open session tray":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Open session tray"[39m
+    [33mclass[39m=[32m"chat-input-btn composer-session-trigger"[39m
+    [33mtitle[39m=[32m"Session resources"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Symposium collaboration":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Symposium collaboration"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtitle[39m=[32m"Start a supported chat to use Symposium collaboration"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Stop generation":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Stop generation"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--stop"[39m
+    [33mtitle[39m=[32m"Stop generation"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Message Mitzo":
+  [36m<textarea[39m
+    [33maria-label[39m=[32m"Message Mitzo"[39m
+    [33mclass[39m=[32m"chat-input-field"[39m
+    [33mplaceholder[39m=[32m"Message Mitzo..."[39m
+    [33mrows[39m=[32m"1"[39m
+    [33mstyle[39m=[32m"height: 0px;"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  link:
+
+  Name "Terminal":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Terminal"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/terminal?sessionId=assigned-chat&returnTo=%2Fchat%2Fassigned-chat"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"chat-input-mount"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"chat-input-host"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"chat-input-host"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"chat-input chat-input--compact"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"Conversation status"[39m
+            [33mclass[39m=[32m"composer-status"[39m
+            [33mdata-tone[39m=[32m"normal"[39m
+            [33mrole[39m=[32m"region"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"composer-status-dot"[39m
+            [36m/>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"composer-status-summary"[39m
+              [33mrole[39m=[32m"status"[39m
+              [33mtitle[39m=[32m"Reconnecting"[39m
+            [36m>[39m
+              [0mReconnecting[0m
+            [36m</span>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"dialog"[39m
+              [33maria-label[39m=[32m"Conversation status details"[39m
+              [33mclass[39m=[32m"composer-status-details"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"ui-icon"[39m
+                [33mdata-icon[39m=[32m"info"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mfocusable[39m=[32m"false"[39m
+                [33mheight[39m=[32m"16"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"1.7"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"16"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 11v6m0-10h.01"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"chat-input-row"[39m
+          [36m>[39m
+            [36m<textarea[39m
+              [33maria-label[39m=[32m"Message Mitzo"[39m
+              [33mclass[39m=[32m"chat-input-field"[39m
+              [33mplaceholder[39m=[32m"Message Mitzo..."[39m
+              [33mrows[39m=[32m"1"[39m
+              [33mstyle[39m=[32m"height: 0px;"[39m
+            [36m/>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"composer-toolbar"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"chat-input-command-strip"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"composer-tools-anchor"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33maria-controls[39m=[32m"_r_8_"[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-label[39m=[32m"More composer actions"[39m
+                    [33mclass[39m=[32m"chat-input-btn composer-tools-toggle"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ui-icon"[39m
+                      [33mdata-icon[39m=[32m"more"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mfocusable[39m=[32m"false"[39m
+                      [33mheight[39m=[32m"20"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"1.7"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"20"[39m
+                    [36m>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                  [36m</button>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"composer-tools"[39m
+                    [33mdata-expanded[39m=[32m"false"[39m
+                    [33mid[39m=[32m"_r_8_"[39m
+                  [36m>[39m
+                    [36m<button[39m
+                      [33maria-expanded[39m=[32m"false"[39m
+                      [33maria-label[39m=[32m"Commands"[39m
+                      [33mclass[39m=[32m"chat-input-btn chat-input-btn--skills"[39m
+                      [33mtitle[39m=[32m"Commands"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"command"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"16"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"16"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"chat-input-command-label"[39m
+                      [36m>[39m
+                        [0mCommands[0m
+                      [36m</span>[39m
+                    [36m</button>[39m
+                    [36m<button[39m
+                      [33maria-label[39m=[32m"Attach images or PDF"[39m
+                      [33mclass[39m=[32m"chat-input-btn chat-input-btn--attach"[39m
+                      [33mtitle[39m=[32m"Attach images or PDF"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"plus"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"16"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"16"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M12 5v14M5 12h14"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"composer-tools-label"[39m
+                      [36m>[39m
+                        [0mAttach images or PDF[0m
+                      [36m</span>[39m
+                    [36m</button>[39m
+                    [36m<button[39m
+                      [33maria-label[39m=[32m"Schedule prompt"[39m
+                      [33mclass[39m=[32m"chat-input-btn"[39m
+                      [33mtitle[39m=[32m"Schedule prompt"[39m
+                      [33mtype[39m=[32m"button"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"clock"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"20"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"20"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20m0 5v5l3 2"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"composer-tools-label"[39m
+                      [36m>[39m
+                        [0mSchedule prompt[0m
+                      [36m</span>[39m
+                    [36m</button>[39m
+                    [36m<a[39m
+                      [33maria-label[39m=[32m"Terminal"[39m
+                      [33mclass[39m=[32m"chat-input-btn"[39m
+                      [33mdata-discover[39m=[32m"true"[39m
+                      [33mhref[39m=[32m"/terminal?sessionId=assigned-chat&returnTo=%2Fchat%2Fassigned-chat"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"terminal"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"20"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"20"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M3 4h18v16H3Zm4 4 4 4-4 4m6 0h4"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"composer-tools-label"[39m
+                      [36m>[39m
+                        [0mTerminal[0m
+                      [36m</span>[39m
+                    [36m</a>[39m
+                    [36m<button[39m
+                      [33maria-label[39m=[32m"Expand input"[39m
+                      [33maria-pressed[39m=[32m"false"[39m
+                      [33mclass[39m=[32m"chat-input-btn"[39m
+                      [33mtype[39m=[32m"button"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"ui-icon"[39m
+                        [33mdata-icon[39m=[32m"fullscreen"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mfocusable[39m=[32m"false"[39m
+                        [33mheight[39m=[32m"20"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"1.7"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"20"[39m
+                      [36m>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M9 3H3v6m12-6h6v6M3 15v6h6m6 0h6v-6"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"composer-tools-label"[39m
+                      [36m>[39m
+                        [0mExpand input[0m
+                      [36m</span>[39m
+                    [36m</button>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+                [36m<input[39m
+                  [33maccept[39m=[32m"image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf"[39m
+                  [33mclass[39m=[32m"sr-only"[39m
+                  [33mmultiple[39m=[32m""[39m
+                  [33mtype[39m=[32m"file"[39m
+                [36m/>[39m
+                [36m<button[39m
+                  [33maria-expanded[39m=[32m"false"[39m
+                  [33maria-label[39m=[32m"Open session tray"[39m
+                  [33mclass[39m=[32m"chat-input-btn composer-session-trigger"[39m
+                  [33mtitle[39m=[32m"Session resources"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"files"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M3 6h7l2 3h9v11H3Z"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33maria-label[39m=[32m"Symposium collaboration"[39m
+                  [33mclass[39m=[32m"chat-input-btn"[39m
+                  [33mdisabled[39m=[32m""[39m
+                  [33mtitle[39m=[32m"Start a supported chat to use Symposium collaboration"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"agents"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M8 4h8v6H8ZM4 16h6v5H4Zm10 0h6v5h-6ZM12 10v3M7 16v-3h10v3"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</button>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"composer-actions"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33maria-label[39m=[32m"Stop generation"[39m
+                  [33mclass[39m=[32m"chat-input-btn chat-input-btn--stop"[39m
+                  [33mtitle[39m=[32m"Stop generation"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"stop"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M7 7h10v10H7Z"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+[90m [2m❯[22m Object.getElementError node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m queuedRegion frontend/src/test-utils/queued-draft-controls.ts:[2m28:17[22m[39m
+    [90m 26|[39m [35mexport[39m [35mfunction[39m [34mqueuedRegion[39m() {
+    [90m 27|[39m   [34mreviewQueue[39m()[33m;[39m
+    [90m 28|[39m   [35mreturn[39m screen[33m.[39m[34mgetByRole[39m([32m'region'[39m[33m,[39m { name[33m:[39m [32m'Up next'[39m })[33m;[39m
+    [90m   |[39m                 [31m^[39m
+    [90m 29|[39m }
+    [90m 30|[39m [35mexport[39m [35mfunction[39m [34mqueuedText[39m(text[33m:[39m string) {
+[90m [2m❯[22m queuedText frontend/src/test-utils/queued-draft-controls.ts:[2m31:17[22m[39m
+[90m [2m❯[22m tests/integration/symposium-composer-transfer.test.tsx:[2m148:19[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (3)[39m
+[2m   Start at [22m 14:50:58
+[2m   Duration [22m 1.76s[2m (transform 526ms, setup 0ms, import 898ms, tests 276ms, environment 483ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

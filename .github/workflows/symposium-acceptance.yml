@@ -46,7 +46,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=1024
         run: |
           set -o pipefail
-          npx vitest run tests/integration/symposium-ordinary-acceptance.test.tsx tests/integration/symposium-required-owners.test.ts server/__tests__/collaboration-application-fresh-agent-ui.test.tsx server/__tests__/collaboration-application-ui.test.tsx --maxWorkers=1 --reporter=verbose 2>&1 | tee symposium-application.log
+          npx vitest run tests/integration/symposium-ordinary-acceptance.test.tsx tests/integration/symposium-required-owners.test.ts tests/integration/symposium-composer-transfer.test.tsx server/__tests__/collaboration-application-fresh-agent-ui.test.tsx server/__tests__/collaboration-application-ui.test.tsx --maxWorkers=1 --reporter=verbose 2>&1 | tee symposium-application.log
       - uses: actions/upload-artifact@v7
         if: always()
         with:

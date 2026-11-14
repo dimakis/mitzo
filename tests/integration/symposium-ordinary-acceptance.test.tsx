@@ -658,6 +658,34 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       {},
       { timeout: 10000 },
     );
+    const assertRolledSourceDelivery = async (phase: string) => {
+      const page = await h.api.view(group);
+      expect(page.hasEarlierMessages).toBe(true);
+      expect(page.messages.some((message) => message.messageId === acceptedFanout.messageId)).toBe(
+        false,
+      );
+      const nativeHistory = await h.typedApi.getSessionMessages(source);
+      expect(
+        nativeHistory.some(
+          (message) => message.role === 'user' && message.messageId === sourceCommand,
+        ),
+        `${phase}: the original authenticated history must still contain the exact native packet`,
+      ).toBe(true);
+      expect
+        .soft(
+          mounted.ui.container.querySelector(`[data-command-request="${sourceCommand}"]`),
+          `${phase}: an old encoded native packet must remain suppressed after the shared page rolls`,
+        )
+        .toBeNull();
+      expect
+        .soft(
+          screen.queryByText(acceptedFanout.text, { exact: true }),
+          `${phase}: a native packet cannot resurrect an operator prompt outside the visible shared page`,
+        )
+        .toBeNull();
+    };
+    stage = 'source_delivery_after_page_rollover';
+    await assertRolledSourceDelivery('live rollover');
     expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
     expect(screen.getAllByRole('textbox', { name: 'Message Mitzo' })).toHaveLength(1);
     await waitFor(
@@ -758,6 +786,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31);
     mounted.close();
     mounted = await mountOrdinary(390, source);
+    await assertRolledSourceDelivery('frontend reopen');
     expect(
       (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
     ).toBe(uncertainDraft);
@@ -796,6 +825,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       await (await import('../../frontend/src/lib/api-fetch')).restoreCookieAuthentication(),
     ).toBe(true);
     mounted = await mountOrdinary(390, source);
+    await assertRolledSourceDelivery('persisted application restart');
     expect(
       (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
     ).toBe(uncertainDraft);

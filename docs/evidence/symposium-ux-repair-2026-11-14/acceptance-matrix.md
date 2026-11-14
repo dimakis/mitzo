@@ -1,5 +1,12 @@
 # Integrated ordinary-chat acceptance
 
+**Current review blocks approval.** Centaur review5905022505 at b93961fb7 is
+`human_decision`, with unresolved CEN-6CFB95D6132C (assignment/fork draft+queue
+transfer) and CEN-A5B18F62570B (native packet after50-message rollover).
+Independent stronger regressions reproduce both. See [follow-up](review-blockers-followup.md)
+and original `centaur-b939-*-red.log`; the earlier11/56 checkpoint below remains
+bounded evidence, not approval of these previously uncovered paths.
+
 Independent slice 3; [draft PR #1355](https://github.com/dimakis/mitzo/pull/1355).
 Accepted main: `0ad803cdae56ed6e22c89273ae800d3e7aeb9706` (#1349);
 local merge `bb8680279` preserves both repair slices and source registry union.
@@ -20,7 +27,7 @@ measurements. Trial clicks execute no audio or callbacks. Full CI and
 final exact-head Centaur review remain unqualified; no product/device blanket claim.
 
 `A` = `tests/integration/symposium-ordinary-acceptance.test.tsx`, SHA256
-`1b8770cf9657151664f0c0909abcb4aca1dbfaa9eb714bca2e27fd0090d2fe19`.
+`ba33900d45cf630d034b4a0fcefc156c4f72f85584f2f2ffbc0489a7d6ac9d2b`.
 It mounts actual ResponsiveChatView/store/shared host and authenticated
 router/preparation/admission/reply owners with real loopback SSE. Only external
 account/provider execution is deterministic. Local Node 24.10.0/Vitest source

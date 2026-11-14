@@ -4,6 +4,16 @@ Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.
 
+## Review blocks approval: independent stronger regressions
+
+Centaur review5905022505 at b93961fb7 is `human_decision`, with unresolved
+assignment/fork transfer and native-packet rollover blockers. New independent
+tests reproduce both; unrelated navigation remains a passing control. The earlier
+11/56 result below is preserved as bounded evidence. See
+[review follow-up](review-blockers-followup.md) and original `centaur-b939-*-red.log`.
+Production fixes remain with slice1. Slice3 now owns #1355 review requests and
+terminal verdict follow-through under the user's corrected ownership instruction.
+
 ## Final focused acceptance and retained control measurements
 
 Run [43602840514](https://github.com/dimakis/mitzo/actions/runs/43602840514),
