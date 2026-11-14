@@ -5,7 +5,7 @@ import {
 import { assembleCommandPrompt } from './message-reply-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
-import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
+import { readOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { LocalVertexClaudeFirstCommandSchema, type AccountBinding } from '@mitzo/protocol';
@@ -48,6 +48,8 @@ export interface OrdinaryLocalVertexOwnedDispatch {
   sessionId: string;
   commandId: string;
   resume: boolean;
+  /** Cold recovery whose complete execution history proves no SDK input ran. */
+  startWithoutHistory?: boolean;
   preparationSignal?: AbortSignal;
 }
 interface Owners {
@@ -312,6 +314,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       throw unavailable();
     profiles.validateModelSelection(original, request.selection.model, request.selection.thinking);
     const descriptor = this.owners.workspace.getHostReservation(this.owners.reservation);
+    let startWithoutHistory = false;
     if (resume) {
       const previous = this.owners.eventStore.getSession(this.owners.reservation.conversationId);
       if (previous?.executionPhase && previous.executionPhase !== 'TERMINAL') throw unavailable();
@@ -331,11 +334,12 @@ export class OrdinaryLocalVertexOwnedRuntime {
         descriptor.state !== 'claimed'
       )
         throw unavailable();
-      await assertOrdinaryLocalVertexHistory(
+      startWithoutHistory = !(await readOrdinaryLocalVertexHistory(
         custody.sdkSessionId,
         custody.cwd,
         this.environment().CLAUDE_CONFIG_DIR,
-      );
+        this.owners.eventStore.hasOnlyCancelledOrdinarySdkInputs(custody.sessionId),
+      ));
       assertAdmissionCurrent();
       this.credentialAuthority();
     } else if (!continuation && descriptor.state === 'claimed') {
@@ -491,6 +495,8 @@ export class OrdinaryLocalVertexOwnedRuntime {
       },
       dispatch: async (expected, commandId) => {
         assertAdmissionCurrent();
+        if (startWithoutHistory && !events.hasOnlyCancelledOrdinarySdkInputs(meta.sessionId))
+          throw unavailable();
         const previousCustody = this.owners.eventStore.getOrdinaryLocalVertexCustody(
           meta.sessionId,
         );
@@ -520,6 +526,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
           sessionId: meta.sessionId,
           commandId,
           resume,
+          ...(startWithoutHistory ? { startWithoutHistory: true } : {}),
           preparationSignal,
         });
         assertAdmissionCurrent();

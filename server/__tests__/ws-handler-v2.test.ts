@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import {
   claimTransportConnection,
   releaseTransportConnection,

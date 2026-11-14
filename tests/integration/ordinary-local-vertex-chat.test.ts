@@ -14,6 +14,7 @@ vi.mock('../../server/claude-account-history.js', () => ({
 }));
 const services = vi.hoisted(() => ({
   authId: '',
+  auth: undefined as import('../../server/auth.js').AuthSession | undefined,
   workspace: undefined as unknown,
   library: undefined as unknown,
   query: vi.fn(),
@@ -54,6 +55,14 @@ vi.mock('node:child_process', async (original) => {
 // its mock is initializing: that import cycle can capture the global getter.
 vi.mock('../../server/repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: () => services.workspace,
+  getRepositoryWorkspaceCustody: () => services.workspace,
+  repositoryWorkspaceBinding: () => {
+    throw Error('No repository selection in this fixture');
+  },
+  repositoryWorkspaceCatalog: () => {
+    throw Error('No repository catalog in this fixture');
+  },
+  closeIdleRepositoryWorkspaces: () => {},
   getOrdinaryWorkspaces: () => {
     throw Error('No ordinary workspace selected by this repository fixture');
   },
@@ -79,6 +88,10 @@ vi.mock('../../server/agent-library-runtime.js', async (original) => ({
 vi.mock('../../server/auth.js', async (original) => ({
   ...(await original<object>()),
   hasPersistentRevocationAuthority: () => true,
+  authMiddleware: (_req: unknown, res: { locals: Record<string, unknown> }, next: () => void) => {
+    res.locals.authSession = services.auth;
+    next();
+  },
   operatorAuthMiddleware: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 vi.mock('../../server/connections-router.js', async (original) => ({
@@ -1103,7 +1116,8 @@ it.each(
       }),
     ).resolves.toMatchObject({ status: 202 });
     const stoppedQueryCount = services.requests.length;
-    chat.stopOrdinaryChat(chat.registry.findBySessionId(f.reservation.conversationId)!.clientId);
+    // Abrupt runtime loss still cannot manufacture a settled SDK result.
+    chat.stopChat(chat.registry.findBySessionId(f.reservation.conversationId)!.clientId);
     await vi.waitFor(() =>
       expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
     );
@@ -1133,6 +1147,331 @@ it.each(
     );
   },
   15_000,
+);
+
+it.each([
+  { personal: false, preInput: false, settling: false, cold: false },
+  { personal: true, preInput: false, settling: false, cold: false },
+  { personal: true, preInput: true, settling: false, cold: false },
+  { personal: true, preInput: true, settling: false, cold: true },
+  { personal: false, preInput: false, settling: true, cold: false },
+  { personal: true, preInput: false, settling: true, cold: false },
+])(
+  'public Stop, reconnect and Continue retain the SDK development owner (personal=$personal preInput=$preInput settling=$settling cold=$cold)',
+  async ({ personal, preInput, settling, cold }) => {
+    vi.resetModules();
+    const { ownedVertexRuntimeFixture } =
+      await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
+    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true, personal });
+    services.workspace = f.workspace;
+    services.library = f.library;
+    services.authId = f.auth.id;
+    services.auth = f.auth;
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw Error('No live provider in this fixture');
+      }),
+    );
+    if (personal) {
+      const { ClaudeSubscriptionCustody } =
+        await import('../../server/claude-subscription-custody.js');
+      const capture = ClaudeSubscriptionCustody.capture;
+      vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
+        capture(env, f.personalExecutable),
+      );
+      vi.spyOn(ClaudeSubscriptionCustody.prototype, 'verify').mockResolvedValue();
+    }
+    const history: string[] = [];
+    let acknowledgeColdInput!: () => void;
+    const coldInputObserved = new Promise<void>((resolve) => {
+      acknowledgeColdInput = resolve;
+    });
+    let holdNext = true;
+    let finish: (() => void) | undefined;
+    let releaseAccount!: () => void;
+    const accountPending = new Promise<void>((resolve) => {
+      releaseAccount = resolve;
+    });
+    const accountInfo = vi.fn(async () => {
+      if (preInput) await accountPending;
+      return { email: 'person@example.test', subscriptionType: 'max', apiProvider: 'firstParty' };
+    });
+    const interrupt = vi.fn(async () => {});
+    services.query.mockImplementation((request) => {
+      services.requests.push(request);
+      let closed = false;
+      const process = request.options.spawnClaudeCodeProcess({
+        signal: request.options.abortController.signal,
+      });
+      return {
+        accountInfo,
+        async *[Symbol.asyncIterator]() {
+          for await (const input of request.prompt) {
+            if (closed) return;
+            history.push(input.mitzoMessageId);
+            if (input.mitzoMessageId === 'cold-before-first-input') acknowledgeColdInput();
+            yield {
+              type: 'user',
+              uuid: `input-${input.mitzoMessageId}`,
+              parent_tool_use_id: null,
+              message: input.message,
+            };
+            if (holdNext)
+              await new Promise<void>((resolve) => {
+                holdNext = false;
+                finish = resolve;
+                request.options.abortController.signal.addEventListener('abort', resolve, {
+                  once: true,
+                });
+              });
+            if (closed) return;
+            yield {
+              type: 'result',
+              session_id: request.options.resume ?? request.options.sessionId,
+              is_error: false,
+            };
+          }
+        },
+        interrupt,
+        close: () => {
+          closed = true;
+          process.emit('close', 0, null);
+        },
+        setPermissionMode: async () => {},
+        setModel: async () => {},
+        setMaxThinkingTokens: async () => {},
+      };
+    });
+    const chat = await import('../../server/chat.js');
+    const { ConnectionRegistry } = await import('@mitzo/harness');
+    const connections = new ConnectionRegistry();
+    const connectionId = f.dependencies.operatorConnectionId;
+    const transport = { isOpen: () => true, send: vi.fn() };
+    connections.register(connectionId, transport);
+    chat.setConnectionRegistry(connections);
+    cleanups.push(async () => {
+      chat.registry
+        .findBySessionId(f.reservation.conversationId)
+        ?.session.ordinaryRuntimeOwner?.close();
+      await vi.waitFor(() =>
+        expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
+      );
+      chat.setConnectionRegistry(null);
+      connections.dispose();
+      chat.eventStore.close();
+    });
+    const { app } = await import('../../server/app.js');
+    const { createOwnedLocalCodexEntryRouter } =
+      await import('../../server/ordinary-local-codex-entry.js');
+    const { createChatRestRouter } = await import('../../server/chat-rest-handler.js');
+    const ctx = {
+      sessionRegistry: chat.registry,
+      eventStore: chat.eventStore,
+      connRegistry: connections,
+    } as import('../../server/ws-handler-v2.js').V2HandlerContext;
+    const sse = { has: () => true, isOpen: () => true, isOwnedBy: () => true } as never;
+    app.use('/api/fixture/runtime', createOwnedLocalCodexEntryRouter(sse, ctx, true));
+    app.use('/api/fixture/chat', createChatRestRouter(sse, ctx));
+    const request = (await import('supertest')).default;
+    const post = (path: string, body: unknown) =>
+      request(app)
+        .post(path.startsWith('/fixture') ? `/api${path}` : path)
+        .set('X-Connection-ID', connectionId)
+        .send(
+          path.startsWith('/fixture/runtime')
+            ? { runOn: 'local', repositoryWorkspaceId: f.reservation.id, ...(body as object) }
+            : (body as object),
+        );
+    const id = f.reservation.conversationId;
+    const started = await post('/fixture/runtime/send', f.request);
+    expect(started.status, JSON.stringify(started.body)).toBe(202);
+    await vi.waitFor(() =>
+      preInput ? expect(accountInfo).toHaveBeenCalledOnce() : expect(finish).toBeTypeOf('function'),
+    );
+    const retained = chat.registry.findBySessionId(id)!;
+    const original = chat.eventStore.getSession(id)!;
+    expect(
+      (
+        await post('/fixture/runtime/continue', {
+          ...f.request,
+          sessionId: id,
+          clientMsgId: 'queued-development',
+          payload: { text: 'Run tests and commit in this checkout' },
+        })
+      ).status,
+    ).toBe(202);
+    if (settling) {
+      const { TurnCallbacks } = await import('../../server/turn-callbacks.js');
+      const seal = TurnCallbacks.prototype.seal;
+      let settlementStarted = false;
+      vi.spyOn(TurnCallbacks.prototype, 'seal').mockImplementationOnce(function (
+        this: InstanceType<typeof TurnCallbacks>,
+      ) {
+        // A synthetic pending operation uses the real callback settlement owner.
+        void this.track(
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+              settlementStarted = true;
+            }),
+        );
+        seal.call(this);
+      });
+      finish!();
+      await vi.waitFor(() => expect(settlementStarted).toBe(true));
+    }
+    expect((await post('/fixture/chat/stop', { type: 'stop', sessionId: id })).status).toBe(200);
+    if (!preInput && !settling) await vi.waitFor(() => expect(interrupt).toHaveBeenCalledOnce());
+    else expect(interrupt).not.toHaveBeenCalled();
+    expect(chat.registry.findBySessionId(id)?.session).toBe(retained.session);
+    expect(chat.eventStore.getSession(id)?.executionPhase).toBe('STOPPING');
+    // An interrupt acknowledgment is not terminal proof. Continue cannot release the tail yet.
+    expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(409);
+    const initialHistory = preInput ? [] : [f.request.clientMsgId];
+    expect(history).toEqual(initialHistory);
+    if (preInput) {
+      holdNext = false;
+      releaseAccount();
+    } else finish!();
+    await vi.waitFor(() =>
+      expect(chat.eventStore.getSession(id)).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'stopped',
+      }),
+    );
+    expect(history).toEqual(initialHistory);
+    if (preInput && cold) {
+      const { readClaudeAccountHistory } = await import('../../server/claude-account-history.js');
+      const previousHistory = vi.mocked(readClaudeAccountHistory).getMockImplementation()!;
+      cleanups.push(() => {
+        vi.mocked(readClaudeAccountHistory).mockImplementation(previousHistory);
+      });
+      const actualHistory = await vi.importActual<
+        typeof import('../../server/claude-account-history.js')
+      >('../../server/claude-account-history.js');
+      vi.mocked(readClaudeAccountHistory).mockImplementation(async (sessionId, cwd, config) =>
+        history.length
+          ? ({ info: { sessionId, cwd }, messages: [{ type: 'user', uuid: 'retained' }] } as never)
+          : actualHistory.readClaudeAccountHistory(sessionId, cwd, config),
+      );
+      retained.session.ordinaryRuntimeOwner!.close();
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(id)).toBeNull());
+      const recovered = await post('/fixture/runtime/continue', {
+        ...f.request,
+        sessionId: id,
+        clientMsgId: 'cold-before-first-input',
+        payload: { text: 'Continue the same checkout after first-input cancellation' },
+      });
+      expect(recovered.status, JSON.stringify(recovered.body)).toBe(202);
+      await coldInputObserved;
+      expect(history).toEqual(['queued-development', 'cold-before-first-input']);
+      await vi.waitFor(() =>
+        expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'),
+      );
+      expect(services.requests[1].options).toMatchObject({ sessionId: id, cwd: original.cwd });
+      expect(services.requests[1].options.resume).toBeUndefined();
+      expect(chat.eventStore.getSession(id)).toMatchObject({
+        cwd: original.cwd,
+        accountBinding: original.accountBinding,
+      });
+      // Once a provider input ran, an absent transcript must never create a replacement history.
+      vi.mocked(readClaudeAccountHistory).mockImplementation(
+        actualHistory.readClaudeAccountHistory,
+      );
+      chat.registry.findBySessionId(id)!.session.ordinaryRuntimeOwner!.close();
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(id)).toBeNull());
+      const count = services.requests.length;
+      expect(
+        (
+          await post('/fixture/runtime/continue', {
+            ...f.request,
+            sessionId: id,
+            clientMsgId: 'missing-used-history',
+            payload: { text: 'Must not invent the missing provider history' },
+          })
+        ).status,
+      ).toBe(409);
+      expect(services.requests).toHaveLength(count);
+      return;
+    }
+    chat.detachChat(retained.clientId);
+    const reconnect = { isOpen: () => true, send: vi.fn() };
+    expect(chat.reattachChat(retained.clientId, reconnect)).toBe(true);
+    const metadata = await request(app).get(`/api/sessions/${id}/meta`);
+    expect(metadata.status, JSON.stringify(metadata.body)).toBe(200);
+    expect(metadata.body.codexQueue).toMatchObject({
+      paused: true,
+      connected: true,
+      queued: 1,
+      canContinue: true,
+    });
+    services.auth = { ...f.auth, id: 'foreign-login' };
+    expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(403);
+    services.auth = f.auth;
+    // Match CodexQueueStatus: signed continuation is selected by the actual metadata.
+    const continuation = request(app).post(`/api/sessions/${id}/codex-queue/continue`);
+    if (metadata.body.codexQueue?.canContinue === true)
+      continuation.set('X-Connection-ID', connectionId);
+    expect((await continuation.send({})).status).toBe(200);
+    await vi.waitFor(() => expect(history).toEqual([...initialHistory, 'queued-development']));
+    await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
+    expect(chat.eventStore.getSession(id)).toMatchObject({
+      cwd: original.cwd,
+      accountBinding: original.accountBinding,
+      repositoryWorkspaceId: original.repositoryWorkspaceId,
+    });
+    expect(services.requests[1].options).toMatchObject({
+      cwd: original.cwd,
+      ...(preInput ? { sessionId: id } : { resume: id }),
+    });
+    expect(
+      (
+        await post('/fixture/runtime/continue', {
+          ...f.request,
+          sessionId: id,
+          clientMsgId: 'publication-followup',
+          payload: { text: 'Read CI and keep fixing' },
+        })
+      ).status,
+    ).toBe(202);
+    await vi.waitFor(() =>
+      expect(history).toEqual([...initialHistory, 'queued-development', 'publication-followup']),
+    );
+    await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
+    // A rejected SDK interrupt keeps the original activity and a sanitized diagnostic.
+    holdNext = true;
+    finish = undefined;
+    expect(
+      (
+        await post('/fixture/runtime/continue', {
+          ...f.request,
+          sessionId: id,
+          clientMsgId: 'failed-interrupt',
+          payload: { text: 'Keep uncertain work visible' },
+        })
+      ).status,
+    ).toBe(202);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    interrupt.mockRejectedValueOnce(Error('synthetic-private-provider-failure'));
+    expect((await post('/fixture/chat/stop', { type: 'stop', sessionId: id })).status).toBe(200);
+    await vi.waitFor(() =>
+      expect(chat.eventStore.getLatestEvent(id, 'error')?.payload).toMatchObject({
+        runtimeFailure: { runtimeFailureCode: 'unsettled_effects' },
+      }),
+    );
+    expect(JSON.stringify(chat.eventStore.getLatestEvent(id, 'error')?.payload)).not.toContain(
+      'synthetic-private-provider-failure',
+    );
+    expect(chat.registry.findBySessionId(id)?.session).toBe(retained.session);
+    expect((await post('/fixture/chat/stop', { type: 'stop', sessionId: id })).status).toBe(200);
+    expect(interrupt).toHaveBeenCalledTimes(preInput || settling ? 1 : 2);
+    expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(409);
+    finish!();
+    await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
+  },
+  30000,
 );
 
 it('a qualified preparation A starts model B on its original checkout and exact retry cannot launch again', async () => {
@@ -1179,6 +1518,10 @@ it('a qualified preparation A starts model B on its original checkout and exact 
   const claim = vi.spyOn(f.workspace, 'claimReservedHostTask');
   let deferSettingsClose = false;
   let settingsCloseWaiting = false;
+  let acknowledgeSettingsClose!: () => void;
+  const settingsCloseObserved = new Promise<void>((resolve) => {
+    acknowledgeSettingsClose = resolve;
+  });
   let releaseSettingsClose!: () => void;
   const observedInputs: string[] = [];
   services.query.mockImplementation((request) => {
@@ -1192,6 +1535,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
         if (deferSettingsClose) {
           settingsCloseWaiting = true;
           releaseSettingsClose = () => process.emit('close', 0, null);
+          acknowledgeSettingsClose();
         } else process.emit('close', 0, null);
       },
       interrupt: vi.fn(),
@@ -1394,7 +1738,17 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     },
     '/continue',
   );
-  await vi.waitFor(() => expect(settingsCloseWaiting).toBe(true));
+  cleanups.push(() => {
+    deferSettingsClose = false;
+    releaseSettingsClose?.();
+  });
+  await Promise.race([
+    settingsCloseObserved,
+    expiredSettings.then(() => {
+      throw Error('Settings preparation completed before its deferred close checkpoint');
+    }),
+  ]);
+  expect(settingsCloseWaiting).toBe(true);
   expect(chat.eventStore.getSession(sessionId)?.executionPhase).toBe('RUNNING');
   expireSettings();
   deferSettingsClose = false;
@@ -1517,10 +1871,15 @@ it.each(['checkout', 'SDK setup'] as const)(
       release = resolve;
     });
     let checkoutSignal: AbortSignal | undefined;
+    let reachedCheckpoint!: () => void;
+    const checkpoint = new Promise<void>((resolve) => {
+      reachedCheckpoint = resolve;
+    });
     if (stage === 'checkout') {
       const original = f.workspace.claimReservedHostTask.bind(f.workspace);
       vi.spyOn(f.workspace, 'claimReservedHostTask').mockImplementation(async (input) => {
         checkoutSignal = input.signal;
+        reachedCheckpoint();
         await deferred;
         return original(input);
       });
@@ -1533,6 +1892,7 @@ it.each(['checkout', 'SDK setup'] as const)(
         async function (this: InstanceType<typeof OrdinaryLocalVertexSdkAuthority>, signal) {
           if (++calls === 2) {
             checkoutSignal = signal;
+            reachedCheckpoint();
             await deferred;
           }
           return original.call(this, signal);
@@ -1557,7 +1917,17 @@ it.each(['checkout', 'SDK setup'] as const)(
       () => 'accepted',
       () => 'refused',
     );
-    await vi.waitFor(() => expect(checkoutSignal).toBeDefined());
+    cleanups.push(async () => {
+      controller.abort();
+      release();
+      await observed;
+    });
+    await Promise.race([
+      checkpoint,
+      pending.then(() => {
+        throw Error('Entry preparation completed before the deferred checkpoint');
+      }),
+    ]);
     controller.abort(new Error('Entry preparation deadline'));
     const aborted = checkoutSignal!.aborted;
     release();
