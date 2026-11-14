@@ -199,7 +199,10 @@ export async function executeTelosBacklogOperation(
         const observation = {
           item: owners.items.readGuarded(input.itemId, current),
           lifecycle: owners.work.readBacklogGuarded(
-            () => owners.work.readLifecycle(input.itemId, actor),
+            () =>
+              input.view === 'overview'
+                ? owners.work.readLifecycleOverview(input.itemId, actor)
+                : owners.work.readLifecycle(input.itemId, actor),
             current,
           ),
           workContext: owners.work.readBacklogGuarded(

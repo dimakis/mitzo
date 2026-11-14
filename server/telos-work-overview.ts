@@ -5,7 +5,7 @@ import type { telosWorkContext } from './telos-work-observation.js';
 /** A current-status projection, never a second authority/cache or a history export. */
 export function telosWorkOverview(value: {
   item: ReturnType<TelosItemStore['read']>;
-  lifecycle: ReturnType<TelosWorkStore['readLifecycle']>;
+  lifecycle: ReturnType<TelosWorkStore['readLifecycle']> & { historyCount?: number };
   workContext: ReturnType<typeof telosWorkContext>;
 }) {
   const { item, lifecycle, workContext: context } = value;
@@ -86,7 +86,7 @@ export function telosWorkOverview(value: {
             ]),
           )
         : null,
-      lifecycleHistory: lifecycle.history.length,
+      lifecycleHistory: lifecycle.historyCount ?? lifecycle.history.length,
     },
     lifecycle: {
       itemId: lifecycle.itemId,

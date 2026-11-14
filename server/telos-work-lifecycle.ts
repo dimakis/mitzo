@@ -113,6 +113,15 @@ export class TelosWorkLifecycle {
       );
   }
   read(itemId: string, actor: TelosWorkActor): TelosWorkLifecycleView {
+    const { historyCount, ...view } = this.readSnapshot(itemId, actor, true);
+    void historyCount;
+    return view;
+  }
+  /** Same current state and revision, without fetching historical event bodies. */
+  readCurrent(itemId: string, actor: TelosWorkActor) {
+    return this.readSnapshot(itemId, actor, false);
+  }
+  private readSnapshot(itemId: string, actor: TelosWorkActor, includeHistory: boolean) {
     this.operator(actor);
     return this.db.transaction(() => {
       const work = this.work(itemId);
@@ -126,18 +135,30 @@ export class TelosWorkLifecycle {
           : controls.every((c) => c.stage === 'acknowledged' || c.stage === 'applied')
             ? 'acknowledged'
             : 'requested';
-      const history = (
-        this.db
-          .prepare('SELECT data FROM telos_work_lifecycle_history WHERE item_id=? ORDER BY seq')
-          .all(itemId) as { data: string }[]
-      ).map((r) => JSON.parse(r.data));
-      return TelosWorkLifecycleViewSchema.parse({
-        itemId,
-        revision: work.revision,
-        ...this.disposition(itemId),
-        pause: { stage, controls },
-        history,
-      });
+      const history = includeHistory
+        ? (
+            this.db
+              .prepare('SELECT data FROM telos_work_lifecycle_history WHERE item_id=? ORDER BY seq')
+              .all(itemId) as { data: string }[]
+          ).map((r) => JSON.parse(r.data))
+        : [];
+      const historyCount = includeHistory
+        ? history.length
+        : (
+            this.db
+              .prepare('SELECT count(*) AS count FROM telos_work_lifecycle_history WHERE item_id=?')
+              .get(itemId) as { count: number }
+          ).count;
+      return {
+        ...TelosWorkLifecycleViewSchema.parse({
+          itemId,
+          revision: work.revision,
+          ...this.disposition(itemId),
+          pause: { stage, controls },
+          history,
+        }),
+        historyCount,
+      };
     })();
   }
   list(raw: unknown, actor: TelosWorkActor): TelosWorkLifecycleView[] {

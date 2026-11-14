@@ -289,6 +289,9 @@ export class TelosWorkStore {
   readLifecycle(itemId: string, actor: TelosWorkActor) {
     return this.lifecycle().read(itemId, actor);
   }
+  readLifecycleOverview(itemId: string, actor: TelosWorkActor) {
+    return this.lifecycle().readCurrent(itemId, actor);
+  }
   listLifecycle(view: unknown, actor: TelosWorkActor) {
     return this.lifecycle().list(view, actor);
   }

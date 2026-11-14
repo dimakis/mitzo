@@ -707,6 +707,45 @@ it('retains the canonical edit token in an overview and rechecks authority inste
       .isError,
   ).toBe(true);
 });
+it('reads current lifecycle counts without materializing historical records, while full remains explicit', async () => {
+  const f = fixture();
+  for (const operation of ['archive', 'unarchive'] as const)
+    f.work.executeLifecycle(
+      {
+        itemId: 'studio',
+        operation,
+        requestId: operation,
+        expectedRevision: f.work.readLifecycle('studio', f.actor).revision,
+      },
+      f.actor,
+    );
+  const full = f.work.readLifecycle('studio', f.actor);
+  const historyRead = vi.spyOn(f.work, 'readLifecycle').mockImplementation(() => {
+    throw Error('Historical lifecycle read forbidden for routine coordination');
+  });
+  const result = await f.run('TelosManageItem', {
+    operation: 'read',
+    itemId: 'studio',
+    view: 'overview',
+  });
+  expect(result.isError, result.content).toBe(false);
+  expect(historyRead).not.toHaveBeenCalled();
+  const value = JSON.parse(result.content);
+  expect(value.lifecycle).toMatchObject({
+    revision: full.revision,
+    effectiveDisposition: 'active',
+  });
+  expect(value.counts.lifecycleHistory).toBe(2);
+  expect(value.truncatedFields).toContain('lifecycle.history');
+  expect(value.lifecycle.history).toBeUndefined();
+  historyRead.mockRestore();
+  const detailed = await f.run('TelosManageItem', {
+    operation: 'read',
+    itemId: 'studio',
+    view: 'full',
+  });
+  expect(JSON.parse(detailed.content).lifecycle.history).toEqual(full.history);
+});
 it('approves exact brief edits and canonical archive/unarchive with retryable receipts', async () => {
   const f = fixture();
   const edit = {
