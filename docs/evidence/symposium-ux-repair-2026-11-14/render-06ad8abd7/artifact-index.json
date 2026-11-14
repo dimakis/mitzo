@@ -1,0 +1,334 @@
+{
+  "prHead": "06ad8abd70366417440ba4b0c0be40d3d199c4c3",
+  "mergeHead": "b6f1730bb7d7b05d83a280bf096574961c98c719",
+  "run": 43591105649,
+  "artifactId": 14112416946,
+  "artifactDigest": "sha256:b70786760eab52026e49f5c5cb4d94409b10f9aabf8920a7e86969d2bb4cefe8",
+  "artifacts": [
+    {
+      "project": "desktop-chromium",
+      "file": "approved-reference-1280-dark.png",
+      "sha256": "8aaf8f08fa3c2ff37016a52d7d707f8cff12b5ff76c31ca52c1a45d541276cd1",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/approved-reference-1280-dark.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "approved-reference-320-dark.png",
+      "sha256": "131e5f258bfb3b1c853db9a6b94bcd26a5b3c38d7a96b62eaaf4296cbe66cdc9",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/approved-reference-320-dark.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "approved-reference-390-dark.png",
+      "sha256": "fde2944b687d5de690ac39ed1883ed9e48bf6a04deedd54328fc3536973ce3cb",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/approved-reference-390-dark.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-1280-dark.png",
+      "sha256": "98771739a129c5484bd391faf64c083dd19e9047a471c6d8668aa0529ca70c2b",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-1280-dark.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-320-dark.png",
+      "sha256": "b2eddb3c02723e3d22e33ad73a7fba471e3ffd3b842ce565065ee9452add16f5",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-320-dark.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-390-dark.png",
+      "sha256": "37657b2ef5d6ede71942d99b3504b728d8c54008cbfcc3fc3be6e30b0d7c04c6",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-390-dark.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-large-1280-dark.png",
+      "sha256": "c20752bb1e780fb27ecea018cdee03f2b529f8dc480d4e11011be6491fdb6184",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-large-1280-dark.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-large-320-dark.png",
+      "sha256": "5e832b0b88608d5d891682d9f537e3acf7b77bf638e2f1c2ee7c21726981885e",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-large-320-dark.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-large-390-dark.png",
+      "sha256": "7e072ed9a73326f28ec909d972ff2063f31707f0a9c47ced6cf12d9c296988ba",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/ordinary-responsive-large-390-dark.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "approved-reference-1280-dark.png",
+      "sha256": "2998ee9650db5daa00c7250b5ffb0af6629a429fcecdcd1c14d8d5c0d68d27e9",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/approved-reference-1280-dark.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "approved-reference-320-dark.png",
+      "sha256": "9858802dcd253659ab3d142a5644d0211ec6541547ae6716000d51de91b474b3",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/approved-reference-320-dark.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "approved-reference-390-dark.png",
+      "sha256": "cf73466a517ee671131a890a65dc680cd62a1c3f050fd615eea8ad1de7981376",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/approved-reference-390-dark.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-1280-dark.png",
+      "sha256": "60b4afb13cb7516351ac45e4f9b4659b4c83f00780437fea3e7051d278981847",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-1280-dark.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-320-dark.png",
+      "sha256": "7cdb19bb9bb23b726be86d97f094bc8b485187342f6445ec3a931e03a37d8e35",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-320-dark.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-390-dark.png",
+      "sha256": "9333e75b60697d744c6d99cafeaca5ac100c3807bbbe2b4789b8b6807d858954",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-390-dark.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-large-1280-dark.png",
+      "sha256": "17c3acd036f882fb94b2ca1ba10cc08517c5755ffc53851ecd19b7a2cbe38077",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-large-1280-dark.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-large-320-dark.png",
+      "sha256": "6dba30c91d024334c9b32c1cd9053b14a0cc6c6fb5b31bfdc88ff278d60f1a61",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-large-320-dark.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-large-390-dark.png",
+      "sha256": "34b0e1fbf17244f7c3350e99c9bcc80d441d4907dc3f2a7860a1fcd11f8b058c",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/ordinary-responsive-large-390-dark.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "approved-reference-1280-dark.png",
+      "sha256": "6872a8452833e53a72a7dd772306230b5d6481c922db0e63b45ddceac7ab5302",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/approved-reference-1280-dark.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "approved-reference-320-dark.png",
+      "sha256": "b647c664b5394b93bf0a18e5c6a523ed0492c80537aef507fe2d028a4a1451e6",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/approved-reference-320-dark.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "approved-reference-390-dark.png",
+      "sha256": "fd011f933bbd95344a686a8f9f24729f13313b5b90fea85198ea3264db96b81a",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/approved-reference-390-dark.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-1280-dark.png",
+      "sha256": "b5ed3526891b5d55e43ab9f7c3df795333f23d4cec7cc4d8583b0c5239989658",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-1280-dark.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-320-dark.png",
+      "sha256": "65093efc68ff7add3443e06335a589269f1ba7952b02b9bde9deca5205e5786d",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-320-dark.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-390-dark.png",
+      "sha256": "dd8971556270ab87fad36a57648a86b4a624d3fa76505f583e11b88d4f0b812e",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-390-dark.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-large-1280-dark.png",
+      "sha256": "495683358b3022b93c10381a977b4088ca3d711b08f48de7479034d03a88482a",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-large-1280-dark.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-large-320-dark.png",
+      "sha256": "2045a0dee1059001a423de3ac25717b2708f65cd9d6acd7c22b0d781590f4c85",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-large-320-dark.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-large-390-dark.png",
+      "sha256": "4d1e6bcf41cac14f07fee42dd86869e884d83a519c1464798137cbf6fd82e2cd",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/ordinary-responsive-large-390-dark.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "approved-reference-1280-light.png",
+      "sha256": "358deb7333bc05ca88a738d187e1b5c5cda4bc241ea507d5f7caae6d2ec20b15",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/approved-reference-1280-light.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "approved-reference-320-light.png",
+      "sha256": "86e8a99be221be561e312655646c5e7c017dda268a6fc1e5340c53f5efa07c5b",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/approved-reference-320-light.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "approved-reference-390-light.png",
+      "sha256": "9e3a6fb567fc06a6fd05583455222b42ad870a358a174349a3693d1f43143307",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/approved-reference-390-light.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-1280-light.png",
+      "sha256": "79902e3a4d2ae9bb9f80c397cc154dbd549a931d3ab009dc11227148cdf77773",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-1280-light.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-320-light.png",
+      "sha256": "4424adb55c71d17d95a12801e04387b2817053b1889dd306c308b915994b5d2b",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-320-light.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-390-light.png",
+      "sha256": "aed798a97b4d8242e658150a9359317fb7644b399ed46e3702dd5f7f3235ed34",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-390-light.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-large-1280-light.png",
+      "sha256": "e7f9572972a87b999957ad147f0385f4eaeae07e5263799de4d28b9e56784bc6",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-large-1280-light.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-large-320-light.png",
+      "sha256": "c167e0a86a86b01690735867e52850bc66da6577e16f121e2e702b97d8be9366",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-large-320-light.png"
+    },
+    {
+      "project": "desktop-chromium",
+      "file": "ordinary-responsive-large-390-light.png",
+      "sha256": "1fd6c561af3e3c5a6b011bd6e8bce515bc564a35528b5907ad08ffc0ab58d67d",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/ordinary-responsive-large-390-light.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "approved-reference-1280-light.png",
+      "sha256": "373e670db97bd1f9026e57651973b9aff5da196ec2204e3752bfeb31c68210eb",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/approved-reference-1280-light.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "approved-reference-320-light.png",
+      "sha256": "e1ee23829ce1ca2bf26072229ffe9a3326d9ea987e83c2146c188f748692e055",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/approved-reference-320-light.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "approved-reference-390-light.png",
+      "sha256": "1aee644739f1516ef24036c90b7a2366bba8d94ac5eecf7200e65856709c7c2d",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/approved-reference-390-light.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-1280-light.png",
+      "sha256": "950cb42c73ffc043e37dee60d8a9af908b58f54d50f5807312432e7f79610e13",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-1280-light.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-320-light.png",
+      "sha256": "b4b5ffd44d25e158743955827b61d956591abfaa0966b16986b0b84074178754",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-320-light.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-390-light.png",
+      "sha256": "f990824963e6e4b705c0273c7bf6fe79f96e2bc3ebb07450ba8524a5301220a1",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-390-light.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-large-1280-light.png",
+      "sha256": "6cdbf9d5b0e2a1bd2d05b206d0f216c7e17715e2f4022ec3868a43b4754ee0da",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-large-1280-light.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-large-320-light.png",
+      "sha256": "a6c42fd1fa240925dee0435a3ee4969bec5080e697f9177eb248480fa97bb461",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-large-320-light.png"
+    },
+    {
+      "project": "mobile-chromium",
+      "file": "ordinary-responsive-large-390-light.png",
+      "sha256": "abb69dd4fc9053b15c497eca236d022377195899d17bbe174b9aae33de4ec8e1",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/ordinary-responsive-large-390-light.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "approved-reference-1280-light.png",
+      "sha256": "d007c1307e9c6ddea1bd7ebca83ce483db03eeb5c535b4a017a95c3c26250170",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/approved-reference-1280-light.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "approved-reference-320-light.png",
+      "sha256": "606261e5264c46391a000b3c3fcd7838bf58c2fb80aad5813a204fe97f1f6782",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/approved-reference-320-light.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "approved-reference-390-light.png",
+      "sha256": "c2671784608d4ffb621902b8a7a41d50b92f09e75becfd8a94a50de878e59f8b",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/approved-reference-390-light.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-1280-light.png",
+      "sha256": "b9485d78814556b20ee0724b7f0432128d6264ae35e0a28b080815eb5fe3b567",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-1280-light.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-320-light.png",
+      "sha256": "047aba097a5cac403d8cedb224c58a230256ce057207e3555c63ee00b8bf9370",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-320-light.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-390-light.png",
+      "sha256": "2036cc94abdfb9290516ac886854472b05f45e7252eac9995fa820307868631e",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-390-light.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-large-1280-light.png",
+      "sha256": "7b6ada37771d62a273667f8a9261f9440ba9feecef5500a86fbe03d8cd6fb910",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-large-1280-light.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-large-320-light.png",
+      "sha256": "189d25aea5389b0bbb9cc720ccf2679eb1fdf84edc76ffdd3f2617b5f9785759",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-large-320-light.png"
+    },
+    {
+      "project": "mobile-webkit",
+      "file": "ordinary-responsive-large-390-light.png",
+      "sha256": "d8659978bed2eb0e2fc8dd2bc0c84973fffd4e259e1bc8f568ded99b4b911630",
+      "originalPath": ".cache/symposium-ci-06/symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1/test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/ordinary-responsive-large-390-light.png"
+    }
+  ],
+  "boundary": "Structural render pass; original reference screenshots show initial setup overlay, comparison-only header-name gap remains open."
+}

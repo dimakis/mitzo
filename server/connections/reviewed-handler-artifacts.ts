@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatInputHost.tsx':
     'a71c53fdaef19b3b1178b9ec7241b6af1e486757846637084099a047ad84c6f5',
   '../../frontend/src/components/__tests__/ChatInputHost.test.tsx':
-    '4a8d03ed7d720a017562540cb73cb0e8b1c539521fa74f4ebeb8f746b74458b0',
+    'bf330f2120b2c37b577fc10be3cad83fadf4edf37f540d07e499d060be053aba',
   '../../frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx':
     '5db2246ee5fac185f0cfcec84c6ff5399344598b69797f91a1aca52ab9849d37',
   '../../frontend/src/lib/chat-input-mount.ts':
@@ -46,7 +46,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-ordinary-surface.tsx':
     '0102c4afb4155713c54e8cef15b0ba16c91b675b42d245e420592d8134381573',
   '../../tests/integration/symposium-ordinary-acceptance.test.tsx':
-    'cec55323ed3154757a59420b6d0eb5f0416062193fafe9e8e2e34ae8b58cac53',
+    '75e48f846d549c997d8cbcec19d2b6393cf3b09d6feb8a2d4e556bd97fc11062',
   '../../tests/integration/symposium-required-owners.test.ts':
     'dfb7f311eab054c9f27e5401610819a5e743516ac2e22461fae1596e6b79aa01',
   '../../tests/offline/symposium-ordinary-surface.spec.ts':
@@ -54,7 +54,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/support/application-event-source.ts':
     'da2d0fd6614485c42048e85449c79a0ab5a999f340fc29f7db4e02a90cbec973',
   '../../tests/offline/symposium-ordinary-responsive.spec.ts':
-    '43c26f69dd89deb8b251d61e30fb737bbb4f854ae86f2a19f728e38e1443625d',
+    '9dd5ccbbbf09e10736bb541b5ee1814b9ae877030a24d5b8053def5ab2d42c0a',
   '../session-conversation-list.ts':
     '5ba1ca1e183a6fd5a6636a98fdd089ae6f20186464617b666a1344818a3388fb',
   '../../packages/protocol/src/conversation-activity.ts':

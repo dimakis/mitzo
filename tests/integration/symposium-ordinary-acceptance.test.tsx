@@ -117,6 +117,7 @@ async function mountOrdinary(width = 390, source = 'existing-chat', shared = tru
     },
   });
   const { ResponsiveChatView } = await import('../../frontend/src/components/ResponsiveChatView');
+  const { SessionList } = await import('../../frontend/src/pages/SessionList');
   const { MitzoStoreProvider } = await import('@mitzo/client/hooks');
   const history = await h.typedApi.getSessionMessages(source);
   const store = createMitzoStore({
@@ -149,6 +150,7 @@ async function mountOrdinary(width = 390, source = 'existing-chat', shared = tru
       <MemoryRouter initialEntries={['/chat/' + source]}>
         <Routes>
           <Route path="/chat/:sessionId" element={<ResponsiveChatView />} />
+          <Route path="/sessions" element={<SessionList />} />
         </Routes>
       </MemoryRouter>
     </MitzoStoreProvider>,
@@ -446,6 +448,22 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
         .sessions.list!.filter((s) => [source, recipient].includes(s.id))
         .map((s) => s.id),
     ).toEqual([source]);
+    fireEvent.click(screen.getByRole('link', { name: 'Back to chats' }));
+    await waitFor(
+      () =>
+        expect(mounted.ui.container.querySelectorAll(`[data-motion-key="${source}"]`)).toHaveLength(
+          1,
+        ),
+      { timeout: 10000 },
+    );
+    expect(mounted.ui.container.querySelectorAll(`[data-motion-key="${recipient}"]`)).toHaveLength(
+      0,
+    );
+    fireEvent.click(
+      mounted.ui.container.querySelector(`[data-motion-key="${source}"] .session-item`)!,
+    );
+    await screen.findByRole('button', { name: 'Choose who replies' }, { timeout: 10000 });
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
     const retainedInput = screen.getByRole('textbox', {
       name: 'Message Mitzo',
     }) as HTMLTextAreaElement;
@@ -647,15 +665,17 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     });
     await waitFor(() => expect(send().disabled).toBe(false));
     fireEvent.click(send());
-    await waitFor(() =>
-      expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31),
+    await waitFor(
+      () => expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31),
+      { timeout: 10000 },
     );
-    expect(loseSend).toBe(false);
-    await waitFor(() =>
-      expect(
-        (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
-      ).toBe('Retain original operation through lost response and Stop.'),
-    );
+    await waitFor(() => expect(loseSend).toBe(false), { timeout: 10000 });
+    // An exact background observation can consume the submitted prompt. A new
+    // independent edit must survive that observation and all later recovery.
+    const uncertainDraft = 'Independent draft while original request is uncertain';
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
+      target: { value: uncertainDraft },
+    });
     // Recovery is inspectable through the actual current composer status owner.
     fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
     const statusDetails = await screen.findByRole('dialog', {
@@ -666,6 +686,9 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       await within(statusDetails).findByRole('button', { name: 'Check original request' }),
     );
     fireEvent.keyDown(statusDetails, { key: 'Escape' });
+    expect(
+      (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
+    ).toBe(uncertainDraft);
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31);
     const lostCall = h.fetch.mock.calls.find(
       ([url, init]) =>
@@ -697,6 +720,9 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31);
     mounted.close();
     mounted = await mountOrdinary(390, source);
+    expect(
+      (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
+    ).toBe(uncertainDraft);
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31);
     await mounted.store.getState().refreshSessions();
     const listing = mounted.store.getState().sessions.list!;
@@ -732,6 +758,9 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       await (await import('../../frontend/src/lib/api-fetch')).restoreCookieAuthentication(),
     ).toBe(true);
     mounted = await mountOrdinary(390, source);
+    expect(
+      (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
+    ).toBe(uncertainDraft);
     const restarted = await h.api.observeSend(group, held);
     expect(restarted.message?.messageId).toBe(observed.message?.messageId);
     expect(restarted.message?.deliveries.map((d) => d.commandId)).toEqual(
@@ -758,6 +787,19 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     expect(
       (await screen.findAllByText('AcceptanceReviewer', { exact: true })).length,
     ).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Close Agents', exact: true }));
+    fireEvent.click(screen.getByRole('link', { name: 'Back to chats' }));
+    await waitFor(
+      () =>
+        expect(mounted.ui.container.querySelectorAll(`[data-motion-key="${source}"]`)).toHaveLength(
+          1,
+        ),
+      { timeout: 10000 },
+    );
+    expect(mounted.ui.container.querySelectorAll(`[data-motion-key="${recipient}"]`)).toHaveLength(
+      0,
+    );
+    expect(runtime.requests).toHaveLength(0);
     console.info(
       'ORDINARY_ACCEPTANCE_COMPLETE',
       JSON.stringify({

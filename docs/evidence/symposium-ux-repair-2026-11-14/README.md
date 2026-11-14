@@ -246,3 +246,50 @@ failure annotations make diagnostics available even when the separate tool's
 authenticated REST log quota is exhausted. The existing signed-in native GitHub
 route remained usable and supplied these original logs/artifacts. Origin
 communication later recovered and received the confirmed blocker/fix evidence.
+
+## Rendered structural pass and visual comparison gap
+
+Focused run [43591105649](https://github.com/dimakis/mitzo/actions/runs/43591105649),
+PR head `06ad8abd70366417440ba4b0c0be40d3d199c4c3`, merge ref
+`b6f1730bb7d7b05d83a280bf096574961c98c719`, passed all 12 render cases and both
+browser startup probes. The pinned Linux browsers are WebKit and Chromium;
+projects are `mobile-webkit`, `mobile-chromium` and `desktop-chromium`.
+Each responsive case renders 320/390/1280×844 in light or dark, 60 ordinary
+history entries, actual keyboard focus and 200% text. Manifest observations show
+one actual scroll region with `overflow-y:auto`; for example mobile WebKit light
+has 511/559/566px transcript view heights at those widths. These are hosted
+browser observations, not physical-device acceptance.
+
+`hosted-render-06ad8abd7.log` and `render-06ad8abd7/artifact-index.json` retain
+exact source/build/route/viewport/render identities. Artifact `14112416946`,
+SHA256 `b70786760eab52026e49f5c5cb4d94409b10f9aabf8920a7e86969d2bb4cefe8`,
+contains the complete report and screenshots. Six engine/theme manifests and
+representative original mobile/desktop screenshots are retained in this folder.
+
+Visual comparison is **not accepted yet**. The actual ordinary header passes
+`compact` to `ConversationAgents`, which hides all participant names. The
+approved HTML's header agent bar displays names; the existing special-preview
+test even requires visible mobile participant-name width. This discrepancy is
+visible in the retained actual ordinary screenshots and was sent to slice 1.
+The ordinary render test now asserts that name container is visible, so it
+cannot silently accept an icon-only ordinary composition. The approved artifact
+opens Add agent initially; later comparison captures retain that state and use
+its own Close dialog control before capturing its conversation. The reference
+bytes and product CSS remain unchanged. Initial reference screenshots here show
+the setup overlay and cannot establish same-state conversation pixel parity.
+
+The same run's application job stopped at a one-second wait while the original
+31st delivery was durably **queued**, before native dispatch. The original
+request/recipient/command remained inspectable; no replacement request was made.
+`hosted-application-06ad8abd7-queued-wait.log` preserves that failure. The bounded
+external-ack wait is now ten seconds. A background exact observation may consume
+already accepted submitted text, so the stronger invariant is that an independent
+new edit survives Check/Stop/remount/restart. That full journey, including real
+SessionList navigation after the first reply and after restart (one source row,
+zero joined-peer rows), passes locally in `final-draft-chats-06ad8abd7.log`.
+
+Full CI at `06ad8abd7` still rejects one test-only unsupported RTL `exact` option;
+the exact one-line correction from owner `bb219f4218b73ce5946b04d63649480d48040b2f`
+is integrated separately from that owner's standalone registry. The earlier
+server/pin checks pass. Full combined CI and the new visible-name assertion must
+be observed on the later head before extending this acceptance claim.

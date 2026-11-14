@@ -1,0 +1,85 @@
+{
+  "head": "b6f1730bb7d7b05d83a280bf096574961c98c719",
+  "branch": "detached HEAD",
+  "build": "esbuild production bundle",
+  "bundleSha256": [
+    {
+      "path": "/tmp/mitzo-ordinary-responsive.js",
+      "sha256": "80ee7407bd50503019ffc19af623f6a5f69bcda8933e30217b96a90beaf238e1"
+    },
+    {
+      "path": "/tmp/mitzo-ordinary-responsive.css",
+      "sha256": "5550448148ca49044ac25901f0c37f5a93b0731ab5b492cb52f9339efe78bf12"
+    }
+  ],
+  "project": "mobile-webkit",
+  "approvedPath": "docs/design/approved/symposium/fresh-agent-review.html",
+  "approvedSha": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+  "route": "/chat/architect",
+  "plannedViewports": [
+    {
+      "width": 320,
+      "height": 844
+    },
+    {
+      "width": 390,
+      "height": 844
+    },
+    {
+      "width": 1280,
+      "height": 844
+    }
+  ],
+  "theme": "dark",
+  "observations": [
+    {
+      "width": 320,
+      "height": 844,
+      "theme": "dark",
+      "geometry": {
+        "scrollHeight": 13839,
+        "clientHeight": 511,
+        "overflowY": "auto"
+      },
+      "keyboardFocus": {
+        "tag": "BUTTON",
+        "label": "Choose who replies"
+      },
+      "route": "/chat/architect",
+      "ordinarySessionType": "chat"
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "theme": "dark",
+      "geometry": {
+        "scrollHeight": 11630,
+        "clientHeight": 559,
+        "overflowY": "auto"
+      },
+      "keyboardFocus": {
+        "tag": "BUTTON",
+        "label": "Choose who replies"
+      },
+      "route": "/chat/architect",
+      "ordinarySessionType": "chat"
+    },
+    {
+      "width": 1280,
+      "height": 844,
+      "theme": "dark",
+      "geometry": {
+        "scrollHeight": 10499,
+        "clientHeight": 566,
+        "overflowY": "auto"
+      },
+      "keyboardFocus": {
+        "tag": "BUTTON",
+        "label": "Choose who replies"
+      },
+      "route": "/chat/architect",
+      "ordinarySessionType": "chat"
+    }
+  ],
+  "boundary": "Production ResponsiveChatView + ordinary metadata; deterministic presentation transport, independent real application acceptance required. Paired reference screenshots require visual review; structural checks are not pixel parity."
+}

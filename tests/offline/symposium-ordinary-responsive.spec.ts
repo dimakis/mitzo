@@ -256,11 +256,25 @@ for (const theme of ['light', 'dark'] as const)
       await reference.setViewportSize({ width, height: 844 });
       await reference.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       await reference.setContent(approved.toString('utf8'));
-      await reference.screenshot({
+      // The approved artifact opens Add agent by default. Retain that original
+      // state, then use its own Close control to compare the conversation state.
+      const approvedProduct = reference.locator('.web-product');
+      await approvedProduct.screenshot({
+        path: info.outputPath(`approved-fresh-setup-${width}-${theme}.png`),
+      });
+      await approvedProduct.getByRole('button', { name: 'Close dialog', exact: true }).click();
+      await approvedProduct.screenshot({
         path: info.outputPath(`approved-reference-${width}-${theme}.png`),
-        fullPage: true,
+      });
+      observations.push({
+        approvedConversationViewport: { width, height: 844 },
+        productBounds: await approvedProduct.boundingBox(),
+        sourceBytesUnchanged: true,
       });
       await reference.close();
+      // Retain both render artifacts before asserting the approved visible-name
+      // contract, so a failure remains an inspectable visual comparison.
+      await expect(agents.locator('.conversation-participant-names')).toBeVisible();
     }
     expect(writes.filter((path) => path.endsWith('/messages') || path.endsWith('/joins'))).toEqual(
       [],
