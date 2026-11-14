@@ -53,7 +53,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function fixture(singleton = false) {
+function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChatDraft>) {
   const view = sharedConversationView();
   view.messages = [];
   view.policies.forEach((p) => {
@@ -139,6 +139,11 @@ function fixture(singleton = false) {
             <div className="conversation-composer">
               <ChatInput
                 sessionId="architect"
+                savedChatDraft={ordinaryDraft}
+                composerCapabilities={{
+                  commands: 'ordinary',
+                  terminalHref: '/terminal?sessionId=architect',
+                }}
                 initialText="Ordinary draft before joining"
                 onSend={ordinarySend}
                 onStop={ordinaryStop}
@@ -221,6 +226,41 @@ it('keeps the actual ordinary transcript and composer mounted through joining an
       .filter(([url]) => url.includes('/session-collaborations/'))
       .every(([, init]) => !init?.method || init.method === 'GET'),
   ).toBe(true);
+});
+
+it('retains ordinary attachments with a precise shared-route limitation and keeps Terminal navigation', async () => {
+  const draft = {
+    ...createChatDraft(),
+    text: 'Draft with retained attachment',
+    images: [{ data: 'YQ==', preview: 'data:image/png;base64,YQ==', mediaType: 'image/png' }],
+  };
+  saveChatDraft(draft);
+  const f = fixture(true, draft);
+  render(f.tree());
+  const input = screen.getByRole('textbox');
+  const image = screen.getByRole('img', { name: 'Attachment 1' });
+  await waitFor(() =>
+    expect(f.transport.mock.calls.some(([url]) => url.endsWith('/progress'))).toBe(true),
+  );
+  f.join();
+  await poll();
+  await screen.findByRole('button', { name: 'Choose who replies' });
+  expect(screen.getByRole('textbox')).toBe(input);
+  expect(screen.getByRole('img', { name: 'Attachment 1' })).toBe(image);
+  await screen.findByText(/This shared route supports text and reviewed prompt context/);
+  expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true);
+  expect(screen.queryByRole('button', { name: 'Refresh conversation' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'Terminal' }).getAttribute('href')).toBe(
+    '/terminal?sessionId=architect',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
+  expect((input as HTMLTextAreaElement).value).toBe('Draft with retained attachment');
+  expect(f.sends).toHaveLength(0);
 });
 
 it('merges rich original history, source echoes and authorized live/final replies exactly once by identity', async () => {
