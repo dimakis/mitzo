@@ -11,10 +11,19 @@ assignment/fork transfer and native-packet rollover blockers. New independent
 tests reproduce both; unrelated navigation remains a passing control. The earlier
 11/56 result below is preserved as bounded evidence. See
 [review follow-up](review-blockers-followup.md) and original `centaur-b939-*-red.log`.
-Production fixes remain with slice1. Slice3 now owns #1355 review requests and
-terminal verdict follow-through under the user's corrected ownership instruction.
+The corresponding owner fixes8dea/4ba now pass the independent local controls
+atbb492a0b8, including the subsequently exposed actual participant-history Open
+stall. `qualified-participant-bb492a0b8-green.log` records the complete stronger
+31-turn application journey and explicit history-to-shared reply return, zero
+post-restart dispatch; `transfer-1c41e18d6-green.log` records five client/portal
+transfer controls. These are separate from browser geometry and hosted gates.
+Combined owner/design preflight passes155 with one existing skip. Successor
+16-mixed-check/62-browser CI and exact-head review are pending. Published b939
+full CI43604334027 failed in native object capture with unknown cause/effect;
+original logs and account artifacts are retained in the follow-up. Slice3 owns
+#1355 review requests and terminal follow-through under the corrected instruction.
 
-## Final focused acceptance and retained control measurements
+## Historical focused acceptance and retained control measurements
 
 Run [43602840514](https://github.com/dimakis/mitzo/actions/runs/43602840514),
 source `0c2b354f10193f948e8efbf4da1839c0131fecc3`, merge build
@@ -39,9 +48,10 @@ Render artifact14116814091 SHA256
 `d1ef0628f58beae0c83e958e5fc98d7059431dfe58854b1535fa8837bf5c4a85`;
 application artifact14116634344 SHA256
 `34b58ec40dab990334d4ca1658d2bc2c92b7cbf3b735caa5bf5e1e7bf84e10b8`.
-The source registry is2,476 keys/v1.0.1174. Full CI43602840427 remains queued
-at this evidence checkpoint; exact-head final Centaur review is unqualified.
-This final evidence-only successor does not change the verified source bytes.
+The historical source registry is2,476 keys/v1.0.1174. Full CI43602840427 was
+subsequently cancelled; this successful focused checkpoint is not full CI or
+current-source qualification. New owner fixes change source/bundle bytes and
+require successor captures; earlier paired artifacts remain immutable evidence.
 No merge/deploy, physical-phone, live-runtime, audio or blanket incident completion
 is claimed. Original incident identifiers, browser hard reload, reference icon/pixel
 parity and the other matrix gaps remain open. All original failures below are retained.

@@ -1,0 +1,171 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mversions each policy, guards concurrent edits and recovers old exact retries after restart[32m 30[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mfreezes policy, readers, stable identities and ordinary settings before effects; readers never reply[32m 21[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mrefuses stale, unknown, unavailable and empty responders without broadcasting or partial writes[32m 17[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mretains independent partial outcomes and CAS receipts across replay without resending successes[32m 18[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mpins source IDs, bytes and artifact hashes after source edits; reviewed digest is required[32m 19[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mkeeps brief-only explicit and refuses capacity overflow or unreviewed summaries without truncation[32m 15[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mretains a real allocation before link conflict; recovery links the same session without allocation[32m 19[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mbacks up the complete journal, receipts, snapshots and pending joins through EventStore[32m 21[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mprojects membership atomically and does not restore old reader policy on re-enrollment[32m 14[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mserializes competing connections and keeps keyed message retries immutable after later messages[32m 17[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22msupports explicit one/several/all responders and isolates groups sharing ordinary members[32m 17[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mkeeps source edits, boot instructions, and artifact revision updates outside a saved snapshot[32m 15[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mrequires a new review for a bounded attributed summary and preserves exact original source pins[32m 14[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mfails closed on corrupt saved content, capacity bounds and foreign source boundaries[32m 14[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mrefuses fabricated allocation receipts and preserves pending preparation without placeholder sessions[32m 14[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mpaginates replay with a stable high watermark and does not silently omit events[32m 23[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mbinds reviewed capacity evidence to the exact joining execution selection[32m 14[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mprepares the first Add agent from one ordinary chat without a placeholder second session[32m 20[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mrolls membership back if its projection cannot commit[32m 15[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mbounds the initial message view and refuses oversized UTF-8 context without truncating it[32m 84[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mlinks a fresh ordinary participant from a durable silent receipt without a fabricated allocation command[32m 16[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mpreserves the exact legacy 512 KiB review completion limit with no private witness[32m 25[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-conversation.test.ts[2m > [22mrejects reused public native measurement IDs across different assessments[32m 13[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx[2m > [22mreopens retained forwarding recovery during an actual ordinary turn even if source reads fail[32m 129[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx[2m > [22mopens targeted sharing while the original agent is running: false[32m 43[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx[2m > [22mopens targeted sharing while the original agent is running: true[32m 26[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx[2m > [22mobserves remote rejoining and its reply after the last other participant leaves, without a local send or refresh[33m 4535[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx[2m > [22mmounts the retained shared transcript through the production wrapper while preserving ordinary history[32m 51[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx[2m > [22mdefers native history through retained-page loading and failed reconstruction without replacing the draft[32m 73[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx[2m > [22mqualifies linked participant history without showing another agent or allowing an ordinary reply[32m 39[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx[2m > [22mpreserves the ordinary screen while the first source identity is assigned or changes[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx[2m > [22mobserves the existing login owner without starting another authentication request[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mkeeps the theme and font definitions in one file[33m 645[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline font[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects CSS font shorthand[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects HSL color[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects spacing override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects last declaration without semicolon[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline token override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects radius override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects type override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects page gutter override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects mobile navigation override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects font literals following a variable: .page { font: var(--text-base) Arial, sans-serif; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects font literals following a variable: .page { font: var(--text-base)/1.4 Arial; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects font literals following a variable: .page { font-family: var(--font-ui), Arial; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects shared token literals in embedded TSX CSS[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects variable-prefixed font shorthand embedded in TSX[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal font families supplied by template interpolation[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows an interpolated static token font family[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline font shorthand stacks: const element = <div style={{ font: '16px Arial, sans-serif' }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline font shorthand stacks: const element = <div style={{ 'font': 'var(--text-base) Arial' }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows token-based React font shorthand[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects interpolated inline font stacks[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects numeric inline overrides of shared tokens[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mexempts only the canonical token file, not feature token files[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects fonts hidden in expression branches: const element = <div style={{ fontFamily: selected ? 'Arial' : 'Georgia' }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects fonts hidden in expression branches: const element = <div style={{ fontFamily: ('Arial' as const) }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects fonts hidden in expression branches: const element = <div style={{ fontFamily: fallback ?? 'Arial' }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects fonts hidden in expression branches: const element = <div style={{ fontFamily: 'Arial,' + fallback }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows conditional token fonts[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mkeeps shared scales and font roles owned centrally: .page { --space-4: var(--space-1); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mkeeps shared scales and font roles owned centrally: .page { --font-ui: var(--font-mono); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline aliases that override shared spacing[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects named colors inside a legacy role color mix[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows the existing token-based legacy role color mix[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrequires direct contextual aliases to reference a registered token[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mhandles CSS whitespace before a declaration colon: .page { --space-4 : 17px; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mhandles CSS whitespace before a declaration colon: .page { font-family : Arial; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mhandles CSS whitespace before a declaration colon: .page { font : var(--text-base) Arial; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrequires font variables to come from the shared font registry: .page { --private-font: Arial; font-family: var(--private-font); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrequires font variables to come from the shared font registry: .page { font: var(--text-base) var(--private-font); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects a spacing token used as a contextual color[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { color: rebeccapurple; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { background: red; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { background: linear-gradient(red, blue); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { color: hsl(-30 90% 70%); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { color: hsl(.5turn 90% 70%); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects named colors in React styles[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mchecks statically concatenated CSS template content[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mkeeps image URL names and inherited colors usable[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects non-color tokens inside a contextual color mix[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mchecks standalone statically concatenated CSS expressions[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mdoes not reject incomplete children of a valid reconstructed CSS expression[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows token-based shorthand size and family[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects CSS font-family literals embedded in TSX[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mdoes not confuse adapter token lookup expressions with CSS declarations[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mdoes not confuse selector modifiers with token declarations[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows semantic aliases, inherited fonts and token-based inline fonts[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --ui-font[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --bg[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --surface[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --color-preview-canvas[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --border[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --text[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --text-dim[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --text-secondary[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --accent[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --accent-hover[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --danger[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --success[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --warning[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --bg-secondary[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --hover[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --active[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-2xs[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-xxs[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-xs[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-s[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-sm[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-md[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-base[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-lg[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-xl[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-1[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-1h[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-2[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-3[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-4[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-5[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-6[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mno hardcoded colors for themed values[2m > [22mdoes not use hardcoded #e53935 (use var(--danger))[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mno hardcoded colors for themed values[2m > [22mdoes not use hardcoded #ff9800 (use var(--warning))[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mkeeps session library scale references defined in shared tokens[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrequires every production interaction to use shared motion tokens and helpers[33m 418[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: .card { transition: opacity 250ms; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: .card { animation-duration: .2s; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: .card { transition: opacity var(--motion-duration-fast) ease-in-out; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: element.style.transition = 'opacity 0.2s';[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: const style = { transitionDuration: '250ms' };[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: element.animate([], { duration: 250 });[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: .card { transition: all var(--motion-duration-fast); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mallows token-based transitions and sustained status motion[32m 0[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-navigation.test.ts[2m > [22mderives silent linked identity after first reply and restart without allocating again[32m 33[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-navigation.test.ts[2m > [22mkeeps pending/allocated failures independent and restores removed or discontinuous members[32m 21[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-navigation.test.ts[2m > [22mpreserves legacy associations, multiple memberships and corrupt older origin receipts[32m 19[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-navigation.test.ts[2m > [22mkeeps malformed historical joins independent and reports their retained identity safely[32m 20[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-navigation.test.ts[2m > [22mgroups async and synchronous search before the result limit and retains the match owner[32m 114[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-navigation.test.ts[2m > [22mkeeps source title-match ranking independent of unrelated conversation activity[32m 62[2mms[22m[39m
+ [32m✓[39m packages/protocol/__tests__/collaboration-navigation.test.ts[2m > [22mkeeps participant title-match ranking independent of unrelated conversation activity[32m 70[2mms[22m[39m
+ [32m✓[39m frontend/src/pages/__tests__/SessionListParticipantSearch.test.tsx[2m > [22mpreviews and opens the matching participant while retaining the desktop source row identity[32m 101[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/desktop-message-layout.test.ts[2m > [22mlets desktop responses use their pane and wraps long table summaries[32m 50[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/approved-designs.test.ts[2m > [22mretains approved design references, human evidence and runnable regression contracts[32m 14[2mms[22m[39m
+ [2m[90m↓[39m[22m frontend/src/styles/__tests__/approved-designs.test.ts[2m > [22mkeeps earlier approval revisions intact across the PR base
+ [32m✓[39m packages/client/src/__tests__/collaboration-source-setup.test.ts[2m > [22mreads actual source setup with cancellation and transport correlation only[32m 22[2mms[22m[39m
+ [32m✓[39m packages/client/src/__tests__/collaboration-source-setup.test.ts[2m > [22mrejects foreign or invented source-setup state[32m 1[2mms[22m[39m
+ [32m✓[39m packages/client/src/__tests__/collaboration-source-setup.test.ts[2m > [22mrejects foreign or invented source-setup state[32m 1[2mms[22m[39m
+ [32m✓[39m packages/client/src/__tests__/collaboration-source-setup.test.ts[2m > [22mrejects foreign or invented source-setup state[32m 0[2mms[22m[39m
+ [32m✓[39m packages/client/src/__tests__/collaboration-source-setup.test.ts[2m > [22mrejects foreign or invented source-setup state[32m 0[2mms[22m[39m
+ [32m✓[39m packages/client/src/__tests__/collaboration-source-setup.test.ts[2m > [22mrejects foreign or invented source-setup state[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/home-design.test.ts[2m > [22muses shared rhythm and touch-target tokens in the home, quote and nickname patterns[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts[2m > [22mtodo swipe hint occlusion[2m > [22mcovers swipe hints in .todo-card[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts[2m > [22mtodo swipe hint occlusion[2m > [22mcovers swipe hints in .todo-card:hover,
+.todo-card:focus-within[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts[2m > [22mtodo swipe hint occlusion[2m > [22mmatches the desktop Work page background in either theme[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts[2m > [22mtodo swipe hint occlusion[2m > [22mkeeps desktop hover and focus highlights opaque and within the Work palette[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/briefing-dialog.test.ts[2m > [22mcenters the native briefing dialog despite the global reset and stretches long account names[32m 1[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m12 passed[39m[22m[90m (12)[39m
+[2m      Tests [22m [1m[32m155 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (156)[39m
+[2m   Start at [22m 15:46:40
+[2m   Duration [22m 13.01s[2m (transform 1.51s, setup 0ms, import 3.12s, tests 6.98s, environment 1.77s)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

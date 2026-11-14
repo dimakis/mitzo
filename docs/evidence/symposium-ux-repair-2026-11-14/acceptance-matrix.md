@@ -1,19 +1,30 @@
 # Integrated ordinary-chat acceptance
 
-**Current review blocks approval.** Centaur review5905022505 at b93961fb7 is
-`human_decision`, with unresolved CEN-6CFB95D6132C (assignment/fork draft+queue
-transfer) and CEN-A5B18F62570B (native packet after50-message rollover).
-Independent stronger regressions reproduce both. See [follow-up](review-blockers-followup.md)
-and original `centaur-b939-*-red.log`; the earlier11/56 checkpoint below remains
-bounded evidence, not approval of these previously uncovered paths.
+**Combined approval remains blocked.** The last published-head Centaur review
+5905022505 at b93961fb7 is `human_decision`. Independent regressions reproduced
+CEN-6CFB95D6132C (assignment/fork draft+queue transfer) and CEN-A5B18F62570B
+(native packet after50-message rollover); both now pass locally after owner fix
+8dea integrated as1c41e18d6. Stronger authenticated search/Open acceptance then
+exposed a participant-history safety-gate stall, fixed by owner4ba082d54 and
+integrated asbb492a0b8. See [follow-up](review-blockers-followup.md), original
+red logs and the new local evidence below. These results need successor hosted
+CI and terminal exact-head review; the earlier11/56 checkpoint is historical.
 
 Independent slice 3; [draft PR #1355](https://github.com/dimakis/mitzo/pull/1355).
 Accepted main: `0ad803cdae56ed6e22c89273ae800d3e7aeb9706` (#1349);
 local merge `bb8680279` preserves both repair slices and source registry union.
 Verification branch: `test/symposium-integrated-acceptance`.
-Latest production integration: `8bd4b85b7e87815aa319ee8a54f22207e3eb2f7b`, owner
-original `c3b277cd25e090ae4b5574bcc21c1b567e4ce7b7` (icon-only ordinary composer
-and original usage-owner label), after both slices, desktop header and review repairs.
+Latest production integration: `bb492a0b867cfd58b2fbf37b5ec12e4ec6ac83e5`, owner
+original `4ba082d5412921fac0244015b6f46252cdad08d5`, after8dea review repairs
+and source2 matched-history/title-ranking integration01887f67c. Local source
+registry union is2,482/v1.0.1177. The corrected A journey passes4/4 at this source;
+the other12 unique focused checks passed in the preceding15/16 run, whose sole
+failure was the fixture expecting the shared-reply action to be a link rather
+than its actual button. Five transfer controls are actual client/portal checks;
+the remaining11 are authenticated application checks. Additional combined
+owner/design regressions pass155 with one existing skip. New hosted62-browser
+and16-mixed-check results are pending. Full b939 CI43604334027 failed in native
+repository object capture with unknown cause/effect, separately retained below.
 Latest fully passing focused checkpoint: `0c2b354f10193f948e8efbf4da1839c0131fecc3`,
 merge build `569f10f796967a85b2b67f8b95e5b7b9b1d0b2d9`, run `43602840514`:
 11 application checks and all 56 browser tests/probes pass. Accepted main is0ad803cda;
@@ -27,13 +38,20 @@ measurements. Trial clicks execute no audio or callbacks. Full CI and
 final exact-head Centaur review remain unqualified; no product/device blanket claim.
 
 `A` = `tests/integration/symposium-ordinary-acceptance.test.tsx`, SHA256
-`ba33900d45cf630d034b4a0fcefc156c4f72f85584f2f2ffbc0489a7d6ac9d2b`.
+`dcec4c1932c2810c5acba6b6e3a721513e653c92d14083eab0b02ad82e713d85`.
 It mounts actual ResponsiveChatView/store/shared host and authenticated
 router/preparation/admission/reply owners with real loopback SSE. Only external
 account/provider execution is deterministic. Local Node 24.10.0/Vitest source
 transpilation, `/chat/:sessionId`, responsive widths 320/390/1280; JSDOM proves no
 visual geometry. `icon-composer-8bd4b85b7-integrated.log` records 25 passes in
 four files, including the real 31-turn application journey and five omission controls. Counts from different checkpoints overlap and are not additive.
+
+| Stronger successor case                                                  | Observed result                  | Exact source / artifact and remaining gap                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------ | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exact assignment/fork transfer versus unrelated navigation               | PASS five client/portal controls | `tests/integration/symposium-composer-transfer.test.tsx`, SHA256 `c9bc99ceb3e17211bd03de2d1a771cb714ed78f2ad6608834300876ecb3f9cdc`; `transfer-1c41e18d6-green.log`. Exact parser/receipt, same textarea, draft/focus/selection and remaining queue, one dispatch; no authenticated backend/geometry claim. Original valid two receipt-first reds retained; bare foreign legacy-frame fixture assumption separately corrected.                                    |
+| Native packet rollover, frontend reopen, persisted application restart   | PASS all three phases            | A atbb492a0b8, `qualified-participant-bb492a0b8-green.log`; original b939 failures in `centaur-b939-rollover-red.log`. API display page stays50, authorized earlier events preserve exact canonical body/projection once and suppress exact native command row.                                                                                                                                                                                                   |
+| Authenticated grouped participant search, preview and Open after restart | PASS                             | A; actual SessionList, authenticated search/router/history, exact matched participant and server-proven `participant_history` relation. Native user-command rows absent for >25 retained turns, canonical body/projection once, source-only reply absent, one transcript/composer, Send disabled, explicit shared-conversation button restores source draft, zero post-restart dispatch. Original stall retained in `participant-history-open-1c41e18d6-red.log`. |
+| Final combined CI and review                                             | UNQUALIFIED                      | Published b939 review is human_decision; native full-CI failure has unknown cause/effect and no verified owner/fix. Successor checks/review pending. Source2 standalone7bdb CI/review success does not qualify this integration.                                                                                                                                                                                                                                  |
 
 | Case                                                                    | Observed result                                                                  | Exact source / artifact and remaining gap                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

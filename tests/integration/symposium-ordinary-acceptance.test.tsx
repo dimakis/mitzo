@@ -921,6 +921,50 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       },
       { timeout: 10000 },
     );
+    const participantRelation = await h.typedApi.collaborations.sourceSetup(recipient, h.clientId);
+    expect(participantRelation).toMatchObject({
+      state: 'participant_history',
+      sourceConversationId: recipient,
+      originalConversationId: source,
+      collaboration: { collaborationId: group },
+    });
+    const participantTranscript = mounted.ui.container.querySelector('.chat-messages')!;
+    expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
+    expect(screen.getAllByRole('textbox', { name: 'Message Mitzo' })).toHaveLength(1);
+    expect(screen.getAllByText(searchHistoryMarker, { exact: true })).toHaveLength(1);
+    expect(screen.getAllByText(acceptedFanout.text, { exact: true })).toHaveLength(1);
+    expect(
+      participantTranscript.querySelector(
+        `[data-command-request="${acceptedFanout.projectionId}"]`,
+      ),
+    ).not.toBeNull();
+    expect(participantTranscript.textContent).not.toContain(
+      'Live original ordinary source activity',
+    );
+    const participantNativeHistory = await h.typedApi.getSessionMessages(recipient);
+    expect(
+      participantNativeHistory.filter((message) => message.role === 'user').length,
+    ).toBeGreaterThan(25);
+    for (const message of participantNativeHistory.filter((entry) => entry.role === 'user')) {
+      if (message.messageId) {
+        expect(
+          participantTranscript.querySelector(`[data-command-request="${message.messageId}"]`),
+        ).toBeNull();
+      }
+    }
+    expect(send().disabled).toBe(true);
+    expect(runtime.requests).toHaveLength(0);
+    stage = 'participant_history_explicit_shared_reply_route';
+    fireEvent.click(screen.getByRole('button', { name: 'Open shared conversation', exact: true }));
+    await waitFor(() => expect(mounted.store.getState().sessions.active).toBe(source), {
+      timeout: 10000,
+    });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
+      ).toBe(uncertainDraft),
+    );
+    expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
     expect(runtime.requests).toHaveLength(0);
     console.info(
       'ORDINARY_ACCEPTANCE_COMPLETE',
@@ -940,6 +984,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
           'application_owner_restart',
           'one_chats_conversation_inspectable_participants',
           'desktop_grouped_search_exact_participant_history',
+          'participant_history_explicit_shared_reply_route',
         ],
         beforeRestartNativeTurns: 31,
         afterRestartNativeRequests: runtime.requests.length,

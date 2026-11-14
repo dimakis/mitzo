@@ -63,6 +63,29 @@ for a participant's history, with no qualified participant-history branch. A
 server-proven read relation and explicit route back to shared replies are being
 implemented by that owner; the acceptance gate is preserved.
 
+Owner successor4ba082d54 is integrated asbb492a0b8. The merge keeps source2's
+existing verified-begin `collaborationOrigin` helper and applies the new current
+membership, visible-origin and continuous linked-history guards to its exact
+result. Both SharedAgents hooks and every registry parent key are preserved;
+combined registry2,482/v1.0.1177 verifies. No raw-history bypass or reply authority
+was added by this integration.
+
+`qualified-participant-bb492a0b8-green.log` records the stronger A journey passing
+all4 checks (test SHA256dcec4c1932c2810c5acba6b6e3a721513e653c92d14083eab0b02ad82e713d85).
+After31 actual deterministic native turns and SQLite application-owner restart,
+real desktop search preview/Open proves the exact participant-history relation,
+canonical old prompt/projection once, suppression of all>25 retained native user
+command rows and exclusion of source-only output. The history has one transcript
+and composer, disabled Send and an explicit shared-conversation action returning
+to the source with its independent draft intact; post-restart native dispatch is0.
+The initial successor run passed15/16; its remaining assertion incorrectly used
+role=link for the actual button action. Only that role selector was corrected,
+then A passed4/4. All other12 unique checks passed unchanged. Five of the16 are
+client/portal integration;11 use authenticated application owners. Combined
+owner/design preflight additionally passes155 with one existing skip; package
+builds and selected source lint pass. These local results do not qualify the new
+browser bytes, complete CI, exact-head final review or a physical device.
+
 ## Separate terminal combined-CI failure
 
 Current published b939 full CI43604334027 is **FAILED**, job132476431194
