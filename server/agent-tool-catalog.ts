@@ -75,21 +75,22 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       source,
       required: tool.name === 'AskUserQuestion',
       behavior: builtinToolBehavior(tool.name),
-      routes:
-        tool.name === 'SymposiumConsult'
-          ? ['local-api', 'codex-owned-local', 'claude-sdk']
-          : source === 'Session learning'
+      routes: ['SymposiumConsult', 'SymposiumReadProfiles', 'SymposiumProposeProfile'].includes(
+        tool.name,
+      )
+        ? ['local-api', 'codex-owned-local', 'claude-sdk']
+        : source === 'Session learning'
+          ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
+          : tool.name === 'TelosCreateSession'
             ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
-            : tool.name === 'TelosCreateSession'
-              ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
-              : source === 'Agent communication' || source === 'History'
-                ? ['codex-owned-local', 'claude-sdk']
-                : source === 'Session automation'
-                  ? ['local-api', 'codex', 'codex-owned-local']
-                  : source === 'Google Workspace' ||
-                      source === 'Session creation' ||
-                      source === 'Local repositories'
-                    ? ['codex-owned-local']
+            : source === 'Agent communication' || source === 'History'
+              ? ['codex-owned-local', 'claude-sdk']
+              : source === 'Session automation'
+                ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
+                : source === 'Google Workspace'
+                  ? ['codex-owned-local', 'claude-sdk']
+                  : source === 'Session creation' || source === 'Local repositories'
+                    ? ['codex-owned-local', ...(tool.name === 'StartSession' ? ['claude-sdk'] : [])]
                     : source === 'Telos'
                       ? [
                           githubMainPublicationTool.name,
@@ -126,13 +127,19 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                                 'local-api',
                                 'codex',
                                 'codex-owned-local',
-                                ...(tool.name === 'AskUserQuestion' ? ['claude-sdk'] : []),
+                                ...(['AskUserQuestion', 'Bash', 'Read', 'Write', 'Edit'].includes(
+                                  tool.name,
+                                )
+                                  ? ['claude-sdk']
+                                  : []),
                               ]
                             : source === 'Connections' || source === 'Web'
                               ? [
                                   'local-api',
                                   'codex',
-                                  ...(tool.name === 'ListConnections' ? ['claude-sdk'] : []),
+                                  ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
+                                    ? ['claude-sdk']
+                                    : []),
                                   ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
                                     ? ['codex-owned-local']
                                     : []),
@@ -140,7 +147,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                               : ['local-api'],
       requirement:
         tool.name === 'GoogleWorkspaceRead'
-          ? 'Requires the configured controller Google sign-in, current Local Mac owner and exact one-use read approval. Credentials remain private; selection grants no service access.'
+          ? 'Requires the configured controller Google sign-in and current Local Mac owner. Auto reads freely; other modes require account-scoped consent. Credentials remain private; selection grants no service access.'
           : tool.name === githubMainPublicationTool.name
             ? 'Requires a current Telos lead or worker role, an explicitly selected native tool, separately configured account-bound merge capability and one-use operator approval.'
             : tool.name === 'TelosWorkControl'

@@ -9,6 +9,7 @@ import {
   createOwnedOrdinaryWorkspaceCommandRouter,
 } from './ordinary-local-codex-entry.js';
 import { operatorAuthMiddleware } from './auth.js';
+import { OWNED_LOCAL_CONTROL_ERROR } from './owned-local-codex-control.js';
 import { getPendingRequestsBySession } from './permissions.js';
 import {
   assertOrdinaryContributorControlAllowed,
@@ -481,7 +482,7 @@ export function createChatRestRouter(
     if (!msg) return;
     try {
       if (handleStopV2(connectionId, msg, ctx) === false) {
-        res.status(403).json({ ok: false, error: 'Owned local session belongs to another login' });
+        res.status(403).json({ ok: false, error: OWNED_LOCAL_CONTROL_ERROR });
         return;
       }
       res.json({ ok: true });

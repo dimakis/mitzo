@@ -25,7 +25,12 @@ export function createWebAccessSdkServer(
     call: { turnId: string; callId: string },
   ) => Promise<{ content: string; isError: boolean }>,
   runCallback: TurnCallbackRunner = (work) => work(),
+  checkTool?: (name: string) => 'allow' | 'deny',
 ): McpSdkServerConfigWithInstance {
+  const assertCommandTool = (name: string) => {
+    if (checkTool && checkTool(name) !== 'allow')
+      throw Error('Tool not allowed by the frozen command skill ceiling');
+  };
   const publishingRuntimeId = randomUUID();
   const instance = new McpServer({ name: 'mitzo-web-access', version: '1.0.0' });
   instance.registerTool(
@@ -35,9 +40,12 @@ export function createWebAccessSdkServer(
       inputSchema: WebAccessToolFields,
     },
     async (input, extra) => {
-      const result = await runCallback(() =>
-        execute(input, AbortSignal.any([sessionSignal, extra.signal])),
-      );
+      const result = await runCallback(async () => {
+        assertCommandTool(WEB_ACCESS_SDK_TOOL);
+        const result = await execute(input, AbortSignal.any([sessionSignal, extra.signal]));
+        assertCommandTool(WEB_ACCESS_SDK_TOOL);
+        return result;
+      });
       return { content: [{ type: 'text', text: result.content }], isError: result.isError };
     },
   );
@@ -46,12 +54,15 @@ export function createWebAccessSdkServer(
       REQUEST_GITHUB_PUBLISH,
       { description: githubPublishingDefinition.description, inputSchema: GithubPublishingFields },
       async (input, extra) => {
-        const result = await runCallback(() =>
-          publish(input, AbortSignal.any([sessionSignal, extra.signal]), {
+        const result = await runCallback(async () => {
+          assertCommandTool(GITHUB_PUBLISH_SDK_TOOL);
+          const result = await publish(input, AbortSignal.any([sessionSignal, extra.signal]), {
             turnId: `sdk:${publishingRuntimeId}`,
             callId: String(extra.requestId),
-          }),
-        );
+          });
+          assertCommandTool(GITHUB_PUBLISH_SDK_TOOL);
+          return result;
+        });
         return { content: [{ type: 'text', text: result.content }], isError: result.isError };
       },
     );

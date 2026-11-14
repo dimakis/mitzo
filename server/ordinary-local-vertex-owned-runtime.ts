@@ -7,6 +7,7 @@ import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { readOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { isDeepStrictEqual } from 'node:util';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import { z } from 'zod';
 import { LocalVertexClaudeFirstCommandSchema, type AccountBinding } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
@@ -20,6 +21,7 @@ import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import {
   OrdinaryLocalVertexTarget,
@@ -37,6 +39,10 @@ import {
   verifyClaudeSdkCredentials,
 } from './claude-sdk-credentials.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
+import {
+  ordinarySdkRetryCommandId,
+  readOwnedVertexRetrySource,
+} from './ordinary-local-vertex-queue.js';
 
 const Payload = LocalVertexClaudeFirstCommandSchema.shape.payload;
 export interface OrdinaryLocalVertexOwnedDispatch {
@@ -51,6 +57,7 @@ export interface OrdinaryLocalVertexOwnedDispatch {
   /** Cold recovery whose complete execution history proves no SDK input ran. */
   startWithoutHistory?: boolean;
   preparationSignal?: AbortSignal;
+  sdkRetrySourceCommandId?: string;
 }
 interface Owners {
   enabled: boolean;
@@ -80,6 +87,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       expected: OrdinaryLocalCodexAdmissionExpectation;
       selection: OrdinaryLocalCodexSelectionOwner;
       payload: OrdinaryLocalVertexOwnedDispatch['payload'];
+      sdkRetrySourceCommandId?: string;
     }
   >();
   #closed = false;
@@ -116,10 +124,18 @@ export class OrdinaryLocalVertexOwnedRuntime {
     this.#operator.release();
   }
   private assertOwner() {
-    if (this.#closed) throw unavailable();
-    this.#signal.throwIfAborted();
-    this.#operator.assertCurrent();
-    this.#target.assertCurrentSync();
+    let check = 'owner.closed';
+    try {
+      if (this.#closed) throw unavailable();
+      check = 'owner.signal';
+      this.#signal.throwIfAborted();
+      check = 'owner.operator';
+      this.#operator.assertCurrent();
+      check = 'owner.target';
+      this.#target.assertCurrentSync();
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
+    }
   }
   environment() {
     const profiles = loadAccountProfiles();
@@ -157,12 +173,31 @@ export class OrdinaryLocalVertexOwnedRuntime {
   /** Idle custody remains current without revalidating a completed inference setting. */
   assertIdleSync(commandId: string) {
     this.assertOwner();
-    const command = this.#commands.get(commandId);
-    const receipt = this.owners.eventStore.getOrdinaryLocalVertexCommandAdmission(commandId);
-    if (!command || !receipt || !['uncertain', 'consumed'].includes(receipt.state))
-      throw unavailable();
-    command.selection.assertCurrentSync(command.expected);
-    this.credentialAuthority();
+    let check = 'owner.command_receipt';
+    try {
+      const command = this.#commands.get(commandId);
+      const receipt = this.owners.eventStore.getOrdinaryLocalVertexCommandAdmission(commandId);
+      if (!command || !receipt || !['uncertain', 'consumed'].includes(receipt.state))
+        throw unavailable();
+      if (
+        command.sdkRetrySourceCommandId &&
+        !readOwnedVertexRetrySource(
+          this.owners.eventStore,
+          this.owners.reservation.conversationId,
+          command.sdkRetrySourceCommandId,
+          !!this.owners.eventStore.getExecutionAdmission(
+            this.owners.reservation.conversationId,
+            commandId,
+          ),
+        )
+      )
+        throw unavailable();
+      command.selection.assertCurrentSync(command.expected);
+      check = 'owner.credentials';
+      this.credentialAuthority();
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
+    }
   }
   async assertIdle(commandId: string) {
     this.assertIdleSync(commandId);
@@ -173,11 +208,15 @@ export class OrdinaryLocalVertexOwnedRuntime {
   assertStart(commandId: string) {
     this.assertIdleSync(commandId);
     const command = this.#commands.get(commandId)!;
-    loadAccountProfiles().validateModelSelection(
-      this.owners.reservation.binding,
-      command.expected.selection.model,
-      command.expected.selection.thinking,
-    );
+    try {
+      loadAccountProfiles().validateModelSelection(
+        this.owners.reservation.binding,
+        command.expected.selection.model,
+        command.expected.selection.thinking,
+      );
+    } catch (error) {
+      throw annotateAuthorityFailure(error, 'owner.model_selection');
+    }
     this.#active = commandId;
   }
   async assertEffect(commandId: string) {
@@ -258,15 +297,23 @@ export class OrdinaryLocalVertexOwnedRuntime {
   admit(input: unknown) {
     return this.admitCommand(input, false, false);
   }
-  admitResume(input: unknown) {
-    return this.admitCommand(input, true, true);
+  admitResume(input: unknown, sdkRetrySourceCommandId?: string) {
+    return this.admitCommand(input, true, true, undefined, undefined, sdkRetrySourceCommandId);
   }
   admitContinuation(
     input: unknown,
     preparationSignal?: AbortSignal,
     assertSenderCurrent?: () => void,
+    sdkRetrySourceCommandId?: string,
   ) {
-    return this.admitCommand(input, true, false, preparationSignal, assertSenderCurrent);
+    return this.admitCommand(
+      input,
+      true,
+      false,
+      preparationSignal,
+      assertSenderCurrent,
+      sdkRetrySourceCommandId,
+    );
   }
   private async admitCommand(
     raw: unknown,
@@ -274,21 +321,43 @@ export class OrdinaryLocalVertexOwnedRuntime {
     resume: boolean,
     preparationSignal?: AbortSignal,
     assertSenderCurrent?: () => void,
+    sdkRetrySourceCommandId?: string,
   ): Promise<{ dispatched: boolean }> {
     const assertAdmissionCurrent = () => {
       preparationSignal?.throwIfAborted();
       assertSenderCurrent?.();
       this.assertOwner();
+      if (
+        sdkRetrySourceCommandId &&
+        !readOwnedVertexRetrySource(
+          this.owners.eventStore,
+          this.owners.reservation.conversationId,
+          sdkRetrySourceCommandId,
+        )
+      )
+        throw unavailable();
     };
     assertAdmissionCurrent();
     await verifyClaudeSdkCredentials(this.credentialAuthority(), this.environment(), this.#signal);
     assertAdmissionCurrent();
     const request = OrdinaryLocalVertexCommandRequestSchema.parse(raw);
+    if (
+      sdkRetrySourceCommandId &&
+      (!continuation || request.clientMsgId !== ordinarySdkRetryCommandId(sdkRetrySourceCommandId))
+    )
+      throw unavailable();
     if ((!continuation || resume) && request.clientMsgId !== this.owners.commandId)
       throw unavailable();
     if (continuation && !resume && (!this.#initialized || !this.owners.dispatchContinuation))
       throw unavailable();
     const payload = Payload.parse(request.payload);
+    if (sdkRetrySourceCommandId) {
+      const original = {
+        ...this.owners.eventStore.getSendCommand(sdkRetrySourceCommandId)!.payload,
+      };
+      delete original.systemPrompt;
+      if (!isDeepStrictEqual(payload, original)) throw unavailable();
+    }
     assembleCommandPrompt(
       this.owners.eventStore,
       this.owners.reservation.conversationId,
@@ -324,7 +393,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       if (
         !hasPersistentRevocationAuthority() ||
         !custody ||
-        custody.authSessionId !== this.authSessionId ||
+        !ordinaryOperatorOwnsConversation(custody.authSessionId, this.authSessionId) ||
         !isDeepStrictEqual(
           custody.binding,
           this.owners.eventStore.getSessionRuntimeBinding(this.owners.reservation.conversationId),
@@ -406,8 +475,12 @@ export class OrdinaryLocalVertexOwnedRuntime {
           : undefined,
       ),
       events = this.owners.eventStore;
-    const preparedSkill =
-      descriptor.state === 'reserved'
+    const preparedSkill = sdkRetrySourceCommandId
+      ? this.owners.eventStore.getOrdinarySkillContext(
+          this.owners.reservation.conversationId,
+          sdkRetrySourceCommandId,
+        )
+      : descriptor.state === 'reserved'
         ? await prepareOrdinarySkillCommand(this.owners.workspace, this.owners.reservation, {
             store: events,
             id: request.clientMsgId,
@@ -516,6 +589,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
           expected: structuredClone(expected),
           selection: selected,
           payload: structuredClone(frozenPayload),
+          ...(sdkRetrySourceCommandId ? { sdkRetrySourceCommandId } : {}),
         });
         await (continuation && !resume ? this.owners.dispatchContinuation! : this.owners.dispatch)({
           owner: this,
@@ -528,6 +602,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
           resume,
           ...(startWithoutHistory ? { startWithoutHistory: true } : {}),
           preparationSignal,
+          ...(sdkRetrySourceCommandId ? { sdkRetrySourceCommandId } : {}),
         });
         assertAdmissionCurrent();
       },

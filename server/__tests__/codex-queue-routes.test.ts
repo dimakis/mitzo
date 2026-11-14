@@ -106,6 +106,29 @@ it('passes explicit ambiguous-retry confirmation to the runtime', async () => {
     .expect(200);
   expect(retry).toHaveBeenCalledWith('known', binding, true);
 });
+it('passes only the displayed retry source and middleware authorization to its owner', async () => {
+  const { app, retry, auth } = setup();
+  await request(app)
+    .post('/api/sessions/known/codex-queue/retry')
+    .set('X-Test-Verified', '1')
+    .send({
+      sourceCommandId: 'original-failed-turn',
+      confirmAmbiguous: true,
+      authorization: { id: 'forged' },
+    })
+    .expect(200);
+  expect(retry).toHaveBeenCalledWith('known', binding, true, {
+    sourceCommandId: 'original-failed-turn',
+    authorization: auth,
+  });
+  retry.mockClear();
+  await request(app)
+    .post('/api/sessions/known/codex-queue/retry')
+    .send({ sourceCommandId: 'invalid source' })
+    .expect(400);
+  expect(retry).not.toHaveBeenCalled();
+});
+
 it.each([
   ['ready', 200],
   ['reattaching', 202],

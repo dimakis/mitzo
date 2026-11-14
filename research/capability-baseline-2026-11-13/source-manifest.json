@@ -1,0 +1,186 @@
+{
+  "asOf": "2026-11-13",
+  "sourceBaseline": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+  "files": [
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "package.json",
+      "blob": "f6fd8dc852f03714e7ffb070c186ff35ffcd4c93",
+      "sha256": "423b02ded2c097cc983353b10aaa37784f2c861b8eb41d26d60c16459e44ccfa"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "package-lock.json",
+      "blob": "3d21e64fb77b770f194151a68d4084a4c94b9514",
+      "sha256": "ccca6e1e72ab39971aced83fc12bb81252dd3a298fa15fb77c6d722ab03ac8ca"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "packages/harness/src/permission-handler.ts",
+      "blob": "e571743474dcbafc0c80120745b9f496cf0175cf",
+      "sha256": "cca664e0e6b1d8adc98d8f438902894e55034f6a64a9711bfc445d0270dd4585"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "packages/harness/src/permission-notification-owner.ts",
+      "blob": "a8ce3c6f83df833111a424fd88512a8c0ad2e400",
+      "sha256": "b869a16bac88df5be85d25183d7027c70592531d8e1b87a491755791e39c8484"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "packages/harness/src/tool-tiers.ts",
+      "blob": "2c64a9c41d511946d1f861c96e318e72307d0f90",
+      "sha256": "03e9e7036f3e5d935211879f53a7c222aa6e8f8a298fa92f3e90fc850230d884"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/notification-center.ts",
+      "blob": "6ce6fe67b2273e136ae6af940d35f17563a30bd0",
+      "sha256": "e3491d89cd8f47f2cfd9186868e590f9d6561f0e4f7ef160dac70253bfe74f62"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/notification-store.ts",
+      "blob": "59d06a810d8d68d7fca447df58deb260d59074f9",
+      "sha256": "fc3e426859ecd298d351bae466b37952ce64b47f833d05dbbcda5cb1a639c7fc"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/query-loop.ts",
+      "blob": "0e4f7e81e103a10f9457133402ccce7ced091af4",
+      "sha256": "cc9afe15804033272f0bf8669005590606fd8b5c5fa2993584def8767924ca76"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/codex-native-approvals.ts",
+      "blob": "6842117f6a1da6a8dab15ea0b67cc82b5142440e",
+      "sha256": "17e07fa76cd116a582528dbbade53d65bf3b361e2503be4dba4cc3f1d9fd921e"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/task-execution-tools.ts",
+      "blob": "b9792abe861c922304b1f8cf820528c3f009e612",
+      "sha256": "6f3a9e4084c4cfbbe5aabb0931dc40dd3a42f19deb919436b6b851d8c65ae86c"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/task-execution-operation.ts",
+      "blob": "cb2545af952c8ea4792873451fa950db703012f0",
+      "sha256": "d32f0d4d6bfbcd3fa1adddfcb34b5818c103e359a1aaa923f4c8d24dc36a1d86"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/task-execution-runtime.ts",
+      "blob": "24d149696452486f0137f26a9d23bcee65e57275",
+      "sha256": "3d8027c88f7348490683c3fc500625cbe53c9d1e470e40a074f6d90df431351c"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/task-execution-store.ts",
+      "blob": "cbec97888d35e778516451ae1137fab993421dcd",
+      "sha256": "8f5e8ebf802529e3af7332a919d7e2bc8709742141943e537215cbd6fe7e377a"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/credential-sdk-tools.ts",
+      "blob": "1de41ff2306871c681d21d01fadbb5bc51274ffa",
+      "sha256": "a7dfaf1ef5bd9c6a80b77c86592e40c9085132625323a98caed5e5621c40f7f5"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/agent-tool-catalog.ts",
+      "blob": "f4cbc6c159c7831d21d908bfd1991789c4e5f1cf",
+      "sha256": "2ef8b222171d2a8792be31a4d6bdcdc825500e7cfaa09ee466be77a37dd4e51e"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/agent-tool-selection.ts",
+      "blob": "0a553a4c32ee0daef40ce9b75b619fb60481734b",
+      "sha256": "dea75b897b44f8b2bcf3fa6d447a527ca5e353f545916242db3de58efb923a7f"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/ordinary-session-runtime.ts",
+      "blob": "45c4eb3b22cdf32327c25ed216c24c4d2b9476cb",
+      "sha256": "188b9ab57294d53b4c4a35d2ea1bbe4c1ebcc336ed6f11e891d46e15b3c3a26f"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/claude-personal-policy.ts",
+      "blob": "c80a2b1b0393a79cfcc4da9af97b2b3dbe37e01a",
+      "sha256": "ed6ebb0c4ff8c922297cd02098a3d781e84a5b0d0cd01a51565db4a2755dc7d4"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/chat.ts",
+      "blob": "c95a4fdf738f0f58ade8565e7dc01ee129b682f7",
+      "sha256": "9d565e9ca5e88182a9dc4627beb45b8d0ebce699ff80757061c1b434a8da8d9d"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/__tests__/notification-approval-lifecycle.test.ts",
+      "blob": "0cf3274f542a3e5100c6f279d7efcffdd6f9448d",
+      "sha256": "5a8d894c38a7e13c99b94167650b9433e5eb4d02d70e5114097800768977ebaa"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/__tests__/task-execution-log-consumer.test.ts",
+      "blob": "fcba19f785f9c656df98da1404d7194ab2fd22f0",
+      "sha256": "54fffa910c247500fe5bed9f71075ac4cc9334ed5f2375ed36c96e5e892b92c5"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "server/__tests__/notification-center.test.ts",
+      "blob": "261cd8fdfdc5819506e1277d854a8efeed7b309f",
+      "sha256": "ff5627352ea837237c19ae7a37779b8c60be1b887da6f64871ecd29ba7585b15"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "docs/features/approval-notification-churn.md",
+      "blob": "644c0a1ff533792251dfd9bc02d2571777fbc949",
+      "sha256": "0b22c8986da99e7823f3765f190220923713eb4a49cedbba00f8fa4fbad379b7"
+    },
+    {
+      "commit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+      "path": "docs/features/task-execution-authorization.md",
+      "blob": "3789df93486863020606b0a5f40f699725e7e14f",
+      "sha256": "7a0556e78a83a9b823aab2ad9bb9d9131e2be2e520a09864b320547242fc9d5e"
+    },
+    {
+      "commit": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "path": "docs/features/session-capability-visibility.md",
+      "blob": "b3e624b51da507a6ce006d007fb25671767e074c",
+      "sha256": "5f0ec8286f43cf3826335846a53c8ebf21e618460f6931b1ddf96d7b78fb9d7c"
+    },
+    {
+      "commit": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "path": "server/credential-sdk-tools.ts",
+      "blob": "f99d678a21c0995accc17618e117421802b97345",
+      "sha256": "71fc913c9fa3301273d651012e267a98ccd06910b68f41d04b6f9502b997de78"
+    },
+    {
+      "commit": "76ee005ae9629a20fc0cc6fdbc6c9f8cc0c9ab85",
+      "path": "docs/features/claude-task-execution.md",
+      "blob": "8af6e975571651abe585bbaca0208bc5c661b7df",
+      "sha256": "5e0dd1156df0751d4b27be10749a576879a85021572af26f314deca57b94ee54"
+    },
+    {
+      "commit": "76ee005ae9629a20fc0cc6fdbc6c9f8cc0c9ab85",
+      "path": "server/__tests__/ordinary-claude-task-execution.test.ts",
+      "blob": "e69b138d0cd5f4534ab830c9d01569698c5e8c26",
+      "sha256": "3fd1f83d96bf4b830a5baa9b3fdcd3c6517c62cf03928558558982ecbcfce669"
+    },
+    {
+      "commit": "76ee005ae9629a20fc0cc6fdbc6c9f8cc0c9ab85",
+      "path": "server/chat.ts",
+      "blob": "52d4481312dc48fad536a6297333cf2740ddd3bd",
+      "sha256": "73c9a42127ac76c4ed26ac93ef022acfd85612a8767b2eefa876b0b05186dfb5"
+    },
+    {
+      "commit": "76ee005ae9629a20fc0cc6fdbc6c9f8cc0c9ab85",
+      "path": "server/credential-sdk-tools.ts",
+      "blob": "946c4d5c3f533305456c438f10d47d405da729ad",
+      "sha256": "c19a0b6f861c6fe6f66e46083fe6f063642d3f51ad4e5bc96708f7d0760a9ff8"
+    }
+  ]
+}

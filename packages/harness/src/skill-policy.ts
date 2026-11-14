@@ -1,5 +1,17 @@
 import type { SessionRegistry } from './session-registry.js';
 
+// These routes cannot propagate and revalidate the caller's tool ceiling in
+// independently executing workers. An explicit entry cannot qualify that route.
+const unsupportedDelegation = new Set([
+  'Agent',
+  'Task',
+  'StartSession',
+  'TelosCreateSession',
+  'mcp__mitzo-connections__StartSession',
+  'mcp__mitzo-connections__TelosCreateSession',
+  'mcp__telos__TelosCreateSession',
+]);
+
 /**
  * Set the active skill tool restriction for a session.
  * Only restricts — never expands beyond the mode's allowed tools.
@@ -41,8 +53,17 @@ export function checkSkillPolicy(
   const session = registry.get(clientId);
   if (!session) return 'allow';
 
-  const policy = session.activeSkillPolicy;
+  return checkSkillTool(session.activeSkillPolicy, toolName);
+}
+
+/** The same ceiling semantics for a frozen command snapshot and legacy sessions. */
+export function checkSkillTool(
+  policy: ReadonlySet<string> | null | undefined,
+  toolName: string,
+): 'allow' | 'deny' {
   if (!policy) return 'allow';
+
+  if (unsupportedDelegation.has(toolName)) return 'deny';
 
   return policy.has(toolName) ? 'allow' : 'deny';
 }

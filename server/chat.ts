@@ -4,6 +4,8 @@ import {
 } from './ordinary-sdk-helper-registration.js';
 import { createTelosSdkServer, telosSdkPermission } from './telos-sdk-tools.js';
 import { telosBacklogInstructions } from './telos-backlog-tools.js';
+import { createSdkToolLibrary } from './tool-library-sdk.js';
+import { CONNECTION_ACCESS_INSTRUCTIONS } from './session-connection-tools.js';
 import {
   reconcilableLocalCodexCommand,
   retainedLocalCodexRecoveryReservation,
@@ -66,6 +68,7 @@ import { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
 import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { registerAgentMessageRuntime, steerNativeAgentMessage } from './agent-message-runtime.js';
 import { PEER_MESSAGE_INSTRUCTIONS } from './peer-message-instructions.js';
+import { TASK_EXECUTION_INSTRUCTIONS } from './task-execution-definitions.js';
 import { sessionAgentCommunicationTools } from './agent-communication-tools.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { getOrdinarySessionPromptPort } from './session-prompt-runtime.js';
@@ -225,14 +228,19 @@ import type {
 } from '@mitzo/harness';
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import { isGitDirectory, readWorkspaceBranch, readSshAuthSock } from './chat-metadata.js';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'fs';
 import { join, resolve, dirname, isAbsolute } from 'path';
 import { access, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'url';
 import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { createHash, randomUUID } from 'crypto';
 import { homedir } from 'os';
-import { createWorktreeAsync, symlinkRuntimeDirs, discoverSessionWorktrees } from './worktree.js';
+import {
+  createWorktreeAsync,
+  fetchWorktreeBase,
+  symlinkRuntimeDirs,
+  discoverSessionWorktrees,
+} from './worktree.js';
 import type { OnDemandCreateFn } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -248,6 +256,7 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { setSkillPolicy } from './skill-policy.js';
+import { assertSkillRuntimeSupport } from './skill-runtime-support.js';
 import {
   runQueryLoop,
   retainQueryFinalization,
@@ -439,6 +448,11 @@ import {
 } from './session-index.js';
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
+import {
+  annotateAuthorityFailure,
+  recordRuntimeFailure,
+  runtimeFailureDiagnostics,
+} from './runtime-failure-diagnostics.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
@@ -958,8 +972,18 @@ function buildMcpAllowedTools(clientId?: string): string[] {
  * Build an on-demand worktree creation callback for the permission handler.
  * Maps an absolute path to a configured repo and creates a worktree if needed.
  */
-function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
-  return async (absolutePath: string) => {
+function buildOnDemandCreate(
+  wtId: string,
+  clientId: string,
+  sdkAuthority?: OrdinaryLocalVertexSdkAuthority,
+): OnDemandCreateFn {
+  return async (absolutePath: string, signal?: AbortSignal) => {
+    const current = async () => {
+      signal?.throwIfAborted();
+      if (sdkAuthority) await sdkAuthority.assertCurrent(signal ?? new AbortController().signal);
+      signal?.throwIfAborted();
+    };
+    await current();
     const config = getRepoConfig();
     const allRepos: [string, string][] = [];
     if (BASE_REPO) allRepos.push(['primary', BASE_REPO]);
@@ -969,8 +993,39 @@ function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
     for (const [name, repoPath] of allRepos) {
       if (!absolutePath.startsWith(repoPath + '/') && absolutePath !== repoPath) continue;
       try {
-        const worktreePath = await createWorktreeAsync(wtId, repoPath);
+        if (
+          sdkAuthority &&
+          (name === 'primary' ||
+            registry.get(clientId)?.worktreePaths.has(name) ||
+            (BASE_REPO && realpathSync(repoPath) === realpathSync(BASE_REPO)))
+        )
+          continue;
         const sessionId = registry.get(clientId)?.sessionId;
+        const expectedPath = join(repoPath, '.claude', 'worktrees', wtId);
+        const completedPath =
+          sdkAuthority && sessionId ? eventStore.getLatestWorktreePath(sessionId, name) : null;
+        if (
+          sdkAuthority &&
+          (!sessionId || (completedPath !== null && completedPath !== expectedPath))
+        )
+          throw Error('Original secondary worktree completion is unavailable or changed');
+        const startPoint = sdkAuthority ? await fetchWorktreeBase(repoPath, signal) : undefined;
+        await current();
+        const worktreePath = await createWorktreeAsync(wtId, repoPath, {
+          abortSignal: signal,
+          ...(sdkAuthority
+            ? {
+                startPoint,
+                safeLocalPreparation: true,
+                safeLocalBeforeEffect: current,
+                // Completion authorizes reopening only. Never recreate a missing
+                // checkout under historical evidence, or adopt an initial partial one.
+                safeLocalRequireNew: completedPath === null,
+                safeLocalRequireExisting: completedPath !== null,
+              }
+            : {}),
+        });
+        await current();
         if (sessionId) {
           eventStore.append(sessionId, 'worktree_opened', {
             v: 2,
@@ -1339,6 +1394,7 @@ export async function startChat(
     reattachOnly?: boolean;
     /** Sealed backend-owned SDK authority; never read from a client request. */
     ordinarySdkAuthority?: OrdinaryLocalVertexSdkAuthority;
+    ordinarySdkRetrySourceCommandId?: string;
     ordinarySdkCommandOwner?: (
       query: Query,
       push: (
@@ -1383,6 +1439,7 @@ export async function startChat(
       ? nativeStartupSessionId(initialMessageId)
       : undefined;
   try {
+    assertSkillRuntimeSupport(options.skillAllowedTools);
     const retainedBinding = options.resume
       ? eventStore.getSession(options.resume)?.accountBinding
       : undefined;
@@ -1460,7 +1517,7 @@ export async function startChat(
       'chat.resume': options.resume ?? '',
       'chat.mode': options.mode ?? 'agent',
     },
-    async () => {
+    async (span) => {
       if (options.resume && !eventStore.getSession(options.resume))
         throw new Error('Conversation is not registered. Import external history before resuming.');
       const startupSessionId = options.resume ?? options.initialSessionId;
@@ -1477,7 +1534,19 @@ export async function startChat(
         releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
           [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
         );
-      return _startChatInner(transport, clientId, prompt, options, startupGuard);
+      return _startChatInner(
+        transport,
+        clientId,
+        prompt,
+        {
+          ...options,
+          onTerminalOutcome(error) {
+            if (error) recordRuntimeFailure(span, error);
+            options.onTerminalOutcome?.(error);
+          },
+        },
+        startupGuard,
+      );
     },
   )
     .catch((error: unknown) => {
@@ -1543,6 +1612,7 @@ async function _startChatInner(
     reattachOnly?: boolean;
     /** Sealed backend-owned SDK authority; never read from a client request. */
     ordinarySdkAuthority?: OrdinaryLocalVertexSdkAuthority;
+    ordinarySdkRetrySourceCommandId?: string;
     ordinarySdkCommandOwner?: (
       query: Query,
       push: (
@@ -2101,7 +2171,9 @@ async function _startChatInner(
 
   abortController.signal.throwIfAborted();
   // Generate session-scoped worktree ID and create worktrees in all repos
-  const wtId = generateWtId();
+  // SDK secondary worktrees belong to the retained SDK conversation. A cold
+  // query must reopen those same branches, including their unfinished commits.
+  const wtId = options.ordinarySdkAuthority?.sdkSessionId() ?? generateWtId();
   let sessionWorktrees: Awaited<ReturnType<typeof createSessionWorktrees>>;
   try {
     // Keep an already accepted chat routable before its first metadata await.
@@ -2798,7 +2870,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     } else {
       const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
-          onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
+          onDemandCreate:
+            repositoryWorkspace && !options.ordinarySdkAuthority
+              ? undefined
+              : buildOnDemandCreate(wtId, clientId, options.ordinarySdkAuthority),
           ...(options.ordinarySdkAuthority
             ? {
                 assertCurrentSync: () =>
@@ -2807,8 +2882,21 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             : {}),
         }),
       );
+      const sdkToolLibrary = options.ordinarySdkAuthority
+        ? await createSdkToolLibrary({
+            sessionId: session.sessionId!,
+            session,
+            registry,
+            refs: agentProfile?.definition.tools,
+            defaultMcpServers: mcpServers,
+            cwd,
+            env: nativeExecutionEnv(),
+            assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
+            assertCurrentSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
+          })
+        : undefined;
       const sdkAgentCommunication = options.ordinarySdkAuthority
-        ? () =>
+        ? (assertToolCurrent?: () => void) =>
             sessionAgentCommunicationTools({
               toolName: 'mcp__mitzo-connections__AgentCommunication',
               events: eventStore,
@@ -2816,17 +2904,26 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               registry,
               session,
               conversationId: session.sessionId!,
-              assertRuntimeCurrent: () =>
-                options.ordinarySdkAuthority!.assertCurrent(abortController.signal),
-              assertRuntimeCurrentSync: () =>
-                options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+              assertRuntimeCurrent: async () => {
+                assertToolCurrent?.();
+                await options.ordinarySdkAuthority!.assertCurrent(abortController.signal);
+                assertToolCurrent?.();
+              },
+              assertRuntimeCurrentSync: () => {
+                assertToolCurrent?.();
+                options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal);
+                assertToolCurrent?.();
+              },
               approve: createAgentMessageApprover({
                 toolName: 'mcp__mitzo-connections__AgentCommunication',
                 events: eventStore,
                 registry,
                 conversationId: session.sessionId!,
-                assertCurrent: () =>
-                  options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+                assertCurrent: () => {
+                  assertToolCurrent?.();
+                  options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal);
+                  assertToolCurrent?.();
+                },
               }),
               startQueued: async (recipient) => {
                 const runtime = getCodexRuntime(recipient);
@@ -2842,7 +2939,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const sdkTelos = (
         state?: Pick<
           import('./ordinary-local-vertex-sdk-query.js').SdkCallbackState,
-          'retired' | 'completing' | 'runCallback'
+          'retired' | 'completing' | 'runCallback' | 'checkTool'
         >,
       ) =>
         createTelosSdkServer({
@@ -2850,6 +2947,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           registry,
           events: eventStore,
           runCallback: state?.runCallback,
+          checkTool: state && ((name) => state.checkTool(name)),
           assertCurrentSync: (signal) => {
             if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
             options.ordinarySdkAuthority!.assertCurrentSync(signal);
@@ -2884,13 +2982,19 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         beforeRefusal?: (cause: unknown) => never,
       ) => {
         const joined = AbortSignal.any([abortController.signal, signal]);
+        let check = 'sdk.adviser';
         try {
           options.adviserScope?.assertCurrent();
+          check = 'sdk.signal';
           joined.throwIfAborted();
+          check = 'sdk.context';
           await prepareAgentContext?.(joined);
+          check = 'sdk.authority';
           await options.ordinarySdkAuthority?.assertCurrent(joined);
+          check = 'sdk.signal';
           joined.throwIfAborted();
         } catch (error) {
+          const failure = annotateAuthorityFailure(error, check);
           // SDK hook failures can be recoverable diagnostics. Abort the owning
           // provider process too, so a denied continuation cannot be retried.
           if (packBoundSdk && !sdkHookLifetime.retired(signal)) {
@@ -2898,12 +3002,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               // An input owner must retain its actionable refusal while the
               // original viewer is still attached. Explicit cancellation has
               // already selected its outcome and must not become a refusal.
-              if (!joined.aborted) beforeRefusal?.(error);
+              if (!joined.aborted) beforeRefusal?.(failure);
             } finally {
-              abortController.abort(new Error(contextStopReason, { cause: error }));
+              abortController.abort(new Error(contextStopReason, { cause: failure }));
             }
           }
-          throw error;
+          throw failure;
         }
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
@@ -2928,6 +3032,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             message: 'This helper is unavailable for the selected conversation route.',
           };
         try {
+          // The published MCP/API owners perform the canonical operation approval.
+          if (sdkToolLibrary?.handles(name) && !opts.forcePrompt)
+            return { behavior: 'allow', updatedInput: input };
           const keychain =
             (options.ordinarySdkAuthority &&
               telosSdkPermission(name, input, clientId, registry, session)) ||
@@ -3024,13 +3131,20 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         retired: boolean;
         completing: boolean;
         runCallback: TurnCallbackRunner;
+        checkTool(name: string): 'allow' | 'deny';
       }) => {
+        const assertWebTool = () => {
+          if (state && state.checkTool(WEB_ACCESS_SDK_TOOL) !== 'allow')
+            throw Error('Tool not allowed by the frozen command skill ceiling');
+        };
         const assertWebCurrent = async () => {
+          assertWebTool();
           assertTurnCallbackEffects();
           if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
           await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
           assertTurnCallbackEffects();
           if (state?.retired || state?.completing) throw Error('Completed SDK query retired');
+          assertWebTool();
         };
         return createWebAccessSdkServer(
           createWebAccessTool(
@@ -3047,6 +3161,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                   ? {
                       assertCurrent: assertWebCurrent,
                       assertCurrentSync: (signal) => {
+                        assertWebTool();
                         if (state?.retired || state?.completing)
                           throw Error('Completed SDK query retired');
                         options.ordinarySdkAuthority!.assertCurrentSync(signal);
@@ -3061,6 +3176,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           abortController.signal,
           options.ordinarySdkAuthority ? undefined : githubPublishing,
           state?.runCallback,
+          state && ((name) => state.checkTool(name)),
         );
       };
       const webAccess = createSdkWebAccess();
@@ -3094,13 +3210,30 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               currentSystemPromptAppend() +
               WEB_ACCESS_INSTRUCTIONS +
               (options.ordinarySdkAuthority
-                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + sdkInformationInstructions(session) + '\n'
+                ? (agentToolAllowed(session, 'mcp__mitzo-connections__TaskExecution')
+                    ? TASK_EXECUTION_INSTRUCTIONS
+                    : '') +
+                  '\n' +
+                  PEER_MESSAGE_INSTRUCTIONS +
+                  sdkInformationInstructions(session) +
+                  '\n' +
+                  (agentToolAllowed(session, 'ListConnections')
+                    ? CONNECTION_ACCESS_INSTRUCTIONS
+                    : '') +
+                  (agentToolAllowed(session, 'GoogleWorkspaceRead')
+                    ? '\nUse GoogleWorkspaceRead for Drive, Docs, Sheets, Slides and Calendar reads through the existing Google sign-in.\n'
+                    : '')
                 : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
           };
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
-          ? [...ordinarySdkConnectionHelperTools, ...ordinarySdkTelosTools, WEB_ACCESS_SDK_TOOL]
+          ? [
+              ...ordinarySdkConnectionHelperTools,
+              ...ordinarySdkTelosTools,
+              WEB_ACCESS_SDK_TOOL,
+              ...(sdkToolLibrary?.allowedTools ?? []),
+            ]
           : [
               ...(sdkCredentialIsolation ? [] : mcpAllowed),
               ...extraTools,
@@ -3122,6 +3255,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           ? {
               'mitzo-connections': connectionServer,
               'mitzo-web-access': webAccess,
+              ...(sdkToolLibrary
+                ? {
+                    'mitzo-tool-library': sdkToolLibrary.createServer(options.ordinarySdkAuthority),
+                  }
+                : {}),
               telos: sdkTelos(),
             }
           : {
@@ -3177,6 +3315,26 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           },
           peerMessages: () => sdkPeerMessages,
           mcpServers: (state) => ({
+            ...(sdkToolLibrary
+              ? {
+                  'mitzo-tool-library': sdkToolLibrary.createServer({
+                    runCallback: state.runCallback,
+                    checkTool: (name) => state.checkTool(name),
+                    assertCurrentSync: (signal) => {
+                      if (state.retired || state.completing)
+                        throw Error('Completed SDK query retired');
+                      options.ordinarySdkAuthority!.assertCurrentSync(signal);
+                    },
+                    assertCurrent: async (signal) => {
+                      if (state.retired || state.completing)
+                        throw Error('Completed SDK query retired');
+                      await options.ordinarySdkAuthority!.assertCurrent(signal);
+                      if (state.retired || state.completing)
+                        throw Error('Completed SDK query retired');
+                    },
+                  }),
+                }
+              : {}),
             telos: sdkTelos(state),
             'mitzo-web-access': createSdkWebAccess(state),
             'mitzo-connections': createCredentialSdkServer(
@@ -3189,6 +3347,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 agentCommunication: sdkAgentCommunication,
                 historyEvents: eventStore,
                 runCallback: state.runCallback,
+                checkTool: (name) => state.checkTool(name),
                 assertCurrentSync: (signal) => {
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');
                   options.ordinarySdkAuthority!.assertCurrentSync(signal);
@@ -3294,7 +3453,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         );
         abortController.signal.addEventListener('abort', stopSdkAgentMessageWatch, { once: true });
         if (abortController.signal.aborted) stopSdkAgentMessageWatch();
-        await liveOrdinarySdkOwner.enqueue(initialMessageId);
+        await liveOrdinarySdkOwner.enqueue(
+          initialMessageId,
+          undefined,
+          options.ordinarySdkRetrySourceCommandId,
+        );
       } else {
         q = createSdkTurnQuery({
           input: inputQueue,
@@ -3533,7 +3696,15 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           clientId,
           sessionId: newSdkSessionId ?? session.sessionId,
           ...(options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority
-            ? { err, code: 'ordinary_sdk_startup_failed', stage: 'sdk_startup' }
+            ? {
+                code: 'ordinary_sdk_startup_failed',
+                stage: 'sdk_startup',
+                commandId: initialMessageId,
+                ...findSessionRuntimeError(err)?.telemetry(),
+                // Raw causes stay on the internal error. Pino's err serializer
+                // recursively exposes their messages and stacks.
+                ...runtimeFailureDiagnostics(err),
+              }
             : {}),
           ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
             ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))
