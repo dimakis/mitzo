@@ -146,7 +146,7 @@ export async function checkWorktreePolicy(
           ? opts.onDemandCreate(filePath, opts.signal)
           : opts.onDemandCreate(filePath));
         opts.signal?.throwIfAborted();
-        if (created) {
+        if (created && !session.worktreePaths.has(created.repoName)) {
           session.worktreePaths.set(created.repoName, {
             path: created.worktreePath,
             wtId: session.wtId ?? '',
@@ -192,7 +192,7 @@ export async function checkWorktreePolicy(
           ? opts.onDemandCreate(p, opts.signal)
           : opts.onDemandCreate(p));
         opts.signal?.throwIfAborted();
-        if (created) {
+        if (created && !session.worktreePaths.has(created.repoName)) {
           session.worktreePaths.set(created.repoName, {
             path: created.worktreePath,
             wtId: session.wtId ?? '',

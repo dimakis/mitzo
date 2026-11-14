@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1169-claude-repository-workflow';
+  'v1.0.1170-claude-worktree-completion';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -49,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-native-development.test.ts':
     '5b4f3ca5f844921e7fb660e53f8027ae7ad306d6680692ba69b8b1f013d79379',
   '../../packages/harness/src/worktree-guard.ts':
-    '776398f9043c216ab108f5fea3540b64713ba11cf5b78fa7163d705e3eacea23',
+    '04eb6d24fd91249df96f7fb5c386bf61106aa5376a2fd78a2013fd6c24e83d6a',
   '../../packages/harness/__tests__/sdk-write-scope.test.ts':
     'a9d8f82c2719a402d3704a7ed80dc10cff38ae42f151b47dc3feed3fe3e77d40',
   '../../packages/harness/__tests__/permission-live-authority.test.ts':
@@ -2723,7 +2723,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': '02659be3a135b79fd373e431ddba06255cecdaf773d7253e183f8494361115ed',
+  '../chat.ts': '4f1c2af92aac3bac4df8c8151338cb8715ada81e7ee29ccd0be8a6b1ec073344',
   '../../packages/harness/src/session-registry.ts':
     '10cf82b67a8c1b635090fef511c6d0c8fbe447423de3c55aa1ca0a425ec6391a',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -3635,7 +3635,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '2953c08904d4c7780346a8723add6bd956937358773d26bc5fea9c6ac48debdf',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    'fd82497ddfc66229a30fe45f22592ef1e1ee37d38cf4a64b25ac929ea910aebe',
+    '32c400b3cf1d9f243c744679c16d63d5cf54f5c789c63cc6d73dcb873d36fc20',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':

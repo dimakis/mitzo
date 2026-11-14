@@ -236,6 +236,27 @@ describe('checkWorktreePolicy', () => {
 
   describe('on-demand worktree creation', () => {
     it.each(['Write', 'Bash'])(
+      'never replaces an admitted mapping after a late %s preparation',
+      async (toolName) => {
+        const current = makeSession({ primary: '/mgmt/.claude/worktrees/admitted' });
+        const create: OnDemandCreateFn = vi.fn(async () => ({
+          repoName: 'primary',
+          worktreePath: '/mgmt/.claude/worktrees/replacement',
+        }));
+        const result = await checkWorktreePolicy(
+          current as ManagedSession,
+          toolName,
+          toolName === 'Write'
+            ? { file_path: '/mgmt/app.txt' }
+            : { command: 'cd /mgmt && touch app.txt' },
+          { onDemandCreate: create },
+        );
+        expect(result).not.toBeNull();
+        expect(current.worktreePaths.get('primary')?.path).toBe('/mgmt/.claude/worktrees/admitted');
+      },
+    );
+
+    it.each(['Write', 'Bash'])(
       'refuses cancelled %s preparation before acquisition',
       async (toolName) => {
         const current = makeSession({ primary: '/mgmt/.claude/worktrees/original' });

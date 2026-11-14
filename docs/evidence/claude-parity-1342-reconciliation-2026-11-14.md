@@ -411,3 +411,40 @@ primary SDK cwd or fabricate primary-workspace adoption authority. It restores
 the existing same-chat secondary-worktree workflow; primary task adoption and
 unconfigured repositories are not qualified by this evidence. No live account,
 model, service, device, GitHub publication or deployment was used by these tests.
+
+### Repository review corrections and accepted service provenance
+
+Trusted Centaur review `5906288986` on `0acc3b729` returned `fix` with two
+new blocking findings. That head is not approved:
+
+- `CEN-7C1B6BC6E00D`: the callback could replace an admitted primary mapping.
+  Allocation now excludes the primary source and its configured aliases, and
+  only considers missing secondary entries. The shared guard also refuses to
+  overwrite any admitted mapping after a late callback. Two new Write/Bash
+  controls fail against the prior guard. Public SDK journeys use an actual Git
+  primary source plus its configured alias and require the admitted mapping,
+  source content and sole source worktree to remain intact after refusal.
+- `CEN-32EA2ABAD1F7`: Git identity alone did not prove materialization completed.
+  SDK reuse now requires the exact conversation/repository/path's existing
+  `worktree_opened` completion evidence. Without it, canonical
+  `safeLocalRequireNew` refuses an existing directory, administration or branch.
+  No marker registry or recovery store is added. An actual SDK journey first
+  cancels the real safe materializer immediately after `--no-checkout`
+  registration; its next native callback reproduced adoption of the partial
+  checkout before the correction. The regression requires refusal with no new
+  map entry or completion event, unchanged source and retained partial state.
+  Completed cold worktrees still preserve genuine unfinished edits and commits.
+
+Accepted #1353 is `27345bb50c698646f5a7c2128ab6573b488f624c`, parent
+`416faccb`, with tree `a64b3b2a631dc90a5c272a1237c689b8d039e749`.
+That tree exactly equals already-composed candidate `08cb792c`; both the
+candidate and accepted parent were proved ancestors before recording the accepted
+merge ancestry. This adds no replacement service source or duplicate workflow
+edit. Final review must verify these repository corrections and accepted-base
+composition; the older LGTM and prior 28-case pass do not approve this delta.
+
+The strengthened six personal/Vertex default, explicit and excluded-profile
+journeys all pass in 176.34s. All 208 affected checks across six suites pass in
+19.39s, including the two new mapping controls. Both runs retain one worker and
+a 1 GiB heap. These are local correction evidence; only a new exact-head trusted
+review can close the two Centaur findings for landing.

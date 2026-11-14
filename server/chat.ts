@@ -228,7 +228,7 @@ import type {
 } from '@mitzo/harness';
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import { isGitDirectory, readWorkspaceBranch, readSshAuthSock } from './chat-metadata.js';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'fs';
 import { join, resolve, dirname, isAbsolute } from 'path';
 import { access, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'url';
@@ -988,16 +988,38 @@ function buildOnDemandCreate(
     for (const [name, repoPath] of allRepos) {
       if (!absolutePath.startsWith(repoPath + '/') && absolutePath !== repoPath) continue;
       try {
+        if (
+          sdkAuthority &&
+          (name === 'primary' ||
+            registry.get(clientId)?.worktreePaths.has(name) ||
+            (BASE_REPO && realpathSync(repoPath) === realpathSync(BASE_REPO)))
+        )
+          continue;
+        const sessionId = registry.get(clientId)?.sessionId;
+        const expectedPath = join(repoPath, '.claude', 'worktrees', wtId);
+        const completedPath =
+          sdkAuthority && sessionId ? eventStore.getLatestWorktreePath(sessionId, name) : null;
+        if (
+          sdkAuthority &&
+          (!sessionId || (completedPath !== null && completedPath !== expectedPath))
+        )
+          throw Error('Original secondary worktree completion is unavailable or changed');
         const startPoint = sdkAuthority ? await fetchWorktreeBase(repoPath, signal) : undefined;
         await current();
         const worktreePath = await createWorktreeAsync(wtId, repoPath, {
           abortSignal: signal,
           ...(sdkAuthority
-            ? { startPoint, safeLocalPreparation: true, safeLocalBeforeEffect: current }
+            ? {
+                startPoint,
+                safeLocalPreparation: true,
+                safeLocalBeforeEffect: current,
+                // Only a completed opening in the existing event ledger permits
+                // reuse. A cancelled --no-checkout registration is not a checkout.
+                safeLocalRequireNew: completedPath === null,
+              }
             : {}),
         });
         await current();
-        const sessionId = registry.get(clientId)?.sessionId;
         if (sessionId) {
           eventStore.append(sessionId, 'worktree_opened', {
             v: 2,

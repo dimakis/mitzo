@@ -289,13 +289,14 @@ it.each(
     const transferCalls: string[] = [];
     const { join: repoJoin } = await import('node:path');
     const { mkdtemp, readFile, realpath, rm, writeFile } = await import('node:fs/promises');
+    const { existsSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { execFileSync } = await import('node:child_process');
     const targetRoot = repositoryTransfer
       ? await realpath(await mkdtemp(repoJoin(tmpdir(), 'mitzo-transfer-')))
       : f.root;
     if (repositoryTransfer) cleanups.push(() => rm(targetRoot, { recursive: true, force: true }));
-    const repositorySources = ['mitzo', 'another'].map((name) => ({
+    const repositorySources = ['mitzo', 'another', 'interrupted'].map((name) => ({
       name,
       path: repoJoin(targetRoot, name),
       head: '',
@@ -314,6 +315,13 @@ it.each(
         },
       ).trim();
     if (repositoryTransfer) {
+      // BASE_REPO must itself be a real source to reproduce primary replacement.
+      execFileSync('git', ['init', '-q', '-b', 'main', f.root]);
+      git(f.root, 'config', 'user.name', 'Offline');
+      git(f.root, 'config', 'user.email', 'fixture@example.test');
+      await writeFile(repoJoin(f.root, 'primary.txt'), 'MGMT source\n');
+      git(f.root, 'add', 'primary.txt');
+      git(f.root, 'commit', '-qm', 'MGMT source');
       for (const source of repositorySources) {
         execFileSync('git', ['init', '-q', '-b', 'main', source.path]);
         git(source.path, 'config', 'user.name', 'Offline');
@@ -327,7 +335,10 @@ it.each(
       await writeFile(
         repoJoin(f.root, '.mitzo.json'),
         JSON.stringify({
-          repos: Object.fromEntries(repositorySources.map((s) => [s.name, s.path])),
+          repos: {
+            mgmt: f.root,
+            ...Object.fromEntries(repositorySources.map((s) => [s.name, s.path])),
+          },
         }),
       );
     }
@@ -365,8 +376,60 @@ it.each(
         );
         return result;
       };
-      const sources =
-        commandId === f.request.clientMsgId ? repositorySources.slice(0, 1) : repositorySources;
+      if (commandId === 'queued' && repositoryProfile !== 'excluded') {
+        const primary = structuredClone(session.worktreePaths.get('primary'));
+        expect(
+          await useTool(
+            'Write',
+            { file_path: repoJoin(f.root, 'primary.txt'), content: 'Never replace custody' },
+            `${commandId}-primary-source`,
+          ),
+        ).toMatchObject({ behavior: 'deny' });
+        expect(session.worktreePaths.get('primary')).toEqual(primary);
+        expect(session.worktreePaths.has('mgmt')).toBe(false);
+        expect(git(f.root, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(
+          1,
+        );
+        expect(await readFile(repoJoin(f.root, 'primary.txt'), 'utf8')).toBe('MGMT source\n');
+
+        const source = repositorySources[2];
+        const sdkId = String(options.resume ?? options.sessionId);
+        const partial = repoJoin(source.path, '.claude', 'worktrees', sdkId);
+        const controller = new AbortController();
+        const { createWorktreeAsync } = await import('../../server/worktree.js');
+        await expect(
+          createWorktreeAsync(sdkId, source.path, {
+            startPoint: source.head,
+            safeLocalPreparation: true,
+            safeLocalRequireNew: true,
+            abortSignal: controller.signal,
+            safeLocalBeforeEffect: async () => {
+              if (existsSync(repoJoin(partial, '.git'))) {
+                controller.abort(Error('Interrupted after worktree registration'));
+                controller.signal.throwIfAborted();
+              }
+            },
+          }),
+        ).rejects.toThrow('Interrupted after worktree registration');
+        expect(existsSync(repoJoin(partial, '.git'))).toBe(true);
+        expect(existsSync(repoJoin(partial, 'app.txt'))).toBe(false);
+        expect(chat.eventStore.getLatestWorktreePath(session.sessionId!, source.name)).toBeNull();
+        const before = git(source.path, 'worktree', 'list', '--porcelain');
+        expect(
+          await useTool(
+            'Write',
+            { file_path: repoJoin(source.path, 'app.txt'), content: 'Never adopt uncertainty' },
+            `${commandId}-interrupted-source`,
+          ),
+        ).toMatchObject({ behavior: 'deny' });
+        expect(session.worktreePaths.has(source.name)).toBe(false);
+        expect(chat.eventStore.getLatestWorktreePath(session.sessionId!, source.name)).toBeNull();
+        expect(git(source.path, 'worktree', 'list', '--porcelain')).toBe(before);
+        expect(existsSync(repoJoin(partial, 'app.txt'))).toBe(false);
+        expect(git(source.path, 'rev-parse', 'HEAD')).toBe(source.head);
+        expect(await readFile(repoJoin(source.path, 'app.txt'), 'utf8')).toBe('User dirty work\n');
+      }
+      const sources = repositorySources.slice(0, commandId === f.request.clientMsgId ? 1 : 2);
       for (const source of sources) {
         if (repositoryProfile === 'excluded') {
           expect(

@@ -122,6 +122,11 @@ The original primary workspace and account identity remain intact.
 Preparation retains the current account, workspace, profile and cancellation
 checks. Excluded native tools cannot create worktrees. Source branches and dirty
 files are preserved; cold queries reopen the same conversation-owned branches.
+The admitted primary mapping is never replaced by on-demand preparation, including
+configured aliases of its source. Reuse requires the existing conversation's
+completed `worktree_opened` event. Interrupted or uncertain preparation without
+that event remains refused for inspection; an existing directory alone is not
+completion evidence. Completed worktrees retain their later edits and commits.
 This restores the legacy Vertex mechanism for both account routes. It does not
 expose the newer managed repository tools or change the primary SDK cwd.
 
