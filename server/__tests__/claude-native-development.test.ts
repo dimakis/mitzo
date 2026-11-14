@@ -13,6 +13,7 @@ import {
   SessionRegistry,
   resolvePending,
   setSkillPolicy,
+  getPendingRequestsBySession,
 } from '@mitzo/harness';
 import { buildSessionPermissionHooks } from '../session-permission-policy.js';
 
@@ -36,6 +37,7 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
     { provider: 'vertex-like', mode: 'agent', decision: 'deny', allowed: false },
     { provider: 'personal-policy', mode: 'agent', decision: 'cancel', allowed: false },
     { provider: 'vertex-like', mode: 'agent', decision: 'revoked', allowed: false },
+    { provider: 'personal-policy', mode: 'agent', decision: 'interrupt', allowed: false },
     { provider: 'personal-policy', mode: 'auto', decision: 'restricted-skill', allowed: false },
     { provider: 'vertex-like', mode: 'auto', decision: 'workspace', allowed: false },
   ] as const;
@@ -138,7 +140,8 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
           if (event.type !== 'permission_request') return;
           cards.push(event);
           queueMicrotask(() => {
-            if (decision === 'cancel') sessionController.abort();
+            if (decision === 'interrupt') void native!.interrupt();
+            else if (decision === 'cancel') sessionController.abort();
             else {
               if (decision === 'revoked') current = false;
               resolvePending(
@@ -185,6 +188,17 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
     };
     let stderr = '';
     let native: ReturnType<typeof query> | undefined;
+    const observe = () => ({
+      ...scenario,
+      calls,
+      received,
+      cards: cards.length,
+      retainedGrants: registry.get('native-fixture')!.sessionAllowList.size,
+      pendingAtResult: getPendingRequestsBySession('native-fixture').length,
+      insideWritten: existsSync(join(cwd, 'probe.txt')),
+      siblingWritten: existsSync(join(root, 'second-repo', 'probe.txt')),
+      stderr,
+    });
     const timer = setTimeout(() => controller.abort(Error('Offline Bash probe deadline')), 20000);
     try {
       native = query({
@@ -220,18 +234,9 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
       for await (const message of native) {
         if (message.type === 'result' && message.is_error) stderr += JSON.stringify(message);
       }
-      observations.push({
-        ...scenario,
-        calls,
-        received,
-        cards: cards.length,
-        retainedGrants: registry.get('native-fixture')!.sessionAllowList.size,
-        insideWritten: existsSync(join(cwd, 'probe.txt')),
-        siblingWritten: existsSync(join(root, 'second-repo', 'probe.txt')),
-        stderr,
-      });
+      observations.push(observe());
     } catch (error) {
-      observations.push({ ...scenario, calls, received, error: String(error), stderr });
+      observations.push({ ...observe(), error: String(error) });
     } finally {
       clearTimeout(timer);
       native?.close();
@@ -247,18 +252,24 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
   }
   for (const [index, scenario] of scenarios.entries()) {
     const observation = observations[index];
+    if (scenario.decision !== 'interrupt') expect(observation).not.toHaveProperty('error');
     expect(observation, JSON.stringify(observation, null, 2)).toMatchObject({
       ...scenario,
       insideWritten: scenario.allowed,
       siblingWritten: scenario.allowed,
-      cards: ['once', 'deny', 'cancel', 'revoked'].includes(scenario.decision) ? 1 : 0,
+      cards: ['once', 'deny', 'cancel', 'revoked', 'interrupt'].includes(scenario.decision) ? 1 : 0,
       retainedGrants: 0,
-      received: [
-        expect.objectContaining({
-          tool_use_id: 'offline-bash',
-          ...(scenario.allowed ? {} : { is_error: true }),
-        }),
-      ],
+      pendingAtResult: 0,
+      ...(scenario.decision === 'interrupt'
+        ? {}
+        : {
+            received: [
+              expect.objectContaining({
+                tool_use_id: 'offline-bash',
+                ...(scenario.allowed ? {} : { is_error: true }),
+              }),
+            ],
+          }),
     });
   }
 }, 120000);
