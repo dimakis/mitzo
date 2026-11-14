@@ -62,6 +62,7 @@ export interface ManagedSession {
     /** Existing owned SDK queue only; native query selection stays private. */
     sdkTurns?: {
       stop(requestId: string): Promise<void>;
+      stopBeforeInput(commandId: string, requestId: string): Promise<boolean>;
       resumeQueue(): Promise<void>;
       captureInterruptTarget(): OrdinarySdkInterruptTarget | undefined;
       interruptIfCurrent(

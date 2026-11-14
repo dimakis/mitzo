@@ -324,3 +324,53 @@ conflicting, and scoped to joining readiness/permissions/dialog bounds. This sli
 does not duplicate that implementation. Merge priority remains the complete Claude
 parity stack first, then integrated Symposium validation and exact-head Centaur/CI
 gates under separate merge authorization.
+
+### Exact-head review follow-up: imported history and SDK pre-input Stop
+
+Centaur job 7488 processed head `4ba082d5412921fac0244015b6f46252cdad08d5`
+and returned `human_decision`, with CEN-810B598C8E4E and CEN-0B3D24E6F442
+still blocking. Its successful check is processing status, not LGTM:
+https://github.com/dimakis/mitzo/pull/1356#issuecomment-6880187597.
+That head's full CI 43611496998 subsequently passed. These new fixes still require
+their own exact-head review and CI; neither finding is reviewer-closed here.
+
+Imported SDK history is independently authorized ordinary history. Source setup
+now returns an observational `ordinary_history` result only for a visible imported
+session with no current collaboration association. SharedConversation retains its
+ordinary rich history, mounted input and draft without creating a shared identity.
+Hidden imports remain unavailable; an import with a current shared association
+cannot bypass packet qualification. Protocol and actual production-wrapper tests
+reproduce the old hidden-history behavior and verify the exact read-only contract.
+
+Pre-input SDK cancellation uses positive retained evidence for the exact original
+session and command: a consumed SDK admission, its exact execution token terminal
+reason stopped/abandoned, the owner's cancellation error and zero SDK turn events.
+Stopped maps to interrupted and abandoned to failed. SDK acceptance, provider
+terminal evidence and visible replies are not manufactured. Error text, generic
+completion, another session or a missing acknowledgment alone do not settle work.
+The original observation survives store restart and does not consult today's
+active generation. Existing whole-session cold-input qualification keeps its
+additional terminal/all-generation checks.
+
+The shared Stop port can now address the exact active pre-input command through
+the existing SDK queue owner, before a native interrupt target exists. It retains
+normal authentication, current-owner and synchronous execution fences. A foreign
+command or already-yielded input cannot use this path. Native interrupt behavior
+and its uncertain receipt remain unchanged. The actual SDK/application test warms
+a reviewed participant, holds only the deterministic external account-info return
+before input yield, sends and stops through the production shared composer, then
+uses its actual Check original request action. It retains the later draft and
+same textarea, clears pending Stop, and proves zero additional SDK inputs or
+interrupts and no invented SDK/provider events. No application model is invoked.
+The previous two SDK application journeys share the extracted external fixture;
+the new DOM test has its own file and application lifetime.
+
+Initial focused red evidence had three failing regressions (imported protocol/UI
+and exact cancellation observation); the original log remains in this task's
+`slice1-validation/slice1-centaur-4ba-red.log`. The final combined run passes 149
+owner checks across 14 suites, including the actual SDK UI journey and adjacent
+ordinary/forwarding journeys. Design checks pass 109 with one existing skip.
+Focused lint and package builds
+pass. Full server compilation exceeds the local 1 GiB heap; its log is retained
+and hosted current-head preflight remains required. Independent imported-history
+application reproduction and successor verification belong to slice 3.

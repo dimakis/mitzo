@@ -2992,6 +2992,9 @@ export class EventStore {
         sourceSetupAvailable: (id) =>
           this.isCollaborationParticipantAvailable(id) &&
           this.getSession(id)?.conversationSource !== 'external_import',
+        ordinaryHistoryAvailable: (id) =>
+          this.isCollaborationParticipantAvailable(id) &&
+          this.getSession(id)?.conversationSource === 'external_import',
         membership: (id) => this.getSessionCollaboration(id),
         setMembership: (id, input) => this.setSessionCollaboration(id, input),
         beginMembership: (id, sourceSessionId) =>
@@ -3994,6 +3997,26 @@ export class EventStore {
     return this.executionLedger.getExecutionAdmission(sessionId, clientMsgId);
   }
 
+  /** Exact pre-input cancellation, independent of today's active generation.
+   * An error string or absent SDK echo alone never proves this outcome. */
+  getOrdinarySdkInputCancellation(
+    sessionId: string,
+    commandId: string,
+  ): 'stopped' | 'abandoned' | undefined {
+    const command = this.getSendCommand(commandId);
+    const execution = this.getExecutionAdmission(sessionId, commandId);
+    if (
+      command?.sessionId !== sessionId ||
+      !execution ||
+      this.getOrdinaryLocalVertexCommandAdmission(commandId)?.state !== 'consumed' ||
+      command.error !== 'Cancelled before SDK dispatch' ||
+      this.getOrdinarySdkTurnEvents(sessionId, commandId).length !== 0
+    )
+      return;
+    const terminal = this.getExecutionTerminalReason(execution.token);
+    return terminal === 'stopped' || terminal === 'abandoned' ? terminal : undefined;
+  }
+
   /** Positive pre-input cancellation evidence, not an inference from missing
    * SDK history or missing acknowledgements. Every execution must be covered. */
   hasOnlyCancelledOrdinarySdkInputs(sessionId: string): boolean {
@@ -4004,14 +4027,7 @@ export class EventStore {
     ).all(sessionId) as Array<{ client_msg_id: string }>;
     if (!commands.length || commands.length !== meta.executionGeneration) return false;
     return commands.every(({ client_msg_id: id }) => {
-      const execution = this.getExecutionAdmission(sessionId, id)!;
-      const terminal = this.getExecutionTerminalReason(execution.token);
-      return (
-        (terminal === 'stopped' || terminal === 'abandoned') &&
-        this.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed' &&
-        this.getSendCommand(id)?.error === 'Cancelled before SDK dispatch' &&
-        this.getOrdinarySdkTurnEvents(sessionId, id).length === 0
-      );
+      return this.getOrdinarySdkInputCancellation(sessionId, id) !== undefined;
     });
   }
 

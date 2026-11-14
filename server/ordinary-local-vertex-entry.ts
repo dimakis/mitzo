@@ -277,6 +277,8 @@ export async function startOwnedLocalVertexCommand(
             },
             sdkTurns: {
               stop: (requestId) => queue!.stop(requestId),
+              stopBeforeInput: (commandId, requestId) =>
+                queue!.stopBeforeInput(commandId, requestId),
               resumeQueue: () => queue!.resumeQueue(),
               captureInterruptTarget: () => queue!.captureInterruptTarget(),
               interruptIfCurrent: (requestId, target) =>

@@ -598,6 +598,72 @@ it('qualifies linked participant history without showing another agent or allowi
   ).toBe(true);
 });
 
+it('shows server-qualified non-collaborative imported history without replacing the ordinary draft or creating a group', async () => {
+  const fetch = vi.fn(async (url: string) => {
+    if (url.includes('source-setup'))
+      return Response.json({
+        state: 'ordinary_history',
+        sourceConversationId: 'imported',
+        reason: 'external_import',
+      });
+    throw Error('Unexpected import read: ' + url);
+  });
+  const proof = () => 'login';
+  const { container } = render(
+    <MemoryRouter>
+      <SharedConversationHost
+        sourceConversationId="imported"
+        api={new MitzoApiClient(fetch)}
+        clientId="client"
+        authScope="login"
+        getVerifiedAuthScope={proof}
+      >
+        <SharedConversationBody
+          sourceConversationId="imported"
+          ordinaryComposer={
+            <ChatInput
+              sessionId="imported"
+              running={false}
+              onSend={() => false}
+              onStop={() => {}}
+            />
+          }
+          chat={{
+            messages: [
+              {
+                messageId: 'imported-prefix',
+                role: 'assistant',
+                blocks: [
+                  {
+                    blockId: 'rich-import',
+                    blockType: 'text',
+                    content: 'Unique retained imported SDK history',
+                  },
+                ],
+              },
+            ],
+            current: null,
+            running: false,
+            permission: null,
+            onPermissionRespond: () => {},
+          }}
+        >
+          Ordinary fallback
+        </SharedConversationBody>
+      </SharedConversationHost>
+    </MemoryRouter>,
+  );
+  const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: 'Keep the imported draft' } });
+  await screen.findByText('Unique retained imported SDK history');
+  expect(screen.getAllByText('Unique retained imported SDK history')).toHaveLength(1);
+  expect(screen.getByRole('textbox')).toBe(input);
+  expect(input.value).toBe('Keep the imported draft');
+  expect(container.querySelectorAll('.chat-messages')).toHaveLength(1);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(sessionStorage.getItem('mitzo-shared-begin:login:imported')).toBeNull();
+});
+
 it('preserves the ordinary screen while the first source identity is assigned or changes', () => {
   const surface = (sourceConversationId: string | null) => (
     <OrdinarySharedConversationHost sourceConversationId={sourceConversationId}>

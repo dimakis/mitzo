@@ -11,6 +11,11 @@ const source = { sourceConversationId: CollaborationBeginSchema.shape.sessionId 
 export const CollaborationSourceSetupSchema = z.discriminatedUnion('state', [
   z.strictObject({ state: z.literal('unstarted'), ...source }),
   z.strictObject({
+    state: z.literal('ordinary_history'),
+    ...source,
+    reason: z.literal('external_import'),
+  }),
+  z.strictObject({
     state: z.literal('selected'),
     ...source,
     collaboration: SessionCollaborationSchema,

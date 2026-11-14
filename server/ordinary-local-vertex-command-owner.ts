@@ -113,6 +113,19 @@ export class OrdinaryLocalVertexCommandOwner {
       });
     }
   }
+  /** A shared Stop can address an admitted input before a native echo exists.
+   * Yielded/foreign inputs keep the native target's existing uncertainty rules. */
+  async stopBeforeInput(commandId: string, requestId: string): Promise<boolean> {
+    if (
+      this.#active?.commandId !== commandId ||
+      this.#inputYielded ||
+      this.#inputUuid ||
+      this.#resultObserved
+    )
+      return false;
+    await this.stop(requestId);
+    return true;
+  }
   #cancelStoppedInput(): boolean {
     if (
       !this.#active ||

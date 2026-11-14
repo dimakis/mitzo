@@ -130,6 +130,7 @@ function useSharedConversation({
     begun?: boolean;
     shared?: boolean;
     historySource?: string;
+    ordinaryHistory?: boolean;
     error?: string;
   }>({ owner });
   const association = associationState.owner === owner ? associationState : { owner };
@@ -148,6 +149,10 @@ function useSharedConversation({
       .sourceSetup(sourceConversationId, clientId, controller.signal)
       .then((setup) => {
         if (controller.signal.aborted || getVerifiedAuthScope() !== authScope) return;
+        if (setup.state === 'ordinary_history') {
+          setAssociation({ owner, ordinaryHistory: true });
+          return;
+        }
         if (setup.state === 'participant_history') {
           setAssociation({
             owner,
@@ -357,6 +362,7 @@ function useSharedConversation({
     active,
     historySource: association.historySource,
     resolving:
+      !association.ordinaryHistory &&
       !!sourceConversationId &&
       !!clientId &&
       !!authScope &&

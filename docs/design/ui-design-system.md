@@ -1781,6 +1781,14 @@ history, canonical delivered prompts and its replies, with exact packet suppress
 It preserves the draft and existing tools/Stop owner, while Open shared conversation
 returns replies to the source conversation. History inspection cannot join, send,
 interrupt or edit shared policies through that relationship-selection surface.
+Imported SDK history with no current shared association stays in its ordinary
+transcript and composer after a server-proven `ordinary_history` observation.
+That observation does not create a discussion or authorize joining or inference;
+an imported session with a current association still requires safe qualification.
+Check original request also recognizes exact durable SDK cancellation before input
+dispatch. It releases the pending operation while retaining later draft edits,
+without manufacturing SDK acceptance or replaying the request. A missing echo,
+an error label or generic cleanup alone remains uncertain.
 The responsive input portal retains draft, attachments, context, selection and focus
 through status qualification; its routing updates independently of source activity.
 An exact current send's correlated assignment or fork transfers the existing input,

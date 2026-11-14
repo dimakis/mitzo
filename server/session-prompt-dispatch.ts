@@ -388,13 +388,18 @@ export function createSessionPromptPort(
         const owner = live?.session.ordinaryRuntimeOwner;
         if (!live || !owner?.sdkTurns || owner.authSessionId !== auth.id) return 'unavailable';
         const target = owner.sdkTurns.captureInterruptTarget();
-        if (target?.commandId !== commandId) return 'uncertain';
+        if (target && target.commandId !== commandId) return 'uncertain';
         current();
         if (
           ctx.sessionRegistry.findBySessionId(sessionId)?.session !== live.session ||
           live.session.ordinaryRuntimeOwner !== owner
         )
           return 'uncertain';
+        if (!target) {
+          const stopped = await owner.sdkTurns.stopBeforeInput(commandId, requestId);
+          current();
+          return stopped ? 'requested' : 'uncertain';
+        }
         const result = await owner.sdkTurns.interruptIfCurrent(requestId, target);
         current();
         return result === 'requested' ? 'requested' : 'uncertain';
