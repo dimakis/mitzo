@@ -378,11 +378,12 @@ export function CodexQueueStatus({
   const capacity = queue.capacityRecovery;
   const canRetry =
     !capacity &&
-    !operationStatus &&
     queue.failed > 0 &&
     queue.retryable !== false &&
     !queue.recovering &&
-    (sourceRetry || (!queue.retrySourceCommandId && queue.canContinue !== true && queue.connected));
+    (queue.retrySourceCommandId
+      ? sourceRetry && !operationStatus
+      : queue.canContinue !== true && queue.connected);
   const capacitySeconds = capacity?.nextRetryAt
     ? Math.max(0, Math.ceil((capacity.nextRetryAt - now) / 1000))
     : 0;
@@ -679,7 +680,7 @@ export function CodexQueueStatus({
         capacity?.status === 'waiting'
       }
       queued={queue.queued}
-      action={operationStatus ? undefined : sourceRetry ? retryAction : continueAction}
+      action={retryAction ?? (operationStatus ? undefined : continueAction)}
     >
       <div className="codex-status-anchor codex-status-anchor--expanded">
         <aside

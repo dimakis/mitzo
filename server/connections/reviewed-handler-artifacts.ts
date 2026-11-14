@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1163-claude-source-retry-ui';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1164-claude-legacy-retry-ui';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -736,7 +736,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/tool-failure.ts':
     'dabb0ea92a7111308e3a4f6207af69b51eb698a55cd67a41ab2bb7292e4afc29',
   '../__tests__/codex-conversation-store.test.ts':
-    'f992e5eba2d29174bde1c2812745906fdf2fff2494f5a44f51fc35faadee95f2',
+    'ad6ff0b70aef3a371a4d3dab94fae29ab75dfca13ee9a1c28eb49cdb6d3f2619',
   '../task-execution-failure.ts':
     '0e2da2e95f4fe7742e714ba5f0dbfabb642912e79ae860e97682fcb9ec8fbd70',
   '../tool-failure-reporting.ts':
@@ -1028,7 +1028,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ComposerActivity.lifecycle.test.tsx':
     '2503ac79d17fd29f8adf5e13b81381df532425285f9661935035a1009820e9b9',
   '../../frontend/src/components/__tests__/CodexQueueStatus.test.tsx':
-    'd9e38992c22136a427eb797a0af8de89821b9cdd28c8a0e823c8c99ab5761ffe',
+    'e502a6a7ca5449fa1f7904d5dc60e6203b10b6e74749851e77bf193d38f15cd7',
   '../../frontend/src/components/ActiveSessionsList.tsx':
     'd9099b426156f42f6281d64caec4a576152509feac843b4e18927ac42232730a',
   '../../frontend/src/components/ConversationPins.tsx':
@@ -3052,7 +3052,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/CodexQueueStatus.tsx':
-    '5fc0af3a8eac42cc7cced366703e87083053b7fbb68518ccfa3575abdff1a190',
+    'ac9913470f67b033b063d6f67c701c0cb49feac21c840469d9dd449f1ec63b61',
   '../ordinary-repository-preparation.ts':
     '47e0072a9532fbd39d04bc35af993edebc0ce7bb74a04ab50b76f3dd72a0f19f',
   '../ordinary-repository-preparation-authority.ts':

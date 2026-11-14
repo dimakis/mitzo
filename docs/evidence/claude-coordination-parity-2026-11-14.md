@@ -229,6 +229,30 @@ server's explicit false value. Original diagnostics are retained. Source pins
 advance to `v1.0.1163-claude-source-retry-ui`; fresh hosted CI and targeted trusted
 review of this correction remain required.
 
+## Legacy ambiguous Retry preservation
+
+Current-head review `5905529501` verified `CEN-EBB462A691CE` resolved and
+reported `CEN-190ED2F03F12`: the shared operation-status gate also hid an
+existing unguarded Codex retry. Its canonical store reports both
+`operation.state=ambiguous_effect` and `retryable=true`, and requires explicit
+confirmation before retrying.
+
+The operation-status fence now applies only to the source-specific SDK branch.
+Legacy retries retain their connected/Continue, retryability, recovery and
+capacity conditions. Both inline controls and the composer status row use the
+same eligible Retry action, with its existing confirmation body and busy guard.
+Canonical retry policy and mutation handlers are unchanged.
+
+Two actual-metadata component cases reproduced the missing action before the
+fix. All 71 component checks now pass, including both presentations, no automatic
+POST, exact legacy confirmation, duplicate-click refusal and action retirement.
+Guarded refusals and source-specific uncertainty still hide Retry. Two existing
+SQLite store checks pass; the positive check now also asserts the actual paired
+ambiguous-operation/retryability metadata and confirmation policy. Original
+failure reports remain retained. Source pins advance to
+`v1.0.1164-claude-legacy-retry-ui`; fresh hosted CI and exact-head verification
+of this UI correction remain required, retaining prior accepted review coverage.
+
 ## Integration custody and limits
 
 PR #1342 remains draft/open/conflicting at `b2675af8199ab8a99f3628d3d93c4e65145c7244`

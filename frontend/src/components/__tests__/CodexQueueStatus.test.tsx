@@ -1092,6 +1092,97 @@ it.each(
   },
 );
 
+it.each([false, true])(
+  'preserves confirmed legacy ambiguous Retry with operation metadata (combined=%s)',
+  async (combined) => {
+    let finish!: (response: Response) => void;
+    let submitted = false;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).endsWith('/retry')) {
+        const response = await new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+        submitted = response.ok;
+        return response;
+      }
+      return meta(
+        submitted
+          ? idleQueue
+          : {
+              ...idleQueue,
+              paused: true,
+              failed: 1,
+              retryable: true,
+              requiresRetryConfirmation: true,
+              operation: {
+                commandId: 'legacy-ambiguous',
+                attempt: 1,
+                state: 'ambiguous_effect',
+                effectStatus: 'unknown',
+                nextAction: 'reconcile_native_outcome',
+              },
+            },
+      );
+    });
+    const status = <CodexQueueStatus sessionId="legacy-ambiguous" />;
+    render(
+      combined ? (
+        <ComposerStatusProvider>
+          {status}
+          <ComposerStatusRail />
+        </ComposerStatusProvider>
+      ) : (
+        status
+      ),
+    );
+    const retry = await screen.findByRole('button', { name: 'Retry despite possible repeats' });
+    expect(screen.getByText(/Check the interrupted turn before continuing/)).toBeTruthy();
+    expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+    await userEvent.click(retry);
+    const busy = screen.getByRole('button', { name: 'Retrying…' });
+    expect(busy).toHaveProperty('disabled', true);
+    fireEvent.click(busy);
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toEqual([
+      [
+        '/api/sessions/legacy-ambiguous/codex-queue/retry',
+        expect.objectContaining({ body: JSON.stringify({ confirmAmbiguous: true }) }),
+      ],
+    ]);
+    await act(async () => {
+      finish(Response.json({ ok: true }));
+    });
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull());
+  },
+);
+
+it.each([
+  { retryable: false },
+  { retryable: true, retrySourceCommandId: 'sdk-source-awaiting-reconciliation' },
+])('keeps guarded ambiguous operations from Retry (%j)', async (qualification) => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      ...idleQueue,
+      ...qualification,
+      paused: true,
+      failed: 1,
+      requiresRetryConfirmation: true,
+      operation: {
+        commandId: 'guarded-ambiguous',
+        attempt: 1,
+        state: 'ambiguous_effect',
+        effectStatus: 'unknown',
+        nextAction: 'reconcile_native_outcome',
+      },
+    }),
+  );
+  render(<CodexQueueStatus sessionId="guarded-ambiguous" />);
+  await screen.findByText(/Check the interrupted turn before continuing/);
+  expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+});
+
 it('warns before retrying an ambiguous turn that already invoked tools', async () => {
   vi.mocked(apiFetch)
     .mockResolvedValueOnce(
