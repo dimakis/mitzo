@@ -39,11 +39,18 @@ const receipt = {
 };
 afterEach(() => vi.unstubAllGlobals());
 
-it('activates the slice mutation only on the supported owned-local route', () => {
+it('activates the slice mutation only on supported owned-local and Claude SDK routes', () => {
   expect(agentToolCatalog().find((tool) => tool.name === 'TelosStartSlice')).toMatchObject({
     behavior: 'write',
-    routes: ['codex-owned-local'],
+    routes: ['codex-owned-local', 'claude-sdk'],
   });
+  for (const route of ['codex-owned-local', 'claude-sdk'])
+    expect(() =>
+      assertAgentToolRoute(
+        { tools: [{ id: 'mitzo:TelosStartSlice', version: 1 }] } as never,
+        route,
+      ),
+    ).not.toThrow();
   expect(() =>
     assertAgentToolRoute(
       { tools: [{ id: 'mitzo:TelosStartSlice', version: 1 }] } as never,
