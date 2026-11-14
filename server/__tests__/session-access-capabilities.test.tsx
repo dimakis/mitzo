@@ -66,12 +66,8 @@ describe('Session Access configured helper support', () => {
       const tools = value.helperSupport.tools;
       expect(tools.find((t) => t.name === 'ListConnections')?.state).toBe('supported');
       expect(tools.find((t) => t.name === 'SymposiumConsult')?.state).toBe('supported');
-      expect(tools.find((t) => t.name === 'ConnectionRequest')?.state).toBe(
-        provider.startsWith('anthropic') ? 'unsupported' : 'supported',
-      );
-      expect(tools.find((t) => t.name === 'GoogleWorkspaceRead')?.state).toBe(
-        provider.startsWith('anthropic') ? 'unsupported' : 'supported',
-      );
+      expect(tools.find((t) => t.name === 'ConnectionRequest')?.state).toBe('supported');
+      expect(tools.find((t) => t.name === 'GoogleWorkspaceRead')?.state).toBe('supported');
       expect(value.readiness.capabilities).toEqual({ state: 'unknown', reason: 'not_observed' });
       expect(value.grants).toEqual([]);
       expect(f.session.sessionAllowList.size).toBe(0);
@@ -158,12 +154,21 @@ describe('Session Access configured helper support', () => {
       expect(explicit.read().helperSupport).toMatchObject({
         tools: expect.arrayContaining([expect.objectContaining({ name, state: 'excluded' })]),
       });
-      expect(() =>
+      const select = () =>
         assertAgentToolRoute(
           { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never,
           'claude-sdk',
-        ),
-      ).toThrow(/unavailable/);
+        );
+      if (name === 'RequestWebAccess') {
+        expect(select).not.toThrow();
+        const selected = fixture('anthropic-claude', 'local', {
+          tools: [{ id: `mitzo:${name}`, version: 1 }],
+        });
+        expect(selected.read().helperSupport).toMatchObject({
+          tools: expect.arrayContaining([expect.objectContaining({ name, state: 'supported' })]),
+        });
+        expect(selected.read().grants).toEqual([]);
+      } else expect(select).toThrow(/unavailable/);
     },
   );
   it.each(

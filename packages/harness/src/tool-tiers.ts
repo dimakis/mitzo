@@ -16,6 +16,7 @@ const READ_ONLY_TOOLS = new Set([
   'GoogleWorkspaceRead',
   // Shell gws reads approved by Mitzo's broker (server/gws-broker.ts).
   'GwsRead',
+  'mcp__mitzo-connections__GoogleWorkspaceRead',
   'ListConnections',
   'RequestConnectionAccess',
   'mcp__mitzo-connections__ListConnections',

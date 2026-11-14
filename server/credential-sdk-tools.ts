@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { GoogleWorkspaceReadSchema } from './google-workspace-read.js';
+import { registerGoogleWorkspaceSdkTool } from './google-workspace-sdk.js';
 import {
   StartSessionInputSchema,
   TelosCreateSessionInputSchema,
@@ -45,6 +47,7 @@ import {
 import {
   credentialConnectionSchemas,
   credentialConnectionToolDefinitions,
+  nativeConnectionToolNames,
 } from './credential-connection-tools.js';
 import { sessionCredentialTools } from './session-credential-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
@@ -62,6 +65,7 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  GoogleWorkspaceRead: GoogleWorkspaceReadSchema,
   StartSession: StartSessionInputSchema,
   AgentReadTasks: AgentReadTasksSchema,
   AgentProposeTask: AgentTaskProposalInputSchema,
@@ -190,14 +194,14 @@ export function createCredentialSdkServer(
     },
   };
   let current: { id: string; tools: ReturnType<typeof sessionCredentialTools> } | undefined;
-  return createSdkMcpServer({
+  const server = createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
     tools: filterAgentTools(session, [
       ...(boundary?.profilesOnly
         ? [
-            ...credentialConnectionToolDefinitions.filter(
-              (tool) => tool.name === 'ListConnections',
+            ...credentialConnectionToolDefinitions.filter((tool) =>
+              nativeConnectionToolNames.has(tool.name),
             ),
             ...profileToolDefinitions,
             ...sessionPromptDefinitions,
@@ -212,10 +216,8 @@ export function createCredentialSdkServer(
     ]).map((definition) =>
       tool(
         definition.name,
-        boundary?.profilesOnly && definition.name === 'ListConnections'
-          ? 'List configured Mitzo connections and their access state. Returns metadata only; this Claude route does not expose connection access requests or service requests. Credentials remain private. Open Connections to configure services.'
-          : definition.description,
-        schemas[definition.name as keyof typeof schemas].shape,
+        definition.description,
+        schemas[definition.name as Exclude<keyof typeof schemas, 'GoogleWorkspaceRead'>].shape,
         async (input, extra) => {
           const callSignal =
             extra !== null &&
@@ -426,4 +428,7 @@ export function createCredentialSdkServer(
       ),
     ),
   });
+  if (boundary)
+    registerGoogleWorkspaceSdkTool(server.instance, sessionId, session, registry, boundary);
+  return server;
 }
