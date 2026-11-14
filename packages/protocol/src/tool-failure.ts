@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+export const APPROVAL_TIMEOUT_MESSAGE =
+  'Approval timed out because no response arrived in time. The operation did not run. The conversation can continue. Wait for the user to return, then request fresh approval for the same operation; do not repeat approval requests automatically.';
+
 /** Shared public outcome. It describes a failure; it never grants retry authority. */
 export const ToolFailureSchema = z.strictObject({
   code: z.enum([
@@ -68,8 +71,7 @@ export function toolFailureAction(failure: ToolFailure): string {
       (failure.effectStatus === 'unknown' ? ` ${inspect}` : '')
     );
   if (failure.effectStatus === 'unknown') return inspect;
-  if (failure.code === 'approval_expired')
-    return 'Approval expired and the command did not run. Request a fresh approval for the exact operation when ready.';
+  if (failure.code === 'approval_expired') return APPROVAL_TIMEOUT_MESSAGE;
   if (failure.code === 'invalid_input') return 'Correct the tool arguments before another call.';
   return 'The tool failed. Resolve the reported prerequisite before retrying the original operation.';
 }

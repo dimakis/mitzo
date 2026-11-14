@@ -128,7 +128,12 @@ type Permission = (
   input: Input,
   signal: AbortSignal,
   grant?: McpSessionGrant,
-) => Promise<{ behavior: 'allow' | 'deny'; updatedInput?: Input; message?: string }>;
+) => Promise<{
+  behavior: 'allow' | 'deny';
+  updatedInput?: Input;
+  message?: string;
+  failure?: import('@mitzo/protocol').ToolFailure;
+}>;
 export function mcpWireName(canonical: string): string {
   const identity = createHash('sha256').update(canonical).digest('hex').slice(0, 32);
   return `mitzo_mcp_${identity}`;
@@ -414,13 +419,28 @@ export async function connectCodexMcpTools(
       signal.throwIfAborted();
       if (decision.behavior !== 'allow') {
         const code =
-          decision.message === 'Session taken over by another device'
-            ? 'stale_owner'
-            : decision.message === 'User denied' ||
-                decision.message === 'Tool not allowed by active skill policy'
-              ? 'permission_denied'
-              : 'approval_unavailable';
-        const failure = codexToolFailureResult(new CodexToolFailure(code), false);
+          decision.failure?.code === 'approval_expired'
+            ? 'approval_expired'
+            : decision.message === 'Session taken over by another device'
+              ? 'stale_owner'
+              : decision.message === 'User denied' ||
+                  decision.message === 'Tool not allowed by active skill policy'
+                ? 'permission_denied'
+                : 'approval_unavailable';
+        const failure = codexToolFailureResult(
+          new CodexToolFailure(
+            code,
+            code === 'approval_expired'
+              ? {
+                  stage: 'tool_execution',
+                  phase: 'approval',
+                  reason: 'approval_expired',
+                  effectStatus: 'not_started',
+                }
+              : undefined,
+          ),
+          false,
+        );
         // Preserve the permission owner's existing public reason, never an executor exception.
         return retainCallbackOutcome(
           {

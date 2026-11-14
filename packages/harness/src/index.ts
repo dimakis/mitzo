@@ -27,6 +27,15 @@ export type { SseClient } from './sse-registry.js';
 
 // Permissions
 export {
+  ApprovalExpiredError,
+  expiredApprovalResult,
+  throwIfApprovalExpired,
+  permissionRefusalContent,
+  expiredApprovalToolResult,
+  PERMISSION_EXPIRED_MESSAGE,
+} from './approval-outcome.js';
+export type { ApprovalPermissionResult } from './approval-outcome.js';
+export {
   githubReadCommandRepository,
   githubCommandConsentDescription,
 } from './github-command-consent.js';

@@ -379,6 +379,38 @@ describe('native tool execution through session permissions', () => {
     },
   );
 
+  it('preserves a GitHub approval timeout through the native adapter and permits a fresh request', async () => {
+    vi.useFakeTimers();
+    try {
+      const beforeReads = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+      const execute = createNativeToolExecutor('client', registry, { env: {}, forcePrompt: true });
+      const input = call('GitHubRead', { endpoint: '/repos/example/project' });
+      const pending = execute(input, abort.signal);
+      await vi.advanceTimersByTimeAsync(120_000);
+      const response = await pending;
+      expect(response.is_error).toBe(true);
+      expect(JSON.parse(String(response.content))).toMatchObject({
+        failure: {
+          code: 'approval_expired',
+          phase: 'approval',
+          effectStatus: 'not_started',
+          recovery: 'renew_approval',
+        },
+      });
+      expect(callbackOutcome(response)).toBe('settled');
+      expect(abort.signal.aborted).toBe(false);
+      expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(beforeReads);
+      const next = execute({ ...input, id: 'call-2' }, abort.signal);
+      await vi.advanceTimersByTimeAsync(0);
+      const card = sent.filter((event) => event.type === 'permission_request').at(-1)!;
+      resolvePending(String(card.permId), 'once');
+      expect((await next).is_error).toBe(false);
+      expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(beforeReads + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(['authenticated', 'public'] as const)(
     'preserves uncertainty when an already dispatched %s GitHub read is cancelled',
     async (access) => {

@@ -9,9 +9,9 @@ import type { ToolTier } from './tool-tiers.js';
 import { isDeepStrictEqual } from 'node:util';
 import { recordPermissionAudit } from './permission-audit.js';
 import { createLogger } from './logger.js';
+import { expiredApprovalResult } from './approval-outcome.js';
+export { PERMISSION_EXPIRED_MESSAGE } from './approval-outcome.js';
 const log = createLogger('permissions');
-export const PERMISSION_EXPIRED_MESSAGE =
-  'Tool approval expired without a response. Wait for the user; do not recreate the unchanged request automatically.';
 
 export interface PendingTelosSourceReview {
   permId: string;
@@ -151,16 +151,7 @@ export function resolvePending(
   // is busy. The advertised absolute deadline remains authoritative.
   if (entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()) {
     pending.delete(permId);
-    applyPendingResult(
-      entry,
-      permId,
-      {
-        behavior: 'deny',
-        message: PERMISSION_EXPIRED_MESSAGE,
-      },
-      decision,
-      'expired',
-    );
+    applyPendingResult(entry, permId, expiredApprovalResult(), decision, 'expired');
     return false;
   }
 

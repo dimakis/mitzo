@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
+import {
+  buildPermissionHandler,
+  throwIfApprovalExpired,
+  type SessionRegistry,
+} from '@mitzo/harness';
 import type { MainPublicationPermission } from './telos-main-publication.js';
 import {
   normalPrPublicationContract,
@@ -44,6 +48,7 @@ export async function approveGithubMainPublication(
   });
   signal.throwIfAborted();
   assertCurrent();
+  throwIfApprovalExpired(decision);
   if (
     registry.get(clientId) !== session ||
     registry.findBySessionId(session.sessionId)?.clientId !== clientId ||

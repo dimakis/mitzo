@@ -9,8 +9,12 @@ it.each(['approval', 'execution', 'cleanup'] as const)(
       false,
     );
     expect(JSON.parse(result.content)).toMatchObject({
-      failure: { code: 'tool_timeout', phase, effectStatus: 'unknown' },
-      diagnostic: { phase, reason: 'deadline' },
+      failure: {
+        code: phase === 'approval' ? 'approval_expired' : 'tool_timeout',
+        phase,
+        effectStatus: 'unknown',
+      },
+      diagnostic: { phase, reason: phase === 'approval' ? 'approval_expired' : 'deadline' },
     });
   },
 );

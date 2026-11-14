@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   buildPermissionHandler,
+  throwIfApprovalExpired,
   permissionDisplayInput,
   type SessionRegistry,
 } from '@mitzo/harness';
@@ -69,6 +70,7 @@ export function capabilityApprovalForConversation(
           'This performs the reviewed provider operation shown below. Mitzo will record the result and verify it before reporting success.',
       },
     );
+    throwIfApprovalExpired(decision);
     return decision.behavior === 'allow';
   };
 }

@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
   buildPermissionHandler,
+  throwIfApprovalExpired,
   checkSkillPolicy,
   effectivePermissionMode,
   type ManagedSession,
@@ -239,6 +240,7 @@ export function sessionTaskExecutionTools(options: {
               },
             );
             assertScope();
+            throwIfApprovalExpired(decision);
             if (decision.behavior !== 'allow')
               throw new TaskExecutionRefusal('permission_denied', 'approval', decision.message);
             if (!isDeepStrictEqual(decision.updatedInput, display))
