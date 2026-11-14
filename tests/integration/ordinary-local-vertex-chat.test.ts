@@ -1,10 +1,10 @@
-import '../../server/__tests__/fixtures/offline-user-home.js';
+import { resetOfflineUserEnvironment } from '../../server/__tests__/fixtures/offline-user-home.js';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance, Options } from '@anthropic-ai/claude-agent-sdk';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { agentLibrarySource } from '../../server/__tests__/fixtures/agent-library-source.js';
 vi.mock('../../server/claude-account-history.js', () => ({
   readClaudeAccountHistory: vi.fn(async (sessionId: string, cwd: string) => ({
@@ -127,6 +127,9 @@ vi.mock('../../server/keychain-rotation-credentials.js', () => ({
   },
 }));
 const cleanups: Array<() => void | Promise<void>> = [];
+// afterEach restores the host environment; each scenario must clear its private
+// enrollments again before exercising real privacy guards against fixture paths.
+beforeEach(resetOfflineUserEnvironment);
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.restoreAllMocks();
@@ -576,16 +579,12 @@ it.each(
     }
     if (personal) {
       const sdkOptions = services.requests[0].options as Options;
-      expect(sdkOptions.sandbox).toMatchObject({
-        enabled: true,
-        failIfUnavailable: true,
-        allowUnsandboxedCommands: false,
-      });
+      expect(sdkOptions.sandbox).toBeUndefined();
       for (const tool of ['Grep', 'Glob']) {
         await expect(
           sdkOptions.canUseTool!(
             tool,
-            { path: '/', pattern: '**/.credentials.json' },
+            { path: sdkOptions.env!.CLAUDE_CONFIG_DIR, pattern: '*' },
             {
               signal: new AbortController().signal,
               toolUseID: `private-search-${tool}`,
@@ -593,8 +592,18 @@ it.each(
           ),
         ).resolves.toMatchObject({
           behavior: 'deny',
-          message: expect.stringContaining('sandboxed Bash'),
+          message: expect.stringContaining('private account files'),
         });
+        await expect(
+          sdkOptions.canUseTool!(
+            tool,
+            { path: sdkOptions.cwd, pattern: 'fixture' },
+            {
+              signal: new AbortController().signal,
+              toolUseID: `workspace-search-${tool}`,
+            },
+          ),
+        ).resolves.toMatchObject({ behavior: 'allow' });
       }
     }
     const publicUser = chat.eventStore
