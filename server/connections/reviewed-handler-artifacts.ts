@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1155-claude-canonical-refusals';
+  'v1.0.1156-claude-original-uncertainty';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1961,7 +1961,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8a6b88fbca7d480a01a99880b375abf181d0bac4360c25c4753b586694348c29',
   '../../frontend/src/lib/todo-lifecycle-events.ts':
     '7ab6ec51e8b4653f58f21f05c50018fc6e0b9bead8285f5931cb20addad24999',
-  '../telos-work-lifecycle.ts': '9ff7490c8cace81b5dda685449f1ab7ad60e17a02580f387b674cf7d824cda48',
+  '../telos-work-lifecycle.ts': '809fb5acc0d454d2c3f7d07c78cde2250574d9f2d01685ba7a0231bc4284f86c',
   '../telos-lifecycle-tree.ts': '4ab02f364793bdfe4dfb64ac66c152d390584c1ce6cd7630cab3af76ed4f6215',
   '../telos-lifecycle-list.ts': 'f2386f34c0c71ae5190458416c8fe056044eb941ab9b2a5a66a43c1407901835',
   '../../packages/protocol/src/telos-work-lifecycle.ts':
@@ -2434,7 +2434,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '68b440dacf7db8f1afee47cce7fd463002f1bd14e7e4b3f6e391143a9e466f7c',
   '../../packages/protocol/src/client-capabilities.ts':
     '8dd04e33daf77b98951f93a1e377e79a671a5f9303585c847d01ae895fd9bd95',
-  '../telos-item-store.ts': '2f73c98bc9ed62ce707ed4189e54ba8cf049f82dd4554ad296fda4e380a238bb',
+  '../telos-item-store.ts': '170474b1a2438b5efdd136cb8ec2b9b3c8c8040762ba45b6269007fb70e25e61',
   '../telos-item-routes.ts': 'b600aaad3c66f6221d526c6a16d11d61d99f761e640f4cc4d9c14bef84b12789',
   '../telos-item-tools.ts': '6338abf7d20c0a7ee4f68de4c85e49a75acb8a76545822fba14246d86efe6abf',
   '../telos-mcp-server.ts': '06e4c5f62691696f36f387d930660704f9e56dc1a877fdc9062957bf786dd28a',
@@ -3897,9 +3897,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/agent-library.spec.ts':
     '978b292de04ee6d69a34d6e4a134b22c67abeed8246f95a8690b7b4f0caf2c99',
   '../native-telos-item-operations.ts':
-    'e545d5d250413d845dd66e1a123bebe41ed676592d1d51a64849b8a61f5015ac',
+    'e74a7ba2c32ac26a1744a30749ae35b627d3736581b4f35194e11327520dbb0f',
   '../__tests__/native-telos-item-operations.test.ts':
-    'ace9f9554c65e0c0042554c4cc7929e05d7f4352fa965dd2632def8d1baf8811',
+    'fe1817a9d22a0e655206a4ae361a2c13add047fdb1de3d367354fa9d4f84ea59',
   '../native-telos-worker-materials.ts':
     '36d27dcd564a758082503ad455dba3ffabacda3b558efc66a28d7a42437b55af',
   '../__tests__/native-telos-worker-materials.test.ts':
@@ -3925,7 +3925,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/agent-tool-catalog.test.ts':
     'f012802baac197c958ecd57eae7a760aa413b7189547f2f036333f0c6c17c185',
   '../__tests__/telos-item-store.test.ts':
-    'acc386aa7c8df13785ffe9ac6411c3cb9ac4db8b19b865ed849f77bf8f2c4ff9',
+    '4566b58a4fccb07f137476f521bbee1fc6bd1721a21332cf47e893e81458d629',
   '../__tests__/telos-source-current-auth.test.ts':
     'a8a7077e148616c7f7d2580f7cb6cf9816105eeff05fc8758457a610bfab74de',
   '../../tests/integration/telos-s5b/native-role-composition.contract.ts':
@@ -4164,12 +4164,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-backlog-artifacts.test.ts':
     '5ef9b1cc1c26935c9ff558d04b8ff07f773c02eda25f9b0b0b4e98b23af540d4',
   '../__tests__/telos-backlog-tools.test.ts':
-    '847386a94ef62c1443c739c903748301867c96e0b765995e558720ba12fd2cec',
+    'b0a31632cffe33e50cff28cfdc655ee6f8ba558d57ec4c34f30ada9fb0138dfe',
   '../__tests__/telos-backlog.test.ts':
     'e682d8e975298dd997b05183e6b676cefe9fd9944f229cee1f2f6f235237f32e',
   '../__tests__/telos-work-routes.test.ts':
     'cfaf066893f9c150dc986585bc27f7f29e8f19c51491957460938ca7d547a039',
-  '../telos-backlog-tools.ts': '3da44cac26c913d5552ae89919dfe54e2a9eecd05135445a1ba2860ef9656050',
+  '../telos-backlog-tools.ts': 'e4577776c46ee0ab27bcaf3e2e105e53e5117f744f947a073c156548895de360',
   '../../tests/offline/telos-outcomes-workspace.spec.ts':
     'c01a12965a4e4679fee8b053959e717614c35899649ff1996eaff8d80746db0b',
   '../../tests/integration/telos-s9/integrated-candidate/surface-control-inbox.ts':

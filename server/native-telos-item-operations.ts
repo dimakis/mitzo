@@ -108,8 +108,10 @@ export async function executeNativeTelosItemOperation(
     // The real owner acknowledged COMMIT. Never renew authority after its effect.
     return { content: JSON.stringify({ ok: true, ...receipt }), isError: false };
   } catch (error) {
+    const outcome = error instanceof Error ? retainedCallbackOutcome(error) : undefined;
     const expired = expiredApprovalToolResult(error);
-    if (expired) return retainCallbackOutcome(expired, 'settled');
+    if (expired)
+      return retainCallbackOutcome(expired, outcome === 'unknown' ? 'unknown' : 'settled');
     const message = error instanceof Error ? error.message : '';
     const known = [
       'Telos item changed;',
@@ -124,9 +126,11 @@ export async function executeNativeTelosItemOperation(
     };
     return retainCallbackOutcome(
       result,
-      !mutationStarted || (error instanceof Error && retainedCallbackOutcome(error) === 'settled')
-        ? 'settled'
-        : 'unknown',
+      outcome === 'unknown'
+        ? 'unknown'
+        : !mutationStarted || outcome === 'settled'
+          ? 'settled'
+          : 'unknown',
     );
   }
 }

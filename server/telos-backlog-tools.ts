@@ -263,8 +263,10 @@ export async function executeTelosBacklogOperation(
     }
     return { content, isError: false };
   } catch (error) {
+    const outcome = error instanceof Error ? retainedCallbackOutcome(error) : undefined;
     const expired = expiredApprovalToolResult(error);
-    if (expired) return retainCallbackOutcome(expired, 'settled');
+    if (expired)
+      return retainCallbackOutcome(expired, outcome === 'unknown' ? 'unknown' : 'settled');
     const known =
       error instanceof TelosWorkError ||
       (error instanceof Error &&
@@ -295,9 +297,11 @@ export async function executeTelosBacklogOperation(
     };
     return retainCallbackOutcome(
       result,
-      !mutationStarted || (error instanceof Error && retainedCallbackOutcome(error) === 'settled')
-        ? 'settled'
-        : 'unknown',
+      outcome === 'unknown'
+        ? 'unknown'
+        : !mutationStarted || outcome === 'settled'
+          ? 'settled'
+          : 'unknown',
     );
   }
 }

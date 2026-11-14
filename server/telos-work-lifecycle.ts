@@ -13,7 +13,7 @@ import {
 } from '@mitzo/protocol';
 import { TelosWorkControls } from './telos-work-controls.js';
 import { TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
-import { retainCallbackOutcome } from './turn-callbacks.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 
 type Disposition = TelosWorkLifecycleView['disposition'];
 interface State {
@@ -315,7 +315,11 @@ export class TelosWorkLifecycle {
     } catch (error) {
       // This original owner has not issued any write or delegated control.
       // Post-write/COMMIT failures remain uncertain even after rollback.
-      if (!mutationStarted && error instanceof Error) retainCallbackOutcome(error, 'settled');
+      if (error instanceof Error)
+        retainCallbackOutcome(
+          error,
+          mutationStarted || retainedCallbackOutcome(error) === 'unknown' ? 'unknown' : 'settled',
+        );
       throw error;
     }
   }

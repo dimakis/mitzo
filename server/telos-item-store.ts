@@ -12,7 +12,7 @@ import { initializeTelosSchema } from './telos-schema.js';
 import { initializeTelosWorkKinds } from './telos-work-schema.js';
 import { assertTelosItemActive } from './telos-lifecycle-facts.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
-import { retainCallbackOutcome } from './turn-callbacks.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 import {
   TelosEditItemInputSchema,
   type TelosEditItemInput,
@@ -256,7 +256,11 @@ export class TelosItemStore {
         })
         .immediate();
     } catch (error) {
-      if (!mutationStarted && error instanceof Error) retainCallbackOutcome(error, 'settled');
+      if (error instanceof Error)
+        retainCallbackOutcome(
+          error,
+          mutationStarted || retainedCallbackOutcome(error) === 'unknown' ? 'unknown' : 'settled',
+        );
       throw error;
     }
   }
