@@ -22,24 +22,30 @@ The candidate began at fresh accepted main
 commit IDs are retained through attributed cherry-picks. Source branches, PRs and
 dirty work are preserved. Neither original PR is independently landing or closed.
 
-| Contribution | Acknowledged source and custody | Composition |
-| --- | --- | --- |
-| Device ownership #1357 | Owner `66931ded-9484-828c-b0ad-05805d2deae4`; source head `7fbee608b1a45e9a9015fddb6eb62eee7d57e438`, base `19aa8a19b274ae1fee416f0f187c772111251366` | Ordered `b951da37f62df0d2f304b86d1abf7f7882e0c150`, `49ebd9fb35442914c9845a629e6cde521d7ce772`, `7fbee608b1a45e9a9015fddb6eb62eee7d57e438`; handoff `64871a5e-4472-4fe0-9a9b-bc6eefe954d9`; final boundary `a6da0b0e-94cb-424b-b697-fa29c6bc28a3` transfers the three unfinished fixes to this integration writer. Source owner reviews composed fences. |
-| Input diagnostics #1358 | Verified implementation owner `8cd5f77c-f34b-82f9-a39e-6ac76a0cb183`; head `68acf6760d71619b9dd2b336495a06837de2e28c`, single-commit parent `0ad803cdae56ed6e22c89273ae800d3e7aeb9706` | Handoff `0497a1d8-1f63-486d-ad80-8e3d7224f505` transfers both unfinished review fixes. Source owner retains original branch and reviews the composition. Private incident/research history is excluded. |
-| Context/runtime reporting | Existing owner `4acd5b81-1ff1-8b53-8900-37c15d071038` | ACK `7e9c34b6-78c6-4dab-98e3-683b8022cbe9`: no implementation commit/PR at handoff; test artifacts unrun. Owner continues implementation in the original checkout; no separate PR, copied dependencies or inherited grants. |
-| Independent coverage audit | Existing auditor `eed63efb-da6e-8843-8796-e75eba8c7269` | Handoff `2823b243-3e5b-41ea-93f4-b6343bfa1f30`, audit commit `96e3c6cb6`, correction `8e0612420`; original 63-entry/eight-category ledger and S01–S14 dispositions retained. Its 287-test pass covers `416faccb`, not this candidate. |
+| Contribution               | Acknowledged source and custody                                                                                                                                                        | Composition                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Device ownership #1357     | Owner `66931ded-9484-828c-b0ad-05805d2deae4`; source head `7fbee608b1a45e9a9015fddb6eb62eee7d57e438`, base `19aa8a19b274ae1fee416f0f187c772111251366`                                  | Ordered `b951da37f62df0d2f304b86d1abf7f7882e0c150`, `49ebd9fb35442914c9845a629e6cde521d7ce772`, `7fbee608b1a45e9a9015fddb6eb62eee7d57e438`; handoff `64871a5e-4472-4fe0-9a9b-bc6eefe954d9`; final boundary `a6da0b0e-94cb-424b-b697-fa29c6bc28a3` transfers the three unfinished fixes to this integration writer. Source owner reviews composed fences. |
+| Input diagnostics #1358    | Verified implementation owner `8cd5f77c-f34b-82f9-a39e-6ac76a0cb183`; head `68acf6760d71619b9dd2b336495a06837de2e28c`, single-commit parent `0ad803cdae56ed6e22c89273ae800d3e7aeb9706` | Handoff `0497a1d8-1f63-486d-ad80-8e3d7224f505` transfers both unfinished review fixes. Source owner retains original branch and reviews the composition. Private incident/research history is excluded.                                                                                                                                                  |
+| Context/runtime reporting  | Existing owner `4acd5b81-1ff1-8b53-8900-37c15d071038`                                                                                                                                  | ACK `7e9c34b6-78c6-4dab-98e3-683b8022cbe9`: no implementation commit/PR at handoff; test artifacts unrun. Owner continues implementation in the original checkout; no separate PR, copied dependencies or inherited grants.                                                                                                                              |
+| Independent coverage audit | Existing auditor `eed63efb-da6e-8843-8796-e75eba8c7269`                                                                                                                                | Handoff `2823b243-3e5b-41ea-93f4-b6343bfa1f30`, audit commit `96e3c6cb6`, correction `8e0612420`; original 63-entry/eight-category ledger and S01–S14 dispositions retained. Its 287-test pass covers `416faccb`, not this candidate.                                                                                                                    |
 
 ## Open blocking findings inherited from source PRs
 
 These are unfinished work, not approved fixes or passing composed outcomes.
 
-| Finding | Required outcome and evidence |
-| --- | --- |
-| #1357 `CEN-3C9DE1FD89FE`, review `5906086158` | Live Claude continuation status must accept a verified second operator login so actual metadata and `useExplicitLocalChat` enable ordinary Send. Preserve account/runtime/workspace custody and unknown/revoked/foreign negatives. |
-| #1357 `CEN-6EA0ADBA0AF5` | Targeted `stopOrdinary` must accept canonical operator ownership while preserving original command, interrupt receipt, target/generation, current-owner and post-await authorization fences. |
-| #1357 hosted TS2322 | CI `43596068439`, job `132450706735`, legacy permission fixture passed unsupported `sessionId`; removed in integration commit `d5499ae43`, preserving every denial assertion and existing `permId` ownership lookup. Combined hosted compilation remains pending. |
-| #1358 `CEN-0A6284EDF91F`, review `5905457673` | Generic SDK AbortError after input refusal must retain the SessionRuntimeError in the terminal callback and failed chat-start trace. Cover both throwing and normally closing iterators; user Stop stays distinct. |
-| #1358 `CEN-65374BDD3AB5` | Keep original causes in memory while sanitizing the actual serialized startup logger. Inject private text/paths and verify serialized output, not only logger spies. |
+Current-head Centaur review `5906594789` on
+`f508455aa88177caaceb5cd6e2de0b9febd279c3` recommends FIX and retains the four
+runtime defects below as `CEN-B9E7697D8CD1` (Send), `CEN-9A0551011967` (Stop),
+`CEN-46BDAAE2FF3D` (refusal AbortError) and `CEN-B873B59061F9` (serialized privacy).
+Keep these IDs alongside the original source finding ledger during follow-up.
+
+| Finding                                       | Required outcome and evidence                                                                                                                                                                                                                                                                            |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #1357 `CEN-3C9DE1FD89FE`, review `5906086158` | Live Claude continuation status must accept a verified second operator login so actual metadata and `useExplicitLocalChat` enable ordinary Send. Preserve account/runtime/workspace custody and unknown/revoked/foreign negatives.                                                                       |
+| #1357 `CEN-6EA0ADBA0AF5`                      | Targeted `stopOrdinary` must accept canonical operator ownership while preserving original command, interrupt receipt, target/generation, current-owner and post-await authorization fences.                                                                                                             |
+| #1357 hosted TS2322                           | CI `43596068439`, job `132450706735`, legacy permission fixture passed unsupported `sessionId`; removed in integration commit `d5499ae43`, preserving every denial assertion and existing `permId` ownership lookup. Hosted compile/source preflight `132548935217` passes on combined head `f508455aa`. |
+| #1358 `CEN-0A6284EDF91F`, review `5905457673` | Generic SDK AbortError after input refusal must retain the SessionRuntimeError in the terminal callback and failed chat-start trace. Cover both throwing and normally closing iterators; user Stop stays distinct.                                                                                       |
+| #1358 `CEN-65374BDD3AB5`                      | Keep original causes in memory while sanitizing the actual serialized startup logger. Inject private text/paths and verify serialized output, not only logger spies.                                                                                                                                     |
 
 #1358's original CI checks were successful at the owner handoff, but its trusted
 final review recommends FIX. #1357's 429 local checks and #1358's 191 local checks
@@ -54,6 +60,12 @@ historical-source predicates and post-await revalidation within diagnostic
 annotation. No tests were executed, and both original diagnostics findings remain
 open. This scoped source assessment is not final LGTM, independent full permission
 review or approval of later changes.
+
+Device owner review `c82e58fb-7529-414d-b97a-b43bf0508203` independently compared
+exact head `8901dd0b8313e423eb06d0112734d46a490ba3e3` with accepted `27345bb5`:
+all three attributed patches and the four device/control test files are retained,
+no new scoped ownership composition regression was found, and all 2458 registered
+artifact hashes match. No composed runtime tests or final approval were claimed.
 
 ## Remaining reporting outcomes
 
@@ -111,9 +123,19 @@ Other Symposium/Telos PRs #1354–#1356/#1359–#1361 are excluded.
 
 ## Verification and delivery status
 
-At this checkpoint the attributed source integration and regenerated source pins
-are present. The source-artifact checker and `git diff --check` pass. No combined
-Vitest, TypeScript, build, browser, device or live-provider success is claimed.
+The attributed source integration and regenerated source pins are present. The
+local source-artifact checker and `git diff --check` pass. No local Vitest or
+dependency installation is claimed.
+
+Hosted CI `43628267406` completed on exact `f508455aa`: compilation/source
+preflight, shared frontend build, all four unit shards, design checks, browser
+interaction and layouts, Swift/native, composed repository, Telos and Connections
+jobs pass. The permission fixture typing correction is therefore compiled on the
+combined tree. Core checks fail ONLY at Format check for this evidence document
+(job `132549862852`); its dependent `unit-validation` and `ci` aggregators are red.
+Lint, audit, secret scan and the other Core steps pass. This formatting correction
+needs its normal fresh CI result and does not resolve Centaur's four runtime
+findings. Prior successful jobs do not approve the next head.
 
 TaskExecution grant `b953a931-2c3e-4cc2-ae73-d312fbf4ff27` covers this chat's
 admitted integration root only. Registry probe request
