@@ -790,6 +790,8 @@ export function SymposiumConversation({
         sourceConversationId={sessionId ?? ''}
         chat={chat}
         ordinaryComposer={!ordinaryExcluded ? ordinaryComposer : undefined}
+        beforeTranscript={participantHeader}
+        ordinaryTools={profileTools}
         ordinaryHistory={
           <ChatArea
             {...chat}

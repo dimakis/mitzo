@@ -1,6 +1,5 @@
 import {
   createContext,
-  cloneElement,
   isValidElement,
   useContext,
   useEffect,
@@ -35,6 +34,7 @@ import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
+import { SharedConversationComposerContext } from '../lib/shared-conversation-composer';
 
 const applicationApi = new MitzoApiClient(apiFetch);
 const EMPTY_CONTEXT: string[] = [];
@@ -147,7 +147,7 @@ function useSharedConversation({
                 ...draft.settings,
                 collaborationResponders: {
                   collaborationId: group,
-                  responders: { kind: 'selected', sessionIds: [] },
+                  responders: { kind: 'selected', sessionIds: [sourceConversationId] },
                 },
               },
             })
@@ -352,60 +352,122 @@ export function SharedConversationBody({
   children,
   ordinaryHistory,
   ordinaryComposer,
+  beforeTranscript,
+  ordinaryTools,
 }: {
   sourceConversationId: string;
   chat: ChatAreaProps;
   children: ReactNode;
   ordinaryHistory?: ReactNode;
   ordinaryComposer?: ReactNode;
+  beforeTranscript?: ReactNode;
+  ordinaryTools?: ReactNode;
 }) {
   const host = useContext(Context);
   const [sendFailure, setSendFailure] = useState<string>();
   if (!host || host.sourceConversationId !== sourceConversationId) return children;
-  if (!host.active)
-    return (
-      <>
-        {children}
-        <ChatStatusMessage
-          error={
-            host.error ??
-            (host.joiningOwner ? host.presentation.error : null) ??
-            host.progress.error
-          }
-          action={{ label: 'Refresh collaboration', onClick: host.retry }}
-        />
-      </>
-    );
   const { presentation, sending, progress, promptContext, forwarding, names } = host;
   const { draft, projection, composerResponders } = presentation;
   const canShare =
     !sending.pending && !promptContext.busy && !promptContext.attached && !forwarding.retained;
   const history =
     isValidElement<ChatAreaProps>(ordinaryHistory) && ordinaryHistory.type === ChatArea
-      ? cloneElement(ordinaryHistory, {
-          onShareMessage: host.shareMessage,
-          canShareMessage: () => canShare,
+      ? {
+          ...ordinaryHistory.props,
+          onShareMessage: host.active ? host.shareMessage : ordinaryHistory.props.onShareMessage,
+          canShareMessage: (message: ChatAreaProps['messages'][number]) =>
+            canShare &&
+            ordinaryHistory.props.messages.some((m) => m.messageId === message.messageId),
           shareInActions: true,
-        })
-      : ordinaryHistory;
+        }
+      : {
+          ...chat,
+          beforeMessages: (
+            <>
+              {chat.beforeMessages}
+              {ordinaryHistory}
+            </>
+          ),
+        };
+  const composer: ComponentProps<typeof ChatInput> = {
+    savedChatDraft: draft ?? undefined,
+    sessionId: draft?.id,
+    textOnly: true,
+    boundedFirstCommand: true,
+    guardedConversation: false,
+    composerCapabilities: undefined,
+    validateSend: undefined,
+    onInterrupt: undefined,
+    running: !!sending.pending,
+    onStop: () => void sending.stop(),
+    collaboration: (
+      <ConversationPromptContextButton flow={promptContext} disabled={!!sending.pending} />
+    ),
+    responders: composerResponders
+      ? {
+          ...composerResponders,
+          members: composerResponders.members.map((member) => ({
+            ...member,
+            name: names[member.id] ?? member.name,
+          })),
+          disabled: !!sending.pending,
+        }
+      : undefined,
+    sendDisabledReason: presentation.error ?? sending.disabledReason,
+    sendDisabledAction: {
+      label: sending.pending ? 'Check original request' : 'Refresh conversation',
+      onClick: () => {
+        if (sending.pending) void sending.check();
+        else {
+          void presentation.refresh();
+          void sending.check();
+        }
+      },
+    },
+    onSend: (text, images, context, delivered) => {
+      if (images?.length || context?.length || sending.disabledReason) return false;
+      setSendFailure(undefined);
+      void sending.send(text).then(
+        (ok) => delivered?.(ok ? 'accepted' : 'failed'),
+        (cause) => {
+          setSendFailure(
+            cause instanceof Error
+              ? cause.message
+              : 'Could not send this prompt. Your draft is retained.',
+          );
+          delivered?.('failed');
+        },
+      );
+      return true;
+    },
+  };
+  // Never move the ordinary input or change its draft/session key on joining.
+  // Only this context's dispatch controls change; source.running cannot own them.
+  const routing = { ...composer };
+  delete routing.savedChatDraft;
+  delete routing.sessionId;
   return (
-    <>
-      {history ?? children}
-      {projection && (
+    <SharedConversationComposerContext.Provider
+      value={host.active ? { sourceConversationId, props: routing } : null}
+    >
+      {beforeTranscript}
+      {ordinaryComposer || ordinaryHistory || host.active ? (
         <CollaborationTranscript
-          {...chat}
-          scrollRef={undefined}
-          current={null}
-          currentByMessage={{}}
-          running={false}
-          permission={null}
-          onPermissionRespond={() => {}}
-          projection={projection}
+          {...history}
+          ordinary={{ ...history, sessionId: sourceConversationId }}
+          projection={host.active ? (projection ?? undefined) : undefined}
           progress={progress.progress}
           names={names}
-          beforeMessages={undefined}
-          afterMessages={undefined}
           onRefresh={() => void presentation.refresh()}
+        />
+      ) : (
+        children
+      )}
+      {ordinaryTools}
+      {!host.active && (
+        <ChatStatusMessage
+          error={host.error ?? (host.joiningOwner ? presentation.error : null) ?? progress.error}
+          action={{ label: 'Refresh collaboration', onClick: host.retry }}
         />
       )}
       {forwarding.retained && (
@@ -432,83 +494,32 @@ export function SharedConversationBody({
           unavailable: projection.view.unavailableParticipantSessionIds.includes(id),
         }))}
       />
-      {chat.running && ordinaryComposer
-        ? ordinaryComposer
-        : draft && (
-            <div className="conversation-composer">
-              {promptContext.attached && (
-                <div className="conversation-joining-context" role="status">
-                  <small>Reviewed context attached: {promptContext.form.purpose}</small>
-                  <button
-                    type="button"
-                    disabled={!!sending.pending || promptContext.busy}
-                    onClick={promptContext.remove}
-                  >
-                    Remove prompt context
-                  </button>
-                </div>
-              )}
-              <ChatInput
-                savedChatDraft={draft}
-                sessionId={draft.id}
-                textOnly
-                boundedFirstCommand
-                externalContextBlocks={EMPTY_CONTEXT}
-                running={!!sending.pending}
-                onStop={() => void sending.stop()}
-                collaboration={
-                  <ConversationPromptContextButton
-                    flow={promptContext}
-                    disabled={!!sending.pending}
-                  />
-                }
-                responders={
-                  composerResponders
-                    ? {
-                        ...composerResponders,
-                        members: composerResponders.members.map((member) => ({
-                          ...member,
-                          name: names[member.id] ?? member.name,
-                        })),
-                        disabled: !!sending.pending,
-                      }
-                    : undefined
-                }
-                sendDisabledReason={presentation.error ?? sending.disabledReason}
-                sendDisabledAction={{
-                  label: sending.pending ? 'Check original request' : 'Refresh conversation',
-                  onClick: () => {
-                    void presentation.refresh();
-                    void sending.check();
-                  },
-                }}
-                onSend={(text, images, context, delivered) => {
-                  if (images?.length || context?.length || sending.disabledReason) return false;
-                  setSendFailure(undefined);
-                  void sending.send(text).then(
-                    (ok) => delivered?.(ok ? 'accepted' : 'failed'),
-                    (cause) => {
-                      setSendFailure(
-                        cause instanceof Error
-                          ? cause.message
-                          : 'Could not send this prompt. Your draft is retained.',
-                      );
-                      delivered?.('failed');
-                    },
-                  );
-                  return true;
-                }}
-              />
-            </div>
-          )}
+      {ordinaryComposer ??
+        (host.active && draft && (
+          <div className="conversation-composer">
+            {promptContext.attached && (
+              <div className="conversation-joining-context" role="status">
+                <small>Reviewed context attached: {promptContext.form.purpose}</small>
+                <button
+                  type="button"
+                  disabled={!!sending.pending || promptContext.busy}
+                  onClick={promptContext.remove}
+                >
+                  Remove prompt context
+                </button>
+              </div>
+            )}
+            <ChatInput {...composer} externalContextBlocks={EMPTY_CONTEXT} />
+          </div>
+        ))}
       {sending.error && <p role="alert">{sending.error}</p>}
-      {progress.error && <p role="alert">{progress.error}</p>}
+      {host.active && progress.error && <p role="alert">{progress.error}</p>}
       {sending.pending && (sending.stopStatus || sending.pending.stopRequested) && (
         <p role="status">
           {sending.stopStatus ?? 'Stop was requested. Check the original request; do not resend.'}
         </p>
       )}
       {sendFailure && <p role="alert">{sendFailure}</p>}
-    </>
+    </SharedConversationComposerContext.Provider>
   );
 }

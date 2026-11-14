@@ -1,0 +1,314 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { MitzoApiClient } from '@mitzo/client';
+import type { CollaborationMessageInput, CollaborationProgress } from '@mitzo/protocol';
+import { SharedConversationHost } from '../SharedConversation';
+import { SymposiumConversation } from '../SymposiumConversation';
+import { ChatInput } from '../ChatInput';
+import type { ChatAreaProps } from '../ChatArea';
+import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
+import {
+  sharedConversationView,
+  sharedReply,
+} from '../../../../tests/fixtures/symposium-shared-conversation-data';
+import { installDialogStub } from './dialog-stub';
+
+vi.mock('@mitzo/client/hooks', () => ({
+  useMitzoStore: (select: (state: unknown) => unknown) => select({ connection: null }),
+}));
+const proof = () => 'offline-login';
+const chat: ChatAreaProps = {
+  sessionId: 'architect',
+  messages: [
+    {
+      messageId: 'earlier',
+      role: 'user',
+      blocks: [{ blockId: 'text', blockType: 'text', content: 'Ordinary history before joining' }],
+    },
+  ],
+  current: null,
+  running: false,
+  permission: null,
+  onPermissionRespond: vi.fn(),
+};
+let polls: (() => void)[];
+beforeEach(() => {
+  installDialogStub();
+  HTMLElement.prototype.scrollTo = vi.fn();
+  polls = [];
+  const setInterval = window.setInterval.bind(window);
+  vi.spyOn(window, 'setInterval').mockImplementation((callback, timeout) => {
+    if (timeout && timeout < 100) return setInterval(callback, timeout);
+    polls.push(callback as () => void);
+    return polls.length;
+  });
+});
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  sessionStorage.clear();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function fixture(singleton = false) {
+  const view = sharedConversationView();
+  view.messages = [];
+  view.policies.forEach((p) => {
+    p.readsFutureDiscussion = false;
+    p.repliesByDefault = false;
+  });
+  view.joinedParticipants = [{ sessionId: 'reviewer', name: 'Reviewer' }];
+  if (singleton) {
+    view.participantSessionIds = ['architect'];
+    view.joinedParticipants = [];
+    view.policies = view.policies.slice(0, 1);
+  }
+  let failRead = false;
+  let progress: CollaborationProgress = {
+    collaborationId: view.collaborationId,
+    membershipRevision: view.membershipRevision,
+    replies: [],
+    refusals: [],
+  };
+  const sends: CollaborationMessageInput[] = [];
+  const transport = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes('/telos/work/links') || url.includes('/symposium/profile-proposals'))
+      return Response.json([]);
+    if (url.includes('/symposium/status'))
+      return Response.json({ sessionId: 'architect', config: null, seats: [] });
+    if (url.includes('source-setup'))
+      return Response.json({
+        state: 'selected',
+        sourceConversationId: 'architect',
+        collaboration: {
+          version: 1,
+          collaborationId: view.collaborationId,
+          revision: view.membershipRevision,
+          participantSessionIds: view.participantSessionIds,
+        },
+      });
+    if (url.endsWith('/conversation')) {
+      if (failRead) throw Error('Offline: retained discussion read failed');
+      return Response.json(view);
+    }
+    if (url.endsWith('/progress')) return Response.json(progress);
+    if (url.includes('/recipients/'))
+      return Response.json({
+        collaborationId: view.collaborationId,
+        sessionId: decodeURIComponent(url.split('/').at(-1)!),
+        membershipRevision: view.membershipRevision,
+        policySequence: view.policySequence,
+        ready: true,
+        reason: null,
+      });
+    if (url.endsWith('/messages/observe')) return Response.json({ message: null, terminal: false });
+    if (url.endsWith('/messages')) {
+      sends.push(JSON.parse(init!.body as string));
+      throw Error('Original send acknowledgement lost');
+    }
+    throw Error('Unexpected request: ' + url);
+  });
+  vi.stubGlobal('fetch', transport);
+  const api = new MitzoApiClient(transport);
+  const ordinarySend = vi.fn(() => false),
+    ordinaryStop = vi.fn();
+  const tree = (source = chat) => (
+    <MemoryRouter>
+      <SharedConversationHost
+        sourceConversationId="architect"
+        api={api}
+        clientId="client"
+        authScope={proof()}
+        getVerifiedAuthScope={proof}
+      >
+        <SymposiumConversation
+          sessionId="architect"
+          ordinaryConfirmed
+          chat={source}
+          profileToolsTarget={null}
+          ordinaryComposer={
+            <div className="conversation-composer">
+              <ChatInput
+                sessionId="architect"
+                initialText="Ordinary draft before joining"
+                onSend={ordinarySend}
+                onStop={ordinaryStop}
+                running={source.running}
+              />
+            </div>
+          }
+        />
+      </SharedConversationHost>
+    </MemoryRouter>
+  );
+  return {
+    view,
+    tree,
+    sends,
+    transport,
+    ordinarySend,
+    ordinaryStop,
+    fail: () => {
+      failRead = true;
+    },
+    setProgress: (value: CollaborationProgress) => {
+      progress = value;
+    },
+    join: () => {
+      view.participantSessionIds = ['architect', 'reviewer'];
+      view.joinedParticipants = [{ sessionId: 'reviewer', name: 'Reviewer' }];
+      view.membershipRevision++;
+      view.policies = sharedConversationView()
+        .policies.slice(0, 2)
+        .map((p) => ({
+          ...p,
+          membershipRevision: view.membershipRevision,
+          readsFutureDiscussion: false,
+          repliesByDefault: false,
+        }));
+      progress = { ...progress, membershipRevision: view.membershipRevision };
+    },
+  };
+}
+async function poll() {
+  await act(async () => {
+    for (const callback of [...polls]) callback();
+  });
+}
+
+it('keeps the actual ordinary transcript and composer mounted through joining and source activity', async () => {
+  const f = fixture(true);
+  const { container, rerender } = render(f.tree());
+  const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+  const transcript = container.querySelector('.chat-messages');
+  fireEvent.change(input, { target: { value: 'Edited before the reviewer joins' } });
+  await waitFor(() =>
+    expect(
+      JSON.stringify(f.transport.mock.calls.map(([url]) => url)),
+      JSON.stringify(f.transport.mock.calls.map(([url]) => url)),
+    ).toContain('/progress'),
+  );
+  f.join();
+  await poll();
+  const recipients = await screen.findByRole('button', { name: 'Choose who replies' });
+  expect(container.querySelectorAll('.chat-messages')).toHaveLength(1);
+  expect(container.querySelector('.chat-messages')).toBe(transcript);
+  expect(screen.getByRole('textbox')).toBe(input);
+  expect(input.value).toBe('Edited before the reviewer joins');
+  expect(recipients.textContent).toContain('Current agent');
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
+  rerender(f.tree({ ...chat, running: true }));
+  expect(screen.getByRole('textbox')).toBe(input);
+  expect(screen.getByRole('button', { name: 'Choose who replies' })).toBe(recipients);
+  expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(false);
+  expect(screen.getByText('Ordinary history before joining')).toBeTruthy();
+  expect(
+    f.transport.mock.calls
+      .filter(([url]) => url.includes('/session-collaborations/'))
+      .every(([, init]) => !init?.method || init.method === 'GET'),
+  ).toBe(true);
+});
+
+it('merges rich original history, source echoes and authorized live/final replies exactly once by identity', async () => {
+  const f = fixture();
+  f.view.messages = [
+    structuredClone(sharedReply),
+    {
+      ...structuredClone(sharedReply),
+      messageId: '00000000-0000-4000-8000-000000000090',
+      projectionId: '00000000-0000-4000-8000-000000000091',
+      sequence: 3,
+      author: { sessionId: 'reviewer' },
+      source: { ...sharedReply.source!, conversationId: 'reviewer' },
+    },
+  ];
+  const rich = {
+    ...chat,
+    messages: [
+      ...chat.messages,
+      {
+        messageId: 'final-answer',
+        replyToMessageId: 'ordinary-architect',
+        role: 'assistant' as const,
+        blocks: [
+          { blockId: 'text', blockType: 'text' as const, content: sharedReply.text },
+          {
+            blockId: 'tool',
+            blockType: 'tool_use' as const,
+            toolId: 'lookup',
+            toolName: 'Read',
+            content: '',
+            toolResult: 'Rich source result',
+          },
+        ],
+      },
+    ],
+  };
+  const { container } = render(f.tree(rich));
+  await screen.findByRole('button', { name: 'Choose who replies' });
+  expect(container.querySelectorAll('.chat-messages')).toHaveLength(1);
+  // Equal text in distinct source conversations is two messages. Only the exact source echo collapses.
+  expect(screen.getAllByText(sharedReply.text)).toHaveLength(2);
+  expect(screen.getByText('Ordinary history before joining')).toBeTruthy();
+  expect(container.innerHTML).toContain('Read');
+  expect(screen.getByLabelText('Message details for Reviewer')).toBeTruthy();
+});
+
+it.each(['selected', 'default'] as const)(
+  'preserves saved %s empty intent and opens the picker as its recovery action',
+  async (kind) => {
+    const f = fixture();
+    saveChatDraft({
+      ...createChatDraft(),
+      id: 'shared:' + f.view.collaborationId,
+      settings: {
+        ...createChatDraft().settings,
+        collaborationResponders: {
+          collaborationId: f.view.collaborationId,
+          responders: kind === 'selected' ? { kind, sessionIds: [] } : { kind },
+        },
+      },
+    });
+    render(f.tree());
+    const trigger = (await screen.findAllByRole('button', { name: 'Choose who replies' })).find(
+      (button) => button.classList.contains('composer-responders-trigger'),
+    )!;
+    expect(
+      getChatDraft('shared:' + f.view.collaborationId)?.settings.collaborationResponders
+        ?.responders,
+    ).toEqual(kind === 'selected' ? { kind, sessionIds: [] } : { kind });
+    // Recovery in the status surface must choose recipients, not perform an unrelated refresh.
+    const choose = await screen.findAllByRole('button', { name: 'Choose who replies' });
+    expect(choose.length).toBeGreaterThan(1);
+    fireEvent.click(choose.find((button) => button !== trigger)!);
+    const picker = screen.getByRole('group', { name: 'Who replies to this prompt' });
+    fireEvent.click(within(picker).getByRole('checkbox', { name: 'Current agent' }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Done choosing replies' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
+        false,
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(f.sends).toHaveLength(1));
+    expect(f.sends[0].responders).toEqual({ kind: 'selected', sessionIds: ['architect'] });
+    expect(f.ordinarySend).not.toHaveBeenCalled();
+    const identity = f.sends[0].requestId;
+    f.fail();
+    fireEvent.click(await screen.findByRole('button', { name: 'Check original request' }));
+    await waitFor(() =>
+      expect(screen.getByText('Offline: retained discussion read failed')).toBeTruthy(),
+    );
+    expect(
+      getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend?.input.requestId,
+    ).toBe(identity);
+    expect(f.sends).toHaveLength(1);
+  },
+);
