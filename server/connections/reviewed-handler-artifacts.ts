@@ -23,15 +23,15 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-sdk-definitions.ts': 'f3b20b90e8f1bea646ab32847b592ce0736f662e1e6b26b094ec8396f9469871',
-  '../telos-sdk-tools.ts': 'dd71ce1078374e6ea4512de2d8b1ed460705ea9c3501a184968c516e12081dab',
+  '../telos-sdk-tools.ts': '30bd9920f74fc0b5f01920f95ddc029c909a3c84d40e3350d424d6647fa7e992',
   '../__tests__/telos-sdk-tools.test.ts':
-    'c52db300fb556963676db7b3489a78ff44c6a84098b1c97b6a2b2dab96e0e743',
+    'e53c54d9cc6d086cbf7ee68bd050b9a1a1b0755359f8e402cf3440af3a5339a8',
   '../__tests__/telos-sdk-source.test.ts':
     'd4a46546ef2519d8e61d6a0e0ffc219b37a986d94e4f1602c133ef4e8efdc2e2',
   '../__tests__/telos-work-delegation-host.test.ts':
     '295752eccafa4aa1a02a3eaec997579c24ba4080148d2c9baae8d45b6cfb7f4c',
   '../../docs/features/claude-telos-bridge.md':
-    'ee293d8a44ca6b53bc2bc4778fe1c2195f1163725d6386e115a27514850b8d00',
+    '22978684eb1e8f0556ea59eb38447b5c0a20840ca2194d675df9329a02320d81',
   '../__tests__/claude-native-development.test.ts':
     'a293ebc1a90cb0bbe07d6b74ad81e298effce42d47a90ef224ba1631b2d3a9c8',
   '../__tests__/symposium-recording-runtime.test.ts':
@@ -2275,7 +2275,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-source-routes.ts': '47df645993565ecbdbf8d3d05bc5f7025b3caf35620d1fa5519b0c2d285abc65',
   '../../packages/protocol/src/telos-source.ts':
     'c278a32bbc8768a06bb9def27e52654e379bfa0c8762cdf8b9b4488764067d9f',
-  '../telos-artifact-store.ts': '5386b42eabc5142a8d21c5ae8e5499cb8a6e02cef625c71fe10544f37257aab3',
+  '../telos-artifact-store.ts': '3189ea05ce0dd712bd748753b773d1c32001fa45ee42022480c4c2adae0b9b69',
   '../telos-source-capture.ts': '4721057868422a87401e8b315ec2cbb369489a0f41396268d0ed184188d14683',
   '../telos-conversation-source.ts':
     '306083f4ab0b812d273feb73d683a33dd12761034a65c81df392333bf9661050',
@@ -3255,7 +3255,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-artifact-reader.ts':
     '8fca47739ca0c207647dc825ee468aa86da4379b2004905669b7dd42f100ea13',
   '../native-telos-artifact-operations.ts':
-    'e6cc07ef4a1bf9996b393b584454d9d516eadedee7bdfba1b4997830609fd5ce',
+    'bb58a7ab4f2a41287a535cc9006cbbbacc4274ba4814accd92c6182f18d2a0e0',
   '../github-main-merge-selection.ts':
     '984cd9a21ee5b40cbe33a27ce732f7a99ee9c9c8593aef0f675121b054fb316e',
   '../github-main-publication.ts':
@@ -3273,7 +3273,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-main-publication-records.ts':
     '2c476a663d8b85b5bdb563355cb6e1253ccf3a9cc9460ca89b671a415f6d3841',
   '../telos-main-publication-runtime.ts':
-    'a8d85c4fe79c1d5aaee98dbb444485a47d5e20b6bd1a4249a1b71ecce5489eb6',
+    '6c40c63f144523ef4eec145d0c157f3a2f884e3756aefa91c6070d6c11b297fa',
   '../../frontend/src/pages/NotificationsView.tsx':
     'c4fc2a4c2ad1273d0ff817c02092222ae57a58832a7d12b6f701869b8ca06f5a',
   '../../frontend/vite.config.ts':

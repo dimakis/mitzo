@@ -12,10 +12,22 @@ import type { TelosWorkStore } from './telos-work-store.js';
 import type { TelosSourceCapture } from './telos-source-capture.js';
 import type { TelosSourceApprovalStore } from './telos-source-approval-store.js';
 import type { TelosToolResult } from './telos-tool.js';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
+import { reportToolFailure } from './tool-failure-reporting.js';
 
 type Name = 'TelosSaveArtifact' | 'TelosReadArtifact';
 export interface NativeTelosArtifactOwners {
-  context: NativeHostToolContext;
+  context: Pick<
+    NativeHostToolContext,
+    | 'operatorId'
+    | 'conversationId'
+    | 'toolName'
+    | 'requestHash'
+    | 'selectedRole'
+    | 'signal'
+    | 'assertCurrent'
+    | 'assertCurrentSync'
+  > & { workspace: { directory: string } };
   artifacts: TelosArtifactStore;
   work: TelosWorkStore;
   sources?: TelosSourceCapture;
@@ -36,7 +48,7 @@ const result = (artifact: unknown): TelosToolResult => ({
   isError: false,
 });
 
-/** Bounded operations inside the original signed native callback. The context,
+/** Bounded operations inside the original authenticated callback. The context,
  * permission, canonical store and source owners retain their existing authority. */
 export async function executeNativeTelosArtifactOperation(
   owners: NativeTelosArtifactOwners,
@@ -49,7 +61,7 @@ export async function executeNativeTelosArtifactOperation(
       ctx.signal.throwIfAborted();
       const renewed: unknown = ctx.assertCurrentSync();
       if (renewed !== undefined) {
-        void Promise.resolve(renewed).catch(() => {});
+        drainRejectedTelosAuthority(renewed, 'item-authority', ctx);
         unavailable();
       }
       if (ctx.toolName !== name || ctx.requestHash !== hash(JSON.stringify(rawOriginal)))
@@ -199,10 +211,16 @@ export async function executeNativeTelosArtifactOperation(
   } catch (error) {
     const expired = expiredApprovalToolResult(error);
     if (expired) return expired;
-    return {
-      isError: true,
-      content:
-        'Telos artifact operation unavailable. Preserve the draft and retry the exact original request to recover any committed save receipt.',
-    };
+    const failure = reportToolFailure(error, {
+      sessionId: owners.context.conversationId,
+      tool: name,
+      signal: owners.context.signal,
+    });
+    failure.content = JSON.stringify({
+      ...JSON.parse(failure.content),
+      action:
+        'Preserve the draft and retry the exact original request to recover any committed save receipt.',
+    });
+    return failure;
   }
 }

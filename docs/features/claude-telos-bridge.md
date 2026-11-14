@@ -22,7 +22,8 @@ checks remain in force.
 | List, search, full read, standalone feature, child, brief/lifecycle/progress edits | `executeTelosBacklogOperation` through the installed canonical runtime                                                   |
 | Assigned-lead item read/progress                                                   | `executeNativeTelosItemOperation`, using its minimal caller interface and unchanged canonical assignment checks          |
 | Outcome creation and source adoption                                               | Existing source-review permission handler and retained approval owner; provider execution retrieves the approved receipt |
-| Artifact save/find/read                                                            | Existing artifact transport, HTTP routes and canonical artifact store; source-capture bodies remain excluded             |
+| Artifact save                                                                      | Existing guarded artifact operation, bounded workspace reader and canonical commit owner                                 |
+| Artifact find/read                                                                 | Existing artifact transport, HTTP routes and canonical artifact store; source-capture bodies remain excluded             |
 | Reviewed session creation                                                          | Existing `mitzo-connections` SDK registration and `sessionLaunchTools` / session launch host                             |
 | Slice start and work control                                                       | Existing shared transports, mounted work routes, role/delegation and command-admission owners                            |
 
@@ -43,6 +44,10 @@ keep their current assigned-lead scope; ordinary maintenance uses
 - Excluded profiles, restricted skills, denied review, cancelled calls, expired
   or detached operator authority and retired runtime authority cannot grant an
   effect. Artifact read results are withheld if authority changes during I/O.
+- Workspace artifact saves reuse the existing guarded native operation through
+  its minimal caller interface. Cancellation, operator/runtime/skill revocation
+  and workspace replacement during file reading prevent a new artifact or receipt.
+  Exact committed receipts are recovered before reading a changed workspace file.
 - Lost responses after item creation, artifact save, reviewed source save,
   session assignment and command admission retain the original identities.
   Fixture recovery verifies no duplicate item, artifact revision, session or

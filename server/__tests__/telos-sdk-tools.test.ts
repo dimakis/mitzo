@@ -1,5 +1,9 @@
 import './fixtures/offline-user-home.js';
 import { afterEach, expect, it, vi } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import * as artifactReader from '../openshell-artifact-reader.js';
+import { TelosArtifactStore } from '../telos-artifact-store.js';
 import express from 'express';
 import request from 'supertest';
 import { createTelosArtifactRouter } from '../telos-artifact-routes.js';
@@ -46,6 +50,7 @@ async function fixture(explicit: boolean | 'excluded' = false) {
   let beforeApproval = () => {};
   registry.register('client', {
     sessionId: 'planning',
+    cwd: dirname(data.dbPath),
     mode: 'agent',
     sessionAllowList: new Set(),
     abortController: new AbortController(),
@@ -333,7 +338,7 @@ it.each([false, true])(
   },
 );
 
-it('saves, finds and reads artifacts through the SDK, existing HTTP handler and canonical store', async () => {
+it('saves through the guarded canonical owner and finds/reads through the existing HTTP handler', async () => {
   const f = await fixture();
   const app = express();
   app.use(express.json());
@@ -348,7 +353,11 @@ it('saves, finds and reads artifacts through the SDK, existing HTTP handler and 
       readFile,
     }),
   );
-  let loseResponse = true;
+  const save = TelosArtifactStore.prototype.saveGuarded;
+  vi.spyOn(TelosArtifactStore.prototype, 'saveGuarded').mockImplementationOnce(function (...args) {
+    save.apply(this, args);
+    throw Error('Synthetic lost artifact commit receipt');
+  });
   let retireRead = false;
   vi.stubGlobal(
     'fetch',
@@ -357,10 +366,6 @@ it('saves, finds and reads artifacts through the SDK, existing HTTP handler and 
         .post(new URL(url).pathname)
         .set(init.headers as Record<string, string>)
         .send(JSON.parse(init.body as string));
-      if (loseResponse) {
-        loseResponse = false;
-        throw Error('Synthetic lost artifact receipt');
-      }
       if (retireRead) f.retire();
       return new Response(JSON.stringify(response.body), { status: response.status });
     }),
@@ -384,6 +389,69 @@ it('saves, finds and reads artifacts through the SDK, existing HTTP handler and 
   const revoked = await f.call('TelosReadArtifact', { id: saved.artifact.id, revision: 1 });
   expect(revoked.isError).toBe(true);
   expect(JSON.stringify(revoked)).not.toContain(input.content);
+});
+
+it.each(['cancel', 'operator', 'runtime', 'skill', 'workspace'] as const)(
+  'prevents artifact save after %s authority changes during workspace reading',
+  async (failure) => {
+    const f = await fixture();
+    writeFileSync(join(f.session.cwd!, 'report.md'), 'Disposable report');
+    let entered!: () => void;
+    let resume!: () => void;
+    const reading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const read = artifactReader.captureLocalArtifactFile;
+    vi.spyOn(artifactReader, 'captureLocalArtifactFile').mockImplementation(async (...args) => {
+      const captured = await read(...args);
+      entered();
+      await release;
+      return captured;
+    });
+    const pending = f.call('TelosSaveArtifact', {
+      itemId: 'studio',
+      requestId: 'interrupted-file-save',
+      filename: 'report.md',
+      title: 'Disposable report',
+      path: 'report.md',
+    });
+    await reading;
+    if (failure === 'cancel') f.session.abortController.abort();
+    if (failure === 'operator') f.revoke();
+    if (failure === 'runtime') f.retire();
+    if (failure === 'skill') f.session.activeSkillPolicy = new Set(['Read']);
+    if (failure === 'workspace') f.session.cwd = '/replaced-workspace';
+    resume();
+    expect((await pending).isError).toBe(true);
+    expect(
+      f.artifacts.list({ itemId: 'studio' }).filter((a) => a.filename === 'report.md'),
+    ).toEqual([]);
+    expect(
+      f.db
+        .prepare('SELECT * FROM telos_artifact_save_requests WHERE request_id=?')
+        .all('interrupted-file-save'),
+    ).toEqual([]);
+  },
+);
+
+it('saves a workspace file through SDK and the existing guarded file/commit owner', async () => {
+  const f = await fixture(true);
+  writeFileSync(join(f.session.cwd!, 'report.md'), 'Disposable report');
+  const input = {
+    itemId: 'studio',
+    requestId: 'workspace-save',
+    filename: 'report.md',
+    title: 'Disposable report',
+    path: 'report.md',
+  };
+  const saved = f.value(await f.call('TelosSaveArtifact', input));
+  expect(saved.artifact.revision).toBe(1);
+  expect(f.artifacts.read(saved.artifact.id, 1).bytes.toString()).toBe('Disposable report');
+  writeFileSync(join(f.session.cwd!, 'report.md'), 'Changed after receipt');
+  expect(f.value(await f.call('TelosSaveArtifact', input))).toEqual(saved);
 });
 
 it.each([false, true])(

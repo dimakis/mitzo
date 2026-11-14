@@ -24,6 +24,7 @@ import { executeTelosBacklogOperation, isTelosBacklogTool } from './telos-backlo
 import { executeTelosArtifactTool, isTelosArtifactTool } from './telos-artifact-tools.js';
 import { isTelosItemTool } from './telos-item-tools.js';
 import { executeNativeTelosItemOperation } from './native-telos-item-operations.js';
+import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
 import {
   executeTelosCreateOutcome,
   executeTelosAdoptSource,
@@ -118,6 +119,7 @@ export function createTelosSdkServer(owners: {
             const authorization = captureAgentLibraryAuthorization(connection);
             const operation = captureAgentLibraryOperation(connection);
             const joined = AbortSignal.any([signal, operation.signal]);
+            const workspace = session.cwd;
             const current = () => {
               joined.throwIfAborted();
               owners.assertCurrentSync(joined);
@@ -125,6 +127,7 @@ export function createTelosSdkServer(owners: {
               authorization.assertCurrent();
               if (
                 registry.findBySessionId(id)?.session !== session ||
+                session.cwd !== workspace ||
                 sessionToolOperatorConnection(session, owner.clientId) !== connection ||
                 (session.ownedLocalAuthSessionId !== undefined &&
                   !ordinaryOperatorOwnsConversation(
@@ -150,6 +153,34 @@ export function createTelosSdkServer(owners: {
               });
             try {
               current();
+              if (name === 'TelosSaveArtifact') {
+                const runtime = getTelosMainPublicationRuntime();
+                if (!runtime?.supportsHost(registry, events) || !workspace)
+                  throw Error('Canonical Telos artifact owner or workspace unavailable');
+                return await runtime.withArtifacts(
+                  {
+                    operatorId: authorization.auth.id,
+                    conversationId: id,
+                    toolName: name,
+                    requestHash: createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+                    workspace: { directory: workspace },
+                    selectedRole: resolveTelosWorkRoleContext(
+                      events,
+                      id,
+                      events.getSession(id)?.accountBinding ?? undefined,
+                    ),
+                    signal: joined,
+                    assertCurrentSync: current,
+                    assertCurrent,
+                  },
+                  (data) =>
+                    executeNativeTelosArtifactOperation(
+                      { ...data, approve: (_name, exact) => approve(exact) },
+                      name,
+                      input,
+                    ),
+                );
+              }
               if (isTelosBacklogTool(name) || isTelosItemTool(name)) {
                 const runtime = getTelosMainPublicationRuntime();
                 if (!runtime?.supportsHost(registry, events))
@@ -267,7 +298,7 @@ export function createTelosSdkServer(owners: {
                 );
                 // Reads must not disclose retained material after authority is
                 // revoked during I/O. Writes retain their known canonical ACK.
-                if (name !== 'TelosSaveArtifact') await assertCurrent();
+                await assertCurrent();
                 return result;
               }
               if (name === 'TelosStartSlice')

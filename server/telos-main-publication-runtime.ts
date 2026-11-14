@@ -112,7 +112,9 @@ export class TelosMainPublicationRuntime {
     if (active === this) active = undefined;
     this.selection.close();
   }
-  bindContext<T extends NativeMainPublicationCall>(context: T): T {
+  bindContext<
+    T extends Pick<NativeMainPublicationCall, 'signal' | 'assertCurrentSync' | 'conversationId'>,
+  >(context: T): T {
     const assertCurrentSync = () => {
       if (active !== this) throw unavailable();
       this.retired.signal.throwIfAborted();
@@ -129,7 +131,12 @@ export class TelosMainPublicationRuntime {
       assertCurrentSync,
     });
   }
-  bindNativeContext(context: NativeHostToolContext): NativeHostToolContext {
+  bindNativeContext<
+    T extends Pick<
+      NativeHostToolContext,
+      'signal' | 'assertCurrentSync' | 'assertCurrent' | 'conversationId'
+    >,
+  >(context: T): T {
     const scoped = this.bindContext(context);
     return Object.freeze({
       ...scoped,
@@ -288,10 +295,16 @@ export class TelosMainPublicationRuntime {
       }
     }
   }
-  async withArtifacts<T>(
-    context: NativeHostToolContext,
+  async withArtifacts<
+    T,
+    Context extends Pick<
+      NativeHostToolContext,
+      'signal' | 'assertCurrentSync' | 'assertCurrent' | 'conversationId' | 'operatorId'
+    >,
+  >(
+    context: Context,
     operation: (owners: {
-      context: NativeHostToolContext;
+      context: Context;
       artifacts: TelosArtifactStore;
       work: TelosWorkStore;
       sources: TelosSourceCapture;
