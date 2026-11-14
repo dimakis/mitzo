@@ -14,7 +14,7 @@ import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import * as harness from '@mitzo/harness';
 import { createTelosSdkServer, telosSdkPermission } from '../telos-sdk-tools.js';
 import { telosSdkDefinitions } from '../telos-sdk-definitions.js';
-import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from '../async-queue.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
@@ -246,6 +246,268 @@ function assignLead(f: Awaited<ReturnType<typeof fixture>>) {
   );
 }
 
+async function ordinaryClient(f: Awaited<ReturnType<typeof fixture>>) {
+  const events = new AsyncQueue<Record<string, unknown>>();
+  cleanup.push(() => events.close());
+  let options!: Options;
+  vi.mocked(query).mockImplementation((request) => {
+    options = request.options!;
+    return {
+      close: vi.fn(),
+      [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+    } as never;
+  });
+  const owner = ordinaryQuery(f);
+  const server = options.mcpServers!.telos as ReturnType<typeof createTelosSdkServer>;
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.instance.connect(a);
+  const client = new Client({ name: 'settlement-provider', version: '1' });
+  await client.connect(b);
+  cleanup.push(async () => {
+    await client.close();
+    await server.instance.close();
+  });
+  const terminal = () => {
+    events.push({ type: 'result', session_id: 'planning' });
+    return owner.query[Symbol.asyncIterator]().next();
+  };
+  return { client, terminal };
+}
+
+it.each([
+  'denied',
+  'denied-native',
+  'missing-role',
+  'missing-lead',
+  'missing-control',
+  'stale-item',
+  'stale-native-item',
+  'stale-parent',
+  'unknown',
+  'rolled-back-write',
+])('retains refusal evidence through the SDK terminal result (%s)', async (refusal) => {
+  const f = await fixture();
+  if (refusal === 'stale-native-item' || refusal === 'denied-native') assignLead(f);
+  const before = f.db.prepare('SELECT * FROM items ORDER BY id').all();
+  const sdk = await ordinaryClient(f);
+  const feature = {
+    requestId: 'refused-feature',
+    summary: 'Must not exist',
+    intent: 'Refusal',
+    rationale: 'No effect',
+    acceptanceCriteria: ['No effect'],
+    note: 'Offline',
+  };
+  const update = {
+    itemId: 'studio',
+    requestId: 'refused-update',
+    expectedRevision: '0'.repeat(64),
+    note: 'No effect',
+  };
+  if (refusal === 'denied' || refusal === 'denied-native') f.deny();
+  if (refusal === 'unknown') {
+    const original = TelosItemStore.prototype.createFeatureGuarded;
+    vi.spyOn(TelosItemStore.prototype, 'createFeatureGuarded').mockImplementation(function (
+      this: TelosItemStore,
+      ...args
+    ) {
+      original.apply(this, args);
+      // Even a familiar message after COMMIT cannot manufacture refusal evidence.
+      throw Error('Telos item changed; simulated uncertain storage failure');
+    });
+  }
+  if (refusal === 'rolled-back-write') {
+    f.db.exec(`CREATE TRIGGER refused_write AFTER INSERT ON items BEGIN
+      SELECT RAISE(ABORT, 'injected write failure'); END`);
+    vi.spyOn(TelosItemStore.prototype, 'createFeatureGuarded');
+  }
+  const [name, input]: [string, Record<string, unknown>] =
+    refusal === 'missing-lead'
+      ? [
+          'TelosStartSlice',
+          { requestId: 'no-lead', childItemId: 'child', mode: 'start', predecessorAttemptId: null },
+        ]
+      : refusal === 'missing-control'
+        ? [
+            'TelosWorkControl',
+            { command: { operation: 'release', controlId: 'none', requestId: 'no-role' } },
+          ]
+        : refusal === 'missing-role' || refusal === 'denied-native'
+          ? ['TelosUpdateItem', update]
+          : refusal === 'stale-native-item'
+            ? ['TelosUpdateItem', update]
+            : refusal === 'stale-item'
+              ? ['TelosManageItem', { ...update, operation: 'update' }]
+              : refusal === 'stale-parent'
+                ? [
+                    'TelosCreateChild',
+                    { ...feature, parentId: 'studio', expectedParentRevision: '0'.repeat(64) },
+                  ]
+                : ['TelosCreateFeature', feature];
+  const result = await sdk.client.callTool({
+    name,
+    arguments: input,
+  });
+  expect(result.isError).toBe(true);
+  if (refusal.startsWith('stale-')) expect(JSON.stringify(result)).toContain('Telos item changed;');
+  if (refusal === 'unknown') {
+    expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toHaveLength(before.length + 1);
+    expect(TelosItemStore.prototype.createFeatureGuarded).toHaveBeenCalledTimes(1);
+    await expect(sdk.terminal()).rejects.toMatchObject({ code: 'callbacks_failed' });
+  } else if (refusal === 'rolled-back-write') {
+    expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
+    expect(TelosItemStore.prototype.createFeatureGuarded).toHaveBeenCalledTimes(1);
+    await expect(sdk.terminal()).rejects.toMatchObject({ code: 'callbacks_failed' });
+  } else {
+    expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
+    await expect(sdk.terminal()).resolves.toMatchObject({ value: { type: 'result' } });
+  }
+});
+
+it.each(['archive-revision', 'classification', 'archived-edit', 'archived-child'] as const)(
+  'settles canonical %s refusal with valid revisions and no canonical changes',
+  async (refusal) => {
+    const f = await fixture();
+    const feature = {
+      requestId: 'existing-feature',
+      summary: 'Existing feature',
+      intent: 'Existing',
+      rationale: 'Regression',
+      acceptanceCriteria: ['No refused changes'],
+      note: 'Offline',
+    };
+    const created = f.value(await f.call('TelosCreateFeature', feature));
+    const itemId = created.item.id;
+    const read = () => f.call('TelosManageItem', { operation: 'read', itemId }).then(f.value);
+    if (refusal.startsWith('archived-')) {
+      const current = await read();
+      expect(
+        (
+          await f.call('TelosManageItem', {
+            operation: 'archive',
+            itemId,
+            requestId: 'archive-existing',
+            expectedRevision: current.lifecycle.revision,
+          })
+        ).isError,
+      ).toBe(false);
+    }
+    const current = await read();
+    const stale = '0'.repeat(64);
+    expect(stale).not.toBe(current.lifecycle.revision);
+    expect(stale).not.toBe(current.item.revision);
+    const snapshot = () =>
+      [
+        'items',
+        'history',
+        'telos_item_updates',
+        'telos_work_kinds',
+        'telos_work_lifecycle',
+        'telos_work_lifecycle_history',
+        'telos_work_lifecycle_commands',
+      ].map((table) => ({
+        table,
+        rows: f.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
+      }));
+    const before = snapshot();
+    const sdk = await ordinaryClient(f);
+    const [name, input]: [string, Record<string, unknown>] =
+      refusal === 'archive-revision'
+        ? [
+            'TelosManageItem',
+            { operation: 'archive', itemId, requestId: 'stale-archive', expectedRevision: stale },
+          ]
+        : refusal === 'archived-child'
+          ? [
+              'TelosCreateChild',
+              {
+                ...feature,
+                requestId: 'refused-child',
+                parentId: itemId,
+                expectedParentRevision: current.item.revision,
+              },
+            ]
+          : [
+              'TelosManageItem',
+              {
+                operation: 'edit',
+                itemId,
+                requestId: 'refused-edit',
+                expectedRevision: current.item.revision,
+                note: 'Must not change',
+                ...(refusal === 'classification'
+                  ? { workLevel: 'outcome' }
+                  : { summary: 'Must not change' }),
+              },
+            ];
+    const result = await sdk.client.callTool({ name, arguments: input });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('Invalid Telos backlog input');
+    expect(JSON.stringify(result)).toContain(
+      refusal === 'archive-revision'
+        ? 'Work revision conflict;'
+        : refusal === 'classification'
+          ? 'already classified;'
+          : 'Work is archived;',
+    );
+    expect(snapshot()).toEqual(before);
+    await expect(sdk.terminal()).resolves.toMatchObject({ value: { type: 'result' } });
+  },
+);
+
+it.each(['retired', 'skill', 'operator'] as const)(
+  'fences delayed inbox/read disclosure after %s revocation and preserves mutation ACK',
+  async (revocation) => {
+    for (const operation of ['inbox', 'read', 'release'] as const) {
+      const f = await fixture();
+      assignLead(f);
+      const receipt = {
+        version: 1,
+        controlId: 'private-control',
+        coordinatorItemId: 'studio',
+        coordinatorConversationId: 'planning',
+        priorityItemId: 'priority',
+        scope: 'publication',
+        stage: 'released',
+        publicationRevalidation: 'required',
+        targets: [],
+        history: [],
+      };
+      let release!: () => void;
+      const deferred = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let reached!: () => void;
+      const checkpoint = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      const fetch = vi.fn(async () => {
+        reached();
+        await deferred;
+        return new Response(JSON.stringify(operation === 'inbox' ? [receipt] : receipt));
+      });
+      vi.stubGlobal('fetch', fetch);
+      const command =
+        operation === 'inbox'
+          ? { operation, itemId: 'studio' }
+          : operation === 'release'
+            ? { operation, controlId: receipt.controlId, requestId: 'release' }
+            : { operation, controlId: receipt.controlId };
+      const pending = f.call('TelosWorkControl', { command });
+      await checkpoint;
+      if (revocation === 'retired') f.retire();
+      if (revocation === 'operator') f.revoke();
+      if (revocation === 'skill') f.session.activeSkillPolicy = new Set(['Read']);
+      release();
+      const result = await pending;
+      expect(result.isError).toBe(operation !== 'release');
+      if (operation !== 'release') expect(JSON.stringify(result)).not.toContain(receipt.controlId);
+      else expect(f.value(result)).toEqual(receipt);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  },
+);
+
 it('omits excluded tools and refuses direct MCP invocations', async () => {
   const f = await fixture('excluded');
   expect((await f.client.listTools()).tools).toEqual([]);
@@ -290,8 +552,11 @@ it.each([false, true])(
   async (explicit) => {
     const f = await fixture(explicit);
     const requests: Options[] = [];
+    const prompts: AsyncIterable<SDKUserMessage>[] = [];
     vi.mocked(query).mockImplementation((request) => {
       requests.push(request.options!);
+      if (typeof request.prompt === 'string') throw Error('Expected original SDK input stream');
+      prompts.push(request.prompt);
       return { close: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
     });
     const construct = (cold: boolean) => ordinaryQuery(f, cold);
@@ -312,8 +577,19 @@ it.each([false, true])(
       return client;
     };
     const owner = construct(false);
-    const original = await connect();
     await owner.apply({ model: 'synthetic-first' } as never);
+    // A successor can resume history only after an input crossed the SDK stream.
+    owner.push({
+      type: 'user',
+      session_id: 'planning',
+      parent_tool_use_id: null,
+      message: { role: 'user', content: 'Original dispatched input' },
+    });
+    expect(await prompts[0][Symbol.asyncIterator]().next()).toMatchObject({
+      done: false,
+      value: { message: { content: 'Original dispatched input' } },
+    });
+    const original = await connect();
     await owner.apply({ model: 'synthetic-successor' } as never);
     await connect();
     // The SDK query has retired the original callback; it cannot execute another effect.

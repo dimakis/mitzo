@@ -3164,7 +3164,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
           beforeInput: (commandId) => {
             if (!liveOrdinarySdkOwner) throw Error('Original SDK command owner unavailable');
-            liveOrdinarySdkOwner.assertInputCurrent(commandId);
+            return liveOrdinarySdkOwner.assertInputCurrent(commandId);
           },
           adapt: adaptSdkQuery,
           settings: (selection) => ({
@@ -5932,6 +5932,27 @@ export function stopOrdinaryChat(clientId: string): void {
   const session = registry.get(clientId);
   if (session?.sessionId)
     assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'stop');
+  const turns = session?.ordinaryRuntimeOwner?.sdkTurns;
+  if (turns && session.sessionId) {
+    const sessionId = session.sessionId;
+    const phase = eventStore.getSession(sessionId)?.executionPhase;
+    // Keep the original query alive to observe its settled result. Closing it
+    // here loses the only evidence that permits the next SDK command to run.
+    if (phase === 'STOPPING') return;
+    if (phase && phase !== 'TERMINAL') {
+      const target = turns.captureInterruptTarget();
+      const report = (cause: unknown) =>
+        reportRetainedRuntimeFailure({
+          store: eventStore,
+          sessionId,
+          commandId: target?.commandId,
+          session,
+          error: new SessionRuntimeError('unsettled_effects', { cause }),
+        });
+      void turns.stop(randomUUID()).catch(report);
+      return;
+    }
+  }
   stopChat(clientId);
 }
 export function stopChat(clientId: string) {

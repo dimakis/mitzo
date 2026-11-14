@@ -566,7 +566,7 @@ it('retires old native hooks and permissions without executing or aborting the s
     permission = vi.fn(async () => ({ behavior: 'allow', updatedInput: {} }));
   const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
-      sessionId: 'original',
+      resume: 'original',
       extraArgs: { 'offline-existing-flag': null },
       systemPrompt: { type: 'preset', preset: 'claude_code', append: 'Original profile context.' },
       hooks: { PreToolUse: [{ hooks: [effect] }] },
@@ -701,7 +701,7 @@ it('does not replace a native query until its exact spawned process closes and f
     return process as never;
   });
   const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
-    options: { sessionId: 'original', spawnClaudeCodeProcess: spawn },
+    options: { resume: 'original', spawnClaudeCodeProcess: spawn },
     input: new AsyncQueue(),
     lifetime: new SdkHookLifetime(),
     sdkSessionId: 'original',

@@ -256,24 +256,33 @@ export function createTelosSdkServer(owners: {
                 events.getSession(id)?.accountBinding ?? undefined,
               );
               if (name === 'TelosStartSlice' && role?.role !== 'lead')
-                return {
-                  content:
-                    'Current retained Telos lead role required; no allocation or update started.',
-                  isError: true,
-                };
+                return retainCallbackOutcome(
+                  {
+                    content:
+                      'Current retained Telos lead role required; no allocation or update started.',
+                    isError: true,
+                  },
+                  'settled',
+                );
               if (name === 'TelosWorkControl' && !role)
-                return {
-                  content:
-                    'Current retained Telos lead or worker role required; no control applied.',
-                  isError: true,
-                };
+                return retainCallbackOutcome(
+                  {
+                    content:
+                      'Current retained Telos lead or worker role required; no control applied.',
+                    isError: true,
+                  },
+                  'settled',
+                );
               const permission = await approve(parsed);
               await assertCurrent();
               throwIfApprovalExpired(permission);
               if (permission.behavior !== 'allow')
-                return formatTelosPermissionDenial(
-                  permission.message,
-                  permission.decisionClassification === 'user_reject',
+                return retainCallbackOutcome(
+                  formatTelosPermissionDenial(
+                    permission.message,
+                    permission.decisionClassification === 'user_reject',
+                  ),
+                  'settled',
                 );
               const source = name === 'TelosCreateOutcome' || name === 'TelosAdoptSource';
               if (!permission.updatedInput) throw Error('Exact Telos request approval required');
@@ -344,7 +353,7 @@ export function createTelosSdkServer(owners: {
                   parsed,
                   joined,
                 );
-              return await executeTelosWorkControlTool(
+              const result = await executeTelosWorkControlTool(
                 base,
                 owner.clientId,
                 id,
@@ -352,6 +361,10 @@ export function createTelosSdkServer(owners: {
                 parsed,
                 joined,
               );
+              const command = parsed.command as { operation: string };
+              if (command.operation === 'inbox' || command.operation === 'read')
+                await assertCurrent();
+              return result;
             } finally {
               operation.dispose();
             }

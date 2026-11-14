@@ -97,6 +97,17 @@ passes 135 tests across nine suites in total (one worker, 1 GiB Node heap).
 The earlier combined candidate's full hosted CI (43585386466) passed; the correction
 requires fresh exact-head CI and Centaur verification.
 
+Final base integration includes the accepted lifecycle changes from #1348 at
+`19aa8a19b274ae1fee416f0f187c772111251366`. The combined source retains information
+callbacks alongside Stop/Continue, cold history recovery and settled Telos
+pre-effect refusals. All 541 tests across 18 affected information, SDK, lifecycle,
+artifact, worker-startup and queue-recovery suites pass with one worker and a
+1 GiB Node heap. All 19 ordinary personal/Vertex integration cases also pass,
+including information calls and public Stop/reconnect/Continue recovery.
+Source fingerprints were regenerated from the combined files;
+the accepted lifecycle tree and both Telos corrective checks remain present.
+Final combined-head CI and Centaur review are separate landing requirements.
+
 No real model or production-service calls are required for these checks. This
 does not qualify Claude on OpenShell, arbitrary provider transcript imports,
 repository/bootstrap helpers, messaging/timers, Telos execution or changes to
