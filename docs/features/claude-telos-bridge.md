@@ -3,6 +3,8 @@
 Verified against main `f801f8df6cac9c1305727b85a7235928eef2e175` and Claude Agent SDK
 `0.3.322` on 14 November 2026. This is source and disposable-fixture evidence,
 not production activation or a live provider run.
+Refreshed against main `426b666ceb645e2518a4c62f303b4356c234863e` after PR #1351;
+160 tests across 11 suites verify the combined approval and Telos paths.
 
 Ordinary personal-subscription and Vertex chats use the same owned SDK query.
 Its MCP servers are rebuilt for the first turn, queued successor and cold
