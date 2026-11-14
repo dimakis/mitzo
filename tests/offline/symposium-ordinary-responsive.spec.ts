@@ -256,9 +256,17 @@ for (const theme of ['light', 'dark'] as const)
       await reference.setViewportSize({ width, height: 844 });
       await reference.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       await reference.setContent(approved.toString('utf8'));
+      // The artifact declares iOS/Web carousel panels. Its preview host normally
+      // selects one; standalone setContent has no carousel host. Select only the
+      // declared panel, without changing reference bytes or product styles.
+      const approvedVariant = width < 768 ? 'iOS' : 'Web';
+      await reference.locator('[data-variant]').evaluateAll((panels, selected) => {
+        for (const panel of panels)
+          (panel as HTMLElement).hidden = (panel as HTMLElement).dataset.variant !== selected;
+      }, approvedVariant);
       // The approved artifact opens Add agent by default. Retain that original
       // state, then use its own Close control to compare the conversation state.
-      const approvedProduct = reference.locator('.web-product');
+      const approvedProduct = reference.locator(`[data-variant="${approvedVariant}"] .product`);
       await approvedProduct.screenshot({
         path: info.outputPath(`approved-fresh-setup-${width}-${theme}.png`),
       });
@@ -268,6 +276,7 @@ for (const theme of ['light', 'dark'] as const)
       });
       observations.push({
         approvedConversationViewport: { width, height: 844 },
+        approvedVariant,
         productBounds: await approvedProduct.boundingBox(),
         sourceBytesUnchanged: true,
       });

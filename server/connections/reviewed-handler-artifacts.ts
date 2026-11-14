@@ -54,7 +54,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/support/application-event-source.ts':
     'da2d0fd6614485c42048e85449c79a0ab5a999f340fc29f7db4e02a90cbec973',
   '../../tests/offline/symposium-ordinary-responsive.spec.ts':
-    '14387ccd08c112f21805112eca2093d57aa54f0a4c497b2b899d0e138f645cce',
+    '89cd7de59603a92b56dfd25e264ae5c8eb4d81d800e4819b93b8b2c5163320b7',
   '../session-conversation-list.ts':
     '5ba1ca1e183a6fd5a6636a98fdd089ae6f20186464617b666a1344818a3388fb',
   '../../packages/protocol/src/conversation-activity.ts':

@@ -319,3 +319,22 @@ hosted geometry/visual comparison and exact-head independent review remain
 required on this successor. The retained icon-only render failure evidence,
 original phone-incident identifier gap and physical-phone/live-runtime limits
 remain unchanged.
+
+Hosted run [43592700054](https://github.com/dimakis/mitzo/actions/runs/43592700054)
+at PR head `649ab1a02b7015a92eae51ab6c4565f2f15651f0`, executed merge ref
+`f44cedbedd11ff91ab0f0d45e3fbf0e43e3ecf82`, passes all nine actual-application
+checks. `hosted-application-649ab1a02.log` retains the 31-turn journey, zero
+native requests after owner restart and original uncertain request/command IDs.
+Full compile/source preflight and shared frontend build also passed at that head.
+
+Its render job passed the six narrow surface cases and two startup probes, but
+all six responsive/reference cases failed while capturing the reference's hidden
+Web panel. The approved artifact declares iOS/Web variants and defaults to iOS;
+the standalone page lacks the preview host's carousel selection.
+`hosted-render-649ab1a02-reference-panel-failure.log` retains this exact fixture
+failure. Artifact `14112733287`, SHA256
+`188cfc36d5ed50ea0b64f1a9da04cabf3a87aa3ed3a4c9d28b84d84d2ecabb86`,
+retains screenshots/traces before failure. No name-geometry pass follows from
+this run. The corrected adapter selects the declared iOS panel at phone widths
+and Web at desktop using only section `hidden` state; approved source bytes and
+product styles remain unchanged. It then follows that panel's Close control.
