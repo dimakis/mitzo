@@ -1760,6 +1760,23 @@ confirmation, failure preservation and replacement. Captures show
 
 ## Symposium participant presentation
 
+### Continuous ordinary discussion — 14 November 2026
+
+Sharing an ordinary chat extends its existing `ChatArea` and `ChatInput`: one
+scrolling transcript and one mounted composer. Rich ordinary blocks, live replies,
+permissions and recovery controls retain their original owners. Source echoes use
+conversation/message/command identity; independent equal text remains visible.
+Transcript order follows retained sequence, without comparing independent clocks.
+The responsive input portal retains draft, attachments, context, selection and focus
+through status qualification; its routing updates independently of source activity.
+The initial explicit recipient remains the original agent. Saved empty choices stay
+empty, with Choose who replies opening the existing picker. Unsupported shared
+attachments remain available to remove with a precise explanation. Refresh checks
+stale state; uncertain sends and Stop keep their original request identity.
+This restores the approved `symposium-fresh-agent` surface using existing controls
+and tokens; it introduces no new visual theme or dispatch authority. See
+[slice 1 evidence](../evidence/symposium-integrated-conversation-2026-11-14.md).
+
 ### Phone setup and deliberate sharing — 13 November 2026
 
 Dimitri's phone test rejected the long Add agent form and its unexplained disabled
