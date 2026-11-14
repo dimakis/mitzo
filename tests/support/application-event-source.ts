@@ -23,6 +23,13 @@ export async function applicationEventSource(app: Express, cookie: string) {
     return nativeFetch(new URL(url, origin), { ...init, headers });
   };
   const streams = new Set<Stream>();
+  let closed = false;
+  const receipts: Array<{
+    type: string;
+    sessionId?: string;
+    messageId?: string;
+    commandState?: string;
+  }> = [];
   class Stream {
     readyState = 0;
     onmessage: ((event: { data: string }) => void) | null = null;
@@ -74,6 +81,13 @@ export async function applicationEventSource(app: Express, cookie: string) {
               .map((line) => line.slice(5).trimStart())
               .join('\n');
             if (!data) continue;
+            const decoded = JSON.parse(data);
+            receipts.push({
+              type: decoded.type ?? type,
+              sessionId: decoded.sessionId,
+              messageId: decoded.messageId,
+              commandState: decoded.commandState,
+            });
             const event = { data };
             if (type === 'message') this.onmessage?.(event);
             for (const listener of this.listeners.get(type) ?? []) listener(event);
@@ -91,9 +105,12 @@ export async function applicationEventSource(app: Express, cookie: string) {
     }
   }
   return {
+    receipts,
     fetch,
     createEventSource: (url: string) => new Stream(url) as unknown as EventSource,
     async close() {
+      if (closed) return;
+      closed = true;
       const active = [...streams];
       for (const stream of active) stream.close();
       await Promise.all(active.map((stream) => stream.finished));

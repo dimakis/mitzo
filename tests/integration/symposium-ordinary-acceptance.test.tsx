@@ -11,6 +11,8 @@ import { recordApplicationMessagingRuntime } from '../../server/__tests__/fixtur
 import { installDialogStub } from '../../frontend/src/components/__tests__/dialog-stub';
 import { applicationEventSource } from '../support/application-event-source';
 import { mkdir, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 // Keep the responsive pages, ordinary shared host, authenticated application,
 // preparation, admission, stores and reply owners. Replace external RPC only.
@@ -19,6 +21,22 @@ let h: Awaited<ReturnType<typeof journey.getApplicationUiJourney>>;
 let runtime: Awaited<ReturnType<typeof recordApplicationMessagingRuntime>>;
 let transport: Awaited<ReturnType<typeof applicationEventSource>>;
 beforeAll(async () => {
+  console.info(
+    'ORDINARY_ACCEPTANCE_SOURCE',
+    JSON.stringify({
+      head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      branch: execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim(),
+      testSha256: createHash('sha256')
+        .update(await readFile(new URL(import.meta.url)))
+        .digest('hex'),
+      node: process.version,
+      build: 'Vitest source transpilation',
+      route: '/chat/:sessionId',
+      widths: [320, 390, 1280],
+      renderer: 'JSDOM; no visual acceptance',
+      externalExecution: 'deterministic RPC',
+    }),
+  );
   h = await journey.getApplicationUiJourney();
   (await import('../../server/auth.js')).setAuthRevocationStore(h.events);
   runtime = await recordApplicationMessagingRuntime(h.events);
@@ -173,7 +191,29 @@ it.each([320, 390, 1280])(
 );
 
 it('retains the ordinary unsent draft while real fresh setup/review silently joins', async () => {
+  let stage = 'ordinary_source_bootstrap';
+  let diagnosticGroup = '';
   onTestFailed(async () => {
+    console.error(
+      'OFFLINE_ACCEPTANCE_STAGE',
+      JSON.stringify({
+        stage,
+        nativeTurns: runtime.requests.filter((r) => r.method === 'turn/start').length,
+        deliveries: diagnosticGroup
+          ? (await h.api.view(diagnosticGroup)).messages
+              .filter((m) => m.author === 'operator')
+              .map((m) => ({ text: m.text, deliveries: m.deliveries }))
+          : [],
+        messagesPosted: h.fetch.mock.calls
+          .filter(([url, init]) => url.endsWith('/messages') && init?.method === 'POST')
+          .map(([, init]) => JSON.parse(String(init!.body))),
+        input: screen.queryByRole('textbox', { name: 'Message Mitzo' })?.outerHTML,
+        composer: screen
+          .queryByRole('textbox', { name: 'Message Mitzo' })
+          ?.closest('.chat-input-wrapper')?.textContent,
+        sourceEvents: transport.receipts.slice(-30),
+      }),
+    );
     const lines = (await readFile(journey.state.root! + '/app.log', 'utf8'))
       .split('\n')
       .filter(Boolean)
@@ -262,6 +302,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
   });
   let mounted = await mountOrdinary(390, source, false);
   try {
+    stage = 'fresh_setup_review_join';
     await waitFor(() =>
       expect(
         (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).disabled,
@@ -324,6 +365,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
         const participant = view.joinedParticipants.find((p) => p.name === 'AcceptanceReviewer');
         expect(participant).toBeTruthy();
         group = setup.collaboration.collaborationId;
+        diagnosticGroup = group;
         recipient = participant!.sessionId;
       },
       { timeout: 10000 },
@@ -334,7 +376,9 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     expect.soft(currentInput).toBe(original);
     expect.soft((currentInput as HTMLTextAreaElement).value).toBe('Original unsent ordinary draft');
     expect.soft(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Choose who replies' }, { timeout: 10000 }),
+    );
     const choices = screen.getByRole('group', { name: 'Who replies to this prompt' });
     for (const checkbox of within(choices).getAllByRole('checkbox')) {
       const wanted =
@@ -344,6 +388,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     }
     fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
     runtime.holdTurn(2);
+    stage = 'first_explicit_streamed_reply';
     fireEvent.change(currentInput, {
       target: { value: 'First explicit accepted review from ordinary chat.' },
     });
@@ -353,6 +398,12 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     await waitFor(() =>
       expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2),
     );
+    expect(
+      JSON.stringify(runtime.requests.filter((r) => r.method === 'turn/start')[1].params),
+    ).toContain('Acceptance: exact edited brief retained.');
+    expect(
+      JSON.stringify(runtime.requests.filter((r) => r.method === 'turn/start')[1].params),
+    ).not.toContain('DO_NOT_LEAK');
     await waitFor(() => runtime.streamTurn(2, 'Acceptance streamed reply'));
     await screen.findByText('Acceptance streamed reply', {}, { timeout: 10000 });
     expect(screen.getByLabelText('Message details for AcceptanceReviewer')).toBeTruthy();
@@ -396,11 +447,13 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     const retainedInput = screen.getByRole('textbox', {
       name: 'Message Mitzo',
     }) as HTMLTextAreaElement;
+    await waitFor(() => expect(retainedInput.value).toBe(''), { timeout: 10000 });
     fireEvent.change(retainedInput, {
       target: { value: 'Draft while changing responsive owners' },
     });
     retainedInput.focus();
     retainedInput.setSelectionRange(3, 10);
+    stage = 'responsive_owner_transition';
     for (const width of [1280, 320, 390]) {
       act(() => mounted.resize(width));
       expect.soft(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(retainedInput);
@@ -426,6 +479,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     fireEvent.click(screen.getByRole('button', { name: 'All agents', exact: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
     runtime.holdTurn(3);
+    stage = 'concurrent_source_fanout';
     runtime.holdTurn(4);
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Concurrent ordinary responders with partial failure.' },
@@ -434,22 +488,40 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       () => expect(send().disabled, mounted.ui.container.textContent ?? '').toBe(false),
       { timeout: 5000 },
     );
-    fireEvent.click(send());
-    await waitFor(() =>
-      expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4),
+    await userEvent.click(send());
+    await waitFor(
+      () => expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4),
+      { timeout: 10000 },
     );
-    // Running comes from the real SSE/ordinary owner, never a synthetic store flag.
-    await waitFor(() => expect(mounted.store.getState().messages.running).toBe(true));
+    // Native ordinary activity is command-scoped. The legacy messages.running
+    // flag is not the authoritative native busy state.
+    const acceptedFanout = (await h.api.view(group)).messages.find(
+      (m) => m.text === 'Concurrent ordinary responders with partial failure.',
+    )!;
+    const sourceCommand = acceptedFanout.deliveries.find((d) => d.sessionId === source)!.commandId!;
+    expect(sourceCommand).toBeTruthy();
+    const activeTurns = runtime.requests.filter((r) => r.method === 'turn/start');
+    const sourceTurn =
+      activeTurns.findIndex(
+        (r, i) => i >= 2 && r.params.threadId === activeTurns[0].params.threadId,
+      ) + 1;
+    const reviewerTurn =
+      activeTurns.findIndex(
+        (r, i) => i >= 2 && r.params.threadId === activeTurns[1].params.threadId,
+      ) + 1;
+    expect([sourceTurn, reviewerTurn].sort()).toEqual([3, 4]);
+    await waitFor(() => runtime.streamTurn(sourceTurn, 'Live original ordinary source activity'));
+    await screen.findByText('Live original ordinary source activity', {}, { timeout: 10000 });
     expect.soft(screen.queryByRole('button', { name: 'Choose who replies' })).not.toBeNull();
     const busyInput = screen.getByRole('textbox', { name: 'Message Mitzo' });
     fireEvent.change(busyInput, {
       target: { value: 'Draft retained during concurrent source work' },
     });
     busyInput.focus();
-    await waitFor(() => runtime.streamTurn(4, 'Partial reviewer output'));
+    await waitFor(() => runtime.streamTurn(reviewerTurn, 'Partial reviewer output'));
     await act(async () => {
-      runtime.finishTurn(3, 'completed');
-      runtime.finishTurn(4, 'failed', 'context');
+      runtime.finishTurn(sourceTurn, 'completed');
+      runtime.finishTurn(reviewerTurn, 'failed', 'context');
     });
     await waitFor(
       async () => {
@@ -462,6 +534,10 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       },
       { timeout: 10000 },
     );
+    await waitFor(
+      () => expect(screen.getAllByText('Live original ordinary source activity')).toHaveLength(1),
+      { timeout: 10000 },
+    );
     expect.soft(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(busyInput);
     expect
       .soft((screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value)
@@ -470,6 +546,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       (m) => m.text === 'Concurrent ordinary responders with partial failure.',
     )!;
     const failed = fanout.deliveries.find((d) => d.outcome === 'failed')!.sessionId;
+    stage = 'selected_failed_recipient_retry';
     // Retry only the failed participant with a new explicit request.
     const next = await h.api.view(group);
     await h.api.send(group, {
@@ -484,8 +561,8 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(5),
     );
     const turns = runtime.requests.filter((r) => r.method === 'turn/start');
-    expect(turns[4].params.threadId).toBe(turns[3].params.threadId);
-    expect(turns[4].params.threadId).not.toBe(turns[2].params.threadId);
+    expect(turns[4].params.threadId).toBe(turns[reviewerTurn - 1].params.threadId);
+    expect(turns[4].params.threadId).not.toBe(turns[sourceTurn - 1].params.threadId);
     await waitFor(async () =>
       expect(
         (await h.api.view(group)).messages.some(
@@ -495,6 +572,36 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
         ),
       ).toBe(true),
     );
+    stage = 'long_history';
+    // Grow acknowledged history beyond the shared page while the real
+    // responsive ordinary composition and original draft remain mounted.
+    await act(async () => {
+      for (let index = 0; index < 25; index++) {
+        const before = await h.api.view(group);
+        const accepted = await h.api.send(group, {
+          requestId: crypto.randomUUID(),
+          expectedMembershipRevision: before.membershipRevision,
+          expectedPolicySequence: before.policySequence,
+          text: `Acceptance long-history turn ${index}`,
+          responders: { kind: 'selected', sessionIds: [failed] },
+          snapshot: null,
+        });
+        await vi.waitFor(() =>
+          expect(
+            h.events.getOrdinaryProviderTurnTerminal(failed, accepted.deliveries[0].commandId!),
+          ).toBe('completed'),
+        );
+      }
+    });
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(30);
+    expect((await h.api.view(group)).hasEarlierMessages).toBe(true);
+    await screen.findByText(
+      'Earlier messages are outside this retained page.',
+      {},
+      { timeout: 10000 },
+    );
+    expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
+    expect(screen.getAllByRole('textbox', { name: 'Message Mitzo' })).toHaveLength(1);
     await waitFor(
       () =>
         expect(
@@ -512,6 +619,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     }
     fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
     let loseSend = true;
+    stage = 'lost_send_and_stop_response';
     let loseStop = true;
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
       const response = await h.fetch(url, init);
@@ -531,14 +639,14 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
       }
       return response;
     });
-    runtime.holdTurn(6);
+    runtime.holdTurn(31);
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Retain original operation through lost response and Stop.' },
     });
     await waitFor(() => expect(send().disabled).toBe(false));
     fireEvent.click(send());
     await waitFor(() =>
-      expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(6),
+      expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31),
     );
     expect(loseSend).toBe(false);
     const lostCall = h.fetch.mock.calls.find(
@@ -554,23 +662,24 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     );
     expect(observed.message?.responders).toEqual([failed]);
     await h.api.send(group, held);
-    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(6);
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31);
     fireEvent.click(await screen.findByRole('button', { name: 'Stop generation' }));
     await waitFor(() => expect(loseStop).toBe(false));
     await h.api.stopSend(group, held);
     expect(runtime.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
-    await waitFor(() => runtime.streamTurn(6, 'Last observed partial text'));
-    await act(async () => runtime.finishTurn(6, 'failed'));
+    await waitFor(() => runtime.streamTurn(31, 'Last observed partial text'));
+    await act(async () => runtime.finishTurn(31, 'failed'));
     expect((await h.api.observeSend(group, held)).terminal).toBe(false);
     const previousConnection = mounted.store.getState().connection.clientId;
+    stage = 'transport_reconnect_and_remount';
     await act(async () => mounted.store.getState().forceReconnect());
     await waitFor(() =>
       expect(mounted.store.getState().connection.clientId).not.toBe(previousConnection),
     );
-    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(6);
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31);
     mounted.close();
     mounted = await mountOrdinary(390, source);
-    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(6);
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(31);
     await mounted.store.getState().refreshSessions();
     const listing = mounted.store.getState().sessions.list!;
     expect
@@ -582,6 +691,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     ).toBeGreaterThan(0);
     mounted.close();
     await transport.close();
+    stage = 'application_restart';
     const { registry } = await import('../../server/chat.js');
     for (const [clientId] of [...registry.entries(true)]) registry.abort(clientId);
     await vi.waitFor(async () =>
@@ -590,7 +700,9 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
         .closeIdle(),
     );
     runtime.restore();
-    await journey.restartApplication();
+    // Registry abort/query finalization and in-flight HTTP reads settle through
+    // their real owners before the idle application can release resources.
+    await vi.waitFor(() => journey.restartApplication(), { timeout: 10000 });
     h = await journey.getApplicationUiJourney();
     (await import('../../server/auth.js')).setAuthRevocationStore(h.events);
     runtime = await recordApplicationMessagingRuntime(h.events);
@@ -623,6 +735,57 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     ).toBe(true);
     expect(h.events.getSession(recipient)?.isHidden).not.toBe(true);
     expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
+    expect(screen.getAllByRole('textbox', { name: 'Message Mitzo' })).toHaveLength(1);
+    fireEvent.click(await screen.findByRole('button', { name: /^Agents/ }));
+    expect(
+      (await screen.findAllByText('AcceptanceReviewer', { exact: true })).length,
+    ).toBeGreaterThan(0);
+    console.info(
+      'ORDINARY_ACCEPTANCE_COMPLETE',
+      JSON.stringify({
+        stages: [
+          'history_and_unsent_draft',
+          'fresh_setup_review_silent_join',
+          'explicit_attributed_stream',
+          'exact_success_retry',
+          'responsive_focus_selection',
+          'concurrent_source_and_reviewer',
+          'partial_failure_selected_retry',
+          'long_history',
+          'lost_committed_send_and_stop_response',
+          'sse_reconnect',
+          'remount',
+          'application_owner_restart',
+          'one_chats_conversation_inspectable_participants',
+        ],
+        beforeRestartNativeTurns: 31,
+        afterRestartNativeRequests: runtime.requests.length,
+        retainedUncertainRequest: held.requestId,
+        retainedMessageId: restarted.message?.messageId,
+        retainedCommandIds: restarted.message?.deliveries.map((d) => d.commandId),
+        physicalDevice: 'unobserved',
+      }),
+    );
+  } catch (error) {
+    console.error(
+      'OFFLINE_COMPOSER_DIAGNOSTIC',
+      JSON.stringify({
+        stage,
+        input: (
+          screen.queryByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement | null
+        )?.value,
+        send: screen.queryByRole('button', { name: 'Send message' })?.outerHTML,
+        notices: [
+          ...mounted.ui.container.querySelectorAll(
+            '[role="alert"], .chat-status-message, .composer-responders',
+          ),
+        ].map((node) => node.textContent),
+        lastFetches: h.fetch.mock.calls
+          .slice(-12)
+          .map(([url, init]) => ({ url, method: init?.method })),
+      }),
+    );
+    throw error;
   } finally {
     mounted.close();
   }
