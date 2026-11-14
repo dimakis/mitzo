@@ -1,0 +1,81 @@
+name: Symposium integrated acceptance
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/symposium-acceptance.yml'
+      - 'tests/integration/symposium-*'
+      - 'tests/support/application-event-source.ts'
+      - 'tests/offline/symposium-ordinary-*'
+      - 'tests/fixtures/symposium-ordinary-*'
+      - 'frontend/src/components/*Conversation*'
+      - 'frontend/src/components/ChatInput*'
+      - 'frontend/src/components/ResponsiveChatView.tsx'
+      - 'server/session-prompt-dispatch.ts'
+      - 'server/session-conversation-list.ts'
+
+permissions:
+  contents: read
+
+# This focused evidence job supplements the complete CI gates; it replaces none.
+concurrency:
+  group: symposium-acceptance-${{ github.event.pull_request.number }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  application:
+    name: Ordinary authenticated application owners
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/ci-node
+        with:
+          node-version: '24.22.1'
+      - name: Verify combined source registration
+        run: npm run check:source-artifacts
+      - name: Exercise actual ordinary screen and application, deterministic external execution
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024
+        run: |
+          set -o pipefail
+          npx vitest run tests/integration/symposium-ordinary-acceptance.test.tsx tests/integration/symposium-required-owners.test.ts --maxWorkers=1 --reporter=verbose 2>&1 | tee symposium-application.log
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: symposium-application-${{ github.sha }}-${{ github.run_attempt }}
+          path: symposium-application.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  render:
+    name: Ordinary responsive render evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/ci-node
+        with:
+          node-version: '24.22.1'
+      - uses: ./.github/actions/ci-playwright
+        timeout-minutes: 8
+        with:
+          browsers: webkit chromium
+      - name: Render ordinary composition and unchanged approved reference
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024
+        run: bash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: symposium-ordinary-renders-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/
+            playwright-report/offline/
+          retention-days: 7
+          if-no-files-found: warn

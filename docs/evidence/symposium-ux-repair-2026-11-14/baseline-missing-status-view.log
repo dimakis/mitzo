@@ -1,0 +1,5469 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+[90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx
+[22m[39mORDINARY_ACCEPTANCE_SOURCE {"head":"42e93abef244097f2bba46a3545d1fc99b701f90","branch":"test/symposium-integrated-acceptance","testSha256":"cec55323ed3154757a59420b6d0eb5f0416062193fafe9e8e2e34ae8b58cac53","node":"v24.10.0","build":"Vitest source transpilation","route":"/chat/:sessionId","widths":[320,390,1280],"renderer":"JSDOM; no visual acceptance","externalExecution":"deterministic RPC"}
+
+{"level":30,"time":1794655933800,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655933746-gp3pzn","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794655933928,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655933746-gp3pzn","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 320px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 320px keeps one transcript/composer after silent joining[33m 1844[2mms[22m[39m
+{"level":30,"time":1794655934262,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655934208-wpenjl","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794655934299,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655934208-wpenjl","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 390px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 390px keeps one transcript/composer after silent joining[33m 322[2mms[22m[39m
+{"level":30,"time":1794655934581,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655934528-usjpha","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794655934611,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655934528-usjpha","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 1280px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 1280px keeps one transcript/composer after silent joining[33m 373[2mms[22m[39m
+{"level":30,"time":1794655934954,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655934902-5pt5hy","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794655934990,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655934902-5pt5hy","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794655936423,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655936368-ftof8o","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","cursor":19,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794655936482,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655936368-ftof8o","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","cursor":19,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatInputContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to LibraryChatAgentProfilePicker inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to LibraryChatAgentProfilePicker inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatAgentProfilePicker inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ConversationAgentsBody inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794655955902,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794655955878-h8gtdj","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","cursor":64,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to CodexQueueStatus inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumConversation inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumConversation inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mOFFLINE_COMPOSER_DIAGNOSTIC {"stage":"lost_send_and_stop_response","input":"Retain original operation through lost response and Stop.","notices":["@AcceptanceReviewer","Offline committed send response lost"],"lastFetches":[{"url":"/api/sessions/fb8cc6c3-73fd-82e3-93b6-842f9c38a084/meta"},{"url":"/api/symposium/profile-proposals?sessionId=fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"url":"/api/sessions/fb8cc6c3-73fd-82e3-93b6-842f9c38a084/meta"},{"url":"/api/session-collaborations/ee7ae066-d78c-4bee-b4f4-a201ca7635ac/conversation"},{"url":"/api/sessions/fb8cc6c3-73fd-82e3-93b6-842f9c38a084/meta"},{"url":"/api/symposium/profile-proposals?sessionId=fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"url":"/api/session-collaborations/ee7ae066-d78c-4bee-b4f4-a201ca7635ac/recipients/0997db52-078c-84a0-9372-5336d4111100"},{"url":"/api/session-collaborations/ee7ae066-d78c-4bee-b4f4-a201ca7635ac/recipients/fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"url":"/api/session-collaborations/ee7ae066-d78c-4bee-b4f4-a201ca7635ac/progress"},{"url":"/api/session-collaborations/ee7ae066-d78c-4bee-b4f4-a201ca7635ac/recipients/0997db52-078c-84a0-9372-5336d4111100"},{"url":"/api/session-collaborations/ee7ae066-d78c-4bee-b4f4-a201ca7635ac/conversation"},{"url":"/api/session-collaborations/ee7ae066-d78c-4bee-b4f4-a201ca7635ac/messages","method":"POST"}]}
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mOFFLINE_ACCEPTANCE_STAGE {"stage":"lost_send_and_stop_response","nativeTurns":31,"deliveries":[{"text":"Acceptance long-history turn 1","deliveries":[{"version":1,"deliveryId":"0d0a3348-2bf2-41ee-b907-41e262d0ca59","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:0d0a3348-2bf2-41ee-b907-41e262d0ca59","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 2","deliveries":[{"version":1,"deliveryId":"1ab4fbcf-9990-48d7-ab12-59ffe9083a17","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:1ab4fbcf-9990-48d7-ab12-59ffe9083a17","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 3","deliveries":[{"version":1,"deliveryId":"d6a74c48-4866-4a35-954b-0fb2b6e13723","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:d6a74c48-4866-4a35-954b-0fb2b6e13723","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 4","deliveries":[{"version":1,"deliveryId":"83139ca0-8724-44c8-b8c6-c3c0f30b4fdb","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:83139ca0-8724-44c8-b8c6-c3c0f30b4fdb","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 5","deliveries":[{"version":1,"deliveryId":"2f1f095c-d6b7-49c0-99db-aa30dbea2e3b","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:2f1f095c-d6b7-49c0-99db-aa30dbea2e3b","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 6","deliveries":[{"version":1,"deliveryId":"665daaf8-428a-4995-ad7e-f7fa706130b7","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:665daaf8-428a-4995-ad7e-f7fa706130b7","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 7","deliveries":[{"version":1,"deliveryId":"3c8679fe-76de-4410-8e10-cebdff806866","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:3c8679fe-76de-4410-8e10-cebdff806866","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 8","deliveries":[{"version":1,"deliveryId":"82693b91-1d25-4b11-9d4a-d3f0ce983bb6","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:82693b91-1d25-4b11-9d4a-d3f0ce983bb6","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 9","deliveries":[{"version":1,"deliveryId":"442b2ced-2fae-4b7f-b233-24cb9790d027","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:442b2ced-2fae-4b7f-b233-24cb9790d027","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 10","deliveries":[{"version":1,"deliveryId":"689546bf-a2f8-4023-87b5-ed43f2f0ed14","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:689546bf-a2f8-4023-87b5-ed43f2f0ed14","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 11","deliveries":[{"version":1,"deliveryId":"20b8685e-b7a6-41b7-8fa9-3d0e47cd9be4","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:20b8685e-b7a6-41b7-8fa9-3d0e47cd9be4","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 12","deliveries":[{"version":1,"deliveryId":"6291b3ae-1811-43cf-97f3-29baab7d264e","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:6291b3ae-1811-43cf-97f3-29baab7d264e","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 13","deliveries":[{"version":1,"deliveryId":"3bbe1976-e049-461b-afb6-402ed8405604","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:3bbe1976-e049-461b-afb6-402ed8405604","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 14","deliveries":[{"version":1,"deliveryId":"3e1947d5-ef6a-4e7e-86f6-760d2475fd0f","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:3e1947d5-ef6a-4e7e-86f6-760d2475fd0f","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 15","deliveries":[{"version":1,"deliveryId":"d03a167f-f04a-47fb-b7ce-d71209f09a99","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:d03a167f-f04a-47fb-b7ce-d71209f09a99","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 16","deliveries":[{"version":1,"deliveryId":"32ecc90b-ae8e-40ce-b192-147eb91c2dce","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:32ecc90b-ae8e-40ce-b192-147eb91c2dce","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 17","deliveries":[{"version":1,"deliveryId":"f179f85f-8aa0-49e8-9a46-dbf78d48a672","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:f179f85f-8aa0-49e8-9a46-dbf78d48a672","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 18","deliveries":[{"version":1,"deliveryId":"c4570199-f25e-42f9-91c1-4d52eb802ff6","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:c4570199-f25e-42f9-91c1-4d52eb802ff6","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 19","deliveries":[{"version":1,"deliveryId":"eb31de57-dc11-43be-9b0b-561db21192ea","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:eb31de57-dc11-43be-9b0b-561db21192ea","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 20","deliveries":[{"version":1,"deliveryId":"f26ceab1-8467-4f4d-8b99-9daa71cac97a","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:f26ceab1-8467-4f4d-8b99-9daa71cac97a","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 21","deliveries":[{"version":1,"deliveryId":"c2dd8a3e-b78b-408c-b14c-c7c3a3a3bb4c","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:c2dd8a3e-b78b-408c-b14c-c7c3a3a3bb4c","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 22","deliveries":[{"version":1,"deliveryId":"9963c14c-c367-41f6-8381-f08eba7c2046","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:9963c14c-c367-41f6-8381-f08eba7c2046","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 23","deliveries":[{"version":1,"deliveryId":"25468beb-dd16-48e8-8cfa-6929a051058d","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:25468beb-dd16-48e8-8cfa-6929a051058d","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 24","deliveries":[{"version":1,"deliveryId":"2bc7512e-cfb4-4e0f-bbc4-5baee3d5651a","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:2bc7512e-cfb4-4e0f-bbc4-5baee3d5651a","reason":null,"outcome":"completed"}]},{"text":"Retain original operation through lost response and Stop.","deliveries":[{"version":1,"deliveryId":"8204cd05-d289-462d-a33c-b1a6a002b4d9","sessionId":"0997db52-078c-84a0-9372-5336d4111100","purpose":"reply","revision":2,"status":"delivered","commandId":"collaboration:8204cd05-d289-462d-a33c-b1a6a002b4d9","reason":null}]}],"messagesPosted":[{"requestId":"e4659c3f-62c4-4dbc-bc1d-c2518e817775","expectedMembershipRevision":2,"expectedPolicySequence":5,"text":"First explicit accepted review from ordinary chat.","responders":{"kind":"selected","sessionIds":["0997db52-078c-84a0-9372-5336d4111100"]},"snapshot":null},{"requestId":"d7f592df-04d2-4831-b289-7eb49872b7c5","expectedMembershipRevision":2,"expectedPolicySequence":5,"text":"Concurrent ordinary responders with partial failure.","responders":{"kind":"all"},"snapshot":null},{"requestId":"0d77218e-51a8-4577-8c6b-e331ccc1aeef","expectedMembershipRevision":2,"expectedPolicySequence":5,"text":"Retain original operation through lost response and Stop.","responders":{"kind":"selected","sessionIds":["0997db52-078c-84a0-9372-5336d4111100"]},"snapshot":null}],"sourceEvents":[{"type":"message_end","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","messageId":"2b7ff199-6133-4181-9345-52c670fda62a"},{"type":"token_update","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"session_end","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"welcome"},{"type":"session_switched","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"session_state_changed","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"token_update","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"session_switched","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"session_state_changed","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"token_update","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"codex_queue","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"user_message","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","messageId":"collaboration:24336f80-899f-4a00-a880-e96f4cd91138"},{"type":"codex_queue","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"token_update","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"message_start","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","messageId":"580ff4eb-ceb4-40a5-9a71-a0cac2c3586c"},{"type":"block_start","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","messageId":"580ff4eb-ceb4-40a5-9a71-a0cac2c3586c"},{"type":"block_delta","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","messageId":"580ff4eb-ceb4-40a5-9a71-a0cac2c3586c"},{"type":"codex_queue","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"block_end","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","messageId":"580ff4eb-ceb4-40a5-9a71-a0cac2c3586c"},{"type":"message_end","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084","messageId":"580ff4eb-ceb4-40a5-9a71-a0cac2c3586c"},{"type":"token_update","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"session_end","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"welcome"},{"type":"session_reconnect_snapshot","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"mode_changed","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"token_update","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"reconnected"},{"type":"session_switched","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"session_state_changed","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"},{"type":"token_update","sessionId":"fb8cc6c3-73fd-82e3-93b6-842f9c38a084"}]}
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mOFFLINE_READINESS_DIAGNOSTIC {"code":"collaboration_recipient_readiness_failed","stage":"recipient_readiness","collaborationId":"ee7ae066-d78c-4bee-b4f4-a201ca7635ac","sessionId":"0997db52-078c-84a0-9372-5336d4111100","error":{"type":"SessionPromptError","message":"Open this ordinary session and send a message before scheduling work in it.","stack":"Error: Open this ordinary session and send a message before scheduling work in it.\n    at target (/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo/server/session-prompt-dispatch.ts:147:13)\n    at Object.inspectCollaboration (/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo/server/session-prompt-dispatch.ts:456:49)\n    at ApplicationCollaborationMessaging.recipientReadiness (/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo/server/collaboration-application-messaging.ts:176:23)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at /Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo/server/session-collaboration-router.ts:212:11","status":422}}
+
+{"level":30,"time":1794655959766,"pid":97201,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins[33m 24860[2mms[22m[39m
+[31m   → Unable to find an accessible element with the role "button" and name "Conversation status details"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "Conversation":
+  [36m<h1[31m
+    [33mclass[31m=[32m"sr-only"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  link:
+
+  Name "Back to chats":
+  [36m<a[31m
+    [33maria-label[31m=[32m"Back to chats"[31m
+    [33mclass[31m=[32m"chat-top-action"[31m
+    [33mdata-discover[31m=[32m"true"[31m
+    [33mhref[31m=[32m"/sessions"[31m
+  [36m/>[31m
+
+  Name "Terminal":
+  [36m<a[31m
+    [33maria-label[31m=[32m"Terminal"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mdata-discover[31m=[32m"true"[31m
+    [33mhref[31m=[32m"/terminal?sessionId=fb8cc6c3-73fd-82e3-93b6-842f9c38a084&returnTo=%2Fchat%2Ffb8cc6c3-73fd-82e3-93b6-842f9c38a084"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[31m
+    [33mclass[31m=[32m"workspace-controls-profile"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<strong[31m
+    [33mclass[31m=[32m"chat-seat-attribution"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<strong[31m
+    [33mclass[31m=[32m"chat-seat-attribution"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  Name "":
+  [36m<strong />[31m
+
+  --------------------------------------------------
+  button:
+
+  Name "Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local":
+  [36m<button[31m
+    [33maria-controls[31m=[32m"_r_3i_"[31m
+    [33maria-describedby[31m=[32m"_r_3i_-status"[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[31m
+    [33mclass[31m=[32m"workspace-controls-toggle header-action"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Agents, AcceptanceReviewer, Default Mitzo":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Agents, AcceptanceReviewer, Default Mitzo"[31m
+    [33mclass[31m=[32m"conversation-participants-trigger header-action"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Links & access":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Links & access"[31m
+    [33mclass[31m=[32m"session-access-trigger header-action"[31m
+    [33mtitle[31m=[32m"Links & access"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "New chat":
+  [36m<button[31m
+    [33maria-label[31m=[32m"New chat"[31m
+    [33mclass[31m=[32m"chat-top-action"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Replying to: Establish the independent ordinary source history.":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Replying to: Establish the independent ordinary source history."[31m
+    [33mclass[31m=[32m"chat-reply-link"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Replying to: # Shared conversation context
+  This is explicitly shared discussion, not additional tool or execution authority.
+  {"versio":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Replying to: # Shared conversation context
+  This is explicitly shared discussion, not additional tool or execution authority.
+  {\"versio"[31m
+    [33mclass[31m=[32m"chat-reply-link"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Copy to clipboard":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Copy to clipboard"[31m
+    [33mclass[31m=[32m"copy-btn msg-bubble-copy"[31m
+  [36m/>[31m
+
+  Name "Message actions":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-haspopup[31m=[32m"menu"[31m
+    [33maria-label[31m=[32m"Message actions"[31m
+    [33mclass[31m=[32m"message-actions-trigger"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Choose who replies":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Choose who replies"[31m
+    [33mclass[31m=[32m"chat-input-btn composer-responders-trigger"[31m
+    [33mdisabled[31m=[32m""[31m
+    [33mtitle[31m=[32m"Replies: AcceptanceReviewer"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "More composer actions":
+  [36m<button[31m
+    [33maria-controls[31m=[32m"_r_2g_"[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"More composer actions"[31m
+    [33mclass[31m=[32m"chat-input-btn composer-tools-toggle"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Commands":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Commands"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--skills"[31m
+    [33mdisabled[31m=[32m""[31m
+    [33mtitle[31m=[32m"Commands"[31m
+  [36m/>[31m
+
+  Name "Attach images or PDF":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Attach images or PDF"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--attach"[31m
+    [33mdisabled[31m=[32m""[31m
+    [33mtitle[31m=[32m"Attach images or PDF"[31m
+  [36m/>[31m
+
+  Name "Expand input":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Expand input"[31m
+    [33maria-pressed[31m=[32m"false"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Open session tray":
+  [36m<button[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Open session tray"[31m
+    [33mclass[31m=[32m"chat-input-btn composer-session-trigger"[31m
+    [33mtitle[31m=[32m"Session resources"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Review prompt context":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Review prompt context"[31m
+    [33mclass[31m=[32m"chat-input-btn"[31m
+    [33mdisabled[31m=[32m""[31m
+    [33mtitle[31m=[32m"Review context for this prompt"[31m
+    [33mtype[31m=[32m"button"[31m
+  [36m/>[31m
+
+  Name "Token usage":
+  [36m<button[31m
+    [33maria-describedby[31m=[32m"_r_2i_"[31m
+    [33maria-expanded[31m=[32m"false"[31m
+    [33maria-label[31m=[32m"Token usage"[31m
+    [33mclass[31m=[32m"token-bar token-bar--unknown"[31m
+    [33mtitle[31m=[32m"Token usage — press for details"[31m
+  [36m/>[31m
+
+  Name "Stop generation":
+  [36m<button[31m
+    [33maria-label[31m=[32m"Stop generation"[31m
+    [33mclass[31m=[32m"chat-input-btn chat-input-btn--stop"[31m
+    [33mtitle[31m=[32m"Stop generation"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  time:
+
+  Name "Saturday, November 14, 2026 at 11:32:15 AM GMT":
+  [36m<time[31m
+    [33mclass[31m=[32m"msg-timestamp msg-timestamp--user"[31m
+    [33mdatetime[31m=[32m"2026-11-14T11:32:15.751Z"[31m
+    [33mtitle[31m=[32m"Saturday, November 14, 2026 at 11:32:15 AM GMT"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<time[31m
+    [33mdatetime[31m=[32m"2026-11-14T11:32:15.751Z"[31m
+  [36m/>[31m
+
+  Name "Saturday, November 14, 2026 at 11:32:16 AM GMT":
+  [36m<time[31m
+    [33mclass[31m=[32m"msg-timestamp"[31m
+    [33mdatetime[31m=[32m"2026-11-14T11:32:16.335Z"[31m
+    [33mtitle[31m=[32m"Saturday, November 14, 2026 at 11:32:16 AM GMT"[31m
+  [36m/>[31m
+
+  Name "Saturday, November 14, 2026 at 11:32:20 AM GMT":
+  [36m<time[31m
+    [33mclass[31m=[32m"msg-timestamp msg-timestamp--user"[31m
+    [33mdatetime[31m=[32m"2026-11-14T11:32:20.792Z"[31m
+    [33mtitle[31m=[32m"Saturday, November 14, 2026 at 11:32:20 AM GMT"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<time[31m
+    [33mdatetime[31m=[32m"2026-11-14T11:32:20.792Z"[31m
+  [36m/>[31m
+
+  Name "Saturday, November 14, 2026 at 11:32:21 AM GMT":
+  [36m<time[31m
+    [33mclass[31m=[32m"msg-timestamp"[31m
+    [33mdatetime[31m=[32m"2026-11-14T11:32:21.256Z"[31m
+    [33mtitle[31m=[32m"Saturday, November 14, 2026 at 11:32:21 AM GMT"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<span[31m
+    [33mclass[31m=[32m"sr-only"[31m
+    [33mrole[31m=[32m"status"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p />[31m
+
+  Name "":
+  [36m<p[31m
+    [33mclass[31m=[32m"conversation-replay-status"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  group:
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"09607bd7-7b41-40b8-a66c-ecef2ba800fb"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"abc372e1-cdf2-4d1a-b9f7-9d15375c07f6"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"f4dae1e9-a728-4497-92cd-c35df30779a2"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"e13699a0-444c-4180-aca0-f6f7005006ca"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"754caf8b-ed50-4447-8c15-d8460f233656"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"2496d6fe-41e8-41a4-be04-2e81055b548e"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"f4b5870c-757d-41a6-8be9-7a71fbf50386"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"6f12d0b5-4628-4903-a9bd-a61c5fe68766"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"26844cc8-8bfc-4932-9b41-7de2e359feeb"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"4a61099a-fcd2-48e3-89ff-5d632c33bff4"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"f62c5178-ba94-4782-abb9-a86464aa1006"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"ddb1192a-d0e6-4c46-b5cd-45a138868c75"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"4e06e580-6b25-4cd0-b53d-b89cf7aff280"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"9f34d59c-79e9-4846-a97b-d1d834f8db5a"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"9cc4b923-55e7-466f-ab2d-a75a5e14d117"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"396a9228-4031-48b2-8f43-8aa296998616"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"44122036-f028-4fd7-ae40-ba5803e3a353"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"f76b2018-0d49-438e-9774-90c778627ce6"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"f21a8872-543f-446b-9b9e-8c9daa117a41"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"3f33c8f8-2495-4a8f-8948-20a8c5a59884"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"54474209-db6c-4187-89aa-3c9cdc3e2862"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"81782a93-c5e8-44c2-b941-7c87e734f85c"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"d4c26a49-a401-4021-83db-6926d89b8c04"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"77ff97c8-276a-425d-a044-b1cce29c2c56"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-delivery-details"[31m
+    [33mdata-message-deliveries[31m=[32m"c27a1c79-f400-4f49-a2a7-040b3cd51767"[31m
+  [36m/>[31m
+
+  Name "":
+  [36m<details[31m
+    [33mclass[31m=[32m"conversation-message-provenance"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  Name "":
+  [36m<ul />[31m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  Name "":
+  [36m<li />[31m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Message Mitzo":
+  [36m<textarea[31m
+    [33maria-label[31m=[32m"Message Mitzo"[31m
+    [33mclass[31m=[32m"chat-input-field"[31m
+    [33mplaceholder[31m=[32m"Message… @ to choose who replies"[31m
+    [33mrows[31m=[32m"1"[31m
+    [33mstyle[31m=[32m"height: 0px;"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+  alert:
+
+  Name "":
+  [36m<p[31m
+    [33mrole[31m=[32m"alert"[31m
+  [36m/>[31m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body[31m
+  [33mstyle[31m=[32m""[31m
+[36m>[31m
+  [36m<div />[31m
+  [36m<div />[31m
+  [36m<div />[31m
+  [36m<div />[31m
+  [36m<div>[31m
+    [36m<div[31m
+      [33mclass[31m=[32m"chat-page workspace-chat"[31m
+    [36m>[31m
+      [36m<section[31m
+        [33mclass[31m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"chat-mobile-topbar"[31m
+        [36m>[31m
+          [36m<h1[31m
+            [33mclass[31m=[32m"sr-only"[31m
+          [36m>[31m
+            [0mConversation[0m
+          [36m</h1>[31m
+          [36m<section[31m
+            [33mclass[31m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"workspace-controls-heading"[31m
+            [36m>[31m
+              [36m<a[31m
+                [33maria-label[31m=[32m"Back to chats"[31m
+                [33mclass[31m=[32m"chat-top-action"[31m
+                [33mdata-discover[31m=[32m"true"[31m
+                [33mhref[31m=[32m"/sessions"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"back"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-linejoin[31m=[32m"round"[31m
+                  [33mstroke-width[31m=[32m"1.7"[31m
+                  [33mviewBox[31m=[32m"0 0 24 24"[31m
+                  [33mwidth[31m=[32m"20"[31m
+                [36m>[31m
+                  [36m<path[31m
+                    [33md[31m=[32m"m14 6-6 6 6 6"[31m
+                  [36m/>[31m
+                [36m</svg>[31m
+              [36m</a>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"workspace-controls-context"[31m
+              [36m>[31m
+                [36m<strong[31m
+                  [33mclass[31m=[32m"workspace-controls-profile"[31m
+                [36m>[31m
+                  [0mEstablish the independent ordinary source history[0m
+                [36m</strong>[31m
+                [36m<span>[31m
+                  [0mDefault Mitzo · Offline only · Offline fixture · low · Local Mac[0m
+                [36m</span>[31m
+              [36m</div>[31m
+              [36m<button[31m
+                [33maria-controls[31m=[32m"_r_3i_"[31m
+                [33maria-describedby[31m=[32m"_r_3i_-status"[31m
+                [33maria-expanded[31m=[32m"false"[31m
+                [33maria-label[31m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[31m
+                [33mclass[31m=[32m"workspace-controls-toggle header-action"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"settings"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-linejoin[31m=[32m"round"[31m
+                  [33mstroke-width[31m=[32m"1.7"[31m
+                  [33mviewBox[31m=[32m"0 0 24 24"[31m
+                  [33mwidth[31m=[32m"20"[31m
+                [36m>[31m
+                  [36m<path[31m
+                    [33md[31m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[31m
+                  [36m/>[31m
+                [36m</svg>[31m
+                [36m<span[31m
+                  [33mclass[31m=[32m"workspace-controls-label"[31m
+                [36m>[31m
+                  [0mSettings[0m
+                [36m</span>[31m
+              [36m</button>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"conversation-state sr-only"[31m
+                [33mid[31m=[32m"_r_3i_-status"[31m
+              [36m>[31m
+                [0mConversation[0m
+              [36m</span>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"conversation-agents-entry"[31m
+              [36m>[31m
+                [36m<button[31m
+                  [33maria-expanded[31m=[32m"false"[31m
+                  [33maria-label[31m=[32m"Agents, AcceptanceReviewer, Default Mitzo"[31m
+                  [33mclass[31m=[32m"conversation-participants-trigger header-action"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"bot"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</button>[31m
+              [36m</div>[31m
+              [36m<button[31m
+                [33maria-label[31m=[32m"Links & access"[31m
+                [33mclass[31m=[32m"session-access-trigger header-action"[31m
+                [33mtitle[31m=[32m"Links & access"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"connections"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-l...[39m
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the review owner omitted[32m 2[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the joining owner omitted[32m 1[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the messaging owner omitted[32m 3[2mms[22m[39m
+{"level":30,"time":1794655963281,"pid":98112,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the reply owner omitted[33m 1005[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the admission owner omitted[32m 28[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins
+[31m[1mTestingLibraryElementError[22m[39m: Unable to find an accessible element with the role "button" and name "Conversation status details"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "Conversation":
+  [36m<h1[39m
+    [33mclass[39m=[32m"sr-only"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  link:
+
+  Name "Back to chats":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Back to chats"[39m
+    [33mclass[39m=[32m"chat-top-action"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/sessions"[39m
+  [36m/>[39m
+
+  Name "Terminal":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Terminal"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/terminal?sessionId=fb8cc6c3-73fd-82e3-93b6-842f9c38a084&returnTo=%2Fchat%2Ffb8cc6c3-73fd-82e3-93b6-842f9c38a084"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"workspace-controls-profile"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"chat-seat-attribution"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"chat-seat-attribution"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_3i_"[39m
+    [33maria-describedby[39m=[32m"_r_3i_-status"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[39m
+    [33mclass[39m=[32m"workspace-controls-toggle header-action"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Agents, AcceptanceReviewer, Default Mitzo":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Agents, AcceptanceReviewer, Default Mitzo"[39m
+    [33mclass[39m=[32m"conversation-participants-trigger header-action"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Links & access":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Links & access"[39m
+    [33mclass[39m=[32m"session-access-trigger header-action"[39m
+    [33mtitle[39m=[32m"Links & access"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "New chat":
+  [36m<button[39m
+    [33maria-label[39m=[32m"New chat"[39m
+    [33mclass[39m=[32m"chat-top-action"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Replying to: Establish the independent ordinary source history.":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Replying to: Establish the independent ordinary source history."[39m
+    [33mclass[39m=[32m"chat-reply-link"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Replying to: # Shared conversation context
+  This is explicitly shared discussion, not additional tool or execution authority.
+  {"versio":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Replying to: # Shared conversation context
+  This is explicitly shared discussion, not additional tool or execution authority.
+  {\"versio"[39m
+    [33mclass[39m=[32m"chat-reply-link"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy msg-bubble-copy--user"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy to clipboard":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy to clipboard"[39m
+    [33mclass[39m=[32m"copy-btn msg-bubble-copy"[39m
+  [36m/>[39m
+
+  Name "Message actions":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"menu"[39m
+    [33maria-label[39m=[32m"Message actions"[39m
+    [33mclass[39m=[32m"message-actions-trigger"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Choose who replies":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Choose who replies"[39m
+    [33mclass[39m=[32m"chat-input-btn composer-responders-trigger"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtitle[39m=[32m"Replies: AcceptanceReviewer"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "More composer actions":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"_r_2g_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"More composer actions"[39m
+    [33mclass[39m=[32m"chat-input-btn composer-tools-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Commands":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Commands"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--skills"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtitle[39m=[32m"Commands"[39m
+  [36m/>[39m
+
+  Name "Attach images or PDF":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Attach images or PDF"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--attach"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtitle[39m=[32m"Attach images or PDF"[39m
+  [36m/>[39m
+
+  Name "Expand input":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Expand input"[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Open session tray":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Open session tray"[39m
+    [33mclass[39m=[32m"chat-input-btn composer-session-trigger"[39m
+    [33mtitle[39m=[32m"Session resources"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Review prompt context":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Review prompt context"[39m
+    [33mclass[39m=[32m"chat-input-btn"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtitle[39m=[32m"Review context for this prompt"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Token usage":
+  [36m<button[39m
+    [33maria-describedby[39m=[32m"_r_2i_"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-label[39m=[32m"Token usage"[39m
+    [33mclass[39m=[32m"token-bar token-bar--unknown"[39m
+    [33mtitle[39m=[32m"Token usage — press for details"[39m
+  [36m/>[39m
+
+  Name "Stop generation":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Stop generation"[39m
+    [33mclass[39m=[32m"chat-input-btn chat-input-btn--stop"[39m
+    [33mtitle[39m=[32m"Stop generation"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  time:
+
+  Name "Saturday, November 14, 2026 at 11:32:15 AM GMT":
+  [36m<time[39m
+    [33mclass[39m=[32m"msg-timestamp msg-timestamp--user"[39m
+    [33mdatetime[39m=[32m"2026-11-14T11:32:15.751Z"[39m
+    [33mtitle[39m=[32m"Saturday, November 14, 2026 at 11:32:15 AM GMT"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<time[39m
+    [33mdatetime[39m=[32m"2026-11-14T11:32:15.751Z"[39m
+  [36m/>[39m
+
+  Name "Saturday, November 14, 2026 at 11:32:16 AM GMT":
+  [36m<time[39m
+    [33mclass[39m=[32m"msg-timestamp"[39m
+    [33mdatetime[39m=[32m"2026-11-14T11:32:16.335Z"[39m
+    [33mtitle[39m=[32m"Saturday, November 14, 2026 at 11:32:16 AM GMT"[39m
+  [36m/>[39m
+
+  Name "Saturday, November 14, 2026 at 11:32:20 AM GMT":
+  [36m<time[39m
+    [33mclass[39m=[32m"msg-timestamp msg-timestamp--user"[39m
+    [33mdatetime[39m=[32m"2026-11-14T11:32:20.792Z"[39m
+    [33mtitle[39m=[32m"Saturday, November 14, 2026 at 11:32:20 AM GMT"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<time[39m
+    [33mdatetime[39m=[32m"2026-11-14T11:32:20.792Z"[39m
+  [36m/>[39m
+
+  Name "Saturday, November 14, 2026 at 11:32:21 AM GMT":
+  [36m<time[39m
+    [33mclass[39m=[32m"msg-timestamp"[39m
+    [33mdatetime[39m=[32m"2026-11-14T11:32:21.256Z"[39m
+    [33mtitle[39m=[32m"Saturday, November 14, 2026 at 11:32:21 AM GMT"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<span[39m
+    [33mclass[39m=[32m"sr-only"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"conversation-replay-status"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"09607bd7-7b41-40b8-a66c-ecef2ba800fb"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"abc372e1-cdf2-4d1a-b9f7-9d15375c07f6"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"f4dae1e9-a728-4497-92cd-c35df30779a2"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"e13699a0-444c-4180-aca0-f6f7005006ca"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"754caf8b-ed50-4447-8c15-d8460f233656"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"2496d6fe-41e8-41a4-be04-2e81055b548e"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"f4b5870c-757d-41a6-8be9-7a71fbf50386"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"6f12d0b5-4628-4903-a9bd-a61c5fe68766"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"26844cc8-8bfc-4932-9b41-7de2e359feeb"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"4a61099a-fcd2-48e3-89ff-5d632c33bff4"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"f62c5178-ba94-4782-abb9-a86464aa1006"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"ddb1192a-d0e6-4c46-b5cd-45a138868c75"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"4e06e580-6b25-4cd0-b53d-b89cf7aff280"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"9f34d59c-79e9-4846-a97b-d1d834f8db5a"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"9cc4b923-55e7-466f-ab2d-a75a5e14d117"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"396a9228-4031-48b2-8f43-8aa296998616"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"44122036-f028-4fd7-ae40-ba5803e3a353"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"f76b2018-0d49-438e-9774-90c778627ce6"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"f21a8872-543f-446b-9b9e-8c9daa117a41"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"3f33c8f8-2495-4a8f-8948-20a8c5a59884"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"54474209-db6c-4187-89aa-3c9cdc3e2862"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"81782a93-c5e8-44c2-b941-7c87e734f85c"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"d4c26a49-a401-4021-83db-6926d89b8c04"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"77ff97c8-276a-425d-a044-b1cce29c2c56"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-delivery-details"[39m
+    [33mdata-message-deliveries[39m=[32m"c27a1c79-f400-4f49-a2a7-040b3cd51767"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<details[39m
+    [33mclass[39m=[32m"conversation-message-provenance"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  Name "":
+  [36m<ul />[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Message Mitzo":
+  [36m<textarea[39m
+    [33maria-label[39m=[32m"Message Mitzo"[39m
+    [33mclass[39m=[32m"chat-input-field"[39m
+    [33mplaceholder[39m=[32m"Message… @ to choose who replies"[39m
+    [33mrows[39m=[32m"1"[39m
+    [33mstyle[39m=[32m"height: 0px;"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  alert:
+
+  Name "":
+  [36m<p[39m
+    [33mrole[39m=[32m"alert"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body[39m
+  [33mstyle[39m=[32m""[39m
+[36m>[39m
+  [36m<div />[39m
+  [36m<div />[39m
+  [36m<div />[39m
+  [36m<div />[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"chat-page workspace-chat"[39m
+    [36m>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"chat-mobile-topbar"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"sr-only"[39m
+          [36m>[39m
+            [0mConversation[0m
+          [36m</h1>[39m
+          [36m<section[39m
+            [33mclass[39m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"workspace-controls-heading"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33maria-label[39m=[32m"Back to chats"[39m
+                [33mclass[39m=[32m"chat-top-action"[39m
+                [33mdata-discover[39m=[32m"true"[39m
+                [33mhref[39m=[32m"/sessions"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"back"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.7"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"20"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"m14 6-6 6 6 6"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</a>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"workspace-controls-context"[39m
+              [36m>[39m
+                [36m<strong[39m
+                  [33mclass[39m=[32m"workspace-controls-profile"[39m
+                [36m>[39m
+                  [0mEstablish the independent ordinary source history[0m
+                [36m</strong>[39m
+                [36m<span>[39m
+                  [0mDefault Mitzo · Offline only · Offline fixture · low · Local Mac[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<button[39m
+                [33maria-controls[39m=[32m"_r_3i_"[39m
+                [33maria-describedby[39m=[32m"_r_3i_-status"[39m
+                [33maria-expanded[39m=[32m"false"[39m
+                [33maria-label[39m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[39m
+                [33mclass[39m=[32m"workspace-controls-toggle header-action"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"settings"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.7"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"20"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"workspace-controls-label"[39m
+                [36m>[39m
+                  [0mSettings[0m
+                [36m</span>[39m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"conversation-state sr-only"[39m
+                [33mid[39m=[32m"_r_3i_-status"[39m
+              [36m>[39m
+                [0mConversation[0m
+              [36m</span>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"conversation-agents-entry"[39m
+              [36m>[39m
+                [36m<button[39m
+                  [33maria-expanded[39m=[32m"false"[39m
+                  [33maria-label[39m=[32m"Agents, AcceptanceReviewer, Default Mitzo"[39m
+                  [33mclass[39m=[32m"conversation-participants-trigger header-action"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"bot"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</button>[39m
+              [36m</div>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"Links & access"[39m
+                [33mclass[39m=[32m"session-access-trigger header-action"[39m
+                [33mtitle[39m=[32m"Links & access"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"connections"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-l...
+[90m [2m❯[22m Object.getElementError node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m660:28[22m[39m
+    [90m658|[39m     )[33m;[39m
+    [90m659|[39m     // Recovery is inspectable through the actual current composer sta…
+    [90m660|[39m     fireEvent.click(screen.getByRole('button', { name: 'Conversation s…
+    [90m   |[39m                            [31m^[39m
+    [90m661|[39m     [35mconst[39m statusDetails [33m=[39m [35mawait[39m screen[33m.[39m[34mfindByRole[39m([32m'dialog'[39m[33m,[39m {
+    [90m662|[39m       name[33m:[39m [32m'Conversation status'[39m[33m,[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m8 passed[39m[22m[90m (9)[39m
+[2m   Start at [22m 11:32:06
+[2m   Duration [22m 36.34s[2m (transform 4.00s, setup 0ms, import 779ms, tests 34.91s, environment 464ms)[22m
+

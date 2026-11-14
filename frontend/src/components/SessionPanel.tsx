@@ -104,7 +104,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
     handleRename,
   } = useSessionList();
   const search = useSessionSearch();
-  const { activities, attendCount, connected, lastKnownActivities = [] } = useSessionOverview();
+  const { activities, attendCount, connected, lastKnownActivities = [] } = useSessionOverview(true);
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
   const [menu, setMenu] = useState<SessionMenuState | null>(null);
   const [renaming, setRenaming] = useState<Session | null>(null);

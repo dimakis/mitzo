@@ -409,6 +409,9 @@ jobs:
             test-results/offline/**/fresh-setup-*.png
             test-results/offline/**/agents-*.png
             test-results/offline/**/responders-*.png
+            test-results/offline/**/ordinary-*.png
+            test-results/offline/**/approved-reference-*.png
+            test-results/offline/**/ordinary-responsive-manifest.json
           retention-days: 7
           if-no-files-found: ignore
 

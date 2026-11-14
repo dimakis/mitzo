@@ -1,0 +1,365 @@
+﻿2026-11-14T11:40:05.6959610Z Current runner version: '2.338.2'
+2026-11-14T11:40:05.6995698Z ##[group]Runner Image Provisioner
+2026-11-14T11:40:05.6997153Z Hosted Compute Agent
+2026-11-14T11:40:05.6998290Z Version: 20261103.629
+2026-11-14T11:40:05.6999523Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-14T11:40:05.7001091Z Build Date: 2026-11-03T17:26:59Z
+2026-11-14T11:40:05.7002343Z Worker ID: {327ba558-54c9-4877-a646-2a929202ff25}
+2026-11-14T11:40:05.7004016Z Region: eastus
+2026-11-14T11:40:05.7005048Z Cloud: Azure
+2026-11-14T11:40:05.7006105Z ##[endgroup]
+2026-11-14T11:40:05.7008732Z ##[group]Operating System
+2026-11-14T11:40:05.7009880Z Ubuntu
+2026-11-14T11:40:05.7010752Z 24.04.5
+2026-11-14T11:40:05.7011754Z LTS
+2026-11-14T11:40:05.7012941Z ##[endgroup]
+2026-11-14T11:40:05.7014264Z ##[group]Runner Image
+2026-11-14T11:40:05.7015446Z Image: ubuntu-24.04
+2026-11-14T11:40:05.7016615Z Version: 20261111.370.1
+2026-11-14T11:40:05.7019031Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.370/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-14T11:40:05.7022113Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.370
+2026-11-14T11:40:05.7024260Z ##[endgroup]
+2026-11-14T11:40:05.7026355Z ##[group]GITHUB_TOKEN Permissions
+2026-11-14T11:40:05.7029495Z Contents: read
+2026-11-14T11:40:05.7030477Z Metadata: read
+2026-11-14T11:40:05.7031562Z ##[endgroup]
+2026-11-14T11:40:05.7034818Z Secret source: Actions
+2026-11-14T11:40:05.7036629Z Cache mode: write
+2026-11-14T11:40:05.7038247Z Prepare workflow directory
+2026-11-14T11:40:05.7515757Z Prepare all required actions
+2026-11-14T11:40:05.7586369Z Getting action download info
+2026-11-14T11:40:05.9878127Z Download action repository 'actions/checkout@v7' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-14T11:40:06.1891446Z Download action repository 'actions/upload-artifact@v7' (SHA:cf430e030ddbb5b0abf93d22962f4752f3646cd9)
+2026-11-14T11:40:06.4722907Z Complete job name: Ordinary responsive render evidence
+2026-11-14T11:40:06.5690627Z ##[group]Run actions/checkout@v7
+2026-11-14T11:40:06.5691595Z with:
+2026-11-14T11:40:06.5692091Z   persist-credentials: false
+2026-11-14T11:40:06.5692916Z   repository: dimakis/mitzo
+2026-11-14T11:40:06.5697220Z   token: ***
+2026-11-14T11:40:06.5697713Z   ssh-strict: true
+2026-11-14T11:40:06.5698210Z   ssh-user: git
+2026-11-14T11:40:06.5698680Z   clean: true
+2026-11-14T11:40:06.5699173Z   sparse-checkout-cone-mode: true
+2026-11-14T11:40:06.5699745Z   fetch-depth: 1
+2026-11-14T11:40:06.5700215Z   fetch-tags: false
+2026-11-14T11:40:06.5700705Z   show-progress: true
+2026-11-14T11:40:06.5701198Z   lfs: false
+2026-11-14T11:40:06.5701660Z   submodules: false
+2026-11-14T11:40:06.5702153Z   set-safe-directory: true
+2026-11-14T11:40:06.5702847Z   allow-unsafe-pr-checkout: false
+2026-11-14T11:40:06.5703749Z ##[endgroup]
+2026-11-14T11:40:07.1336775Z Syncing repository: dimakis/mitzo
+2026-11-14T11:40:07.1340110Z ##[group]Getting Git version info
+2026-11-14T11:40:07.1341292Z Working directory is '/home/runner/work/mitzo/mitzo'
+2026-11-14T11:40:07.1343183Z [command]/usr/bin/git version
+2026-11-14T11:40:07.1444487Z git version 2.56.1
+2026-11-14T11:40:07.1465942Z ##[endgroup]
+2026-11-14T11:40:07.1475207Z Temporarily overriding HOME='/home/runner/work/_temp/94bb1d5f-1b05-4662-b2d8-bf183bdb641c' before making global git config changes
+2026-11-14T11:40:07.1479279Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T11:40:07.1481808Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T11:40:07.1718264Z Deleting the contents of '/home/runner/work/mitzo/mitzo'
+2026-11-14T11:40:07.1723958Z ##[group]Determining repository object format
+2026-11-14T11:40:07.1727623Z ##[endgroup]
+2026-11-14T11:40:07.1730908Z ##[group]Initializing the repository
+2026-11-14T11:40:07.1733865Z [command]/usr/bin/git init /home/runner/work/mitzo/mitzo
+2026-11-14T11:40:07.1856162Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-14T11:40:07.1859205Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-14T11:40:07.1862053Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-14T11:40:07.1865173Z hint: call:
+2026-11-14T11:40:07.1866885Z hint:
+2026-11-14T11:40:07.1868949Z hint: 	git config --global init.defaultBranch <name>
+2026-11-14T11:40:07.1871320Z hint:
+2026-11-14T11:40:07.1873727Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-14T11:40:07.1877495Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-14T11:40:07.1880036Z hint:
+2026-11-14T11:40:07.1881817Z hint: 	git branch -m <name>
+2026-11-14T11:40:07.1883522Z hint:
+2026-11-14T11:40:07.1885321Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-14T11:40:07.1888068Z Initialized empty Git repository in /home/runner/work/mitzo/mitzo/.git/
+2026-11-14T11:40:07.1893130Z [command]/usr/bin/git remote add origin https://github.com/dimakis/mitzo
+2026-11-14T11:40:07.1945033Z ##[endgroup]
+2026-11-14T11:40:07.1947605Z ##[group]Disabling automatic garbage collection
+2026-11-14T11:40:07.1949570Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-14T11:40:07.1990165Z ##[endgroup]
+2026-11-14T11:40:07.1992907Z ##[group]Setting up auth
+2026-11-14T11:40:07.1999870Z Removing SSH command configuration
+2026-11-14T11:40:07.2013829Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T11:40:07.2338660Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T11:40:07.2938465Z Removing HTTP extra header
+2026-11-14T11:40:07.2945187Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T11:40:07.2993729Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T11:40:07.3265325Z Removing includeIf entries pointing to credentials config files
+2026-11-14T11:40:07.3270726Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T11:40:07.3319206Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T11:40:07.3570197Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-14T11:40:07.3621323Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git.path /home/runner/work/_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config
+2026-11-14T11:40:07.3664560Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config
+2026-11-14T11:40:07.3747905Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config
+2026-11-14T11:40:07.3794417Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config
+2026-11-14T11:40:07.3837133Z ##[endgroup]
+2026-11-14T11:40:07.3839225Z ##[group]Fetching the repository
+2026-11-14T11:40:07.3844872Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +b6f1730bb7d7b05d83a280bf096574961c98c719:refs/remotes/pull/1355/merge
+2026-11-14T11:40:09.1894816Z From https://github.com/dimakis/mitzo
+2026-11-14T11:40:09.1897552Z  * [new ref]         b6f1730bb7d7b05d83a280bf096574961c98c719 -> pull/1355/merge
+2026-11-14T11:40:09.1901240Z ##[endgroup]
+2026-11-14T11:40:09.1902562Z ##[group]Determining the checkout info
+2026-11-14T11:40:09.1903450Z ##[endgroup]
+2026-11-14T11:40:09.1907689Z [command]/usr/bin/git sparse-checkout disable
+2026-11-14T11:40:09.1979746Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-14T11:40:09.2023532Z ##[group]Checking out the ref
+2026-11-14T11:40:09.2028658Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1355/merge
+2026-11-14T11:40:09.8873773Z Note: switching to 'refs/remotes/pull/1355/merge'.
+2026-11-14T11:40:09.8874704Z 
+2026-11-14T11:40:09.8914231Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-14T11:40:09.8915698Z changes and commit them, and you can discard any commits you make in this
+2026-11-14T11:40:09.8917025Z state without impacting any branches by switching back to a branch.
+2026-11-14T11:40:09.8923208Z 
+2026-11-14T11:40:09.8924062Z If you want to create a new branch to retain commits you create, you may
+2026-11-14T11:40:09.8925367Z do so (now or later) by using -c with the switch command. Example:
+2026-11-14T11:40:09.8926180Z 
+2026-11-14T11:40:09.8926717Z   git switch -c <new-branch-name>
+2026-11-14T11:40:09.8927482Z 
+2026-11-14T11:40:09.8928181Z Or undo this operation with:
+2026-11-14T11:40:09.8928725Z 
+2026-11-14T11:40:09.8929154Z   git switch -
+2026-11-14T11:40:09.8929790Z 
+2026-11-14T11:40:09.8930548Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-14T11:40:09.8931455Z 
+2026-11-14T11:40:09.8932302Z HEAD is now at b6f1730 Merge 06ad8abd70366417440ba4b0c0be40d3d199c4c3 into 9af764899302cbcc55c60ed0d2e7f159b266a045
+2026-11-14T11:40:09.8935537Z ##[endgroup]
+2026-11-14T11:40:09.8954606Z [command]/usr/bin/git log -1 --format=%H
+2026-11-14T11:40:09.8994031Z b6f1730bb7d7b05d83a280bf096574961c98c719
+2026-11-14T11:40:09.9006734Z ##[group]Removing auth
+2026-11-14T11:40:09.9007320Z Removing SSH command configuration
+2026-11-14T11:40:09.9012513Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T11:40:09.9063908Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T11:40:09.9343381Z Removing HTTP extra header
+2026-11-14T11:40:09.9348306Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T11:40:09.9396892Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T11:40:09.9678229Z Removing includeIf entries pointing to credentials config files
+2026-11-14T11:40:09.9681742Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T11:40:09.9722007Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T11:40:09.9723104Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T11:40:09.9723883Z includeif.gitdir:/github/workspace/.git.path
+2026-11-14T11:40:09.9724483Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T11:40:09.9731819Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T11:40:09.9767242Z /home/runner/work/_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config
+2026-11-14T11:40:09.9778015Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-3d7e1181\-00cc\-453c\-acb6\-9ea7bd20f3a9\.config
+2026-11-14T11:40:09.9829398Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T11:40:09.9870947Z /home/runner/work/_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config
+2026-11-14T11:40:09.9879630Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-3d7e1181\-00cc\-453c\-acb6\-9ea7bd20f3a9\.config
+2026-11-14T11:40:09.9926562Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-14T11:40:09.9961727Z /github/runner_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config
+2026-11-14T11:40:09.9970495Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-3d7e1181\-00cc\-453c\-acb6\-9ea7bd20f3a9\.config
+2026-11-14T11:40:10.0021949Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T11:40:10.0058119Z /github/runner_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config
+2026-11-14T11:40:10.0068699Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-3d7e1181\-00cc\-453c\-acb6\-9ea7bd20f3a9\.config
+2026-11-14T11:40:10.0114499Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T11:40:10.0362151Z Removing credentials config '/home/runner/work/_temp/git-credentials-3d7e1181-00cc-453c-acb6-9ea7bd20f3a9.config'
+2026-11-14T11:40:10.0371474Z ##[endgroup]
+2026-11-14T11:40:10.0728042Z Prepare all required actions
+2026-11-14T11:40:10.0728917Z Getting action download info
+2026-11-14T11:40:10.1351731Z Download action repository 'actions/setup-node@v7' (SHA:949feb2413d6458794dcd2491c4babbbce0c15c1)
+2026-11-14T11:40:10.2661966Z ##[group]Run ./.github/actions/ci-node
+2026-11-14T11:40:10.2662265Z with:
+2026-11-14T11:40:10.2662475Z   node-version: 24.22.1
+2026-11-14T11:40:10.2663007Z ##[endgroup]
+2026-11-14T11:40:10.2721350Z ##[start-action display=Run actions/setup-node@v7;id=__self.__actions_setup-node]
+2026-11-14T11:40:10.2816505Z ##[group]Run actions/setup-node@v7
+2026-11-14T11:40:10.2816788Z with:
+2026-11-14T11:40:10.2817011Z   node-version: 24.22.1
+2026-11-14T11:40:10.2817231Z   cache: npm
+2026-11-14T11:40:10.2817438Z   check-latest: false
+2026-11-14T11:40:10.2819980Z   token: ***
+2026-11-14T11:40:10.2820210Z   package-manager-cache: true
+2026-11-14T11:40:10.2820467Z ##[endgroup]
+2026-11-14T11:40:10.4173602Z Attempting to download 24.22.1...
+2026-11-14T11:40:10.9782004Z Acquiring 24.22.1 - x64 from https://github.com/actions/node-versions/releases/download/24.22.1-39619001896/node-24.22.1-linux-x64.tar.gz
+2026-11-14T11:40:11.3805563Z Extracting ...
+2026-11-14T11:40:11.3951958Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/6185e8d2-6ac8-491b-abde-0795b06a3e51 -f /home/runner/work/_temp/900b6c2a-5ab1-40cf-9673-1c39c6896374
+2026-11-14T11:40:12.6219641Z Adding to the cache ...
+2026-11-14T11:40:14.5403437Z ##[group]Environment details
+2026-11-14T11:40:14.7770600Z node: v24.22.1
+2026-11-14T11:40:14.7770878Z npm: 11.19.1
+2026-11-14T11:40:14.7771071Z yarn: 1.22.22
+2026-11-14T11:40:14.7771543Z ##[endgroup]
+2026-11-14T11:40:14.7788187Z [command]/opt/hostedtoolcache/node/24.22.1/x64/bin/npm config get cache
+2026-11-14T11:40:14.8744589Z /home/runner/.npm
+2026-11-14T11:40:14.9461000Z Cache hit for: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T11:40:16.0134949Z Received 234881024 of 422744543 (55.6%), 223.6 MBs/sec
+2026-11-14T11:40:16.8639662Z Received 422744543 of 422744543 (100.0%), 217.1 MBs/sec
+2026-11-14T11:40:16.8640378Z Cache Size: ~403 MB (422744543 B)
+2026-11-14T11:40:16.8748496Z [command]/usr/bin/tar -xf /home/runner/work/_temp/efe2f207-b94d-47ae-8064-a1c8cb266b19/cache.tzst -P -C /home/runner/work/mitzo/mitzo --use-compress-program unzstd
+2026-11-14T11:40:17.7485374Z Cache restored successfully
+2026-11-14T11:40:17.7667938Z Cache restored from key: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T11:40:17.7854329Z ##[end-action id=__self.__actions_setup-node;outcome=success;conclusion=success;duration_ms=7513]
+2026-11-14T11:40:17.7857603Z ##[start-action display=Run npm install --global npm@11.18.0;id=__self.__run]
+2026-11-14T11:40:17.7890235Z ##[group]Run npm install --global npm@11.18.0
+2026-11-14T11:40:17.7890612Z [36;1mnpm install --global npm@11.18.0[0m
+2026-11-14T11:40:17.7917073Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T11:40:17.7917435Z ##[endgroup]
+2026-11-14T11:40:19.6233534Z 
+2026-11-14T11:40:19.6244037Z changed 18 packages in 2s
+2026-11-14T11:40:19.6244421Z 
+2026-11-14T11:40:19.6244784Z 15 packages are looking for funding
+2026-11-14T11:40:19.6245359Z   run `npm fund` for details
+2026-11-14T11:40:19.6744911Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=1888]
+2026-11-14T11:40:19.6747380Z ##[start-action display=Run npm install --no-audit;id=__self.__run_2]
+2026-11-14T11:40:19.6769698Z ##[group]Run npm install --no-audit
+2026-11-14T11:40:19.6770155Z [36;1mnpm install --no-audit[0m
+2026-11-14T11:40:19.6790605Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T11:40:19.6790949Z ##[endgroup]
+2026-11-14T11:40:20.6929366Z npm warn skipping integrity check for git dependency ssh://git@github.com/dimakis/contexgin.git
+2026-11-14T11:40:26.8004249Z npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+2026-11-14T11:40:27.8259972Z npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+2026-11-14T11:40:44.5037231Z npm warn gitignore-fallback No .npmignore file found, using .gitignore for file exclusion. Consider creating a .npmignore file to explicitly control published files.
+2026-11-14T11:40:55.7867423Z 
+2026-11-14T11:40:55.7868085Z > mitzo@1.0.0 postinstall
+2026-11-14T11:40:55.7868550Z > node scripts/prepare-terminal-native.mjs
+2026-11-14T11:40:55.7868780Z 
+2026-11-14T11:40:55.8703641Z 
+2026-11-14T11:40:55.8704495Z > mitzo@1.0.0 prepare
+2026-11-14T11:40:55.8705013Z > husky || true
+2026-11-14T11:40:55.8705259Z 
+2026-11-14T11:40:56.0501471Z 
+2026-11-14T11:40:56.0502122Z added 1026 packages in 36s
+2026-11-14T11:40:56.0502487Z 
+2026-11-14T11:40:56.0504078Z 280 packages are looking for funding
+2026-11-14T11:40:56.0506050Z   run `npm fund` for details
+2026-11-14T11:40:56.0523523Z npm warn allow-scripts 6 packages have install scripts not yet covered by allowScripts:
+2026-11-14T11:40:56.0524922Z npm warn allow-scripts   better-sqlite3@13.0.3 (install: node-gyp rebuild)
+2026-11-14T11:40:56.0526471Z npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)
+2026-11-14T11:40:56.0527890Z npm warn allow-scripts   esbuild@0.28.2 (postinstall: node install.js)
+2026-11-14T11:40:56.0529948Z npm warn allow-scripts   node-pty@1.1.0 (install: node scripts/prebuild.js || node-gyp rebuild; postinstall: node scripts/post-install.js)
+2026-11-14T11:40:56.0531772Z npm warn allow-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+2026-11-14T11:40:56.0533371Z npm warn allow-scripts   esbuild@0.25.12 (postinstall: node install.js)
+2026-11-14T11:40:56.0534199Z npm warn allow-scripts
+2026-11-14T11:40:56.0535462Z npm warn allow-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+2026-11-14T11:40:56.1922124Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=36517]
+2026-11-14T11:40:56.1989324Z Prepare all required actions
+2026-11-14T11:40:56.2032053Z ##[group]Run ./.github/actions/ci-playwright
+2026-11-14T11:40:56.2032359Z with:
+2026-11-14T11:40:56.2032563Z   browsers: webkit chromium
+2026-11-14T11:40:56.2033088Z ##[endgroup]
+2026-11-14T11:40:56.2041628Z ##[start-action display=Prepare the pinned Linux browser image;id=__self_2.__run]
+2026-11-14T11:40:56.2087971Z ##[group]Run bash scripts/ci-browser-container.sh --prepare $CI_PLAYWRIGHT_BROWSERS
+2026-11-14T11:40:56.2088587Z [36;1mbash scripts/ci-browser-container.sh --prepare $CI_PLAYWRIGHT_BROWSERS[0m
+2026-11-14T11:40:56.2108691Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T11:40:56.2109027Z env:
+2026-11-14T11:40:56.2109250Z   CI_PLAYWRIGHT_BROWSERS: webkit chromium
+2026-11-14T11:40:56.2109519Z ##[endgroup]
+2026-11-14T11:40:57.7638753Z mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27: Pulling from playwright
+2026-11-14T11:40:57.8098162Z 0926a8eb0e60: Pulling fs layer
+2026-11-14T11:40:57.8099191Z e2bfec3c8017: Pulling fs layer
+2026-11-14T11:40:57.8099732Z 74c72610aa2d: Pulling fs layer
+2026-11-14T11:40:57.8100207Z d8cf7dc1ff62: Pulling fs layer
+2026-11-14T11:40:57.8100702Z b4dfe9b5d621: Pulling fs layer
+2026-11-14T11:40:57.8101200Z a2ac83a9a562: Pulling fs layer
+2026-11-14T11:40:57.8101703Z 1b189482e65c: Pulling fs layer
+2026-11-14T11:40:57.8102141Z d8cf7dc1ff62: Waiting
+2026-11-14T11:40:57.8102627Z b4dfe9b5d621: Waiting
+2026-11-14T11:40:57.8103332Z a2ac83a9a562: Waiting
+2026-11-14T11:40:57.8103736Z 1b189482e65c: Waiting
+2026-11-14T11:40:57.8707209Z 74c72610aa2d: Verifying Checksum
+2026-11-14T11:40:57.8707791Z 74c72610aa2d: Download complete
+2026-11-14T11:40:57.9544812Z 0926a8eb0e60: Verifying Checksum
+2026-11-14T11:40:57.9545791Z 0926a8eb0e60: Download complete
+2026-11-14T11:40:58.4071254Z e2bfec3c8017: Verifying Checksum
+2026-11-14T11:40:58.4072004Z e2bfec3c8017: Download complete
+2026-11-14T11:40:58.9229838Z a2ac83a9a562: Verifying Checksum
+2026-11-14T11:40:58.9236070Z a2ac83a9a562: Download complete
+2026-11-14T11:40:59.0056277Z d8cf7dc1ff62: Verifying Checksum
+2026-11-14T11:40:59.0057786Z d8cf7dc1ff62: Download complete
+2026-11-14T11:40:59.2627283Z b4dfe9b5d621: Verifying Checksum
+2026-11-14T11:40:59.2628513Z b4dfe9b5d621: Download complete
+2026-11-14T11:40:59.4024098Z 1b189482e65c: Verifying Checksum
+2026-11-14T11:40:59.4024895Z 1b189482e65c: Download complete
+2026-11-14T11:40:59.5518930Z 0926a8eb0e60: Pull complete
+2026-11-14T11:41:06.6402370Z e2bfec3c8017: Pull complete
+2026-11-14T11:41:06.6748742Z 74c72610aa2d: Pull complete
+2026-11-14T11:41:15.5381480Z d8cf7dc1ff62: Pull complete
+2026-11-14T11:41:20.1341908Z b4dfe9b5d621: Pull complete
+2026-11-14T11:41:22.0344642Z a2ac83a9a562: Pull complete
+2026-11-14T11:41:23.8301747Z 1b189482e65c: Pull complete
+2026-11-14T11:41:23.8341758Z Digest: sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T11:41:23.8350393Z Status: Downloaded newer image for mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T11:41:23.8360206Z mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T11:41:24.7713656Z Using preinstalled webkit 1.63.0: /ms-playwright/webkit-2359/pw_run.sh
+2026-11-14T11:41:24.7716258Z Using preinstalled chromium 1.63.0: /ms-playwright/chromium-1243/chrome-linux64/chrome
+2026-11-14T11:41:24.8663067Z ##[end-action id=__self_2.__run;outcome=success;conclusion=success;duration_ms=28662]
+2026-11-14T11:41:24.8667583Z ##[start-action display=Install native macOS browsers;id=__self_2.__run_2]
+2026-11-14T11:41:24.8673778Z ##[end-action id=__self_2.__run_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T11:41:24.8704823Z ##[group]Run bash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs
+2026-11-14T11:41:24.8707898Z [36;1mbash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs[0m
+2026-11-14T11:41:24.8730093Z shell: /usr/bin/bash -e {0}
+2026-11-14T11:41:24.8730349Z env:
+2026-11-14T11:41:24.8730629Z   NODE_OPTIONS: --max-old-space-size=1024
+2026-11-14T11:41:24.8730928Z ##[endgroup]
+2026-11-14T11:41:26.6655526Z 
+2026-11-14T11:41:26.6656597Z Running 14 tests using 1 worker
+2026-11-14T11:41:26.6663619Z 
+2026-11-14T11:41:29.2617071Z   ✓   1 [browser-startup-0] › tests/support/browser-startup.setup.ts:5:1 › browser startup (1.7s)
+2026-11-14T11:41:30.4894621Z   ✓   2 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (418ms)
+2026-11-14T11:41:47.9637949Z   ✓   3 [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (16.6s)
+2026-11-14T11:42:02.9454930Z   ✓   4 [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (15.0s)
+2026-11-14T11:42:08.3038031Z   ✓   5 [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (5.3s)
+2026-11-14T11:42:12.3736723Z   ✓   6 [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (4.1s)
+2026-11-14T11:42:25.0029448Z   ✓   7 [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (11.7s)
+2026-11-14T11:42:34.3022250Z   ✓   8 [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (9.3s)
+2026-11-14T11:42:38.9500848Z   ✓   9 [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (4.6s)
+2026-11-14T11:42:42.2300875Z   ✓  10 [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (3.3s)
+2026-11-14T11:42:52.2009834Z   ✓  11 [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (9.1s)
+2026-11-14T11:42:59.7931754Z   ✓  12 [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (7.6s)
+2026-11-14T11:43:04.2289330Z   ✓  13 [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (4.4s)
+2026-11-14T11:43:07.3941824Z   ✓  14 [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (3.2s)
+2026-11-14T11:43:07.4705419Z 
+2026-11-14T11:43:07.4711688Z   14 passed (1.7m)
+2026-11-14T11:43:07.7306069Z ##[group]Run actions/upload-artifact@v7
+2026-11-14T11:43:07.7306394Z with:
+2026-11-14T11:43:07.7306754Z   name: symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1
+2026-11-14T11:43:07.7307281Z   path: test-results/offline/
+playwright-report/offline/
+
+2026-11-14T11:43:07.7307623Z   retention-days: 7
+2026-11-14T11:43:07.7307844Z   if-no-files-found: warn
+2026-11-14T11:43:07.7308074Z   compression-level: 6
+2026-11-14T11:43:07.7308296Z   overwrite: false
+2026-11-14T11:43:07.7308511Z   include-hidden-files: false
+2026-11-14T11:43:07.7308748Z   archive: true
+2026-11-14T11:43:07.7308940Z ##[endgroup]
+2026-11-14T11:43:07.8967224Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-11-14T11:43:07.8969524Z The least common ancestor is /home/runner/work/mitzo/mitzo. This will be the root directory of the artifact
+2026-11-14T11:43:07.8970676Z With the provided path, there will be 67 files uploaded
+2026-11-14T11:43:07.8976198Z Artifact name is valid!
+2026-11-14T11:43:07.8976761Z Root directory input is valid!
+2026-11-14T11:43:08.0958436Z Uploading artifact: symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1.zip
+2026-11-14T11:43:08.0996363Z Beginning upload of artifact content to blob storage
+2026-11-14T11:43:08.6263932Z Uploaded bytes 8388608
+2026-11-14T11:43:08.6544404Z Uploaded bytes 9375402
+2026-11-14T11:43:08.6659181Z Finished uploading artifact content to blob storage!
+2026-11-14T11:43:08.6660887Z SHA256 digest of uploaded artifact is b70786760eab52026e49f5c5cb4d94409b10f9aabf8920a7e86969d2bb4cefe8
+2026-11-14T11:43:08.6662242Z Finalizing artifact upload
+2026-11-14T11:43:09.1307136Z Artifact symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1 successfully finalized. Artifact ID 14112416946
+2026-11-14T11:43:09.1308694Z Artifact symposium-ordinary-renders-b6f1730bb7d7b05d83a280bf096574961c98c719-1 has been successfully uploaded! Final size is 9375402 bytes. Artifact ID is 14112416946
+2026-11-14T11:43:09.1311444Z Artifact download URL: https://github.com/dimakis/mitzo/actions/runs/43591105649/artifacts/14112416946
+2026-11-14T11:43:09.1529716Z Post job cleanup.
+2026-11-14T11:43:09.1533634Z ##[start-action display=Run actions/setup-node@v7;id=__94242b6c-2576-4c18-9fc3-aba20189a46f.__actions_setup-node]
+2026-11-14T11:43:09.1594611Z Post job cleanup.
+2026-11-14T11:43:09.2751663Z Cache hit occurred on the primary key node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af, not saving cache.
+2026-11-14T11:43:09.2820353Z ##[end-action id=__94242b6c-2576-4c18-9fc3-aba20189a46f.__actions_setup-node;outcome=success;conclusion=success;duration_ms=128]
+2026-11-14T11:43:09.2893228Z Post job cleanup.
+2026-11-14T11:43:09.3797499Z [command]/usr/bin/git version
+2026-11-14T11:43:09.3849325Z git version 2.56.1
+2026-11-14T11:43:09.3895017Z Temporarily overriding HOME='/home/runner/work/_temp/ac7f8bfa-ffbb-452b-b5bd-e529c7cffb7f' before making global git config changes
+2026-11-14T11:43:09.3896009Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T11:43:09.3899004Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T11:43:09.3936032Z Removing SSH command configuration
+2026-11-14T11:43:09.3943021Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T11:43:09.3981572Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T11:43:09.4263082Z Removing HTTP extra header
+2026-11-14T11:43:09.4270163Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T11:43:09.4319841Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T11:43:09.4653196Z Removing includeIf entries pointing to credentials config files
+2026-11-14T11:43:09.4674632Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T11:43:09.4775973Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T11:43:09.5215169Z Cleaning up orphan processes

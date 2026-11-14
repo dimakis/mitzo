@@ -439,7 +439,7 @@ export function SessionList() {
     ),
   );
 
-  const { activities, connected, lastKnownActivities = [] } = useSessionOverview();
+  const { activities, connected, lastKnownActivities = [] } = useSessionOverview(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'attention'>('all');
   const byId = new Map(activities.map((a) => [a.sessionId, a]));
   const displayById = new Map(
@@ -479,6 +479,7 @@ export function SessionList() {
       ),
       accountLabel: result.accountLabel ?? existing?.accountLabel,
       snippet: result.snippet,
+      matchedSessionId: result.matchedSessionId,
     };
   });
   const currentPreview = preview
@@ -751,7 +752,7 @@ export function SessionList() {
                   selected={desktop && selectedPreview?.id === session.id}
                   onPreview={previewSession}
                   onActions={showActions}
-                  onClick={openSession}
+                  onClick={() => openSession(session.matchedSessionId ?? session.id)}
                   onRename={handleRename}
                 />
               ))}

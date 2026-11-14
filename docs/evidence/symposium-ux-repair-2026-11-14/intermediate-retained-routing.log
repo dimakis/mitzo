@@ -1,0 +1,656 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+[90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx
+[22m[39mORDINARY_ACCEPTANCE_SOURCE {"head":"aff61ed31b773868d0f139589cffe4d45b441501","branch":"test/symposium-integrated-acceptance","testSha256":"83d784607eba3e5b7a50dfd882e702a4ba75a0e0b668c9f257f4b06c25d4561a","node":"v24.10.0","build":"Vitest source transpilation","route":"/chat/:sessionId","widths":[320,390,1280],"renderer":"JSDOM; no visual acceptance","externalExecution":"deterministic RPC"}
+
+{"level":30,"time":1794654609955,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654609900-l5krxn","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794654610078,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654609900-l5krxn","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 320px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 320px keeps one transcript/composer after silent joining[33m 1655[2mms[22m[39m
+{"level":30,"time":1794654610394,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654610340-5kqa36","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794654610431,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654610340-5kqa36","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 390px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 390px keeps one transcript/composer after silent joining[33m 333[2mms[22m[39m
+{"level":30,"time":1794654610724,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654610672-r26ib6","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794654610754,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654610672-r26ib6","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 1280px keeps one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+ [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 1280px keeps one transcript/composer after silent joining[33m 376[2mms[22m[39m
+{"level":30,"time":1794654611108,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654611055-xevggg","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794654611143,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654611055-xevggg","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794654612624,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654612572-7lu9pe","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31","cursor":19,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794654612689,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794654612572-7lu9pe","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31","cursor":19,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mOFFLINE_COMPOSER_DIAGNOSTIC {"stage":"concurrent_source_fanout","input":"Concurrent ordinary responders with partial failure.","send":"<button class=\"chat-input-btn chat-input-btn--send\" aria-label=\"Send message\"><svg class=\"ui-icon\" data-icon=\"sendPrompt\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"m12 3 8 17-8-4-8 4Zm0 0v13\"></path></svg></button>","notices":["@All agents"],"lastFetches":[{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/progress"},{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/conversation"},{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/progress"},{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/conversation"},{"url":"/api/symposium/profile-proposals?sessionId=94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/progress"},{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/conversation"},{"url":"/api/sessions/94ddc5db-c3f4-8888-926d-f0b3b019db31/symposium/status"},{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/progress"},{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/conversation"},{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/progress"},{"url":"/api/session-collaborations/9d91d352-cf37-4fbf-be7c-87ff422bdbf9/conversation"}]}
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mOFFLINE_ACCEPTANCE_STAGE {"stage":"concurrent_source_fanout","nativeTurns":2,"deliveries":[{"text":"First explicit accepted review from ordinary chat.","deliveries":[{"version":1,"deliveryId":"7467b2ba-20f3-4caf-b8a2-541d498f6700","sessionId":"7603893c-d899-8a23-a72f-d62a91d454c0","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:7467b2ba-20f3-4caf-b8a2-541d498f6700","reason":null,"outcome":"completed"}]}],"messagesPosted":[{"requestId":"d8c2c4f1-c51f-46cc-a54e-55813072d831","expectedMembershipRevision":2,"expectedPolicySequence":5,"text":"First explicit accepted review from ordinary chat.","responders":{"kind":"selected","sessionIds":["7603893c-d899-8a23-a72f-d62a91d454c0"]},"snapshot":null}],"sourceEvents":[{"type":"session_state_changed","sessionId":"existing-chat"},{"type":"welcome"},{"type":"session_switched","sessionId":"existing-chat"},{"type":"session_state_changed","sessionId":"existing-chat"},{"type":"session_switched","sessionId":"existing-chat"},{"type":"session_state_changed","sessionId":"existing-chat"},{"type":"session_id","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"session_info","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"user_message","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31","messageId":"e723e40d-ec5c-43c1-a58c-2437e409f93a"},{"type":"unwatched","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"codex_queue","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"codex_queue","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"codex_queue","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"codex_queue","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"token_update","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"token_update","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"message_start","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31","messageId":"a1da5595-a80d-44ec-ab33-98734ea650be"},{"type":"block_start","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31","messageId":"a1da5595-a80d-44ec-ab33-98734ea650be"},{"type":"block_delta","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31","messageId":"a1da5595-a80d-44ec-ab33-98734ea650be"},{"type":"block_end","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31","messageId":"a1da5595-a80d-44ec-ab33-98734ea650be"},{"type":"message_end","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31","messageId":"a1da5595-a80d-44ec-ab33-98734ea650be"},{"type":"token_update","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"session_end","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"welcome"},{"type":"session_switched","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"session_state_changed","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"token_update","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"session_switched","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"session_state_changed","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"},{"type":"token_update","sessionId":"94ddc5db-c3f4-8888-926d-f0b3b019db31"}]}
+
+{"level":30,"time":1794654626457,"pid":75802,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins[33m 15405[2mms[22m[39m
+[31m   → expected [ Array(2) ] to have a length of 4 but got 2
+
+Ignored nodes: comments, script, style
+[36m<html>[31m
+  [36m<head />[31m
+  [36m<body[31m
+    [33mstyle[31m=[32m""[31m
+  [36m>[31m
+    [36m<div />[31m
+    [36m<div />[31m
+    [36m<div />[31m
+    [36m<div />[31m
+    [36m<div>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"chat-page workspace-chat"[31m
+      [36m>[31m
+        [36m<section[31m
+          [33mclass[31m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[31m
+        [36m>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"chat-mobile-topbar"[31m
+          [36m>[31m
+            [36m<h1[31m
+              [33mclass[31m=[32m"sr-only"[31m
+            [36m>[31m
+              [0mConversation[0m
+            [36m</h1>[31m
+            [36m<section[31m
+              [33mclass[31m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[31m
+            [36m>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"workspace-controls-heading"[31m
+              [36m>[31m
+                [36m<a[31m
+                  [33maria-label[31m=[32m"Back to chats"[31m
+                  [33mclass[31m=[32m"chat-top-action"[31m
+                  [33mdata-discover[31m=[32m"true"[31m
+                  [33mhref[31m=[32m"/sessions"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"back"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"m14 6-6 6 6 6"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</a>[31m
+                [36m<div[31m
+                  [33mclass[31m=[32m"workspace-controls-context"[31m
+                [36m>[31m
+                  [36m<strong[31m
+                    [33mclass[31m=[32m"workspace-controls-profile"[31m
+                  [36m>[31m
+                    [0mEstablish the independent ordinary source history[0m
+                  [36m</strong>[31m
+                  [36m<span>[31m
+                    [0mDefault Mitzo · Offline only · Offline fixture · low · Local Mac[0m
+                  [36m</span>[31m
+                [36m</div>[31m
+                [36m<button[31m
+                  [33maria-controls[31m=[32m"_r_3i_"[31m
+                  [33maria-describedby[31m=[32m"_r_3i_-status"[31m
+                  [33maria-expanded[31m=[32m"false"[31m
+                  [33maria-label[31m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[31m
+                  [33mclass[31m=[32m"workspace-controls-toggle header-action"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"settings"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                  [36m<span[31m
+                    [33mclass[31m=[32m"workspace-controls-label"[31m
+                  [36m>[31m
+                    [0mSettings[0m
+                  [36m</span>[31m
+                [36m</button>[31m
+                [36m<span[31m
+                  [33mclass[31m=[32m"conversation-state sr-only"[31m
+                  [33mid[31m=[32m"_r_3i_-status"[31m
+                [36m>[31m
+                  [0mConversation[0m
+                [36m</span>[31m
+                [36m<div[31m
+                  [33mclass[31m=[32m"conversation-agents-entry"[31m
+                [36m>[31m
+                  [36m<button[31m
+                    [33maria-expanded[31m=[32m"false"[31m
+                    [33maria-label[31m=[32m"Agents, AcceptanceReviewer, Default Mitzo"[31m
+                    [33mclass[31m=[32m"conversation-participants-trigger header-action"[31m
+                    [33mtype[31m=[32m"button"[31m
+                  [36m>[31m
+                    [36m<svg[31m
+                      [33maria-hidden[31m=[32m"true"[31m
+                      [33mclass[31m=[32m"ui-icon"[31m
+                      [33mdata-icon[31m=[32m"bot"[31m
+                      [33mfill[31m=[32m"none"[31m
+                      [33mfocusable[31m=[32m"false"[31m
+                      [33mheight[31m=[32m"20"[31m
+                      [33mstroke[31m=[32m"currentColor"[31m
+                      [33mstroke-linecap[31m=[32m"round"[31m
+                      [33mstroke-linejoin[31m=[32m"round"[31m
+                      [33mstroke-width[31m=[32m"1.7"[31m
+                      [33mviewBox[31m=[32m"0 0 24 24"[31m
+                      [33mwidth[31m=[32m"20"[31m
+                    [36m>[31m
+                      [36m<path[31m
+                        [33md[31m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[31m
+                      [36m/>[31m
+                    [36m</svg>[31m
+                  [36m</button>[31m
+                [36m</div>[31m
+                [36m<button[31m
+                  [33maria-label[31m=[32m"Links & access"[31m
+                  [33mclass[31m=[32m"session-access-trigger header-action"[31m
+                  [33mtitle[31m=[32m"Links & access"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"conn...[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins
+[31m[1mAssertionError[22m[39m: expected [ Array(2) ] to have a length of 4 but got 2
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body[39m
+    [33mstyle[39m=[32m""[39m
+  [36m>[39m
+    [36m<div />[39m
+    [36m<div />[39m
+    [36m<div />[39m
+    [36m<div />[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"chat-page workspace-chat"[39m
+      [36m>[39m
+        [36m<section[39m
+          [33mclass[39m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"chat-mobile-topbar"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0mConversation[0m
+            [36m</h1>[39m
+            [36m<section[39m
+              [33mclass[39m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"workspace-controls-heading"[39m
+              [36m>[39m
+                [36m<a[39m
+                  [33maria-label[39m=[32m"Back to chats"[39m
+                  [33mclass[39m=[32m"chat-top-action"[39m
+                  [33mdata-discover[39m=[32m"true"[39m
+                  [33mhref[39m=[32m"/sessions"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"back"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"m14 6-6 6 6 6"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</a>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"workspace-controls-context"[39m
+                [36m>[39m
+                  [36m<strong[39m
+                    [33mclass[39m=[32m"workspace-controls-profile"[39m
+                  [36m>[39m
+                    [0mEstablish the independent ordinary source history[0m
+                  [36m</strong>[39m
+                  [36m<span>[39m
+                    [0mDefault Mitzo · Offline only · Offline fixture · low · Local Mac[0m
+                  [36m</span>[39m
+                [36m</div>[39m
+                [36m<button[39m
+                  [33maria-controls[39m=[32m"_r_3i_"[39m
+                  [33maria-describedby[39m=[32m"_r_3i_-status"[39m
+                  [33maria-expanded[39m=[32m"false"[39m
+                  [33maria-label[39m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[39m
+                  [33mclass[39m=[32m"workspace-controls-toggle header-action"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"settings"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"workspace-controls-label"[39m
+                  [36m>[39m
+                    [0mSettings[0m
+                  [36m</span>[39m
+                [36m</button>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"conversation-state sr-only"[39m
+                  [33mid[39m=[32m"_r_3i_-status"[39m
+                [36m>[39m
+                  [0mConversation[0m
+                [36m</span>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"conversation-agents-entry"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-label[39m=[32m"Agents, AcceptanceReviewer, Default Mitzo"[39m
+                    [33mclass[39m=[32m"conversation-participants-trigger header-action"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ui-icon"[39m
+                      [33mdata-icon[39m=[32m"bot"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mfocusable[39m=[32m"false"[39m
+                      [33mheight[39m=[32m"20"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"1.7"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"20"[39m
+                    [36m>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+                [36m<button[39m
+                  [33maria-label[39m=[32m"Links & access"[39m
+                  [33mclass[39m=[32m"session-access-trigger header-action"[39m
+                  [33mtitle[39m=[32m"Links & access"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"conn...
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 4[39m
+[31m+ 2[39m
+
+[36m [2m❯[22m timeout tests/integration/symposium-ordinary-acceptance.test.tsx:[2m477:73[22m[39m
+    [90m475|[39m     [35mawait[39m userEvent[33m.[39m[34mclick[39m([34msend[39m())[33m;[39m
+    [90m476|[39m     [35mawait[39m [34mwaitFor[39m(() [33m=>[39m
+    [90m477|[39m       expect(runtime.requests.filter((r) => r.method === 'turn/start')…
+    [90m   |[39m                                                                         [31m^[39m
+    [90m478|[39m     {timeout[33m:[39m [34m10000[39m})[33m;[39m
+    [90m479|[39m     // Native ordinary activity is command-scoped. The legacy messages…
+[90m [2m❯[22m runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:[2m47:12[22m[39m
+[90m [2m❯[22m checkCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m124:77[22m[39m
+[90m [2m❯[22m Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m118:16[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m3 passed[39m[22m[90m (4)[39m
+[2m   Start at [22m 11:10:03
+[2m   Duration [22m 23.41s[2m (transform 4.00s, setup 0ms, import 527ms, tests 22.42s, environment 313ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

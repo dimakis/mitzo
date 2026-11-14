@@ -1,0 +1,825 @@
+﻿2026-11-14T12:01:03.4045013Z Current runner version: '2.338.2'
+2026-11-14T12:01:03.4072424Z ##[group]Runner Image Provisioner
+2026-11-14T12:01:03.4073572Z Hosted Compute Agent
+2026-11-14T12:01:03.4074279Z Version: 20261103.629
+2026-11-14T12:01:03.4075052Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-14T12:01:03.4075906Z Build Date: 2026-11-03T17:26:59Z
+2026-11-14T12:01:03.4076691Z Worker ID: {f97334bc-7248-4c7e-a1df-dd776b71859a}
+2026-11-14T12:01:03.4077564Z Region: centralus
+2026-11-14T12:01:03.4078236Z Cloud: Azure
+2026-11-14T12:01:03.4078827Z ##[endgroup]
+2026-11-14T12:01:03.4080684Z ##[group]Operating System
+2026-11-14T12:01:03.4081414Z Ubuntu
+2026-11-14T12:01:03.4082296Z 24.04.5
+2026-11-14T12:01:03.4082892Z LTS
+2026-11-14T12:01:03.4083416Z ##[endgroup]
+2026-11-14T12:01:03.4084083Z ##[group]Runner Image
+2026-11-14T12:01:03.4085954Z Image: ubuntu-24.04
+2026-11-14T12:01:03.4086649Z Version: 20261111.370.1
+2026-11-14T12:01:03.4088117Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.370/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-14T12:01:03.4089850Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.370
+2026-11-14T12:01:03.4090893Z ##[endgroup]
+2026-11-14T12:01:03.4092401Z ##[group]GITHUB_TOKEN Permissions
+2026-11-14T12:01:03.4094462Z Contents: read
+2026-11-14T12:01:03.4095200Z Metadata: read
+2026-11-14T12:01:03.4095931Z ##[endgroup]
+2026-11-14T12:01:03.4097781Z Secret source: Actions
+2026-11-14T12:01:03.4098623Z Cache mode: write
+2026-11-14T12:01:03.4099186Z Prepare workflow directory
+2026-11-14T12:01:03.4399506Z Prepare all required actions
+2026-11-14T12:01:03.4440512Z Getting action download info
+2026-11-14T12:01:03.6856192Z Download action repository 'actions/checkout@v7' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-14T12:01:03.7902871Z Download action repository 'actions/upload-artifact@v7' (SHA:cf430e030ddbb5b0abf93d22962f4752f3646cd9)
+2026-11-14T12:01:03.9615120Z Complete job name: Ordinary responsive render evidence
+2026-11-14T12:01:04.0278832Z ##[group]Run actions/checkout@v7
+2026-11-14T12:01:04.0279519Z with:
+2026-11-14T12:01:04.0280019Z   persist-credentials: false
+2026-11-14T12:01:04.0280523Z   repository: dimakis/mitzo
+2026-11-14T12:01:04.0283960Z   token: ***
+2026-11-14T12:01:04.0284433Z   ssh-strict: true
+2026-11-14T12:01:04.0284871Z   ssh-user: git
+2026-11-14T12:01:04.0285305Z   clean: true
+2026-11-14T12:01:04.0285745Z   sparse-checkout-cone-mode: true
+2026-11-14T12:01:04.0286230Z   fetch-depth: 1
+2026-11-14T12:01:04.0286738Z   fetch-tags: false
+2026-11-14T12:01:04.0287173Z   show-progress: true
+2026-11-14T12:01:04.0287622Z   lfs: false
+2026-11-14T12:01:04.0288032Z   submodules: false
+2026-11-14T12:01:04.0288458Z   set-safe-directory: true
+2026-11-14T12:01:04.0288990Z   allow-unsafe-pr-checkout: false
+2026-11-14T12:01:04.0289632Z ##[endgroup]
+2026-11-14T12:01:04.3105941Z Syncing repository: dimakis/mitzo
+2026-11-14T12:01:04.3107985Z ##[group]Getting Git version info
+2026-11-14T12:01:04.3109103Z Working directory is '/home/runner/work/mitzo/mitzo'
+2026-11-14T12:01:04.3110660Z [command]/usr/bin/git version
+2026-11-14T12:01:04.3194888Z git version 2.56.1
+2026-11-14T12:01:04.3214893Z ##[endgroup]
+2026-11-14T12:01:04.3222759Z Temporarily overriding HOME='/home/runner/work/_temp/bb0379c9-014f-42f5-9945-cb65940178f4' before making global git config changes
+2026-11-14T12:01:04.3224287Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T12:01:04.3228348Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T12:01:04.3271426Z Deleting the contents of '/home/runner/work/mitzo/mitzo'
+2026-11-14T12:01:04.3275472Z ##[group]Determining repository object format
+2026-11-14T12:01:04.3278042Z ##[endgroup]
+2026-11-14T12:01:04.3278904Z ##[group]Initializing the repository
+2026-11-14T12:01:04.3283860Z [command]/usr/bin/git init /home/runner/work/mitzo/mitzo
+2026-11-14T12:01:04.3370031Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-14T12:01:04.3371940Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-14T12:01:04.3373720Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-14T12:01:04.3374927Z hint: call:
+2026-11-14T12:01:04.3375620Z hint:
+2026-11-14T12:01:04.3376524Z hint: 	git config --global init.defaultBranch <name>
+2026-11-14T12:01:04.3377449Z hint:
+2026-11-14T12:01:04.3378342Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-14T12:01:04.3379868Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-14T12:01:04.3381080Z hint:
+2026-11-14T12:01:04.3381753Z hint: 	git branch -m <name>
+2026-11-14T12:01:04.3382680Z hint:
+2026-11-14T12:01:04.3383707Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-14T12:01:04.3385243Z Initialized empty Git repository in /home/runner/work/mitzo/mitzo/.git/
+2026-11-14T12:01:04.3387895Z [command]/usr/bin/git remote add origin https://github.com/dimakis/mitzo
+2026-11-14T12:01:04.3430515Z ##[endgroup]
+2026-11-14T12:01:04.3431934Z ##[group]Disabling automatic garbage collection
+2026-11-14T12:01:04.3433268Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-14T12:01:04.3464156Z ##[endgroup]
+2026-11-14T12:01:04.3465581Z ##[group]Setting up auth
+2026-11-14T12:01:04.3466441Z Removing SSH command configuration
+2026-11-14T12:01:04.3467554Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T12:01:04.3514323Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T12:01:04.3845703Z Removing HTTP extra header
+2026-11-14T12:01:04.3858667Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T12:01:04.3879238Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T12:01:04.4060606Z Removing includeIf entries pointing to credentials config files
+2026-11-14T12:01:04.4064846Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T12:01:04.4091598Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T12:01:04.4258959Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-14T12:01:04.4294731Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git.path /home/runner/work/_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config
+2026-11-14T12:01:04.4325745Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config
+2026-11-14T12:01:04.4357638Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config
+2026-11-14T12:01:04.4444029Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config
+2026-11-14T12:01:04.4468994Z ##[endgroup]
+2026-11-14T12:01:04.4470233Z ##[group]Fetching the repository
+2026-11-14T12:01:04.4474364Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +f44cedbedd11ff91ab0f0d45e3fbf0e43e3ecf82:refs/remotes/pull/1355/merge
+2026-11-14T12:01:07.7166272Z From https://github.com/dimakis/mitzo
+2026-11-14T12:01:07.7169117Z  * [new ref]         f44cedbedd11ff91ab0f0d45e3fbf0e43e3ecf82 -> pull/1355/merge
+2026-11-14T12:01:07.7174300Z ##[endgroup]
+2026-11-14T12:01:07.7176818Z ##[group]Determining the checkout info
+2026-11-14T12:01:07.7178974Z ##[endgroup]
+2026-11-14T12:01:07.7180248Z [command]/usr/bin/git sparse-checkout disable
+2026-11-14T12:01:07.7233827Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-14T12:01:07.7282747Z ##[group]Checking out the ref
+2026-11-14T12:01:07.7284676Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1355/merge
+2026-11-14T12:01:08.3385987Z Note: switching to 'refs/remotes/pull/1355/merge'.
+2026-11-14T12:01:08.3386831Z 
+2026-11-14T12:01:08.3389151Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-14T12:01:08.3390118Z changes and commit them, and you can discard any commits you make in this
+2026-11-14T12:01:08.3391201Z state without impacting any branches by switching back to a branch.
+2026-11-14T12:01:08.3391721Z 
+2026-11-14T12:01:08.3393246Z If you want to create a new branch to retain commits you create, you may
+2026-11-14T12:01:08.3394177Z do so (now or later) by using -c with the switch command. Example:
+2026-11-14T12:01:08.3394594Z 
+2026-11-14T12:01:08.3394934Z   git switch -c <new-branch-name>
+2026-11-14T12:01:08.3395297Z 
+2026-11-14T12:01:08.3395591Z Or undo this operation with:
+2026-11-14T12:01:08.3395867Z 
+2026-11-14T12:01:08.3396072Z   git switch -
+2026-11-14T12:01:08.3396373Z 
+2026-11-14T12:01:08.3396791Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-14T12:01:08.3397344Z 
+2026-11-14T12:01:08.3397791Z HEAD is now at f44cedb Merge 649ab1a02b7015a92eae51ab6c4565f2f15651f0 into 19aa8a19b274ae1fee416f0f187c772111251366
+2026-11-14T12:01:08.3407815Z ##[endgroup]
+2026-11-14T12:01:08.3450376Z [command]/usr/bin/git log -1 --format=%H
+2026-11-14T12:01:08.3474483Z f44cedbedd11ff91ab0f0d45e3fbf0e43e3ecf82
+2026-11-14T12:01:08.3482754Z ##[group]Removing auth
+2026-11-14T12:01:08.3483555Z Removing SSH command configuration
+2026-11-14T12:01:08.3486624Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T12:01:08.3515620Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T12:01:08.3701123Z Removing HTTP extra header
+2026-11-14T12:01:08.3723397Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T12:01:08.3730506Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T12:01:08.3902820Z Removing includeIf entries pointing to credentials config files
+2026-11-14T12:01:08.3906365Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T12:01:08.3928034Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T12:01:08.3928723Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T12:01:08.3929348Z includeif.gitdir:/github/workspace/.git.path
+2026-11-14T12:01:08.3929834Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T12:01:08.3934535Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T12:01:08.3952850Z /home/runner/work/_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config
+2026-11-14T12:01:08.3961799Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-08698a74\-9fd3\-4f4a\-afa3\-aaa938ae254b\.config
+2026-11-14T12:01:08.3992459Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T12:01:08.4013122Z /home/runner/work/_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config
+2026-11-14T12:01:08.4019341Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-08698a74\-9fd3\-4f4a\-afa3\-aaa938ae254b\.config
+2026-11-14T12:01:08.4047826Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-14T12:01:08.4067007Z /github/runner_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config
+2026-11-14T12:01:08.4077185Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-08698a74\-9fd3\-4f4a\-afa3\-aaa938ae254b\.config
+2026-11-14T12:01:08.4106857Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T12:01:08.4126122Z /github/runner_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config
+2026-11-14T12:01:08.4131461Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-08698a74\-9fd3\-4f4a\-afa3\-aaa938ae254b\.config
+2026-11-14T12:01:08.4160281Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T12:01:08.4320469Z Removing credentials config '/home/runner/work/_temp/git-credentials-08698a74-9fd3-4f4a-afa3-aaa938ae254b.config'
+2026-11-14T12:01:08.4328707Z ##[endgroup]
+2026-11-14T12:01:08.4552280Z Prepare all required actions
+2026-11-14T12:01:08.4553126Z Getting action download info
+2026-11-14T12:01:08.5428435Z Download action repository 'actions/setup-node@v7' (SHA:949feb2413d6458794dcd2491c4babbbce0c15c1)
+2026-11-14T12:01:08.6614240Z ##[group]Run ./.github/actions/ci-node
+2026-11-14T12:01:08.6614548Z with:
+2026-11-14T12:01:08.6614867Z   node-version: 24.22.1
+2026-11-14T12:01:08.6615137Z ##[endgroup]
+2026-11-14T12:01:08.6666745Z ##[start-action display=Run actions/setup-node@v7;id=__self.__actions_setup-node]
+2026-11-14T12:01:08.6748326Z ##[group]Run actions/setup-node@v7
+2026-11-14T12:01:08.6748699Z with:
+2026-11-14T12:01:08.6748976Z   node-version: 24.22.1
+2026-11-14T12:01:08.6749229Z   cache: npm
+2026-11-14T12:01:08.6749510Z   check-latest: false
+2026-11-14T12:01:08.6751393Z   token: ***
+2026-11-14T12:01:08.6751675Z   package-manager-cache: true
+2026-11-14T12:01:08.6752114Z ##[endgroup]
+2026-11-14T12:01:08.7822997Z Attempting to download 24.22.1...
+2026-11-14T12:01:09.6464047Z Acquiring 24.22.1 - x64 from https://github.com/actions/node-versions/releases/download/24.22.1-39619001896/node-24.22.1-linux-x64.tar.gz
+2026-11-14T12:01:10.1098971Z Extracting ...
+2026-11-14T12:01:10.1202442Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/886af8de-958e-4159-8e85-c3c73d3bd42a -f /home/runner/work/_temp/8c1884ce-4ddf-4e54-a623-bb3966c93732
+2026-11-14T12:01:11.2996200Z Adding to the cache ...
+2026-11-14T12:01:13.6494501Z ##[group]Environment details
+2026-11-14T12:01:13.8398467Z node: v24.22.1
+2026-11-14T12:01:13.8398862Z npm: 11.19.1
+2026-11-14T12:01:13.8399147Z yarn: 1.22.22
+2026-11-14T12:01:13.8399715Z ##[endgroup]
+2026-11-14T12:01:13.8411306Z [command]/opt/hostedtoolcache/node/24.22.1/x64/bin/npm config get cache
+2026-11-14T12:01:13.9169915Z /home/runner/.npm
+2026-11-14T12:01:14.0700807Z Cache hit for: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T12:01:15.2192920Z Received 134217728 of 422744543 (31.7%), 128.0 MBs/sec
+2026-11-14T12:01:16.2224157Z Received 335544320 of 422744543 (79.4%), 159.8 MBs/sec
+2026-11-14T12:01:16.7904267Z Received 422744543 of 422744543 (100.0%), 156.9 MBs/sec
+2026-11-14T12:01:16.7913107Z Cache Size: ~403 MB (422744543 B)
+2026-11-14T12:01:16.7984909Z [command]/usr/bin/tar -xf /home/runner/work/_temp/6010a744-c0aa-4378-b664-a77e38cdbeca/cache.tzst -P -C /home/runner/work/mitzo/mitzo --use-compress-program unzstd
+2026-11-14T12:01:17.3718674Z Cache restored successfully
+2026-11-14T12:01:17.3851520Z Cache restored from key: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T12:01:17.3979179Z ##[end-action id=__self.__actions_setup-node;outcome=success;conclusion=success;duration_ms=8731]
+2026-11-14T12:01:17.3984083Z ##[start-action display=Run npm install --global npm@11.18.0;id=__self.__run]
+2026-11-14T12:01:17.4024030Z ##[group]Run npm install --global npm@11.18.0
+2026-11-14T12:01:17.4024482Z [36;1mnpm install --global npm@11.18.0[0m
+2026-11-14T12:01:17.4043644Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T12:01:17.4044098Z ##[endgroup]
+2026-11-14T12:01:18.8781425Z 
+2026-11-14T12:01:18.8789789Z changed 18 packages in 1s
+2026-11-14T12:01:18.8790250Z 
+2026-11-14T12:01:18.8790552Z 15 packages are looking for funding
+2026-11-14T12:01:18.8791073Z   run `npm fund` for details
+2026-11-14T12:01:18.9017032Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=1503]
+2026-11-14T12:01:18.9019929Z ##[start-action display=Run npm install --no-audit;id=__self.__run_2]
+2026-11-14T12:01:18.9043288Z ##[group]Run npm install --no-audit
+2026-11-14T12:01:18.9043684Z [36;1mnpm install --no-audit[0m
+2026-11-14T12:01:18.9056148Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T12:01:18.9056520Z ##[endgroup]
+2026-11-14T12:01:19.6165005Z npm warn skipping integrity check for git dependency ssh://git@github.com/dimakis/contexgin.git
+2026-11-14T12:01:25.1922841Z npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+2026-11-14T12:01:25.9641909Z npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+2026-11-14T12:01:39.1254345Z npm warn gitignore-fallback No .npmignore file found, using .gitignore for file exclusion. Consider creating a .npmignore file to explicitly control published files.
+2026-11-14T12:01:46.0507306Z 
+2026-11-14T12:01:46.0509687Z > mitzo@1.0.0 postinstall
+2026-11-14T12:01:46.0510324Z > node scripts/prepare-terminal-native.mjs
+2026-11-14T12:01:46.0510618Z 
+2026-11-14T12:01:46.1004653Z 
+2026-11-14T12:01:46.1005678Z > mitzo@1.0.0 prepare
+2026-11-14T12:01:46.1007223Z > husky || true
+2026-11-14T12:01:46.1007687Z 
+2026-11-14T12:01:46.2150566Z 
+2026-11-14T12:01:46.2151393Z added 1026 packages in 27s
+2026-11-14T12:01:46.2151779Z 
+2026-11-14T12:01:46.2152171Z 280 packages are looking for funding
+2026-11-14T12:01:46.2152918Z   run `npm fund` for details
+2026-11-14T12:01:46.2166942Z npm warn allow-scripts 6 packages have install scripts not yet covered by allowScripts:
+2026-11-14T12:01:46.2167859Z npm warn allow-scripts   better-sqlite3@13.0.3 (install: node-gyp rebuild)
+2026-11-14T12:01:46.2168903Z npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)
+2026-11-14T12:01:46.2169825Z npm warn allow-scripts   esbuild@0.28.2 (postinstall: node install.js)
+2026-11-14T12:01:46.2170570Z npm warn allow-scripts   node-pty@1.1.0 (install: node scripts/prebuild.js || node-gyp rebuild; postinstall: node scripts/post-install.js)
+2026-11-14T12:01:46.2171300Z npm warn allow-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+2026-11-14T12:01:46.2171839Z npm warn allow-scripts   esbuild@0.25.12 (postinstall: node install.js)
+2026-11-14T12:01:46.2172528Z npm warn allow-scripts
+2026-11-14T12:01:46.2173103Z npm warn allow-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+2026-11-14T12:01:46.2797053Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=27377]
+2026-11-14T12:01:46.2867337Z Prepare all required actions
+2026-11-14T12:01:46.2911202Z ##[group]Run ./.github/actions/ci-playwright
+2026-11-14T12:01:46.2911548Z with:
+2026-11-14T12:01:46.2911824Z   browsers: webkit chromium
+2026-11-14T12:01:46.2912306Z ##[endgroup]
+2026-11-14T12:01:46.2921578Z ##[start-action display=Prepare the pinned Linux browser image;id=__self_2.__run]
+2026-11-14T12:01:46.2944695Z ##[group]Run bash scripts/ci-browser-container.sh --prepare $CI_PLAYWRIGHT_BROWSERS
+2026-11-14T12:01:46.2945442Z [36;1mbash scripts/ci-browser-container.sh --prepare $CI_PLAYWRIGHT_BROWSERS[0m
+2026-11-14T12:01:46.2957687Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T12:01:46.2958042Z env:
+2026-11-14T12:01:46.2958327Z   CI_PLAYWRIGHT_BROWSERS: webkit chromium
+2026-11-14T12:01:46.2958713Z ##[endgroup]
+2026-11-14T12:01:46.4944688Z mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27: Pulling from playwright
+2026-11-14T12:01:46.5546334Z 0926a8eb0e60: Pulling fs layer
+2026-11-14T12:01:46.5546887Z e2bfec3c8017: Pulling fs layer
+2026-11-14T12:01:46.5547448Z 74c72610aa2d: Pulling fs layer
+2026-11-14T12:01:46.5547924Z d8cf7dc1ff62: Pulling fs layer
+2026-11-14T12:01:46.5548769Z b4dfe9b5d621: Pulling fs layer
+2026-11-14T12:01:46.5549225Z a2ac83a9a562: Pulling fs layer
+2026-11-14T12:01:46.5549570Z 1b189482e65c: Pulling fs layer
+2026-11-14T12:01:46.5549939Z d8cf7dc1ff62: Waiting
+2026-11-14T12:01:46.5550386Z b4dfe9b5d621: Waiting
+2026-11-14T12:01:46.5550816Z a2ac83a9a562: Waiting
+2026-11-14T12:01:46.5551276Z 1b189482e65c: Waiting
+2026-11-14T12:01:46.6370656Z 74c72610aa2d: Verifying Checksum
+2026-11-14T12:01:46.6374238Z 74c72610aa2d: Download complete
+2026-11-14T12:01:46.7362608Z 0926a8eb0e60: Download complete
+2026-11-14T12:01:47.0655676Z e2bfec3c8017: Download complete
+2026-11-14T12:01:47.6087325Z a2ac83a9a562: Download complete
+2026-11-14T12:01:47.6789449Z 0926a8eb0e60: Pull complete
+2026-11-14T12:01:47.9874184Z d8cf7dc1ff62: Verifying Checksum
+2026-11-14T12:01:47.9875427Z d8cf7dc1ff62: Download complete
+2026-11-14T12:01:48.2359513Z 1b189482e65c: Download complete
+2026-11-14T12:01:48.4014465Z b4dfe9b5d621: Verifying Checksum
+2026-11-14T12:01:48.4015440Z b4dfe9b5d621: Download complete
+2026-11-14T12:01:58.2211661Z e2bfec3c8017: Pull complete
+2026-11-14T12:01:58.2516224Z 74c72610aa2d: Pull complete
+2026-11-14T12:02:07.6219305Z d8cf7dc1ff62: Pull complete
+2026-11-14T12:02:14.3753812Z b4dfe9b5d621: Pull complete
+2026-11-14T12:02:17.4445109Z a2ac83a9a562: Pull complete
+2026-11-14T12:02:20.4158343Z 1b189482e65c: Pull complete
+2026-11-14T12:02:20.4196968Z Digest: sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T12:02:20.4206811Z Status: Downloaded newer image for mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T12:02:20.4218876Z mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+2026-11-14T12:02:20.9670793Z Using preinstalled webkit 1.63.0: /ms-playwright/webkit-2359/pw_run.sh
+2026-11-14T12:02:20.9671956Z Using preinstalled chromium 1.63.0: /ms-playwright/chromium-1243/chrome-linux64/chrome
+2026-11-14T12:02:21.0741670Z ##[end-action id=__self_2.__run;outcome=success;conclusion=success;duration_ms=34781]
+2026-11-14T12:02:21.0748352Z ##[start-action display=Install native macOS browsers;id=__self_2.__run_2]
+2026-11-14T12:02:21.0757088Z ##[end-action id=__self_2.__run_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T12:02:21.0794444Z ##[group]Run bash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs
+2026-11-14T12:02:21.0796599Z [36;1mbash scripts/ci-browser-container.sh env PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/offline node node_modules/@playwright/test/cli.js test --config playwright.offline.config.ts tests/offline/symposium-ordinary-surface.spec.ts tests/offline/symposium-ordinary-responsive.spec.ts --workers=1 --reporter=list,html,./scripts/ci-browser-failure-reporter.mjs,./scripts/symposium-acceptance-reporter.mjs[0m
+2026-11-14T12:02:21.0810573Z shell: /usr/bin/bash -e {0}
+2026-11-14T12:02:21.0810911Z env:
+2026-11-14T12:02:21.0811350Z   NODE_OPTIONS: --max-old-space-size=1024
+2026-11-14T12:02:21.0811829Z ##[endgroup]
+2026-11-14T12:02:22.5005935Z 
+2026-11-14T12:02:22.5006942Z Running 14 tests using 1 worker
+2026-11-14T12:02:22.5007548Z 
+2026-11-14T12:02:24.3574897Z   ✓   1 [browser-startup-0] › tests/support/browser-startup.setup.ts:5:1 › browser startup (1.2s)
+2026-11-14T12:02:25.3791231Z   ✓   2 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (385ms)
+2026-11-14T12:03:26.9134348Z   ✘   3 [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (1.0m)
+2026-11-14T12:03:26.9140797Z CI_BROWSER_TEST_FAILURE {"status":"timedOut","testId":"506acac6e77c618fe904-34852a1f0f4fb0bf3837"}
+2026-11-14T12:03:26.9169578Z ##[error] / mobile-webkit / symposium-ordinary-responsive.spec.ts / ordinary responsive composition and approved reference (light)
+Test timeout of 30000ms exceeded.
+Test timeout of 30000ms exceeded.
+Error: locator.screenshot: Test ended.
+Browser logs:
+
+<launching> /ms-playwright/webkit-2359/pw_run.sh --inspector-pipe --headless --no-startup-window
+<launched> pid=494
+[pid=494][err] 
+[pid=494][err] ** (MiniBrowser:501): CRITICAL **: 12:02:26.167: WebKitWebView is-controlled-by-automation set but automation is not allowed in the context, falling back to default session.
+[pid=494][err] 
+[pid=494][err] ** (MiniBrowser:501): CRITICAL **: 12:02:29.916: WebKitWebView is-controlled-by-automation set but automation is not allowed in the context, falling back to default session.
+[pid=494] <gracefully close start>
+Call log:
+  - taking element screenshot
+  - waiting for fonts to load...
+  - fonts loaded
+  - attempting scroll into view action
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+    - waiting 20ms
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+      - waiting 100ms
+    103 × waiting for element to be stable
+        - element is not visible
+      - retrying scroll into view action
+        - waiting 500ms
+
+2026-11-14T12:04:28.3643583Z   ✘   4 [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (1.0m)
+2026-11-14T12:04:28.3644575Z CI_BROWSER_TEST_FAILURE {"status":"timedOut","testId":"506acac6e77c618fe904-65413ccea1425821b075"}
+2026-11-14T12:04:28.3652706Z ##[error] / mobile-webkit / symposium-ordinary-responsive.spec.ts / ordinary responsive composition and approved reference (dark)
+Test timeout of 30000ms exceeded.
+Test timeout of 30000ms exceeded.
+Error: locator.screenshot: Test ended.
+Call log:
+  - taking element screenshot
+  - waiting for fonts to load...
+  - fonts loaded
+  - attempting scroll into view action
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+    - waiting 20ms
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+      - waiting 100ms
+    105 × waiting for element to be stable
+        - element is not visible
+      - retrying scroll into view action
+        - waiting 500ms
+
+2026-11-14T12:04:33.8998504Z   ✓   5 [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (4.9s)
+2026-11-14T12:04:37.5702537Z   ✓   6 [mobile-webkit] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (3.7s)
+2026-11-14T12:05:38.9387713Z   ✘   7 [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (1.0m)
+2026-11-14T12:05:38.9389006Z CI_BROWSER_TEST_FAILURE {"status":"timedOut","testId":"506acac6e77c618fe904-89eb06da5c26e39ab866"}
+2026-11-14T12:05:38.9396973Z ##[error] / mobile-chromium / symposium-ordinary-responsive.spec.ts / ordinary responsive composition and approved reference (light)
+Test timeout of 30000ms exceeded.
+Test timeout of 30000ms exceeded.
+Error: locator.screenshot: Test ended.
+Call log:
+  - taking element screenshot
+  - waiting for fonts to load...
+  - fonts loaded
+  - attempting scroll into view action
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+    - waiting 20ms
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+      - waiting 100ms
+    110 × waiting for element to be stable
+        - element is not visible
+      - retrying scroll into view action
+        - waiting 500ms
+
+2026-11-14T12:06:40.3372524Z   ✘   8 [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (1.0m)
+2026-11-14T12:06:40.3387819Z CI_BROWSER_TEST_FAILURE {"status":"timedOut","testId":"506acac6e77c618fe904-95f77211f132e1d9bc36"}
+2026-11-14T12:06:40.3396702Z ##[error] / mobile-chromium / symposium-ordinary-responsive.spec.ts / ordinary responsive composition and approved reference (dark)
+Test timeout of 30000ms exceeded.
+Test timeout of 30000ms exceeded.
+Error: locator.screenshot: Test ended.
+Call log:
+  - taking element screenshot
+  - waiting for fonts to load...
+  - fonts loaded
+  - attempting scroll into view action
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+    - waiting 20ms
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+      - waiting 100ms
+    110 × waiting for element to be stable
+        - element is not visible
+      - retrying scroll into view action
+        - waiting 500ms
+
+2026-11-14T12:06:45.2181223Z   ✓   9 [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (4.2s)
+2026-11-14T12:06:48.2475607Z   ✓  10 [mobile-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (3.0s)
+2026-11-14T12:07:49.6177027Z   ✘  11 [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) (1.0m)
+2026-11-14T12:07:49.6178134Z CI_BROWSER_TEST_FAILURE {"status":"timedOut","testId":"506acac6e77c618fe904-e4df438269fcec4d5bef"}
+2026-11-14T12:07:49.6183935Z ##[error] / desktop-chromium / symposium-ordinary-responsive.spec.ts / ordinary responsive composition and approved reference (light)
+Test timeout of 30000ms exceeded.
+Test timeout of 30000ms exceeded.
+Error: locator.screenshot: Test ended.
+Call log:
+  - taking element screenshot
+  - waiting for fonts to load...
+  - fonts loaded
+  - attempting scroll into view action
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+    - waiting 20ms
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+      - waiting 100ms
+    111 × waiting for element to be stable
+        - element is not visible
+      - retrying scroll into view action
+        - waiting 500ms
+
+2026-11-14T12:08:50.9683574Z   ✘  12 [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) (1.0m)
+2026-11-14T12:08:50.9687553Z CI_BROWSER_TEST_FAILURE {"status":"timedOut","testId":"506acac6e77c618fe904-53cc9ff8b882cefc5301"}
+2026-11-14T12:08:50.9698580Z ##[error] / desktop-chromium / symposium-ordinary-responsive.spec.ts / ordinary responsive composition and approved reference (dark)
+Test timeout of 30000ms exceeded.
+Test timeout of 30000ms exceeded.
+Error: locator.screenshot: Test ended.
+Call log:
+  - taking element screenshot
+  - waiting for fonts to load...
+  - fonts loaded
+  - attempting scroll into view action
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+    - waiting 20ms
+    2 × waiting for element to be stable
+      - element is not visible
+    - retrying scroll into view action
+      - waiting 100ms
+    110 × waiting for element to be stable
+        - element is not visible
+      - retrying scroll into view action
+        - waiting 500ms
+    - waiting for element to be stable
+
+2026-11-14T12:08:55.7122466Z   ✓  13 [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (dark) (4.1s)
+2026-11-14T12:08:58.6943557Z   ✓  14 [desktop-chromium] › tests/offline/symposium-ordinary-surface.spec.ts:36:3 › ordinary shared surface keeps one history and composer (light) (3.0s)
+2026-11-14T12:08:58.7424152Z 
+2026-11-14T12:08:58.7427723Z 
+2026-11-14T12:08:58.7438601Z   1) [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T12:08:58.7439396Z 
+2026-11-14T12:08:58.7439655Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7439948Z 
+2026-11-14T12:08:58.7440215Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7440499Z 
+2026-11-14T12:08:58.7440741Z     Error: locator.screenshot: Test ended.
+2026-11-14T12:08:58.7441275Z     Browser logs:
+2026-11-14T12:08:58.7441520Z 
+2026-11-14T12:08:58.7442229Z     <launching> /ms-playwright/webkit-2359/pw_run.sh --inspector-pipe --headless --no-startup-window
+2026-11-14T12:08:58.7442918Z     <launched> pid=494
+2026-11-14T12:08:58.7443384Z     [pid=494][err] 
+2026-11-14T12:08:58.7444358Z     [pid=494][err] ** (MiniBrowser:501): CRITICAL **: 12:02:26.167: WebKitWebView is-controlled-by-automation set but automation is not allowed in the context, falling back to default session.
+2026-11-14T12:08:58.7445188Z     [pid=494][err] 
+2026-11-14T12:08:58.7446031Z     [pid=494][err] ** (MiniBrowser:501): CRITICAL **: 12:02:29.916: WebKitWebView is-controlled-by-automation set but automation is not allowed in the context, falling back to default session.
+2026-11-14T12:08:58.7446919Z     [pid=494] <gracefully close start>
+2026-11-14T12:08:58.7447364Z     Call log:
+2026-11-14T12:08:58.7447716Z       - taking element screenshot
+2026-11-14T12:08:58.7448164Z       - waiting for fonts to load...
+2026-11-14T12:08:58.7448577Z       - fonts loaded
+2026-11-14T12:08:58.7448988Z       - attempting scroll into view action
+2026-11-14T12:08:58.7449712Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7450212Z           - element is not visible
+2026-11-14T12:08:58.7450674Z         - retrying scroll into view action
+2026-11-14T12:08:58.7451159Z         - waiting 20ms
+2026-11-14T12:08:58.7451609Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7452279Z           - element is not visible
+2026-11-14T12:08:58.7452761Z         - retrying scroll into view action
+2026-11-14T12:08:58.7453164Z           - waiting 100ms
+2026-11-14T12:08:58.7453600Z         103 × waiting for element to be stable
+2026-11-14T12:08:58.7453952Z             - element is not visible
+2026-11-14T12:08:58.7454656Z           - retrying scroll into view action
+2026-11-14T12:08:58.7454997Z             - waiting 500ms
+2026-11-14T12:08:58.7455323Z 
+2026-11-14T12:08:58.7455330Z 
+2026-11-14T12:08:58.7455629Z       260 |       // state, then use its own Close control to compare the conversation state.
+2026-11-14T12:08:58.7456330Z       261 |       const approvedProduct = reference.locator('.web-product');
+2026-11-14T12:08:58.7456903Z     > 262 |       await approvedProduct.screenshot({
+2026-11-14T12:08:58.7457382Z           |                             ^
+2026-11-14T12:08:58.7458000Z       263 |         path: info.outputPath(`approved-fresh-setup-${width}-${theme}.png`),
+2026-11-14T12:08:58.7458691Z       264 |       });
+2026-11-14T12:08:58.7459427Z       265 |       await approvedProduct.getByRole('button', { name: 'Close dialog', exact: true }).click();
+2026-11-14T12:08:58.7460382Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:262:29
+2026-11-14T12:08:58.7460856Z 
+2026-11-14T12:08:58.7461441Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7463335Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/test-failed-1.png
+2026-11-14T12:08:58.7464542Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7465034Z 
+2026-11-14T12:08:58.7465544Z     Error Context: test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/error-context.md
+2026-11-14T12:08:58.7466034Z 
+2026-11-14T12:08:58.7466410Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7467109Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/trace.zip
+2026-11-14T12:08:58.7467624Z     Usage:
+2026-11-14T12:08:58.7467795Z 
+2026-11-14T12:08:58.7468264Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-webkit/trace.zip
+2026-11-14T12:08:58.7468765Z 
+2026-11-14T12:08:58.7469118Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7469421Z 
+2026-11-14T12:08:58.7470017Z   2) [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T12:08:58.7470476Z 
+2026-11-14T12:08:58.7470611Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7470819Z 
+2026-11-14T12:08:58.7470996Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7471165Z 
+2026-11-14T12:08:58.7471361Z     Error: locator.screenshot: Test ended.
+2026-11-14T12:08:58.7471666Z     Call log:
+2026-11-14T12:08:58.7472152Z       - taking element screenshot
+2026-11-14T12:08:58.7472675Z       - waiting for fonts to load...
+2026-11-14T12:08:58.7473016Z       - fonts loaded
+2026-11-14T12:08:58.7473378Z       - attempting scroll into view action
+2026-11-14T12:08:58.7473825Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7474161Z           - element is not visible
+2026-11-14T12:08:58.7474515Z         - retrying scroll into view action
+2026-11-14T12:08:58.7474831Z         - waiting 20ms
+2026-11-14T12:08:58.7475191Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7475554Z           - element is not visible
+2026-11-14T12:08:58.7475875Z         - retrying scroll into view action
+2026-11-14T12:08:58.7476177Z           - waiting 100ms
+2026-11-14T12:08:58.7476599Z         105 × waiting for element to be stable
+2026-11-14T12:08:58.7477072Z             - element is not visible
+2026-11-14T12:08:58.7477672Z           - retrying scroll into view action
+2026-11-14T12:08:58.7478121Z             - waiting 500ms
+2026-11-14T12:08:58.7478393Z 
+2026-11-14T12:08:58.7478402Z 
+2026-11-14T12:08:58.7478678Z       260 |       // state, then use its own Close control to compare the conversation state.
+2026-11-14T12:08:58.7479431Z       261 |       const approvedProduct = reference.locator('.web-product');
+2026-11-14T12:08:58.7479887Z     > 262 |       await approvedProduct.screenshot({
+2026-11-14T12:08:58.7480248Z           |                             ^
+2026-11-14T12:08:58.7480703Z       263 |         path: info.outputPath(`approved-fresh-setup-${width}-${theme}.png`),
+2026-11-14T12:08:58.7481157Z       264 |       });
+2026-11-14T12:08:58.7481611Z       265 |       await approvedProduct.getByRole('button', { name: 'Close dialog', exact: true }).click();
+2026-11-14T12:08:58.7482708Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:262:29
+2026-11-14T12:08:58.7483063Z 
+2026-11-14T12:08:58.7483439Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7484177Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/test-failed-1.png
+2026-11-14T12:08:58.7484963Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7485331Z 
+2026-11-14T12:08:58.7485766Z     Error Context: test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/error-context.md
+2026-11-14T12:08:58.7486515Z 
+2026-11-14T12:08:58.7487071Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7488067Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/trace.zip
+2026-11-14T12:08:58.7488821Z     Usage:
+2026-11-14T12:08:58.7488948Z 
+2026-11-14T12:08:58.7489414Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-webkit/trace.zip
+2026-11-14T12:08:58.7489899Z 
+2026-11-14T12:08:58.7490252Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7490498Z 
+2026-11-14T12:08:58.7491095Z   3) [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T12:08:58.7491610Z 
+2026-11-14T12:08:58.7491770Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7491977Z 
+2026-11-14T12:08:58.7492424Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7492627Z 
+2026-11-14T12:08:58.7492769Z     Error: locator.screenshot: Test ended.
+2026-11-14T12:08:58.7493125Z     Call log:
+2026-11-14T12:08:58.7493412Z       - taking element screenshot
+2026-11-14T12:08:58.7493742Z       - waiting for fonts to load...
+2026-11-14T12:08:58.7494101Z       - fonts loaded
+2026-11-14T12:08:58.7494407Z       - attempting scroll into view action
+2026-11-14T12:08:58.7494818Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7495181Z           - element is not visible
+2026-11-14T12:08:58.7495529Z         - retrying scroll into view action
+2026-11-14T12:08:58.7495847Z         - waiting 20ms
+2026-11-14T12:08:58.7496478Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7496972Z           - element is not visible
+2026-11-14T12:08:58.7497440Z         - retrying scroll into view action
+2026-11-14T12:08:58.7497937Z           - waiting 100ms
+2026-11-14T12:08:58.7498388Z         110 × waiting for element to be stable
+2026-11-14T12:08:58.7498711Z             - element is not visible
+2026-11-14T12:08:58.7499116Z           - retrying scroll into view action
+2026-11-14T12:08:58.7499454Z             - waiting 500ms
+2026-11-14T12:08:58.7499643Z 
+2026-11-14T12:08:58.7499649Z 
+2026-11-14T12:08:58.7499906Z       260 |       // state, then use its own Close control to compare the conversation state.
+2026-11-14T12:08:58.7500436Z       261 |       const approvedProduct = reference.locator('.web-product');
+2026-11-14T12:08:58.7500866Z     > 262 |       await approvedProduct.screenshot({
+2026-11-14T12:08:58.7501223Z           |                             ^
+2026-11-14T12:08:58.7501702Z       263 |         path: info.outputPath(`approved-fresh-setup-${width}-${theme}.png`),
+2026-11-14T12:08:58.7502598Z       264 |       });
+2026-11-14T12:08:58.7503055Z       265 |       await approvedProduct.getByRole('button', { name: 'Close dialog', exact: true }).click();
+2026-11-14T12:08:58.7503742Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:262:29
+2026-11-14T12:08:58.7504109Z 
+2026-11-14T12:08:58.7504467Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7505225Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/test-failed-1.png
+2026-11-14T12:08:58.7506008Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7506281Z 
+2026-11-14T12:08:58.7506764Z     Error Context: test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/error-context.md
+2026-11-14T12:08:58.7507221Z 
+2026-11-14T12:08:58.7507654Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7508322Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/trace.zip
+2026-11-14T12:08:58.7508887Z     Usage:
+2026-11-14T12:08:58.7509003Z 
+2026-11-14T12:08:58.7509472Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--mobile-chromium/trace.zip
+2026-11-14T12:08:58.7509947Z 
+2026-11-14T12:08:58.7510296Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7510596Z 
+2026-11-14T12:08:58.7511252Z   4) [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T12:08:58.7511717Z 
+2026-11-14T12:08:58.7511868Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7512192Z 
+2026-11-14T12:08:58.7512408Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7512620Z 
+2026-11-14T12:08:58.7512759Z     Error: locator.screenshot: Test ended.
+2026-11-14T12:08:58.7513135Z     Call log:
+2026-11-14T12:08:58.7513415Z       - taking element screenshot
+2026-11-14T12:08:58.7513716Z       - waiting for fonts to load...
+2026-11-14T12:08:58.7514074Z       - fonts loaded
+2026-11-14T12:08:58.7514371Z       - attempting scroll into view action
+2026-11-14T12:08:58.7515199Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7515582Z           - element is not visible
+2026-11-14T12:08:58.7515911Z         - retrying scroll into view action
+2026-11-14T12:08:58.7516223Z         - waiting 20ms
+2026-11-14T12:08:58.7516576Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7516950Z           - element is not visible
+2026-11-14T12:08:58.7517266Z         - retrying scroll into view action
+2026-11-14T12:08:58.7517620Z           - waiting 100ms
+2026-11-14T12:08:58.7518073Z         110 × waiting for element to be stable
+2026-11-14T12:08:58.7518430Z             - element is not visible
+2026-11-14T12:08:58.7518785Z           - retrying scroll into view action
+2026-11-14T12:08:58.7519132Z             - waiting 500ms
+2026-11-14T12:08:58.7519320Z 
+2026-11-14T12:08:58.7519326Z 
+2026-11-14T12:08:58.7519579Z       260 |       // state, then use its own Close control to compare the conversation state.
+2026-11-14T12:08:58.7520128Z       261 |       const approvedProduct = reference.locator('.web-product');
+2026-11-14T12:08:58.7520559Z     > 262 |       await approvedProduct.screenshot({
+2026-11-14T12:08:58.7520940Z           |                             ^
+2026-11-14T12:08:58.7521408Z       263 |         path: info.outputPath(`approved-fresh-setup-${width}-${theme}.png`),
+2026-11-14T12:08:58.7521830Z       264 |       });
+2026-11-14T12:08:58.7523190Z       265 |       await approvedProduct.getByRole('button', { name: 'Close dialog', exact: true }).click();
+2026-11-14T12:08:58.7523883Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:262:29
+2026-11-14T12:08:58.7524318Z 
+2026-11-14T12:08:58.7524682Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7525429Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/test-failed-1.png
+2026-11-14T12:08:58.7526224Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7526496Z 
+2026-11-14T12:08:58.7526916Z     Error Context: test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/error-context.md
+2026-11-14T12:08:58.7527385Z 
+2026-11-14T12:08:58.7527806Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7528546Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/trace.zip
+2026-11-14T12:08:58.7529118Z     Usage:
+2026-11-14T12:08:58.7529249Z 
+2026-11-14T12:08:58.7529742Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--mobile-chromium/trace.zip
+2026-11-14T12:08:58.7530216Z 
+2026-11-14T12:08:58.7530561Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7530816Z 
+2026-11-14T12:08:58.7531364Z   5) [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T12:08:58.7531820Z 
+2026-11-14T12:08:58.7531952Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7532416Z 
+2026-11-14T12:08:58.7532614Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7532817Z 
+2026-11-14T12:08:58.7532957Z     Error: locator.screenshot: Test ended.
+2026-11-14T12:08:58.7533308Z     Call log:
+2026-11-14T12:08:58.7533591Z       - taking element screenshot
+2026-11-14T12:08:58.7533973Z       - waiting for fonts to load...
+2026-11-14T12:08:58.7534368Z       - fonts loaded
+2026-11-14T12:08:58.7534672Z       - attempting scroll into view action
+2026-11-14T12:08:58.7535063Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7535393Z           - element is not visible
+2026-11-14T12:08:58.7535746Z         - retrying scroll into view action
+2026-11-14T12:08:58.7536087Z         - waiting 20ms
+2026-11-14T12:08:58.7536423Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7536795Z           - element is not visible
+2026-11-14T12:08:58.7537110Z         - retrying scroll into view action
+2026-11-14T12:08:58.7537438Z           - waiting 100ms
+2026-11-14T12:08:58.7537833Z         111 × waiting for element to be stable
+2026-11-14T12:08:58.7538153Z             - element is not visible
+2026-11-14T12:08:58.7538513Z           - retrying scroll into view action
+2026-11-14T12:08:58.7538856Z             - waiting 500ms
+2026-11-14T12:08:58.7538990Z 
+2026-11-14T12:08:58.7539063Z 
+2026-11-14T12:08:58.7539392Z       260 |       // state, then use its own Close control to compare the conversation state.
+2026-11-14T12:08:58.7539908Z       261 |       const approvedProduct = reference.locator('.web-product');
+2026-11-14T12:08:58.7540329Z     > 262 |       await approvedProduct.screenshot({
+2026-11-14T12:08:58.7540678Z           |                             ^
+2026-11-14T12:08:58.7541139Z       263 |         path: info.outputPath(`approved-fresh-setup-${width}-${theme}.png`),
+2026-11-14T12:08:58.7541554Z       264 |       });
+2026-11-14T12:08:58.7542063Z       265 |       await approvedProduct.getByRole('button', { name: 'Close dialog', exact: true }).click();
+2026-11-14T12:08:58.7542735Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:262:29
+2026-11-14T12:08:58.7543045Z 
+2026-11-14T12:08:58.7543425Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7544201Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/test-failed-1.png
+2026-11-14T12:08:58.7544976Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7545279Z 
+2026-11-14T12:08:58.7545723Z     Error Context: test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/error-context.md
+2026-11-14T12:08:58.7546225Z 
+2026-11-14T12:08:58.7546558Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7547275Z     test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/trace.zip
+2026-11-14T12:08:58.7547802Z     Usage:
+2026-11-14T12:08:58.7547951Z 
+2026-11-14T12:08:58.7548425Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-fe0ee-d-approved-reference-light--desktop-chromium/trace.zip
+2026-11-14T12:08:58.7548881Z 
+2026-11-14T12:08:58.7549241Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7549531Z 
+2026-11-14T12:08:58.7550093Z   6) [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T12:08:58.7550572Z 
+2026-11-14T12:08:58.7550726Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7550957Z 
+2026-11-14T12:08:58.7551082Z     Test timeout of 30000ms exceeded.
+2026-11-14T12:08:58.7551275Z 
+2026-11-14T12:08:58.7551443Z     Error: locator.screenshot: Test ended.
+2026-11-14T12:08:58.7551760Z     Call log:
+2026-11-14T12:08:58.7552192Z       - taking element screenshot
+2026-11-14T12:08:58.7552757Z       - waiting for fonts to load...
+2026-11-14T12:08:58.7553071Z       - fonts loaded
+2026-11-14T12:08:58.7553372Z       - attempting scroll into view action
+2026-11-14T12:08:58.7553831Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7554182Z           - element is not visible
+2026-11-14T12:08:58.7554655Z         - retrying scroll into view action
+2026-11-14T12:08:58.7555012Z         - waiting 20ms
+2026-11-14T12:08:58.7555332Z         2 × waiting for element to be stable
+2026-11-14T12:08:58.7555708Z           - element is not visible
+2026-11-14T12:08:58.7556062Z         - retrying scroll into view action
+2026-11-14T12:08:58.7556388Z           - waiting 100ms
+2026-11-14T12:08:58.7556742Z         110 × waiting for element to be stable
+2026-11-14T12:08:58.7557105Z             - element is not visible
+2026-11-14T12:08:58.7557471Z           - retrying scroll into view action
+2026-11-14T12:08:58.7557781Z             - waiting 500ms
+2026-11-14T12:08:58.7558139Z         - waiting for element to be stable
+2026-11-14T12:08:58.7558309Z 
+2026-11-14T12:08:58.7558314Z 
+2026-11-14T12:08:58.7558580Z       260 |       // state, then use its own Close control to compare the conversation state.
+2026-11-14T12:08:58.7559092Z       261 |       const approvedProduct = reference.locator('.web-product');
+2026-11-14T12:08:58.7559677Z     > 262 |       await approvedProduct.screenshot({
+2026-11-14T12:08:58.7560129Z           |                             ^
+2026-11-14T12:08:58.7560759Z       263 |         path: info.outputPath(`approved-fresh-setup-${width}-${theme}.png`),
+2026-11-14T12:08:58.7561356Z       264 |       });
+2026-11-14T12:08:58.7562124Z       265 |       await approvedProduct.getByRole('button', { name: 'Close dialog', exact: true }).click();
+2026-11-14T12:08:58.7563029Z         at /home/runner/work/mitzo/mitzo/tests/offline/symposium-ordinary-responsive.spec.ts:262:29
+2026-11-14T12:08:58.7563475Z 
+2026-11-14T12:08:58.7563995Z     attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7564767Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/test-failed-1.png
+2026-11-14T12:08:58.7565577Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7565906Z 
+2026-11-14T12:08:58.7566331Z     Error Context: test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/error-context.md
+2026-11-14T12:08:58.7566803Z 
+2026-11-14T12:08:58.7567172Z     attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7567857Z     test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/trace.zip
+2026-11-14T12:08:58.7568367Z     Usage:
+2026-11-14T12:08:58.7568544Z 
+2026-11-14T12:08:58.7569017Z         npx playwright show-trace test-results/offline/symposium-ordinary-respons-d528e-nd-approved-reference-dark--desktop-chromium/trace.zip
+2026-11-14T12:08:58.7569512Z 
+2026-11-14T12:08:58.7569824Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-14T12:08:58.7570092Z 
+2026-11-14T12:08:58.7570211Z   6 failed
+2026-11-14T12:08:58.7570998Z     [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T12:08:58.7572109Z     [mobile-webkit] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T12:08:58.7573143Z     [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T12:08:58.7574072Z     [mobile-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T12:08:58.7575039Z     [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (light) 
+2026-11-14T12:08:58.7575985Z     [desktop-chromium] › tests/offline/symposium-ordinary-responsive.spec.ts:38:3 › ordinary responsive composition and approved reference (dark) 
+2026-11-14T12:08:58.7576674Z   8 passed (6.6m)
+2026-11-14T12:08:59.0143859Z ##[error]Process completed with exit code 1.
+2026-11-14T12:08:59.0224459Z ##[group]Run actions/upload-artifact@v7
+2026-11-14T12:08:59.0224779Z with:
+2026-11-14T12:08:59.0225185Z   name: symposium-ordinary-renders-f44cedbedd11ff91ab0f0d45e3fbf0e43e3ecf82-1
+2026-11-14T12:08:59.0225728Z   path: test-results/offline/
+playwright-report/offline/
+
+2026-11-14T12:08:59.0226079Z   retention-days: 7
+2026-11-14T12:08:59.0226359Z   if-no-files-found: warn
+2026-11-14T12:08:59.0226644Z   compression-level: 6
+2026-11-14T12:08:59.0226956Z   overwrite: false
+2026-11-14T12:08:59.0227245Z   include-hidden-files: false
+2026-11-14T12:08:59.0227528Z   archive: true
+2026-11-14T12:08:59.0227788Z ##[endgroup]
+2026-11-14T12:08:59.1618127Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-11-14T12:08:59.1622755Z The least common ancestor is /home/runner/work/mitzo/mitzo. This will be the root directory of the artifact
+2026-11-14T12:08:59.1623747Z With the provided path, there will be 71 files uploaded
+2026-11-14T12:08:59.1625535Z Artifact name is valid!
+2026-11-14T12:08:59.1626132Z Root directory input is valid!
+2026-11-14T12:08:59.4277347Z Uploading artifact: symposium-ordinary-renders-f44cedbedd11ff91ab0f0d45e3fbf0e43e3ecf82-1.zip
+2026-11-14T12:08:59.4306904Z Beginning upload of artifact content to blob storage
+2026-11-14T12:09:00.1674083Z Uploaded bytes 8388608
+2026-11-14T12:09:00.3913685Z Uploaded bytes 16777216
+2026-11-14T12:09:00.4134349Z Uploaded bytes 25165824
+2026-11-14T12:09:00.5751601Z Uploaded bytes 33554432
+2026-11-14T12:09:00.8084600Z Uploaded bytes 41943040
+2026-11-14T12:09:01.0136221Z Uploaded bytes 49047841
+2026-11-14T12:09:01.0512143Z Finished uploading artifact content to blob storage!
+2026-11-14T12:09:01.0515362Z SHA256 digest of uploaded artifact is 188cfc36d5ed50ea0b64f1a9da04cabf3a87aa3ed3a4c9d28b84d84d2ecabb86
+2026-11-14T12:09:01.0517336Z Finalizing artifact upload
+2026-11-14T12:09:01.4622431Z Artifact symposium-ordinary-renders-f44cedbedd11ff91ab0f0d45e3fbf0e43e3ecf82-1 successfully finalized. Artifact ID 14112733287
+2026-11-14T12:09:01.4624283Z Artifact symposium-ordinary-renders-f44cedbedd11ff91ab0f0d45e3fbf0e43e3ecf82-1 has been successfully uploaded! Final size is 49047841 bytes. Artifact ID is 14112733287
+2026-11-14T12:09:01.4627113Z Artifact download URL: https://github.com/dimakis/mitzo/actions/runs/43592700054/artifacts/14112733287
+2026-11-14T12:09:01.4795545Z Post job cleanup.
+2026-11-14T12:09:01.4799384Z ##[start-action display=Run actions/setup-node@v7;id=__f0a730c9-f342-4e2a-a6ab-d6d8f025a20a.__actions_setup-node]
+2026-11-14T12:09:01.4801895Z ##[end-action id=__f0a730c9-f342-4e2a-a6ab-d6d8f025a20a.__actions_setup-node;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T12:09:01.4865413Z Post job cleanup.
+2026-11-14T12:09:01.5599519Z [command]/usr/bin/git version
+2026-11-14T12:09:01.5631662Z git version 2.56.1
+2026-11-14T12:09:01.5657626Z Temporarily overriding HOME='/home/runner/work/_temp/aaa0fee3-8657-43e2-abab-994114791c0a' before making global git config changes
+2026-11-14T12:09:01.5659209Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T12:09:01.5661417Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T12:09:01.5687192Z Removing SSH command configuration
+2026-11-14T12:09:01.5692146Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T12:09:01.5720892Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T12:09:01.5918678Z Removing HTTP extra header
+2026-11-14T12:09:01.5922970Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T12:09:01.5948346Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T12:09:01.6126499Z Removing includeIf entries pointing to credentials config files
+2026-11-14T12:09:01.6129933Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T12:09:01.6156007Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T12:09:01.6509228Z Cleaning up orphan processes

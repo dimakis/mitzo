@@ -2983,6 +2983,12 @@ export class EventStore {
         this.collaborationConversation.membershipChanged(membership),
       );
       this.collaborationConversation = new CollaborationConversationStore(db, {
+        navigationUnavailable: (identity) =>
+          this.log.info('Participant navigation record unavailable', {
+            stage: 'participant_navigation',
+            code: 'participant_navigation_record_unavailable',
+            ...identity,
+          }),
         sourceSetupAvailable: (id) =>
           this.isCollaborationParticipantAvailable(id) &&
           this.getSession(id)?.conversationSource !== 'external_import',
@@ -9002,7 +9008,15 @@ export class EventStore {
    * Prefer a matching message snippet when the title also matches.
    */
   searchSessions(query: string, limit = 20): SessionSearchResult[] {
-    return this.sessionMetadata.searchSessions(query, limit);
+    return this.sessionMetadata.searchSessions(
+      query,
+      limit,
+      Object.fromEntries(
+        this.collaborationConversation
+          .navigation()
+          .map((r) => [r.sessionId, r.sourceConversationId]),
+      ),
+    );
   }
 
   searchSessionsAsync(
@@ -9011,7 +9025,13 @@ export class EventStore {
     signal?: AbortSignal,
     cacheDirectory?: string,
   ): Promise<SessionSearchResult[]> {
-    return this.sessionMetadata.searchSessionsAsync(query, limit, signal, cacheDirectory);
+    return this.sessionMetadata.searchSessionsAsync(query, limit, signal, cacheDirectory, () =>
+      Object.fromEntries(
+        this.collaborationConversation
+          .navigation()
+          .map((r) => [r.sessionId, r.sourceConversationId]),
+      ),
+    );
   }
 
   markSessionInactive(sessionId: string): void {

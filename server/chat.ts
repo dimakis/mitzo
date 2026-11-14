@@ -106,6 +106,8 @@ import {
   saveOrdinaryContributorGuidance,
 } from './ordinary-contributor-guidance.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
+import { createOrdinaryTurnObservers } from './ordinary-turn-observers.js';
+import { OrdinaryLocalCodexCommandRequestSchema } from './ordinary-local-codex-admission.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import type { SourceSnapshot } from '@mitzo/protocol';
 export {
@@ -261,7 +263,6 @@ import {
   SESSION_PAGE_SIZE,
   SESSION_MESSAGES_LIMIT,
   USER_CLOSEOUT_TIMEOUT_MS,
-  ZERO_TURN_GRACE_MS,
   DEFAULT_AGENT_NAME,
   DEFAULT_CONTEXGIN_URL,
 } from './constants.js';
@@ -430,7 +431,8 @@ import {
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { shouldAutoRename } from './auto-rename.js';
-import { sessionDisplayName, sessionNamingPrompts } from './session-naming-context.js';
+import { sessionNamingPrompts } from './session-naming-context.js';
+import { sessionConversationPage } from './session-conversation-list.js';
 import {
   registerSession,
   updateSessionTitle,
@@ -454,7 +456,7 @@ function initEventStore(): EventStore {
   const mitzoDir = join(repoPath, '.mitzo');
   mkdirSync(mitzoDir, { recursive: true });
   const dbPath = join(mitzoDir, 'events.db');
-  const store = new EventStore(dbPath);
+  const store = new EventStore(dbPath, log);
   const recover = Reflect.get(store, 'recoverSymposiumDeliveries') as
     EventStore['recoverSymposiumDeliveries'] | undefined;
   const recovered =
@@ -3620,6 +3622,8 @@ export async function sendOwnedLocalCodexCommand(input: {
   command: unknown;
   operatorConnectionId: string;
   signal?: AbortSignal;
+  assertCurrent?(): void;
+  ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
 }): Promise<{ dispatched: boolean; sessionId: string }> {
   const unavailable = () => new Error('Owned local Codex chat unavailable');
   try {
@@ -3641,7 +3645,14 @@ export async function sendOwnedLocalCodexCommand(input: {
       throw unavailable();
     resolveOwnedTelosWorkCommandScope(input.sessionId);
     retained.reauthorize?.(input.operatorConnectionId);
-    const result = await retained.admit(structuredClone(input.command), input.signal);
+    if (input.ordinaryTurnLifecycle && !retained.supportsTurnLifecycle) throw unavailable();
+    input.assertCurrent?.();
+    const result = await retained.admit(
+      structuredClone(input.command),
+      input.signal,
+      input.assertCurrent,
+      input.ordinaryTurnLifecycle,
+    );
     captured.assertCurrent();
     resolveOwnedTelosWorkCommandScope(input.sessionId);
     if (result.dispatched) {
@@ -3845,6 +3856,7 @@ export async function startOwnedLocalCodexCommand(
   let driver: OrdinaryLocalCodexOwnedRuntime<LocalWorkspaceKind> | undefined;
   let prepared: Awaited<ReturnType<typeof prepareOwnedLocalCodexChat>> | undefined;
   let released = false;
+  const turnObservers = createOrdinaryTurnObservers();
   const release = () => {
     if (released) return;
     released = true;
@@ -3853,6 +3865,7 @@ export async function startOwnedLocalCodexCommand(
     if (live && driver && live.ordinaryRuntimeOwner?.identity === driver)
       delete live.ordinaryRuntimeOwner;
     driver?.close();
+    turnObservers.clear();
     input.onEnded?.();
   };
   try {
@@ -4065,6 +4078,7 @@ export async function startOwnedLocalCodexCommand(
           onSessionPrepared: input.onSessionPrepared,
           firstCommandAuthority,
           ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+          ordinaryTurnLifecycleForCommand: turnObservers.get,
           onQueryEvent: input.onQueryEvent,
           onTerminalOutcome: input.onTerminalOutcome,
         });
@@ -4092,6 +4106,7 @@ export async function startOwnedLocalCodexCommand(
     if (!liveSession) throw unavailable();
     const retainedDriver = driver;
     liveSession.ordinaryRuntimeOwner = {
+      supportsTurnLifecycle: true,
       location: 'local',
       authSessionId: ownerAuthSessionId,
       reauthorize: (connectionId) => retainedDriver.reauthorize(connectionId),
@@ -4099,7 +4114,17 @@ export async function startOwnedLocalCodexCommand(
       initialCommandId: commandId,
       initialPreparationOperationId: preparationOperationId,
       initialResume: resume,
-      admit: (command, signal) => retainedDriver.admitContinuation(command, signal),
+      admit: (command, signal, assertCurrent, observer) => {
+        const parsed = OrdinaryLocalCodexCommandRequestSchema.parse(command);
+        if (observer) turnObservers.retain(parsed.clientMsgId, observer);
+        return retainedDriver
+          .admitContinuation(command, signal, undefined, assertCurrent)
+          .catch((error) => {
+            if (!eventStore.getSendCommand(parsed.clientMsgId))
+              turnObservers.forget(parsed.clientMsgId);
+            throw error;
+          });
+      },
       notifyCredentialSetup: (notice) => {
         const meta = eventStore.getSession(sessionId);
         if (!meta) throw unavailable();
@@ -4223,6 +4248,7 @@ export async function prepareOwnedCodexChat(
     adviserScope?: AdviserTaskScope;
     onSessionPrepared?: (session: ManagedSession) => void;
     ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    ordinaryTurnLifecycleForCommand?(commandId: string): OrdinaryTurnLifecycle | undefined;
     onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
   },
 ): Promise<{ run(): Promise<void>; close(): void }> {
@@ -4489,6 +4515,7 @@ export async function prepareOwnedCodexChat(
         resolveOwnedTelosWorkCommandScope(sessionId, true);
       },
       ordinaryTurnLifecycle: options.ordinaryTurnLifecycle,
+      ordinaryTurnLifecycleForCommand: options.ordinaryTurnLifecycleForCommand,
       firstCommandAuthority,
       assertAgentContextAuthorization: () => {
         admission.assertCurrentSync();
@@ -6250,36 +6277,7 @@ export async function listImportableSdkConversations() {
  * Returns the same shape as getSessions() for API compatibility.
  */
 export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
-  const now = Date.now();
-  const all = eventStore.listSessions().filter((m) => {
-    if (m.isHidden || !isRegisteredConversation(m)) return false;
-    if (m.conversationSource === 'external_import') return true;
-    if (m.symposiumConfig) return true;
-    // Hide sessions that were never used through Mitzo (e.g. automated
-    // code review sessions discovered from filesystem).  Active sessions
-    // always show regardless of turn count. Controller-created conversations
-    // get the startup grace period; provider files cannot grant ownership.
-    if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) {
-      return (
-        Boolean(m.initialPrompt || m.accountBinding || m.conversationSource === 'mitzo') &&
-        now - m.createdAt < ZERO_TURN_GRACE_MS
-      );
-    }
-    return true;
-  });
-  all.sort((a, b) => b.updatedAt - a.updatedAt);
-  const page = all.slice(offset, offset + limit);
-  const hasMore = all.length > offset + limit;
-  return {
-    sessions: page.map((m) => ({
-      id: m.sessionId,
-      summary: sessionDisplayName(m, () => eventStore.getSessionNamingEvents(m.sessionId)),
-      lastModified: m.updatedAt,
-      branch: m.branch ?? undefined,
-      cwd: m.cwd ?? undefined,
-    })),
-    hasMore,
-  };
+  return sessionConversationPage(eventStore, offset, limit);
 }
 
 /**

@@ -1,0 +1,608 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+ [2m[90m↓[39m[22m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 320px keeps one transcript/composer after silent joining
+ [2m[90m↓[39m[22m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 390px keeps one transcript/composer after silent joining
+ [2m[90m↓[39m[22m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 1280px keeps one transcript/composer after silent joining
+{"level":30,"time":1794653207671,"pid":47336,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794653207617-9tkgrh","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794653207789,"pid":47336,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794653207617-9tkgrh","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ChatArea inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+{"level":30,"time":1794653209295,"pid":47336,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794653209241-etby1x","sessionId":"12aa8702-349f-8f10-b80a-5e5f03040b59","cursor":19,"msg":"cursor reset on reconnect"}
+{"level":30,"time":1794653209353,"pid":47336,"hostname":"Dimitris-MacBook-Pro","module":"connection-registry","connectionId":"conn-1794653209241-etby1x","sessionId":"12aa8702-349f-8f10-b80a-5e5f03040b59","cursor":19,"msg":"cursor reset on reconnect"}
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+[22m[39mOFFLINE_READINESS_DIAGNOSTIC {"code":"collaboration_recipient_readiness_failed","stage":"recipient_readiness","collaborationId":"5e6bc69f-b04b-4bf6-a61a-32b95091f01a","sessionId":"12aa8702-349f-8f10-b80a-5e5f03040b59","error":{"type":"SessionPromptError","message":"Choose a fresh configured group participant.","stack":"Error: Choose a fresh configured group participant.\n    at Object.inspectCollaboration (/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo/server/session-prompt-dispatch.ts:449:15)\n    at ApplicationCollaborationMessaging.recipientReadiness (/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo/server/collaboration-application-messaging.ts:176:23)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at /Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo/server/session-collaboration-router.ts:210:11","status":422}}
+
+{"level":30,"time":1794653217877,"pid":47336,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins[33m 11450[2mms[22m[39m
+[31m   → expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+[31m   → expected '' to be 'Original unsent ordinary draft' // Object.is equality[39m
+[31m   → expected …(2) to have a length of 1 but got 2[39m
+[31m   → expected …(2) to have a length of 1 but got 2[39m
+[31m   → ConversationChatDefault Mitzo · Offline only · Offline fixture · low · Local MacSettingsConversationLinks & accessChat settingsAccountOffline onlyModelOffline fixtureThinkinglowAgentDefault MitzoRun onLocal MacMore optionsPermissions, web & voiceNew-chat defaultsNot setSession detailsReviewChoose accountOffline onlyThis chat keeps its original account. Start a new chat to use another account.Choose modelOffline fixtureChanges apply to your next message. Running and already queued messages keep their settings.Model picker settingsModel defaultlowChanges apply to your next message. Running and already queued messages keep their settings.No saved account default. Review the account before sending.Refresh modelsRefresh modelsAgentChoose agentDefault Mitzo · r1Agent Builder · Creates reusable agents · r3Agent Builder · Creates reusable agents · r2Agent Builder · Creates reusable agents · r1Reviewer · Assistant · r1LibraryRun onFixed for this conversationOpenShellRun tools in an isolated sandbox.Local MacRun tools on this Mac.Execution hostOffline observation (offline-observation)Runs with CodexNew session on OpenShellStarts a separate conversation and checkout using the same agent and account. Prepare its repository before sending.Session detailsAccountOffline onlyAgentDefault MitzoModelOffline fixtureThinking levellowRun onLocal MacAgent softwareCodexWorkspace18051ef4-65e4-4ae6-a592-b7386441962fBranchUnavailableAskAgentAutoConnectedSession detailsSession ID12aa8702-349f-8f10-b80a-5e5f03040b59For this chatDone Establish the independent ordinary source history.Nov 14, 2026, 10:46 AMShare excerptYou11/14/2026, 10:46:48 AMEstablish the independent ordinary source history.Reviewed the selected design.Nov 14, 2026, 10:46 AMShare excerptFirst explicit accepted review from ordinary chat.To AcceptanceReviewerAcceptanceReviewerReply completedAcceptanceReviewerSession 3ab84ec7-918f-8336-a616-22a642fe38daoffline-personal · fixture-modelAcceptance streamed replyThe participant needs attention. Refresh Agents and review its account, context and ordinary session.Refresh conversationConcurrent ordinary responders with partial failure.@All agentsCommandsAttach images or PDFTerminal · unavailable for this routeExpand input: expected true to be false // Object.is equality
+
+Ignored nodes: comments, script, style
+[36m<html>[31m
+  [36m<head />[31m
+  [36m<body[31m
+    [33mstyle[31m=[32m""[31m
+  [36m>[31m
+    [36m<div />[31m
+    [36m<div>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"chat-page workspace-chat"[31m
+      [36m>[31m
+        [36m<section[31m
+          [33mclass[31m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[31m
+        [36m>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"chat-mobile-topbar"[31m
+          [36m>[31m
+            [36m<h1[31m
+              [33mclass[31m=[32m"sr-only"[31m
+            [36m>[31m
+              [0mConversation[0m
+            [36m</h1>[31m
+            [36m<section[31m
+              [33mclass[31m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[31m
+            [36m>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"workspace-controls-heading"[31m
+              [36m>[31m
+                [36m<a[31m
+                  [33maria-label[31m=[32m"Back to chats"[31m
+                  [33mclass[31m=[32m"chat-top-action"[31m
+                  [33mdata-discover[31m=[32m"true"[31m
+                  [33mhref[31m=[32m"/sessions"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"back"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"m14 6-6 6 6 6"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                [36m</a>[31m
+                [36m<div[31m
+                  [33mclass[31m=[32m"workspace-controls-context"[31m
+                [36m>[31m
+                  [36m<strong[31m
+                    [33mclass[31m=[32m"workspace-controls-profile"[31m
+                  [36m>[31m
+                    [0mChat[0m
+                  [36m</strong>[31m
+                  [36m<span>[31m
+                    [0mDefault Mitzo · Offline only · Offline fixture · low · Local Mac[0m
+                  [36m</span>[31m
+                [36m</div>[31m
+                [36m<button[31m
+                  [33maria-controls[31m=[32m"_r_l_"[31m
+                  [33maria-describedby[31m=[32m"_r_l_-status"[31m
+                  [33maria-expanded[31m=[32m"false"[31m
+                  [33maria-label[31m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[31m
+                  [33mclass[31m=[32m"workspace-controls-toggle header-action"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"settings"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"false"[31m
+                    [33mheight[31m=[32m"20"[31m
+                    [33mstroke[31m=[32m"currentColor"[31m
+                    [33mstroke-linecap[31m=[32m"round"[31m
+                    [33mstroke-linejoin[31m=[32m"round"[31m
+                    [33mstroke-width[31m=[32m"1.7"[31m
+                    [33mviewBox[31m=[32m"0 0 24 24"[31m
+                    [33mwidth[31m=[32m"20"[31m
+                  [36m>[31m
+                    [36m<path[31m
+                      [33md[31m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[31m
+                    [36m/>[31m
+                  [36m</svg>[31m
+                  [36m<span[31m
+                    [33mclass[31m=[32m"workspace-controls-label"[31m
+                  [36m>[31m
+                    [0mSettings[0m
+                  [36m</span>[31m
+                [36m</button>[31m
+                [36m<span[31m
+                  [33mclass[31m=[32m"conversation-state sr-only"[31m
+                  [33mid[31m=[32m"_r_l_-status"[31m
+                [36m>[31m
+                  [0mConversation[0m
+                [36m</span>[31m
+                [36m<div[31m
+                  [33mclass[31m=[32m"conversation-agents-entry"[31m
+                [36m>[31m
+                  [36m<button[31m
+                    [33maria-expanded[31m=[32m"false"[31m
+                    [33maria-label[31m=[32m"Agents, Default Mitzo, AcceptanceReviewer"[31m
+                    [33mclass[31m=[32m"conversation-participants-trigger header-action"[31m
+                    [33mtype[31m=[32m"button"[31m
+                  [36m>[31m
+                    [36m<svg[31m
+                      [33maria-hidden[31m=[32m"true"[31m
+                      [33mclass[31m=[32m"ui-icon"[31m
+                      [33mdata-icon[31m=[32m"bot"[31m
+                      [33mfill[31m=[32m"none"[31m
+                      [33mfocusable[31m=[32m"false"[31m
+                      [33mheight[31m=[32m"20"[31m
+                      [33mstroke[31m=[32m"currentColor"[31m
+                      [33mstroke-linecap[31m=[32m"round"[31m
+                      [33mstroke-linejoin[31m=[32m"round"[31m
+                      [33mstroke-width[31m=[32m"1.7"[31m
+                      [33mviewBox[31m=[32m"0 0 24 24"[31m
+                      [33mwidth[31m=[32m"20"[31m
+                    [36m>[31m
+                      [36m<path[31m
+                        [33md[31m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[31m
+                      [36m/>[31m
+                    [36m</svg>[31m
+                  [36m</button>[31m
+                [36m</div>[31m
+                [36m<button[31m
+                  [33maria-label[31m=[32m"Links & access"[31m
+                  [33mclass[31m=[32m"session-access-trigger header-action"[31m
+                  [33mtitle[31m=[32m"Links & access"[31m
+                  [33mtype[31m=[32m"button"[31m
+                [36m>[31m
+                  [36m<svg[31m
+                    [33maria-hidden[31m=[32m"true"[31m
+                    [33mclass[31m=[32m"ui-icon"[31m
+                    [33mdata-icon[31m=[32m"connections"[31m
+                    [33mfill[31m=[32m"none"[31m
+                    [33mfocusable[31m=[32m"fa...[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins
+[31m[1mAssertionError[22m: expected <textarea …(5)></textarea> to be <textarea …(5)></textarea> // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  <textarea[22m
+[2m    aria-label="Message Mitzo"[22m
+[2m    class="chat-input-field"[22m
+[32m-   placeholder="Message Mitzo..."[39m
+[31m+   placeholder="Message… @ to choose who replies"[39m
+[2m    rows="1"[22m
+[2m    style="height: 0px;"[22m
+[32m- >[39m
+[32m-   Original unsent ordinary draft[39m
+[32m- </textarea>[39m
+[31m+ />[39m
+
+[36m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m255:31[22m[39m
+    [90m253|[39m     expect(runtime.requests.filter((r) => r.method === 'turn/start')).…
+    [90m254|[39m     const currentInput = screen.getByRole('textbox', { name: 'Message …
+    [90m255|[39m     expect[33m.[39m[34msoft[39m(currentInput)[33m.[39m[34mtoBe[39m(original)[33m;[39m
+    [90m   |[39m                               [31m^[39m
+    [90m256|[39m     expect.soft((currentInput as HTMLTextAreaElement).value).toBe('Ori…
+    [90m257|[39m     expect.soft(mounted.ui.container.querySelectorAll('.chat-messages'…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins
+[31m[1mAssertionError[22m: expected '' to be 'Original unsent ordinary draft' // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Original unsent ordinary draft[39m
+
+[36m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m256:62[22m[39m
+    [90m254|[39m     const currentInput = screen.getByRole('textbox', { name: 'Message …
+    [90m255|[39m     expect[33m.[39m[34msoft[39m(currentInput)[33m.[39m[34mtoBe[39m(original)[33m;[39m
+    [90m256|[39m     expect.soft((currentInput as HTMLTextAreaElement).value).toBe('Ori…
+    [90m   |[39m                                                              [31m^[39m
+    [90m257|[39m     expect.soft(mounted.ui.container.querySelectorAll('.chat-messages'…
+    [90m258|[39m     fireEvent.click(screen.getByRole('button', { name: 'Choose who rep…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins
+[31m[1mAssertionError[22m: expected …(2) to have a length of 1 but got 2[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+[36m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m257:74[22m[39m
+    [90m255|[39m     expect[33m.[39m[34msoft[39m(currentInput)[33m.[39m[34mtoBe[39m(original)[33m;[39m
+    [90m256|[39m     expect.soft((currentInput as HTMLTextAreaElement).value).toBe('Ori…
+    [90m257|[39m     expect.soft(mounted.ui.container.querySelectorAll('.chat-messages'…
+    [90m   |[39m                                                                          [31m^[39m
+    [90m258|[39m     fireEvent.click(screen.getByRole('button', { name: 'Choose who rep…
+    [90m259|[39m     const choices = screen.getByRole('group', { name: 'Who replies to …
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins
+[31m[1mAssertionError[22m: expected …(2) to have a length of 1 but got 2[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+[36m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m298:74[22m[39m
+    [90m296|[39m       { timeout[33m:[39m [34m10000[39m }[33m,[39m
+    [90m297|[39m     )[33m;[39m
+    [90m298|[39m     expect.soft(mounted.ui.container.querySelectorAll('.chat-messages'…
+    [90m   |[39m                                                                          [31m^[39m
+    [90m299|[39m     [35mconst[39m call [33m=[39m h[33m.[39mfetch[33m.[39mmock[33m.[39mcalls[33m.[39m[34mfind[39m(
+    [90m300|[39m       ([url[33m,[39m init]) [33m=>[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins
+[31m[1mAssertionError[22m[39m: ConversationChatDefault Mitzo · Offline only · Offline fixture · low · Local MacSettingsConversationLinks & accessChat settingsAccountOffline onlyModelOffline fixtureThinkinglowAgentDefault MitzoRun onLocal MacMore optionsPermissions, web & voiceNew-chat defaultsNot setSession detailsReviewChoose accountOffline onlyThis chat keeps its original account. Start a new chat to use another account.Choose modelOffline fixtureChanges apply to your next message. Running and already queued messages keep their settings.Model picker settingsModel defaultlowChanges apply to your next message. Running and already queued messages keep their settings.No saved account default. Review the account before sending.Refresh modelsRefresh modelsAgentChoose agentDefault Mitzo · r1Agent Builder · Creates reusable agents · r3Agent Builder · Creates reusable agents · r2Agent Builder · Creates reusable agents · r1Reviewer · Assistant · r1LibraryRun onFixed for this conversationOpenShellRun tools in an isolated sandbox.Local MacRun tools on this Mac.Execution hostOffline observation (offline-observation)Runs with CodexNew session on OpenShellStarts a separate conversation and checkout using the same agent and account. Prepare its repository before sending.Session detailsAccountOffline onlyAgentDefault MitzoModelOffline fixtureThinking levellowRun onLocal MacAgent softwareCodexWorkspace18051ef4-65e4-4ae6-a592-b7386441962fBranchUnavailableAskAgentAutoConnectedSession detailsSession ID12aa8702-349f-8f10-b80a-5e5f03040b59For this chatDone Establish the independent ordinary source history.Nov 14, 2026, 10:46 AMShare excerptYou11/14/2026, 10:46:48 AMEstablish the independent ordinary source history.Reviewed the selected design.Nov 14, 2026, 10:46 AMShare excerptFirst explicit accepted review from ordinary chat.To AcceptanceReviewerAcceptanceReviewerReply completedAcceptanceReviewerSession 3ab84ec7-918f-8336-a616-22a642fe38daoffline-personal · fixture-modelAcceptance streamed replyThe participant needs attention. Refresh Agents and review its account, context and ordinary session.Refresh conversationConcurrent ordinary responders with partial failure.@All agentsCommandsAttach images or PDFTerminal · unavailable for this routeExpand input: expected true to be false // Object.is equality
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body[39m
+    [33mstyle[39m=[32m""[39m
+  [36m>[39m
+    [36m<div />[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"chat-page workspace-chat"[39m
+      [36m>[39m
+        [36m<section[39m
+          [33mclass[39m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"chat-mobile-topbar"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0mConversation[0m
+            [36m</h1>[39m
+            [36m<section[39m
+              [33mclass[39m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"workspace-controls-heading"[39m
+              [36m>[39m
+                [36m<a[39m
+                  [33maria-label[39m=[32m"Back to chats"[39m
+                  [33mclass[39m=[32m"chat-top-action"[39m
+                  [33mdata-discover[39m=[32m"true"[39m
+                  [33mhref[39m=[32m"/sessions"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"back"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"m14 6-6 6 6 6"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                [36m</a>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"workspace-controls-context"[39m
+                [36m>[39m
+                  [36m<strong[39m
+                    [33mclass[39m=[32m"workspace-controls-profile"[39m
+                  [36m>[39m
+                    [0mChat[0m
+                  [36m</strong>[39m
+                  [36m<span>[39m
+                    [0mDefault Mitzo · Offline only · Offline fixture · low · Local Mac[0m
+                  [36m</span>[39m
+                [36m</div>[39m
+                [36m<button[39m
+                  [33maria-controls[39m=[32m"_r_l_"[39m
+                  [33maria-describedby[39m=[32m"_r_l_-status"[39m
+                  [33maria-expanded[39m=[32m"false"[39m
+                  [33maria-label[39m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[39m
+                  [33mclass[39m=[32m"workspace-controls-toggle header-action"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"settings"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"false"[39m
+                    [33mheight[39m=[32m"20"[39m
+                    [33mstroke[39m=[32m"currentColor"[39m
+                    [33mstroke-linecap[39m=[32m"round"[39m
+                    [33mstroke-linejoin[39m=[32m"round"[39m
+                    [33mstroke-width[39m=[32m"1.7"[39m
+                    [33mviewBox[39m=[32m"0 0 24 24"[39m
+                    [33mwidth[39m=[32m"20"[39m
+                  [36m>[39m
+                    [36m<path[39m
+                      [33md[39m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[39m
+                    [36m/>[39m
+                  [36m</svg>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"workspace-controls-label"[39m
+                  [36m>[39m
+                    [0mSettings[0m
+                  [36m</span>[39m
+                [36m</button>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"conversation-state sr-only"[39m
+                  [33mid[39m=[32m"_r_l_-status"[39m
+                [36m>[39m
+                  [0mConversation[0m
+                [36m</span>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"conversation-agents-entry"[39m
+                [36m>[39m
+                  [36m<button[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-label[39m=[32m"Agents, Default Mitzo, AcceptanceReviewer"[39m
+                    [33mclass[39m=[32m"conversation-participants-trigger header-action"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ui-icon"[39m
+                      [33mdata-icon[39m=[32m"bot"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mfocusable[39m=[32m"false"[39m
+                      [33mheight[39m=[32m"20"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"1.7"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"20"[39m
+                    [36m>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+                [36m<button[39m
+                  [33maria-label[39m=[32m"Links & access"[39m
+                  [33mclass[39m=[32m"session-access-trigger header-action"[39m
+                  [33mtitle[39m=[32m"Links & access"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [36m<svg[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"ui-icon"[39m
+                    [33mdata-icon[39m=[32m"connections"[39m
+                    [33mfill[39m=[32m"none"[39m
+                    [33mfocusable[39m=[32m"fa...
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+[36m [2m❯[22m timeout tests/integration/symposium-ordinary-acceptance.test.tsx:[2m326:89[22m[39m
+    [90m324|[39m       target: { value: 'Concurrent ordinary responders with partial fa…
+    [90m325|[39m     })[33m;[39m
+    [90m326|[39m     await waitFor(() => expect(send().disabled, mounted.ui.container.t…
+    [90m   |[39m                                                                                         [31m^[39m
+    [90m327|[39m     fireEvent[33m.[39m[34mclick[39m([34msend[39m())[33m;[39m
+    [90m328|[39m     [35mawait[39m [34mwaitFor[39m(() [33m=>[39m
+[90m [2m❯[22m runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:[2m47:12[22m[39m
+[90m [2m❯[22m checkCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m124:77[22m[39m
+[90m [2m❯[22m Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m118:16[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[33m3 skipped[39m[90m (4)[39m
+[2m   Start at [22m 10:46:40
+[2m   Duration [22m 17.64s[2m (transform 4.11s, setup 0ms, import 584ms, tests 16.48s, environment 475ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

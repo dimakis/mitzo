@@ -1760,6 +1760,41 @@ confirmation, failure preservation and replacement. Captures show
 
 ## Symposium participant presentation
 
+### Continuous ordinary discussion — 14 November 2026
+
+Sharing an ordinary chat extends its existing `ChatArea` and `ChatInput`: one
+scrolling transcript and one mounted composer. Rich ordinary blocks, live replies,
+permissions and recovery controls retain their original owners. Source echoes use
+conversation/message/command identity; independent equal text remains visible.
+Transcript order follows retained sequence, without comparing independent clocks.
+Native delivery packets are suppressed by exact command identity; each projected
+operator body keeps its own identity. Source rows awaiting reconciliation follow
+their command rather than moving into the pre-sharing history.
+The responsive input portal retains draft, attachments, context, selection and focus
+through status qualification; its routing updates independently of source activity.
+Navigating to a different conversation retires that input's dispatch fence. The
+original agent's Stop and a retained shared request's Stop keep separate owners,
+including when a reviewer request is uncertain while the original agent runs.
+The initial explicit recipient remains the original agent. Saved empty choices stay
+empty, with Choose who replies opening the existing picker. Unsupported shared
+attachments remain available to remove with a precise explanation. Refresh checks
+stale state; uncertain sends and Stop keep their original request identity.
+The ordinary shared recipient trigger remains icon-only; names and unavailable
+selection details remain in its picker, tooltip and accessible description. Keep
+the existing microphone, resources, tools and context wheel mounted. Until
+per-agent usage is available, the wheel identifies its original agent explicitly;
+changing reply recipients must never relabel that agent's usage as another's.
+Active ordinary sharing also keeps participant names visible in its existing header
+action. On phone the named trigger takes the former metadata summary's space;
+settings retain those details. The bot, back, access, settings and new-chat controls
+keep their owners and touch targets. The existing name/count container rules reserve
+the readable source-name track and collapse additional names at narrow widths.
+At enlarged text sizes the existing heading actions wrap within the chat width;
+the compact name track reserves room for the adjacent participant count.
+This restores the approved `symposium-fresh-agent` surface using existing controls
+and tokens; it introduces no new visual theme or dispatch authority. See
+[slice 1 evidence](../evidence/symposium-integrated-conversation-2026-11-14.md).
+
 ### Phone setup and deliberate sharing — 13 November 2026
 
 Dimitri's phone test rejected the long Add agent form and its unexplained disabled

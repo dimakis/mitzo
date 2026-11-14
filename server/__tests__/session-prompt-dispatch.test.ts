@@ -4,6 +4,7 @@ import type { SessionRegistry, ConnectionRegistry } from '@mitzo/harness';
 import type { SessionPromptDelivery } from '../session-prompt-store.js';
 import { createSessionPromptPort, sessionPromptText } from '../session-prompt-dispatch.js';
 import type { OwnedOrdinaryDispatchInput } from '../ordinary-scoped-command.js';
+import { CollaborationSettingsSchema } from '@mitzo/protocol';
 
 const f = vi.hoisted(() => ({
   dispatch: vi.fn<(input: OwnedOrdinaryDispatchInput) => Promise<{ dispatched: boolean }>>(
@@ -303,6 +304,55 @@ it('observes ordinary collaboration capability without binding or dispatching an
   expect(f.dispatch).not.toHaveBeenCalled();
   fxt.port.close();
 });
+
+it.each(['codex', 'claude-sdk'])(
+  'uses an existing authenticated ordinary %s source with exact per-command observers',
+  async (harness) => {
+    const h = fixture(harness);
+    const session = {
+      ownedLocalAuthSessionId: 'login',
+      ordinaryRuntimeOwner: {
+        location: 'local',
+        authSessionId: 'login',
+        identity: {},
+        initialCommandId: 'original',
+        supportsTurnLifecycle: true,
+      },
+      transport: { send() {}, isOpen: () => true },
+    };
+    f.live = { clientId: 'original-owner', session };
+    const prompt: Parameters<typeof h.port.deliverOrdinary>[0] = {
+      sessionId: 'worker',
+      commandId: 'explicit-shared',
+      text: 'An explicit shared response',
+      auth: h.delivery.auth,
+      settings: CollaborationSettingsSchema.parse({
+        binding: f.binding,
+        selection: f.selection,
+        repositoryWorkspaceId: 'workspace',
+      }),
+      turnLifecycle: { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() },
+    };
+    await expect(h.port.inspectCollaboration!(prompt)).resolves.toBeUndefined();
+    expect(f.dispatch).not.toHaveBeenCalled();
+    await h.port.deliverOrdinary(prompt, new AbortController().signal, f.current);
+    expect(f.dispatch).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        sessionId: 'worker',
+        clientId: 'original-owner',
+        existingOwner: true,
+        ordinaryTurnLifecycle: expect.any(Object),
+        transport: session.transport,
+      }),
+    );
+    const observer = f.dispatch.mock.calls[0][0].ordinaryTurnLifecycle!;
+    observer.beforeDispatch(prompt.commandId);
+    expect(prompt.turnLifecycle!.beforeDispatch).toHaveBeenCalledWith(prompt.commandId);
+    session.ordinaryRuntimeOwner.authSessionId = 'foreign-login';
+    await expect(h.port.inspectCollaboration!(prompt)).rejects.toThrow();
+    h.port.close();
+  },
+);
 
 it.each([
   ['codex', 'local'],

@@ -1,0 +1,1675 @@
+﻿2026-11-14T11:40:06.4732712Z Current runner version: '2.338.2'
+2026-11-14T11:40:06.4758657Z ##[group]Runner Image Provisioner
+2026-11-14T11:40:06.4760092Z Hosted Compute Agent
+2026-11-14T11:40:06.4760843Z Version: 20261103.629
+2026-11-14T11:40:06.4761568Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-14T11:40:06.4762372Z Build Date: 2026-11-03T17:26:59Z
+2026-11-14T11:40:06.4763066Z Worker ID: {eb90439a-da20-4631-9ea0-187217c87796}
+2026-11-14T11:40:06.4763830Z Region: westus
+2026-11-14T11:40:06.4764419Z Cloud: Azure
+2026-11-14T11:40:06.4764973Z ##[endgroup]
+2026-11-14T11:40:06.4767068Z ##[group]Operating System
+2026-11-14T11:40:06.4767744Z Ubuntu
+2026-11-14T11:40:06.4768365Z 24.04.5
+2026-11-14T11:40:06.4768899Z LTS
+2026-11-14T11:40:06.4769416Z ##[endgroup]
+2026-11-14T11:40:06.4770515Z ##[group]Runner Image
+2026-11-14T11:40:06.4771156Z Image: ubuntu-24.04
+2026-11-14T11:40:06.4771790Z Version: 20261111.370.1
+2026-11-14T11:40:06.4773115Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.370/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-14T11:40:06.4774813Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.370
+2026-11-14T11:40:06.4775796Z ##[endgroup]
+2026-11-14T11:40:06.4776981Z ##[group]GITHUB_TOKEN Permissions
+2026-11-14T11:40:06.4778914Z Contents: read
+2026-11-14T11:40:06.4779925Z Metadata: read
+2026-11-14T11:40:06.4780601Z ##[endgroup]
+2026-11-14T11:40:06.4782792Z Secret source: Actions
+2026-11-14T11:40:06.4783854Z Cache mode: write
+2026-11-14T11:40:06.4784610Z Prepare workflow directory
+2026-11-14T11:40:06.5195108Z Prepare all required actions
+2026-11-14T11:40:06.5246592Z Getting action download info
+2026-11-14T11:40:06.8798288Z Download action repository 'actions/checkout@v7' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-14T11:40:07.0171907Z Download action repository 'actions/upload-artifact@v7' (SHA:cf430e030ddbb5b0abf93d22962f4752f3646cd9)
+2026-11-14T11:40:07.1996718Z Complete job name: Ordinary authenticated application owners
+2026-11-14T11:40:07.2903529Z ##[group]Run actions/checkout@v7
+2026-11-14T11:40:07.2904590Z with:
+2026-11-14T11:40:07.2905051Z   persist-credentials: false
+2026-11-14T11:40:07.2905591Z   repository: dimakis/mitzo
+2026-11-14T11:40:07.2909213Z   token: ***
+2026-11-14T11:40:07.2910011Z   ssh-strict: true
+2026-11-14T11:40:07.2910502Z   ssh-user: git
+2026-11-14T11:40:07.2910941Z   clean: true
+2026-11-14T11:40:07.2911396Z   sparse-checkout-cone-mode: true
+2026-11-14T11:40:07.2911953Z   fetch-depth: 1
+2026-11-14T11:40:07.2912398Z   fetch-tags: false
+2026-11-14T11:40:07.2912855Z   show-progress: true
+2026-11-14T11:40:07.2913307Z   lfs: false
+2026-11-14T11:40:07.2913727Z   submodules: false
+2026-11-14T11:40:07.2914192Z   set-safe-directory: true
+2026-11-14T11:40:07.2914717Z   allow-unsafe-pr-checkout: false
+2026-11-14T11:40:07.2915820Z ##[endgroup]
+2026-11-14T11:40:07.6032318Z Syncing repository: dimakis/mitzo
+2026-11-14T11:40:07.6035108Z ##[group]Getting Git version info
+2026-11-14T11:40:07.6036373Z Working directory is '/home/runner/work/mitzo/mitzo'
+2026-11-14T11:40:07.6038007Z [command]/usr/bin/git version
+2026-11-14T11:40:07.6129034Z git version 2.56.1
+2026-11-14T11:40:07.6154856Z ##[endgroup]
+2026-11-14T11:40:07.6167065Z Temporarily overriding HOME='/home/runner/work/_temp/353de5c3-2398-4709-90a4-ca94f76cc6cb' before making global git config changes
+2026-11-14T11:40:07.6170215Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T11:40:07.6174181Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T11:40:07.6241046Z Deleting the contents of '/home/runner/work/mitzo/mitzo'
+2026-11-14T11:40:07.6242937Z ##[group]Determining repository object format
+2026-11-14T11:40:07.6244410Z ##[endgroup]
+2026-11-14T11:40:07.6245621Z ##[group]Initializing the repository
+2026-11-14T11:40:07.6251757Z [command]/usr/bin/git init /home/runner/work/mitzo/mitzo
+2026-11-14T11:40:07.6372384Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-14T11:40:07.6374547Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-14T11:40:07.6376083Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-14T11:40:07.6377275Z hint: call:
+2026-11-14T11:40:07.6377927Z hint:
+2026-11-14T11:40:07.6378827Z hint: 	git config --global init.defaultBranch <name>
+2026-11-14T11:40:07.6380114Z hint:
+2026-11-14T11:40:07.6381130Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-14T11:40:07.6382657Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-14T11:40:07.6383895Z hint:
+2026-11-14T11:40:07.6384572Z hint: 	git branch -m <name>
+2026-11-14T11:40:07.6385337Z hint:
+2026-11-14T11:40:07.6386424Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-14T11:40:07.6388060Z Initialized empty Git repository in /home/runner/work/mitzo/mitzo/.git/
+2026-11-14T11:40:07.6394017Z [command]/usr/bin/git remote add origin https://github.com/dimakis/mitzo
+2026-11-14T11:40:07.6455926Z ##[endgroup]
+2026-11-14T11:40:07.6457342Z ##[group]Disabling automatic garbage collection
+2026-11-14T11:40:07.6458762Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-14T11:40:07.6496406Z ##[endgroup]
+2026-11-14T11:40:07.6498137Z ##[group]Setting up auth
+2026-11-14T11:40:07.6499117Z Removing SSH command configuration
+2026-11-14T11:40:07.6505431Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T11:40:07.6548245Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T11:40:07.6973128Z Removing HTTP extra header
+2026-11-14T11:40:07.6975204Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T11:40:07.7032815Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T11:40:07.7307228Z Removing includeIf entries pointing to credentials config files
+2026-11-14T11:40:07.7313527Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T11:40:07.7365816Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T11:40:07.7627588Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-14T11:40:07.7680323Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git.path /home/runner/work/_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config
+2026-11-14T11:40:07.7725865Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config
+2026-11-14T11:40:07.7772430Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config
+2026-11-14T11:40:07.7818988Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config
+2026-11-14T11:40:07.7862318Z ##[endgroup]
+2026-11-14T11:40:07.7863124Z ##[group]Fetching the repository
+2026-11-14T11:40:07.7869104Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +b6f1730bb7d7b05d83a280bf096574961c98c719:refs/remotes/pull/1355/merge
+2026-11-14T11:40:11.8096403Z From https://github.com/dimakis/mitzo
+2026-11-14T11:40:11.8100667Z  * [new ref]         b6f1730bb7d7b05d83a280bf096574961c98c719 -> pull/1355/merge
+2026-11-14T11:40:11.8107391Z ##[endgroup]
+2026-11-14T11:40:11.8110599Z ##[group]Determining the checkout info
+2026-11-14T11:40:11.8113188Z ##[endgroup]
+2026-11-14T11:40:11.8119407Z [command]/usr/bin/git sparse-checkout disable
+2026-11-14T11:40:11.8187079Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-14T11:40:11.8237603Z ##[group]Checking out the ref
+2026-11-14T11:40:11.8241972Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1355/merge
+2026-11-14T11:40:12.5093730Z Note: switching to 'refs/remotes/pull/1355/merge'.
+2026-11-14T11:40:12.5094503Z 
+2026-11-14T11:40:12.5094954Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-14T11:40:12.5095930Z changes and commit them, and you can discard any commits you make in this
+2026-11-14T11:40:12.5096881Z state without impacting any branches by switching back to a branch.
+2026-11-14T11:40:12.5097429Z 
+2026-11-14T11:40:12.5097850Z If you want to create a new branch to retain commits you create, you may
+2026-11-14T11:40:12.5098824Z do so (now or later) by using -c with the switch command. Example:
+2026-11-14T11:40:12.5099331Z 
+2026-11-14T11:40:12.5099557Z   git switch -c <new-branch-name>
+2026-11-14T11:40:12.5100487Z 
+2026-11-14T11:40:12.5100682Z Or undo this operation with:
+2026-11-14T11:40:12.5100972Z 
+2026-11-14T11:40:12.5101113Z   git switch -
+2026-11-14T11:40:12.5101347Z 
+2026-11-14T11:40:12.5101615Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-14T11:40:12.5101973Z 
+2026-11-14T11:40:12.5102376Z HEAD is now at b6f1730 Merge 06ad8abd70366417440ba4b0c0be40d3d199c4c3 into 9af764899302cbcc55c60ed0d2e7f159b266a045
+2026-11-14T11:40:12.5124789Z ##[endgroup]
+2026-11-14T11:40:12.5193656Z [command]/usr/bin/git log -1 --format=%H
+2026-11-14T11:40:12.5238686Z b6f1730bb7d7b05d83a280bf096574961c98c719
+2026-11-14T11:40:12.5251065Z ##[group]Removing auth
+2026-11-14T11:40:12.5251798Z Removing SSH command configuration
+2026-11-14T11:40:12.5257925Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T11:40:12.5310498Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T11:40:12.5582796Z Removing HTTP extra header
+2026-11-14T11:40:12.5586961Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T11:40:12.5637970Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T11:40:12.5903627Z Removing includeIf entries pointing to credentials config files
+2026-11-14T11:40:12.5907603Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T11:40:12.5950229Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T11:40:12.5951378Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T11:40:12.5951979Z includeif.gitdir:/github/workspace/.git.path
+2026-11-14T11:40:12.5952477Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T11:40:12.5961155Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-14T11:40:12.6000672Z /home/runner/work/_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config
+2026-11-14T11:40:12.6012651Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-815fe526\-367f\-40f4\-a4e4\-23b09aa12da1\.config
+2026-11-14T11:40:12.6065752Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-14T11:40:12.6104110Z /home/runner/work/_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config
+2026-11-14T11:40:12.6113264Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-815fe526\-367f\-40f4\-a4e4\-23b09aa12da1\.config
+2026-11-14T11:40:12.6162106Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-14T11:40:12.6199810Z /github/runner_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config
+2026-11-14T11:40:12.6209927Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-815fe526\-367f\-40f4\-a4e4\-23b09aa12da1\.config
+2026-11-14T11:40:12.6265090Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T11:40:12.6306280Z /github/runner_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config
+2026-11-14T11:40:12.6315947Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-815fe526\-367f\-40f4\-a4e4\-23b09aa12da1\.config
+2026-11-14T11:40:12.6364092Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T11:40:12.6624811Z Removing credentials config '/home/runner/work/_temp/git-credentials-815fe526-367f-40f4-a4e4-23b09aa12da1.config'
+2026-11-14T11:40:12.6635421Z ##[endgroup]
+2026-11-14T11:40:12.6922415Z Prepare all required actions
+2026-11-14T11:40:12.6923116Z Getting action download info
+2026-11-14T11:40:12.8219029Z Download action repository 'actions/setup-node@v7' (SHA:949feb2413d6458794dcd2491c4babbbce0c15c1)
+2026-11-14T11:40:12.9269038Z ##[group]Run ./.github/actions/ci-node
+2026-11-14T11:40:12.9269359Z with:
+2026-11-14T11:40:12.9269804Z   node-version: 24.22.1
+2026-11-14T11:40:12.9270045Z ##[endgroup]
+2026-11-14T11:40:12.9328316Z ##[start-action display=Run actions/setup-node@v7;id=__self.__actions_setup-node]
+2026-11-14T11:40:12.9422280Z ##[group]Run actions/setup-node@v7
+2026-11-14T11:40:12.9422555Z with:
+2026-11-14T11:40:12.9422770Z   node-version: 24.22.1
+2026-11-14T11:40:12.9423038Z   cache: npm
+2026-11-14T11:40:12.9423240Z   check-latest: false
+2026-11-14T11:40:12.9425532Z   token: ***
+2026-11-14T11:40:12.9425753Z   package-manager-cache: true
+2026-11-14T11:40:12.9426005Z ##[endgroup]
+2026-11-14T11:40:13.0748401Z Attempting to download 24.22.1...
+2026-11-14T11:40:13.7481758Z Acquiring 24.22.1 - x64 from https://github.com/actions/node-versions/releases/download/24.22.1-39619001896/node-24.22.1-linux-x64.tar.gz
+2026-11-14T11:40:14.2548891Z Extracting ...
+2026-11-14T11:40:14.2695657Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/dc6799e9-5896-42ff-aaba-1998ae031a1b -f /home/runner/work/_temp/580d2eef-fbde-4b11-a24a-c9f8ce2b469d
+2026-11-14T11:40:15.5370442Z Adding to the cache ...
+2026-11-14T11:40:17.4084962Z ##[group]Environment details
+2026-11-14T11:40:17.6640948Z node: v24.22.1
+2026-11-14T11:40:17.6641415Z npm: 11.19.1
+2026-11-14T11:40:17.6641756Z yarn: 1.22.22
+2026-11-14T11:40:17.6642629Z ##[endgroup]
+2026-11-14T11:40:17.6664039Z [command]/opt/hostedtoolcache/node/24.22.1/x64/bin/npm config get cache
+2026-11-14T11:40:17.7687497Z /home/runner/.npm
+2026-11-14T11:40:18.0255892Z Cache hit for: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T11:40:19.3113514Z Received 25165824 of 422744543 (6.0%), 24.0 MBs/sec
+2026-11-14T11:40:20.3126024Z Received 134217728 of 422744543 (31.7%), 63.9 MBs/sec
+2026-11-14T11:40:21.3201181Z Received 272629760 of 422744543 (64.5%), 86.6 MBs/sec
+2026-11-14T11:40:22.2601662Z Received 422744543 of 422744543 (100.0%), 102.1 MBs/sec
+2026-11-14T11:40:22.2602687Z Cache Size: ~403 MB (422744543 B)
+2026-11-14T11:40:22.2637818Z [command]/usr/bin/tar -xf /home/runner/work/_temp/f0b9d06b-2818-40c7-a18f-b45dad8fe01d/cache.tzst -P -C /home/runner/work/mitzo/mitzo --use-compress-program unzstd
+2026-11-14T11:40:23.1624975Z Cache restored successfully
+2026-11-14T11:40:23.1812900Z Cache restored from key: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-14T11:40:23.2152054Z ##[end-action id=__self.__actions_setup-node;outcome=success;conclusion=success;duration_ms=10282]
+2026-11-14T11:40:23.2156037Z ##[start-action display=Run npm install --global npm@11.18.0;id=__self.__run]
+2026-11-14T11:40:23.2200690Z ##[group]Run npm install --global npm@11.18.0
+2026-11-14T11:40:23.2201100Z [36;1mnpm install --global npm@11.18.0[0m
+2026-11-14T11:40:23.2228311Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T11:40:23.2228692Z ##[endgroup]
+2026-11-14T11:40:25.2040699Z 
+2026-11-14T11:40:25.2058313Z changed 18 packages in 2s
+2026-11-14T11:40:25.2058716Z 
+2026-11-14T11:40:25.2059521Z 15 packages are looking for funding
+2026-11-14T11:40:25.2060415Z   run `npm fund` for details
+2026-11-14T11:40:25.2614805Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=2045]
+2026-11-14T11:40:25.2618412Z ##[start-action display=Run npm install --no-audit;id=__self.__run_2]
+2026-11-14T11:40:25.2647706Z ##[group]Run npm install --no-audit
+2026-11-14T11:40:25.2648144Z [36;1mnpm install --no-audit[0m
+2026-11-14T11:40:25.2669142Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T11:40:25.2669537Z ##[endgroup]
+2026-11-14T11:40:26.4184373Z npm warn skipping integrity check for git dependency ssh://git@github.com/dimakis/contexgin.git
+2026-11-14T11:40:32.3806515Z npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+2026-11-14T11:40:33.5002887Z npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+2026-11-14T11:40:51.1141819Z npm warn gitignore-fallback No .npmignore file found, using .gitignore for file exclusion. Consider creating a .npmignore file to explicitly control published files.
+2026-11-14T11:41:00.8043491Z 
+2026-11-14T11:41:00.8044175Z > mitzo@1.0.0 postinstall
+2026-11-14T11:41:00.8044745Z > node scripts/prepare-terminal-native.mjs
+2026-11-14T11:41:00.8045090Z 
+2026-11-14T11:41:00.8923128Z 
+2026-11-14T11:41:00.8924022Z > mitzo@1.0.0 prepare
+2026-11-14T11:41:00.8924560Z > husky || true
+2026-11-14T11:41:00.8924780Z 
+2026-11-14T11:41:01.0708056Z 
+2026-11-14T11:41:01.0709068Z added 1026 packages in 36s
+2026-11-14T11:41:01.0709536Z 
+2026-11-14T11:41:01.0710581Z 280 packages are looking for funding
+2026-11-14T11:41:01.0712127Z   run `npm fund` for details
+2026-11-14T11:41:01.0731458Z npm warn allow-scripts 6 packages have install scripts not yet covered by allowScripts:
+2026-11-14T11:41:01.0732464Z npm warn allow-scripts   better-sqlite3@13.0.3 (install: node-gyp rebuild)
+2026-11-14T11:41:01.0733531Z npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)
+2026-11-14T11:41:01.0734927Z npm warn allow-scripts   esbuild@0.28.2 (postinstall: node install.js)
+2026-11-14T11:41:01.0736259Z npm warn allow-scripts   node-pty@1.1.0 (install: node scripts/prebuild.js || node-gyp rebuild; postinstall: node scripts/post-install.js)
+2026-11-14T11:41:01.0737492Z npm warn allow-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+2026-11-14T11:41:01.0738365Z npm warn allow-scripts   esbuild@0.25.12 (postinstall: node install.js)
+2026-11-14T11:41:01.0738944Z npm warn allow-scripts
+2026-11-14T11:41:01.0740097Z npm warn allow-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+2026-11-14T11:41:01.2103483Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=35948]
+2026-11-14T11:41:01.2143881Z ##[group]Run npm run check:source-artifacts
+2026-11-14T11:41:01.2144309Z [36;1mnpm run check:source-artifacts[0m
+2026-11-14T11:41:01.2164466Z shell: /usr/bin/bash -e {0}
+2026-11-14T11:41:01.2164732Z ##[endgroup]
+2026-11-14T11:41:01.3207080Z 
+2026-11-14T11:41:01.3207853Z > mitzo@1.0.0 check:source-artifacts
+2026-11-14T11:41:01.3208630Z > node scripts/check-reviewed-handler-artifacts.mjs --source
+2026-11-14T11:41:01.3209511Z 
+2026-11-14T11:41:01.7115063Z Reviewed handler artifacts verified for v1.0.2; Connections runtime v1.0.1151-symposium-integrated-acceptance.
+2026-11-14T11:41:01.7541862Z ##[group]Run set -o pipefail
+2026-11-14T11:41:01.7542180Z [36;1mset -o pipefail[0m
+2026-11-14T11:41:01.7543049Z [36;1mnpx vitest run tests/integration/symposium-ordinary-acceptance.test.tsx tests/integration/symposium-required-owners.test.ts --maxWorkers=1 --reporter=verbose 2>&1 | tee symposium-application.log[0m
+2026-11-14T11:41:01.7563004Z shell: /usr/bin/bash -e {0}
+2026-11-14T11:41:01.7563255Z env:
+2026-11-14T11:41:01.7563495Z   NODE_OPTIONS: --max-old-space-size=1024
+2026-11-14T11:41:01.7563772Z ##[endgroup]
+2026-11-14T11:41:02.3341009Z 
+2026-11-14T11:41:02.3346114Z [1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/home/runner/work/mitzo/mitzo[39m
+2026-11-14T11:41:02.3347125Z 
+2026-11-14T11:41:04.4567811Z [90mstdout[2m | tests/integration/symposium-ordinary-acceptance.test.tsx
+2026-11-14T11:41:04.4571301Z [22m[39mORDINARY_ACCEPTANCE_SOURCE {"head":"b6f1730bb7d7b05d83a280bf096574961c98c719","branch":"detached HEAD","testSha256":"cec55323ed3154757a59420b6d0eb5f0416062193fafe9e8e2e34ae8b58cac53","node":"v24.22.1","build":"Vitest source transpilation","route":"/chat/:sessionId","widths":[320,390,1280],"renderer":"JSDOM; no visual acceptance","externalExecution":"deterministic RPC"}
+2026-11-14T11:41:04.4573057Z 
+2026-11-14T11:41:17.1645043Z {"level":30,"time":1794656477163,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656477109-qo7oht","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:17.5501704Z {"level":30,"time":1794656477549,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656477109-qo7oht","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:18.0368582Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 320px keeps one transcript/composer after silent joining
+2026-11-14T11:41:18.0370977Z [22m[39mSession links could not be refreshed {
+2026-11-14T11:41:18.0371873Z   code: [32m'session_launch_read_failed'[39m,
+2026-11-14T11:41:18.0372385Z   stage: [32m'read'[39m,
+2026-11-14T11:41:18.0372792Z   sessionId: [32m'existing-chat'[39m,
+2026-11-14T11:41:18.0373244Z   cause: [32m'Error'[39m
+2026-11-14T11:41:18.0373538Z }
+2026-11-14T11:41:18.0373678Z 
+2026-11-14T11:41:18.4422355Z  [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 320px keeps one transcript/composer after silent joining[33m 4087[2mms[22m[39m
+2026-11-14T11:41:18.5169214Z {"level":30,"time":1794656478516,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656478463-jx2wt7","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:18.6129966Z {"level":30,"time":1794656478612,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656478463-jx2wt7","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:18.9897048Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 390px keeps one transcript/composer after silent joining
+2026-11-14T11:41:18.9898706Z [22m[39mSession links could not be refreshed {
+2026-11-14T11:41:18.9899459Z   code: [32m'session_launch_read_failed'[39m,
+2026-11-14T11:41:18.9900320Z   stage: [32m'read'[39m,
+2026-11-14T11:41:18.9900860Z   sessionId: [32m'existing-chat'[39m,
+2026-11-14T11:41:18.9901428Z   cause: [32m'Error'[39m
+2026-11-14T11:41:18.9901814Z }
+2026-11-14T11:41:18.9901982Z 
+2026-11-14T11:41:19.3435122Z  [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 390px keeps one transcript/composer after silent joining[33m 902[2mms[22m[39m
+2026-11-14T11:41:19.4134174Z {"level":30,"time":1794656479412,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656479359-kafxx0","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:19.5359464Z {"level":30,"time":1794656479535,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656479359-kafxx0","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:20.1117913Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition at 1280px keeps one transcript/composer after silent joining
+2026-11-14T11:41:20.1119488Z [22m[39mSession links could not be refreshed {
+2026-11-14T11:41:20.1120466Z   code: [32m'session_launch_read_failed'[39m,
+2026-11-14T11:41:20.1120960Z   stage: [32m'read'[39m,
+2026-11-14T11:41:20.1121408Z   sessionId: [32m'existing-chat'[39m,
+2026-11-14T11:41:20.1121880Z   cause: [32m'Error'[39m
+2026-11-14T11:41:20.1122204Z }
+2026-11-14T11:41:20.1122346Z 
+2026-11-14T11:41:20.5888417Z  [32m✓[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition at 1280px keeps one transcript/composer after silent joining[33m 1245[2mms[22m[39m
+2026-11-14T11:41:20.6593826Z {"level":30,"time":1794656480658,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656480605-a59rdi","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:20.7328563Z {"level":30,"time":1794656480732,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656480605-a59rdi","sessionId":"existing-chat","cursor":1,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:21.0882686Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:21.0884422Z [22m[39mSession links could not be refreshed {
+2026-11-14T11:41:21.0885183Z   code: [32m'session_launch_read_failed'[39m,
+2026-11-14T11:41:21.0885865Z   stage: [32m'read'[39m,
+2026-11-14T11:41:21.0886357Z   sessionId: [32m'existing-chat'[39m,
+2026-11-14T11:41:21.0886841Z   cause: [32m'Error'[39m
+2026-11-14T11:41:21.0887378Z }
+2026-11-14T11:41:21.0887540Z 
+2026-11-14T11:41:21.4092530Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:21.4094398Z [22m[39mAn update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4095172Z 
+2026-11-14T11:41:21.4095895Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4096421Z 
+2026-11-14T11:41:21.4096549Z act(() => {
+2026-11-14T11:41:21.4096896Z   /* fire events that update state */
+2026-11-14T11:41:21.4097347Z });
+2026-11-14T11:41:21.4097691Z /* assert on the output */
+2026-11-14T11:41:21.4097960Z 
+2026-11-14T11:41:21.4099245Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4100879Z An update to SymposiumProfileProposals inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4101391Z 
+2026-11-14T11:41:21.4101900Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4102376Z 
+2026-11-14T11:41:21.4102500Z act(() => {
+2026-11-14T11:41:21.4102838Z   /* fire events that update state */
+2026-11-14T11:41:21.4103211Z });
+2026-11-14T11:41:21.4103470Z /* assert on the output */
+2026-11-14T11:41:21.4103639Z 
+2026-11-14T11:41:21.4104286Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4104887Z 
+2026-11-14T11:41:21.4146912Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:21.4148691Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4149156Z 
+2026-11-14T11:41:21.4149837Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4150337Z 
+2026-11-14T11:41:21.4150445Z act(() => {
+2026-11-14T11:41:21.4150728Z   /* fire events that update state */
+2026-11-14T11:41:21.4151040Z });
+2026-11-14T11:41:21.4151288Z /* assert on the output */
+2026-11-14T11:41:21.4151474Z 
+2026-11-14T11:41:21.4152177Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4152809Z 
+2026-11-14T11:41:21.4258142Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:21.4259976Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4260440Z 
+2026-11-14T11:41:21.4260937Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4261417Z 
+2026-11-14T11:41:21.4261541Z act(() => {
+2026-11-14T11:41:21.4261878Z   /* fire events that update state */
+2026-11-14T11:41:21.4262254Z });
+2026-11-14T11:41:21.4262545Z /* assert on the output */
+2026-11-14T11:41:21.4262766Z 
+2026-11-14T11:41:21.4263596Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4264813Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4265393Z 
+2026-11-14T11:41:21.4266144Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4266923Z 
+2026-11-14T11:41:21.4267177Z act(() => {
+2026-11-14T11:41:21.4267738Z   /* fire events that update state */
+2026-11-14T11:41:21.4268328Z });
+2026-11-14T11:41:21.4268722Z /* assert on the output */
+2026-11-14T11:41:21.4268955Z 
+2026-11-14T11:41:21.4270068Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4271252Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4271722Z 
+2026-11-14T11:41:21.4272222Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4272699Z 
+2026-11-14T11:41:21.4272816Z act(() => {
+2026-11-14T11:41:21.4273046Z   /* fire events that update state */
+2026-11-14T11:41:21.4273304Z });
+2026-11-14T11:41:21.4273503Z /* assert on the output */
+2026-11-14T11:41:21.4273655Z 
+2026-11-14T11:41:21.4274219Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4274991Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4275265Z 
+2026-11-14T11:41:21.4275585Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4275911Z 
+2026-11-14T11:41:21.4275988Z act(() => {
+2026-11-14T11:41:21.4276219Z   /* fire events that update state */
+2026-11-14T11:41:21.4276468Z });
+2026-11-14T11:41:21.4276665Z /* assert on the output */
+2026-11-14T11:41:21.4276812Z 
+2026-11-14T11:41:21.4277361Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4277857Z 
+2026-11-14T11:41:21.4278728Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:21.4280197Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4280863Z 
+2026-11-14T11:41:21.4281206Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4281545Z 
+2026-11-14T11:41:21.4281756Z act(() => {
+2026-11-14T11:41:21.4282006Z   /* fire events that update state */
+2026-11-14T11:41:21.4282269Z });
+2026-11-14T11:41:21.4282470Z /* assert on the output */
+2026-11-14T11:41:21.4282622Z 
+2026-11-14T11:41:21.4283175Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4283999Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4284325Z 
+2026-11-14T11:41:21.4284631Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4284957Z 
+2026-11-14T11:41:21.4285040Z act(() => {
+2026-11-14T11:41:21.4285262Z   /* fire events that update state */
+2026-11-14T11:41:21.4285506Z });
+2026-11-14T11:41:21.4285731Z /* assert on the output */
+2026-11-14T11:41:21.4286004Z 
+2026-11-14T11:41:21.4286555Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4287062Z 
+2026-11-14T11:41:21.4341094Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:21.4342317Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4342722Z 
+2026-11-14T11:41:21.4343232Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4343575Z 
+2026-11-14T11:41:21.4343664Z act(() => {
+2026-11-14T11:41:21.4344004Z   /* fire events that update state */
+2026-11-14T11:41:21.4344284Z });
+2026-11-14T11:41:21.4344503Z /* assert on the output */
+2026-11-14T11:41:21.4344709Z 
+2026-11-14T11:41:21.4345395Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4346298Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4346669Z 
+2026-11-14T11:41:21.4347152Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4347539Z 
+2026-11-14T11:41:21.4347781Z act(() => {
+2026-11-14T11:41:21.4348023Z   /* fire events that update state */
+2026-11-14T11:41:21.4348342Z });
+2026-11-14T11:41:21.4348595Z /* assert on the output */
+2026-11-14T11:41:21.4348791Z 
+2026-11-14T11:41:21.4349482Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4351276Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4351648Z 
+2026-11-14T11:41:21.4351980Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4352330Z 
+2026-11-14T11:41:21.4352414Z act(() => {
+2026-11-14T11:41:21.4352662Z   /* fire events that update state */
+2026-11-14T11:41:21.4352920Z });
+2026-11-14T11:41:21.4353136Z /* assert on the output */
+2026-11-14T11:41:21.4353293Z 
+2026-11-14T11:41:21.4353858Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4354621Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4354897Z 
+2026-11-14T11:41:21.4355206Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4355536Z 
+2026-11-14T11:41:21.4355622Z act(() => {
+2026-11-14T11:41:21.4355853Z   /* fire events that update state */
+2026-11-14T11:41:21.4356103Z });
+2026-11-14T11:41:21.4356312Z /* assert on the output */
+2026-11-14T11:41:21.4356459Z 
+2026-11-14T11:41:21.4357017Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4357782Z 
+2026-11-14T11:41:21.4577781Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:21.4579474Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4580535Z 
+2026-11-14T11:41:21.4581051Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4581538Z 
+2026-11-14T11:41:21.4581659Z act(() => {
+2026-11-14T11:41:21.4581992Z   /* fire events that update state */
+2026-11-14T11:41:21.4582360Z });
+2026-11-14T11:41:21.4582650Z /* assert on the output */
+2026-11-14T11:41:21.4582869Z 
+2026-11-14T11:41:21.4583696Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4584889Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4585374Z 
+2026-11-14T11:41:21.4585854Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4586338Z 
+2026-11-14T11:41:21.4586450Z act(() => {
+2026-11-14T11:41:21.4586782Z   /* fire events that update state */
+2026-11-14T11:41:21.4587147Z });
+2026-11-14T11:41:21.4587436Z /* assert on the output */
+2026-11-14T11:41:21.4587655Z 
+2026-11-14T11:41:21.4588467Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4589380Z 
+2026-11-14T11:41:21.4666463Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:21.4668507Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4668922Z 
+2026-11-14T11:41:21.4669360Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4670199Z 
+2026-11-14T11:41:21.4670313Z act(() => {
+2026-11-14T11:41:21.4670647Z   /* fire events that update state */
+2026-11-14T11:41:21.4670988Z });
+2026-11-14T11:41:21.4671264Z /* assert on the output */
+2026-11-14T11:41:21.4671468Z 
+2026-11-14T11:41:21.4672226Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4673334Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4673769Z 
+2026-11-14T11:41:21.4674182Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4674619Z 
+2026-11-14T11:41:21.4674728Z act(() => {
+2026-11-14T11:41:21.4675028Z   /* fire events that update state */
+2026-11-14T11:41:21.4675360Z });
+2026-11-14T11:41:21.4675632Z /* assert on the output */
+2026-11-14T11:41:21.4675823Z 
+2026-11-14T11:41:21.4676556Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4677630Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4678058Z 
+2026-11-14T11:41:21.4678468Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4678893Z 
+2026-11-14T11:41:21.4679002Z act(() => {
+2026-11-14T11:41:21.4679293Z   /* fire events that update state */
+2026-11-14T11:41:21.4679895Z });
+2026-11-14T11:41:21.4680175Z /* assert on the output */
+2026-11-14T11:41:21.4680380Z 
+2026-11-14T11:41:21.4681122Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4682131Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:21.4682489Z 
+2026-11-14T11:41:21.4682907Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:21.4683552Z 
+2026-11-14T11:41:21.4683645Z act(() => {
+2026-11-14T11:41:21.4684020Z   /* fire events that update state */
+2026-11-14T11:41:21.4684287Z });
+2026-11-14T11:41:21.4684495Z /* assert on the output */
+2026-11-14T11:41:21.4684652Z 
+2026-11-14T11:41:21.4685234Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:21.4685773Z 
+2026-11-14T11:41:22.6901506Z {"level":30,"time":1794656482689,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656482634-gnpjf4","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5","cursor":19,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:22.8216732Z {"level":30,"time":1794656482819,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656482634-gnpjf4","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5","cursor":19,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:27.3182336Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:27.3184677Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:27.3185228Z 
+2026-11-14T11:41:27.3185717Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:27.3186209Z 
+2026-11-14T11:41:27.3186335Z act(() => {
+2026-11-14T11:41:27.3186703Z   /* fire events that update state */
+2026-11-14T11:41:27.3187077Z });
+2026-11-14T11:41:27.3187373Z /* assert on the output */
+2026-11-14T11:41:27.3187604Z 
+2026-11-14T11:41:27.3188466Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:27.3189222Z 
+2026-11-14T11:41:27.3190830Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:27.3192410Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:27.3192926Z 
+2026-11-14T11:41:27.3193349Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:27.3193693Z 
+2026-11-14T11:41:27.3193777Z act(() => {
+2026-11-14T11:41:27.3194022Z   /* fire events that update state */
+2026-11-14T11:41:27.3194282Z });
+2026-11-14T11:41:27.3194486Z /* assert on the output */
+2026-11-14T11:41:27.3194650Z 
+2026-11-14T11:41:27.3195237Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:27.3195765Z 
+2026-11-14T11:41:27.3307856Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:27.3309834Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:27.3310390Z 
+2026-11-14T11:41:27.3310948Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:27.3311491Z 
+2026-11-14T11:41:27.3311622Z act(() => {
+2026-11-14T11:41:27.3312002Z   /* fire events that update state */
+2026-11-14T11:41:27.3312410Z });
+2026-11-14T11:41:27.3312958Z /* assert on the output */
+2026-11-14T11:41:27.3313219Z 
+2026-11-14T11:41:27.3314160Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:27.3315505Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:27.3316036Z 
+2026-11-14T11:41:27.3316550Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:27.3317085Z 
+2026-11-14T11:41:27.3317215Z act(() => {
+2026-11-14T11:41:27.3317579Z   /* fire events that update state */
+2026-11-14T11:41:27.3318324Z });
+2026-11-14T11:41:27.3318653Z /* assert on the output */
+2026-11-14T11:41:27.3318890Z 
+2026-11-14T11:41:27.3320359Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:27.3321630Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:27.3322087Z 
+2026-11-14T11:41:27.3322603Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:27.3323138Z 
+2026-11-14T11:41:27.3323272Z act(() => {
+2026-11-14T11:41:27.3323635Z   /* fire events that update state */
+2026-11-14T11:41:27.3324026Z });
+2026-11-14T11:41:27.3324242Z /* assert on the output */
+2026-11-14T11:41:27.3324403Z 
+2026-11-14T11:41:27.3324995Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:27.3325541Z 
+2026-11-14T11:41:27.3663690Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:27.3665518Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:27.3666122Z 
+2026-11-14T11:41:27.3666657Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:27.3667193Z 
+2026-11-14T11:41:27.3667337Z act(() => {
+2026-11-14T11:41:27.3667714Z   /* fire events that update state */
+2026-11-14T11:41:27.3668135Z });
+2026-11-14T11:41:27.3668462Z /* assert on the output */
+2026-11-14T11:41:27.3668706Z 
+2026-11-14T11:41:27.3669894Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:27.3670905Z 
+2026-11-14T11:41:27.3751663Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:27.3753276Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:27.3753875Z 
+2026-11-14T11:41:27.3754398Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:27.3754929Z 
+2026-11-14T11:41:27.3755066Z act(() => {
+2026-11-14T11:41:27.3755442Z   /* fire events that update state */
+2026-11-14T11:41:27.3755860Z });
+2026-11-14T11:41:27.3756189Z /* assert on the output */
+2026-11-14T11:41:27.3756436Z 
+2026-11-14T11:41:27.3757352Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:27.3758190Z 
+2026-11-14T11:41:27.3919264Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:27.3921128Z [22m[39mAn update to ChatViewContent inside a test was not wrapped in act(...).
+2026-11-14T11:41:27.3921645Z 
+2026-11-14T11:41:27.3922130Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:27.3922613Z 
+2026-11-14T11:41:27.3922734Z act(() => {
+2026-11-14T11:41:27.3923070Z   /* fire events that update state */
+2026-11-14T11:41:27.3923440Z });
+2026-11-14T11:41:27.3923729Z /* assert on the output */
+2026-11-14T11:41:27.3923944Z 
+2026-11-14T11:41:27.3924787Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:27.3925536Z 
+2026-11-14T11:41:27.4242776Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:27.4243957Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:27.4244300Z 
+2026-11-14T11:41:27.4244661Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:27.4245519Z 
+2026-11-14T11:41:27.4245619Z act(() => {
+2026-11-14T11:41:27.4246022Z   /* fire events that update state */
+2026-11-14T11:41:27.4246310Z });
+2026-11-14T11:41:27.4246543Z /* assert on the output */
+2026-11-14T11:41:27.4246706Z 
+2026-11-14T11:41:27.4247336Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:27.4247895Z 
+2026-11-14T11:41:30.5468891Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:30.5471300Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5471988Z 
+2026-11-14T11:41:30.5472539Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5473155Z 
+2026-11-14T11:41:30.5473365Z act(() => {
+2026-11-14T11:41:30.5473830Z   /* fire events that update state */
+2026-11-14T11:41:30.5474325Z });
+2026-11-14T11:41:30.5474710Z /* assert on the output */
+2026-11-14T11:41:30.5475011Z 
+2026-11-14T11:41:30.5476079Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5477631Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5478232Z 
+2026-11-14T11:41:30.5478851Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5479475Z 
+2026-11-14T11:41:30.5479920Z act(() => {
+2026-11-14T11:41:30.5480351Z   /* fire events that update state */
+2026-11-14T11:41:30.5480831Z });
+2026-11-14T11:41:30.5481219Z /* assert on the output */
+2026-11-14T11:41:30.5481500Z 
+2026-11-14T11:41:30.5482534Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5483514Z 
+2026-11-14T11:41:30.5486223Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:30.5488261Z [22m[39mAn update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5488873Z 
+2026-11-14T11:41:30.5489504Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5490456Z 
+2026-11-14T11:41:30.5490618Z act(() => {
+2026-11-14T11:41:30.5491070Z   /* fire events that update state */
+2026-11-14T11:41:30.5491533Z });
+2026-11-14T11:41:30.5491894Z /* assert on the output */
+2026-11-14T11:41:30.5492181Z 
+2026-11-14T11:41:30.5493230Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5494669Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5495260Z 
+2026-11-14T11:41:30.5495854Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5496495Z 
+2026-11-14T11:41:30.5496666Z act(() => {
+2026-11-14T11:41:30.5497082Z   /* fire events that update state */
+2026-11-14T11:41:30.5497535Z });
+2026-11-14T11:41:30.5497908Z /* assert on the output */
+2026-11-14T11:41:30.5498189Z 
+2026-11-14T11:41:30.5499241Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5501042Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5501619Z 
+2026-11-14T11:41:30.5502236Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5502854Z 
+2026-11-14T11:41:30.5503022Z act(() => {
+2026-11-14T11:41:30.5503453Z   /* fire events that update state */
+2026-11-14T11:41:30.5503938Z });
+2026-11-14T11:41:30.5505061Z /* assert on the output */
+2026-11-14T11:41:30.5505461Z 
+2026-11-14T11:41:30.5506731Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5508191Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5508712Z 
+2026-11-14T11:41:30.5509279Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5510128Z 
+2026-11-14T11:41:30.5510270Z act(() => {
+2026-11-14T11:41:30.5510658Z   /* fire events that update state */
+2026-11-14T11:41:30.5511070Z });
+2026-11-14T11:41:30.5511399Z /* assert on the output */
+2026-11-14T11:41:30.5511647Z 
+2026-11-14T11:41:30.5512588Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5513464Z 
+2026-11-14T11:41:30.5711473Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:30.5714018Z [22m[39mAn update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5714690Z 
+2026-11-14T11:41:30.5715238Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5715816Z 
+2026-11-14T11:41:30.5715978Z act(() => {
+2026-11-14T11:41:30.5716400Z   /* fire events that update state */
+2026-11-14T11:41:30.5716825Z });
+2026-11-14T11:41:30.5717171Z /* assert on the output */
+2026-11-14T11:41:30.5717439Z 
+2026-11-14T11:41:30.5718437Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5720088Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5720558Z 
+2026-11-14T11:41:30.5721144Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5721742Z 
+2026-11-14T11:41:30.5721888Z act(() => {
+2026-11-14T11:41:30.5722287Z   /* fire events that update state */
+2026-11-14T11:41:30.5722745Z });
+2026-11-14T11:41:30.5723123Z /* assert on the output */
+2026-11-14T11:41:30.5723392Z 
+2026-11-14T11:41:30.5724414Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5725728Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5726309Z 
+2026-11-14T11:41:30.5726880Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5727420Z 
+2026-11-14T11:41:30.5727563Z act(() => {
+2026-11-14T11:41:30.5727964Z   /* fire events that update state */
+2026-11-14T11:41:30.5728405Z });
+2026-11-14T11:41:30.5728789Z /* assert on the output */
+2026-11-14T11:41:30.5729071Z 
+2026-11-14T11:41:30.5730354Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5731714Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5732272Z 
+2026-11-14T11:41:30.5732834Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5733422Z 
+2026-11-14T11:41:30.5733613Z act(() => {
+2026-11-14T11:41:30.5734053Z   /* fire events that update state */
+2026-11-14T11:41:30.5734539Z });
+2026-11-14T11:41:30.5734908Z /* assert on the output */
+2026-11-14T11:41:30.5735197Z 
+2026-11-14T11:41:30.5736191Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5737639Z An update to ChatInputContent inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5738184Z 
+2026-11-14T11:41:30.5738776Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5739362Z 
+2026-11-14T11:41:30.5740222Z act(() => {
+2026-11-14T11:41:30.5740666Z   /* fire events that update state */
+2026-11-14T11:41:30.5741105Z });
+2026-11-14T11:41:30.5741718Z /* assert on the output */
+2026-11-14T11:41:30.5742020Z 
+2026-11-14T11:41:30.5743020Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5744469Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5745068Z 
+2026-11-14T11:41:30.5745688Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5746294Z 
+2026-11-14T11:41:30.5746456Z act(() => {
+2026-11-14T11:41:30.5746880Z   /* fire events that update state */
+2026-11-14T11:41:30.5747345Z });
+2026-11-14T11:41:30.5747729Z /* assert on the output */
+2026-11-14T11:41:30.5748003Z 
+2026-11-14T11:41:30.5749039Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5750836Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5751442Z 
+2026-11-14T11:41:30.5752023Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5752587Z 
+2026-11-14T11:41:30.5752739Z act(() => {
+2026-11-14T11:41:30.5753108Z   /* fire events that update state */
+2026-11-14T11:41:30.5753581Z });
+2026-11-14T11:41:30.5753959Z /* assert on the output */
+2026-11-14T11:41:30.5754247Z 
+2026-11-14T11:41:30.5755240Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5756562Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5757055Z 
+2026-11-14T11:41:30.5757666Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5758248Z 
+2026-11-14T11:41:30.5758391Z act(() => {
+2026-11-14T11:41:30.5758835Z   /* fire events that update state */
+2026-11-14T11:41:30.5759278Z });
+2026-11-14T11:41:30.5759950Z /* assert on the output */
+2026-11-14T11:41:30.5760259Z 
+2026-11-14T11:41:30.5761300Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5762617Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5763089Z 
+2026-11-14T11:41:30.5763678Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5764295Z 
+2026-11-14T11:41:30.5764463Z act(() => {
+2026-11-14T11:41:30.5764907Z   /* fire events that update state */
+2026-11-14T11:41:30.5765381Z });
+2026-11-14T11:41:30.5765760Z /* assert on the output */
+2026-11-14T11:41:30.5766032Z 
+2026-11-14T11:41:30.5767046Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5768454Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5768968Z 
+2026-11-14T11:41:30.5769875Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5770506Z 
+2026-11-14T11:41:30.5770666Z act(() => {
+2026-11-14T11:41:30.5771097Z   /* fire events that update state */
+2026-11-14T11:41:30.5771567Z });
+2026-11-14T11:41:30.5771937Z /* assert on the output */
+2026-11-14T11:41:30.5772214Z 
+2026-11-14T11:41:30.5773219Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5774572Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:30.5775061Z 
+2026-11-14T11:41:30.5775636Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:30.5776169Z 
+2026-11-14T11:41:30.5776308Z act(() => {
+2026-11-14T11:41:30.5776650Z   /* fire events that update state */
+2026-11-14T11:41:30.5777448Z });
+2026-11-14T11:41:30.5777828Z /* assert on the output */
+2026-11-14T11:41:30.5778122Z 
+2026-11-14T11:41:30.5779487Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:30.5780720Z 
+2026-11-14T11:41:31.0068549Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.0070873Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.0071536Z 
+2026-11-14T11:41:31.0072176Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.0072735Z 
+2026-11-14T11:41:31.0072872Z act(() => {
+2026-11-14T11:41:31.0073281Z   /* fire events that update state */
+2026-11-14T11:41:31.0073756Z });
+2026-11-14T11:41:31.0074142Z /* assert on the output */
+2026-11-14T11:41:31.0074486Z 
+2026-11-14T11:41:31.0075562Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.0076524Z 
+2026-11-14T11:41:31.0328846Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.0330752Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.0331204Z 
+2026-11-14T11:41:31.0331677Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.0332238Z 
+2026-11-14T11:41:31.0332384Z act(() => {
+2026-11-14T11:41:31.0332765Z   /* fire events that update state */
+2026-11-14T11:41:31.0333135Z });
+2026-11-14T11:41:31.0333424Z /* assert on the output */
+2026-11-14T11:41:31.0333641Z 
+2026-11-14T11:41:31.0334473Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.0335700Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.0336176Z 
+2026-11-14T11:41:31.0336630Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.0337106Z 
+2026-11-14T11:41:31.0337223Z act(() => {
+2026-11-14T11:41:31.0337544Z   /* fire events that update state */
+2026-11-14T11:41:31.0337902Z });
+2026-11-14T11:41:31.0338193Z /* assert on the output */
+2026-11-14T11:41:31.0338400Z 
+2026-11-14T11:41:31.0339209Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.0340664Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.0341145Z 
+2026-11-14T11:41:31.0341613Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.0342101Z 
+2026-11-14T11:41:31.0342213Z act(() => {
+2026-11-14T11:41:31.0342551Z   /* fire events that update state */
+2026-11-14T11:41:31.0342893Z });
+2026-11-14T11:41:31.0343114Z /* assert on the output */
+2026-11-14T11:41:31.0343278Z 
+2026-11-14T11:41:31.0343873Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.0344697Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.0344994Z 
+2026-11-14T11:41:31.0345326Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.0345678Z 
+2026-11-14T11:41:31.0345767Z act(() => {
+2026-11-14T11:41:31.0346012Z   /* fire events that update state */
+2026-11-14T11:41:31.0346280Z });
+2026-11-14T11:41:31.0346495Z /* assert on the output */
+2026-11-14T11:41:31.0346662Z 
+2026-11-14T11:41:31.0347276Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.0348161Z 
+2026-11-14T11:41:31.0552494Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.0554386Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.0554975Z 
+2026-11-14T11:41:31.0555512Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.0556059Z 
+2026-11-14T11:41:31.0556194Z act(() => {
+2026-11-14T11:41:31.0556564Z   /* fire events that update state */
+2026-11-14T11:41:31.0556975Z });
+2026-11-14T11:41:31.0557297Z /* assert on the output */
+2026-11-14T11:41:31.0557539Z 
+2026-11-14T11:41:31.0558458Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.0560198Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.0560790Z 
+2026-11-14T11:41:31.0561328Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.0561852Z 
+2026-11-14T11:41:31.0561983Z act(() => {
+2026-11-14T11:41:31.0562341Z   /* fire events that update state */
+2026-11-14T11:41:31.0562751Z });
+2026-11-14T11:41:31.0563067Z /* assert on the output */
+2026-11-14T11:41:31.0563301Z 
+2026-11-14T11:41:31.0563981Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.0564599Z 
+2026-11-14T11:41:31.1702282Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.1703770Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.1704234Z 
+2026-11-14T11:41:31.1704726Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.1705301Z 
+2026-11-14T11:41:31.1705425Z act(() => {
+2026-11-14T11:41:31.1705774Z   /* fire events that update state */
+2026-11-14T11:41:31.1706140Z });
+2026-11-14T11:41:31.1706433Z /* assert on the output */
+2026-11-14T11:41:31.1706654Z 
+2026-11-14T11:41:31.1707487Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.1708677Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.1709154Z 
+2026-11-14T11:41:31.1709935Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.1710455Z 
+2026-11-14T11:41:31.1710575Z act(() => {
+2026-11-14T11:41:31.1710905Z   /* fire events that update state */
+2026-11-14T11:41:31.1711275Z });
+2026-11-14T11:41:31.1711560Z /* assert on the output */
+2026-11-14T11:41:31.1711782Z 
+2026-11-14T11:41:31.1712593Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.1713785Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.1714391Z 
+2026-11-14T11:41:31.1715038Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.1715672Z 
+2026-11-14T11:41:31.1715799Z act(() => {
+2026-11-14T11:41:31.1716183Z   /* fire events that update state */
+2026-11-14T11:41:31.1716566Z });
+2026-11-14T11:41:31.1716870Z /* assert on the output */
+2026-11-14T11:41:31.1717112Z 
+2026-11-14T11:41:31.1718032Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.1719385Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.1720163Z 
+2026-11-14T11:41:31.1720741Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.1721599Z 
+2026-11-14T11:41:31.1721732Z act(() => {
+2026-11-14T11:41:31.1722081Z   /* fire events that update state */
+2026-11-14T11:41:31.1722658Z });
+2026-11-14T11:41:31.1722979Z /* assert on the output */
+2026-11-14T11:41:31.1723198Z 
+2026-11-14T11:41:31.1724142Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.1725050Z 
+2026-11-14T11:41:31.2052166Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.2053782Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.2054316Z 
+2026-11-14T11:41:31.2054787Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.2055272Z 
+2026-11-14T11:41:31.2055397Z act(() => {
+2026-11-14T11:41:31.2055769Z   /* fire events that update state */
+2026-11-14T11:41:31.2056166Z });
+2026-11-14T11:41:31.2056465Z /* assert on the output */
+2026-11-14T11:41:31.2056689Z 
+2026-11-14T11:41:31.2057615Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.2058690Z 
+2026-11-14T11:41:31.2060993Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.2063788Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.2064768Z 
+2026-11-14T11:41:31.2065534Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.2066338Z 
+2026-11-14T11:41:31.2066490Z act(() => {
+2026-11-14T11:41:31.2066916Z   /* fire events that update state */
+2026-11-14T11:41:31.2067205Z });
+2026-11-14T11:41:31.2067413Z /* assert on the output */
+2026-11-14T11:41:31.2067740Z 
+2026-11-14T11:41:31.2068465Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.2069010Z 
+2026-11-14T11:41:31.2261204Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.2263067Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.2263630Z 
+2026-11-14T11:41:31.2264231Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.2264843Z 
+2026-11-14T11:41:31.2264988Z act(() => {
+2026-11-14T11:41:31.2265410Z   /* fire events that update state */
+2026-11-14T11:41:31.2265867Z });
+2026-11-14T11:41:31.2266208Z /* assert on the output */
+2026-11-14T11:41:31.2266427Z 
+2026-11-14T11:41:31.2267258Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.2268485Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.2268964Z 
+2026-11-14T11:41:31.2269512Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.2270387Z 
+2026-11-14T11:41:31.2270587Z act(() => {
+2026-11-14T11:41:31.2271018Z   /* fire events that update state */
+2026-11-14T11:41:31.2271666Z });
+2026-11-14T11:41:31.2272099Z /* assert on the output */
+2026-11-14T11:41:31.2272367Z 
+2026-11-14T11:41:31.2273339Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.2274554Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.2274982Z 
+2026-11-14T11:41:31.2285650Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.2286389Z 
+2026-11-14T11:41:31.2286502Z act(() => {
+2026-11-14T11:41:31.2286787Z   /* fire events that update state */
+2026-11-14T11:41:31.2287085Z });
+2026-11-14T11:41:31.2287457Z /* assert on the output */
+2026-11-14T11:41:31.2287644Z 
+2026-11-14T11:41:31.2288288Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.2288860Z 
+2026-11-14T11:41:31.2368061Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.2369392Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.2370094Z 
+2026-11-14T11:41:31.2370503Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.2370910Z 
+2026-11-14T11:41:31.2371012Z act(() => {
+2026-11-14T11:41:31.2371307Z   /* fire events that update state */
+2026-11-14T11:41:31.2371638Z });
+2026-11-14T11:41:31.2371886Z /* assert on the output */
+2026-11-14T11:41:31.2372073Z 
+2026-11-14T11:41:31.2372764Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.2373752Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.2374148Z 
+2026-11-14T11:41:31.2374532Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.2374936Z 
+2026-11-14T11:41:31.2375038Z act(() => {
+2026-11-14T11:41:31.2375320Z   /* fire events that update state */
+2026-11-14T11:41:31.2375636Z });
+2026-11-14T11:41:31.2375893Z /* assert on the output */
+2026-11-14T11:41:31.2376074Z 
+2026-11-14T11:41:31.2376760Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.2377312Z 
+2026-11-14T11:41:31.2517501Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.2518947Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.2519399Z 
+2026-11-14T11:41:31.2520281Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.2520767Z 
+2026-11-14T11:41:31.2520891Z act(() => {
+2026-11-14T11:41:31.2521216Z   /* fire events that update state */
+2026-11-14T11:41:31.2521572Z });
+2026-11-14T11:41:31.2521867Z /* assert on the output */
+2026-11-14T11:41:31.2522082Z 
+2026-11-14T11:41:31.2522891Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.2523619Z 
+2026-11-14T11:41:31.3114675Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.3116552Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.3117171Z 
+2026-11-14T11:41:31.3117713Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.3118256Z 
+2026-11-14T11:41:31.3118382Z act(() => {
+2026-11-14T11:41:31.3118725Z   /* fire events that update state */
+2026-11-14T11:41:31.3119096Z });
+2026-11-14T11:41:31.3119404Z /* assert on the output */
+2026-11-14T11:41:31.3119968Z 
+2026-11-14T11:41:31.3120808Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.3121562Z 
+2026-11-14T11:41:31.3405752Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.3407656Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.3408564Z 
+2026-11-14T11:41:31.3409191Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.3410092Z 
+2026-11-14T11:41:31.3410247Z act(() => {
+2026-11-14T11:41:31.3410589Z   /* fire events that update state */
+2026-11-14T11:41:31.3410965Z });
+2026-11-14T11:41:31.3411265Z /* assert on the output */
+2026-11-14T11:41:31.3411490Z 
+2026-11-14T11:41:31.3412318Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.3413069Z 
+2026-11-14T11:41:31.3420946Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.3422838Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.3423480Z 
+2026-11-14T11:41:31.3423879Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.3424256Z 
+2026-11-14T11:41:31.3424355Z act(() => {
+2026-11-14T11:41:31.3424635Z   /* fire events that update state */
+2026-11-14T11:41:31.3424927Z });
+2026-11-14T11:41:31.3425160Z /* assert on the output */
+2026-11-14T11:41:31.3425337Z 
+2026-11-14T11:41:31.3425984Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.3426906Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.3427274Z 
+2026-11-14T11:41:31.3427636Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.3427999Z 
+2026-11-14T11:41:31.3428096Z act(() => {
+2026-11-14T11:41:31.3428351Z   /* fire events that update state */
+2026-11-14T11:41:31.3428645Z });
+2026-11-14T11:41:31.3428871Z /* assert on the output */
+2026-11-14T11:41:31.3429041Z 
+2026-11-14T11:41:31.3430027Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.3430633Z 
+2026-11-14T11:41:31.3551902Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:31.3553558Z [22m[39mAn update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:31.3554068Z 
+2026-11-14T11:41:31.3554601Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:31.3555137Z 
+2026-11-14T11:41:31.3555265Z act(() => {
+2026-11-14T11:41:31.3555641Z   /* fire events that update state */
+2026-11-14T11:41:31.3556047Z });
+2026-11-14T11:41:31.3556372Z /* assert on the output */
+2026-11-14T11:41:31.3556617Z 
+2026-11-14T11:41:31.3557574Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:31.3558454Z 
+2026-11-14T11:41:44.6563431Z {"level":30,"time":1794656504655,"pid":2974,"hostname":"runnervm8axu0","module":"connection-registry","connectionId":"conn-1794656504630-n6lzk0","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5","cursor":64,"msg":"cursor reset on reconnect"}
+2026-11-14T11:41:55.6349120Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:55.6351632Z [22m[39mAn update to CodexQueueStatus inside a test was not wrapped in act(...).
+2026-11-14T11:41:55.6352267Z 
+2026-11-14T11:41:55.6352877Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:55.6353508Z 
+2026-11-14T11:41:55.6353679Z act(() => {
+2026-11-14T11:41:55.6354120Z   /* fire events that update state */
+2026-11-14T11:41:55.6354615Z });
+2026-11-14T11:41:55.6355020Z /* assert on the output */
+2026-11-14T11:41:55.6358140Z 
+2026-11-14T11:41:55.6359460Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:55.6361335Z An update to CodexQueueStatus inside a test was not wrapped in act(...).
+2026-11-14T11:41:55.6361840Z 
+2026-11-14T11:41:55.6362393Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:55.6362961Z 
+2026-11-14T11:41:55.6363114Z act(() => {
+2026-11-14T11:41:55.6363538Z   /* fire events that update state */
+2026-11-14T11:41:55.6364000Z });
+2026-11-14T11:41:55.6364375Z /* assert on the output */
+2026-11-14T11:41:55.6364654Z 
+2026-11-14T11:41:55.6365681Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:55.6367092Z An update to CodexQueueStatus inside a test was not wrapped in act(...).
+2026-11-14T11:41:55.6367622Z 
+2026-11-14T11:41:55.6368214Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:55.6368799Z 
+2026-11-14T11:41:55.6368952Z act(() => {
+2026-11-14T11:41:55.6369383Z   /* fire events that update state */
+2026-11-14T11:41:55.6370193Z });
+2026-11-14T11:41:55.6370574Z /* assert on the output */
+2026-11-14T11:41:55.6370837Z 
+2026-11-14T11:41:55.6371851Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:55.6373252Z An update to CodexQueueStatus inside a test was not wrapped in act(...).
+2026-11-14T11:41:55.6373783Z 
+2026-11-14T11:41:55.6374400Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:55.6374992Z 
+2026-11-14T11:41:55.6375138Z act(() => {
+2026-11-14T11:41:55.6375555Z   /* fire events that update state */
+2026-11-14T11:41:55.6376010Z });
+2026-11-14T11:41:55.6376369Z /* assert on the output */
+2026-11-14T11:41:55.6376642Z 
+2026-11-14T11:41:55.6377662Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:55.6378557Z 
+2026-11-14T11:41:55.7554704Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:55.7556635Z [22m[39mAn update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:55.7557291Z 
+2026-11-14T11:41:55.7557902Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:55.7558516Z 
+2026-11-14T11:41:55.7558674Z act(() => {
+2026-11-14T11:41:55.7559108Z   /* fire events that update state */
+2026-11-14T11:41:55.7559558Z });
+2026-11-14T11:41:55.7560243Z /* assert on the output */
+2026-11-14T11:41:55.7560606Z 
+2026-11-14T11:41:55.7561607Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:55.7563096Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:55.7563718Z 
+2026-11-14T11:41:55.7564323Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:55.7564931Z 
+2026-11-14T11:41:55.7565081Z act(() => {
+2026-11-14T11:41:55.7565502Z   /* fire events that update state */
+2026-11-14T11:41:55.7565983Z });
+2026-11-14T11:41:55.7566354Z /* assert on the output */
+2026-11-14T11:41:55.7566648Z 
+2026-11-14T11:41:55.7567670Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:55.7568586Z 
+2026-11-14T11:41:56.0667817Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:56.0669918Z [22m[39mAn update to SymposiumConversation inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0670799Z 
+2026-11-14T11:41:56.0671506Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0671993Z 
+2026-11-14T11:41:56.0672124Z act(() => {
+2026-11-14T11:41:56.0672475Z   /* fire events that update state */
+2026-11-14T11:41:56.0672851Z });
+2026-11-14T11:41:56.0673150Z /* assert on the output */
+2026-11-14T11:41:56.0673380Z 
+2026-11-14T11:41:56.0674214Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0675549Z An update to SymposiumConversation inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0676095Z 
+2026-11-14T11:41:56.0676653Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0677187Z 
+2026-11-14T11:41:56.0677323Z act(() => {
+2026-11-14T11:41:56.0677678Z   /* fire events that update state */
+2026-11-14T11:41:56.0678076Z });
+2026-11-14T11:41:56.0678411Z /* assert on the output */
+2026-11-14T11:41:56.0678675Z 
+2026-11-14T11:41:56.0679953Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0681413Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0681953Z 
+2026-11-14T11:41:56.0682612Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0683270Z 
+2026-11-14T11:41:56.0683429Z act(() => {
+2026-11-14T11:41:56.0683827Z   /* fire events that update state */
+2026-11-14T11:41:56.0684253Z });
+2026-11-14T11:41:56.0684599Z /* assert on the output */
+2026-11-14T11:41:56.0684865Z 
+2026-11-14T11:41:56.0685881Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0687266Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0687836Z 
+2026-11-14T11:41:56.0688384Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0688954Z 
+2026-11-14T11:41:56.0689110Z act(() => {
+2026-11-14T11:41:56.0689530Z   /* fire events that update state */
+2026-11-14T11:41:56.0690263Z });
+2026-11-14T11:41:56.0690638Z /* assert on the output */
+2026-11-14T11:41:56.0690917Z 
+2026-11-14T11:41:56.0691970Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0693310Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0693811Z 
+2026-11-14T11:41:56.0694331Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0694910Z 
+2026-11-14T11:41:56.0695059Z act(() => {
+2026-11-14T11:41:56.0695473Z   /* fire events that update state */
+2026-11-14T11:41:56.0695919Z });
+2026-11-14T11:41:56.0696293Z /* assert on the output */
+2026-11-14T11:41:56.0696571Z 
+2026-11-14T11:41:56.0697596Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0699048Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0699850Z 
+2026-11-14T11:41:56.0700427Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0701010Z 
+2026-11-14T11:41:56.0701161Z act(() => {
+2026-11-14T11:41:56.0701568Z   /* fire events that update state */
+2026-11-14T11:41:56.0702020Z });
+2026-11-14T11:41:56.0702387Z /* assert on the output */
+2026-11-14T11:41:56.0702647Z 
+2026-11-14T11:41:56.0703645Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0705011Z An update to SharedConversationHost inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0705873Z 
+2026-11-14T11:41:56.0706388Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0706928Z 
+2026-11-14T11:41:56.0707311Z act(() => {
+2026-11-14T11:41:56.0707725Z   /* fire events that update state */
+2026-11-14T11:41:56.0708173Z });
+2026-11-14T11:41:56.0708520Z /* assert on the output */
+2026-11-14T11:41:56.0708781Z 
+2026-11-14T11:41:56.0710037Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0711460Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0711990Z 
+2026-11-14T11:41:56.0712551Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0713106Z 
+2026-11-14T11:41:56.0713239Z act(() => {
+2026-11-14T11:41:56.0713628Z   /* fire events that update state */
+2026-11-14T11:41:56.0714062Z });
+2026-11-14T11:41:56.0714409Z /* assert on the output */
+2026-11-14T11:41:56.0714689Z 
+2026-11-14T11:41:56.0715664Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0716943Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0717412Z 
+2026-11-14T11:41:56.0717978Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0718530Z 
+2026-11-14T11:41:56.0718668Z act(() => {
+2026-11-14T11:41:56.0719059Z   /* fire events that update state */
+2026-11-14T11:41:56.0719485Z });
+2026-11-14T11:41:56.0720105Z /* assert on the output */
+2026-11-14T11:41:56.0720359Z 
+2026-11-14T11:41:56.0721314Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0722709Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0723289Z 
+2026-11-14T11:41:56.0723854Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0724402Z 
+2026-11-14T11:41:56.0724539Z act(() => {
+2026-11-14T11:41:56.0724931Z   /* fire events that update state */
+2026-11-14T11:41:56.0725346Z });
+2026-11-14T11:41:56.0725680Z /* assert on the output */
+2026-11-14T11:41:56.0725930Z 
+2026-11-14T11:41:56.0726876Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0728137Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0728596Z 
+2026-11-14T11:41:56.0729128Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0729867Z 
+2026-11-14T11:41:56.0730016Z act(() => {
+2026-11-14T11:41:56.0730396Z   /* fire events that update state */
+2026-11-14T11:41:56.0730811Z });
+2026-11-14T11:41:56.0731146Z /* assert on the output */
+2026-11-14T11:41:56.0731390Z 
+2026-11-14T11:41:56.0732354Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0733697Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0734239Z 
+2026-11-14T11:41:56.0734791Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0735326Z 
+2026-11-14T11:41:56.0735465Z act(() => {
+2026-11-14T11:41:56.0735842Z   /* fire events that update state */
+2026-11-14T11:41:56.0736256Z });
+2026-11-14T11:41:56.0736587Z /* assert on the output */
+2026-11-14T11:41:56.0736835Z 
+2026-11-14T11:41:56.0737769Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0739130Z An update to ComposerStatusProvider inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0739849Z 
+2026-11-14T11:41:56.0740405Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0741209Z 
+2026-11-14T11:41:56.0741343Z act(() => {
+2026-11-14T11:41:56.0741908Z   /* fire events that update state */
+2026-11-14T11:41:56.0742328Z });
+2026-11-14T11:41:56.0742668Z /* assert on the output */
+2026-11-14T11:41:56.0742927Z 
+2026-11-14T11:41:56.0743908Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0745156Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0745615Z 
+2026-11-14T11:41:56.0746155Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0746704Z 
+2026-11-14T11:41:56.0746840Z act(() => {
+2026-11-14T11:41:56.0747210Z   /* fire events that update state */
+2026-11-14T11:41:56.0747617Z });
+2026-11-14T11:41:56.0747955Z /* assert on the output */
+2026-11-14T11:41:56.0748201Z 
+2026-11-14T11:41:56.0749156Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0750649Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0751105Z 
+2026-11-14T11:41:56.0751644Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0752188Z 
+2026-11-14T11:41:56.0752313Z act(() => {
+2026-11-14T11:41:56.0752674Z   /* fire events that update state */
+2026-11-14T11:41:56.0753088Z });
+2026-11-14T11:41:56.0753405Z /* assert on the output */
+2026-11-14T11:41:56.0753647Z 
+2026-11-14T11:41:56.0754642Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0755873Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0756316Z 
+2026-11-14T11:41:56.0756838Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0757372Z 
+2026-11-14T11:41:56.0757501Z act(() => {
+2026-11-14T11:41:56.0757856Z   /* fire events that update state */
+2026-11-14T11:41:56.0758258Z });
+2026-11-14T11:41:56.0758570Z /* assert on the output */
+2026-11-14T11:41:56.0758811Z 
+2026-11-14T11:41:56.0759976Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0760911Z An update to InputPortal inside a test was not wrapped in act(...).
+2026-11-14T11:41:56.0761183Z 
+2026-11-14T11:41:56.0761496Z When testing, code that causes React state updates should be wrapped into act(...):
+2026-11-14T11:41:56.0761816Z 
+2026-11-14T11:41:56.0761898Z act(() => {
+2026-11-14T11:41:56.0762125Z   /* fire events that update state */
+2026-11-14T11:41:56.0762387Z });
+2026-11-14T11:41:56.0762590Z /* assert on the output */
+2026-11-14T11:41:56.0762745Z 
+2026-11-14T11:41:56.0763285Z This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+2026-11-14T11:41:56.0763812Z 
+2026-11-14T11:41:58.6411159Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:58.6422532Z [22m[39mOFFLINE_COMPOSER_DIAGNOSTIC {"stage":"lost_send_and_stop_response","input":"","notices":["Check the original request. Queued or uncertain work will not be resent.","@AcceptanceReviewer"],"lastFetches":[{"url":"/api/sessions/ada996fe-b682-8bc5-9d21-0bc4a0da9cb5/meta"},{"url":"/api/symposium/profile-proposals?sessionId=ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"url":"/api/session-collaborations/4f826fe1-d9b8-41b2-ba0b-c770e7b14ff1/recipients/ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"url":"/api/session-collaborations/4f826fe1-d9b8-41b2-ba0b-c770e7b14ff1/recipients/e06752d3-a5b2-828b-b58c-ec112326cbe5"},{"url":"/api/session-collaborations/4f826fe1-d9b8-41b2-ba0b-c770e7b14ff1/progress"},{"url":"/api/session-collaborations/4f826fe1-d9b8-41b2-ba0b-c770e7b14ff1/recipients/e06752d3-a5b2-828b-b58c-ec112326cbe5"},{"url":"/api/session-collaborations/4f826fe1-d9b8-41b2-ba0b-c770e7b14ff1/conversation"},{"url":"/api/session-collaborations/4f826fe1-d9b8-41b2-ba0b-c770e7b14ff1/messages","method":"POST"},{"url":"/api/session-collaborations/4f826fe1-d9b8-41b2-ba0b-c770e7b14ff1/progress"},{"url":"/api/session-collaborations/4f826fe1-d9b8-41b2-ba0b-c770e7b14ff1/conversation"},{"url":"/api/service-health"},{"url":"/api/session-launch/requests?sessionId=ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"}]}
+2026-11-14T11:41:58.6429122Z 
+2026-11-14T11:41:58.7621026Z [90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:41:58.7709386Z [22m[39mOFFLINE_ACCEPTANCE_STAGE {"stage":"lost_send_and_stop_response","nativeTurns":30,"deliveries":[{"text":"Acceptance long-history turn 1","deliveries":[{"version":1,"deliveryId":"b35774b3-79c4-4218-a625-7151ffe2770a","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:b35774b3-79c4-4218-a625-7151ffe2770a","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 2","deliveries":[{"version":1,"deliveryId":"f84f1157-b5dd-4357-9e05-2aa02f41a9df","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:f84f1157-b5dd-4357-9e05-2aa02f41a9df","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 3","deliveries":[{"version":1,"deliveryId":"481db728-3c23-4de5-883a-13de88d4ba04","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:481db728-3c23-4de5-883a-13de88d4ba04","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 4","deliveries":[{"version":1,"deliveryId":"a14619c5-b604-4b0b-824c-0f0d40a6303d","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:a14619c5-b604-4b0b-824c-0f0d40a6303d","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 5","deliveries":[{"version":1,"deliveryId":"c5facd50-044e-41ed-bfe6-5eacd1dcf75a","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:c5facd50-044e-41ed-bfe6-5eacd1dcf75a","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 6","deliveries":[{"version":1,"deliveryId":"39d0b653-5cd1-490d-b153-aaafd0d0576a","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:39d0b653-5cd1-490d-b153-aaafd0d0576a","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 7","deliveries":[{"version":1,"deliveryId":"d60d8370-4dcb-4411-8c33-e9a4f0c15a99","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:d60d8370-4dcb-4411-8c33-e9a4f0c15a99","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 8","deliveries":[{"version":1,"deliveryId":"3821377e-c01d-4da1-95ca-de7a514ad662","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:3821377e-c01d-4da1-95ca-de7a514ad662","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 9","deliveries":[{"version":1,"deliveryId":"6be9a372-a010-4edf-b5b0-98f7b2328a18","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:6be9a372-a010-4edf-b5b0-98f7b2328a18","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 10","deliveries":[{"version":1,"deliveryId":"76ecdd92-223f-4b65-9d73-6bd152066c4c","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:76ecdd92-223f-4b65-9d73-6bd152066c4c","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 11","deliveries":[{"version":1,"deliveryId":"43cb3e60-43f5-4215-8ad7-ec16dfc29813","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:43cb3e60-43f5-4215-8ad7-ec16dfc29813","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 12","deliveries":[{"version":1,"deliveryId":"9c99edc0-b508-4361-9f75-77dfc1cc5707","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:9c99edc0-b508-4361-9f75-77dfc1cc5707","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 13","deliveries":[{"version":1,"deliveryId":"36caf0fb-475c-4c48-822f-3d6a2f1bb048","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:36caf0fb-475c-4c48-822f-3d6a2f1bb048","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 14","deliveries":[{"version":1,"deliveryId":"57e970b3-854e-488b-ada5-cf06d5f12b33","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:57e970b3-854e-488b-ada5-cf06d5f12b33","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 15","deliveries":[{"version":1,"deliveryId":"de78be5d-bc32-489c-9910-1c666ba4b31b","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:de78be5d-bc32-489c-9910-1c666ba4b31b","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 16","deliveries":[{"version":1,"deliveryId":"3c5016c8-112c-4644-ae68-5fc35f8f3259","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:3c5016c8-112c-4644-ae68-5fc35f8f3259","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 17","deliveries":[{"version":1,"deliveryId":"3ba8c956-e6ed-44c3-881c-50d21f382325","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:3ba8c956-e6ed-44c3-881c-50d21f382325","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 18","deliveries":[{"version":1,"deliveryId":"9ec15e41-a859-44a6-8b08-8a069988da77","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:9ec15e41-a859-44a6-8b08-8a069988da77","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 19","deliveries":[{"version":1,"deliveryId":"d89415de-8242-4323-8131-cbd3f1cdfbcf","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:d89415de-8242-4323-8131-cbd3f1cdfbcf","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 20","deliveries":[{"version":1,"deliveryId":"e09ac2e8-7a8c-48f6-9732-4ea6ed5ff49d","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:e09ac2e8-7a8c-48f6-9732-4ea6ed5ff49d","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 21","deliveries":[{"version":1,"deliveryId":"7cf257a4-9971-4eec-87f9-b358e9e8cf44","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:7cf257a4-9971-4eec-87f9-b358e9e8cf44","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 22","deliveries":[{"version":1,"deliveryId":"51a6c8d4-1fd2-4d47-a1a5-d3955ad19f86","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:51a6c8d4-1fd2-4d47-a1a5-d3955ad19f86","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 23","deliveries":[{"version":1,"deliveryId":"f571f830-ef87-4228-b58f-7ff5ee2953ec","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:f571f830-ef87-4228-b58f-7ff5ee2953ec","reason":null,"outcome":"completed"}]},{"text":"Acceptance long-history turn 24","deliveries":[{"version":1,"deliveryId":"ae675e21-0668-4a97-afcd-3becdb7916cf","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":3,"status":"delivered","commandId":"collaboration:ae675e21-0668-4a97-afcd-3becdb7916cf","reason":null,"outcome":"completed"}]},{"text":"Retain original operation through lost response and Stop.","deliveries":[{"version":1,"deliveryId":"3e7802b5-351d-452d-b91d-32ff5a5cf1dc","sessionId":"e06752d3-a5b2-828b-b58c-ec112326cbe5","purpose":"reply","revision":1,"status":"queued","commandId":"collaboration:3e7802b5-351d-452d-b91d-32ff5a5cf1dc","reason":null}]}],"messagesPosted":[{"requestId":"6beb27ab-8521-45d4-b028-0d7a59e4c320","expectedMembershipRevision":2,"expectedPolicySequence":5,"text":"First explicit accepted review from ordinary chat.","responders":{"kind":"selected","sessionIds":["e06752d3-a5b2-828b-b58c-ec112326cbe5"]},"snapshot":null},{"requestId":"91553d79-00a4-4883-8deb-6ee1305c11cb","expectedMembershipRevision":2,"expectedPolicySequence":5,"text":"Concurrent ordinary responders with partial failure.","responders":{"kind":"all"},"snapshot":null},{"requestId":"f4b170e5-2147-426b-be03-6880f1399e87","expectedMembershipRevision":2,"expectedPolicySequence":5,"text":"Retain original operation through lost response and Stop.","responders":{"kind":"selected","sessionIds":["e06752d3-a5b2-828b-b58c-ec112326cbe5"]},"snapshot":null}],"sourceEvents":[{"type":"token_update","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"session_end","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"welcome"},{"type":"session_switched","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"session_state_changed","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"token_update","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"session_switched","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"session_state_changed","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"token_update","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"codex_queue","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"user_message","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5","messageId":"collaboration:648d64bc-b785-4a8f-803d-10458945958c"},{"type":"codex_queue","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"token_update","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"message_start","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5","messageId":"e1a21aaf-9904-487c-811c-027a10fbfee4"},{"type":"block_start","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5","messageId":"e1a21aaf-9904-487c-811c-027a10fbfee4"},{"type":"block_delta","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5","messageId":"e1a21aaf-9904-487c-811c-027a10fbfee4"},{"type":"codex_queue","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"block_end","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5","messageId":"e1a21aaf-9904-487c-811c-027a10fbfee4"},{"type":"message_end","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5","messageId":"e1a21aaf-9904-487c-811c-027a10fbfee4"},{"type":"token_update","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"session_end","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"_probe"},{"type":"welcome"},{"type":"session_reconnect_snapshot","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"mode_changed","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"token_update","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"reconnected"},{"type":"session_switched","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"session_state_changed","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"},{"type":"token_update","sessionId":"ada996fe-b682-8bc5-9d21-0bc4a0da9cb5"}]}
+2026-11-14T11:41:58.7756872Z 
+2026-11-14T11:41:58.9623496Z {"level":30,"time":1794656518961,"pid":2974,"hostname":"runnervm8axu0","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+2026-11-14T11:41:58.9714961Z  [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins[33m 38210[2mms[22m[39m
+2026-11-14T11:41:58.9716519Z [31m   → expected [ …(30) ] to have a length of 31 but got 30
+2026-11-14T11:41:58.9716957Z 
+2026-11-14T11:41:58.9717252Z Ignored nodes: comments, script, style
+2026-11-14T11:41:58.9717821Z [36m<html>[31m
+2026-11-14T11:41:58.9718071Z   [36m<head />[31m
+2026-11-14T11:41:58.9718405Z   [36m<body[31m
+2026-11-14T11:41:58.9718913Z     [33mstyle[31m=[32m""[31m
+2026-11-14T11:41:58.9719418Z   [36m>[31m
+2026-11-14T11:41:58.9720034Z     [36m<div />[31m
+2026-11-14T11:41:58.9720485Z     [36m<div />[31m
+2026-11-14T11:41:58.9720763Z     [36m<div />[31m
+2026-11-14T11:41:58.9721009Z     [36m<div />[31m
+2026-11-14T11:41:58.9721243Z     [36m<div>[31m
+2026-11-14T11:41:58.9721624Z       [36m<div[31m
+2026-11-14T11:41:58.9721998Z         [33mclass[31m=[32m"chat-page workspace-chat"[31m
+2026-11-14T11:41:58.9722359Z       [36m>[31m
+2026-11-14T11:41:58.9722705Z         [36m<section[31m
+2026-11-14T11:41:58.9723258Z           [33mclass[31m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[31m
+2026-11-14T11:41:58.9723736Z         [36m>[31m
+2026-11-14T11:41:58.9724082Z           [36m<div[31m
+2026-11-14T11:41:58.9724436Z             [33mclass[31m=[32m"chat-mobile-topbar"[31m
+2026-11-14T11:41:58.9724774Z           [36m>[31m
+2026-11-14T11:41:58.9725015Z             [36m<h1[31m
+2026-11-14T11:41:58.9725433Z               [33mclass[31m=[32m"sr-only"[31m
+2026-11-14T11:41:58.9725764Z             [36m>[31m
+2026-11-14T11:41:58.9726042Z               [0mConversation[0m
+2026-11-14T11:41:58.9726339Z             [36m</h1>[31m
+2026-11-14T11:41:58.9726618Z             [36m<section[31m
+2026-11-14T11:41:58.9727539Z               [33mclass[31m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[31m
+2026-11-14T11:41:58.9728330Z             [36m>[31m
+2026-11-14T11:41:58.9728583Z               [36m<div[31m
+2026-11-14T11:41:58.9729094Z                 [33mclass[31m=[32m"workspace-controls-heading"[31m
+2026-11-14T11:41:58.9729531Z               [36m>[31m
+2026-11-14T11:41:58.9730152Z                 [36m<a[31m
+2026-11-14T11:41:58.9730629Z                   [33maria-label[31m=[32m"Back to chats"[31m
+2026-11-14T11:41:58.9731083Z                   [33mclass[31m=[32m"chat-top-action"[31m
+2026-11-14T11:41:58.9731612Z                   [33mdata-discover[31m=[32m"true"[31m
+2026-11-14T11:41:58.9732130Z                   [33mhref[31m=[32m"/sessions"[31m
+2026-11-14T11:41:58.9732446Z                 [36m>[31m
+2026-11-14T11:41:58.9732839Z                   [36m<svg[31m
+2026-11-14T11:41:58.9733186Z                     [33maria-hidden[31m=[32m"true"[31m
+2026-11-14T11:41:58.9733699Z                     [33mclass[31m=[32m"ui-icon"[31m
+2026-11-14T11:41:58.9734207Z                     [33mdata-icon[31m=[32m"back"[31m
+2026-11-14T11:41:58.9734650Z                     [33mfill[31m=[32m"none"[31m
+2026-11-14T11:41:58.9735090Z                     [33mfocusable[31m=[32m"false"[31m
+2026-11-14T11:41:58.9735579Z                     [33mheight[31m=[32m"20"[31m
+2026-11-14T11:41:58.9736063Z                     [33mstroke[31m=[32m"currentColor"[31m
+2026-11-14T11:41:58.9736522Z                     [33mstroke-linecap[31m=[32m"round"[31m
+2026-11-14T11:41:58.9737061Z                     [33mstroke-linejoin[31m=[32m"round"[31m
+2026-11-14T11:41:58.9737595Z                     [33mstroke-width[31m=[32m"1.7"[31m
+2026-11-14T11:41:58.9738091Z                     [33mviewBox[31m=[32m"0 0 24 24"[31m
+2026-11-14T11:41:58.9738771Z                     [33mwidth[31m=[32m"20"[31m
+2026-11-14T11:41:58.9739093Z                   [36m>[31m
+2026-11-14T11:41:58.9739953Z                     [36m<path[31m
+2026-11-14T11:41:58.9740421Z                       [33md[31m=[32m"m14 6-6 6 6 6"[31m
+2026-11-14T11:41:58.9740935Z                     [36m/>[31m
+2026-11-14T11:41:58.9741285Z                   [36m</svg>[31m
+2026-11-14T11:41:58.9741581Z                 [36m</a>[31m
+2026-11-14T11:41:58.9741979Z                 [36m<div[31m
+2026-11-14T11:41:58.9742408Z                   [33mclass[31m=[32m"workspace-controls-context"[31m
+2026-11-14T11:41:58.9742783Z                 [36m>[31m
+2026-11-14T11:41:58.9743070Z                   [36m<strong[31m
+2026-11-14T11:41:58.9743496Z                     [33mclass[31m=[32m"workspace-controls-profile"[31m
+2026-11-14T11:41:58.9743984Z                   [36m>[31m
+2026-11-14T11:41:58.9744404Z                     [0mEstablish the independent ordinary source history[0m
+2026-11-14T11:41:58.9744834Z                   [36m</strong>[31m
+2026-11-14T11:41:58.9745237Z                   [36m<span>[31m
+2026-11-14T11:41:58.9745800Z                     [0mDefault Mitzo · Offline only · Offline fixture · low · Local Mac[0m
+2026-11-14T11:41:58.9746271Z                   [36m</span>[31m
+2026-11-14T11:41:58.9746584Z                 [36m</div>[31m
+2026-11-14T11:41:58.9747002Z                 [36m<button[31m
+2026-11-14T11:41:58.9747363Z                   [33maria-controls[31m=[32m"_r_3i_"[31m
+2026-11-14T11:41:58.9747819Z                   [33maria-describedby[31m=[32m"_r_3i_-status"[31m
+2026-11-14T11:41:58.9748375Z                   [33maria-expanded[31m=[32m"false"[31m
+2026-11-14T11:41:58.9749229Z                   [33maria-label[31m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[31m
+2026-11-14T11:41:58.9750305Z                   [33mclass[31m=[32m"workspace-controls-toggle header-action"[31m
+2026-11-14T11:41:58.9750796Z                   [33mtype[31m=[32m"button"[31m
+2026-11-14T11:41:58.9751112Z                 [36m>[31m
+2026-11-14T11:41:58.9751527Z                   [36m<svg[31m
+2026-11-14T11:41:58.9751877Z                     [33maria-hidden[31m=[32m"true"[31m
+2026-11-14T11:41:58.9752264Z                     [33mclass[31m=[32m"ui-icon"[31m
+2026-11-14T11:41:58.9752660Z                     [33mdata-icon[31m=[32m"settings"[31m
+2026-11-14T11:41:58.9753162Z                     [33mfill[31m=[32m"none"[31m
+2026-11-14T11:41:58.9753659Z                     [33mfocusable[31m=[32m"false"[31m
+2026-11-14T11:41:58.9754044Z                     [33mheight[31m=[32m"20"[31m
+2026-11-14T11:41:58.9754432Z                     [33mstroke[31m=[32m"currentColor"[31m
+2026-11-14T11:41:58.9754845Z                     [33mstroke-linecap[31m=[32m"round"[31m
+2026-11-14T11:41:58.9755420Z                     [33mstroke-linejoin[31m=[32m"round"[31m
+2026-11-14T11:41:58.9755842Z                     [33mstroke-width[31m=[32m"1.7"[31m
+2026-11-14T11:41:58.9756381Z                     [33mviewBox[31m=[32m"0 0 24 24"[31m
+2026-11-14T11:41:58.9756774Z                     [33mwidth[31m=[32m"20"[31m
+2026-11-14T11:41:58.9757191Z                   [36m>[31m
+2026-11-14T11:41:58.9757480Z                     [36m<path[31m
+2026-11-14T11:41:58.9757989Z                       [33md[31m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[31m
+2026-11-14T11:41:58.9758363Z                     [36m/>[31m
+2026-11-14T11:41:58.9758720Z                   [36m</svg>[31m
+2026-11-14T11:41:58.9759062Z                   [36m<span[31m
+2026-11-14T11:41:58.9759460Z                     [33mclass[31m=[32m"workspace-controls-label"[31m
+2026-11-14T11:41:58.9760205Z                   [36m>[31m
+2026-11-14T11:41:58.9760572Z                     [0mSettings[0m
+2026-11-14T11:41:58.9760881Z                   [36m</span>[31m
+2026-11-14T11:41:58.9761186Z                 [36m</button>[31m
+2026-11-14T11:41:58.9761484Z                 [36m<span[31m
+2026-11-14T11:41:58.9762316Z                   [33mclass[31m=[32m"conversation-state sr-only"[31m
+2026-11-14T11:41:58.9763005Z                   [33mid[31m=[32m"_r_3i_-status"[31m
+2026-11-14T11:41:58.9763365Z                 [36m>[31m
+2026-11-14T11:41:58.9763767Z                   [0mConversation[0m
+2026-11-14T11:41:58.9764104Z                 [36m</span>[31m
+2026-11-14T11:41:58.9764476Z                 [36m<div[31m
+2026-11-14T11:41:58.9764923Z                   [33mclass[31m=[32m"conversation-agents-entry"[31m
+2026-11-14T11:41:58.9765395Z                 [36m>[31m
+2026-11-14T11:41:58.9765680Z                   [36m<button[31m
+2026-11-14T11:41:58.9766168Z                     [33maria-expanded[31m=[32m"false"[31m
+2026-11-14T11:41:58.9766839Z                     [33maria-label[31m=[32m"Agents, Default Mitzo, AcceptanceReviewer"[31m
+2026-11-14T11:41:58.9767630Z                     [33mclass[31m=[32m"conversation-participants-trigger header-action"[31m
+2026-11-14T11:41:58.9768285Z                     [33mtype[31m=[32m"button"[31m
+2026-11-14T11:41:58.9768605Z                   [36m>[31m
+2026-11-14T11:41:58.9768949Z                     [36m<svg[31m
+2026-11-14T11:41:58.9769377Z                       [33maria-hidden[31m=[32m"true"[31m
+2026-11-14T11:41:58.9770115Z                       [33mclass[31m=[32m"ui-icon"[31m
+2026-11-14T11:41:58.9770586Z                       [33mdata-icon[31m=[32m"bot"[31m
+2026-11-14T11:41:58.9771026Z                       [33mfill[31m=[32m"none"[31m
+2026-11-14T11:41:58.9771413Z                       [33mfocusable[31m=[32m"false"[31m
+2026-11-14T11:41:58.9771921Z                       [33mheight[31m=[32m"20"[31m
+2026-11-14T11:41:58.9772368Z                       [33mstroke[31m=[32m"currentColor"[31m
+2026-11-14T11:41:58.9772859Z                       [33mstroke-linecap[31m=[32m"round"[31m
+2026-11-14T11:41:58.9773397Z                       [33mstroke-linejoin[31m=[32m"round"[31m
+2026-11-14T11:41:58.9773865Z                       [33mstroke-width[31m=[32m"1.7"[31m
+2026-11-14T11:41:58.9774344Z                       [33mviewBox[31m=[32m"0 0 24 24"[31m
+2026-11-14T11:41:58.9774726Z                       [33mwidth[31m=[32m"20"[31m
+2026-11-14T11:41:58.9775305Z                     [36m>[31m
+2026-11-14T11:41:58.9775606Z                       [36m<path[31m
+2026-11-14T11:41:58.9776406Z                         [33md[31m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[31m
+2026-11-14T11:41:58.9776989Z                       [36m/>[31m
+2026-11-14T11:41:58.9777405Z                     [36m</svg>[31m
+2026-11-14T11:41:58.9777716Z                   [36m</button>[31m
+2026-11-14T11:41:58.9778022Z                 [36m</div>[31m
+2026-11-14T11:41:58.9778310Z                 [36m<button[31m
+2026-11-14T11:41:58.9778678Z                   [33maria-label[31m=[32m"Links & access"[31m
+2026-11-14T11:41:58.9779324Z                   [33mclass[31m=[32m"session-access-trigger header-action"[31m
+2026-11-14T11:41:58.9780105Z                   [33mtitle[31m=[32m"Links & access"[31m
+2026-11-14T11:41:58.9780644Z                   [33mtype[31m=[32m"button"[31m
+2026-11-14T11:41:58.9781030Z                 [36m>[31m
+2026-11-14T11:41:58.9781309Z                   [36m<svg[31m
+2026-11-14T11:41:58.9781658Z                     [33maria-hidden[31m=[32m"true"[31m
+2026-11-14T11:41:58.9782183Z                     [33mclass[31m=[32m"ui-icon"[31m
+2026-11-14T11:41:58.9782578Z                     [33mdata-icon[31m=[32m"conn...[39m
+2026-11-14T11:42:02.8509127Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the review owner omitted[32m 6[2mms[22m[39m
+2026-11-14T11:42:02.8512343Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the joining owner omitted[32m 3[2mms[22m[39m
+2026-11-14T11:42:02.8515393Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the messaging owner omitted[32m 9[2mms[22m[39m
+2026-11-14T11:42:03.8798324Z {"level":30,"time":1794656523879,"pid":3361,"hostname":"runnervm8axu0","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+2026-11-14T11:42:03.8982636Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the reply owner omitted[33m 1078[2mms[22m[39m
+2026-11-14T11:42:03.8984909Z  [32m✓[39m tests/integration/symposium-required-owners.test.ts[2m > [22mcontrol: actual application cannot satisfy acceptance with the admission owner omitted[32m 49[2mms[22m[39m
+2026-11-14T11:42:03.9008515Z 
+2026-11-14T11:42:03.9009400Z [31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+2026-11-14T11:42:03.9010306Z 
+2026-11-14T11:42:03.9013407Z [41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mretains the ordinary unsent draft while real fresh setup/review silently joins
+2026-11-14T11:42:03.9033029Z [31m[1mAssertionError[22m[39m: expected [ …(30) ] to have a length of 31 but got 30
+2026-11-14T11:42:03.9033780Z 
+2026-11-14T11:42:03.9034369Z Ignored nodes: comments, script, style
+2026-11-14T11:42:03.9035053Z [36m<html>[39m
+2026-11-14T11:42:03.9035562Z   [36m<head />[39m
+2026-11-14T11:42:03.9036122Z   [36m<body[39m
+2026-11-14T11:42:03.9036783Z     [33mstyle[39m=[32m""[39m
+2026-11-14T11:42:03.9037428Z   [36m>[39m
+2026-11-14T11:42:03.9037986Z     [36m<div />[39m
+2026-11-14T11:42:03.9038583Z     [36m<div />[39m
+2026-11-14T11:42:03.9039171Z     [36m<div />[39m
+2026-11-14T11:42:03.9040120Z     [36m<div />[39m
+2026-11-14T11:42:03.9040812Z     [36m<div>[39m
+2026-11-14T11:42:03.9041470Z       [36m<div[39m
+2026-11-14T11:42:03.9042434Z         [33mclass[39m=[32m"chat-page workspace-chat"[39m
+2026-11-14T11:42:03.9043285Z       [36m>[39m
+2026-11-14T11:42:03.9043842Z         [36m<section[39m
+2026-11-14T11:42:03.9045074Z           [33mclass[39m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[39m
+2026-11-14T11:42:03.9046151Z         [36m>[39m
+2026-11-14T11:42:03.9046675Z           [36m<div[39m
+2026-11-14T11:42:03.9047512Z             [33mclass[39m=[32m"chat-mobile-topbar"[39m
+2026-11-14T11:42:03.9048277Z           [36m>[39m
+2026-11-14T11:42:03.9048815Z             [36m<h1[39m
+2026-11-14T11:42:03.9049526Z               [33mclass[39m=[32m"sr-only"[39m
+2026-11-14T11:42:03.9050419Z             [36m>[39m
+2026-11-14T11:42:03.9050913Z               [0mConversation[0m
+2026-11-14T11:42:03.9051404Z             [36m</h1>[39m
+2026-11-14T11:42:03.9051890Z             [36m<section[39m
+2026-11-14T11:42:03.9053261Z               [33mclass[39m=[32m"workspace-controls workspace-controls--navigation workspace-controls--compact workspace-controls--quick"[39m
+2026-11-14T11:42:03.9054202Z             [36m>[39m
+2026-11-14T11:42:03.9054471Z               [36m<div[39m
+2026-11-14T11:42:03.9054863Z                 [33mclass[39m=[32m"workspace-controls-heading"[39m
+2026-11-14T11:42:03.9055225Z               [36m>[39m
+2026-11-14T11:42:03.9055479Z                 [36m<a[39m
+2026-11-14T11:42:03.9055839Z                   [33maria-label[39m=[32m"Back to chats"[39m
+2026-11-14T11:42:03.9056286Z                   [33mclass[39m=[32m"chat-top-action"[39m
+2026-11-14T11:42:03.9056703Z                   [33mdata-discover[39m=[32m"true"[39m
+2026-11-14T11:42:03.9057096Z                   [33mhref[39m=[32m"/sessions"[39m
+2026-11-14T11:42:03.9057407Z                 [36m>[39m
+2026-11-14T11:42:03.9057685Z                   [36m<svg[39m
+2026-11-14T11:42:03.9058036Z                     [33maria-hidden[39m=[32m"true"[39m
+2026-11-14T11:42:03.9058432Z                     [33mclass[39m=[32m"ui-icon"[39m
+2026-11-14T11:42:03.9059164Z                     [33mdata-icon[39m=[32m"back"[39m
+2026-11-14T11:42:03.9060764Z                     [33mfill[39m=[32m"none"[39m
+2026-11-14T11:42:03.9061475Z                     [33mfocusable[39m=[32m"false"[39m
+2026-11-14T11:42:03.9062268Z                     [33mheight[39m=[32m"20"[39m
+2026-11-14T11:42:03.9062716Z                     [33mstroke[39m=[32m"currentColor"[39m
+2026-11-14T11:42:03.9063161Z                     [33mstroke-linecap[39m=[32m"round"[39m
+2026-11-14T11:42:03.9063591Z                     [33mstroke-linejoin[39m=[32m"round"[39m
+2026-11-14T11:42:03.9064311Z                     [33mstroke-width[39m=[32m"1.7"[39m
+2026-11-14T11:42:03.9065020Z                     [33mviewBox[39m=[32m"0 0 24 24"[39m
+2026-11-14T11:42:03.9065737Z                     [33mwidth[39m=[32m"20"[39m
+2026-11-14T11:42:03.9066337Z                   [36m>[39m
+2026-11-14T11:42:03.9066877Z                     [36m<path[39m
+2026-11-14T11:42:03.9067528Z                       [33md[39m=[32m"m14 6-6 6 6 6"[39m
+2026-11-14T11:42:03.9068141Z                     [36m/>[39m
+2026-11-14T11:42:03.9068472Z                   [36m</svg>[39m
+2026-11-14T11:42:03.9068776Z                 [36m</a>[39m
+2026-11-14T11:42:03.9069073Z                 [36m<div[39m
+2026-11-14T11:42:03.9069479Z                   [33mclass[39m=[32m"workspace-controls-context"[39m
+2026-11-14T11:42:03.9070212Z                 [36m>[39m
+2026-11-14T11:42:03.9070565Z                   [36m<strong[39m
+2026-11-14T11:42:03.9070984Z                     [33mclass[39m=[32m"workspace-controls-profile"[39m
+2026-11-14T11:42:03.9071356Z                   [36m>[39m
+2026-11-14T11:42:03.9071780Z                     [0mEstablish the independent ordinary source history[0m
+2026-11-14T11:42:03.9072200Z                   [36m</strong>[39m
+2026-11-14T11:42:03.9072508Z                   [36m<span>[39m
+2026-11-14T11:42:03.9073019Z                     [0mDefault Mitzo · Offline only · Offline fixture · low · Local Mac[0m
+2026-11-14T11:42:03.9073491Z                   [36m</span>[39m
+2026-11-14T11:42:03.9073812Z                 [36m</div>[39m
+2026-11-14T11:42:03.9074107Z                 [36m<button[39m
+2026-11-14T11:42:03.9074480Z                   [33maria-controls[39m=[32m"_r_3i_"[39m
+2026-11-14T11:42:03.9074935Z                   [33maria-describedby[39m=[32m"_r_3i_-status"[39m
+2026-11-14T11:42:03.9075373Z                   [33maria-expanded[39m=[32m"false"[39m
+2026-11-14T11:42:03.9076146Z                   [33maria-label[39m=[32m"Workspace controls, Settings, Default Mitzo, Offline only, Offline fixture, low, local"[39m
+2026-11-14T11:42:03.9076923Z                   [33mclass[39m=[32m"workspace-controls-toggle header-action"[39m
+2026-11-14T11:42:03.9077406Z                   [33mtype[39m=[32m"button"[39m
+2026-11-14T11:42:03.9077723Z                 [36m>[39m
+2026-11-14T11:42:03.9077997Z                   [36m<svg[39m
+2026-11-14T11:42:03.9078343Z                     [33maria-hidden[39m=[32m"true"[39m
+2026-11-14T11:42:03.9078789Z                     [33mclass[39m=[32m"ui-icon"[39m
+2026-11-14T11:42:03.9079562Z                     [33mdata-icon[39m=[32m"settings"[39m
+2026-11-14T11:42:03.9080240Z                     [33mfill[39m=[32m"none"[39m
+2026-11-14T11:42:03.9080649Z                     [33mfocusable[39m=[32m"false"[39m
+2026-11-14T11:42:03.9081030Z                     [33mheight[39m=[32m"20"[39m
+2026-11-14T11:42:03.9081421Z                     [33mstroke[39m=[32m"currentColor"[39m
+2026-11-14T11:42:03.9082019Z                     [33mstroke-linecap[39m=[32m"round"[39m
+2026-11-14T11:42:03.9082790Z                     [33mstroke-linejoin[39m=[32m"round"[39m
+2026-11-14T11:42:03.9083557Z                     [33mstroke-width[39m=[32m"1.7"[39m
+2026-11-14T11:42:03.9084343Z                     [33mviewBox[39m=[32m"0 0 24 24"[39m
+2026-11-14T11:42:03.9085039Z                     [33mwidth[39m=[32m"20"[39m
+2026-11-14T11:42:03.9085621Z                   [36m>[39m
+2026-11-14T11:42:03.9086175Z                     [36m<path[39m
+2026-11-14T11:42:03.9087201Z                       [33md[39m=[32m"M4 7h16M4 17h16M8 4v6m8 4v6"[39m
+2026-11-14T11:42:03.9087895Z                     [36m/>[39m
+2026-11-14T11:42:03.9088661Z                   [36m</svg>[39m
+2026-11-14T11:42:03.9089286Z                   [36m<span[39m
+2026-11-14T11:42:03.9090370Z                     [33mclass[39m=[32m"workspace-controls-label"[39m
+2026-11-14T11:42:03.9091081Z                   [36m>[39m
+2026-11-14T11:42:03.9091628Z                     [0mSettings[0m
+2026-11-14T11:42:03.9092202Z                   [36m</span>[39m
+2026-11-14T11:42:03.9092796Z                 [36m</button>[39m
+2026-11-14T11:42:03.9093341Z                 [36m<span[39m
+2026-11-14T11:42:03.9094082Z                   [33mclass[39m=[32m"conversation-state sr-only"[39m
+2026-11-14T11:42:03.9094912Z                   [33mid[39m=[32m"_r_3i_-status"[39m
+2026-11-14T11:42:03.9095507Z                 [36m>[39m
+2026-11-14T11:42:03.9096051Z                   [0mConversation[0m
+2026-11-14T11:42:03.9096664Z                 [36m</span>[39m
+2026-11-14T11:42:03.9097211Z                 [36m<div[39m
+2026-11-14T11:42:03.9097953Z                   [33mclass[39m=[32m"conversation-agents-entry"[39m
+2026-11-14T11:42:03.9098603Z                 [36m>[39m
+2026-11-14T11:42:03.9099111Z                   [36m<button[39m
+2026-11-14T11:42:03.9100072Z                     [33maria-expanded[39m=[32m"false"[39m
+2026-11-14T11:42:03.9101069Z                     [33maria-label[39m=[32m"Agents, Default Mitzo, AcceptanceReviewer"[39m
+2026-11-14T11:42:03.9102259Z                     [33mclass[39m=[32m"conversation-participants-trigger header-action"[39m
+2026-11-14T11:42:03.9103181Z                     [33mtype[39m=[32m"button"[39m
+2026-11-14T11:42:03.9103736Z                   [36m>[39m
+2026-11-14T11:42:03.9104245Z                     [36m<svg[39m
+2026-11-14T11:42:03.9104897Z                       [33maria-hidden[39m=[32m"true"[39m
+2026-11-14T11:42:03.9105637Z                       [33mclass[39m=[32m"ui-icon"[39m
+2026-11-14T11:42:03.9106371Z                       [33mdata-icon[39m=[32m"bot"[39m
+2026-11-14T11:42:03.9107054Z                       [33mfill[39m=[32m"none"[39m
+2026-11-14T11:42:03.9107735Z                       [33mfocusable[39m=[32m"false"[39m
+2026-11-14T11:42:03.9108434Z                       [33mheight[39m=[32m"20"[39m
+2026-11-14T11:42:03.9109157Z                       [33mstroke[39m=[32m"currentColor"[39m
+2026-11-14T11:42:03.9110452Z                       [33mstroke-linecap[39m=[32m"round"[39m
+2026-11-14T11:42:03.9111274Z                       [33mstroke-linejoin[39m=[32m"round"[39m
+2026-11-14T11:42:03.9112053Z                       [33mstroke-width[39m=[32m"1.7"[39m
+2026-11-14T11:42:03.9112843Z                       [33mviewBox[39m=[32m"0 0 24 24"[39m
+2026-11-14T11:42:03.9113604Z                       [33mwidth[39m=[32m"20"[39m
+2026-11-14T11:42:03.9114245Z                     [36m>[39m
+2026-11-14T11:42:03.9114822Z                       [36m<path[39m
+2026-11-14T11:42:03.9116177Z                         [33md[39m=[32m"M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"[39m
+2026-11-14T11:42:03.9117281Z                       [36m/>[39m
+2026-11-14T11:42:03.9117878Z                     [36m</svg>[39m
+2026-11-14T11:42:03.9118483Z                   [36m</button>[39m
+2026-11-14T11:42:03.9119072Z                 [36m</div>[39m
+2026-11-14T11:42:03.9120316Z                 [36m<button[39m
+2026-11-14T11:42:03.9121131Z                   [33maria-label[39m=[32m"Links & access"[39m
+2026-11-14T11:42:03.9122204Z                   [33mclass[39m=[32m"session-access-trigger header-action"[39m
+2026-11-14T11:42:03.9123164Z                   [33mtitle[39m=[32m"Links & access"[39m
+2026-11-14T11:42:03.9123922Z                   [33mtype[39m=[32m"button"[39m
+2026-11-14T11:42:03.9124540Z                 [36m>[39m
+2026-11-14T11:42:03.9125087Z                   [36m<svg[39m
+2026-11-14T11:42:03.9126098Z                     [33maria-hidden[39m=[32m"true"[39m
+2026-11-14T11:42:03.9127089Z                     [33mclass[39m=[32m"ui-icon"[39m
+2026-11-14T11:42:03.9127867Z                     [33mdata-icon[39m=[32m"conn...
+2026-11-14T11:42:03.9128259Z 
+2026-11-14T11:42:03.9128523Z [32m- Expected[39m
+2026-11-14T11:42:03.9129007Z [31m+ Received[39m
+2026-11-14T11:42:03.9129252Z 
+2026-11-14T11:42:03.9129457Z [32m- 31[39m
+2026-11-14T11:42:03.9130202Z [31m+ 30[39m
+2026-11-14T11:42:03.9130416Z 
+2026-11-14T11:42:03.9131326Z [36m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m651:73[22m[39m
+2026-11-14T11:42:03.9244281Z     [90m649|[39m     fireEvent[33m.[39m[34mclick[39m([34msend[39m())[33m;[39m
+2026-11-14T11:42:03.9250938Z     [90m650|[39m     [35mawait[39m [34mwaitFor[39m(() [33m=>[39m
+2026-11-14T11:42:03.9252529Z     [90m651|[39m       expect(runtime.requests.filter((r) => r.method === 'turn/start')…
+2026-11-14T11:42:03.9253983Z     [90m   |[39m                                                                         [31m^[39m
+2026-11-14T11:42:03.9255020Z     [90m652|[39m     )[33m;[39m
+2026-11-14T11:42:03.9256242Z     [90m653|[39m     [34mexpect[39m(loseSend)[33m.[39m[34mtoBe[39m([35mfalse[39m)[33m;[39m
+2026-11-14T11:42:03.9258323Z [90m [2m❯[22m runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:[2m47:12[22m[39m
+2026-11-14T11:42:03.9260878Z [90m [2m❯[22m checkCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m124:77[22m[39m
+2026-11-14T11:42:03.9262762Z [90m [2m❯[22m Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m118:16[22m[39m
+2026-11-14T11:42:03.9263426Z 
+2026-11-14T11:42:03.9263864Z [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+2026-11-14T11:42:03.9264234Z 
+2026-11-14T11:42:03.9264349Z 
+2026-11-14T11:42:03.9264909Z [2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (2)[39m
+2026-11-14T11:42:03.9265852Z [2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m8 passed[39m[22m[90m (9)[39m
+2026-11-14T11:42:03.9266547Z [2m   Start at [22m 11:41:02
+2026-11-14T11:42:03.9267378Z [2m   Duration [22m 61.48s[2m (transform 9.14s, setup 0ms, import 1.57s, tests 58.94s, environment 702ms)[22m
+2026-11-14T11:42:03.9267947Z 
+2026-11-14T11:42:04.0655979Z ##[error]Process completed with exit code 1.
+2026-11-14T11:42:04.0783058Z ##[group]Run actions/upload-artifact@v7
+2026-11-14T11:42:04.0783378Z with:
+2026-11-14T11:42:04.0783716Z   name: symposium-application-b6f1730bb7d7b05d83a280bf096574961c98c719-1
+2026-11-14T11:42:04.0784145Z   path: symposium-application.log
+2026-11-14T11:42:04.0784412Z   retention-days: 7
+2026-11-14T11:42:04.0784630Z   if-no-files-found: warn
+2026-11-14T11:42:04.0784869Z   compression-level: 6
+2026-11-14T11:42:04.0785082Z   overwrite: false
+2026-11-14T11:42:04.0785301Z   include-hidden-files: false
+2026-11-14T11:42:04.0785539Z   archive: true
+2026-11-14T11:42:04.0785759Z ##[endgroup]
+2026-11-14T11:42:04.2351512Z With the provided path, there will be 1 file uploaded
+2026-11-14T11:42:04.2352814Z Artifact name is valid!
+2026-11-14T11:42:04.2353384Z Root directory input is valid!
+2026-11-14T11:42:04.5992196Z Uploading artifact: symposium-application-b6f1730bb7d7b05d83a280bf096574961c98c719-1.zip
+2026-11-14T11:42:04.6033016Z Beginning upload of artifact content to blob storage
+2026-11-14T11:42:04.9334552Z Uploaded bytes 6365
+2026-11-14T11:42:05.0115500Z Finished uploading artifact content to blob storage!
+2026-11-14T11:42:05.0116953Z SHA256 digest of uploaded artifact is fc8400bc0af525d4b8c3edd5fa78c57ee9b673cc4b06545172c3b10d51982ec0
+2026-11-14T11:42:05.0118392Z Finalizing artifact upload
+2026-11-14T11:42:05.5515040Z Artifact symposium-application-b6f1730bb7d7b05d83a280bf096574961c98c719-1 successfully finalized. Artifact ID 14111664514
+2026-11-14T11:42:05.5516911Z Artifact symposium-application-b6f1730bb7d7b05d83a280bf096574961c98c719-1 has been successfully uploaded! Final size is 6365 bytes. Artifact ID is 14111664514
+2026-11-14T11:42:05.5519074Z Artifact download URL: https://github.com/dimakis/mitzo/actions/runs/43591105649/artifacts/14111664514
+2026-11-14T11:42:05.5727815Z Post job cleanup.
+2026-11-14T11:42:05.5732110Z ##[start-action display=Run actions/setup-node@v7;id=__602214ba-5583-4eff-b257-ef7b47155788.__actions_setup-node]
+2026-11-14T11:42:05.5736617Z ##[end-action id=__602214ba-5583-4eff-b257-ef7b47155788.__actions_setup-node;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T11:42:05.5805571Z Post job cleanup.
+2026-11-14T11:42:05.6755692Z [command]/usr/bin/git version
+2026-11-14T11:42:05.6804347Z git version 2.56.1
+2026-11-14T11:42:05.6847326Z Temporarily overriding HOME='/home/runner/work/_temp/c5dd1834-757c-4eda-b84b-0edc672fee30' before making global git config changes
+2026-11-14T11:42:05.6848928Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T11:42:05.6855707Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-14T11:42:05.6897814Z Removing SSH command configuration
+2026-11-14T11:42:05.6905585Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T11:42:05.6952327Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T11:42:05.7243977Z Removing HTTP extra header
+2026-11-14T11:42:05.7245204Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T11:42:05.7292170Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T11:42:05.7568288Z Removing includeIf entries pointing to credentials config files
+2026-11-14T11:42:05.7576020Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T11:42:05.7631786Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T11:42:05.8055316Z Cleaning up orphan processes

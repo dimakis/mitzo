@@ -78,6 +78,20 @@ export function createSessionPromptPort(
   const bindings = new Map<string, () => void>();
   const turnLifecycles = new Map<string, OrdinaryTurnLifecycle>();
   const ownedSessions = new WeakSet<object>();
+  const observesLiveOwner = (
+    session: NonNullable<ReturnType<typeof ctx.sessionRegistry.findBySessionId>>['session'],
+    auth: AuthSession,
+  ) => {
+    if (ownedSessions.has(session)) return true;
+    const owner = session.ordinaryRuntimeOwner;
+    return (
+      owner?.supportsTurnLifecycle === true &&
+      owner.location === 'local' &&
+      !!owner.identity &&
+      ordinaryOperatorOwnsConversation(owner.authSessionId, auth.id) &&
+      ordinaryOperatorOwnsConversation(session.ownedLocalAuthSessionId, auth.id)
+    );
+  };
   const lifecycle: OrdinaryTurnLifecycle = {
     beforeDispatch: (id) => turnLifecycles.get(id)?.beforeDispatch(id),
     accepted: (id, thread, turn) => turnLifecycles.get(id)?.accepted(id, thread, turn),
@@ -268,7 +282,7 @@ export function createSessionPromptPort(
     signal.addEventListener('abort', abort, { once: true });
     try {
       current();
-      if (prompt.turnLifecycle && live && !ownedSessions.has(live.session))
+      if (prompt.turnLifecycle && live && !observesLiveOwner(live.session, prompt.auth))
         throw new SessionPromptError(
           'Open a fresh group participant for this delivery route.',
           422,
@@ -443,7 +457,7 @@ export function createSessionPromptPort(
       if (
         !isOrdinaryRepositoryParticipantBinding(binding) ||
         binding.execution.location !== 'local' ||
-        (live && !ownedSessions.has(live.session)) ||
+        (live && !observesLiveOwner(live.session, prompt.auth)) ||
         ctx.eventStore.hasUncertainOrdinaryCommand(prompt.sessionId)
       )
         throw new SessionPromptError('Choose a fresh configured group participant.', 422);
@@ -485,9 +499,11 @@ export function createSessionPromptPort(
         library.getAgentLibrary(),
         prompt.settings!.selection.agent,
       );
-      const workspace = workspaces
-        .getRepositoryWorkspaces(true)
-        .get(prompt.settings!.repositoryWorkspaceId);
+      const workspace = meta.ordinaryWorkspaceId
+        ? workspaces
+            .getOrdinaryWorkspaces(true)
+            .getOrdinaryWorkspace(prompt.settings!.repositoryWorkspaceId)
+        : workspaces.getRepositoryWorkspaces(true).get(prompt.settings!.repositoryWorkspaceId);
       if (
         !profile ||
         (profile.definition?.contextRecipe !== undefined &&

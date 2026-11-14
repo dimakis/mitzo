@@ -1,0 +1,360 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+[90mstderr[2m | tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22m[2mordinary responsive composition keeps history and one transcript/composer after silent joining
+[22m[39mSession links could not be refreshed {
+  code: [32m'session_launch_read_failed'[39m,
+  stage: [32m'read'[39m,
+  sessionId: [32m'existing-chat'[39m,
+  cause: [32m'Error'[39m
+}
+
+{"level":30,"time":1794651672460,"pid":26910,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ [31m×[39m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition keeps history and one transcript/composer after silent joining[33m 2662[2mms[22m[39m
+[31m   → expected …(2) to have a length of 1 but got 2
+
+Ignored nodes: comments, script, style
+[36m<html>[31m
+  [36m<head />[31m
+  [36m<body>[31m
+    [36m<div>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"desktop-shell workspace-shell"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"desktop-body"[31m
+          [33mstyle[31m=[32m"--desktop-navigation-width: 168px; --desktop-conversations-width: 280px; --desktop-resources-width: 36px;"[31m
+        [36m>[31m
+          [36m<aside[31m
+            [33mclass[31m=[32m"workspace-rail"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"workspace-rail-heading"[31m
+            [36m>[31m
+              [36m<a[31m
+                [33maria-label[31m=[32m"Mitzo home"[31m
+                [33mclass[31m=[32m"mitzo-brand"[31m
+                [33mdata-discover[31m=[32m"true"[31m
+                [33mhref[31m=[32m"/"[31m
+              [36m>[31m
+                [36m<img[31m
+                  [33malt[31m=[32m""[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33msrc[31m=[32m"/mitzo-wordmark.png"[31m
+                [36m/>[31m
+              [36m</a>[31m
+            [36m</div>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"workspace-rail-controls"[31m
+            [36m>[31m
+              [36m<button[31m
+                [33maria-expanded[31m=[32m"true"[31m
+                [33maria-label[31m=[32m"Collapse navigation"[31m
+                [33mclass[31m=[32m"workspace-rail-toggle"[31m
+                [33mtitle[31m=[32m"Collapse navigation"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"panel"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-linejoin[31m=[32m"round"[31m
+                  [33mstroke-width[31m=[32m"1.7"[31m
+                  [33mviewBox[31m=[32m"0 0 24 24"[31m
+                  [33mwidth[31m=[32m"20"[31m
+                [36m>[31m
+                  [36m<path[31m
+                    [33md[31m=[32m"M3 4h18v16H3ZM9 4v16"[31m
+                  [36m/>[31m
+                [36m</svg>[31m
+              [36m</button>[31m
+            [36m</div>[31m
+            [36m<nav[31m
+              [33maria-label[31m=[32m"Main navigation"[31m
+              [33mclass[31m=[32m"workspace-nav"[31m
+            [36m>[31m
+              [36m<a[31m
+                [33maria-label[31m=[32m"Today"[31m
+                [33mclass[31m=[32m"workspace-nav-link"[31m
+                [33mdata-discover[31m=[32m"true"[31m
+                [33mhref[31m=[32m"/"[31m
+                [33mtitle[31m=[32m"Today"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"today"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-linejoin[31m=[32m"round"[31m
+                  [33mstroke-width[31m=[32m"1.7"[31m
+                  [33mviewBox[31m=[32m"0 0 24 24"[31m
+                  [33mwidth[31m=[32m"20"[31m
+                [36m>[31m
+                  [36m<path[31m
+                    [33md[31m=[32m"M3 10 12 3l9 7v11h-6v-7H9v7H3Z"[31m
+                  [36m/>[31m
+                [36m</svg>[31m
+                [36m<span[31m
+                  [33mclass[31m=[32m"workspace-nav-label"[31m
+                [36m>[31m
+                  [0mToday[0m
+                [36m</span>[31m
+              [36m</a>[31m
+              [36m<a[31m
+                [33maria-current[31m=[32m"page"[31m
+                [33maria-label[31m=[32m"Chats"[31m
+                [33mclass[31m=[32m"workspace-nav-link workspace-nav-link--active"[31m
+                [33mdata-discover[31m=[32m"true"[31m
+                [33mhref[31m=[32m"/sessions"[31m
+                [33mtitle[31m=[32m"Chats"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"chats"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-linejoin[31m=[32m"round"[31m
+                  [33mstroke-width[31m=[32m"1.7"[31m
+                  [33mviewBox[31m=[32m"0 0 24 24"[31m
+                  [33mwidth[31m=[32m"20"[31m
+                [36m>[31m
+                  [36m<path[31m
+                    [33md[31m=[32m"M4 4h16v12H9l-5 4Z"[31m
+                  [36m/>[31m
+                [36m</svg>[31m
+                [36m<span[31m
+                  [33mclass[31m=[32m"workspace-nav-label"[31m
+                [36m>[31m
+                  [0mChats[0m
+                [36m</span>[31m
+              [36m</a>[31m
+              [36m<a[31m
+                [33maria-label[31m=[32m"Inbox"[31m
+                [33mclass[31m=[32m"workspace-nav-link"[31m
+                [33mdata-discover[31m=[32m"true"[31m
+                [33mhref[31m=[32m"/inbox"[31m
+                [33mtitle[31m=[32m"Inbox"[31m
+              [36m>[31m
+                [36m<svg[31m
+                  [33maria-hidden[31m=[32m"true"[31m
+                  [33mclass[31m=[32m"ui-icon"[31m
+                  [33mdata-icon[31m=[32m"proposals"[31m
+                  [33mfill[31m=[32m"none"[31m
+                  [33mfocusable[31m=[32m"false"[31m
+                  [33mheight[31m=[32m"20"[31m
+                  [33mstroke[31m=[32m"currentColor"[31m
+                  [33mstroke-linecap[31m=[32m"round"[31m
+                  [33mstroke-linejoin[31m=[32m"round"[31m
+                  [33mstroke-width[31m=[32m"1.7"[31m
+                  [33mviewBox[31m=[32m"0 0 24 24"[31m
+                  [33mwidth[31m=[32m"20"[31m
+                [36m>[31m
+                  [36m<path[31m
+                    [33md[31m=[32m"M4 4h16v16H4ZM4 14h5l2 3h2l2-3h5"[31m
+                  [36m/>[31m
+                [36m</svg>[31m
+                [36m<span[31m
+          ...[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/integration/symposium-ordinary-acceptance.test.tsx[2m > [22mordinary responsive composition keeps history and one transcript/composer after silent joining
+[31m[1mAssertionError[22m[39m: expected …(2) to have a length of 1 but got 2
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"desktop-shell workspace-shell"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"desktop-body"[39m
+          [33mstyle[39m=[32m"--desktop-navigation-width: 168px; --desktop-conversations-width: 280px; --desktop-resources-width: 36px;"[39m
+        [36m>[39m
+          [36m<aside[39m
+            [33mclass[39m=[32m"workspace-rail"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"workspace-rail-heading"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33maria-label[39m=[32m"Mitzo home"[39m
+                [33mclass[39m=[32m"mitzo-brand"[39m
+                [33mdata-discover[39m=[32m"true"[39m
+                [33mhref[39m=[32m"/"[39m
+              [36m>[39m
+                [36m<img[39m
+                  [33malt[39m=[32m""[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33msrc[39m=[32m"/mitzo-wordmark.png"[39m
+                [36m/>[39m
+              [36m</a>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"workspace-rail-controls"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-expanded[39m=[32m"true"[39m
+                [33maria-label[39m=[32m"Collapse navigation"[39m
+                [33mclass[39m=[32m"workspace-rail-toggle"[39m
+                [33mtitle[39m=[32m"Collapse navigation"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"panel"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.7"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"20"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M3 4h18v16H3ZM9 4v16"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<nav[39m
+              [33maria-label[39m=[32m"Main navigation"[39m
+              [33mclass[39m=[32m"workspace-nav"[39m
+            [36m>[39m
+              [36m<a[39m
+                [33maria-label[39m=[32m"Today"[39m
+                [33mclass[39m=[32m"workspace-nav-link"[39m
+                [33mdata-discover[39m=[32m"true"[39m
+                [33mhref[39m=[32m"/"[39m
+                [33mtitle[39m=[32m"Today"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"today"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.7"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"20"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M3 10 12 3l9 7v11h-6v-7H9v7H3Z"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"workspace-nav-label"[39m
+                [36m>[39m
+                  [0mToday[0m
+                [36m</span>[39m
+              [36m</a>[39m
+              [36m<a[39m
+                [33maria-current[39m=[32m"page"[39m
+                [33maria-label[39m=[32m"Chats"[39m
+                [33mclass[39m=[32m"workspace-nav-link workspace-nav-link--active"[39m
+                [33mdata-discover[39m=[32m"true"[39m
+                [33mhref[39m=[32m"/sessions"[39m
+                [33mtitle[39m=[32m"Chats"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"chats"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.7"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"20"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M4 4h16v12H9l-5 4Z"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"workspace-nav-label"[39m
+                [36m>[39m
+                  [0mChats[0m
+                [36m</span>[39m
+              [36m</a>[39m
+              [36m<a[39m
+                [33maria-label[39m=[32m"Inbox"[39m
+                [33mclass[39m=[32m"workspace-nav-link"[39m
+                [33mdata-discover[39m=[32m"true"[39m
+                [33mhref[39m=[32m"/inbox"[39m
+                [33mtitle[39m=[32m"Inbox"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"ui-icon"[39m
+                  [33mdata-icon[39m=[32m"proposals"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mfocusable[39m=[32m"false"[39m
+                  [33mheight[39m=[32m"20"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"1.7"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"20"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M4 4h16v16H4ZM4 14h5l2 3h2l2-3h5"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+                [36m<span[39m
+          ...
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+[36m [2m❯[22m tests/integration/symposium-ordinary-acceptance.test.tsx:[2m71:81[22m[39m
+    [90m 69|[39m     expect(screen.getAllByRole('textbox', { name: 'Message Mitzo' })).…
+    [90m 70|[39m     expect(screen.getAllByText('Synthetic design requirement')).toHave…
+    [90m 71|[39m     await waitFor(() => expect(ui.container.querySelectorAll('.chat-me…
+    [90m   |[39m                                                                                 [31m^[39m
+    [90m 72|[39m   } [35mfinally[39m {
+    [90m 73|[39m     ui[33m.[39m[34munmount[39m()[33m;[39m
+[90m [2m❯[22m runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:[2m47:12[22m[39m
+[90m [2m❯[22m checkCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m124:77[22m[39m
+[90m [2m❯[22m Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m118:16[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m   Start at [22m 10:21:03
+[2m   Duration [22m 9.02s[2m (transform 4.21s, setup 0ms, import 643ms, tests 7.71s, environment 573ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

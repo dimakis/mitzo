@@ -5,6 +5,7 @@ import {
 } from '../lib/session-activity-store';
 import { sessionNeedsYouReason } from '../lib/session-attention';
 import type { SessionActivity } from '@mitzo/protocol';
+import { conversationActivities } from '../lib/conversation-activity';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
 
@@ -41,18 +42,26 @@ export interface UseSessionOverviewReturn {
   lastKnownActivities: SessionActivity[];
 }
 
-export function useSessionOverview(): UseSessionOverviewReturn {
+export function useSessionOverview(conversations = false): UseSessionOverviewReturn {
   const { activities, lastKnownActivities, connected } = useSyncExternalStore(
     subscribe,
     getSnapshot,
     getSnapshot,
   );
 
-  const sorted = useMemo(() => sortByTier(activities), [activities]);
+  const projected = useMemo(
+    () => (conversations ? conversationActivities(activities) : activities),
+    [activities, conversations],
+  );
+  const retained = useMemo(
+    () => (conversations ? conversationActivities(lastKnownActivities) : lastKnownActivities),
+    [lastKnownActivities, conversations],
+  );
+  const sorted = useMemo(() => sortByTier(projected), [projected]);
   const attendCount = useMemo(
-    () => activities.filter((a) => sessionNeedsYouReason(a) !== null).length,
-    [activities],
+    () => projected.filter((a) => sessionNeedsYouReason(a) !== null).length,
+    [projected],
   );
 
-  return { activities: sorted, attendCount, connected, lastKnownActivities };
+  return { activities: sorted, attendCount, connected, lastKnownActivities: retained };
 }
