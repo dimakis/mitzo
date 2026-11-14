@@ -29,11 +29,13 @@ dirty work are preserved. Neither original PR is independently landing or closed
 | Context/runtime reporting  | Existing owner `4acd5b81-1ff1-8b53-8900-37c15d071038`                                                                                                                                  | ACK `7e9c34b6-78c6-4dab-98e3-683b8022cbe9`: no implementation commit/PR at handoff; test artifacts unrun. Owner continues implementation in the original checkout; no separate PR, copied dependencies or inherited grants.                                                                                                                              |
 | Independent coverage audit | Existing auditor `eed63efb-da6e-8843-8796-e75eba8c7269`                                                                                                                                | Handoff `2823b243-3e5b-41ea-93f4-b6343bfa1f30`, audit commit `96e3c6cb6`, correction `8e0612420`; original 63-entry/eight-category ledger and S01–S14 dispositions retained. Its 287-test pass covers `416faccb`, not this candidate.                                                                                                                    |
 
-## Open blocking findings inherited from source PRs
+## Original blocking findings inherited from source PRs
 
-These are unfinished work, not approved fixes or passing composed outcomes.
+This is the retained baseline finding ledger. Tested source corrections are
+recorded below; composed-head verification and trusted finding closure remain
+required.
 
-Current-head Centaur review `5906594789` on
+Pre-fix Centaur review `5906594789` on
 `f508455aa88177caaceb5cd6e2de0b9febd279c3` recommends FIX and retains the four
 runtime defects below as `CEN-B9E7697D8CD1` (Send), `CEN-9A0551011967` (Stop),
 `CEN-46BDAAE2FF3D` (refusal AbortError) and `CEN-B873B59061F9` (serialized privacy).
@@ -66,6 +68,57 @@ exact head `8901dd0b8313e423eb06d0112734d46a490ba3e3` with accepted `27345bb5`:
 all three attributed patches and the four device/control test files are retained,
 no new scoped ownership composition regression was found, and all 2458 registered
 artifact hashes match. No composed runtime tests or final approval were claimed.
+
+## Tested owner corrections incorporated
+
+The two source owners explicitly took back their respective two runtime fixes
+under their own qualified execution routes, then returned tested local commits.
+The integration writer made no duplicate implementation. Sources were fetched
+read-only, and original source branches/remote PR heads remain preserved. Only
+this consolidated PR publishes the new corrections.
+
+- Diagnostics handback `d2f2f221-c4e0-4d2d-84e0-19f0283f4f16`, final handoff
+  `55682788-f22a-481a-8c97-12894bd1b23b`: original commits
+  `9f35b3d70b494a2cfe0a322737c1ec44d81136fc` and
+  `76fb20c6aece70bb96b96af7f9e78cb8c12b67b8`, source tree
+  `f5d185cc48e3c482f653ca965bbd2694d4a28283`. Attributed integration commits are
+  `586e4b0d150405576c230505a5f972bd9cd65feb` and
+  `0b0eddd1ed2a7b214a952a34b553bc75d6ea274b`. Retained refusal reaches the terminal
+  callback after generic SDK AbortError while an already classified runtime
+  failure remains intact. Startup logging emits allowlisted diagnostics and
+  correlation without serializing the original cause; the cause stays in memory.
+- Device handback `03a8cd74-ad23-4ff9-b528-3a44e797c0ac`, final handoff
+  `bd2174be-b8ed-4403-8fe8-32041e6c0d9e`: original commit
+  `c68bfd24a8f7a0aacf5a68c546c179ea75e84fca`, source tree
+  `1d79cfaebf7995e42344807edb227e8b2613495e`; attributed integration commit
+  `063015318b909e8d509c8b8130e656476ecea1e1`. Canonical operator ownership now
+  qualifies live Claude continuation metadata and targeted Stop. Original command,
+  interrupt receipt, binding, current owner/target and post-await fences remain.
+  The previously corrected legacy permission fixture is retained.
+
+Diagnostics source validation verifies 210 distinct checks across seven files:
+202 diagnostics/integration checks passed; the expanded run had 209 passes and one
+logger test failure because `LOG_LEVEL=error` suppressed its expected info record.
+Rerunning only the logger suite with `LOG_LEVEL=info` passed all eight checks.
+This environment correction is retained rather than relabelling the expanded run
+as wholly green. Meaningful RED/GREEN covers generic AbortError plus personal and
+Vertex mode/workspace refusals, normal closure/Stop controls, and both routes'
+actual Pino serialization of injected private causes.
+
+Device source validation passes 93 checks across eight suites after meaningful
+RED failures for all four account fixtures' disabled composer and second-login
+targeted Stop. The actual HTTP metadata feeds `useExplicitLocalChat`, continuation
+construction and public admission; the production prompt port exercises SDK queue
+Stop, original-receipt retry, changed owner/binding/command and post-await loss.
+Both source owners report scoped lint/format, source pins, diff and secret checks
+passing. These are separate source-tree results, not a combined test count or
+approval of the integration tree. Runtime source conflicts were confined to pins;
+the bundle retains its own revision and regenerates all registered hashes.
+
+Reporting S01 test capacity was explicitly declined by the diagnostics owner
+(`6f588d9d-0258-4821-9264-30ef70702b72`); no reporting RED/GREEN or implementation
+is inferred from these corrections. Its original owner and execution-route
+prerequisite remain unchanged.
 
 ## Remaining reporting outcomes
 
