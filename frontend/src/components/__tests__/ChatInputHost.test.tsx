@@ -7,6 +7,7 @@ import { ChatInputHost, RetainedChatInputSlot } from '../ChatInputHost';
 import { ComposerStatusProvider, ComposerStatusRail } from '../ComposerStatus';
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 import { SharedConversationComposerContext } from '../../lib/shared-conversation-composer';
+import { installDialogStub } from './dialog-stub';
 
 afterEach(() => {
   cleanup();
@@ -16,11 +17,11 @@ afterEach(() => {
 });
 
 it('reports retained recovery controls to the current page status owner during qualification', async () => {
+  installDialogStub();
   const recover = vi.fn();
   function Phone() {
     return (
       <ComposerStatusProvider>
-        <ComposerStatusRail />
         <ChatInput sessionId="source" running={false} onSend={() => false} onStop={() => {}} />
       </ComposerStatusProvider>
     );
@@ -28,7 +29,6 @@ it('reports retained recovery controls to the current page status owner during q
   function Desktop() {
     return (
       <ComposerStatusProvider>
-        <ComposerStatusRail />
         <RetainedChatInputSlot sessionId="source">
           <p>Checking</p>
         </RetainedChatInputSlot>
@@ -54,6 +54,9 @@ it('reports retained recovery controls to the current page status owner during q
   );
   const { rerender } = render(tree());
   await screen.findByRole('button', { name: 'Check original request' });
+  fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
+  const details = await screen.findByRole('dialog', { name: 'Conversation status', exact: true });
+  fireEvent.keyDown(details, { key: 'Escape' });
   const input = screen.getByRole('textbox');
   rerender(tree(true));
   expect(screen.getByRole('textbox')).toBe(input);
