@@ -162,6 +162,24 @@ direction, not implemented multi-agent usage plumbing or production acceptance.
 The current production change names the existing source wheel; it never relabels
 source usage when a different reply recipient is selected.
 
+Full CI at `6e64337be` exposed additional stale fixture contracts. The two existing
+application UI journeys selected a reviewer while retaining the newly selected
+historical source, which has no live send owner. Both reproduced red. They now
+explicitly address only their real reviewer and supply retained ordinary messages
+through the transcript owner. Both application journeys pass, including long
+history/remount and fresh-agent context/partial failure/Stop recovery. Empty
+Defaults adopts server policy changes through the existing observer without
+inference; the earlier stale-policy case still exercises explicit Refresh.
+
+The old browser fixtures now retain picker/input identity through singleton
+membership, inspect icon-only selections by tooltip, and use the named Architect
+checkbox. Their external boundaries explicitly handle only the original agent's
+readiness read and the exact POST `/api/telos/work/links` navigation read. Unknown
+reads and mutations still fail. All 42 affected render scenarios plus two startup
+checks list/bundle; lint and formatting pass. Rendered execution remains pending.
+The same CI run's separate CT07/09 non-Git joined-browser contract timed out at
+120 seconds; its original log is retained, with no root cause established here.
+
 Full CI exposed the existing forwarding UI fixture's old zero-recipient
 assumption: selecting Reviewer also retained the new original-agent selection,
 although that historical source intentionally has no live ordinary owner. Its
