@@ -44,7 +44,12 @@ The delayed-status regression retains the exact textarea, draft, focus and selec
 immediately after a responsive owner remount. It changes recipients and sends before
 the status response returns, checking the exact selected recipient and request count.
 Existing unbound-input and backend-refusal tests caught two further integration
-regressions; both pass after correction.
+regressions; both pass after correction. A final omission regression also proved
+that retained recovery notices could reach a retired page's status sink during
+qualification. The portal now binds the current status owner, keeping Check original
+request visible and functional without replacing the input. CI-reported timer and
+session-prompt fixture typing errors were corrected with explicit timer handles and
+schema-validated collaboration settings.
 
 The original-owner dispatch test first failed with “Choose a fresh configured group
 participant.” It now checks original authenticated Codex/SDK owner reuse, unchanged
@@ -54,7 +59,7 @@ owner; observer tests cover exact-command isolation and terminal/teardown cleanu
 
 Verified locally, one worker and a 1 GiB Node heap:
 
-- 291 composer, integrated conversation, transcript and sending regressions across
+- 292 composer, integrated conversation, transcript and sending regressions across
   25 suites; 76 existing `SymposiumConversation` tests also passed.
 - 244 native lifecycle, session-prompt, scoped-dispatch and observer tests.
 - 176 ordinary Codex/SDK owner, delivery/recovery, contributor Stop/viewer and
