@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1160-symposium-header-reflow';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1162-symposium-desktop-name-budget';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2351,7 +2352,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.tsx':
     '2bacb2f1b075f0731ddb271694425b50a786aedb051297d05761f2e2b4e2d4e3',
   '../../frontend/src/components/ConversationAgents.css':
-    'aca82ef1b7b130ec1ce202705deb2999911922f6676eec320c4cb370deae8a0b',
+    '2a00c3faeda1929ffa96c91a4ad721725b4c62b0c5ac28bdd7eb5f672604f230',
   '../../frontend/src/components/ComposerResponders.tsx':
     'b4bd7467859874c67e8bdac851ddc94cd71f9b4abfcf4ca7fd3437775c71be36',
   '../../frontend/src/components/ComposerResponders.css':

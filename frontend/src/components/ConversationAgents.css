@@ -18,7 +18,10 @@
 }
 .conversation-agents-entry--named {
   flex: 1;
-  min-inline-size: calc(2 * var(--space-6) + var(--control-height));
+  /* Desktop retains both glyphs, two gaps and inline trigger padding. */
+  min-inline-size: calc(
+    2 * var(--space-6) + 2 * var(--icon-action-size) + 2 * var(--space-3) + 2 * var(--space-2)
+  );
 }
 .workspace-controls-heading:has(.conversation-agents-entry--named) {
   flex-wrap: wrap;
@@ -508,6 +511,9 @@
 /* The shared name track takes the ordinary metadata summary's place on phone;
    settings and all header actions retain their existing controls and owners. */
 @media (max-width: 767px) {
+  .conversation-agents-entry--named {
+    min-inline-size: calc(2 * var(--space-6) + var(--control-height));
+  }
   .workspace-controls-heading:has(.conversation-agents-entry--named) > .workspace-controls-context {
     display: none;
   }

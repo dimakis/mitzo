@@ -130,6 +130,15 @@ the real composer, with unchanged 64px minimum-name and 44px action checks at
 Fresh hosted geometry and screenshot acceptance remain required; local browser
 execution remains blocked as described below.
 
+The next hosted combined run (`f60ad7ce3`, run `43594789588`) independently
+verified phone 320/390px bounds, name/count spacing and all header actions in
+normal and 200% text. The 320px name track measured 69.61px normally and 111.22px
+at 200%; 390px measured 158px/166px. Its remaining six failures were at desktop
+1280px/200%: the 172px minimum entry left 52px after two 20px glyphs, two 24px
+gaps and two 16px paddings. The desktop minimum now includes those existing
+glyph/gap/padding tokens as well as the name track; the verified phone minimum
+is preserved in the phone rule. Fresh desktop geometry remains unverified.
+
 Centaur's `bb219f421` review identified four further blocking regressions. Focused
 owner tests reproduce all four before their fixes: encoded native delivery packets
 replacing multiple operator bodies, source finalization/tool-only rows moving above
