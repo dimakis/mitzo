@@ -13,6 +13,7 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
 import { trace, context, type Span, type Context, SpanStatusCode } from '@opentelemetry/api';
 import { createLogger } from './logger.js';
+import { hasRecordedRuntimeFailure } from './runtime-failure-diagnostics.js';
 
 const log = createLogger('tracing');
 
@@ -64,7 +65,7 @@ export function withSpan<T>(
   return context.with(trace.setSpan(parent, span), () => {
     try {
       const result = fn(span);
-      span.setStatus({ code: SpanStatusCode.OK });
+      if (!hasRecordedRuntimeFailure(span)) span.setStatus({ code: SpanStatusCode.OK });
       span.end();
       return result;
     } catch (err: unknown) {
@@ -93,7 +94,7 @@ export async function withSpanAsync<T>(
   return context.with(trace.setSpan(parent, span), async () => {
     try {
       const result = await fn(span);
-      span.setStatus({ code: SpanStatusCode.OK });
+      if (!hasRecordedRuntimeFailure(span)) span.setStatus({ code: SpanStatusCode.OK });
       span.end();
       return result;
     } catch (err: unknown) {

@@ -7,6 +7,7 @@ import * as notificationCenter from '../notification-center.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
 
 /** Lightweight in-memory span for testing OTel instrumentation. */
@@ -607,6 +608,30 @@ describe('runQueryLoop', () => {
     expect(onFirstEventOutcome).toHaveBeenCalledTimes(1);
     expect(onFirstEventOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
   });
+  it.each([true, false])(
+    'classifies a normally closed stream with runtime refusal=%s without misclassifying Stop',
+    async (refused) => {
+      const failure = new SessionRuntimeError('input_not_dispatched');
+      const onTerminalOutcome = vi.fn();
+      abortController.abort(refused ? failure : undefined);
+      await runQueryLoop(
+        eventStream([]),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { onTerminalOutcome },
+      );
+      const span = recordedSpans.filter((span) => span.name === 'session').at(-1)!;
+      expect(span.status.code).toBe(refused ? 2 : 1);
+      expect(span.endCount).toBe(1);
+      expect(onTerminalOutcome).toHaveBeenCalledWith(refused ? failure : undefined);
+      expect(span.attributes['runtime.diagnostic_id']).toBe(
+        refused ? failure.diagnosticId : undefined,
+      );
+    },
+  );
 
   it('admits the first provider event exactly once', async () => {
     const onFirstEventOutcome = vi.fn();

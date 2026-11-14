@@ -1,6 +1,7 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import type {
   HostRepositoryReservationInput,
   RepositoryWorkspace,
@@ -61,94 +62,80 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
     return value as LocalWorkspaceRecord<K>;
   }
   assertCurrentSync(cwd: string): void {
-    const reservation = this.reservation;
-    if (this.kind === 'ordinary') {
-      const descriptor = this.get() as OrdinaryWorkspaceRecord;
-      if (descriptor.directory !== cwd || !['reserved', 'claimed'].includes(descriptor.state))
+    let check = 'workspace.reservation';
+    try {
+      const reservation = this.reservation;
+      if (this.kind === 'ordinary') {
+        const descriptor = this.get() as OrdinaryWorkspaceRecord;
+        if (descriptor.directory !== cwd || !['reserved', 'claimed'].includes(descriptor.state))
+          throw unavailable();
+        check = 'workspace.root_identity';
+        const root = lstatSync(reservation.taskRoot);
+        if (
+          !root.isDirectory() ||
+          root.isSymbolicLink() ||
+          realpathSync(reservation.taskRoot) !== reservation.taskRoot ||
+          (root.mode & 0o077) !== 0 ||
+          root.uid !== process.getuid?.() ||
+          root.dev !== descriptor.hostReservation.rootIdentity.dev ||
+          root.ino !== descriptor.hostReservation.rootIdentity.ino
+        )
+          throw unavailable();
+        check = 'workspace.ordinary_claim';
+        if (descriptor.state === 'claimed')
+          this.workspace.validateOrdinaryWorkspace(reservation.conversationId, cwd);
+        return;
+      }
+      const descriptor = this.workspace.getHostReservation(reservation);
+      if (
+        !isDeepStrictEqual(descriptor.binding, reservation.binding) ||
+        descriptor.conversationId !== reservation.conversationId ||
+        descriptor.id !== reservation.id ||
+        descriptor.directory !== cwd ||
+        descriptor.hostReservation.taskRoot !== reservation.taskRoot ||
+        !['reserved', 'claimed'].includes(descriptor.state)
+      )
         throw unavailable();
+      check = 'workspace.root_identity';
       const root = lstatSync(reservation.taskRoot);
       if (
         !root.isDirectory() ||
         root.isSymbolicLink() ||
         realpathSync(reservation.taskRoot) !== reservation.taskRoot ||
-        (root.mode & 0o077) !== 0 ||
-        root.uid !== process.getuid?.() ||
         root.dev !== descriptor.hostReservation.rootIdentity.dev ||
         root.ino !== descriptor.hostReservation.rootIdentity.ino
       )
         throw unavailable();
-      if (descriptor.state === 'claimed')
-        this.workspace.validateOrdinaryWorkspace(reservation.conversationId, cwd);
-      return;
-    }
-    const descriptor = this.workspace.getHostReservation(reservation);
-    if (
-      !isDeepStrictEqual(descriptor.binding, reservation.binding) ||
-      descriptor.conversationId !== reservation.conversationId ||
-      descriptor.id !== reservation.id ||
-      descriptor.directory !== cwd ||
-      descriptor.hostReservation.taskRoot !== reservation.taskRoot ||
-      !['reserved', 'claimed'].includes(descriptor.state)
-    )
-      throw unavailable();
-    const root = lstatSync(reservation.taskRoot);
-    if (
-      !root.isDirectory() ||
-      root.isSymbolicLink() ||
-      realpathSync(reservation.taskRoot) !== reservation.taskRoot ||
-      root.dev !== descriptor.hostReservation.rootIdentity.dev ||
-      root.ino !== descriptor.hostReservation.rootIdentity.ino
-    )
-      throw unavailable();
-    if (descriptor.state === 'claimed') {
-      // The existing repository ledger owns the materialized checkout identity.
-      // Do not accept another directory merely because its reservation path matches.
-      const claimed = this.workspace.getForConversation(reservation.conversationId);
-      const identity = claimed?.taskIdentity;
-      if (
-        !claimed ||
-        claimed.id !== descriptor.id ||
-        claimed.conversationId !== descriptor.conversationId ||
-        claimed.directory !== descriptor.directory ||
-        claimed.sandbox ||
-        !isDeepStrictEqual(claimed.binding, reservation.binding) ||
-        claimed.featureBranch !== descriptor.featureBranch ||
-        !identity ||
-        identity.directory !== descriptor.directory ||
-        identity.featureBranch !== claimed.featureBranch
-      )
-        throw unavailable();
-      for (const [path, retained] of [
-        [identity.directory, identity.root],
-        [join(identity.directory, '.git'), identity.git],
-      ] as const) {
-        const current = lstatSync(path);
+      if (descriptor.state === 'claimed') {
+        check = 'workspace.claim';
+        // The existing repository ledger owns the materialized checkout identity.
+        // Do not accept another directory merely because its reservation path matches.
+        const claimed = this.workspace.getForConversation(reservation.conversationId);
+        const identity = claimed?.taskIdentity;
         if (
-          (path === join(identity.directory, '.git') && identity.linkedGit
-            ? !current.isFile()
-            : !current.isDirectory()) ||
-          current.isSymbolicLink() ||
-          realpathSync(path) !== path ||
-          current.dev !== retained.dev ||
-          current.ino !== retained.ino
-        )
-          throw unavailable();
-      }
-      if (identity.linkedGit) {
-        const linked = identity.linkedGit;
-        if (
-          !claimed.localSource ||
-          !identity.localSource ||
-          !isDeepStrictEqual(claimed.localSource, identity.localSource)
+          !claimed ||
+          claimed.id !== descriptor.id ||
+          claimed.conversationId !== descriptor.conversationId ||
+          claimed.directory !== descriptor.directory ||
+          claimed.sandbox ||
+          !isDeepStrictEqual(claimed.binding, reservation.binding) ||
+          claimed.featureBranch !== descriptor.featureBranch ||
+          !identity ||
+          identity.directory !== descriptor.directory ||
+          identity.featureBranch !== claimed.featureBranch
         )
           throw unavailable();
         for (const [path, retained] of [
-          [linked.directory, linked.identity],
-          [identity.localSource.commonDirectory, identity.localSource.commonRoot],
+          [identity.directory, identity.root],
+          [join(identity.directory, '.git'), identity.git],
         ] as const) {
+          check =
+            path === identity.directory ? 'workspace.checkout_identity' : 'workspace.git_identity';
           const current = lstatSync(path);
           if (
-            !current.isDirectory() ||
+            (path === join(identity.directory, '.git') && identity.linkedGit
+              ? !current.isFile()
+              : !current.isDirectory()) ||
             current.isSymbolicLink() ||
             realpathSync(path) !== path ||
             current.dev !== retained.dev ||
@@ -156,19 +143,56 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
           )
             throw unavailable();
         }
+        if (identity.linkedGit) {
+          check = 'workspace.local_source';
+          const linked = identity.linkedGit;
+          if (
+            !claimed.localSource ||
+            !identity.localSource ||
+            !isDeepStrictEqual(claimed.localSource, identity.localSource)
+          )
+            throw unavailable();
+          for (const [path, retained] of [
+            [linked.directory, linked.identity],
+            [identity.localSource.commonDirectory, identity.localSource.commonRoot],
+          ] as const) {
+            check =
+              path === linked.directory
+                ? 'workspace.linked_git_identity'
+                : 'workspace.common_git_identity';
+            const current = lstatSync(path);
+            if (
+              !current.isDirectory() ||
+              current.isSymbolicLink() ||
+              realpathSync(path) !== path ||
+              current.dev !== retained.dev ||
+              current.ino !== retained.ino
+            )
+              throw unavailable();
+          }
+        }
       }
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
     }
   }
   async revalidate(signal: AbortSignal): Promise<void> {
-    const record = this.get();
-    if (this.kind === 'ordinary') {
-      await this.workspace.revalidateOrdinaryWorkspace({
-        ...structuredClone(this.reservation),
-        signal,
-      });
-    } else await this.workspace.reserveHostTask({ ...structuredClone(this.reservation), signal });
-    this.assertCurrentSync(record.directory!);
-    if (record.state === 'claimed') await this.validate(record.directory!);
+    let check = 'workspace.reservation';
+    try {
+      const record = this.get();
+      check = 'workspace.reserve';
+      if (this.kind === 'ordinary') {
+        await this.workspace.revalidateOrdinaryWorkspace({
+          ...structuredClone(this.reservation),
+          signal,
+        });
+      } else await this.workspace.reserveHostTask({ ...structuredClone(this.reservation), signal });
+      this.assertCurrentSync(record.directory!);
+      check = 'workspace.validate';
+      if (record.state === 'claimed') await this.validate(record.directory!);
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
+    }
   }
   async validate(cwd: string, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();

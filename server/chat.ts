@@ -441,6 +441,7 @@ import {
 } from './session-index.js';
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
+import { annotateAuthorityFailure, recordRuntimeFailure } from './runtime-failure-diagnostics.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
@@ -1463,7 +1464,7 @@ export async function startChat(
       'chat.resume': options.resume ?? '',
       'chat.mode': options.mode ?? 'agent',
     },
-    async () => {
+    async (span) => {
       if (options.resume && !eventStore.getSession(options.resume))
         throw new Error('Conversation is not registered. Import external history before resuming.');
       const startupSessionId = options.resume ?? options.initialSessionId;
@@ -1480,7 +1481,19 @@ export async function startChat(
         releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
           [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
         );
-      return _startChatInner(transport, clientId, prompt, options, startupGuard);
+      return _startChatInner(
+        transport,
+        clientId,
+        prompt,
+        {
+          ...options,
+          onTerminalOutcome(error) {
+            if (error) recordRuntimeFailure(span, error);
+            options.onTerminalOutcome?.(error);
+          },
+        },
+        startupGuard,
+      );
     },
   )
     .catch((error: unknown) => {
@@ -2901,13 +2914,19 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         beforeRefusal?: (cause: unknown) => never,
       ) => {
         const joined = AbortSignal.any([abortController.signal, signal]);
+        let check = 'sdk.adviser';
         try {
           options.adviserScope?.assertCurrent();
+          check = 'sdk.signal';
           joined.throwIfAborted();
+          check = 'sdk.context';
           await prepareAgentContext?.(joined);
+          check = 'sdk.authority';
           await options.ordinarySdkAuthority?.assertCurrent(joined);
+          check = 'sdk.signal';
           joined.throwIfAborted();
         } catch (error) {
+          const failure = annotateAuthorityFailure(error, check);
           // SDK hook failures can be recoverable diagnostics. Abort the owning
           // provider process too, so a denied continuation cannot be retried.
           if (packBoundSdk && !sdkHookLifetime.retired(signal)) {
@@ -2915,12 +2934,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               // An input owner must retain its actionable refusal while the
               // original viewer is still attached. Explicit cancellation has
               // already selected its outcome and must not become a refusal.
-              if (!joined.aborted) beforeRefusal?.(error);
+              if (!joined.aborted) beforeRefusal?.(failure);
             } finally {
-              abortController.abort(new Error(contextStopReason, { cause: error }));
+              abortController.abort(new Error(contextStopReason, { cause: failure }));
             }
           }
-          throw error;
+          throw failure;
         }
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
