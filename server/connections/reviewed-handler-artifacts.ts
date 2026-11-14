@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1169-symposium-accepted-information';
+  'v1.0.1171-symposium-exact-context-label';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -44,7 +44,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-ordinary-surface.tsx':
     'e9e9b6715a189ef3f3c96a2f1e6345e49cc5439d95ea4a6a2a75151936930ad7',
   '../../tests/offline/symposium-ordinary-surface.spec.ts':
-    '39e79419f503bf7faaebbebd0cc7117bb20fa2a11870708d4971dac442ccae36',
+    '16cb6dbc6c257e7df2f817f10e37248ff0b7433bca092dea27b6257554867809',
   '../session-history-sdk.ts': 'c62546f1e2ada88a976b97a5a32354713a3a537c7871c634d42f3d62c86d455e',
   '../__tests__/ordinary-claude-information.test.ts':
     'a56fa994583c78ddde1e1e6e8883fbdee0b38cdd800ba65770fb810822f04e73',

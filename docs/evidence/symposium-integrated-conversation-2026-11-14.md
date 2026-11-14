@@ -189,6 +189,14 @@ owners pass: 31 checks across four files, plus 36 original-owner dispatch checks
 Current combined CI and exact-head
 Centaur verification remain pending.
 
+Slice 3 reports hosted run `43599810172` (job `132461946147`, combined `bb868`)
+passing the application journey and all six actual ResponsiveChatView/icon-only
+cases. All six narrow fixture cases stopped at the context-owner assertion:
+substring `Agent` matched Agent, Agent loop time and Agent time rows. Its selector
+now scopes the exact child label before checking the full owner text. This is a
+test-only correction; original failure evidence remains retained and fresh hosted
+execution is required.
+
 Full CI exposed the existing forwarding UI fixture's old zero-recipient
 assumption: selecting Reviewer also retained the new original-agent selection,
 although that historical source intentionally has no live ordinary owner. Its

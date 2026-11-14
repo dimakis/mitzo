@@ -141,9 +141,11 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('');
     await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
     await wheel.click();
-    await expect(page.locator('.token-bar-detail-row').filter({ hasText: 'Agent' })).toHaveText(
-      'AgentArchitect',
-    );
+    await expect(
+      page
+        .locator('.token-bar-detail-row')
+        .filter({ has: page.getByText('Agent', { exact: true }) }),
+    ).toHaveText('AgentArchitect');
     await page.keyboard.press('Escape');
     await expect(input).toHaveAttribute('data-retained', 'original');
     await expect(page.locator('.chat-messages')).toHaveCount(1);
