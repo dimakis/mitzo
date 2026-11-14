@@ -119,6 +119,36 @@ the complete SDK-owner integration suite passed all **13 tests in 41.35 seconds*
 within a 120-second executor bound. The interrupted attempt is not counted as a
 pass. Fresh hosted CI must qualify the update.
 
+## Accepted-base integration
+
+The integration uses accepted main
+`0ad803cdae56ed6e22c89273ae800d3e7aeb9706`, preserving the accepted lifecycle,
+approval, shared-information and Telos corrections. Catalog, selection, chat,
+credential SDK registration and source-manifest conflicts are resolved additively.
+The runtime revision is `v1.0.1160-claude-services-accepted-base`.
+
+Two targeted read-only integration reviews caught a temporary catalog resolution
+that restored main's older ListConnections-only Claude eligibility. The existing
+catalog test reproduced one failure before restoring the reviewed service/web
+predicate. Both reviewers verified the correction and reported no remaining
+integration blocker. Accepted information, delivery, authority and mutation
+settlement fences remain present.
+
+Native offline validation passed **299 tests in 14 focused suites**, followed by
+all **19 SDK integration tests**, for **318 passing tests across 15 suites**.
+The nine runtime-authority fixtures previously blocked by TaskExecution's temporary
+directory fence pass under the current native workspace permissions. Two physical
+OS-sandbox tests remain skipped because they require `MITZO_TEST_OS_SANDBOX=1`;
+this validation does not claim their physical qualification. One test worker and
+a 1 GiB Node heap were used. Targeted lint, formatting and source fingerprints pass.
+
+Trusted Centaur review `5903840115` remains the approved baseline at
+`bf75c2f96945bafb2cf4f79380705795af517965`; conflict resolutions require fresh
+current-head CI and Centaur review. A separate disposable composition with
+unaccepted coordination candidate `186807ceb3938352a37a7bc6e4477c9f3c65c68d`
+is being prequalified. Its source is not included in this accepted-base integration.
+No merge, deployment, live-model or external-service qualification is claimed.
+
 The merge coordinator retains the serialized landing order. Full Stop/reconnect
 and cold Send recovery qualification requires the repaired lifecycle behavior
 owned by PR #1348. Source review found no consumption of a new PR #1351

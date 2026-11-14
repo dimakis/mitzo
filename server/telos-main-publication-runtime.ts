@@ -1,6 +1,8 @@
 import { createLogger } from './logger.js';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import { constants, openSync, closeSync, fstatSync, readSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { SessionRegistry } from '@mitzo/harness';
 import type { EventStore } from './event-store.js';
@@ -13,7 +15,7 @@ import {
 } from './github-main-merge-selection.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type { TelosBacklogContext } from './telos-backlog-tools.js';
-import { TelosArtifactStore } from './telos-artifact-store.js';
+import { TelosArtifactStore, type TelosArtifactMetadata } from './telos-artifact-store.js';
 import { TelosItemStore } from './telos-item-store.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
 import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
@@ -111,13 +113,15 @@ export class TelosMainPublicationRuntime {
     if (active === this) active = undefined;
     this.selection.close();
   }
-  bindContext<T extends NativeMainPublicationCall>(context: T): T {
+  bindContext<
+    T extends Pick<NativeMainPublicationCall, 'signal' | 'assertCurrentSync' | 'conversationId'>,
+  >(context: T): T {
     const assertCurrentSync = () => {
       if (active !== this) throw unavailable();
       this.retired.signal.throwIfAborted();
       const result: unknown = context.assertCurrentSync();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'backlog-authority', context);
         throw unavailable();
       }
     };
@@ -128,7 +132,12 @@ export class TelosMainPublicationRuntime {
       assertCurrentSync,
     });
   }
-  bindNativeContext(context: NativeHostToolContext): NativeHostToolContext {
+  bindNativeContext<
+    T extends Pick<
+      NativeHostToolContext,
+      'signal' | 'assertCurrentSync' | 'assertCurrent' | 'conversationId'
+    >,
+  >(context: T): T {
     const scoped = this.bindContext(context);
     return Object.freeze({
       ...scoped,
@@ -179,7 +188,7 @@ export class TelosMainPublicationRuntime {
         throw unavailable();
       const result: unknown = assertion();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'item-authority', { conversationId: sessionId });
         throw unavailable();
       }
     };
@@ -190,6 +199,41 @@ export class TelosMainPublicationRuntime {
     } finally {
       items.close();
     }
+  }
+
+  /** Synchronous delivery observation of retained bytes, using the installed canonical owner. */
+  assertArtifactRead(
+    events: EventStore,
+    expected: TelosArtifactMetadata,
+    assertion: () => void,
+  ): void {
+    if (active !== this || events !== this.events || this.retired.signal.aborted)
+      throw unavailable();
+    const result: unknown = assertion();
+    if (result !== undefined) {
+      drainRejectedTelosAuthority(result, 'artifact-authority');
+      throw unavailable();
+    }
+    const artifacts = TelosArtifactStore.openReadOnly(this.database);
+    let failure: { cause: unknown } | undefined;
+    try {
+      const metadata = artifacts.metadataForRevision(expected.id, expected.revision);
+      if (metadata.sourceKind === 'source_capture' || !isDeepStrictEqual(metadata, expected))
+        throw unavailable();
+      artifacts.assertResponseEligibility(metadata);
+    } catch (cause) {
+      failure = { cause };
+    }
+    try {
+      artifacts.close();
+    } catch (cause) {
+      if (failure)
+        throw new AggregateError([failure.cause, cause], 'Artifact read and cleanup failed', {
+          cause,
+        });
+      throw cause;
+    }
+    if (failure) throw failure.cause;
   }
 
   async withItems<T>(
@@ -235,7 +279,7 @@ export class TelosMainPublicationRuntime {
       this.retired.signal.throwIfAborted();
       const result: unknown = context.assertCurrentSync();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'backlog-authority', context);
         throw unavailable();
       }
     };
@@ -287,10 +331,16 @@ export class TelosMainPublicationRuntime {
       }
     }
   }
-  async withArtifacts<T>(
-    context: NativeHostToolContext,
+  async withArtifacts<
+    T,
+    Context extends Pick<
+      NativeHostToolContext,
+      'signal' | 'assertCurrentSync' | 'assertCurrent' | 'conversationId' | 'operatorId'
+    >,
+  >(
+    context: Context,
     operation: (owners: {
-      context: NativeHostToolContext;
+      context: Context;
       artifacts: TelosArtifactStore;
       work: TelosWorkStore;
       sources: TelosSourceCapture;

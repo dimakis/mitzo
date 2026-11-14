@@ -8,10 +8,18 @@ import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
 import { claudePersonalToolPermission } from '../claude-personal-policy.js';
+import {
+  buildPermissionHandler,
+  SessionRegistry,
+  resolvePending,
+  setSkillPolicy,
+  getPendingRequestsBySession,
+} from '@mitzo/harness';
+import { buildSessionPermissionHooks } from '../session-permission-policy.js';
 
 // Real Bash tool execution with canned Messages responses, entirely on loopback.
 // Synthetic API auth substitutes only for inference: no real model or login.
-it('executes native SDK Bash repository work for Vertex, personal and EnMaaS policies', async () => {
+it('executes or refuses native SDK Bash through the canonical permission owner for Vertex and personal policies', async () => {
   const require = createRequire(import.meta.url);
   const executable = join(
     dirname(require.resolve('@anthropic-ai/claude-agent-sdk')),
@@ -20,7 +28,21 @@ it('executes native SDK Bash repository work for Vertex, personal and EnMaaS pol
     'claude',
   );
   const observations = [];
-  for (const mode of ['vertex-like', 'personal-policy', 'enmaas-like'] as const) {
+  const scenarios = [
+    { provider: 'vertex-like', mode: 'auto', decision: 'automatic', allowed: true },
+    { provider: 'personal-policy', mode: 'auto', decision: 'automatic', allowed: true },
+    { provider: 'enmaas-like', mode: 'auto', decision: 'automatic', allowed: true },
+    { provider: 'vertex-like', mode: 'ask', decision: 'automatic', allowed: false },
+    { provider: 'personal-policy', mode: 'agent', decision: 'once', allowed: true },
+    { provider: 'vertex-like', mode: 'agent', decision: 'deny', allowed: false },
+    { provider: 'personal-policy', mode: 'agent', decision: 'cancel', allowed: false },
+    { provider: 'vertex-like', mode: 'agent', decision: 'revoked', allowed: false },
+    { provider: 'personal-policy', mode: 'agent', decision: 'interrupt', allowed: false },
+    { provider: 'personal-policy', mode: 'auto', decision: 'restricted-skill', allowed: false },
+    { provider: 'vertex-like', mode: 'auto', decision: 'workspace', allowed: false },
+  ] as const;
+  for (const scenario of scenarios) {
+    const { provider, mode, decision } = scenario;
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-command-diagnostic-')));
     const config = join(root, 'account'),
       cwd = join(root, 'repo'),
@@ -29,7 +51,10 @@ it('executes native SDK Bash repository work for Vertex, personal and EnMaaS pol
     execFileSync('git', ['init', '-q', cwd], {
       env: { PATH: process.env.PATH!, TMPDIR: temporary },
     });
-    const command = `pwd && git status --short && printf inside > probe.txt && git init -q '${root}/second-repo' && printf outside > '${root}/second-repo/probe.txt'`;
+    const remote = join(root, 'remote.git');
+    // Push directly to the disposable remote; registering it adds no coverage
+    // and can race the native SDK's own repository configuration writes.
+    const command = `pwd && git status --short && printf inside > probe.txt && git add probe.txt && git grep inside && test "$(cat probe.txt)" = inside && git -c user.name=Offline -c user.email=offline@example.test -c commit.gpgsign=false commit -qm 'test: offline development' && git init --bare -q '${remote}' && git push '${remote}' HEAD:refs/heads/offline-development && git init -q '${root}/second-repo' && printf outside > '${root}/second-repo/probe.txt'`;
     let received: unknown;
     let calls = 0;
     const server = createServer(async (request, response) => {
@@ -102,6 +127,65 @@ it('executes native SDK Bash repository work for Vertex, personal and EnMaaS pol
     const address = server.address();
     if (!address || typeof address === 'string') throw Error('Offline endpoint unavailable');
     const controller = new AbortController();
+    const sessionController = new AbortController();
+    const registry = new SessionRegistry();
+    const cards: Record<string, unknown>[] = [];
+    let current = true;
+    let interruptReceipt: Promise<void> | undefined;
+    let interruptAcknowledged = false;
+    let interruptFailed = false;
+    registry.register('native-fixture', {
+      sessionId: 'native-fixture',
+      cwd,
+      mode,
+      abortController: sessionController,
+      sessionAllowList: new Set(),
+      transport: {
+        isOpen: () => true,
+        send: (event) => {
+          if (event.type !== 'permission_request') return;
+          cards.push(event);
+          queueMicrotask(() => {
+            if (decision === 'interrupt')
+              interruptReceipt = native!.interrupt().then(
+                () => {
+                  interruptAcknowledged = true;
+                },
+                () => {
+                  interruptFailed = true;
+                },
+              );
+            else if (decision === 'cancel') sessionController.abort();
+            else {
+              if (decision === 'revoked') current = false;
+              resolvePending(
+                String(event.permId),
+                decision === 'deny' ? 'deny' : decision === 'revoked' ? 'always' : 'once',
+                undefined,
+                'native-fixture',
+              );
+            }
+          });
+        },
+      },
+    });
+    if (decision === 'workspace')
+      registry
+        .get('native-fixture')!
+        .worktreePaths.set('repo', { path: cwd, wtId: 'native-fixture' });
+    if (decision === 'restricted-skill') setSkillPolicy(registry, 'native-fixture', ['Read']);
+    const sharedDecision = buildPermissionHandler('native-fixture', registry, {
+      assertCurrentSync() {
+        if (!current) throw Error('Synthetic account/workspace authority revoked');
+      },
+    });
+    const decide: typeof sharedDecision = (name, input, options) => {
+      const personal =
+        provider === 'personal-policy'
+          ? claudePersonalToolPermission(name, input, cwd, config)
+          : undefined;
+      return personal ? Promise.resolve(personal) : sharedDecision(name, input, options);
+    };
     const env = {
       HOME: root,
       CLAUDE_CONFIG_DIR: config,
@@ -114,11 +198,36 @@ it('executes native SDK Bash repository work for Vertex, personal and EnMaaS pol
       DISABLE_TELEMETRY: '1',
       DISABLE_ERROR_REPORTING: '1',
       DISABLE_AUTOUPDATER: '1',
-      ...(mode === 'enmaas-like' ? { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' } : {}),
+      ...(provider === 'enmaas-like' ? { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' } : {}),
     };
     let stderr = '';
+    let watchdogFired = false;
     let native: ReturnType<typeof query> | undefined;
-    const timer = setTimeout(() => controller.abort(Error('Offline Bash probe deadline')), 20000);
+    const observe = () => ({
+      ...scenario,
+      calls,
+      received,
+      cards: cards.length,
+      retainedGrants: registry.get('native-fixture')!.sessionAllowList.size,
+      pendingAtResult: getPendingRequestsBySession('native-fixture').length,
+      insideWritten: existsSync(join(cwd, 'probe.txt')),
+      siblingWritten: existsSync(join(root, 'second-repo', 'probe.txt')),
+      remoteCreated: existsSync(remote),
+      published: scenario.allowed
+        ? execFileSync('git', ['--git-dir', remote, 'show', 'offline-development:probe.txt'], {
+            encoding: 'utf8',
+          })
+        : undefined,
+      stderr,
+      watchdogFired,
+      interruptRequested: interruptReceipt !== undefined,
+      interruptAcknowledged,
+      interruptFailed,
+    });
+    const timer = setTimeout(() => {
+      watchdogFired = true;
+      controller.abort(Error('Offline Bash probe deadline'));
+    }, 20000);
     try {
       native = query({
         prompt: 'Run the supplied offline repository probe.',
@@ -131,16 +240,11 @@ it('executes native SDK Bash repository work for Vertex, personal and EnMaaS pol
           settingSources: [],
           strictMcpConfig: true,
           mcpServers: {},
-          permissionMode: 'default',
+          permissionMode: mode === 'ask' ? 'plan' : 'default',
           maxTurns: 3,
           tools: ['Bash'],
-          canUseTool: async (name, input) =>
-            mode === 'personal-policy'
-              ? (claudePersonalToolPermission(name, input, cwd, config) ?? {
-                  behavior: 'allow',
-                  updatedInput: input,
-                })
-              : { behavior: 'allow', updatedInput: input },
+          canUseTool: decide,
+          hooks: buildSessionPermissionHooks(decide),
           spawnClaudeCodeProcess: (options) => {
             const child = spawn(options.command, options.args, {
               cwd,
@@ -158,20 +262,17 @@ it('executes native SDK Bash repository work for Vertex, personal and EnMaaS pol
       for await (const message of native) {
         if (message.type === 'result' && message.is_error) stderr += JSON.stringify(message);
       }
-      observations.push({
-        mode,
-        calls,
-        received,
-        insideWritten: existsSync(join(cwd, 'probe.txt')),
-        siblingWritten: existsSync(join(root, 'second-repo', 'probe.txt')),
-        stderr,
-      });
+      await interruptReceipt;
+      observations.push(observe());
     } catch (error) {
-      observations.push({ mode, calls, received, error: String(error), stderr });
+      await interruptReceipt;
+      observations.push({ ...observe(), error: String(error) });
     } finally {
       clearTimeout(timer);
       native?.close();
       controller.abort();
+      sessionController.abort();
+      registry.dispose();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
@@ -179,19 +280,32 @@ it('executes native SDK Bash repository work for Vertex, personal and EnMaaS pol
       rmSync(root, { recursive: true, force: true });
     }
   }
-  expect(observations[0], JSON.stringify(observations[0], null, 2)).toMatchObject({
-    mode: 'vertex-like',
-    insideWritten: true,
-    siblingWritten: true,
-  });
-  expect(observations[1], JSON.stringify(observations[1], null, 2)).toMatchObject({
-    mode: 'personal-policy',
-    insideWritten: true,
-    siblingWritten: true,
-  });
-  expect(observations[2], JSON.stringify(observations[2], null, 2)).toMatchObject({
-    mode: 'enmaas-like',
-    insideWritten: true,
-    siblingWritten: true,
-  });
-}, 75000);
+  for (const [index, scenario] of scenarios.entries()) {
+    const observation = observations[index];
+    if (scenario.decision !== 'interrupt') expect(observation).not.toHaveProperty('error');
+    expect(observation, JSON.stringify(observation, null, 2)).toMatchObject({
+      ...scenario,
+      insideWritten: scenario.allowed,
+      siblingWritten: scenario.allowed,
+      remoteCreated: scenario.allowed,
+      published: scenario.allowed ? 'inside' : undefined,
+      cards: ['once', 'deny', 'cancel', 'revoked', 'interrupt'].includes(scenario.decision) ? 1 : 0,
+      retainedGrants: 0,
+      pendingAtResult: 0,
+      watchdogFired: false,
+      interruptRequested: scenario.decision === 'interrupt',
+      interruptAcknowledged: scenario.decision === 'interrupt',
+      interruptFailed: false,
+      ...(scenario.decision === 'interrupt'
+        ? {}
+        : {
+            received: [
+              expect.objectContaining({
+                tool_use_id: 'offline-bash',
+                ...(scenario.allowed ? {} : { is_error: true }),
+              }),
+            ],
+          }),
+    });
+  }
+}, 120000);

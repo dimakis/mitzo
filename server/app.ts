@@ -1,5 +1,6 @@
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import { agentMessageRuntime } from './agent-message-runtime.js';
+import { continueOwnedLocalVertexQueue } from './ordinary-local-vertex-entry.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
@@ -3998,6 +3999,23 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
             registry.findBySessionId(meta.sessionId)?.session,
           )
         : undefined;
+  if (codexQueue && vertexBacked) {
+    const auth = res.locals.authSession;
+    const owner = registry.findBySessionId(meta.sessionId)?.session.ordinaryRuntimeOwner;
+    codexQueue = {
+      ...codexQueue,
+      canContinue: Boolean(
+        !meta.isHidden &&
+        codexQueue.paused &&
+        codexQueue.queued > 0 &&
+        meta.executionPhase === 'TERMINAL' &&
+        owner?.sdkTurns &&
+        auth &&
+        auth.expiresAt > Date.now() &&
+        owner.authSessionId === auth.id,
+      ),
+    };
+  }
   if (codexQueue && ownedLocalCodex) {
     const auth = res.locals.authSession;
     codexQueue = {
@@ -4236,7 +4254,7 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
       eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation,
       codexBacked,
     ),
-    ...(codexBacked || responsesBacked ? { codexQueue } : {}),
+    ...(codexBacked || responsesBacked || vertexBacked ? { codexQueue } : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });
@@ -4551,14 +4569,16 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
     res.status(409).json({ error: failure.publicMessage(), runtimeFailure: failure.telemetry() });
   };
   const runtimeBinding = eventStore.getSessionRuntimeBinding(sessionId);
-  const localContinue = ['responses', 'gemini'].includes(
-    runtimeBinding?.harness.implementation ?? '',
-  )
-    ? continueOwnedLocalResponsesQueue
-    : runtimeBinding?.harness.implementation === 'codex' &&
-        runtimeBinding.execution.location === 'local'
-      ? continueOwnedLocalCodexQueue
-      : undefined;
+  const localContinue =
+    runtimeBinding?.harness.implementation === 'claude-sdk' &&
+    runtimeBinding.execution.location === 'local'
+      ? continueOwnedLocalVertexQueue
+      : ['responses', 'gemini'].includes(runtimeBinding?.harness.implementation ?? '')
+        ? continueOwnedLocalResponsesQueue
+        : runtimeBinding?.harness.implementation === 'codex' &&
+            runtimeBinding.execution.location === 'local'
+          ? continueOwnedLocalCodexQueue
+          : undefined;
   if (localContinue) {
     try {
       await localContinue(

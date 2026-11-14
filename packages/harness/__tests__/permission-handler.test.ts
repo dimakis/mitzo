@@ -1180,7 +1180,11 @@ describe('buildPermissionHandler', () => {
       },
     );
 
-    expect(result).toMatchObject({ behavior: 'deny', message: 'Aborted' });
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      message: 'Tool approval cancelled because the operation was aborted',
+      failure: { code: 'cancelled', phase: 'approval', effectStatus: 'not_started' },
+    });
   });
   it.each([
     'Write',
