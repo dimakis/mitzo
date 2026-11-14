@@ -37,6 +37,7 @@ function fixture(
   sourceRuntime: 'codex' | 'claude-sdk' = 'codex',
   auth: AuthSession = { id: randomUUID(), expiresAt: Date.now() + 60_000 },
   peerAuth: AuthSession = auth,
+  claudeProvider: 'anthropic-vertex' | 'anthropic-claude' = 'anthropic-vertex',
 ) {
   const events = new EventStore(':memory:');
   cleanups.push(() => events.close());
@@ -46,10 +47,10 @@ function fixture(
   const bindings = [
     {
       id: 'orchestrator',
-      provider: sourceRuntime === 'codex' ? 'openai-codex' : 'anthropic-vertex',
+      provider: sourceRuntime === 'codex' ? 'openai-codex' : claudeProvider,
       harness: sourceRuntime,
     },
-    { id: 'claude-worker', provider: 'anthropic-vertex', harness: 'claude-sdk' },
+    { id: 'claude-worker', provider: claudeProvider, harness: 'claude-sdk' },
     { id: 'codex-worker', provider: 'openai-codex', harness: 'codex' },
   ] as const;
   for (const { id, provider, harness } of bindings) {
@@ -346,10 +347,15 @@ it('shows an owned live Claude worker with an explicit delivery capability inste
   expect(f.approve).not.toHaveBeenCalled();
 });
 
-it.each(['claude-worker', 'codex-worker'] as const)(
-  'routes an explicit SDK profile and restricted skill through the registered MCP handler to %s',
-  async (recipient) => {
-    const f = fixture('claude-sdk');
+it.each([
+  ['claude-worker', 'anthropic-vertex'],
+  ['codex-worker', 'anthropic-vertex'],
+  ['claude-worker', 'anthropic-claude'],
+  ['codex-worker', 'anthropic-claude'],
+] as const)(
+  'routes an explicit SDK profile and restricted skill through MCP to %s from %s',
+  async (recipient, provider) => {
+    const f = fixture('claude-sdk', undefined, undefined, provider);
     const source = f.registry.get('operator:orchestrator')!;
     const name = 'mcp__mitzo-connections__AgentCommunication';
     const definition = {
@@ -426,14 +432,15 @@ it.each(['claude-worker', 'codex-worker'] as const)(
         arguments: { operation: 'list', offset: 0 },
       });
       expect(listed.isError).not.toBe(true);
+      const sendInput = {
+        operation: 'send',
+        requestId: randomUUID(),
+        recipientConversationId: recipient,
+        text: 'Retain your original command.',
+      };
       const result = await client.callTool({
         name: 'AgentCommunication',
-        arguments: {
-          operation: 'send',
-          requestId: randomUUID(),
-          recipientConversationId: recipient,
-          text: 'Retain your original command.',
-        },
+        arguments: sendInput,
       });
       expect(result.isError).not.toBe(true);
       expect(target.steer).toHaveBeenCalledOnce();
@@ -449,6 +456,76 @@ it.each(['claude-worker', 'codex-worker'] as const)(
           'delivered',
         );
       }
+      const receipt = JSON.parse((result.content as Array<{ text: string }>)[0].text);
+      for (const arguments_ of [
+        sendInput,
+        { operation: 'lookup', requestId: sendInput.requestId },
+        { operation: 'read', messageId: receipt.messageId },
+      ]) {
+        const read = await client.callTool({ name: 'AgentCommunication', arguments: arguments_ });
+        expect(read.isError).not.toBe(true);
+        expect(JSON.parse((read.content as Array<{ text: string }>)[0].text)).toMatchObject({
+          messageId: receipt.messageId,
+          status: 'delivered',
+        });
+      }
+      expect(target.steer).toHaveBeenCalledOnce();
+      let subscribed!: () => void;
+      const subscriptionReady = new Promise<void>((resolve) => {
+        subscribed = resolve;
+      });
+      const subscribe = f.events.agentCommunication.subscribe.bind(f.events.agentCommunication);
+      const subscription = vi
+        .spyOn(f.events.agentCommunication, 'subscribe')
+        .mockImplementation((...args) => {
+          const release = subscribe(...args);
+          subscribed();
+          return release;
+        });
+      const waiting = client.callTool({
+        name: 'AgentCommunication',
+        arguments: { operation: 'wait', after: 0, timeoutMs: 1000 },
+      });
+      await subscriptionReady;
+      const reply = f.events.agentCommunication.reserve(
+        recipient,
+        f.auth.id,
+        { turnId: 'fixture-reply', callId: 'fixture-reply' },
+        {
+          requestId: randomUUID(),
+          recipientConversationId: 'orchestrator',
+          text: 'Synthetic reply.',
+          replyTo: receipt.messageId,
+        },
+      );
+      const waited = await waiting;
+      subscription.mockRestore();
+      expect(waited.isError).not.toBe(true);
+      expect(JSON.parse((waited.content as Array<{ text: string }>)[0].text)).toMatchObject({
+        changed: true,
+        messages: [
+          expect.objectContaining({ messageId: reply.messageId, replyTo: receipt.messageId }),
+        ],
+      });
+      const inbox = await client.callTool({
+        name: 'AgentCommunication',
+        arguments: { operation: 'inbox', after: 0 },
+      });
+      expect(inbox.isError).not.toBe(true);
+      expect(JSON.parse((inbox.content as Array<{ text: string }>)[0].text).messages).toHaveLength(
+        1,
+      );
+      f.events.hideSession(recipient);
+      const unavailable = await client.callTool({
+        name: 'AgentCommunication',
+        arguments: { ...sendInput, requestId: randomUUID() },
+      });
+      expect(unavailable.isError).toBe(true);
+      expect(JSON.parse((unavailable.content as Array<{ text: string }>)[0].text)).toMatchObject({
+        code: 'recipient_unavailable',
+        stage: 'ownership',
+      });
+      expect(target.steer).toHaveBeenCalledOnce();
       source.activeSkillPolicy = new Set(['AgentCommunication']);
       expect(
         credentialSdkPermission(

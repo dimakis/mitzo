@@ -75,63 +75,69 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       source,
       required: tool.name === 'AskUserQuestion',
       behavior: builtinToolBehavior(tool.name),
-      routes:
-        tool.name === 'SymposiumConsult'
-          ? ['local-api', 'codex-owned-local', 'claude-sdk']
-          : source === 'Session learning'
+      routes: ['SymposiumConsult', 'SymposiumReadProfiles', 'SymposiumProposeProfile'].includes(
+        tool.name,
+      )
+        ? ['local-api', 'codex-owned-local', 'claude-sdk']
+        : source === 'Session learning'
+          ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
+          : tool.name === 'TelosCreateSession'
             ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
-            : tool.name === 'TelosCreateSession'
-              ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
-              : source === 'Agent communication'
-                ? ['codex-owned-local', 'claude-sdk']
-                : source === 'Session automation'
-                  ? ['local-api', 'codex', 'codex-owned-local']
-                  : source === 'Google Workspace' ||
-                      source === 'Session creation' ||
-                      source === 'History' ||
-                      source === 'Local repositories'
-                    ? ['codex-owned-local']
-                    : source === 'Telos'
+            : source === 'Agent communication'
+              ? ['codex-owned-local', 'claude-sdk']
+              : source === 'Session automation'
+                ? [
+                    'local-api',
+                    'codex',
+                    'codex-owned-local',
+                    ...(tool.name === 'TaskExecution' ? [] : ['claude-sdk']),
+                  ]
+                : source === 'Google Workspace' ||
+                    source === 'Session creation' ||
+                    source === 'History' ||
+                    source === 'Local repositories'
+                  ? ['codex-owned-local', ...(tool.name === 'StartSession' ? ['claude-sdk'] : [])]
+                  : source === 'Telos'
+                    ? [
+                        githubMainPublicationTool.name,
+                        'TelosStartSlice',
+                        'TelosWorkControl',
+                        'TelosCreateOutcome',
+                        'TelosAdoptSource',
+                        'TelosSaveArtifact',
+                        'TelosReadArtifact',
+                        'TelosGetItem',
+                        'TelosUpdateItem',
+                        ...telosBacklogDefinitions.map((tool) => tool.name),
+                      ].includes(tool.name)
                       ? [
-                          githubMainPublicationTool.name,
-                          'TelosStartSlice',
-                          'TelosWorkControl',
-                          'TelosCreateOutcome',
-                          'TelosAdoptSource',
-                          'TelosSaveArtifact',
-                          'TelosReadArtifact',
-                          'TelosGetItem',
-                          'TelosUpdateItem',
-                          ...telosBacklogDefinitions.map((tool) => tool.name),
-                        ].includes(tool.name)
-                        ? [
-                            'codex-owned-local',
-                            ...(telosSdkToolNames.includes(tool.name) ? ['claude-sdk'] : []),
-                          ]
-                        : telosSdkToolNames.includes(tool.name)
-                          ? ['claude-sdk']
-                          : []
-                      : source === 'Agent Library' || source === 'Knowledge'
-                        ? ['local-api', 'codex-owned-local']
-                        : source === 'GitHub publishing'
-                          ? ['local-api', 'codex', 'codex-owned-local']
-                          : source === 'Workspace'
+                          'codex-owned-local',
+                          ...(telosSdkToolNames.includes(tool.name) ? ['claude-sdk'] : []),
+                        ]
+                      : telosSdkToolNames.includes(tool.name)
+                        ? ['claude-sdk']
+                        : []
+                    : source === 'Agent Library' || source === 'Knowledge'
+                      ? ['local-api', 'codex-owned-local']
+                      : source === 'GitHub publishing'
+                        ? ['local-api', 'codex', 'codex-owned-local']
+                        : source === 'Workspace'
+                          ? [
+                              'local-api',
+                              'codex',
+                              'codex-owned-local',
+                              ...(tool.name === 'AskUserQuestion' ? ['claude-sdk'] : []),
+                            ]
+                          : source === 'Connections' || source === 'Web'
                             ? [
                                 'local-api',
                                 'codex',
-                                'codex-owned-local',
-                                ...(tool.name === 'AskUserQuestion' ? ['claude-sdk'] : []),
+                                ...(tool.name === 'ListConnections' ? ['claude-sdk'] : []),
+                                ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
+                                  ? ['codex-owned-local']
+                                  : []),
                               ]
-                            : source === 'Connections' || source === 'Web'
-                              ? [
-                                  'local-api',
-                                  'codex',
-                                  ...(tool.name === 'ListConnections' ? ['claude-sdk'] : []),
-                                  ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
-                                    ? ['codex-owned-local']
-                                    : []),
-                                ]
-                              : ['local-api'],
+                            : ['local-api'],
       requirement:
         tool.name === 'GoogleWorkspaceRead'
           ? 'Requires the configured controller Google sign-in, current Local Mac owner and exact one-use read approval. Credentials remain private; selection grants no service access.'
