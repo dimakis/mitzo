@@ -354,7 +354,10 @@ it('saves through the guarded canonical owner and finds/reads through the existi
     }),
   );
   const save = TelosArtifactStore.prototype.saveGuarded;
-  vi.spyOn(TelosArtifactStore.prototype, 'saveGuarded').mockImplementationOnce(function (...args) {
+  vi.spyOn(TelosArtifactStore.prototype, 'saveGuarded').mockImplementationOnce(function (
+    this: TelosArtifactStore,
+    ...args
+  ) {
     save.apply(this, args);
     throw Error('Synthetic lost artifact commit receipt');
   });

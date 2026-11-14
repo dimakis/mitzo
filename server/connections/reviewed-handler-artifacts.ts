@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-sdk-definitions.ts': 'f3b20b90e8f1bea646ab32847b592ce0736f662e1e6b26b094ec8396f9469871',
   '../telos-sdk-tools.ts': '30bd9920f74fc0b5f01920f95ddc029c909a3c84d40e3350d424d6647fa7e992',
   '../__tests__/telos-sdk-tools.test.ts':
-    'e53c54d9cc6d086cbf7ee68bd050b9a1a1b0755359f8e402cf3440af3a5339a8',
+    '7fa187153cb4a38894172a0a11df34bed39eb1a4dd214e0a243b5fb73533110c',
   '../__tests__/telos-sdk-source.test.ts':
     'd4a46546ef2519d8e61d6a0e0ffc219b37a986d94e4f1602c133ef4e8efdc2e2',
   '../__tests__/telos-work-delegation-host.test.ts':
