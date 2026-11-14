@@ -194,6 +194,62 @@ it.each([320, 390, 1280])(
   30000,
 );
 
+it('keeps persisted imported SDK history readable in the actual ordinary screen without joining', async () => {
+  const imported = 'independent-imported-sdk-history';
+  const marker = 'Previously imported SDK conversation remains readable.';
+  h.events.upsertSession({
+    sessionId: imported,
+    conversationSource: 'external_import',
+    cwd: journey.state.root!,
+    accountBinding: {
+      accountId: 'offline-imported',
+      accountLabel: 'Imported SDK fixture',
+      provider: 'anthropic-claude',
+      model: 'fixture-model',
+      profileRevision: 'independent-imported-profile',
+    },
+  });
+  h.events.append(imported, 'user_message', { messageId: 'imported-original-user', text: marker });
+  const before = runtime.requests.length;
+  // Persisted imported data is the fixture. Authentication, history reader,
+  // routing and the ordinary responsive/shared composition remain production;
+  // this does not exercise SDK file discovery or an external import operation.
+  const readable = await h.typedApi.getSessionMessages(imported);
+  expect(JSON.stringify(readable)).toContain(marker);
+  expect(h.events.listSessionCollaborations(imported).collaborations).toEqual([]);
+  const mounted = await mountOrdinary(390, imported, false);
+  try {
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    fireEvent.change(input, { target: { value: 'Independent imported conversation draft' } });
+    await waitFor(() => expect(screen.getAllByText(marker, { exact: true })).toHaveLength(1), {
+      timeout: 5000,
+    });
+    act(() => mounted.resize(1280));
+    expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
+    expect((input as HTMLTextAreaElement).value).toBe('Independent imported conversation draft');
+    expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
+    expect(mounted.store.getState().historyError).toBeNull();
+    expect(h.events.listSessionCollaborations(imported).collaborations).toEqual([]);
+    expect(runtime.requests).toHaveLength(before);
+  } catch (error) {
+    console.error(
+      'IMPORTED_HISTORY_DIAGNOSTIC',
+      JSON.stringify({
+        sourceConversationId: imported,
+        historyGetContainsMarker: JSON.stringify(readable).includes(marker),
+        activeSessionId: mounted.store.getState().sessions.active,
+        historyError: mounted.store.getState().historyError,
+        transcript: mounted.ui.container.querySelector('.chat-messages')?.textContent,
+        groupCount: h.events.listSessionCollaborations(imported).collaborations.length,
+        additionalExternalRequests: runtime.requests.length - before,
+      }),
+    );
+    throw error;
+  } finally {
+    mounted.close();
+  }
+}, 30000);
+
 it('retains the ordinary unsent draft while real fresh setup/review silently joins', async () => {
   let stage = 'ordinary_source_bootstrap';
   let diagnosticGroup = '';

@@ -86,6 +86,40 @@ owner/design preflight additionally passes155 with one existing skip; package
 builds and selected source lint pass. These local results do not qualify the new
 browser bytes, complete CI, exact-head final review or a physical device.
 
+## Hosted b6a checkpoint and newly exposed import/SDK gaps
+
+Focused CI43612253406 at PR headb6a755c1fe6780f7affd96662e26e6f3ac233846,
+merge build1d444a26781c9ccbaec8f56df19cde14cc3b55f4, passes all16 checks
+(11 authenticated application, five client/portal) and all62 browser tests/probes
+(including two startup probes). Both job logs are retained as
+`hosted-{application,render}-b6a755c1f.log`. `render-b6a755c1f/` preserves six
+immutable ordinary responsive manifests, all18 exact geometry checkpoints,
+the213-file artifact index and42 available wheel/mic observations with84 bounds
+checks. Render artifact14120488091 SHA256
+1b08edc2b071e6281362d8c6188c9def1b21181ad9a8ba43b3583671405a7a0c;
+application artifact14121010985 SHA256
+8a72ca694441a3f8c46a2ba13a668e6d960548e9ab90ab600ac7cac0ff8edddc.
+The raw full archives remain in the task cache. This qualifies those tested
+source/bundle bytes and declared routes/viewports; reference pixel/icon parity,
+browser hard reload, physical phone and live runtime remain open.
+
+Source1's exact4ba review7488 is terminal `human_decision`, with new imported
+history blocker CEN-810B598C8E4E and retained pre-input SDK Stop recovery blocker
+CEN-0B3D24E6F442. This is separate from our still-pending exactb6a review7492.
+The owner is fixing both; successful focused CI does not waive them.
+
+The new fifth A case independently reproduces imported history loss atb6a:
+an explicit persisted `external_import` SDK prefix is readable through the actual
+authenticated ordinary history GET, active selection and history-error state are
+correct, but the actual ResponsiveChatView shows `Checking retained discussion
+history…` instead of its unique prompt. No group exists and no external execution
+occurs. `imported-sdk-history-b6a755c1f-red.log` preserves the original valid red,
+test SHA2560a3a48a4465f1761d0dfe2e98c7e4213db4b764323df6470207dff9395a6be6c.
+This is a retained-data/read/router/UI acceptance fixture, not SDK file discovery
+or an actual external import operation. The separate SDK cancellation/recovery
+case still needs its owner fix and integration evidence; the existing native
+lost-response journey does not qualify SDK cancellation before input acceptance.
+
 ## Separate terminal combined-CI failure
 
 Current published b939 full CI43604334027 is **FAILED**, job132476431194

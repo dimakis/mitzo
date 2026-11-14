@@ -9,6 +9,10 @@ exposed a participant-history safety-gate stall, fixed by owner4ba082d54 and
 integrated asbb492a0b8. See [follow-up](review-blockers-followup.md), original
 red logs and the new local evidence below. These results need successor hosted
 CI and terminal exact-head review; the earlier11/56 checkpoint is historical.
+Focused b6a CI now passes16 mixed checks/62 browser tests/probes, but source1
+review7488 found imported SDK history and pre-input SDK Stop recovery blockers.
+The new fifth A case independently reproduces imported history loss; source1
+owns both production fixes. Our b6a review7492 and complete CI remain pending.
 
 Independent slice 3; [draft PR #1355](https://github.com/dimakis/mitzo/pull/1355).
 Accepted main: `0ad803cdae56ed6e22c89273ae800d3e7aeb9706` (#1349);
@@ -22,8 +26,11 @@ the other12 unique focused checks passed in the preceding15/16 run, whose sole
 failure was the fixture expecting the shared-reply action to be a link rather
 than its actual button. Five transfer controls are actual client/portal checks;
 the remaining11 are authenticated application checks. Additional combined
-owner/design regressions pass155 with one existing skip. New hosted62-browser
-and16-mixed-check results are pending. Full b939 CI43604334027 failed in native
+owner/design regressions pass155 with one existing skip. Hosted62-browser and
+16-mixed-check run43612253406 now passes atb6a755c1f, merge1d444a267; exact logs,
+six manifests/18 geometry checkpoints and213-file index are retained in
+`render-b6a755c1f/`. This excludes the new independently failing import case.
+Full b939 CI43604334027 failed in native
 repository object capture with unknown cause/effect, separately retained below.
 Latest fully passing focused checkpoint: `0c2b354f10193f948e8efbf4da1839c0131fecc3`,
 merge build `569f10f796967a85b2b67f8b95e5b7b9b1d0b2d9`, run `43602840514`:
@@ -37,7 +44,7 @@ bounds and trial-click actionability at normal/200% text and source activity.
 measurements. Trial clicks execute no audio or callbacks. Full CI and
 final exact-head Centaur review remain unqualified; no product/device blanket claim.
 
-`A` = `tests/integration/symposium-ordinary-acceptance.test.tsx`, SHA256
+`A` = hosted `tests/integration/symposium-ordinary-acceptance.test.tsx`, SHA256
 `dcec4c1932c2810c5acba6b6e3a721513e653c92d14083eab0b02ad82e713d85`.
 It mounts actual ResponsiveChatView/store/shared host and authenticated
 router/preparation/admission/reply owners with real loopback SSE. Only external
@@ -45,6 +52,14 @@ account/provider execution is deterministic. Local Node 24.10.0/Vitest source
 transpilation, `/chat/:sessionId`, responsive widths 320/390/1280; JSDOM proves no
 visual geometry. `icon-composer-8bd4b85b7-integrated.log` records 25 passes in
 four files, including the real 31-turn application journey and five omission controls. Counts from different checkpoints overlap and are not additive.
+
+The subsequently added imported-history A case uses test SHA256
+`0a3a48a4465f1761d0dfe2e98c7e4213db4b764323df6470207dff9395a6be6c`.
+It **FAILS** atb6a despite readable authenticated retained history, with zero
+collaboration groups and zero extra external execution. Original:
+`imported-sdk-history-b6a755c1f-red.log`. SDK pre-input Stop/Check recovery is
+separately blocked by CEN-0B3D24E6F442; existing native Stop acceptance does not
+cover that path. Owner fixes and successor17-mixed-check evidence are pending.
 
 | Stronger successor case                                                  | Observed result                  | Exact source / artifact and remaining gap                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ------------------------------------------------------------------------ | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

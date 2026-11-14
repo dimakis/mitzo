@@ -18,7 +18,13 @@ stall. `qualified-participant-bb492a0b8-green.log` records the complete stronger
 post-restart dispatch; `transfer-1c41e18d6-green.log` records five client/portal
 transfer controls. These are separate from browser geometry and hosted gates.
 Combined owner/design preflight passes155 with one existing skip. Successor
-16-mixed-check/62-browser CI and exact-head review are pending. Published b939
+16-mixed-check/62-browser CI43612253406 now passes atb6a755c1f, merge1d444a267;
+both logs and exact manifests/checkpoints/artifact hashes are retained in
+`render-b6a755c1f/`. Exact-head review and full CI remain pending. Source1
+review7488 found two further blockers: imported SDK history and pre-input SDK
+Stop recovery. The new fifth A case independently reproduces imported history
+loss (`imported-sdk-history-b6a755c1f-red.log`); that case is additional to the
+16 hosted passes. Owner fixes and successor acceptance are pending. Published b939
 full CI43604334027 failed in native object capture with unknown cause/effect;
 original logs and account artifacts are retained in the follow-up. Slice3 owns
 #1355 review requests and terminal follow-through under the corrected instruction.
