@@ -37,13 +37,23 @@ These are unfinished work, not approved fixes or passing composed outcomes.
 | --- | --- |
 | #1357 `CEN-3C9DE1FD89FE`, review `5906086158` | Live Claude continuation status must accept a verified second operator login so actual metadata and `useExplicitLocalChat` enable ordinary Send. Preserve account/runtime/workspace custody and unknown/revoked/foreign negatives. |
 | #1357 `CEN-6EA0ADBA0AF5` | Targeted `stopOrdinary` must accept canonical operator ownership while preserving original command, interrupt receipt, target/generation, current-owner and post-await authorization fences. |
-| #1357 hosted TS2322 | CI `43596068439`, job `132450706735`, legacy permission fixture passes unsupported `sessionId`; `permId` already locates the owner. Preserve denial assertions. |
+| #1357 hosted TS2322 | CI `43596068439`, job `132450706735`, legacy permission fixture passed unsupported `sessionId`; removed in integration commit `d5499ae43`, preserving every denial assertion and existing `permId` ownership lookup. Combined hosted compilation remains pending. |
 | #1358 `CEN-0A6284EDF91F`, review `5905457673` | Generic SDK AbortError after input refusal must retain the SessionRuntimeError in the terminal callback and failed chat-start trace. Cover both throwing and normally closing iterators; user Stop stays distinct. |
 | #1358 `CEN-65374BDD3AB5` | Keep original causes in memory while sanitizing the actual serialized startup logger. Inject private text/paths and verify serialized output, not only logger spies. |
 
 #1358's original CI checks were successful at the owner handoff, but its trusted
 final review recommends FIX. #1357's 429 local checks and #1358's 191 local checks
 are attributed source results and do not establish success on the combined tree.
+
+Source owner `8cd5f77c` reviewed exact integration commit
+`85e83b7a4ba8884b2d70d7d8c36162020ac2c224` read-only, receipt
+`f7a98e91-2006-4f9b-bced-0791d95efd94`. It found no new blocking composition
+regression in the diagnostics/conflict scope: 15/17 files have identical edits to
+the source; the owned-runtime conflict retains the accepted Retry source guard,
+historical-source predicates and post-await revalidation within diagnostic
+annotation. No tests were executed, and both original diagnostics findings remain
+open. This scoped source assessment is not final LGTM, independent full permission
+review or approval of later changes.
 
 ## Remaining reporting outcomes
 
@@ -112,6 +122,13 @@ has not run. The reporting owner's new scoped grant also reproduces DNS failure.
 A native CLI route versus executor repair decision was requested; neither route
 nor another session's grant is inferred from peer messages. Existing test artifacts
 must run red before implementing their fixes, then green on the composed tree.
+
+TaskExecution selected-file commit request
+`aa6e5112-0dab-43c0-8c5b-040f04e35e30` incorrectly sought `.git` at the admitted
+parent rather than the nested clone and returned uncertain/ENOENT. Inspection
+proved the clone's HEAD unchanged, index empty and document still untracked. The
+document was then committed with authorized native Git in the exact clone. No
+effect was blindly retried, and no source checkout was modified by that recovery.
 
 Final readiness requires accepted #1342 composition, focused tests under one
 worker/1 GiB, normal combined-result PR CI, independent permission review, source
