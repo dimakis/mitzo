@@ -3549,7 +3549,7 @@ app.get('/api/sessions', async (req, res) => {
   const full = req.query.full === '1';
 
   /** Annotate raw session list with live-status and token metadata. */
-  function annotate(sessions: Array<{ id: string; [k: string]: unknown }>) {
+  function annotate<T extends { id: string; participantSessionIds?: string[] }>(sessions: T[]) {
     let work: TelosWorkStore | undefined;
     let items: TelosItemStore | undefined;
     // Request-local presentation cache only; never reused for command authority.
