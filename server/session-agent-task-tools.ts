@@ -171,6 +171,26 @@ export function sessionAgentTaskTools(
         }
         return { content: JSON.stringify(result), isError: false };
       } catch (error) {
+        // The canonical proposal store (including its custodian transport)
+        // rejects this exact, expected conflict before writing. Preserve an
+        // actionable fixed diagnostic without forwarding arbitrary store text.
+        if (
+          !signal.aborted &&
+          error instanceof Error &&
+          error.message === 'Conflicting proposal idempotency key'
+        )
+          return retainCallbackOutcome(
+            {
+              content: JSON.stringify({
+                error: 'proposal_idempotency_conflict',
+                effectStatus: 'not_started',
+                action:
+                  'Inspect the original proposal; this call identity already has different content.',
+              }),
+              isError: true,
+            },
+            'settled',
+          );
         const failure = reportToolFailure(error, {
           sessionId,
           tool: name,
