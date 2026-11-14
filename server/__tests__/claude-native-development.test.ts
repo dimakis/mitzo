@@ -30,7 +30,9 @@ it('executes native SDK Bash repository work for Vertex, personal and EnMaaS pol
       env: { PATH: process.env.PATH!, TMPDIR: temporary },
     });
     const remote = join(root, 'remote.git');
-    const command = `pwd && git status --short && printf inside > probe.txt && git add probe.txt && git grep inside && test "$(cat probe.txt)" = inside && git -c user.name=Offline -c user.email=offline@example.test -c commit.gpgsign=false commit -qm 'test: offline development' && git init --bare -q '${remote}' && git remote add origin '${remote}' && git push origin HEAD:refs/heads/offline-development && git init -q '${root}/second-repo' && printf outside > '${root}/second-repo/probe.txt'`;
+    // Push directly to the disposable remote; registering it adds no coverage
+    // and can race the native SDK's own repository configuration writes.
+    const command = `pwd && git status --short && printf inside > probe.txt && git add probe.txt && git grep inside && test "$(cat probe.txt)" = inside && git -c user.name=Offline -c user.email=offline@example.test -c commit.gpgsign=false commit -qm 'test: offline development' && git init --bare -q '${remote}' && git push '${remote}' HEAD:refs/heads/offline-development && git init -q '${root}/second-repo' && printf outside > '${root}/second-repo/probe.txt'`;
     let received: unknown;
     let calls = 0;
     const server = createServer(async (request, response) => {

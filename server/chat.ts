@@ -3115,7 +3115,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
           beforeInput: (commandId) => {
             if (!liveOrdinarySdkOwner) throw Error('Original SDK command owner unavailable');
-            liveOrdinarySdkOwner.assertInputCurrent(commandId);
+            return liveOrdinarySdkOwner.assertInputCurrent(commandId);
           },
           adapt: adaptSdkQuery,
           settings: (selection) => ({
@@ -5898,16 +5898,7 @@ export function stopOrdinaryChat(clientId: string): void {
           session,
           error: new SessionRuntimeError('unsettled_effects', { cause }),
         });
-      if (!target) {
-        report(Error('Original SDK stop target unavailable'));
-        return;
-      }
-      void turns
-        .interruptIfCurrent(randomUUID(), target)
-        .then((result) => {
-          if (result !== 'requested') report(Error(`SDK stop outcome: ${result}`));
-        })
-        .catch(report);
+      void turns.stop(randomUUID()).catch(report);
       return;
     }
   }

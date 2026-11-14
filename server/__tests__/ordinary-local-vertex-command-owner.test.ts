@@ -133,6 +133,72 @@ it('coalesces concurrent Continue requests without aborting the newly running co
   expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
   expect(f.query.abort).not.toHaveBeenCalled();
 });
+it('cancels a stopped input before its final SDK yield and keeps successors paused', async () => {
+  const f = setup(undefined, true);
+  await f.owner.enqueue('first');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+  await f.owner.enqueue('second');
+  await f.owner.stop(randomUUID());
+  expect(f.owner.assertInputCurrent('first')).toBe(false);
+  expect(f.store.getSession('session')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+  expect(f.store.getOrdinarySdkTurnEvents('session', 'first')).toEqual([]);
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+  await f.owner.resumeQueue();
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
+  expect(f.query.abort).not.toHaveBeenCalled();
+});
+it('cancels Stop during settings preparation without pushing input or dispatching successors', async () => {
+  const f = setup(undefined, true);
+  let release!: () => void;
+  f.query.setModel.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const first = f.owner.enqueue('first');
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  await f.owner.stop(randomUUID());
+  release();
+  await first;
+  expect(f.query.push).not.toHaveBeenCalled();
+  expect(f.query.abort).not.toHaveBeenCalled();
+  expect(f.store.getSession('session')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+});
+it('retains Stop while a result is settling even without a native interrupt target', async () => {
+  const f = setup(undefined, true);
+  await f.owner.enqueue('first');
+  f.owner.assertInputCurrent('first');
+  f.owner.inputObserved('input');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+  await f.owner.enqueue('second');
+  let release!: () => void;
+  f.assertCurrent.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const result = f.owner.resultObserved('input');
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  await f.owner.stop(randomUUID());
+  expect(f.store.getSession('session')?.executionPhase).toBe('STOPPING');
+  release();
+  await result;
+  expect(f.store.getSession('session')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+  await f.owner.resumeQueue();
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
+});
 it('projects a positively cancelled queued peer message into both retained transcripts before any provider input', async () => {
   const f = setup();
   await f.owner.enqueue('first');

@@ -24,6 +24,9 @@ export class OrdinaryLocalVertexCommandOwner {
   #inputDispatched?: string;
   #dispatchingCommandId?: string;
   #paused = false;
+  #inputYielded = false;
+  #resultObserved = false;
+  #deferredStop?: { requestId: string; resolve(): void; reject(error: unknown): void };
   #interruptTargets = new WeakMap<object, { active: ActiveSdkCommand; native: object }>();
   constructor(
     private readonly owners: {
@@ -65,9 +68,12 @@ export class OrdinaryLocalVertexCommandOwner {
     return lifecycle;
   }
   captureInterruptTarget(): OrdinarySdkInterruptTarget | undefined {
+    return this.#captureInterruptTarget(false);
+  }
+  #captureInterruptTarget(stopping: boolean): OrdinarySdkInterruptTarget | undefined {
     if (
       this.#failed ||
-      this.#paused ||
+      (this.#paused && !stopping) ||
       !this.#active ||
       !this.#inputUuid ||
       !this.owners.turnEvidence
@@ -84,6 +90,46 @@ export class OrdinaryLocalVertexCommandOwner {
     const target = Object.freeze(captured);
     this.#interruptTargets.set(target, { active: this.#active, native });
     return target;
+  }
+  /** Stop is a retained queue decision even outside the native interrupt window.
+   * Pre-input work is cancelled at its final yield; yielded work waits for its
+   * exact acknowledgement; a completing result keeps its original settlement. */
+  async stop(requestId: string): Promise<void> {
+    const active = this.#active;
+    if (!active || this.#failed || !this.owners.assertCurrentSync)
+      throw Error('Original SDK stop owner unavailable');
+    assertOrdinarySynchronousFence(active.commandId, () => this.owners.assertCurrentSync!());
+    this.#paused = true;
+    const stopped = this.owners.store.transitionExecution(active.execution, 'STOPPING');
+    if (!stopped.applied && stopped.status !== 'already_stopping')
+      throw Error('Original SDK stop execution unavailable');
+    const target = this.#captureInterruptTarget(true);
+    if (target) {
+      const outcome = await this.interruptIfCurrent(requestId, target);
+      if (outcome !== 'requested') throw Error(`SDK stop outcome: ${outcome}`);
+    } else if (this.#inputYielded && !this.#inputUuid && !this.#resultObserved) {
+      await new Promise<void>((resolve, reject) => {
+        this.#deferredStop = { requestId, resolve, reject };
+      });
+    }
+  }
+  #cancelStoppedInput(): boolean {
+    if (
+      !this.#active ||
+      this.#inputYielded ||
+      this.owners.store.getSession(this.owners.sessionId)?.executionPhase !== 'STOPPING'
+    )
+      return false;
+    const { commandId, execution } = this.#active;
+    if (!this.owners.store.transitionExecution(execution, 'TERMINAL', 'stopped').applied)
+      throw Error('Original SDK pre-input cancellation unavailable');
+    this.owners.store.completeOrdinaryLocalVertexCommand(commandId);
+    this.owners.store.failSendCommand(commandId, 'Cancelled before SDK dispatch');
+    this.#active = undefined;
+    this.#inputDispatched = undefined;
+    this.#pending = this.#pending.filter((id) => id !== commandId);
+    this.owners.onTerminal?.(commandId);
+    return true;
   }
   async interruptIfCurrent(requestId: string, target: OrdinarySdkInterruptTarget) {
     const witness = this.#interruptTargets.get(target);
@@ -113,7 +159,7 @@ export class OrdinaryLocalVertexCommandOwner {
   }
   /** The SDK may await credential/account renewal after queue insertion. This
    * exact active command fence runs at the final user-input yield instead. */
-  assertInputCurrent(commandId: string): void {
+  assertInputCurrent(commandId: string): boolean {
     if (
       this.#failed ||
       !this.owners.assertCurrentSync ||
@@ -123,9 +169,12 @@ export class OrdinaryLocalVertexCommandOwner {
     )
       throw Error('Original SDK input command identity unavailable');
     assertOrdinarySynchronousFence(commandId, () => this.owners.assertCurrentSync!());
+    if (this.#cancelStoppedInput()) return false;
     assertOrdinarySynchronousFence(commandId, () =>
       this.#turnLifecycle(commandId)?.beforeDispatch(commandId),
     );
+    this.#inputYielded = true;
+    return true;
   }
   acceptsPeerMessages(): boolean {
     return !this.#paused && !this.#failed;
@@ -183,7 +232,7 @@ export class OrdinaryLocalVertexCommandOwner {
           !this.#pending.includes(commandId)
         )
           this.#pending.push(commandId);
-        this.#paused = false;
+        if (!this.#active) this.#paused = false;
         await this.#dispatch(preparationSignal, commandId);
       },
       preparationSignal,
@@ -216,6 +265,8 @@ export class OrdinaryLocalVertexCommandOwner {
       this.#paused = stopping;
       this.#active = undefined;
       this.#inputDispatched = undefined;
+      this.#inputYielded = false;
+      this.#resultObserved = false;
       this.owners.onTerminal?.(commandId);
       await this.#dispatch();
     });
@@ -233,6 +284,11 @@ export class OrdinaryLocalVertexCommandOwner {
     if (lifecycle && !accepted) throw Error('Original SDK turn evidence unavailable');
     if (accepted)
       lifecycle?.accepted(commandId, accepted.providerThreadId, accepted.providerTurnId);
+    const stop = this.#deferredStop;
+    if (stop) {
+      this.#deferredStop = undefined;
+      void this.stop(stop.requestId).then(stop.resolve, stop.reject);
+    }
   }
   /** Parent renderer identities only; the query loop excludes subagent starts. */
   messageStarted(messageId: string): void {
@@ -248,6 +304,7 @@ export class OrdinaryLocalVertexCommandOwner {
       return Promise.reject(Error('Original SDK result identity unavailable'));
     }
     const commandId = this.#active.commandId;
+    this.#resultObserved = true;
     this.#inputUuid = undefined;
     return this.complete(commandId, failed, inputUuid);
   }
@@ -363,6 +420,7 @@ export class OrdinaryLocalVertexCommandOwner {
       assertPreparation();
     }
     const payload = this.owners.store.getSendCommand(commandId)!.payload;
+    if (this.#cancelStoppedInput()) return;
     this.#inputDispatched = commandId;
     await this.owners.query.push(commandId, structuredClone(admission), structuredClone(payload));
     await this.#fence();

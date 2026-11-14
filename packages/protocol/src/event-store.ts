@@ -4405,7 +4405,17 @@ export class EventStore {
       )
         return;
       const stopped = this.transitionExecution(execution, 'STOPPING');
-      if (!stopped.applied) return;
+      // User Stop can precede the SDK input echo. It pauses the execution then;
+      // the exact native interrupt is claimed only after that echo arrives.
+      // An already-claimed native effect still cannot be replayed under a new ID.
+      if (!stopped.applied && stopped.status !== 'already_stopping') return;
+      if (
+        this.db!.prepare(
+          `SELECT 1 FROM events WHERE session_id = ? AND type = 'ordinary_sdk_interrupt_claimed'
+         AND json_extract(payload, '$.target.commandId') = ? LIMIT 1`,
+        ).get(sessionId, target.commandId)
+      )
+        return;
       this.append(sessionId, 'ordinary_sdk_interrupt_claimed', receipt);
       return { fresh: true, receipt };
     }).immediate();

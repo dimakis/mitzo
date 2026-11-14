@@ -52,12 +52,24 @@ and keeps the owner alive to record the result. Its acknowledgment alone does no
 settle effects. Failed interruption retains activity and a sanitized diagnostic;
 repeated Stop does not replay the interrupt.
 
+Stop also persists before native input acknowledgement and during callback
+settlement. A stopped input is skipped at its final synchronous yield fence;
+no provider turn or settled-effect evidence is invented. If input was already
+yielded, the exact interrupt waits for its original echo. A result already being
+settled finishes through that owner and leaves successors paused. Starting the
+next command after a cancelled first input retains the selected account and SDK
+session identity without requiring a transcript that was never created.
+
 The public queue Continue route previously waited for a Codex runtime even for
 Claude. It now calls the retained Claude queue owner, checks the original operator
 and current authority, and releases queued input only after the previous result
 has settled. Concurrent Continue requests cannot abort the new command. This is
 the same repair for ordinary Vertex and personal Claude; no new runtime, adapter,
 repository helper or queue is introduced.
+
+Session metadata exposes this queue and its signed `canContinue` capability to
+the existing `CodexQueueStatus` control. The control therefore includes the
+current transport connection identity, as required by the Continue handler.
 
 Evidence and limits:
 
@@ -66,6 +78,11 @@ Evidence and limits:
   checkout/account, transport detach/reattach, FIFO continuation, subsequent Send,
   foreign-operator refusal and visible interruption failure. SDK inference and
   sign-in verification are canned; the repository and admission owners are real.
+- The public journey also holds personal account verification and real callback
+  settlement across Stop. Its Continue request follows actual metadata, matching
+  the existing component's signed-header behavior. Owner/evidence tests cover
+  settings preparation, delayed input echoes and refusal to replay an interrupt
+  using a different request ID.
 - The existing integration cases retain cold Send/history continuation, frozen
   settings, credential refusal and abrupt-runtime-loss uncertainty checks.
 - `claude-native-development.test.ts` runs the installed SDK's real Bash tool

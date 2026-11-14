@@ -1100,9 +1100,15 @@ it.each(
   15_000,
 );
 
-it.each([false, true])(
-  'public Stop, reconnect and Continue retain the SDK development owner (personal=%s)',
-  async (personal) => {
+it.each([
+  { personal: false, preInput: false, settling: false },
+  { personal: true, preInput: false, settling: false },
+  { personal: true, preInput: true, settling: false },
+  { personal: false, preInput: false, settling: true },
+  { personal: true, preInput: false, settling: true },
+])(
+  'public Stop, reconnect and Continue retain the SDK development owner (personal=$personal preInput=$preInput settling=$settling)',
+  async ({ personal, preInput, settling }) => {
     vi.resetModules();
     const { ownedVertexRuntimeFixture } =
       await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
@@ -1130,6 +1136,14 @@ it.each([false, true])(
     const history: string[] = [];
     let holdNext = true;
     let finish: (() => void) | undefined;
+    let releaseAccount!: () => void;
+    const accountPending = new Promise<void>((resolve) => {
+      releaseAccount = resolve;
+    });
+    const accountInfo = vi.fn(async () => {
+      if (preInput) await accountPending;
+      return { email: 'person@example.test', subscriptionType: 'max', apiProvider: 'firstParty' };
+    });
     const interrupt = vi.fn(async () => {});
     services.query.mockImplementation((request) => {
       services.requests.push(request);
@@ -1138,11 +1152,7 @@ it.each([false, true])(
         signal: request.options.abortController.signal,
       });
       return {
-        accountInfo: async () => ({
-          email: 'person@example.test',
-          subscriptionType: 'max',
-          apiProvider: 'firstParty',
-        }),
+        accountInfo,
         async *[Symbol.asyncIterator]() {
           for await (const input of request.prompt) {
             if (closed) return;
@@ -1222,7 +1232,9 @@ it.each([false, true])(
     const id = f.reservation.conversationId;
     const started = await post('/fixture/runtime/send', f.request);
     expect(started.status, JSON.stringify(started.body)).toBe(202);
-    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    await vi.waitFor(() =>
+      preInput ? expect(accountInfo).toHaveBeenCalledOnce() : expect(finish).toBeTypeOf('function'),
+    );
     const retained = chat.registry.findBySessionId(id)!;
     const original = chat.eventStore.getSession(id)!;
     expect(
@@ -1235,36 +1247,76 @@ it.each([false, true])(
         })
       ).status,
     ).toBe(202);
+    if (settling) {
+      const { TurnCallbacks } = await import('../../server/turn-callbacks.js');
+      const seal = TurnCallbacks.prototype.seal;
+      let settlementStarted = false;
+      vi.spyOn(TurnCallbacks.prototype, 'seal').mockImplementationOnce(function (
+        this: InstanceType<typeof TurnCallbacks>,
+      ) {
+        // A synthetic pending operation uses the real callback settlement owner.
+        void this.track(
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+              settlementStarted = true;
+            }),
+        );
+        seal.call(this);
+      });
+      finish!();
+      await vi.waitFor(() => expect(settlementStarted).toBe(true));
+    }
     expect((await post('/fixture/chat/stop', { type: 'stop', sessionId: id })).status).toBe(200);
-    await vi.waitFor(() => expect(interrupt).toHaveBeenCalledOnce());
+    if (!preInput && !settling) await vi.waitFor(() => expect(interrupt).toHaveBeenCalledOnce());
+    else expect(interrupt).not.toHaveBeenCalled();
     expect(chat.registry.findBySessionId(id)?.session).toBe(retained.session);
     expect(chat.eventStore.getSession(id)?.executionPhase).toBe('STOPPING');
     // An interrupt acknowledgment is not terminal proof. Continue cannot release the tail yet.
     expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(409);
-    expect(history).toEqual([f.request.clientMsgId]);
-    finish!();
+    const initialHistory = preInput ? [] : [f.request.clientMsgId];
+    expect(history).toEqual(initialHistory);
+    if (preInput) {
+      holdNext = false;
+      releaseAccount();
+    } else finish!();
     await vi.waitFor(() =>
       expect(chat.eventStore.getSession(id)).toMatchObject({
         executionPhase: 'TERMINAL',
         executionTerminalReason: 'stopped',
       }),
     );
-    expect(history).toEqual([f.request.clientMsgId]);
+    expect(history).toEqual(initialHistory);
     chat.detachChat(retained.clientId);
     const reconnect = { isOpen: () => true, send: vi.fn() };
     expect(chat.reattachChat(retained.clientId, reconnect)).toBe(true);
+    const metadata = await request(app).get(`/api/sessions/${id}/meta`);
+    expect(metadata.status, JSON.stringify(metadata.body)).toBe(200);
+    expect(metadata.body.codexQueue).toMatchObject({
+      paused: true,
+      connected: true,
+      queued: 1,
+      canContinue: true,
+    });
     services.auth = { ...f.auth, id: 'foreign-login' };
     expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(403);
     services.auth = f.auth;
-    expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(200);
-    await vi.waitFor(() => expect(history).toEqual([f.request.clientMsgId, 'queued-development']));
+    // Match CodexQueueStatus: signed continuation is selected by the actual metadata.
+    const continuation = request(app).post(`/api/sessions/${id}/codex-queue/continue`);
+    if (metadata.body.codexQueue?.canContinue === true)
+      continuation.set('X-Connection-ID', connectionId);
+    expect((await continuation.send({})).status).toBe(200);
+    await vi.waitFor(() => expect(history).toEqual([...initialHistory, 'queued-development']));
     await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
     expect(chat.eventStore.getSession(id)).toMatchObject({
       cwd: original.cwd,
       accountBinding: original.accountBinding,
       repositoryWorkspaceId: original.repositoryWorkspaceId,
     });
-    expect(services.requests[1].options).toMatchObject({ cwd: original.cwd, resume: id });
+    expect(services.requests[1].options).toMatchObject({
+      cwd: original.cwd,
+      ...(preInput ? { sessionId: id } : { resume: id }),
+    });
     expect(
       (
         await post('/fixture/runtime/continue', {
@@ -1276,11 +1328,7 @@ it.each([false, true])(
       ).status,
     ).toBe(202);
     await vi.waitFor(() =>
-      expect(history).toEqual([
-        f.request.clientMsgId,
-        'queued-development',
-        'publication-followup',
-      ]),
+      expect(history).toEqual([...initialHistory, 'queued-development', 'publication-followup']),
     );
     await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
     // A rejected SDK interrupt keeps the original activity and a sanitized diagnostic.
@@ -1309,7 +1357,7 @@ it.each([false, true])(
     );
     expect(chat.registry.findBySessionId(id)?.session).toBe(retained.session);
     expect((await post('/fixture/chat/stop', { type: 'stop', sessionId: id })).status).toBe(200);
-    expect(interrupt).toHaveBeenCalledTimes(2);
+    expect(interrupt).toHaveBeenCalledTimes(preInput || settling ? 1 : 2);
     expect((await post(`/api/sessions/${id}/codex-queue/continue`, {})).status).toBe(409);
     finish!();
     await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));

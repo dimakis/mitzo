@@ -3999,6 +3999,23 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
             registry.findBySessionId(meta.sessionId)?.session,
           )
         : undefined;
+  if (codexQueue && vertexBacked) {
+    const auth = res.locals.authSession;
+    const owner = registry.findBySessionId(meta.sessionId)?.session.ordinaryRuntimeOwner;
+    codexQueue = {
+      ...codexQueue,
+      canContinue: Boolean(
+        !meta.isHidden &&
+        codexQueue.paused &&
+        codexQueue.queued > 0 &&
+        meta.executionPhase === 'TERMINAL' &&
+        owner?.sdkTurns &&
+        auth &&
+        auth.expiresAt > Date.now() &&
+        owner.authSessionId === auth.id,
+      ),
+    };
+  }
   if (codexQueue && ownedLocalCodex) {
     const auth = res.locals.authSession;
     codexQueue = {
@@ -4237,7 +4254,7 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
       eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation,
       codexBacked,
     ),
-    ...(codexBacked || responsesBacked ? { codexQueue } : {}),
+    ...(codexBacked || responsesBacked || vertexBacked ? { codexQueue } : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });
