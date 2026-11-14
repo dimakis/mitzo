@@ -21,6 +21,8 @@ const services = vi.hoisted(() => ({
   query: vi.fn(),
   credentialReadFailure: false,
   diagnostics: [] as Array<Record<string, unknown>>,
+  captureStartupLogs: false,
+  serializedLogs: [] as string[],
   requests: [] as Array<{
     options: Record<string, unknown>;
     prompt: AsyncIterable<Record<string, unknown>>;
@@ -34,6 +36,18 @@ vi.mock('../../server/logger.js', async (original) => {
       const logger = actual.createLogger(module);
       return {
         ...logger,
+        error(message: string, fields?: Record<string, unknown>) {
+          if (services.captureStartupLogs)
+            actual
+              ._buildLogger({
+                write(chunk) {
+                  services.serializedLogs.push(chunk);
+                },
+              })
+              .child({ module })
+              .error(fields ?? {}, message);
+          logger.error(message, fields);
+        },
         warn(message: string, fields?: Record<string, unknown>) {
           if (module === 'owned-sdk-query') services.diagnostics.push({ message, ...fields });
           logger.warn(message, fields);
@@ -170,6 +184,8 @@ afterEach(async () => {
   services.query.mockReset();
   services.credentialReadFailure = false;
   services.diagnostics.length = 0;
+  services.serializedLogs.length = 0;
+  services.captureStartupLogs = false;
 });
 it.each(
   [
@@ -260,9 +276,18 @@ it.each(
         })),
       ),
     ),
+    ...[false, true].map((personal) => ({
+      personal,
+      managed: personal,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+      startupWorkspaceFailure: true,
+    })),
   ].map((scenario) => ({
     authorityFailure: 'none',
     refusalExit: 'original',
+    startupWorkspaceFailure: false,
     eagerProbe: false,
     startupProbe: false,
     probeMode: 'agent',
@@ -271,7 +296,7 @@ it.each(
     ...scenario,
   })),
 )(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure startupProbe=$startupProbe probeMode=$probeMode eagerProbe=$eagerProbe authorityFailure=$authorityFailure refusalExit=$refusalExit',
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure startupProbe=$startupProbe probeMode=$probeMode eagerProbe=$eagerProbe authorityFailure=$authorityFailure refusalExit=$refusalExit startupWorkspaceFailure=$startupWorkspaceFailure',
   async ({
     personal,
     managed,
@@ -285,11 +310,16 @@ it.each(
     eagerProbe,
     authorityFailure,
     refusalExit,
+    startupWorkspaceFailure,
   }) => {
     const nextModel = managed ? 'opus' : 'next-model';
     const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
     vi.resetModules();
+    // Use the real Pino builder/serializer with an isolated in-memory destination.
+    // The mock factory retains its production singleton across resetModules;
+    // changing LOG_FILE_PATH between cases would still reuse the first file.
+    services.captureStartupLogs = startupWorkspaceFailure;
     const { ClaudeSubscriptionCustody } =
       await import('../../server/claude-subscription-custody.js');
     const { ownedVertexRuntimeFixture } =
@@ -429,13 +459,32 @@ it.each(
     const history: string[] = [];
     const approvedInputs: string[] = [];
     const providerInputs: string[] = [];
+    const { OrdinaryLocalWorkspaceOwner } =
+      await import('../../server/ordinary-local-workspace-owner.js');
+    const startupCause = Object.assign(new Error('synthetic-secret /private/account'), {
+      code: 'EPERM',
+    });
+    let startupThrown: unknown;
     services.query.mockImplementation((request) => {
       services.requests.push(request);
       const id = request.options.resume ?? request.options.sessionId;
       const closed = { value: false };
-      const process = request.options.spawnClaudeCodeProcess({
-        signal: request.options.abortController.signal,
-      });
+      if (startupWorkspaceFailure)
+        vi.spyOn(OrdinaryLocalWorkspaceOwner.prototype, 'assertCurrentSync').mockImplementationOnce(
+          () => {
+            throw startupCause;
+          },
+        );
+      const process = (() => {
+        try {
+          return request.options.spawnClaudeCodeProcess({
+            signal: request.options.abortController.signal,
+          });
+        } catch (error) {
+          startupThrown = error;
+          throw error;
+        }
+      })();
       const eagerInputs = eagerProbe ? request.prompt[Symbol.asyncIterator]() : undefined;
       const eagerFirst = eagerInputs?.next().then(
         (result: IteratorResult<Record<string, unknown>>) => ({ result }),
@@ -730,11 +779,45 @@ it.each(
     outbox.start();
     expect(outbox.enqueue(wire, 1, 'public-vertex-draft')).toBe(true);
     await vi.waitFor(
-      () => expect(receipts).toHaveBeenCalledWith(expect.objectContaining({ state: 'consumed' })),
+      () =>
+        expect(receipts).toHaveBeenCalledWith(
+          expect.objectContaining({
+            state: startupWorkspaceFailure ? 'retained' : 'consumed',
+          }),
+        ),
       { timeout: 10000 },
     );
-    expect(persisted).toBe('[]');
+    if (startupWorkspaceFailure) expect(persisted).toContain(wire.clientMsgId);
+    else expect(persisted).toBe('[]');
     outbox.stop();
+    if (startupWorkspaceFailure) {
+      const sessionId = f.reservation.conversationId;
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+      expect(providerInputs).toEqual([]);
+      expect(services.requests).toHaveLength(1);
+      expect((startupThrown as Error).cause).toBe(startupCause);
+      const serialized = services.serializedLogs.join('');
+      const records = serialized
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      const startup = records.filter(
+        (record) => record.msg === 'startChat failed after register, cleaning up',
+      );
+      expect(startup).toHaveLength(1);
+      expect(serialized).not.toMatch(/synthetic-secret|private\/account/);
+      expect(startup[0]).toMatchObject({
+        code: 'ordinary_sdk_startup_failed',
+        stage: 'sdk_startup',
+        sessionId,
+        commandId: wire.clientMsgId,
+        failedCheck: 'selection.workspace',
+        causeCode: 'EPERM',
+      });
+      expect(startup[0]).not.toHaveProperty('err');
+      expect(JSON.stringify(transport.send.mock.calls)).not.toContain('synthetic-secret');
+      return;
+    }
     if (startupProbe) {
       // Observe the input after /send releases its temporary authority. Eager
       // probes begin consuming during query construction; delayed probes wait

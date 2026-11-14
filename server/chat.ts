@@ -441,7 +441,11 @@ import {
 } from './session-index.js';
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
-import { annotateAuthorityFailure, recordRuntimeFailure } from './runtime-failure-diagnostics.js';
+import {
+  annotateAuthorityFailure,
+  recordRuntimeFailure,
+  runtimeFailureDiagnostics,
+} from './runtime-failure-diagnostics.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
@@ -3614,7 +3618,15 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           clientId,
           sessionId: newSdkSessionId ?? session.sessionId,
           ...(options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority
-            ? { err, code: 'ordinary_sdk_startup_failed', stage: 'sdk_startup' }
+            ? {
+                code: 'ordinary_sdk_startup_failed',
+                stage: 'sdk_startup',
+                commandId: initialMessageId,
+                ...findSessionRuntimeError(err)?.telemetry(),
+                // Raw causes stay on the internal error. Pino's err serializer
+                // recursively exposes their messages and stacks.
+                ...runtimeFailureDiagnostics(err),
+              }
             : {}),
           ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
             ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))

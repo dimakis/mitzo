@@ -101,7 +101,8 @@ The `claude.sdk.input.refused` span has the same diagnostic ID and identities,
 with `runtime.failure_code`, `runtime.stage`, `runtime.provider`,
 `runtime.failed_check`, `runtime.authority_checks`, `runtime.cause_type` and optional
 `runtime.cause_code`. The `session` and `chat.start` spans also retain ERROR and
-the same failure diagnostic when the SDK closes normally after a refusal abort.
+the same failure diagnostic when the SDK closes normally or throws a generic
+AbortError after a refusal abort.
 An HTTP 202 only acknowledges admission; it does not prove provider dispatch.
 An ordinary user Stop has no runtime failure reason and remains cancellation.
 
@@ -117,11 +118,17 @@ Raw causes remain attached internally. These new log/trace fields do not seriali
 exception messages, stacks, filesystem paths, credentials or prompt content.
 The client-facing error keeps its existing reviewed message and diagnostic ID.
 If reporting fails, its diagnostic must not erase the original refusal cause.
+Failures during SDK startup use `ordinary_sdk_startup_failed`, stage `sdk_startup`,
+session and command IDs, and the same allowlisted cause/check fields. Their log
+records exclude raw exceptions, including Pino's serialized cause messages and
+stacks; an existing runtime diagnostic ID is retained when available.
 
 Offline coverage injects changed session mode and workspace authorization failure
 through the actual HTTP/SDK owner for personal Claude and Vertex, checking saved
 error delivery, zero provider inputs, shared diagnostic IDs and private-text
-exclusion. Separate probes cover eager and delayed input consumption in all three
+exclusion. Startup authorization probes also check the actual Pino JSON output
+and confirm the original private cause remains attached internally. Separate
+probes cover eager and delayed input consumption in all three
 permission modes; passing them is not a production root-cause reproduction.
 
 ## Follow-up comparison

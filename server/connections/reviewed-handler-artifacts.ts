@@ -983,7 +983,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/session-resource-removal.md':
     'd4cc0ee7798066e6f2742a0d577ced6e3fe181706c506db1b152a34e18898c59',
   '../../docs/operations/startup-transcript-observability.md':
-    'd864ec4ed83ebf08996148f979854ab3b43d2b7a4f8e5c9827061252a87c4735',
+    '5c3502abc3063094074f681b52f74c0874c2744890a22ab925bc20522c27f074',
   '../__tests__/mcp-startup-observation.test.ts':
     'f4fd6f6dc1572c18dbb79b9c5e886613c324d26e7623a25e0458509bc8175e1b',
   '../__tests__/session-transcript-reader.test.ts':
@@ -2709,7 +2709,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': '5edd0fd9b1bdefa1e5cb126fe365053f1dc5d66101773dfee1c032259d742714',
+  '../chat.ts': 'e2baa700a8a40b7bcca6b29e645c420343c5d4c72c0084cfbbced14128bbfefc',
   '../../packages/harness/src/session-registry.ts':
     '10cf82b67a8c1b635090fef511c6d0c8fbe447423de3c55aa1ca0a425ec6391a',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -3617,7 +3617,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '1d029642727f578aed93dc2278778aa86afc08046ea55afc3c6fb14bc365dfbe',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    'd9a0cf1728860b6c185c147249b97785ae595f190695f2de17822c179368068f',
+    '187ca1d9b872b6bae81e051f21cc14ff92364b715a06fb011d6e46bed7832dbc',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
