@@ -14,6 +14,11 @@ ending actor/time, replacement identity and last transition UUID. Display names
 are recorded labels, not an alternative session metadata owner. Discovery may
 resolve a current name through its existing authorized owner.
 
+Warm HTTP team reads use the canonical read-only opener and can return committed
+team state while another writer has uncommitted work. Only a missing additive
+team layout initializes through the canonical schema owner; unavailable or
+incompatible readers do not retry as writers.
+
 Roles are orchestrator, feature lead, slice owner, investigator, implementer,
 reviewer, merge agent and contributor. Each owner role has one current holder per
 item. Contributors can have independent roles. Replacement requires a different
