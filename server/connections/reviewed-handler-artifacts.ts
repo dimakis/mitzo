@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1161-symposium-integrated-acceptance';
+  'v1.0.1163-symposium-integrated-acceptance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +23,6 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-
   '../../frontend/src/components/__tests__/CollaborationTranscript.test.tsx':
     'f1db019d95f4f2b586e65cc050d65df9740f7618aadc4b5d7ca2ce4186e5965a',
 
@@ -2390,7 +2389,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.tsx':
     '28791885c34ecabe7f5bf18ac97c3c416ab2369cc3d30c1d3e2566b316b364ea',
   '../../frontend/src/components/ConversationAgents.css':
-    'aca82ef1b7b130ec1ce202705deb2999911922f6676eec320c4cb370deae8a0b',
+    '2a00c3faeda1929ffa96c91a4ad721725b4c62b0c5ac28bdd7eb5f672604f230',
   '../../frontend/src/components/ComposerResponders.tsx':
     'b4bd7467859874c67e8bdac851ddc94cd71f9b4abfcf4ca7fd3437775c71be36',
   '../../frontend/src/components/ComposerResponders.css':
