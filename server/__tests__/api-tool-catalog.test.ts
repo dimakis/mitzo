@@ -74,7 +74,7 @@ it('requires verified exact configuration before publishing a portable immutable
     id: `api:${draft.id}`,
     behavior: 'read',
     version: 1,
-    routes: ['local-api', 'codex'],
+    routes: ['local-api', 'codex', 'claude-sdk'],
   });
   const ref = f.catalog.reference(entry);
   expect(Object.keys(ref).sort()).toEqual(['id', 'revision', 'version']);
