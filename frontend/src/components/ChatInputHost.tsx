@@ -8,6 +8,10 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatInputMountContext } from '../lib/chat-input-mount';
+import {
+  SharedConversationComposerContext,
+  type SharedConversationComposerRouting,
+} from '../lib/shared-conversation-composer';
 import './ChatInputHost.css';
 
 /** One ordinary input across phone/desktop page owners. Moving its DOM target
@@ -22,14 +26,25 @@ export function ChatInputHost({
   const store = useMemo(() => {
     const container = document.createElement('div');
     container.className = 'chat-input-host';
-    let content: ReactNode = null;
+    let snapshot: { content: ReactNode; routing: SharedConversationComposerRouting } = {
+      content: null,
+      routing: null,
+    };
     let contentSessionId: string | undefined;
     let target: HTMLElement | null = null;
     let focus: HTMLElement | null = null;
     const listeners = new Set<() => void>();
-    const update = (nextTarget: HTMLElement, nextContent: ReactNode) => {
-      if (target !== nextTarget || content === nextContent) return;
-      content = nextContent;
+    const update = (
+      nextTarget: HTMLElement,
+      nextContent: ReactNode,
+      routing: SharedConversationComposerRouting,
+    ) => {
+      if (
+        target !== nextTarget ||
+        (snapshot.content === nextContent && snapshot.routing === routing)
+      )
+        return;
+      snapshot = { content: nextContent, routing };
       listeners.forEach((listener) => listener());
     };
     const attachTarget = (nextTarget: HTMLElement) => {
@@ -49,7 +64,7 @@ export function ChatInputHost({
     };
     return {
       container,
-      getSnapshot: () => content,
+      getSnapshot: () => snapshot,
       subscribe(listener: () => void) {
         listeners.add(listener);
         return () => {
@@ -57,15 +72,23 @@ export function ChatInputHost({
         };
       },
       update,
-      hasRetained: (id?: string) => !!content && contentSessionId === id,
+      updateRouting(nextTarget: HTMLElement, routing: SharedConversationComposerRouting) {
+        update(nextTarget, snapshot.content, routing);
+      },
+      hasRetained: (id?: string) => !!snapshot.content && contentSessionId === id,
       attachRetained(nextTarget: HTMLElement, id?: string) {
-        if (!content || contentSessionId !== id) return;
+        if (!snapshot.content || contentSessionId !== id) return;
         return attachTarget(nextTarget);
       },
-      attach(nextTarget: HTMLElement, nextContent: ReactNode, id?: string) {
+      attach(
+        nextTarget: HTMLElement,
+        nextContent: ReactNode,
+        routing: SharedConversationComposerRouting,
+        id?: string,
+      ) {
         const detach = attachTarget(nextTarget);
         contentSessionId = id;
-        update(nextTarget, nextContent);
+        update(nextTarget, nextContent, routing);
         return detach;
       },
     };
@@ -74,7 +97,11 @@ export function ChatInputHost({
     () => ({
       ...store,
       sessionId,
-      attach: (target: HTMLElement, content: ReactNode) => store.attach(target, content, sessionId),
+      attach: (
+        target: HTMLElement,
+        content: ReactNode,
+        routing: SharedConversationComposerRouting,
+      ) => store.attach(target, content, routing, sessionId),
       hasRetained: () => store.hasRetained(sessionId),
       attachRetained: (target: HTMLElement) => store.attachRetained(target, sessionId),
     }),
@@ -98,11 +125,22 @@ export function RetainedChatInputSlot({
   children: ReactNode;
 }) {
   const host = useContext(ChatInputMountContext);
+  const shared = useContext(SharedConversationComposerContext);
   const slot = useRef<HTMLDivElement>(null);
   const retained = host && host.sessionId === sessionId && host.hasRetained() ? host : null;
   useLayoutEffect(() => {
     if (retained && slot.current) return retained.attachRetained(slot.current);
   }, [retained]);
+  useLayoutEffect(() => {
+    if (retained && slot.current)
+      retained.updateRouting(
+        slot.current,
+        shared ?? {
+          sourceConversationId: sessionId ?? '',
+          props: { sendDisabledReason: 'Checking conversation status…' },
+        },
+      );
+  });
   return retained ? <div className="chat-input-mount" ref={slot} /> : children;
 }
 function InputPortal({
@@ -110,10 +148,15 @@ function InputPortal({
 }: {
   store: {
     container: HTMLElement;
-    getSnapshot(): ReactNode;
+    getSnapshot(): { content: ReactNode; routing: SharedConversationComposerRouting };
     subscribe(listener: () => void): () => void;
   };
 }) {
-  const content = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  return createPortal(content, store.container);
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  return createPortal(
+    <SharedConversationComposerContext.Provider value={snapshot.routing}>
+      {snapshot.content}
+    </SharedConversationComposerContext.Provider>,
+    store.container,
+  );
 }

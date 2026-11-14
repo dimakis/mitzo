@@ -162,6 +162,34 @@ export function ChatInput(props: Props) {
   const host = useContext(ChatInputMountContext);
   const slot = useRef<HTMLDivElement>(null);
   const shared = useContext(SharedConversationComposerContext);
+  const content = (
+    <SinkContext.Provider value={sink}>
+      <ActiveContext.Provider value={statusActive}>
+        <ChatInputOwner {...props} />
+      </ActiveContext.Provider>
+    </SinkContext.Provider>
+  );
+  const mounted = host && host.sessionId === props.sessionId ? host : null;
+  const latestContent = useRef({ content, shared });
+  latestContent.current = { content, shared };
+  useLayoutEffect(() => {
+    if (mounted && slot.current)
+      return mounted.attach(
+        slot.current,
+        latestContent.current.content,
+        latestContent.current.shared,
+      );
+    // Updates publish separately; changing handlers must not detach the DOM.
+  }, [mounted]);
+  useLayoutEffect(() => {
+    if (mounted && slot.current) mounted.update(slot.current, content, shared);
+  });
+  return mounted ? <div className="chat-input-mount" ref={slot} /> : content;
+}
+
+function ChatInputOwner(props: Props) {
+  const sink = useComposerStatusSink();
+  const shared = useContext(SharedConversationComposerContext);
   const routed =
     shared?.sourceConversationId === props.sessionId
       ? {
@@ -170,33 +198,11 @@ export function ChatInput(props: Props) {
           sourceStop: props.running && !shared.props.running ? props.onStop : undefined,
         }
       : props;
-  const content = (
-    <SinkContext.Provider value={sink}>
-      <ActiveContext.Provider value={statusActive}>
-        <ChatInputOwner {...routed} />
-      </ActiveContext.Provider>
-    </SinkContext.Provider>
-  );
-  const mounted = host && host.sessionId === props.sessionId ? host : null;
-  const latestContent = useRef(content);
-  latestContent.current = content;
-  useLayoutEffect(() => {
-    if (mounted && slot.current) return mounted.attach(slot.current, latestContent.current);
-    // Updates publish separately; changing handlers must not detach the DOM.
-  }, [mounted]);
-  useLayoutEffect(() => {
-    if (mounted && slot.current) mounted.update(slot.current, content);
-  });
-  return mounted ? <div className="chat-input-mount" ref={slot} /> : content;
-}
-
-function ChatInputOwner(props: Props) {
-  const sink = useComposerStatusSink();
   return sink ? (
-    <ChatInputContent {...props} />
+    <ChatInputContent {...routed} />
   ) : (
     <ComposerStatusProvider>
-      <ChatInputContent {...props} />
+      <ChatInputContent {...routed} />
     </ComposerStatusProvider>
   );
 }
