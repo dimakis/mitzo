@@ -229,6 +229,166 @@ function assignLead(f: Awaited<ReturnType<typeof fixture>>) {
   );
 }
 
+async function ordinaryClient(f: Awaited<ReturnType<typeof fixture>>) {
+  const events = new AsyncQueue<Record<string, unknown>>();
+  cleanup.push(() => events.close());
+  let options!: Options;
+  vi.mocked(query).mockImplementation((request) => {
+    options = request.options!;
+    return {
+      close: vi.fn(),
+      [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+    } as never;
+  });
+  const owner = ordinaryQuery(f);
+  const server = options.mcpServers!.telos as ReturnType<typeof createTelosSdkServer>;
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.instance.connect(a);
+  const client = new Client({ name: 'settlement-provider', version: '1' });
+  await client.connect(b);
+  cleanup.push(async () => {
+    await client.close();
+    await server.instance.close();
+  });
+  const terminal = () => {
+    events.push({ type: 'result', session_id: 'planning' });
+    return owner.query[Symbol.asyncIterator]().next();
+  };
+  return { client, terminal };
+}
+
+it.each([
+  'denied',
+  'denied-native',
+  'missing-role',
+  'missing-lead',
+  'missing-control',
+  'stale-item',
+  'stale-native-item',
+  'stale-parent',
+  'unknown',
+])('retains refusal evidence through the SDK terminal result (%s)', async (refusal) => {
+  const f = await fixture();
+  if (refusal === 'stale-native-item' || refusal === 'denied-native') assignLead(f);
+  const before = f.db.prepare('SELECT * FROM items ORDER BY id').all();
+  const sdk = await ordinaryClient(f);
+  const feature = {
+    requestId: 'refused-feature',
+    summary: 'Must not exist',
+    intent: 'Refusal',
+    rationale: 'No effect',
+    acceptanceCriteria: ['No effect'],
+    note: 'Offline',
+  };
+  const update = {
+    itemId: 'studio',
+    requestId: 'refused-update',
+    expectedRevision: 'stale',
+    note: 'No effect',
+  };
+  if (refusal === 'denied' || refusal === 'denied-native') f.deny();
+  if (refusal === 'unknown') {
+    const original = TelosItemStore.prototype.createFeatureGuarded;
+    vi.spyOn(TelosItemStore.prototype, 'createFeatureGuarded').mockImplementation(function (
+      this: TelosItemStore,
+      ...args
+    ) {
+      original.apply(this, args);
+      // Even a familiar message after COMMIT cannot manufacture refusal evidence.
+      throw Error('Telos item changed; simulated uncertain storage failure');
+    });
+  }
+  const [name, input]: [string, Record<string, unknown>] =
+    refusal === 'missing-lead'
+      ? [
+          'TelosStartSlice',
+          { requestId: 'no-lead', childItemId: 'child', mode: 'start', predecessorAttemptId: null },
+        ]
+      : refusal === 'missing-control'
+        ? [
+            'TelosWorkControl',
+            { command: { operation: 'release', controlId: 'none', requestId: 'no-role' } },
+          ]
+        : refusal === 'missing-role' || refusal === 'denied-native'
+          ? ['TelosUpdateItem', update]
+          : refusal === 'stale-native-item'
+            ? ['TelosUpdateItem', update]
+            : refusal === 'stale-item'
+              ? ['TelosManageItem', { ...update, operation: 'update' }]
+              : refusal === 'stale-parent'
+                ? [
+                    'TelosCreateChild',
+                    { ...feature, parentId: 'studio', expectedParentRevision: 'stale' },
+                  ]
+                : ['TelosCreateFeature', feature];
+  const result = await sdk.client.callTool({
+    name,
+    arguments: input,
+  });
+  expect(result.isError).toBe(true);
+  if (refusal === 'unknown') {
+    expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toHaveLength(before.length + 1);
+    expect(TelosItemStore.prototype.createFeatureGuarded).toHaveBeenCalledTimes(1);
+    await expect(sdk.terminal()).rejects.toMatchObject({ code: 'callbacks_failed' });
+  } else {
+    expect(f.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
+    await expect(sdk.terminal()).resolves.toMatchObject({ value: { type: 'result' } });
+  }
+});
+
+it.each(['retired', 'skill', 'operator'] as const)(
+  'fences delayed inbox/read disclosure after %s revocation and preserves mutation ACK',
+  async (revocation) => {
+    for (const operation of ['inbox', 'read', 'release'] as const) {
+      const f = await fixture();
+      assignLead(f);
+      const receipt = {
+        version: 1,
+        controlId: 'private-control',
+        coordinatorItemId: 'studio',
+        coordinatorConversationId: 'planning',
+        priorityItemId: 'priority',
+        scope: 'publication',
+        stage: 'released',
+        publicationRevalidation: 'required',
+        targets: [],
+        history: [],
+      };
+      let release!: () => void;
+      const deferred = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let reached!: () => void;
+      const checkpoint = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      const fetch = vi.fn(async () => {
+        reached();
+        await deferred;
+        return new Response(JSON.stringify(operation === 'inbox' ? [receipt] : receipt));
+      });
+      vi.stubGlobal('fetch', fetch);
+      const command =
+        operation === 'inbox'
+          ? { operation, itemId: 'studio' }
+          : operation === 'release'
+            ? { operation, controlId: receipt.controlId, requestId: 'release' }
+            : { operation, controlId: receipt.controlId };
+      const pending = f.call('TelosWorkControl', { command });
+      await checkpoint;
+      if (revocation === 'retired') f.retire();
+      if (revocation === 'operator') f.revoke();
+      if (revocation === 'skill') f.session.activeSkillPolicy = new Set(['Read']);
+      release();
+      const result = await pending;
+      expect(result.isError).toBe(operation !== 'release');
+      if (operation !== 'release') expect(JSON.stringify(result)).not.toContain(receipt.controlId);
+      else expect(f.value(result)).toEqual(receipt);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  },
+);
+
 it('omits excluded tools and refuses direct MCP invocations', async () => {
   const f = await fixture('excluded');
   expect((await f.client.listTools()).tools).toEqual([]);

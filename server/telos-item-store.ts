@@ -12,6 +12,7 @@ import { initializeTelosSchema } from './telos-schema.js';
 import { initializeTelosWorkKinds } from './telos-work-schema.js';
 import { assertTelosItemActive } from './telos-lifecycle-facts.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import {
   TelosEditItemInputSchema,
   type TelosEditItemInput,
@@ -235,7 +236,10 @@ export class TelosItemStore {
           const previous = this.updateReceipt(sessionId, requestId);
           if (previous) {
             if (previous.input_hash !== inputHash)
-              throw Error('Update request identity reused with different input');
+              throw retainCallbackOutcome(
+                Error('Update request identity reused with different input'),
+                'settled',
+              );
             return JSON.parse(previous.receipt) as T;
           }
         }
@@ -320,9 +324,15 @@ export class TelosItemStore {
       (inputHash, updatesExist) => {
         const parent = child ? this.snapshot(child.parentId, updatesExist) : undefined;
         if (child && parent?.revision !== child.expectedParentRevision)
-          throw Error('Telos item changed; read the parent again before creating a child');
+          throw retainCallbackOutcome(
+            Error('Telos item changed; read the parent again before creating a child'),
+            'settled',
+          );
         if (parent?.status === 'completed')
-          throw Error('Telos item is completed; reopen the parent before adding work');
+          throw retainCallbackOutcome(
+            Error('Telos item is completed; reopen the parent before adding work'),
+            'settled',
+          );
         assertCurrent(assertion);
         // Eligibility checks apply to new effects, not recovery of committed receipts.
         assertCurrent(beforeApply);
@@ -494,7 +504,10 @@ export class TelosItemStore {
       (inputHash, updatesExist) => {
         const before = this.snapshot(input.itemId, updatesExist);
         if (before.revision !== input.expectedRevision)
-          throw new Error('Telos item changed; read it again before updating');
+          throw retainCallbackOutcome(
+            Error('Telos item changed; read it again before updating'),
+            'settled',
+          );
         if (input.status === 'completed') {
           const unfinished = this.db
             .prepare(
@@ -504,7 +517,11 @@ export class TelosItemStore {
         ) SELECT id FROM descendants WHERE status!='completed' LIMIT 1`,
             )
             .get(input.itemId);
-          if (unfinished) throw new Error('Unfinished milestones; complete them before the parent');
+          if (unfinished)
+            throw retainCallbackOutcome(
+              Error('Unfinished milestones; complete them before the parent'),
+              'settled',
+            );
         }
         // No authority callback runs after a status/history/receipt effect.
         assertCurrent(assertion);

@@ -21,7 +21,7 @@ import { createLogger } from './logger.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import type { EventStore } from './event-store.js';
 import { telosWorkContext } from './telos-work-observation.js';
-import { retainCallbackOutcome } from './turn-callbacks.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 
 export const telosBacklogSchemas = {
   TelosListItems: TelosListItemsInputSchema,
@@ -111,6 +111,8 @@ export async function executeTelosBacklogOperation(
   name: TelosBacklogToolName,
   raw: unknown,
 ): Promise<TelosToolResult> {
+  // Once delegated, only the original mutation owner can prove a refusal.
+  let mutationStarted = false;
   try {
     const { context: ctx } = owners;
     const current = () => {
@@ -157,6 +159,7 @@ export async function executeTelosBacklogOperation(
           : undefined;
       const input = child ?? TelosCreateFeatureInputSchema.parse(structuredClone(raw));
       await approve(input);
+      mutationStarted = true;
       const receipt = child
         ? owners.items.createChildGuarded(child, ctx.conversationId, current, () =>
             owners.items.assertLifecycleActive(child.parentId),
@@ -212,6 +215,7 @@ export async function executeTelosBacklogOperation(
         }
       } else {
         await approve(input);
+        mutationStarted = true;
         if (input.operation === 'edit') {
           const { operation, ...edit } = input;
           void operation;
@@ -280,7 +284,7 @@ export async function executeTelosBacklogOperation(
         { tool: name, code },
       );
     }
-    return {
+    const result = {
       isError: true,
       content:
         error instanceof z.ZodError
@@ -289,5 +293,11 @@ export async function executeTelosBacklogOperation(
             ? (error as Error).message
             : 'Telos backlog operation unavailable; mutation not confirmed. Preserve the exact requestId and input for recovery.',
     };
+    return retainCallbackOutcome(
+      result,
+      !mutationStarted || (error instanceof Error && retainedCallbackOutcome(error) === 'settled')
+        ? 'settled'
+        : 'unknown',
+    );
   }
 }
