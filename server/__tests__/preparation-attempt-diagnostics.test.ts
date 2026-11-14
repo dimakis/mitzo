@@ -10,6 +10,17 @@ import { z } from 'zod';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
+it.each(['private_helper_deadline_exceeded', 'private_native_file_helper_unavailable'])(
+  'retains finite helper classification %s without private messages',
+  (code) => {
+    const error = Object.assign(Error('synthetic private helper payload'), { code });
+    const projection = preparationDiagnosticFailure(error);
+    expect(projection.code).toBe(code);
+    expect(projection.messageSha256).toBe(hash(error.message));
+    expect(JSON.stringify(projection)).not.toContain(error.message);
+  },
+);
+
 it.each([
   'operation',
   'service',

@@ -456,6 +456,17 @@ environment before claiming the interruption handoff works end to end.
 
 ## Browser journey readiness
 
+On 14 November, native repository run `43535298136` retained a publication
+helper deadline failure during final owner validation on a loaded macOS runner.
+The registration fixture now makes deep synchronous profiling opt-in with
+`MITZO_NATIVE_READ_PROFILE=1`, matching the standalone reader fixture. Basic
+timing, identity, ownership, receipt and helper diagnostics remain enabled;
+every assertion and deadline remains unchanged. Profiling overhead is a
+hypothesis, not a proved cause. A separate discovery result was
+`inspection-unavailable` without a retained underlying cause. Helper diagnostics
+now retain sanitized failure classifications and timestamps for its next run;
+the evidence does not justify changing production discovery or its bounds.
+
 Observe each navigation or chooser action before it starts. Fresh draft runtime inventory must be consumed before configuring ordinary settings; role review depends on those settings, so its ten-second response phase follows configuration. Retain existing UI assertions and interaction deadlines. Require exact item/role or conversation identity, successful status and completed schema-valid bodies; task-page waits match a valid task tree by exact task ID. Deliberately delayed collection reads remain outside chooser readiness when canonical record/work reads are the tested dependency.
 
 The worker-replacement journey now observes its fresh item-work GET from the
@@ -471,6 +482,14 @@ This extends the permitted navigation-to-assertion sequence within the unchanged
 or history assertions, or wait for unrelated collection hydration.
 
 The complete native non-git journey keeps its 120-second local envelope and uses a finite 180-second CI envelope. Retained hosted-runner evidence completed it in 106–112 seconds and cut off a valid final replay at 120 seconds. This is a composed fixture allowance; production, individual request, helper, approval and handoff deadlines remain unchanged. Timeouts still require diagnosis rather than automatic retry.
+
+On 14 November, run `43535298136` reached the native role-composition lead chat
+but exhausted its five-second textbox assertion after direct navigation. Retained
+metadata's observation time fell within the final second of that window. The journey now reuses
+the exact-conversation metadata observer before navigation, requiring a fresh,
+completed 200 response for the intended lead within the existing ten-second
+readiness allowance. The five-second textbox assertion and whole-case bound
+remain unchanged; the next hosted run must verify the complete journey.
 
 ## Exact Node version for compiled transfers, 30 October 2026
 

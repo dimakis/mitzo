@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1146-recoverable-approval-hook-integration';
+  'v1.0.1146-personal-claude-glob-prefix';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/claude-native-development.test.ts':
+    'a293ebc1a90cb0bbe07d6b74ad81e298effce42d47a90ef224ba1631b2d3a9c8',
   '../__tests__/symposium-recording-runtime.test.ts':
     'df304c9f5a82e7f8034aaf5b88717ffdf3bd8cfc28cfef22410ec06b61205820',
   '../specialist-review-routing.ts':
@@ -1633,7 +1635,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-openshell-login-continuation.test.ts':
     'c41c01fa298dd64e31b63baf589a07d785b873f9d633d6ca6dc22da0fd5eba80',
   '../__tests__/fixtures/native-repository-registered-workflow.ts':
-    'cbce22154a1a60a3ddf538ddf8e5f9b7100bb6c76bbe5009998469b26f08f369',
+    'bd980cedc124027d3b72c93ab12a8f5b056b7fef7fa2a67d34cc21334e9ecbb9',
   '../__tests__/native-local-repository-read-registration-api.test.ts':
     'a9727a723647947bef931292a467765a910a09361ad6b1651032813552b87a15',
   '../__tests__/native-repository-object-store.test.ts':
@@ -1681,11 +1683,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/materialized-prepared-repository.ts':
     '4db550b99366022ab922172459a1dad125df059bc1dafc7cf916d1d7fb190deb',
   '../__tests__/fixtures/preparation-attempt-diagnostics.ts':
-    '202b3be83a32ccf83793590a8def8d441305b6bdfc98ee361389f2b8f950575c',
+    'd418b6ea5168b5a908e744d62a42110e5704dbf764b984430206a8112f4bf4a3',
   '../__tests__/fixtures/preparation-service-diagnostics.ts':
     '6b9bf792a00a4e13c1a0d6cba1b7eeade26cc6a439ea409e1ee0d96ef48f26aa',
   '../__tests__/preparation-attempt-diagnostics.test.ts':
-    'e97bef5dbcdae783baa36e174c67bbda2aa4d6341ab7dbcb59fb519b4829fa15',
+    '06c10125505c9961a1ca0017e1154cca1667d9afca08c9b420ee4a1d7318f569',
   '../__tests__/preparation-service-diagnostics.test.ts':
     '3951f40b9968f083d99742f8af4c2981279b5b431ea2014b8e8376b2550318bb',
   '../__tests__/pending-host-task-error-cause.test.ts':
@@ -2669,7 +2671,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': '1a4746cd54f484613e196cc8cdc2353cfa3453a5e7f822463b758b66da0a96df',
+  '../chat.ts': '219313d157d1084818b072f3078e89853d3e689b038b8cf1a1aeefd9825f4670',
   '../../packages/harness/src/session-registry.ts':
     '920286cff62bab7712d9e8648166e74e2c1e084f11e0fe8978d2435c4a58da74',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -3366,7 +3368,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-read-registration.test.ts':
     '60ce30ac6cbbd0d36d50a6ad090c93687ec014ddf0765a7bb00700c00045e19b',
   '../__tests__/native-local-repository-read-tools.test.ts':
-    'c1aaf46f145a3a97fccede208488ffd5291238fac6852d1978d44d350f8c95eb',
+    '674d5e59965c02f881dfd04c056db496ed564710b1ead2f001335e03b110e505',
   '../../frontend/src/components/LegacyNativeContinuation.css':
     '00f73a01cb6cf04f77db2bc131b82555f4c936db1c7eaf15c56fc705bae7e9a6',
   '../../frontend/src/components/LegacyNativeContinuation.tsx':
@@ -3577,7 +3579,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '5fe0e25012c1d5324c32cf76f25397cc6a9a97321a3a14a5e1b6f6195ebfc5bd',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '1cd3152f6a0b39ba08818d988b1b997425171ea3ebf1896e77d80804d12e2529',
+    'd8d98e4dc84a4ce64030fbc452fc140f54f03c94c398ebbce583fd9775a528b4',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
@@ -3911,7 +3913,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-source-current-auth.test.ts':
     'a8a7077e148616c7f7d2580f7cb6cf9816105eeff05fc8758457a610bfab74de',
   '../../tests/integration/telos-s5b/native-role-composition.contract.ts':
-    'f5c3534011f74a36d26701029c0f0f8be2425a9356cd1fc7d670d25e37c64807',
+    '3463fc1cc1396866ca3e0c71176e12384dc4c8c552f25f367b6df416fcf19af3',
   '../../tests/integration/telos-s5b/vitest.native-role-composition.config.ts':
     'c374e77ec8ab38eae6f3c1942f2afa350bc50c994660bc13516d98dfcaf9c830',
   '../../tests/integration/telos-s9/model-readiness/model-readiness.contract.ts':
@@ -4228,7 +4230,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'cc060f6af4c165b63e870578b0a2f9a92de45cdbfb231d3099b7e9319a8dcd7e',
+    'f38b7248c2b5be636e19a966855395162d774234da4b6c3410d1dae6d80c36b6',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -4492,7 +4494,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
   '../claude-personal-policy.ts':
-    'ed6ebb0c4ff8c922297cd02098a3d781e84a5b0d0cd01a51565db4a2755dc7d4',
+    'd7f09353a9fb9aadb1310b43b59c54e58e1ad9139071a357e54190c1e463614d',
   '../__tests__/claude-personal-account.test.ts':
     '3733125994ddb7db77bab7e0427e9b868f5ddb934c4ee96a4ebc2823b3dce59b',
   '../__tests__/claude-subscription-custody.test.ts':
@@ -4500,7 +4502,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-account-history.test.ts':
     'd6436f966881065bde719731ae07639f18694465b595eaa52d611173f58b4bb0',
   '../__tests__/claude-personal-policy.test.ts':
-    'f7fc1ccde245b17a92c50176e928450e39ef5367a5cc8f49956873f308cd32ce',
+    'e84f40fe8ac1854c86daeb8c211dad8738206366025af2eb0a72638b6e209415',
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     'f54b300c69668515af4ee5a8c2d43834f4f8e40341be9a078e97ab9b1c7f9e45',
   '../../docs/features/personal-claude-local.md':
