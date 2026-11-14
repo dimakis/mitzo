@@ -8,13 +8,13 @@ import { withToolGuardPhase } from './tool-guard.js';
 import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
 import {
-  registerPending,
-  resolvePending,
-  removePending,
-  hasPending,
-  PERMISSION_EXPIRED_MESSAGE,
-} from './permissions.js';
+  ApprovalExpiredError,
+  expiredApprovalResult,
+  type ApprovalPermissionResult,
+} from './approval-outcome.js';
+import { toolFailure } from '@mitzo/protocol';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
   sendPermissionNotification as pushoverSendPermission,
@@ -264,7 +264,7 @@ export function buildPermissionHandler(
       /** Private original native scope, never permission response or tool JSON. */
       nativeSourceScope?: { readonly operatorId: string; assertCurrentSync(): void };
     },
-  ): Promise<PermissionResult> => {
+  ): Promise<ApprovalPermissionResult> => {
     const session = registry.get(clientId);
     if (!session) return { behavior: 'deny', message: 'Session not found' };
     const telosReview = [
@@ -633,6 +633,7 @@ export function buildPermissionHandler(
           if (modeDenial) return modeDenial;
           if (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
             return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+          if (request.expiresAt! <= Date.now()) return expiredApprovalResult();
           if (onDecision) {
             try {
               if (
@@ -641,8 +642,7 @@ export function buildPermissionHandler(
                 !decisionInput ||
                 snapshotDecisionInput(result.updatedInput ?? {}).serialized !==
                   decisionInput.serialized ||
-                originalSignal.aborted ||
-                request.expiresAt! <= Date.now()
+                originalSignal.aborted
               )
                 throw Error('Original one-shot decision is no longer current');
             } catch {
@@ -662,7 +662,7 @@ export function buildPermissionHandler(
           };
         }
       };
-      const wrappedResolve = (result: PermissionResult) => {
+      const wrappedResolve = (result: ApprovalPermissionResult) => {
         if (settled) return settledResult;
         settled = true;
         clearTimeout(timeout);
@@ -714,7 +714,13 @@ export function buildPermissionHandler(
           for (const pending of pendingScopeApprovals.get(session)?.get(grantKey) ?? [])
             void pending.acceptRetainedGrant();
         }
-        const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };
+        if (result.failure?.code === 'approval_expired') resolutionEvent = 'permission_timeout';
+        const resolved = {
+          type: resolutionEvent,
+          permId,
+          sessionId: session.sessionId,
+          ...(result.failure ? { failure: result.failure } : {}),
+        };
         for (const transport of registry.getPermissionTransports(session))
           transportSend(transport, resolved);
         resolve(result);
@@ -724,11 +730,17 @@ export function buildPermissionHandler(
       const onAbort = () => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          removePending(permId, 'cancelled');
-          wrappedResolve({
-            behavior: 'deny',
-            message: 'Tool approval cancelled because the operation was aborted',
-          });
+          const expired = originalSignal.reason instanceof ApprovalExpiredError;
+          removePending(permId, expired ? 'expired' : 'cancelled');
+          wrappedResolve(
+            expired
+              ? expiredApprovalResult()
+              : {
+                  behavior: 'deny',
+                  message: 'Tool approval cancelled because the operation was aborted',
+                  failure: toolFailure('cancelled', 'approval', 'not_started'),
+                },
+          );
         }
       };
       originalSignal.addEventListener('abort', onAbort, { once: true });
@@ -814,10 +826,7 @@ export function buildPermissionHandler(
                 errorType: error instanceof Error ? error.name : 'non-Error',
               });
             }
-            wrappedResolve({
-              behavior: 'deny',
-              message: PERMISSION_EXPIRED_MESSAGE,
-            });
+            wrappedResolve(expiredApprovalResult());
           }
         },
         Math.max(0, request.expiresAt! - Date.now()),
@@ -875,7 +884,7 @@ export function buildPermissionHandler(
     });
     return withToolGuardPhase('approval', () => pending);
   };
-  return async (...args: Parameters<typeof decide>): Promise<PermissionResult> => {
+  return async (...args: Parameters<typeof decide>): Promise<ApprovalPermissionResult> => {
     const sessionId = registry.get(clientId)?.sessionId;
     try {
       const result = await decide(...args);
@@ -885,7 +894,14 @@ export function buildPermissionHandler(
         sessionId,
         toolName: args[0],
         toolUseID: args[2].toolUseID,
-        outcome: result.behavior === 'allow' ? 'allowed' : 'denied',
+        outcome:
+          result.behavior === 'allow'
+            ? 'allowed'
+            : result.failure?.code === 'approval_expired'
+              ? 'expired'
+              : result.failure?.code === 'cancelled'
+                ? 'cancelled'
+                : 'denied',
       });
       return result;
     } catch (error) {

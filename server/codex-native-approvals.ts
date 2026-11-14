@@ -6,6 +6,7 @@ import {
   parseNativeApprovalResponse,
 } from './codex-native-permission-protocol.js';
 import { buildPermissionHandler } from './permission-handler.js';
+import { ApprovalExpiredError } from '@mitzo/harness';
 import type { SessionRegistry } from './session-registry.js';
 import { nativeGrantFence } from './codex-native-grant-fence.js';
 import { PERMISSION_TIMEOUT_MS } from './constants.js';
@@ -95,8 +96,8 @@ export function createCodexNativeApprovalHandler(options: {
     context: CodexNativeApprovalContext,
   ): Promise<Record<string, unknown>> => {
     let returningDenial = false;
-    let commandKind: 'command' | 'writeStdin' | undefined;
-    let preExecutionCommand = false;
+    let preExecutionOperation = false;
+    let validOperation = false;
     let explicitDenial = false;
     let expiryObserved = false;
     let grantResponse: Record<string, unknown> | undefined;
@@ -106,7 +107,7 @@ export function createCodexNativeApprovalHandler(options: {
     };
     const deny = (cancel = false): Record<string, unknown> => {
       returningDenial = true;
-      if (commandKind) {
+      if (validOperation) {
         try {
           context.observeFailure?.(
             toolFailure(
@@ -118,7 +119,7 @@ export function createCodexNativeApprovalHandler(options: {
                     ? 'approval_expired'
                     : 'permission_denied',
               'approval',
-              preExecutionCommand ? 'not_started' : 'unknown',
+              preExecutionOperation ? 'not_started' : 'unknown',
             ),
           );
         } catch {
@@ -141,11 +142,12 @@ export function createCodexNativeApprovalHandler(options: {
     const parsed = NativeApprovalRequestSchema.safeParse({ method, id: context.requestId, params });
     if (!parsed.success) return deny();
     const request = parsed.data;
+    validOperation = true;
+    preExecutionOperation = request.method !== 'item/commandExecution/requestApproval';
     if (request.method === 'item/commandExecution/requestApproval') {
-      commandKind = request.params.kind;
       // Subcommand and managed-network callbacks can occur after earlier effects
       // within this same parent item; declining this callback proves no rollback.
-      preExecutionCommand =
+      preExecutionOperation =
         request.params.kind === 'command' &&
         request.params.approvalId == null &&
         request.params.networkApprovalContext == null;
@@ -300,7 +302,7 @@ export function createCodexNativeApprovalHandler(options: {
           // Timers and wall-clock reads can disagree at the deadline (or after a
           // clock correction). Retain the observed timeout as the refusal cause.
           expiryObserved = true;
-          expiry.abort();
+          expiry.abort(new ApprovalExpiredError());
         },
         Math.max(0, expiresAt - Date.now()),
       );

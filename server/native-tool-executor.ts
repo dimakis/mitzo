@@ -22,6 +22,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { toolFailure, toolFailureAction } from '@mitzo/protocol';
 import { loadAccountProfiles } from './account-profiles.js';
 import { toolInputError } from './tool-input-error.js';
 import { authorizeGitHubRead } from './github-read-approval.js';
@@ -35,6 +36,8 @@ import {
 } from './workspace-runtime-private-paths.js';
 import {
   buildPermissionHandler,
+  ApprovalExpiredError,
+  permissionRefusalContent,
   effectivePermissionMode,
   checkSkillPolicy,
   UserQuestionsSchema,
@@ -295,7 +298,7 @@ export function createNativeToolExecutor(
         signal.throwIfAborted();
         return permission.behavior === 'allow'
           ? result(JSON.stringify({ answers: permission.updatedInput?.answers }))
-          : refused(permission.message);
+          : refused(permissionRefusalContent(permission));
       }
       if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
         const log =
@@ -389,7 +392,7 @@ export function createNativeToolExecutor(
           ...taskConsent,
         });
         signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return refused(permission.message);
+        if (permission.behavior !== 'allow') return refused(permissionRefusalContent(permission));
         if (!isDeepStrictEqual(permission.updatedInput, input))
           return refused('Tool input changed during approval; retry the tool');
         if (
@@ -453,7 +456,7 @@ export function createNativeToolExecutor(
                 : {}),
             });
         signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return refused(permission.message);
+        if (permission.behavior !== 'allow') return refused(permissionRefusalContent(permission));
         if (!isDeepStrictEqual(permission.updatedInput, input))
           return refused('Tool input changed during approval; retry the tool');
         if (
@@ -566,7 +569,7 @@ export function createNativeToolExecutor(
         forcePrompt,
       });
       signal.throwIfAborted();
-      if (permission.behavior !== 'allow') return refused(permission.message);
+      if (permission.behavior !== 'allow') return refused(permissionRefusalContent(permission));
       // The shared handler returns the checked input. Never execute unchecked replacements.
       if (!isDeepStrictEqual(permission.updatedInput, input))
         return refused('Tool input changed during approval; retry the tool');
@@ -600,6 +603,20 @@ export function createNativeToolExecutor(
       );
       return result(operation.content, operation.is_error);
     } catch (err: unknown) {
+      if (err instanceof ApprovalExpiredError && !signal.aborted) {
+        const failure = toolFailure(
+          'approval_expired',
+          'approval',
+          executionStarted ? 'unknown' : 'not_started',
+        );
+        return refused(
+          permissionRefusalContent({
+            behavior: 'deny',
+            message: toolFailureAction(failure),
+            failure,
+          }),
+        );
+      }
       const failure = refused(
         signal.aborted
           ? 'Tool execution cancelled'

@@ -1,9 +1,16 @@
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
-import { resolvePending } from '@mitzo/harness';
+// Synthetic providers must also use a synthetic home; never inspect the
+// operator's credential selectors while constructing native deny roots.
+vi.mock('node:os', async (original) => ({
+  ...(await original<typeof import('node:os')>()),
+  homedir: () => '/private/tmp/mitzo-approval-offline-home',
+}));
+import { ApprovalExpiredError, resolvePending } from '@mitzo/harness';
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
 import { existsSync, readFileSync } from 'node:fs';
+import { cp, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 import { setAuthRevocationStore } from '../auth.js';
@@ -12,6 +19,7 @@ import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
 import { fixtureQualifiedLocalPreparationSource } from './fixtures/qualified-local-preparation-source.js';
+import type { RepositorySourceIntent } from '../local-repository-base.js';
 import {
   pendingHostTaskDecisionHash,
   pendingHostTaskDecisionPayload,
@@ -213,6 +221,7 @@ async function preparationCase(
     prepared: Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>>,
   ) => Promise<unknown>,
   referenceCoverage?: 'preparation-head-and-namespace-v1',
+  sourceIntent?: RepositorySourceIntent,
 ) {
   noLiveCalls();
   let current = true;
@@ -229,7 +238,16 @@ async function preparationCase(
         events: f.f.events,
         workspaces: service,
         qualifySource: async (_path, _context, intent) => {
-          const owner = await fixtureQualifiedLocalPreparationSource(intent, {
+          let captureIntent: Parameters<typeof fixtureQualifiedLocalPreparationSource>[0] = intent;
+          if (sourceIntent && sourceIntent.kind !== 'existing') {
+            // Model the production clone/new owner's fresh temporary repository
+            // using only local fixture bytes; no remote or model call occurs.
+            const scratch = await mkdtemp(join(f.f.root, 'qualified-source-'));
+            const sourcePath = join(scratch, 'repository');
+            await cp(join(f.f.root, 'source'), sourcePath, { recursive: true });
+            captureIntent = { ...intent, sourcePath, layout: 'standalone' };
+          }
+          const owner = await fixtureQualifiedLocalPreparationSource(captureIntent, {
             assertCurrentSync() {
               if (!current) throw Error('Qualified fixture source revoked');
             },
@@ -279,10 +297,136 @@ async function preparationCase(
       return row(f.f.root, selectedId!);
     },
     call() {
-      return f.a.call({ path: join(f.f.root, 'source') });
+      return f.a.call(sourceIntent ? { source: sourceIntent } : { path: join(f.f.root, 'source') });
     },
   };
 }
+
+it.each(['recorded', 'legacy'] as const)(
+  'renews a %s expired selection in the same session with fresh approval',
+  async (kind) => {
+    let first = true;
+    let prior:
+      Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
+    const f = await preparationCase(async (prepared) => {
+      prior ??= prepared;
+      try {
+        const decision = await prepared.approve();
+        return { id: prepared.request.id, state: decision.state };
+      } catch (error) {
+        if (!(error instanceof ApprovalExpiredError)) throw error;
+        return { id: prepared.request.id, code: error.code };
+      }
+    });
+    f.setPermissionAction((event) => {
+      if (first) {
+        first = false;
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(Number(event.expiresAt) + 1);
+        try {
+          expect(resolvePending(String(event.permId), 'once')).toBe(false);
+        } finally {
+          clock.mockRestore();
+        }
+      } else resolvePending(String(event.permId), 'once');
+    });
+    const expired = await f.call();
+    expect(expired.value).toMatchObject({ code: 'approval_expired' });
+    const originalId = f.saved().id;
+    expect(f.saved().approvalExpiry).toBeDefined();
+    expect(f.saved().pendingHostTaskDecision).toBeUndefined();
+    expect(f.saved().pendingHostTask).toBeUndefined();
+    if (kind === 'legacy') {
+      const db = new Database(join(f.f.root, 'repositories', 'workspaces.db'));
+      try {
+        const saved = f.saved();
+        delete saved.approvalExpiry;
+        saved.createdAt = Date.now() - 300_001;
+        db.prepare('UPDATE repository_workspaces SET record=? WHERE id=?').run(
+          JSON.stringify(saved),
+          originalId,
+        );
+      } finally {
+        db.close();
+      }
+    }
+    const renewed = await f.call();
+    expect(renewed.value).toEqual({ id: originalId, state: 'finalized' });
+    expect(f.permissions).toHaveLength(2);
+    expect(f.permissions[1].permId).not.toBe(f.permissions[0].permId);
+    expect(f.saved().pendingHostTaskDecision.evidence.permId).toBe(f.permissions[1].permId);
+    const archive = new Database(join(f.f.root, 'repositories', 'workspaces.db'), {
+      readonly: true,
+    });
+    try {
+      expect(
+        archive
+          .prepare(
+            'SELECT count(*) AS count FROM repository_approval_attempts WHERE workspace_id=?',
+          )
+          .get(originalId),
+      ).toEqual({ count: 1 });
+    } finally {
+      archive.close();
+    }
+    await expect(prior!.approve()).rejects.toThrow();
+    expect(existsSync(prior!.scope.create.task.directory)).toBe(false);
+  },
+);
+
+it.each([
+  { kind: 'clone', url: 'https://github.com/example/project.git' },
+  { kind: 'new', name: 'my-project' },
+] as const)(
+  'renews an expired $kind approval with independently qualified fresh scratch',
+  async (source) => {
+    let first = true;
+    let prior:
+      Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
+    const f = await preparationCase(
+      async (prepared) => {
+        prior ??= prepared;
+        try {
+          const decision = await prepared.approve();
+          return { id: prepared.request.id, state: decision.state };
+        } catch (error) {
+          if (!(error instanceof ApprovalExpiredError)) throw error;
+          return { id: prepared.request.id, code: error.code };
+        }
+      },
+      undefined,
+      source,
+    );
+    f.setPermissionAction((event) => {
+      if (!first) {
+        resolvePending(String(event.permId), 'once');
+        return;
+      }
+      first = false;
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Number(event.expiresAt) + 1);
+      try {
+        expect(resolvePending(String(event.permId), 'once')).toBe(false);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+    expect((await f.call()).value).toMatchObject({ code: 'approval_expired' });
+    const original = f.saved();
+    expect(original.approvalExpiry).toBeDefined();
+    expect(original.pendingHostTask).toBeUndefined();
+    // The first owner released its scratch; renewal must qualify a new source.
+    await rm(original.localSource.path, { recursive: true });
+    expect((await f.call()).value).toEqual({ id: original.id, state: 'finalized' });
+    const renewed = f.saved();
+    expect(renewed.localSource.path).not.toBe(original.localSource.path);
+    expect(renewed.qualifiedLocalPreparation.allocationFacts.sourceIntent).toEqual(source);
+    expect(renewed.pendingHostTaskDecision.evidence.permId).toBe(f.permissions[1].permId);
+    expect(f.permissions).toHaveLength(2);
+    expect(f.permissions[1].permId).not.toBe(f.permissions[0].permId);
+    expect(renewed.pendingHostTask).toBeUndefined();
+    expect(existsSync(prior!.scope.create.task.directory)).toBe(false);
+    await expect(prior!.approve()).rejects.toThrow();
+  },
+);
 
 it('checks the original qualified source fence before permission-observer metadata writes', async () => {
   const f = await preparationCase(async (prepared) => prepared.approve());
@@ -293,6 +437,28 @@ it('checks the original qualified source fence before permission-observer metada
   expect((await f.call()).response.success).toBe(false);
   expect(f.saved().pendingHostTaskDecision).toBeUndefined();
   expect(f.saved().pendingHostTask).toBeUndefined();
+});
+
+it('renews an expired unconsumed approval while retaining its original evidence', async () => {
+  const f = await preparationCase(async (prepared) => {
+    const decision = await prepared.approve();
+    return { id: prepared.request.id, state: decision.state };
+  });
+  expect((await f.call()).response.success).toBe(true);
+  const original = f.saved();
+  const clock = vi
+    .spyOn(Date, 'now')
+    .mockReturnValue(original.pendingHostTaskDecision.evidence.expiresAt + 1);
+  try {
+    expect((await f.call()).value).toEqual({ id: original.id, state: 'finalized' });
+    expect(f.permissions).toHaveLength(2);
+    expect(f.saved().pendingHostTaskDecision.evidence.permId).not.toBe(
+      original.pendingHostTaskDecision.evidence.permId,
+    );
+    expect(f.saved().pendingHostTask).toBeUndefined();
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 it('refuses changed preparation reference coverage before retaining permission observation', async () => {

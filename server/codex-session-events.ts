@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
+import {
+  ToolFailureSchema,
+  toolFailure,
+  toolFailureAction,
+  type ToolFailure,
+} from '@mitzo/protocol';
 import { CodexTurnUsage, observedCodexUsage } from './codex-turn-usage.js';
 import { CodexTextProjection } from './codex-text-projection.js';
 import type { StreamEvent } from '@mitzo/harness';
@@ -40,9 +45,15 @@ export class CodexSessionEvents {
     return this.unexplainedToolFailure ? this.unexplainedFailure : undefined;
   }
   recordNativeFailure(itemId: string, failure: ToolFailure): void {
-    if (!this.turnFinished && this.commandTools.has(itemId)) {
+    if (!this.turnFinished) {
       this.nativeFailures.set(itemId, ToolFailureSchema.parse(failure));
       this.suppressUnsafeRecovery(failure);
+      if (!this.commandTools.has(itemId) && !this.fileTools.has(itemId)) {
+        // Native questions/access grants have no ordinary tool-result item.
+        // Retain the negative outcome for the existing terminal notice owner.
+        this.unexplainedToolFailure = true;
+        this.unexplainedFailure = failure;
+      }
     }
   }
   private usage: CodexTurnUsage;
@@ -218,7 +229,10 @@ export class CodexSessionEvents {
             ? `Applied ${commandItem.changes.length} file change(s).`
             : `File changes ${String(commandItem.status)}.`,
           !completed,
+          undefined,
+          this.nativeFailures.get(commandItem.id),
         );
+        this.nativeFailures.delete(commandItem.id);
       }
       return;
     }
@@ -469,6 +483,8 @@ export class CodexSessionEvents {
     contentItems?: CodexToolContentItem[],
     failure?: ToolFailure,
   ) {
+    if (failure?.code === 'approval_expired')
+      content = JSON.stringify({ message: toolFailureAction(failure), failure, output: content });
     const result = normalizeCodexToolResult({
       content,
       isError,

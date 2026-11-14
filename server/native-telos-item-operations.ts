@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import { throwIfApprovalExpired, expiredApprovalToolResult } from '@mitzo/harness';
 import type { TelosWorkAssignment } from '@mitzo/protocol';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type { TelosItemStore } from './telos-item-store.js';
@@ -77,6 +78,7 @@ export async function executeNativeTelosItemOperation(
     const permission = await owners.approve(name, structuredClone(input), ctx.signal);
     await ctx.assertCurrent();
     current();
+    throwIfApprovalExpired(permission);
     if (permission.behavior !== 'allow' || !isDeepStrictEqual(permission.updatedInput, input))
       unavailable();
     if (name === 'TelosGetItem')
@@ -93,6 +95,8 @@ export async function executeNativeTelosItemOperation(
     // The real owner acknowledged COMMIT. Never renew authority after its effect.
     return { content: JSON.stringify({ ok: true, ...receipt }), isError: false };
   } catch (error) {
+    const expired = expiredApprovalToolResult(error);
+    if (expired) return expired;
     const message = error instanceof Error ? error.message : '';
     const known = [
       'Telos item changed;',

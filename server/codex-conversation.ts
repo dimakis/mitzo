@@ -269,7 +269,11 @@ export interface CodexConversationOptions {
   /** External owners retain admission authority for unfinished environment changes. */
   environmentContinuationOwner?: 'external';
   onEnvironmentPending?: (commandId: string, providerTurnId: string) => void;
-  requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
+  requestUserInput?: (
+    params: ObjectValue,
+    signal: AbortSignal,
+    context?: { observeFailure(failure: ToolFailure): void },
+  ) => Promise<ObjectValue>;
   /** The native provider owns execution and grant enforcement. This callback
    * only obtains an exact decision from the existing permission owner. */
   requestNativeApproval?: (
@@ -4363,7 +4367,23 @@ export class CodexConversation {
       const questionSignal = AbortSignal.any([signal, active.abort.signal]);
       questionSignal.throwIfAborted();
       if (!this.opts.requestUserInput) throw new Error('Codex questions are unavailable');
-      return this.opts.requestUserInput(params, questionSignal);
+      return this.opts.requestUserInput(params, questionSignal, {
+        observeFailure: (failure) => {
+          questionSignal.throwIfAborted();
+          if (this.closed || this.active !== active || active.turnId !== input.turnId)
+            throw Error('Original question owner changed');
+          this.mapper?.recordNativeFailure(input.itemId, failure);
+          this.opts.store.recordToolFailure(
+            this.opts.conversationId,
+            this.binding!,
+            active.command.id,
+            input.turnId,
+            input.itemId,
+            failure,
+            'native_approval',
+          );
+        },
+      });
     }
     if (method !== 'item/tool/call') throw new Error('Unsupported Codex host request');
     const refuse = (category: 'invalid_tool_request' | 'tool_unavailable'): never => {

@@ -2,6 +2,7 @@ import { CodexToolFailure, withCodexToolCleanup } from './codex-tool-failure.js'
 import { captureLocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
 import { captureLocalRepositoryPreparationAuthorization } from './local-repository-preparation-authorization.js';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
+import { LOCAL_REPOSITORY_PREPARATION_TIMEOUT_MS } from './local-repository-approval-recovery.js';
 
 export interface LocalRepositoryPreparationEnvelope {
   readonly signal: AbortSignal;
@@ -9,7 +10,7 @@ export interface LocalRepositoryPreparationEnvelope {
   assertCurrentSync(): void;
   stageDeadline(): number;
 }
-const totalPrepareMs = 300000;
+const totalPrepareMs = LOCAL_REPOSITORY_PREPARATION_TIMEOUT_MS;
 class PreparationDeadlineError extends CodexToolFailure {
   constructor() {
     super('internal_failure', {
