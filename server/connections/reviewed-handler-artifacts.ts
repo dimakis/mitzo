@@ -1157,7 +1157,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-timers.css':
     'd1aadc713e86019158354ddf4535a6d7c39d25487c01b9f9a1c8ddec7a77c0bc',
   '../__tests__/session-prompt-dispatch.test.ts':
-    '8e02b16e5970ac650d26061ea2b163ea1c917316a6054cc51d19a953c6877ab0',
+    '38ae86eddbe481e289767ce0d80a817f53382678fdb25c6c86f76f05570f9a13',
   '../__tests__/session-prompt-router.test.ts':
     'd41780d41d76cab07a60b56300dbb1c977a2b4285fb7d0c37bd2645a47745549',
   '../__tests__/session-prompt-tools.test.ts':
@@ -1165,7 +1165,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-prompt-definitions.ts':
     '6ee1ad79a9c33a04c33ee89fd7e17df60fa5ae591f21d135f441d9339c05ac90',
   '../session-prompt-dispatch.ts':
-    'a9d719e4ac669fb08139e2e826636368c74f4e6fb61b3b04a521a6fa07ceb3e5',
+    '59201c66ee95acc853e5cba58f00605b79920d7ea6be00033309c2bf7dc709eb',
   '../peer-message-instructions.ts':
     '11340f52b528ac6dc44f69636bd7b58d181d2b4d9a47eb533255ef572400fd18',
   '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',

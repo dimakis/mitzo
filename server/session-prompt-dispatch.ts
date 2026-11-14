@@ -149,7 +149,11 @@ export function createSessionPromptPort(
     if (
       live?.session.ordinaryRuntimeOwner?.authSessionId &&
       live.session.ordinaryRuntimeOwner.authSessionId !== auth.id &&
-      !['codex', 'claude-sdk'].includes(binding.harness.implementation)
+      binding.harness.implementation !== 'codex' &&
+      !(
+        binding.harness.implementation === 'claude-sdk' &&
+        ordinaryOperatorOwnsConversation(live.session.ordinaryRuntimeOwner.authSessionId, auth.id)
+      )
     )
       throw new SessionPromptError(
         'Open this session with your current login before scheduling work.',
