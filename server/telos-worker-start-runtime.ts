@@ -10,7 +10,7 @@ import {
   sessionToolOperatorConnection,
   retainedNativeHostToolOperator,
 } from './native-host-tool-operator.js';
-import { agentToolAllowed } from './agent-tool-selection.js';
+import { agentToolAllowed, agentToolPolicyName } from './agent-tool-selection.js';
 import { createTelosWorkerStarter, type TelosWorkerStartAuthority } from './telos-worker-start.js';
 import { TelosWorkStore } from './telos-work-store.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
@@ -44,6 +44,7 @@ export async function startAllocatedTelosWorker(
   if (!source?.session.ordinaryRuntimeOwner)
     throw Error('Original live lead runtime owner required');
   const driver = source.session.ordinaryRuntimeOwner;
+  const policyName = agentToolPolicyName(source.session, 'TelosStartSlice');
   const operatorConnectionId = sessionToolOperatorConnection(source.session, source.clientId);
   const captured = captureAgentLibraryAuthorization(operatorConnectionId);
   const signal = AbortSignal.any([request.signal, source.session.abortController.signal]);
@@ -59,8 +60,9 @@ export async function startAllocatedTelosWorker(
       sessionToolOperatorConnection(now.session, now.clientId) !== operatorConnectionId ||
       registry.isClosingOut(source.clientId) ||
       registry.isUserClose(source.clientId) ||
-      !agentToolAllowed(now.session, 'TelosStartSlice') ||
-      checkSkillPolicy(registry, source.clientId, 'TelosStartSlice') === 'deny'
+      agentToolPolicyName(now.session, 'TelosStartSlice') !== policyName ||
+      !agentToolAllowed(now.session, policyName) ||
+      checkSkillPolicy(registry, source.clientId, policyName) === 'deny'
     )
       throw Error('Original signed Telos lead authority changed');
   };

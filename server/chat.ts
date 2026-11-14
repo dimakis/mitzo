@@ -134,7 +134,11 @@ import {
   createWorkspaceRuntimeCommandRunner,
   type ProtectedSdkCommandRunner,
 } from './protected-sdk-command.js';
-import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
+import {
+  createCredentialSdkServer,
+  credentialSdkPermission,
+  sdkInformationInstructions,
+} from './credential-sdk-tools.js';
 import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
@@ -2891,6 +2895,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               profilesOnly: true,
               connectionBoundary: 'sdk-callback',
               agentCommunication: sdkAgentCommunication,
+              historyEvents: eventStore,
               assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
               assertCurrentSync: (signal) =>
                 options.ordinarySdkAuthority!.assertCurrentSync(signal),
@@ -3130,7 +3135,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               (gwsBroker ? `\n${gwsShellGuidance()}\n` : '') +
               WEB_ACCESS_INSTRUCTIONS +
               (options.ordinarySdkAuthority
-                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
+                ? '\n' + PEER_MESSAGE_INSTRUCTIONS + sdkInformationInstructions(session) + '\n'
                 : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
           };
         },
@@ -3223,6 +3228,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 profilesOnly: true,
                 connectionBoundary: 'sdk-callback',
                 agentCommunication: sdkAgentCommunication,
+                historyEvents: eventStore,
                 runCallback: state.runCallback,
                 assertCurrentSync: (signal) => {
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');

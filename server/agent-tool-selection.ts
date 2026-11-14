@@ -93,6 +93,12 @@ export function bindAgentToolSelection(
 export function hasAgentToolSelection(session: object): boolean {
   return selections.get(session) !== undefined;
 }
+/** The immutable server-bound route determines the exact skill identity, never tool JSON. */
+export function agentToolPolicyName(session: object, canonicalName: string): string {
+  return selectionRoutes.get(session) === 'claude-sdk'
+    ? (ordinarySdkHelperPolicyName(canonicalName) ?? canonicalName)
+    : canonicalName;
+}
 /** Explicit profiles start only tool sources whose receipt admission was implemented. */
 export function configuredMcpSourcesForAgentSelection<T>(
   session: object,

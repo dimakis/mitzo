@@ -83,6 +83,10 @@ it.each(['async', 'sync', 'wrapped'] as const)(
       'SessionTimers',
       'SendSessionMessage',
       'CaptureMemoryCandidate',
+      'ReadKnowledge',
+      'SaveKnowledgeDraft',
+      'AgentReadTasks',
+      'AgentProposeTask',
       'TelosCreateSession',
     ]);
     const operation = sdk.handlers.get('SymposiumProposeProfile')!(
@@ -92,9 +96,12 @@ it.each(['async', 'sync', 'wrapped'] as const)(
     await entered;
     withdrawn = true;
     release();
-    await expect(operation).rejects.toThrow(
-      phase === 'wrapped' ? 'Guarded effect failed' : 'Original selected authority withdrawn',
-    );
+    await expect(operation).rejects.toMatchObject({
+      name: 'SessionRuntimeError',
+      code: 'runtime_unavailable',
+      cause: expect.objectContaining({ message: 'Original selected authority withdrawn' }),
+    });
+    await expect(operation).rejects.not.toThrow('Original selected authority withdrawn');
     expect(effect).not.toHaveBeenCalled();
   },
 );
