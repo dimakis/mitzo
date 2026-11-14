@@ -137,11 +137,23 @@ export function CollaborationTranscript({
     if (view.messages.some((message) => message.source && sourceMatches(message.source, stream)))
       delete streams[id];
   }
+  const liveSource = (reply: CollaborationProgress['replies'][number]) => ({
+    conversationId: reply.sessionId,
+    messageId: reply.sourceMessageId,
+    commandId:
+      view.messages
+        .flatMap((message) => message.deliveries)
+        .find(
+          (delivery) =>
+            delivery.deliveryId === reply.deliveryId && delivery.sessionId === reply.sessionId,
+        )?.commandId ?? undefined,
+  });
   const liveReplies =
     live?.replies.filter(
       (reply) =>
         view.participantSessionIds.includes(reply.sessionId) &&
         !view.unavailableParticipantSessionIds.includes(reply.sessionId) &&
+        !ordinaryMessages.some((message) => sourceMatches(liveSource(reply), message)) &&
         !view.messages.some(
           (message) =>
             message.replyToDeliveryId === reply.deliveryId &&
@@ -150,15 +162,7 @@ export function CollaborationTranscript({
         ),
     ) ?? [];
   for (const reply of liveReplies) {
-    const rich = Object.values(streams).find((stream) =>
-      sourceMatches(
-        {
-          conversationId: reply.sessionId,
-          messageId: reply.sourceMessageId,
-        },
-        stream,
-      ),
-    );
+    const rich = Object.values(streams).find((stream) => sourceMatches(liveSource(reply), stream));
     if (rich) {
       displayedIds.set(reply.projectionId, rich.messageId);
       continue;
