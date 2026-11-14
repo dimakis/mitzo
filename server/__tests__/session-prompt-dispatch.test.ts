@@ -487,6 +487,8 @@ it.each([
   'revoked',
   'owner_changed',
   'auth_lost',
+  'pre_input',
+  'yielded_without_echo',
 ])(
   'routes SDK Stop only to the original ordinary owner and keeps uncertain claims observational: %s',
   async (scenario) => {
@@ -495,9 +497,12 @@ it.each([
     h.events.getOrdinarySdkInterruptReceipt = () =>
       scenario === 'claimed' ? ({ retained: true } as never) : undefined;
     f.sdkOutcome = scenario === 'settled' ? 'completed' : 'uncertain';
-    const captured = { commandId: scenario === 'successor' ? 'successor-command' : 'original' };
+    const captured = ['pre_input', 'yielded_without_echo'].includes(scenario)
+      ? undefined
+      : { commandId: scenario === 'successor' ? 'successor-command' : 'original' };
     const control = {
       captureInterruptTarget: vi.fn(() => captured),
+      stopBeforeInput: vi.fn(async () => scenario === 'pre_input'),
       interruptIfCurrent: vi.fn(async () => {
         if (scenario === 'auth_lost') f.authorized = false;
         return 'requested';
@@ -528,7 +533,7 @@ it.each([
         await expect(result).rejects.toThrow('authorization');
       else
         await expect(result).resolves.toBe(
-          scenario === 'current'
+          ['current', 'pre_input'].includes(scenario)
             ? 'requested'
             : scenario === 'settled'
               ? 'settled'
@@ -539,6 +544,9 @@ it.each([
       expect(control.interruptIfCurrent).toHaveBeenCalledTimes(
         ['current', 'auth_lost'].includes(scenario) ? 1 : 0,
       );
+      if (['pre_input', 'yielded_without_echo'].includes(scenario))
+        expect(control.stopBeforeInput).toHaveBeenCalledExactlyOnceWith('original', 'sdk-stop');
+      else expect(control.stopBeforeInput).not.toHaveBeenCalled();
       if (scenario === 'revoked' || scenario === 'auth_lost')
         expect(() => h.port.observedOutcome!(h.delivery.auth, 'worker', 'original')).toThrow(
           'authorization',
