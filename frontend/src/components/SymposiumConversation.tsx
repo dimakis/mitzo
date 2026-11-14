@@ -760,7 +760,7 @@ export function SymposiumConversation({
         {pendingFeedback}
         {/* Fresh chats wait without mounting queue/send effects. Resized pages
           keep the same already qualified command and draft owner. */}
-        <RetainedChatInputSlot sessionId={sessionId}>
+        <RetainedChatInputSlot sessionId={sessionId ?? undefined}>
           <div className="chat-input" aria-busy="true">
             <div className="chat-input-row">
               <textarea
