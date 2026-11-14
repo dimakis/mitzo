@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
   type ComponentProps,
@@ -105,6 +106,7 @@ function useSharedConversation({
     owner: object;
     group?: string;
     begun?: boolean;
+    shared?: boolean;
     error?: string;
   }>({ owner });
   const association = associationState.owner === owner ? associationState : { owner };
@@ -135,7 +137,14 @@ function useSharedConversation({
           if (sessionStorage.getItem(key) !== group)
             throw Error('Could not retain this collaboration identity.');
         }
-        setAssociation({ owner, group, begun: setup.state === 'selected' });
+        setAssociation({
+          owner,
+          group,
+          begun: setup.state === 'selected',
+          shared:
+            setup.state === 'selected' &&
+            setup.collaboration.participantSessionIds.some((id) => id !== sourceConversationId),
+        });
         const id = 'shared:' + group;
         if (!getChatDraft(id)) {
           const draft = createChatDraft();
@@ -260,7 +269,18 @@ function useSharedConversation({
     contextDisabledReason: promptContext.disabledReason,
     onAccepted: promptContext.consume,
   });
-  const active = !!view?.participantSessionIds.some((id) => id !== sourceConversationId);
+  const sharedMode = useRef({ sourceConversationId, active: false });
+  if (sharedMode.current.sourceConversationId !== sourceConversationId)
+    sharedMode.current = { sourceConversationId, active: false };
+  if (
+    association.shared ||
+    sending.pending ||
+    view?.joins.some((join) => join.state === 'linked') ||
+    view?.participantSessionIds.some((id) => id !== sourceConversationId)
+  )
+    sharedMode.current.active = true;
+  // Losing a participant cannot hand a retained operation back to ordinary send.
+  const active = sharedMode.current.active;
   const progress = useConversationProgress({
     api: api.collaborations,
     // Existing collaboration observation survives a temporary singleton. Its
@@ -292,6 +312,12 @@ function useSharedConversation({
     joiningOwner,
     names,
     active,
+    resolving:
+      !!sourceConversationId &&
+      !!clientId &&
+      !!authScope &&
+      (!association.group || (association.begun && !view)) &&
+      !association.error,
     error: association.error,
     retry: () => {
       // Setup and the retained conversation read have different owners. Repeating
@@ -374,7 +400,8 @@ export function SharedConversationBody({
     isValidElement<ChatAreaProps>(ordinaryHistory) && ordinaryHistory.type === ChatArea
       ? {
           ...ordinaryHistory.props,
-          onShareMessage: host.active ? host.shareMessage : ordinaryHistory.props.onShareMessage,
+          onShareMessage:
+            host.active && projection ? host.shareMessage : ordinaryHistory.props.onShareMessage,
           canShareMessage: (message: ChatAreaProps['messages'][number]) =>
             canShare &&
             ordinaryHistory.props.messages.some((m) => m.messageId === message.messageId),
@@ -448,7 +475,21 @@ export function SharedConversationBody({
   delete routing.sessionId;
   return (
     <SharedConversationComposerContext.Provider
-      value={host.active ? { sourceConversationId, props: routing } : null}
+      value={
+        host.active
+          ? { sourceConversationId, props: routing }
+          : host.resolving || host.error
+            ? {
+                sourceConversationId,
+                props: {
+                  sendDisabledReason: host.error ?? 'Checking discussion recipients…',
+                  sendDisabledAction: host.error
+                    ? { label: 'Refresh collaboration', onClick: host.retry }
+                    : undefined,
+                },
+              }
+            : null
+      }
     >
       {beforeTranscript}
       {ordinaryComposer || ordinaryHistory || host.active ? (

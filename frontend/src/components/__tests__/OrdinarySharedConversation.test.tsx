@@ -74,6 +74,7 @@ function fixture(singleton = false) {
     refusals: [],
   };
   const sends: CollaborationMessageInput[] = [];
+  const stops: CollaborationMessageInput[] = [];
   const transport = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.includes('/telos/work/links') || url.includes('/symposium/profile-proposals'))
       return Response.json([]);
@@ -105,6 +106,11 @@ function fixture(singleton = false) {
         reason: null,
       });
     if (url.endsWith('/messages/observe')) return Response.json({ message: null, terminal: false });
+    if (url.endsWith('/messages/stop')) {
+      const input = JSON.parse(init!.body as string);
+      stops.push(input);
+      return Response.json({ requestId: input.requestId, recipients: [] });
+    }
     if (url.endsWith('/messages')) {
       sends.push(JSON.parse(init!.body as string));
       throw Error('Original send acknowledgement lost');
@@ -148,6 +154,7 @@ function fixture(singleton = false) {
     view,
     tree,
     sends,
+    stops,
     transport,
     ordinarySend,
     ordinaryStop,
@@ -312,3 +319,55 @@ it.each(['selected', 'default'] as const)(
     expect(f.sends).toHaveLength(1);
   },
 );
+
+it('keeps explicit routing and retained send/Stop identity when the selected participant leaves', async () => {
+  const f = fixture();
+  saveChatDraft({
+    ...createChatDraft(),
+    id: 'shared:' + f.view.collaborationId,
+    settings: {
+      ...createChatDraft().settings,
+      collaborationResponders: {
+        collaborationId: f.view.collaborationId,
+        responders: { kind: 'selected', sessionIds: ['reviewer'] },
+      },
+    },
+  });
+  const h = render(f.tree());
+  await screen.findByRole('button', { name: 'Choose who replies' });
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
+  const input = screen.getByRole('textbox');
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(f.sends).toHaveLength(1));
+  const original = structuredClone(f.sends[0]);
+  f.view.participantSessionIds = ['architect'];
+  f.view.joinedParticipants = [];
+  f.view.membershipRevision++;
+  f.view.policies = f.view.policies
+    .slice(0, 1)
+    .map((policy) => ({ ...policy, membershipRevision: f.view.membershipRevision }));
+  f.setProgress({
+    collaborationId: f.view.collaborationId,
+    membershipRevision: f.view.membershipRevision,
+    replies: [],
+    refusals: [],
+  });
+  await poll();
+  h.rerender(f.tree({ ...chat, running: true }));
+  expect(screen.getByRole('textbox')).toBe(input);
+  expect(screen.getByRole('button', { name: 'Choose who replies' }).textContent).toContain(
+    'Unavailable',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
+  await waitFor(() => expect(f.stops).toEqual([original]));
+  expect(f.ordinaryStop).not.toHaveBeenCalled();
+  expect(getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend).toMatchObject({
+    input: original,
+    stopRequested: true,
+  });
+  expect(f.sends).toHaveLength(1);
+});
