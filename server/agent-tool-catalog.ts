@@ -81,13 +81,12 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
             ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
             : tool.name === 'TelosCreateSession'
               ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
-              : source === 'Agent communication'
+              : source === 'Agent communication' || source === 'History'
                 ? ['codex-owned-local', 'claude-sdk']
                 : source === 'Session automation'
                   ? ['local-api', 'codex', 'codex-owned-local']
                   : source === 'Google Workspace' ||
                       source === 'Session creation' ||
-                      source === 'History' ||
                       source === 'Local repositories'
                     ? ['codex-owned-local']
                     : source === 'Telos'
@@ -106,7 +105,14 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                         ? ['codex-owned-local']
                         : []
                       : source === 'Agent Library' || source === 'Knowledge'
-                        ? ['local-api', 'codex-owned-local']
+                        ? [
+                            'local-api',
+                            'codex-owned-local',
+                            ...(source === 'Knowledge' ||
+                            agentTaskToolDefinitions.some((entry) => entry.name === tool.name)
+                              ? ['claude-sdk']
+                              : []),
+                          ]
                         : source === 'GitHub publishing'
                           ? ['local-api', 'codex', 'codex-owned-local']
                           : source === 'Workspace'
@@ -174,7 +180,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                                     : source === 'Knowledge'
                                       ? 'Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge.'
                                       : source === 'History'
-                                        ? 'Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery.'
+                                        ? 'Requires the current signed operator and original owned-local native or guarded SDK call. Reads only registered visible durable history within current tool and skill scope; no provider transcript or credential discovery.'
                                         : 'Existing session permissions, cancellation and runtime admission apply.',
     })),
   );

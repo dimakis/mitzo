@@ -1,5 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { TelosCreateSessionInputSchema } from '@mitzo/protocol';
+import {
+  TelosCreateSessionInputSchema,
+  AgentReadTasksSchema,
+  AgentTaskProposalInputSchema,
+} from '@mitzo/protocol';
+import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
+import {
+  sessionHistoryToolSchemas,
+  sessionHistoryToolDefinitions,
+} from './session-history-tools.js';
+import { sessionSdkHistoryTools } from './session-history-sdk.js';
+import type { EventStore } from './event-store.js';
 import { sessionLaunchTools } from './session-launch-tools.js';
 import { telosSessionLaunchDefinition } from './telos-session-launch-tool.js';
 import { learningToolSchemas, learningToolDefinitions } from './session-learning-tools.js';
@@ -45,6 +56,9 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  AgentReadTasks: AgentReadTasksSchema,
+  AgentProposeTask: AgentTaskProposalInputSchema,
+  ...sessionHistoryToolSchemas,
   TelosCreateSession: TelosCreateSessionInputSchema,
   AgentCommunication: AgentCommunicationSdkInput,
   ...sessionPromptSchemas,
@@ -62,6 +76,43 @@ const definitions = [
   ...learningToolDefinitions,
   ...sessionPromptDefinitions,
 ];
+/** Guidance follows the same captured selection as registration. */
+export function sdkInformationInstructions(session: ManagedSession): string {
+  const guidance = [
+    [
+      'AgentCommunication',
+      'AgentCommunication list discovers owned ordinary chats and their current delivery capabilities; it is not a saved-history search.',
+    ],
+    [
+      'SearchPastSessions',
+      'SearchPastSessions searches authorized saved history. Follow its continuation fields; incomplete pages are not a full inventory.',
+    ],
+    [
+      'ReadPastSession',
+      'ReadPastSession reads public messages from an exact authorized saved conversation, preserving the returned snapshot while paging.',
+    ],
+    [
+      'ReadKnowledge',
+      'ReadKnowledge identifies accepted Knowledge Library documents and their exact revisions.',
+    ],
+    [
+      'SaveKnowledgeDraft',
+      'SaveKnowledgeDraft saves a proposal for existing accepted documents after reading them. A draft is not reviewed, accepted or published.',
+    ],
+    [
+      'AgentReadTasks',
+      'AgentReadTasks lists or reads saved Agent Library task definitions and exact revisions.',
+    ],
+    [
+      'AgentProposeTask',
+      'AgentProposeTask retains the expected revision and exact profile pin for user review; it never runs or schedules a task.',
+    ],
+  ];
+  return guidance
+    .filter(([name]) => agentToolAllowed(session, name))
+    .map(([, text]) => '\n' + text)
+    .join('');
+}
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
 export function credentialSdkPermission(
   name: string,
@@ -111,6 +162,7 @@ export function createCredentialSdkServer(
     assertCurrentSync(signal: AbortSignal): void;
     runCallback?: TurnCallbackRunner;
     agentCommunication?(): Pick<ReturnType<typeof sessionAgentCommunicationTools>, 'execute'>;
+    historyEvents?: EventStore;
   },
 ) {
   const runtimeId = randomUUID();
@@ -143,9 +195,12 @@ export function createCredentialSdkServer(
             ...profileToolDefinitions,
             ...sessionPromptDefinitions,
             ...learningToolDefinitions,
+            ...knowledgeToolDefinitions,
+            ...agentTaskToolDefinitions,
           ]
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
+      ...(boundary?.historyEvents ? sessionHistoryToolDefinitions : []),
       ...(boundary ? [telosSessionLaunchDefinition] : []),
     ]).map((definition) =>
       tool(
@@ -189,6 +244,31 @@ export function createCredentialSdkServer(
                     ],
                     isError: true,
                   };
+                if (
+                  boundary?.historyEvents &&
+                  Object.hasOwn(sessionHistoryToolSchemas, definition.name)
+                ) {
+                  await authority!.assertCurrent(signal);
+                  const result = await sessionSdkHistoryTools({
+                    events: boundary.historyEvents,
+                    session,
+                    registry,
+                    signal,
+                    ...authority!,
+                  }).execute(definition.name, input, signal, {
+                    turnId: runtimeId,
+                    callId: String(
+                      (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+                    ),
+                  });
+                  await authority!.assertCurrent(signal);
+                  if (!result) throw Error('History handler unavailable');
+                  qualifyToolResult(definition.name, input, signal, result);
+                  return copyCallbackOutcome(result, {
+                    content: [{ type: 'text' as const, text: result.content }],
+                    isError: result.isError,
+                  });
+                }
                 if (definition.name === 'TelosCreateSession' && authority) {
                   await authority.assertCurrent(signal);
                   const result = await sessionLaunchTools({
@@ -253,7 +333,7 @@ export function createCredentialSdkServer(
                       authority
                         ? () => authority.assertCurrentSync(session.abortController.signal)
                         : undefined,
-                      false,
+                      !!boundary?.profilesOnly,
                       { boundary: boundary?.connectionBoundary },
                     ),
                   };

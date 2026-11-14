@@ -226,6 +226,55 @@ it.each(
       anthropicApi: anthropicApi || (refuseStartup && !personal),
       ...(idleSuccess ? { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } : {}),
     });
+    const informationCalls: string[] = [];
+    async function invokeInformation(options: Options, commandId: string) {
+      if (idleSuccess) return; // This scenario intentionally selects only communication.
+      if (![f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold'].includes(commandId))
+        return;
+      const server = options.mcpServers!['mitzo-connections'] as McpSdkServerConfigWithInstance;
+      const client = new Client({ name: 'synthetic-information-provider', version: '1' });
+      const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+      await server.instance.connect(serverTransport);
+      await client.connect(clientTransport);
+      try {
+        const names = (await client.listTools()).tools.map((tool) => tool.name);
+        expect(names).toEqual(
+          expect.arrayContaining([
+            'SearchPastSessions',
+            'ReadPastSession',
+            'ReadKnowledge',
+            'SaveKnowledgeDraft',
+            'AgentReadTasks',
+            'AgentProposeTask',
+            'AgentCommunication',
+          ]),
+        );
+        expect(names).not.toContain('ListSessions');
+        for (const [name, input] of [
+          ['AgentCommunication', { operation: 'list', offset: 0 }],
+          ['SearchPastSessions', { query: 'information fixture' }],
+          ['ReadPastSession', { conversationId: 'information-fixture' }],
+          ['AgentReadTasks', { action: 'list' }],
+        ] as const) {
+          expect(
+            await options.canUseTool!('mcp__mitzo-connections__' + name, input, {
+              signal: new AbortController().signal,
+              toolUseID: `${commandId}-${name}`,
+            }),
+          ).toMatchObject({ behavior: 'allow' });
+          const result = await client.callTool({ name, arguments: input });
+          expect(result.isError, JSON.stringify(result)).not.toBe(true);
+          if (name === 'ReadPastSession')
+            expect(JSON.stringify(result.content)).toContain('Public information fixture');
+          if (name === 'SearchPastSessions')
+            expect(JSON.stringify(result.content)).toContain('information-fixture');
+        }
+        informationCalls.push(commandId);
+      } finally {
+        await client.close();
+        // SDK owns the server lifetime. Its query is still consuming this call.
+      }
+    }
     if (personal) {
       const capture = ClaudeSubscriptionCustody.capture;
       vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
@@ -319,6 +368,7 @@ it.each(
                 parent_tool_use_id: null,
                 message: { role: 'user', content: message.message.content },
               };
+            await invokeInformation(request.options as Options, message.mitzoMessageId);
             if (first) {
               first = false;
               const completed = new Promise<void>((resolve) => {
@@ -368,6 +418,16 @@ it.each(
       return instance;
     });
     const chat = await import('../../server/chat.js');
+    chat.eventStore.upsertSession({
+      sessionId: 'information-fixture',
+      conversationSource: 'mitzo',
+      summary: 'Public information fixture',
+    });
+    chat.eventStore.append('information-fixture', 'user_message', {
+      text: 'Public information fixture',
+    });
+    const agentTasks = await import('../../server/agent-task-runtime.js');
+    cleanups.push(() => agentTasks.closeAgentTasks());
     cleanups.push(async () => {
       const live = chat.registry.findBySessionId(f.reservation.conversationId);
       live?.session.ordinaryRuntimeOwner?.close();
@@ -519,7 +579,8 @@ it.each(
     const deadline = preparationTimers.mock.calls.find(([, delay]) => delay === 120000)?.[0];
     expect(deadline).toBeTypeOf('function');
     if (typeof deadline === 'function') deadline();
-    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
+    // The synthetic provider executes real MCP readers before reaching its pause.
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'), { timeout: 10_000 });
     expect(providerInputs[0]).toContain(agentLibrarySource.content);
     expect(providerInputs[0]).toContain(
       'Create or refine a clickable mockup for First SDK dashboard',
@@ -822,10 +883,12 @@ it.each(
     });
     expect(providerInputs[1]).toContain('Create or refine a clickable mockup for Frozen followup');
     expect(chat.eventStore.getSendCommand('queued')?.payload.text).toBe('/mockup Frozen followup');
-    await vi.waitFor(() =>
-      expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
-        'TERMINAL',
-      ),
+    await vi.waitFor(
+      () =>
+        expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
+          'TERMINAL',
+        ),
+      { timeout: 10_000 },
     );
     expect(services.requests[1].options).toMatchObject({
       resume: f.reservation.conversationId,
@@ -930,8 +993,19 @@ it.each(
     });
     // The actual owner recreates its MCP surface for queued and cold queries.
     // Their terminal callbacks are retired; inspect exposure without re-executing them.
+    await vi.waitFor(
+      () =>
+        expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
+          'TERMINAL',
+        ),
+      { timeout: 10_000 },
+    );
     for (const request of services.requests.slice(1))
       await inspectConnections(request.options as Options);
+    if (!idleSuccess)
+      expect(informationCalls).toEqual(
+        expect.arrayContaining([f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold']),
+      );
     await vi.waitFor(() =>
       expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
         'TERMINAL',
@@ -1083,7 +1157,7 @@ it.each(
       true,
     );
   },
-  15_000,
+  30_000,
 );
 
 it('a qualified preparation A starts model B on its original checkout and exact retry cannot launch again', async () => {

@@ -15,6 +15,8 @@ import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentTasks } from './agent-task-runtime.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
+import { reportToolFailure } from './tool-failure-reporting.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 
 export const agentTaskToolDefinitions = [
   {
@@ -169,10 +171,15 @@ export function sessionAgentTaskTools(
         }
         return { content: JSON.stringify(result), isError: false };
       } catch (error) {
-        return {
-          content: error instanceof Error ? error.message : 'Task tool failed',
-          isError: true,
-        };
+        const failure = reportToolFailure(error, {
+          sessionId,
+          tool: name,
+          signal,
+          callId: call?.callId,
+        });
+        return name === 'AgentReadTasks' && !signal.aborted
+          ? retainCallbackOutcome(failure, 'settled')
+          : failure;
       }
     },
   };

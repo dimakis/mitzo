@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { EventStore, StoredEvent } from './event-store.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
+import { reportToolFailure } from './tool-failure-reporting.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import {
   HISTORY_SCAN_LIMIT,
   readHistoryMessages,
@@ -19,7 +21,7 @@ const searchCursor = z.strictObject({
   throughSeq: seq,
   query: z.string().trim().min(1).max(256),
 });
-const schemas = {
+export const sessionHistoryToolSchemas = {
   SearchPastSessions: z.strictObject({
     query: z.string().trim().min(1).max(256),
     limit: z.number().int().min(1).max(20).default(20),
@@ -38,6 +40,7 @@ const schemas = {
     beforeSeq: seq.optional(),
   }),
 };
+const schemas = sessionHistoryToolSchemas;
 type ToolName = keyof typeof schemas;
 
 export const sessionHistoryToolDefinitions = [
@@ -59,6 +62,7 @@ export const sessionHistoryToolDefinitions = [
  * owners. Constructing this adapter or naming a conversation grants no access.
  * Both assertions must check current operator/session/tool/skill ownership. */
 export interface HistoryAccess {
+  conversationId?: string;
   signal: AbortSignal;
   assertCurrent(): void;
   assertCurrentAsync(): Promise<void>;
@@ -465,12 +469,17 @@ export function sessionHistoryTools(owners: Owners) {
         const content = JSON.stringify(value);
         current();
         return { content, isError: false };
-      } catch {
+      } catch (error) {
         // Authority/configuration errors may contain sensitive diagnostics.
-        return {
-          content: 'Session history is unavailable under current authorization or request bounds.',
-          isError: true,
-        };
+        const failure = reportToolFailure(error, {
+          sessionId: access?.conversationId ?? 'history',
+          tool: name,
+          callId: call?.callId,
+          signal: externalSignal,
+        });
+        // History cannot produce an uncertain write. A failed observation must
+        // not retire the query as an unsettled mutation; cancellation stays fenced.
+        return externalSignal.aborted ? failure : retainCallbackOutcome(failure, 'settled');
       } finally {
         access?.dispose();
       }
