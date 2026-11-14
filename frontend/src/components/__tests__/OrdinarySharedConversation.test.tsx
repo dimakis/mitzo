@@ -41,9 +41,10 @@ beforeEach(() => {
   polls = [];
   const setInterval = window.setInterval.bind(window);
   vi.spyOn(window, 'setInterval').mockImplementation((callback, timeout) => {
-    if (timeout && timeout < 100) return setInterval(callback, timeout);
+    if (timeout && timeout < 100)
+      return setInterval(callback, timeout) as unknown as NodeJS.Timeout;
     polls.push(callback as () => void);
-    return polls.length as unknown as ReturnType<typeof window.setInterval>;
+    return polls.length as unknown as NodeJS.Timeout;
   });
 });
 afterEach(() => {

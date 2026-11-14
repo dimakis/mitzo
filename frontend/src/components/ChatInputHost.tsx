@@ -9,10 +9,23 @@ import {
 import { createPortal } from 'react-dom';
 import { ChatInputMountContext } from '../lib/chat-input-mount';
 import {
+  ActiveContext,
+  SinkContext,
+  useComposerStatusSink,
+  type ComposerStatusSink,
+} from '../lib/composer-status-context';
+import {
   SharedConversationComposerContext,
   type SharedConversationComposerRouting,
 } from '../lib/shared-conversation-composer';
 import './ChatInputHost.css';
+
+type InputSnapshot = {
+  content: ReactNode;
+  routing: SharedConversationComposerRouting;
+  sink: ComposerStatusSink | null;
+  statusActive: boolean;
+};
 
 /** One ordinary input across phone/desktop page owners. Moving its DOM target
  * preserves the actual textarea, rich edits and pending delivery callbacks. */
@@ -26,9 +39,11 @@ export function ChatInputHost({
   const store = useMemo(() => {
     const container = document.createElement('div');
     container.className = 'chat-input-host';
-    let snapshot: { content: ReactNode; routing: SharedConversationComposerRouting } = {
+    let snapshot: InputSnapshot = {
       content: null,
       routing: null,
+      sink: null,
+      statusActive: false,
     };
     let contentSessionId: string | undefined;
     let target: HTMLElement | null = null;
@@ -44,7 +59,7 @@ export function ChatInputHost({
         (snapshot.content === nextContent && snapshot.routing === routing)
       )
         return;
-      snapshot = { content: nextContent, routing };
+      snapshot = { ...snapshot, content: nextContent, routing };
       listeners.forEach((listener) => listener());
     };
     const attachTarget = (nextTarget: HTMLElement) => {
@@ -72,6 +87,19 @@ export function ChatInputHost({
         };
       },
       update,
+      updateStatus(
+        nextTarget: HTMLElement,
+        sink: ComposerStatusSink | null,
+        statusActive: boolean,
+      ) {
+        if (
+          target !== nextTarget ||
+          (snapshot.sink === sink && snapshot.statusActive === statusActive)
+        )
+          return;
+        snapshot = { ...snapshot, sink, statusActive };
+        listeners.forEach((listener) => listener());
+      },
       updateRouting(nextTarget: HTMLElement, routing: SharedConversationComposerRouting) {
         update(nextTarget, snapshot.content, routing);
       },
@@ -126,13 +154,15 @@ export function RetainedChatInputSlot({
 }) {
   const host = useContext(ChatInputMountContext);
   const shared = useContext(SharedConversationComposerContext);
+  const sink = useComposerStatusSink();
+  const statusActive = useContext(ActiveContext);
   const slot = useRef<HTMLDivElement>(null);
   const retained = host && host.sessionId === sessionId && host.hasRetained() ? host : null;
   useLayoutEffect(() => {
     if (retained && slot.current) return retained.attachRetained(slot.current);
   }, [retained]);
   useLayoutEffect(() => {
-    if (retained && slot.current)
+    if (retained && slot.current) {
       retained.updateRouting(
         slot.current,
         shared ?? {
@@ -140,6 +170,8 @@ export function RetainedChatInputSlot({
           props: { sendDisabledReason: 'Checking conversation status…' },
         },
       );
+      retained.updateStatus(slot.current, sink, statusActive);
+    }
   });
   return retained ? <div className="chat-input-mount" ref={slot} /> : children;
 }
@@ -148,14 +180,18 @@ function InputPortal({
 }: {
   store: {
     container: HTMLElement;
-    getSnapshot(): { content: ReactNode; routing: SharedConversationComposerRouting };
+    getSnapshot(): InputSnapshot;
     subscribe(listener: () => void): () => void;
   };
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   return createPortal(
     <SharedConversationComposerContext.Provider value={snapshot.routing}>
-      {snapshot.content}
+      <SinkContext.Provider value={snapshot.sink}>
+        <ActiveContext.Provider value={snapshot.statusActive}>
+          {snapshot.content}
+        </ActiveContext.Provider>
+      </SinkContext.Provider>
     </SharedConversationComposerContext.Provider>,
     store.container,
   );
