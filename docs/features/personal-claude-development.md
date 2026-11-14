@@ -22,3 +22,8 @@ canned localhost Messages responses and disposable repositories. It makes no
 real model call. The ordinary-chat integration test separately verifies that the
 actual personal startup options omit the extra sandbox while private direct
 file requests remain denied.
+
+Linux unit runners install `bubblewrap` and `socat` and enable the user namespaces
+required by the installed SDK's EnMaaS subprocess-scrubbing sandbox. The probe
+retains its real Bash execution and repository-write assertions, with per-mode
+SDK diagnostics attached to failures.
