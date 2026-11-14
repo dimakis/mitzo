@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1160-claude-parity-information-composition';
+  'v1.0.1161-claude-command-fixture-types';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -112,7 +112,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-sdk-effects.test.ts':
     'a8406abd321988a9498a2e9f03632fb6e0f511934ea6af59fa96fee029e1b224',
   '../__tests__/ordinary-sdk-command-skill-boundary.test.ts':
-    '42045964dc3c54ab17c3c1e2a3b43291b4f02ab743262b71cac8c787f73bc7fe',
+    'a2229c975c155cffbb676199aea895cab47f367be8da6cd7d1e8118864bbf11f',
   '../__tests__/ordinary-sdk-profile-retirement.test.ts':
     '4ec14505cdfd8df03aff80ef8a847bb21782f64bf75ee9f7344e8b81494161c9',
   '../../packages/protocol/src/ordinary-skill-context.ts':

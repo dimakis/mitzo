@@ -67,15 +67,31 @@ in the delivery conversation workspace, outside the Git working tree:
   the existing task effect fixtures.
 - `stop-ceiling-composition.log`:five command-boundary cases pass, including
   restricted Stop-before-input → retained FIFO Continue with a deny-all successor.
+- `task-all-profiles.log`:21 task tests pass, including default and explicit
+  profiles plus exact exclusions across personal Claude, Vertex and API accounts.
+- `residual-public-boundaries.log`:368 tests pass across nine existing suites:
+  public skill refusal, parser/dependencies, composer replay, Access controls,
+  session launch/prompt operations and WebSocket admission.
 
-Some suite counts overlap and must not be summed. Expanded task-profile results,
-source preflight and hosted gates will be recorded after completion. Synthetic
+Some suite counts overlap and must not be summed. Hosted gates will be recorded
+after completion. Synthetic
 providers/process effects/push transports are distinct from live model/account,
 service-write, physical-device, adoption or deployment qualification.
 
 ## Delivery checkpoint
 
-Publication, current combined-head CI, trusted Centaur final LGTM/merge with zero
+Initial published candidate `1c9174bdc` is mergeable and preserves the original
+remote history. CI43600568696 caught a fixture inference cycle after the accepted
+`beforeInput` return changed from void to boolean. Explicit return/owner types
+break that cycle without changing behavior. A scoped semantic TypeScript check
+of the fixture and three affected handler sources reports zero diagnostics.
+Source fingerprints pass; the full server build remains a hosted gate after
+the local1GiB heap exhaustion. Preflight's printed native-failure lines are
+expected negative-control output from its Python fixture tests, not additional
+native test failures. Automatic Centaur7468 is queued on the failed CI; no
+duplicate review was dispatched. Prior job7356 was skipped at the cycle cap.
+
+Current combined-head CI, trusted Centaur final LGTM/merge with zero
 blockers, required independent permission review, actual coordinated turn and
 head/base-fenced merge remain required. The old #1342 Centaur report at
 `183951ef` identifies Symposium authorization replay; inspect superseding accepted

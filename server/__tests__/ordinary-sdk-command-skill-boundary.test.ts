@@ -137,7 +137,7 @@ function fixture(
       current();
     },
     authorizeSync: current,
-    beforeInput: (id) => owner.assertInputCurrent(id),
+    beforeInput: (id): boolean => owner.assertInputCurrent(id),
     adapt: (native) => native as never,
     settings: () => ({}),
     inputChanged: () => {},
@@ -152,7 +152,7 @@ function fixture(
       return {};
     },
   });
-  const owner = new OrdinaryLocalVertexCommandOwner({
+  const owner: OrdinaryLocalVertexCommandOwner = new OrdinaryLocalVertexCommandOwner({
     store,
     sessionId: 'session',
     assertCurrent: current,
