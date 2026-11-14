@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { createMitzoStore } from '@mitzo/client';
-import { MitzoStoreProvider } from '@mitzo/client/hooks';
+import { CollaborationMessageInputSchema } from '@mitzo/protocol';
 import { createApplicationJourney } from '../../server/__tests__/fixtures/symposium-application-journey.js';
 import { recordApplicationMessagingRuntime } from '../../server/__tests__/fixtures/symposium-recording-runtime.js';
 import { installDialogStub } from '../../frontend/src/components/__tests__/dialog-stub';
@@ -66,17 +66,38 @@ afterAll(async () => {
 });
 
 async function mountOrdinary(width = 390, source = 'existing-chat', shared = true) {
+  let currentWidth = width;
+  const mediaQueries = new Map<
+    string,
+    { matches: boolean; listeners: Set<(event: { matches: boolean }) => void> }
+  >();
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
-    value: (query: string) => ({
-      matches: query === '(min-width: 768px)' && width >= 768,
-      media: query,
-      addEventListener() {},
-      removeEventListener() {},
-    }),
+    value: (query: string) => {
+      let media = mediaQueries.get(query);
+      if (!media) {
+        media = {
+          matches: query === '(min-width: 768px)' && currentWidth >= 768,
+          listeners: new Set(),
+        };
+        mediaQueries.set(query, media);
+      }
+      const selectedMedia = media;
+      return {
+        get matches() {
+          return selectedMedia.matches;
+        },
+        media: query,
+        addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) =>
+          selectedMedia.listeners.add(listener),
+        removeEventListener: (_type: string, listener: (event: { matches: boolean }) => void) =>
+          selectedMedia.listeners.delete(listener),
+      };
+    },
   });
   const { ResponsiveChatView } = await import('../../frontend/src/components/ResponsiveChatView');
+  const { MitzoStoreProvider } = await import('@mitzo/client/hooks');
   const history = await h.typedApi.getSessionMessages(source);
   const store = createMitzoStore({
     transport: { fetch: transport.fetch },
@@ -117,6 +138,17 @@ async function mountOrdinary(width = 390, source = 'existing-chat', shared = tru
   return {
     ui,
     store,
+    resize(nextWidth: number) {
+      currentWidth = nextWidth;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: currentWidth });
+      for (const [query, media] of mediaQueries) {
+        const matches = query === '(min-width: 768px)' && currentWidth >= 768;
+        if (matches === media.matches) continue;
+        media.matches = matches;
+        for (const listener of media.listeners) listener({ matches });
+      }
+      window.dispatchEvent(new Event('resize'));
+    },
     close() {
       ui.unmount();
       store.getState().invalidateAuthentication();
@@ -350,10 +382,38 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
         String(init.body).includes('First explicit accepted review'),
     )!;
     expect(call).toBeTruthy();
-    const input = JSON.parse(String(call[1]!.body));
+    const input = CollaborationMessageInputSchema.parse(JSON.parse(String(call[1]!.body)));
     await h.api.send(group, input);
     await h.api.send(group, input);
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+    await mounted.store.getState().refreshSessions();
+    expect(
+      mounted.store
+        .getState()
+        .sessions.list!.filter((s) => [source, recipient].includes(s.id))
+        .map((s) => s.id),
+    ).toEqual([source]);
+    const retainedInput = screen.getByRole('textbox', {
+      name: 'Message Mitzo',
+    }) as HTMLTextAreaElement;
+    fireEvent.change(retainedInput, {
+      target: { value: 'Draft while changing responsive owners' },
+    });
+    retainedInput.focus();
+    retainedInput.setSelectionRange(3, 10);
+    for (const width of [1280, 320, 390]) {
+      act(() => mounted.resize(width));
+      expect.soft(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(retainedInput);
+      await waitFor(
+        () => expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(retainedInput),
+        { timeout: 5000 },
+      );
+      expect(retainedInput.value).toBe('Draft while changing responsive owners');
+      expect(document.activeElement).toBe(retainedInput);
+      expect([retainedInput.selectionStart, retainedInput.selectionEnd]).toEqual([3, 10]);
+      expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
+      expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+    }
     await waitFor(
       () =>
         expect(
@@ -435,31 +495,68 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
         ),
       ).toBe(true),
     );
-    const current = await h.api.view(group);
-    const held = {
-      requestId: crypto.randomUUID(),
-      expectedMembershipRevision: current.membershipRevision,
-      expectedPolicySequence: current.policySequence,
-      text: 'Retain original operation through lost response and Stop.',
-      responders: { kind: 'selected' as const, sessionIds: [failed] },
-      snapshot: null,
-    };
-    runtime.holdTurn(6);
-    // Lose a committed response in the transport, then inspect the same input.
-    const lost = await h.fetch(`/api/session-collaborations/${group}/messages`, {
-      method: 'POST',
-      body: JSON.stringify(held),
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByRole('button', { name: 'Choose who replies' }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      { timeout: 10000 },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    const selection = screen.getByRole('group', { name: 'Who replies to this prompt' });
+    const failedName = failed === source ? 'Current agent' : 'AcceptanceReviewer';
+    for (const checkbox of within(selection).getAllByRole('checkbox')) {
+      const wanted = checkbox.closest('label')?.textContent?.trim() === failedName;
+      if ((checkbox as HTMLInputElement).checked !== !!wanted) fireEvent.click(checkbox);
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+    let loseSend = true;
+    let loseStop = true;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      const response = await h.fetch(url, init);
+      if (
+        response.ok &&
+        init?.method === 'POST' &&
+        String(init.body).includes('Retain original operation through lost response and Stop.')
+      ) {
+        if (loseSend && url.endsWith('/messages')) {
+          loseSend = false;
+          throw Error('Offline committed send response lost');
+        }
+        if (loseStop && url.endsWith('/messages/stop')) {
+          loseStop = false;
+          throw Error('Offline committed Stop response lost');
+        }
+      }
+      return response;
     });
-    expect(lost.status).toBe(200);
-    // Caller deliberately receives no response body; the original receipt is retained server-side.
+    runtime.holdTurn(6);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
+      target: { value: 'Retain original operation through lost response and Stop.' },
+    });
+    await waitFor(() => expect(send().disabled).toBe(false));
+    fireEvent.click(send());
     await waitFor(() =>
       expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(6),
     );
+    expect(loseSend).toBe(false);
+    const lostCall = h.fetch.mock.calls.find(
+      ([url, init]) =>
+        url.endsWith('/messages') &&
+        init?.method === 'POST' &&
+        String(init.body).includes('Retain original operation through lost response and Stop.'),
+    )!;
+    const held = CollaborationMessageInputSchema.parse(JSON.parse(String(lostCall[1]!.body)));
     const observed = await h.api.observeSend(group, held);
-    expect(observed.message?.requestId).toBe(held.requestId);
+    expect(observed.message?.messageId).toBe(
+      h.events.collaborationConversation.getMessageForRequest(group, held)?.messageId,
+    );
+    expect(observed.message?.responders).toEqual([failed]);
     await h.api.send(group, held);
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(6);
-    await h.api.stopSend(group, held);
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop generation' }));
+    await waitFor(() => expect(loseStop).toBe(false));
     await h.api.stopSend(group, held);
     expect(runtime.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
     await waitFor(() => runtime.streamTurn(6, 'Last observed partial text'));
@@ -474,13 +571,59 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
     mounted.close();
     mounted = await mountOrdinary(390, source);
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(6);
-    const listing = await h.typedApi.listSessions();
+    await mounted.store.getState().refreshSessions();
+    const listing = mounted.store.getState().sessions.list!;
     expect
       .soft(listing.filter((s) => [source, recipient].includes(s.id)).map((s) => s.id))
       .toEqual([source]);
     fireEvent.click(await screen.findByRole('button', { name: /^Agents/ }));
-    expect(await screen.findByText('AcceptanceReviewer', { exact: true })).toBeTruthy();
+    expect(
+      (await screen.findAllByText('AcceptanceReviewer', { exact: true })).length,
+    ).toBeGreaterThan(0);
+    mounted.close();
+    await transport.close();
+    const { registry } = await import('../../server/chat.js');
+    for (const [clientId] of [...registry.entries(true)]) registry.abort(clientId);
+    await vi.waitFor(async () =>
+      (await import('../../server/repository-workspace-runtime.js'))
+        .getRepositoryWorkspaces(true)
+        .closeIdle(),
+    );
+    runtime.restore();
+    await journey.restartApplication();
+    h = await journey.getApplicationUiJourney();
+    (await import('../../server/auth.js')).setAuthRevocationStore(h.events);
+    runtime = await recordApplicationMessagingRuntime(h.events);
+    transport = await applicationEventSource(journey.state.app, journey.state.cookie);
+    vi.stubGlobal('fetch', h.fetch);
+    // Fresh frontend auth proof and a new SSE welcome, with the original DB,
+    // request, command and participant identities; no warm provider is reused.
+    expect(
+      await (await import('../../frontend/src/lib/api-fetch')).restoreCookieAuthentication(),
+    ).toBe(true);
+    mounted = await mountOrdinary(390, source);
+    const restarted = await h.api.observeSend(group, held);
+    expect(restarted.message?.messageId).toBe(observed.message?.messageId);
+    expect(restarted.message?.deliveries.map((d) => d.commandId)).toEqual(
+      observed.message?.deliveries.map((d) => d.commandId),
+    );
+    expect(restarted.terminal).toBe(false);
+    expect(runtime.requests).toHaveLength(0);
+    await mounted.store.getState().refreshSessions();
+    expect(
+      mounted.store
+        .getState()
+        .sessions.list!.filter((s) => [source, recipient].includes(s.id))
+        .map((s) => s.id),
+    ).toEqual([source]);
+    expect(
+      (await h.api.view(group)).joinedParticipants.some(
+        (p) => p.sessionId === recipient && p.name === 'AcceptanceReviewer',
+      ),
+    ).toBe(true);
+    expect(h.events.getSession(recipient)?.isHidden).not.toBe(true);
+    expect(mounted.ui.container.querySelectorAll('.chat-messages')).toHaveLength(1);
   } finally {
     mounted.close();
   }
-}, 60000);
+}, 90000);

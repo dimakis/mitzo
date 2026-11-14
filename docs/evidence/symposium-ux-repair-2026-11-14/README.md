@@ -95,3 +95,36 @@ CI and Centaur's exact-current-head final LGTM/`merge`, zero blockers, and separ
 merge authority. Source, browser, device and production acceptance remain distinct.
 The present red tests and original failures are retained intentionally for the
 combined repair; they are not a feature-completion receipt.
+
+## First combined checkpoint
+
+Production candidate head `0ae4454d2542e79199568996a081a97a7b889719` integrates
+slice 1 originals `441591947`, `dbf72bc9e`, `60cc2dda3`, `66cb1a780`, and slice 2
+originals `ad6be7430`, `68a99f6e9`, `fc9215570`, `074aab96f`, `bca1155bb`,
+`74775efb8` ([draft #1354](https://github.com/dimakis/mitzo/pull/1354)).
+The only conflict was adjacent imports in `SharedConversation.tsx`; all three
+imports were retained. No production behavior was independently edited here.
+
+`combined-ui-0ae4454d2.log` records 8/9 new integrated checks passing: singleton
+transcript/composer at all three responsive widths; actual enabled ordinary
+textarea and draft retained through the full real joining flow; attributed
+streaming/finalization and exact successful-request retries; all five omitted-owner
+controls. The long journey still stops at the real existing-source readiness guard.
+`combined-focused-0ae4454d2.log` records 126 passes/1 existing skip in 12 files,
+including the protected design checks and selected transcript/input/navigation
+owner regressions. These selections overlap; their counts are not added.
+
+The extended harness also exercises actual phone-to-desktop-to-phone owner
+transitions. `combined-viewport-0ae4454d2.log` retains two immediate failures:
+the visible composer briefly becomes an empty disabled qualification placeholder
+at each layout-owner change. The original input, draft, focus and selection do
+return after requalification. That eventual restoration does not satisfy the
+immediate stability assertion. Slice 1 received this independent failure as well
+as the ordinary source-admission blocker. The first-reply Chats list projection
+already passes through the real client store, without hiding the raw participant.
+
+Partial failure, uncertain Stop, lost-response UI recovery and full process restart
+remain prepared but unreached in this checkpoint. They must run to completion
+after both blockers are repaired; they are not inferred from earlier shared-body
+tests. Browser execution and visual comparison still require hosted CI. No merge,
+phone/device, live-runtime or production completion follows from this checkpoint.
