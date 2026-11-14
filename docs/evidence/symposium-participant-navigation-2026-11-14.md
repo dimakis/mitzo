@@ -112,3 +112,20 @@ conflicting, head `4f5dd94981c9c4bd4b9b31e639a3fae7f560772f` when inspected).
 The Claude parity stack has merge priority. This repair is prepare-only; any later
 merge needs fresh accepted-main integration, combined CI, exact-head Centaur LGTM
 and separate merge authorization.
+
+## CI source-preflight follow-up
+
+The first hosted preflight exposed stale source fingerprints and server-test imports
+crossing the server TypeScript root. The persisted fixture now lives under
+`server/__tests__/fixtures/collaboration-navigation.ts`; protocol tests reuse it.
+The pure `conversationActivities` projection lives in the protocol package and is
+re-exported by the existing frontend module, so the real emitter/consumer test uses
+the same production projection without importing frontend source into the server
+compiler. The test's dependency callbacks have explicit parameter types.
+
+The runtime registration advances to
+`v1.0.1150-symposium-participant-navigation`, refreshes changed source fingerprints
+and registers the new owner/projection/test modules. The source-only artifact check
+passes against the actual final bytes. This is a candidate registration, not trusted
+review, source acceptance or runtime activation. Slice 3 must regenerate again from
+its final combined sources rather than adopt this branch's differing fingerprints.

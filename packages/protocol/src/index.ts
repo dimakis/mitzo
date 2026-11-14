@@ -1,5 +1,6 @@
 export * from './markdown-paths.js';
 export * from './ordinary-turn.js';
+export { conversationActivities } from './conversation-activity.js';
 export {
   ToolFailureSchema,
   toolFailure,
