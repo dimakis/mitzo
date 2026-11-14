@@ -12,6 +12,7 @@ const f = vi.hoisted(() => ({
   binding: {} as Record<string, unknown>,
   selection: {} as Record<string, unknown>,
   authorized: true,
+  primaryOperator: false,
   sdkOutcome: undefined as 'completed' | 'failed' | 'interrupted' | 'uncertain' | undefined,
   native: { captureInterruptTarget: vi.fn(), interruptIfCurrent: vi.fn() },
   current: vi.fn(),
@@ -36,7 +37,7 @@ vi.mock('../ordinary-sdk-turn-evidence.js', () => ({
 vi.mock('../auth.js', () => ({
   isAuthSessionCurrent: () => f.authorized,
   hasPersistentRevocationAuthority: () => true,
-  isAuthenticatedOperatorSessionId: () => false,
+  isAuthenticatedOperatorSessionId: () => f.primaryOperator,
 }));
 vi.mock('../codex-chat-session.js', () => ({ getCodexRuntime: () => f.native }));
 vi.mock('../agent-library-transport.js', () => ({ bindAgentLibraryTransport: () => f.release }));
@@ -72,6 +73,7 @@ vi.mock('../ordinary-openshell-codex-entry.js', () => ({
 
 function fixture(harness = 'codex', location = 'local') {
   f.authorized = true;
+  f.primaryOperator = false;
   f.sdkOutcome = undefined;
   f.dispatch.mockClear();
   f.current.mockClear();
@@ -173,6 +175,19 @@ function fixture(harness = 'codex', location = 'local') {
     }),
   };
 }
+it('requires verified primary-operator identity for a different Claude prompt login', async () => {
+  const h = fixture('claude-sdk');
+  f.live = {
+    clientId: 'original-driver',
+    session: { ordinaryRuntimeOwner: { authSessionId: 'original-login' } },
+  };
+  await expect(h.port.inspect('worker', h.delivery.auth)).rejects.toThrow('current login');
+  f.primaryOperator = true;
+  await expect(h.port.inspect('worker', h.delivery.auth)).resolves.toEqual({ busy: false });
+  f.authorized = false;
+  await expect(h.port.inspect('worker', h.delivery.auth)).rejects.toThrow('authorization');
+  expect(f.dispatch).not.toHaveBeenCalled();
+});
 it('forwards the exact idle SDK sender fence into ordinary admission', async () => {
   const h = fixture('claude-sdk');
   f.live = {

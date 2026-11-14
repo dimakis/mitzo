@@ -344,10 +344,14 @@ it.each(['responses', 'claude-sdk'] as const)(
   },
 );
 
-it.each(['local', 'openshell'] as const)(
-  'authorizes cross-login operator controls for retained Codex conversations: %s',
-  async (location) => {
-    const f = fixture(true, 'codex', location);
+it.each([
+  { harness: 'codex', location: 'local' },
+  { harness: 'codex', location: 'openshell' },
+  { harness: 'claude-sdk', location: 'local' },
+] as const)(
+  'authorizes cross-login operator controls for retained $harness conversations on $location',
+  async ({ harness, location }) => {
+    const f = fixture(true, harness, location);
     const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
     if (!auth) throw Error('Fixture login failed');
     const connection = randomUUID();
@@ -371,5 +375,23 @@ it.each(['local', 'openshell'] as const)(
         eventStore: f.store,
       }),
     ).toBe('denied');
+  },
+);
+
+it.each(['reattach', 'subscribe', 'permission_response'] as const)(
+  'keeps an unverified Claude %s caller outside the primary operator realm',
+  (type) => {
+    const f = fixture(true, 'claude-sdk');
+    const other = f.actor(false);
+    const message: Message =
+      type === 'reattach'
+        ? { type, clientId: f.driverId }
+        : type === 'subscribe'
+          ? { type, sessionId: f.sessionId }
+          : { type, permId: f.permId, sessionId: f.sessionId, decision: 'once' };
+    expect(() => f.dispatch(other, message)).toThrow('another login');
+    expect(f.registry.get(f.driverId)?.transport).toBe(f.originalTransport);
+    expect(f.approval).not.toHaveBeenCalled();
+    expect(hasPending(f.permId)).toBe(true);
   },
 );

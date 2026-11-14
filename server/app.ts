@@ -1,6 +1,7 @@
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import { agentMessageRuntime } from './agent-message-runtime.js';
 import { continueOwnedLocalVertexQueue } from './ordinary-local-vertex-entry.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
@@ -4012,7 +4013,7 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
         owner?.sdkTurns &&
         auth &&
         auth.expiresAt > Date.now() &&
-        owner.authSessionId === auth.id,
+        ordinaryOperatorOwnsConversation(owner.authSessionId, auth.id),
       ),
     };
   }
