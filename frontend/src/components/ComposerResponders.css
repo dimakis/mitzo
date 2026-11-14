@@ -62,3 +62,9 @@
   text-overflow: ellipsis;
   font-size: var(--text-sm);
 }
+.chat-input-btn.composer-responders-trigger--icon,
+.chat-input--compact .chat-input-btn.composer-responders-trigger--icon {
+  width: var(--control-height);
+  max-width: none;
+  padding: var(--space-2);
+}

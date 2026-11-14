@@ -147,6 +147,8 @@ interface Props {
   externalContextBlocks?: string[];
   onExternalContextBlockToggle?: (name: string) => void;
   tokenState?: TokenState;
+  /** Display label for this wheel's existing source usage, independent of reply recipients. */
+  tokenOwnerName?: string;
   collaboration?: ReactNode;
   compactions?: import('@mitzo/protocol').ContextCompaction[];
   compactionError?: string;
@@ -256,6 +258,7 @@ function ChatInputContent({
   externalContextBlocks,
   onExternalContextBlockToggle,
   tokenState,
+  tokenOwnerName,
   collaboration,
   compactions,
   compactionError,
@@ -1799,6 +1802,7 @@ function ChatInputContent({
             {tokenState && (
               <TokenBar
                 tokenState={tokenState}
+                ownerName={tokenOwnerName}
                 alwaysVisible
                 userTurns={messages.filter((message) => message.role === 'user').length}
               />

@@ -137,7 +137,30 @@ at 200%; 390px measured 158px/166px. Its remaining six failures were at desktop
 1280px/200%: the 172px minimum entry left 52px after two 20px glyphs, two 24px
 gaps and two 16px paddings. The desktop minimum now includes those existing
 glyph/gap/padding tokens as well as the name track; the verified phone minimum
-is preserved in the phone rule. Fresh desktop geometry remains unverified.
+is preserved in the phone rule. Slice 3 subsequently reports run `43596283360`
+at combined `1cab1837c` passing both actual application and responsive render
+jobs, including desktop/phone geometry. Its capture inspection and full CI remain
+separate gates; this branch has not independently rerun the hosted matrix.
+
+Dimitri's composer feedback requires the ordinary shared recipient control to
+remain icon-only and retain the original context wheel, microphone, tools and
+resources. Names and unavailable selection details remain in the picker, tooltip
+and accessible description. A production-owner regression keeps the exact input,
+wheel and microphone through joining, reviewer-only selection, source activity and
+responsive requalification. It opens the real wheel and proves that its usage is
+still attributed to Architect, then invokes the original voice owner. No hardware
+or speech/model service is used. This test and 53 related composer/status/usage
+checks pass. The narrow browser fixture now explicitly supplies deterministic
+audio capability and token evidence through existing props, with DOM-retention
+checks for the real MicButton and TokenBar. The broader application fixture lacks
+these capabilities and cannot prove those controls' visibility.
+
+The user also approved the separate `v004` exploratory context-wheel mockup:
+selected-agent color segments and count in the composer, individual named wheels
+in the Agents popup, and unreported usage kept unknown. This is a retained design
+direction, not implemented multi-agent usage plumbing or production acceptance.
+The current production change names the existing source wheel; it never relabels
+source usage when a different reply recipient is selected.
 
 Centaur's `bb219f421` review identified four further blocking regressions. Focused
 owner tests reproduce all four before their fixes: encoded native delivery packets

@@ -14,6 +14,7 @@ import { WorkspaceControls } from '../../frontend/src/components/WorkspaceContro
 import { SessionAccess } from '../../frontend/src/components/SessionAccess';
 import { UiIcon } from '../../frontend/src/components/UiIcon';
 import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
+import type { UseVoiceReturn } from '../../frontend/src/hooks/useVoice';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/workspace.css';
@@ -47,6 +48,26 @@ const store = createMitzoStore({
 });
 const api = new MitzoApiClient((url, init) => fetch(url, init));
 const proof = () => 'offline-surface-login';
+// Deterministic audio capability boundary. Render the real MicButton without
+// touching hardware, a speech service, or the production useVoice owner.
+const voice: UseVoiceReturn = {
+  available: true,
+  recording: false,
+  transcribing: false,
+  micBlocked: false,
+  error: null,
+  partialTranscript: '',
+  startRecording: async () => {},
+  stopRecording: async () => '',
+  cancelRecording: () => {},
+  ttsAvailable: false,
+  speaking: false,
+  voices: [],
+  selectedVoice: 'offline',
+  speak: async () => {},
+  stopSpeaking: () => {},
+  setVoice: () => {},
+};
 const messages = [
   {
     messageId: 'ordinary-history',
@@ -123,6 +144,15 @@ function Surface() {
                       sessionId="architect"
                       initialText="Ordinary unsent draft"
                       running={running}
+                      voice={voice}
+                      tokenState={{
+                        agentContext: 5000,
+                        sessionTotal: 9000,
+                        contextCeiling: 0,
+                        numTurns: 2,
+                        turnIndex: 1,
+                        numCompactions: 0,
+                      }}
                       onStop={() => setRunning(false)}
                       onSend={() => false}
                     />

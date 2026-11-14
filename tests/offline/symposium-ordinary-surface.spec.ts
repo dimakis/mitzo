@@ -123,6 +123,14 @@ for (const theme of ['dark', 'light'])
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    const wheel = page.getByRole('button', { name: 'Token usage', exact: true });
+    const mic = page.getByRole('button', { name: 'Record voice message' });
+    for (const control of [wheel, mic]) {
+      await expect(control).toBeVisible();
+      await control.evaluate((node) => {
+        (node as HTMLElement).dataset.retained = 'original';
+      });
+    }
     await expect(input).toHaveValue('Ordinary unsent draft');
     await input.fill('Draft retained through joining and resizing');
     await input.evaluate((node) => {
@@ -130,6 +138,13 @@ for (const theme of ['dark', 'light'])
     });
     await page.getByRole('button', { name: 'Join reviewer externally' }).click();
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('');
+    await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
+    await wheel.click();
+    await expect(page.locator('.token-bar-detail-row').filter({ hasText: 'Agent' })).toHaveText(
+      'AgentArchitect',
+    );
+    await page.keyboard.press('Escape');
     await expect(input).toHaveAttribute('data-retained', 'original');
     await expect(page.locator('.chat-messages')).toHaveCount(1);
     await expect(page.getByText('Ordinary history before joining')).toHaveCount(1);
@@ -138,6 +153,10 @@ for (const theme of ['dark', 'light'])
       await page.setViewportSize({ width, height: 844 });
       await expect(input).toHaveAttribute('data-retained', 'original');
       await expect(input).toHaveValue('Draft retained through joining and resizing');
+      for (const control of [wheel, mic]) {
+        await expect(control).toBeVisible();
+        await expect(control).toHaveAttribute('data-retained', 'original');
+      }
       await expect(page.locator('.chat-messages')).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
       await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
@@ -160,6 +179,8 @@ for (const theme of ['dark', 'light'])
     }
     await page.getByRole('button', { name: 'Toggle source running' }).click();
     await expect(input).toHaveAttribute('data-retained', 'original');
+    await expect(wheel).toHaveAttribute('data-retained', 'original');
+    await expect(mic).toHaveAttribute('data-retained', 'original');
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
     await page.getByRole('button', { name: 'Choose who replies' }).click();
     await page.getByRole('checkbox', { name: 'Architect', exact: true }).uncheck();
