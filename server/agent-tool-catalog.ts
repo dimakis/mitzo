@@ -1,4 +1,5 @@
 import { builtinToolBehavior } from './builtin-tool-behavior.js';
+import { telosSdkToolNames } from './telos-sdk-definitions.js';
 import { googleWorkspaceReadDefinition } from './google-workspace-read.js';
 import { localRepositoryPreparationDefinition } from './local-repository-preparation-tool.js';
 import { localRepositoryToolDefinitions } from './session-local-repository-tools.js';
@@ -103,8 +104,13 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                           'TelosUpdateItem',
                           ...telosBacklogDefinitions.map((tool) => tool.name),
                         ].includes(tool.name)
-                        ? ['codex-owned-local']
-                        : []
+                        ? [
+                            'codex-owned-local',
+                            ...(telosSdkToolNames.includes(tool.name) ? ['claude-sdk'] : []),
+                          ]
+                        : telosSdkToolNames.includes(tool.name)
+                          ? ['claude-sdk']
+                          : []
                       : source === 'Agent Library' || source === 'Knowledge'
                         ? ['local-api', 'codex-owned-local']
                         : source === 'GitHub publishing'
@@ -132,23 +138,24 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
           : tool.name === githubMainPublicationTool.name
             ? 'Requires a current Telos lead or worker role, an explicitly selected native tool, separately configured account-bound merge capability and one-use operator approval.'
             : tool.name === 'TelosWorkControl'
-              ? 'Requires explicit native tool selection, a current retained lead or worker role and original request-only tool approval. The existing coordinator and scope checks still control every operation; selection grants no role or hold authority.'
+              ? 'Available to ordinary Local Mac Claude and selected native profiles. Requires a current retained role and original request-only approval. Existing coordinator and scope checks control every operation; selection grants no role or hold authority.'
               : tool.name === 'TelosStartSlice'
-                ? 'Requires explicit native tool selection, this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child. Explicit execute requests use one-use approval and the original worker’s ordinary command owner; selection alone grants no lead role or execution.'
+                ? 'Available to ordinary Local Mac Claude and selected native profiles. Requires this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child. Explicit execute requests use one-use approval and the original worker’s ordinary command owner; child startup currently requires Local Mac Codex.'
                 : [
                       'TelosCreateOutcome',
                       'TelosAdoptSource',
                       'TelosSaveArtifact',
                       'TelosReadArtifact',
+                      'TelosFindArtifacts',
                     ].includes(tool.name)
                   ? ['TelosCreateOutcome', 'TelosAdoptSource'].includes(tool.name)
-                    ? 'Available to default native chats; explicit profiles must select the tool. Requires a current signed operator and exact one-use reviewed source approval; writes use the canonical Telos store.'
-                    : 'Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store.'
+                    ? 'Available to default native and ordinary Local Mac Claude chats; explicit profiles must select the tool. Requires a current signed operator and exact one-use reviewed source approval; writes use the canonical Telos store.'
+                    : 'Requires current tool selection, signed operator and exact one-use approval. Ordinary Local Mac Claude reuses canonical artifact save/read/find; native reads retain their exact revision requirement. Source captures remain accessible only through reviewed source operations.'
                   : isTelosBacklogTool(tool.name)
                     ? 'Requires the current authenticated operator and original tool selection; brief and lifecycle mutations use exact request approval. Browsing and maintenance require no lead assignment.'
                     : source === 'Telos'
                       ? ['TelosGetItem', 'TelosUpdateItem'].includes(tool.name)
-                        ? 'Requires explicit native selection, a current retained lead and its current canonical assignment for this item or exact direct child, plus request-only approval. Writes retain fresh revision, evidence and original receipt checks; selection grants no completion authority.'
+                        ? 'Requires current tool selection, a retained lead and its current canonical assignment for this item or exact direct child, plus request-only approval. Writes retain fresh revision, evidence and original receipt checks; selection grants no completion authority.'
                         : 'Explicit profile selection is not supported on this native OpenShell route.'
                       : [
                             'ConnectionRequest',

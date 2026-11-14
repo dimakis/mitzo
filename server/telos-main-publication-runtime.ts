@@ -1,4 +1,5 @@
 import { createLogger } from './logger.js';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import { constants, openSync, closeSync, fstatSync, readSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
@@ -117,7 +118,7 @@ export class TelosMainPublicationRuntime {
       this.retired.signal.throwIfAborted();
       const result: unknown = context.assertCurrentSync();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'backlog-authority', context);
         throw unavailable();
       }
     };
@@ -179,7 +180,7 @@ export class TelosMainPublicationRuntime {
         throw unavailable();
       const result: unknown = assertion();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'item-authority', { conversationId: sessionId });
         throw unavailable();
       }
     };
@@ -235,7 +236,7 @@ export class TelosMainPublicationRuntime {
       this.retired.signal.throwIfAborted();
       const result: unknown = context.assertCurrentSync();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'backlog-authority', context);
         throw unavailable();
       }
     };
