@@ -51,7 +51,10 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
     execFileSync('git', ['init', '-q', cwd], {
       env: { PATH: process.env.PATH!, TMPDIR: temporary },
     });
-    const command = `pwd && git status --short && printf inside > probe.txt && git init -q '${root}/second-repo' && printf outside > '${root}/second-repo/probe.txt'`;
+    const remote = join(root, 'remote.git');
+    // Push directly to the disposable remote; registering it adds no coverage
+    // and can race the native SDK's own repository configuration writes.
+    const command = `pwd && git status --short && printf inside > probe.txt && git add probe.txt && git grep inside && test "$(cat probe.txt)" = inside && git -c user.name=Offline -c user.email=offline@example.test -c commit.gpgsign=false commit -qm 'test: offline development' && git init --bare -q '${remote}' && git push '${remote}' HEAD:refs/heads/offline-development && git init -q '${root}/second-repo' && printf outside > '${root}/second-repo/probe.txt'`;
     let received: unknown;
     let calls = 0;
     const server = createServer(async (request, response) => {
@@ -209,6 +212,12 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
       pendingAtResult: getPendingRequestsBySession('native-fixture').length,
       insideWritten: existsSync(join(cwd, 'probe.txt')),
       siblingWritten: existsSync(join(root, 'second-repo', 'probe.txt')),
+      remoteCreated: existsSync(remote),
+      published: scenario.allowed
+        ? execFileSync('git', ['--git-dir', remote, 'show', 'offline-development:probe.txt'], {
+            encoding: 'utf8',
+          })
+        : undefined,
       stderr,
       watchdogFired,
       interruptRequested: interruptReceipt !== undefined,
@@ -278,6 +287,8 @@ it('executes or refuses native SDK Bash through the canonical permission owner f
       ...scenario,
       insideWritten: scenario.allowed,
       siblingWritten: scenario.allowed,
+      remoteCreated: scenario.allowed,
+      published: scenario.allowed ? 'inside' : undefined,
       cards: ['once', 'deny', 'cancel', 'revoked', 'interrupt'].includes(scenario.decision) ? 1 : 0,
       retainedGrants: 0,
       pendingAtResult: 0,

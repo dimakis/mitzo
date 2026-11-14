@@ -154,6 +154,7 @@ it.each(['acknowledged', 'uncertain'])(
     expect(f.lifecycle.terminal).not.toHaveBeenCalled();
     expect(f.queue.captureInterruptTarget()).toBeUndefined();
     expect(await f.queue.interruptIfCurrent('exact-stop', target)).toBe('uncertain');
+    expect(await f.queue.interruptIfCurrent('different-stop', target)).toBe('stale_target');
     expect(f.control.interruptIfCurrent).toHaveBeenCalledOnce();
     const receipt = f.store.getOrdinarySdkInterruptReceipt('chat', 'exact-stop');
     f.restart();
@@ -162,6 +163,25 @@ it.each(['acknowledged', 'uncertain'])(
     expect(observedOrdinarySdkOutcome(f.store, 'chat', 'original-command')).toBe('uncertain');
   },
 );
+it('retains Stop between input yield and echo, then claims the exact interrupt once', async () => {
+  const f = fixture();
+  await f.queue.enqueue('original-command');
+  f.queue.assertInputCurrent('original-command');
+  const stop = f.queue.stop('before-echo');
+  expect(f.store.getSession('chat')?.executionPhase).toBe('STOPPING');
+  expect(f.control.interruptIfCurrent).not.toHaveBeenCalled();
+  f.queue.inputObserved('delayed-echo');
+  await stop;
+  expect(f.control.interruptIfCurrent).toHaveBeenCalledOnce();
+  expect(f.store.getOrdinarySdkInterruptReceipt('chat', 'before-echo')?.target.providerTurnId).toBe(
+    'delayed-echo',
+  );
+  await f.queue.resultObserved('delayed-echo');
+  expect(f.store.getSession('chat')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+});
 it('refuses Stop after authorization loss before a durable claim or native interruption', async () => {
   const f = fixture();
   await f.queue.enqueue('original-command');
