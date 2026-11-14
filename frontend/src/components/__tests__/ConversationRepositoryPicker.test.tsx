@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ConversationRepositoryPicker } from '../ConversationRepositoryPicker';
 import { joiningSetupFixture } from '../../preview/conversation-joining-fixture';
@@ -103,7 +103,7 @@ it.each(['claude-sdk', 'codex'] as const)(
     await screen.findByText(/worktree starts from latest upstream main/i);
     expect(onChange).toHaveBeenLastCalledWith({
       repositoryWorkspaceId: id,
-      permissionMode: 'agent',
+      repositoryBlocked: false,
     });
     expect(api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(
       1,
@@ -120,4 +120,52 @@ it.each([
   await screen.findByText(/Choose an account, model and supported environment/);
   expect(screen.queryByRole('button', { name: 'Add repository' })).toBeNull();
   expect(api.fetch.mock.calls).toHaveLength(1);
+});
+
+it('retains pending repository identity without reporting it as ready for joining', async () => {
+  const { setup, id } = fixture('codex');
+  setup.permissionMode = 'auto';
+  const originalFetch = api.fetch.getMockImplementation()!;
+  let finish!: (response: Response) => void;
+  api.fetch.mockImplementation((url: string, options?: RequestInit) =>
+    options?.method === 'POST'
+      ? new Promise<Response>((resolve) => {
+          finish = resolve;
+        })
+      : originalFetch(url, options),
+  );
+  vi.spyOn(crypto, 'randomUUID').mockReturnValue(id);
+  const onChange = vi.fn();
+  render(<ConversationRepositoryPicker setup={setup} onChange={onChange} />);
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('Local repository'), 'local:local/primary');
+  await user.click(screen.getByRole('button', { name: 'Use repository' }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: id,
+    repositoryBlocked: true,
+  });
+  // The real preparation response, rather than possession of its request ID,
+  // makes the target eligible. Repository callbacks must not change Auto to Agent.
+  finish(
+    await originalFetch('/api/repository-workspaces/local', {
+      method: 'POST',
+      body: JSON.stringify({
+        ordinaryRuntime: {
+          runOn: 'local',
+          runtime: {
+            account: { accountId: 'selected', provider: 'openai', profileRevision: 'r1' },
+            harness: 'codex',
+            targetId: 'target',
+          },
+        },
+      }),
+    }),
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({
+      repositoryWorkspaceId: id,
+      repositoryBlocked: false,
+    }),
+  );
 });

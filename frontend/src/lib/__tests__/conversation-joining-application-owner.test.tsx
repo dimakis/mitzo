@@ -529,6 +529,25 @@ it('retains exact published custom-profile selection and surfaces actual typed s
   expect(captured.target.agent).toEqual(request.setup.agent);
 });
 
+it('keeps the server refusal code and status through the joining hook instead of a generic review failure', async () => {
+  const h = await harness();
+  h.refuse();
+  const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const { result } = renderHook(() => useConversationJoiningReview(h.owner));
+  await act(async () => {
+    await result.current.prepare(input().setup);
+  });
+  expect(result.current.diagnostic).toMatchObject({
+    code: 'execution_unavailable',
+    stage: 'review',
+    status: 503,
+  });
+  expect(result.current.error).toMatch(/account.*repository|repository.*account/i);
+  expect(result.current.setup).toEqual(input().setup);
+  expect(result.current.join).toBeNull();
+  diagnostic.mockRestore();
+});
+
 it('delegates explicit confirmation and recovery to existing typed routes without replacing their unavailable outcome', async () => {
   const h = await harness();
   const confirmation = {

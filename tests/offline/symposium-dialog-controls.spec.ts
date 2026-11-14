@@ -172,6 +172,10 @@ for (const theme of ['dark', 'light'])
     await opener.click();
     await page.getByRole('button', { name: 'Add agent', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Add agent', exact: true });
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.y).toBeGreaterThanOrEqual(32);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height - 32);
+    expect(bounds.width).toBeLessThanOrEqual(520);
     await dialog.getByRole('textbox', { name: 'Name in this chat' }).fill('Bob');
     await dialog.getByRole('textbox', { name: 'Purpose', exact: true }).fill('Review the plan.');
     await dialog.getByRole('button', { name: /^Agent,/ }).click();
@@ -207,6 +211,14 @@ for (const theme of ['dark', 'light'])
     expect(thinkingBox.y).toBeGreaterThanOrEqual(modelBox.y + modelBox.height);
     expect(thinkingBox.width).toBe(modelBox.width);
     await page.screenshot({ path: info.outputPath(`fresh-setup-fields-${theme}.png`) });
+    await dialog.getByRole('button', { name: /^Permissions,/ }).click();
+    const auto = dialog.getByRole('button', { name: 'Auto', exact: true });
+    await auto.click();
+    await expect(auto).toHaveAttribute('aria-pressed', 'true');
+    if (isMobile) expect((await auto.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: info.outputPath(`fresh-setup-permissions-${theme}.png`) });
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: /^Permissions, Auto/ })).toBeVisible();
     await dialog.getByRole('button', { name: /^Where it runs,/ }).click();
     await expect(dialog.getByRole('radio', { name: 'Mac host' })).toBeChecked();
     const repositorySection = dialog.getByRole('region', { name: 'Repository for new chat' });

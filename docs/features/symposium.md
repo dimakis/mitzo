@@ -5,6 +5,34 @@ Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another par
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
+## Phone joining follow-up — 13 November 2026
+
+The user's later phone test still failed after #1333 was deployed. Source landing
+and the server's version endpoint did not establish acceptance on the phone.
+The approved `symposium-fresh-agent` reference remains authoritative.
+
+Reproduced locally: the participant repository adapter discarded `blocked` and
+treated a retained preparation ID as readiness, allowing review while acquisition
+was pending or unavailable. Keep the original ID for recovery, carry its blocked
+state through setup, and require actual readiness before capture. The server still
+renews preparation, account and runtime authority. The adapter also overwrote the
+permission choice with Agent; setup now exposes the ordinary Ask/Agent/Auto picker
+and repository changes preserve the selected mode.
+
+Dialogs retain the approved 520px maximum width, with space around the phone safe
+areas and independently scrolling content. The existing shared controls, appearance,
+focus, footer, exact context and joining owners remain in use. Joining errors retain
+allowlisted server codes and HTTP status in Technical details, display an actionable
+safe refusal, and preserve the original cause internally with stage/request logging.
+Private provider messages and paths are not exposed.
+
+The real offline application journey now starts with the built-in Default Mitzo
+instead of first selecting a custom profile, and verifies selected Auto mode through
+silent joining and subsequent attributed replies. This is synthetic-provider evidence;
+the precise cause of the user's phone failure and physical-device acceptance still
+require verification. The installed iOS app bundles frontend resources independently
+of the server; a server commit alone does not prove which UI a phone has loaded.
+
 ## Phone repair candidate — 13 November 2026
 
 Dimitri's current phone test reached a disabled review action, unknown sharing shown

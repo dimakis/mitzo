@@ -23,6 +23,7 @@ import '../styles/header-actions.css';
 import { ConversationRepositoryPicker } from './ConversationRepositoryPicker';
 import { QuickSettingsContext, type SettingsDestination } from '../lib/quick-settings-context';
 import { QuickSettingsField } from './QuickChatSettings';
+import { PermissionModePicker } from './PermissionModePicker';
 
 export interface ConversationAgent {
   id: string;
@@ -48,6 +49,7 @@ const initial = (): ConversationAgentSetup => ({
   runOn: 'local',
   selection: null,
   agent: defaultAgent,
+  permissionMode: 'agent',
 });
 
 /** Presentation shared by ordinary and retained conversations. No allocation or dispatch.
@@ -151,15 +153,19 @@ function ConversationAgentsBody({
             : profileReason
               ? profileReason
               : joiningOwner.kind === 'application' &&
-                  (!setup.repositoryWorkspaceId || !setup.permissionMode)
-                ? 'Choose a repository in Where it runs.'
-                : undefined;
+                  setup.repositoryBlocked &&
+                  setup.repositoryWorkspaceId
+                ? 'Finish repository preparation in Where it runs before reviewing.'
+                : joiningOwner.kind === 'application' &&
+                    (!setup.repositoryWorkspaceId || !setup.permissionMode)
+                  ? 'Choose a repository in Where it runs.'
+                  : undefined;
   const updateSelection = (selection: ConversationAgentSetup['selection']) =>
     setSetup((s) => ({
       ...s,
       selection,
       ...(s.selection?.accountId !== selection?.accountId || s.selection?.model !== selection?.model
-        ? { repositoryWorkspaceId: undefined, permissionMode: undefined }
+        ? { repositoryWorkspaceId: undefined, repositoryBlocked: undefined }
         : {}),
     }));
   useLayoutEffect(() => {
@@ -530,7 +536,7 @@ function ConversationAgentsBody({
                                 ...s,
                                 runOn,
                                 repositoryWorkspaceId: undefined,
-                                permissionMode: undefined,
+                                repositoryBlocked: undefined,
                               }))
                             }
                           />
@@ -549,6 +555,26 @@ function ConversationAgentsBody({
                         onChange={(values) => setSetup((s) => ({ ...s, ...values }))}
                       />
                     )}
+                  </QuickSettingsField>
+                  <QuickSettingsField
+                    page="permissions"
+                    title="Permissions"
+                    value={
+                      setup.permissionMode === 'auto'
+                        ? 'Auto'
+                        : setup.permissionMode === 'ask'
+                          ? 'Ask'
+                          : 'Agent'
+                    }
+                  >
+                    <PermissionModePicker
+                      mode={setup.permissionMode ?? 'agent'}
+                      onChange={(permissionMode) => setSetup((s) => ({ ...s, permissionMode }))}
+                    />
+                    <p className="conversation-agents-explanation">
+                      Permissions apply to this agent’s checkout. Workspace limits apply in every
+                      mode.
+                    </p>
                   </QuickSettingsField>
                   <QuickSettingsField
                     page="more"

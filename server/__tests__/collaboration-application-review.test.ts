@@ -22,6 +22,18 @@ import {
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 afterEach(cleanupApplicationReviewFixtures);
 
+it('preserves a failed joining-settings cause internally while exposing only its safe contract code', async () => {
+  const f = await fixture();
+  const original = new Error('PRIVATE provider diagnostic and credential path');
+  vi.spyOn(f.workspaces, 'qualifiedStatus').mockRejectedValueOnce(original);
+  const failure = await f.review().then(
+    () => null,
+    (cause: unknown) => cause,
+  );
+  expect(failure).toMatchObject({ code: 'execution_unavailable', cause: original });
+  expect((failure as Error).message).not.toContain('PRIVATE');
+});
+
 async function promptReviewFixture() {
   const f = await fixture();
   const joining = await f.review();

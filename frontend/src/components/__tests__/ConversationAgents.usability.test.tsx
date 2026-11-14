@@ -24,14 +24,31 @@ vi.mock('../ChatAgentProfilePicker', () => ({
 }));
 vi.mock('../ConversationRepositoryPicker', () => ({
   ConversationRepositoryPicker: ({ onChange }: { onChange(value: unknown): void }) => (
-    <button
-      type="button"
-      onClick={() =>
-        onChange({ repositoryWorkspaceId: 'fresh-workspace', permissionMode: 'agent' })
-      }
-    >
-      Use current repository
-    </button>
+    <>
+      <button type="button" onClick={() => onChange({ repositoryBlocked: true })}>
+        Clear repository
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onChange({ repositoryWorkspaceId: 'fresh-workspace', repositoryBlocked: false })
+        }
+      >
+        Use current repository
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onChange({
+            repositoryWorkspaceId: 'pending-workspace',
+            permissionMode: 'agent',
+            repositoryBlocked: true,
+          })
+        }
+      >
+        Prepare repository
+      </button>
+    </>
   ),
 }));
 beforeEach(async () => {
@@ -104,6 +121,9 @@ it('explains missing setup and submits the pinned Default Mitzo after repository
     target: { value: 'Review the plan' },
   });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Choose account and model' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: /Where it runs,/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Clear repository' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   expect(within(dialog).getByText('Choose a repository in Where it runs.')).toBeTruthy();
   expect(
     (within(dialog).getByRole('button', { name: 'Review joining brief' }) as HTMLButtonElement)
@@ -128,6 +148,46 @@ it('explains missing setup and submits the pinned Default Mitzo after repository
       setup: expect.objectContaining({
         agent: { kind: 'builtin', profileId: 'default-mitzo', revision: 1 },
       }),
+    }),
+    expect.any(AbortSignal),
+  );
+  diagnostic.mockRestore();
+});
+
+it('keeps review disabled while repository preparation is pending and exposes permission choices', async () => {
+  const captureReview = mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  const dialog = screen.getByRole('dialog', { name: 'Add agent' });
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name in this chat' }), {
+    target: { value: 'Bob' },
+  });
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Purpose' }), {
+    target: { value: 'Review the plan' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Choose account and model' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: /Where it runs,/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Prepare repository' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  expect(
+    (within(dialog).getByRole('button', { name: 'Review joining brief' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(within(dialog).getByText(/repository preparation/i)).toBeTruthy();
+  expect(captureReview).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole('button', { name: /Where it runs,/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Use current repository' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Permissions,/ }));
+  for (const mode of ['Ask', 'Agent', 'Auto'])
+    expect(within(dialog).getByRole('button', { name: new RegExp(`^${mode}$`) })).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Auto$/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Review joining brief' }));
+  await waitFor(() => expect(captureReview).toHaveBeenCalledOnce());
+  expect(captureReview).toHaveBeenCalledWith(
+    expect.objectContaining({
+      setup: expect.objectContaining({ permissionMode: 'auto' }),
     }),
     expect.any(AbortSignal),
   );

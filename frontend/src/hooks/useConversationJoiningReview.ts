@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createBrowserId } from '../lib/browser-crypto';
+import { conversationJoiningFailure } from '../lib/conversation-joining-failure';
 import {
   CollaborationApplicationReviewInputSchema,
   CollaborationJoinInputSchema,
@@ -35,7 +36,7 @@ type State = {
   brief: string;
   pending: 'review' | 'confirm' | 'recover' | null;
   error: string | null;
-  diagnostic?: { code: string; stage: string; requestId: string };
+  diagnostic?: { code: string; stage: string; requestId: string; status?: number };
   submission: CollaborationJoinInput | null;
   uncertain: boolean;
   join: CollaborationJoin | null;
@@ -505,21 +506,16 @@ export function useConversationJoiningReview(
     } catch (cause) {
       if (!canPublish(operation, identity)) return;
       lastFailure.current = cause;
-      const code = `joining_${reviewStage}_failed`;
+      const failure = conversationJoiningFailure(cause, reviewStage, input.requestId);
       console.error('Symposium joining failed', {
-        code,
-        stage: reviewStage,
-        requestId: input.requestId,
+        ...failure.diagnostic,
         sourceConversationId: owner.sourceConversationId,
         errorName: cause instanceof Error ? cause.name : 'UnknownError',
       });
       update({
         pending: null,
-        error:
-          reviewStage === 'capture'
-            ? 'The selected agent, account, repository or conversation context could not be checked. Your setup and edits stay here.'
-            : 'The joining brief could not be checked. Your setup and edits stay here.',
-        diagnostic: { code, stage: reviewStage, requestId: input.requestId },
+        error: failure.message,
+        diagnostic: failure.diagnostic,
       });
     }
   };

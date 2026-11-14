@@ -48,18 +48,26 @@
   color: var(--color-muted);
   font-size: var(--text-sm);
 }
-.conversation-agents-dialog {
-  max-width: min(calc(100vw - var(--space-4)), 36rem);
+.home-dialog.conversation-agents-dialog {
+  --conversation-dialog-max-height: min(
+    48rem,
+    calc(100dvh - 2 * var(--space-6) - env(safe-area-inset-top) - env(safe-area-inset-bottom))
+  );
+  width: min(calc(100vw - 2 * var(--space-3)), 32.5rem);
+  max-width: min(calc(100vw - 2 * var(--space-3)), 32.5rem);
+  max-height: var(--conversation-dialog-max-height);
+  font-size: var(--text-md);
+  line-height: 1.5;
 }
 .conversation-joining-dialog {
   width: min(calc(100vw - 2 * var(--space-3)), 32.5rem);
   max-width: min(calc(100vw - 2 * var(--space-3)), 32.5rem);
-  max-height: calc(100dvh - 2 * var(--space-3));
+  max-height: var(--conversation-dialog-max-height);
   font-size: var(--text-md);
   line-height: 1.5;
 }
 .home-dialog.conversation-joining-dialog .home-dialog-content {
-  max-height: calc(100dvh - 2 * var(--space-3) - 2px);
+  max-height: calc(var(--conversation-dialog-max-height) - 2px);
 }
 .conversation-joining-dialog .home-dialog-content > header {
   gap: var(--space-2);
@@ -134,11 +142,14 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  max-height: calc(100dvh - 2 * var(--page-gutter));
+  max-height: calc(var(--conversation-dialog-max-height) - 2px);
 }
 .conversation-agents-dialog .home-dialog-content > header {
   padding: var(--space-3) var(--space-4);
   flex: none;
+}
+.conversation-agents-dialog header h2 {
+  font: 500 var(--text-lg) / 1.3 var(--font-ui);
 }
 .conversation-agents-body {
   min-height: 0;
@@ -204,6 +215,7 @@
   background: var(--color-bg);
   color: var(--color-text);
   font: inherit;
+  font-size: var(--text-base);
 }
 .conversation-agents-dialog textarea {
   resize: vertical;

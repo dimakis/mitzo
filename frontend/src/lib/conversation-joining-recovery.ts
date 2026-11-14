@@ -43,6 +43,7 @@ const setup = z.strictObject({
   agent: AgentProfileSelectionSchema.nullable(),
   repositoryWorkspaceId:
     CollaborationApplicationReviewInputSchema.shape.target.shape.repositoryWorkspaceId.optional(),
+  repositoryBlocked: z.boolean().optional(),
   permissionMode:
     CollaborationApplicationReviewInputSchema.shape.target.shape.permissionMode.optional(),
 });
