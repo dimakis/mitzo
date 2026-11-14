@@ -214,6 +214,12 @@ export class TelosArtifactStore {
     return !/^life[-_ ]?ops$/i.test(item.profile ?? '');
   }
 
+  /** Shared HTTP/SDK response policy; source packets retain their separate operator path. */
+  assertResponseEligibility(metadata: TelosArtifactMetadata): void {
+    if (metadata.sourceKind !== 'source_capture' && !this.userUploadAllowed(metadata.itemId))
+      throw Object.assign(new Error('Saved artifact unavailable'), { status: 403 });
+  }
+
   retryReceipt(
     sessionId: string,
     requestId: string,

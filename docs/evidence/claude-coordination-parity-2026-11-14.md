@@ -172,6 +172,25 @@ authority checks or production timeouts were weakened. Source pins advance to
 `v1.0.1160-claude-explicit-failed-turn-retry`. Current-head CI and trusted final
 review must verify these changes before merge; source tests do not close Centaur.
 
+## Accepted information repair integration
+
+The combined candidate includes accepted #1349 commit
+`0ad803cdae56ed6e22c89273ae800d3e7aeb9706`. Its canonical Telos artifact,
+startup and final read-delivery fixes are inherited without duplicate changes.
+Shared catalog/registration/credential SDK conflicts preserve both information
+and coordination helpers plus explicit native tool selection. Source pins retain
+both suites' registrations and advance to
+`v1.0.1161-claude-parity-information-integration`.
+
+Combined local validation covers 293 distinct checks across 14 suites, including
+all 22 composed ordinary-chat cases. The first handler run found two obsolete raw
+retired-callback error expectations after #1349's canonical runtime sanitization.
+Those expectations now assert the exact safe message and prove the timer owner
+was not called; the affected suite passes. Original failure reports remain
+retained. Changed conflict-file lint, formatting and source artifact verification
+are required before publication. Hosted compilation/CI and targeted current-head
+Centaur review remain merge gates; baseline review `5901683432` is retained.
+
 ## Integration custody and limits
 
 PR #1342 remains draft/open/conflicting at `b2675af8199ab8a99f3628d3d93c4e65145c7244`

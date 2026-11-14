@@ -15,6 +15,12 @@ const connectionHelpers: readonly string[] = Object.freeze([
   'SchedulePrompt',
   'SessionTimers',
   'SendSessionMessage',
+  'SearchPastSessions',
+  'ReadPastSession',
+  'ReadKnowledge',
+  'SaveKnowledgeDraft',
+  'AgentReadTasks',
+  'AgentProposeTask',
   'TelosCreateSession',
   'CaptureMemoryCandidate',
 ]);

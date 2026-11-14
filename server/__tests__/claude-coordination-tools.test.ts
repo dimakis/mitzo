@@ -15,6 +15,7 @@ import {
 } from '../agent-tool-selection.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { SessionPromptService } from '../session-prompt-service.js';
+import { sessionRuntimeMessage } from '../session-runtime-error.js';
 import { SessionPromptStore } from '../session-prompt-store.js';
 import { initializeSessionLaunches, closeSessionLaunches } from '../session-launch-controller.js';
 import { SymposiumProfileStore } from '../symposium-profiles.js';
@@ -332,10 +333,12 @@ it.each([false, true])(
         })
       ).value.state,
     ).toBe('pending');
+    const timerReads = vi.spyOn(f.service, 'list');
     expect(await original('SessionTimers', { operation: 'list' })).toMatchObject({
       isError: true,
-      value: 'Completed SDK query retired',
+      value: sessionRuntimeMessage('runtime_unavailable'),
     });
+    expect(timerReads).not.toHaveBeenCalled();
     create({ sessionId: undefined, resume: 'sdk-history' });
     const cold = await f.connect(currentServer());
     expect(
