@@ -239,6 +239,7 @@ export function createTelosSdkServer(owners: {
                   permission.decisionClassification === 'user_reject',
                 );
               const source = name === 'TelosCreateOutcome' || name === 'TelosAdoptSource';
+              if (!permission.updatedInput) throw Error('Exact Telos request approval required');
               const { __mitzoTelosApproval, ...proposal } = permission.updatedInput;
               if (
                 !isDeepStrictEqual(source ? proposal : permission.updatedInput, parsed) ||

@@ -52,11 +52,13 @@ async function fixture(explicit: boolean | 'excluded' = false) {
     transport: {
       isOpen: () => true,
       send(event) {
-        if (event.type === 'permission_request')
+        if (event.type === 'permission_request' && typeof event.permId === 'string') {
+          const permId = event.permId;
           queueMicrotask(() => {
             beforeApproval();
-            resolvePending(event.permId, approved ? 'once' : 'deny');
+            resolvePending(permId, approved ? 'once' : 'deny');
           });
+        }
       },
     },
   });

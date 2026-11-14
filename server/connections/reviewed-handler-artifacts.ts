@@ -23,13 +23,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-sdk-definitions.ts': 'f3b20b90e8f1bea646ab32847b592ce0736f662e1e6b26b094ec8396f9469871',
-  '../telos-sdk-tools.ts': 'e00eefd7a8fed475003cbb5c7647975e516c9ddaa0177a24296f040c0e192c93',
+  '../telos-sdk-tools.ts': 'dd71ce1078374e6ea4512de2d8b1ed460705ea9c3501a184968c516e12081dab',
   '../__tests__/telos-sdk-tools.test.ts':
-    '4fbef4e852ab41bf9a2f595c3c1eb493afd6f90c668a4e70a31527826743dbeb',
+    'c52db300fb556963676db7b3489a78ff44c6a84098b1c97b6a2b2dab96e0e743',
   '../__tests__/telos-sdk-source.test.ts':
     'd4a46546ef2519d8e61d6a0e0ffc219b37a986d94e4f1602c133ef4e8efdc2e2',
   '../__tests__/telos-work-delegation-host.test.ts':
-    'e25bbd8ea5f5763617df8081a7f5bd4746ecd1db3831fb82ee9eacd0c401247c',
+    '295752eccafa4aa1a02a3eaec997579c24ba4080148d2c9baae8d45b6cfb7f4c',
   '../../docs/features/claude-telos-bridge.md':
     'ee293d8a44ca6b53bc2bc4778fe1c2195f1163725d6386e115a27514850b8d00',
   '../__tests__/claude-native-development.test.ts':

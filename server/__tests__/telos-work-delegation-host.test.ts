@@ -440,8 +440,10 @@ it.each(['shared', 'sdk-default', 'sdk-explicit'])(
           transport: {
             isOpen: () => true,
             send: (event) => {
-              if (event.type === 'permission_request')
-                queueMicrotask(() => resolvePending(event.permId, 'once'));
+              if (event.type === 'permission_request' && typeof event.permId === 'string') {
+                const permId = event.permId;
+                queueMicrotask(() => resolvePending(permId, 'once'));
+              }
             },
           },
         });
