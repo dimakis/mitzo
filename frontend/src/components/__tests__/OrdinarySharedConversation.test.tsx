@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter } from 'react-router-dom';
 import { MitzoApiClient } from '@mitzo/client';
 import type { CollaborationMessageInput, CollaborationProgress } from '@mitzo/protocol';
-import { SharedConversationHost } from '../SharedConversation';
+import { SharedConversationHost, SharedConversationAgents } from '../SharedConversation';
 import { SymposiumConversation } from '../SymposiumConversation';
 import { ChatInput } from '../ChatInput';
 import { ChatInputHost } from '../ChatInputHost';
@@ -43,7 +43,7 @@ beforeEach(() => {
   vi.spyOn(window, 'setInterval').mockImplementation((callback, timeout) => {
     if (timeout && timeout < 100) return setInterval(callback, timeout);
     polls.push(callback as () => void);
-    return polls.length;
+    return polls.length as unknown as ReturnType<typeof window.setInterval>;
   });
 });
 afterEach(() => {
@@ -54,7 +54,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChatDraft>) {
+function fixture(
+  singleton = false,
+  ordinaryDraft?: ReturnType<typeof createChatDraft>,
+  originalName?: string,
+) {
   const view = sharedConversationView();
   view.messages = [];
   view.policies.forEach((p) => {
@@ -133,6 +137,13 @@ function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChat
         getVerifiedAuthScope={proof}
       >
         <ChatInputHost sessionId="architect">
+          {originalName && (
+            <SharedConversationAgents
+              scope="architect"
+              messages={[]}
+              agents={[{ id: 'architect', name: originalName, state: 'Current conversation' }]}
+            />
+          )}
           <SymposiumConversation
             key={layout}
             sessionId="architect"
@@ -197,6 +208,21 @@ function fixture(singleton = false, ordinaryDraft?: ReturnType<typeof createChat
     },
   };
 }
+
+it('keeps the original named agent as the explicit initial recipient', async () => {
+  const f = fixture(false, undefined, 'Original architect');
+  render(f.tree());
+  const trigger = await screen.findByRole('button', { name: 'Choose who replies' });
+  await waitFor(() => expect(trigger.textContent).toContain('Original architect'));
+  fireEvent.click(trigger);
+  expect(
+    (screen.getByRole('checkbox', { name: 'Original architect' }) as HTMLInputElement).checked,
+  ).toBe(true);
+  expect((screen.getByRole('checkbox', { name: 'Reviewer' }) as HTMLInputElement).checked).toBe(
+    false,
+  );
+  expect(f.sends).toHaveLength(0);
+});
 
 it('retains the shared composer and transcript while a resized page requalifies ordinary status', async () => {
   const f = fixture();

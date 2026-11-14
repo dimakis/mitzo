@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   isValidElement,
   useContext,
   useEffect,
@@ -103,6 +104,17 @@ function useSharedConversation({
   const owner = useMemo(
     () => ({ api, sourceConversationId, clientId, authScope }),
     [api, sourceConversationId, clientId, authScope],
+  );
+  const [sourceDisplay, setSourceDisplay] = useState<{ id: string; name: string }>();
+  const presentSourceName = useCallback(
+    (name: string) => {
+      setSourceDisplay((previous) =>
+        previous?.id === sourceConversationId && previous.name === name
+          ? previous
+          : { id: sourceConversationId, name },
+      );
+    },
+    [sourceConversationId],
   );
   const [associationState, setAssociation] = useState<{
     owner: object;
@@ -233,10 +245,13 @@ function useSharedConversation({
   const names = useMemo(
     () =>
       Object.fromEntries([
-        [sourceConversationId, 'Current agent'],
+        [
+          sourceConversationId,
+          sourceDisplay?.id === sourceConversationId ? sourceDisplay.name : 'Current agent',
+        ],
         ...(view?.joinedParticipants?.map((p) => [p.sessionId, p.name]) ?? []),
       ]),
-    [sourceConversationId, view?.joinedParticipants],
+    [sourceConversationId, sourceDisplay, view?.joinedParticipants],
   );
   const promptContext = useConversationPromptContext({
     api,
@@ -294,6 +309,7 @@ function useSharedConversation({
   });
   return {
     sourceConversationId,
+    presentSourceName,
     presentation,
     sending,
     progress,
@@ -333,6 +349,12 @@ function useSharedConversation({
 export function SharedConversationAgents(props: ComponentProps<typeof ConversationAgents>) {
   const host = useContext(Context);
   const { activities } = useSessionOverview();
+  const presentSourceName =
+    host && host.sourceConversationId === props.scope ? host.presentSourceName : undefined;
+  const sourceName = props.agents.find((agent) => agent.id === props.scope)?.name;
+  useEffect(() => {
+    if (sourceName) presentSourceName?.(sourceName);
+  }, [presentSourceName, sourceName]);
   if (!host || host.sourceConversationId !== props.scope) return <ConversationAgents {...props} />;
   const { presentation, names } = host;
   const view = presentation.projection?.view;
