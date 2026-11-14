@@ -17,6 +17,12 @@ import { SessionRuntimeError } from './session-runtime-error.js';
 import { assertOrdinarySynchronousFence } from './ordinary-turn-lifecycle.js';
 import type { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
 import { createLogger } from './logger.js';
+import { beginOperationObservation } from './operation-observation.js';
+import {
+  annotateAuthorityFailure,
+  runtimeFailureAttributes,
+  runtimeFailureDiagnostics,
+} from './runtime-failure-diagnostics.js';
 import { sdkQueryRetiredEvent } from './sdk-query-retirement.js';
 const log = createLogger('owned-sdk-query');
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
@@ -225,24 +231,46 @@ export function createOrdinaryLocalVertexSdkQuery<
     // report while the original session still owns its live delivery path:
     // query-loop deliberately suppresses errors after an abort.
     if (owners.controller.signal.aborted) throw cause;
-    const failure = new SessionRuntimeError('input_not_dispatched', { cause });
+    const failure = new SessionRuntimeError('input_not_dispatched', {
+      cause: annotateAuthorityFailure(cause, `sdk.${stage}`),
+    });
+    const commandId = (message as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId;
+    const provider = owners.options.env?.MITZO_CLAUDE_EXPECTED_EMAIL
+      ? 'anthropic-claude'
+      : owners.options.env?.MITZO_ANTHROPIC_API_CUSTODY
+        ? 'anthropic-api'
+        : 'anthropic-vertex';
+    const diagnostic = runtimeFailureDiagnostics(failure);
     log.warn('SDK input refused before provider dispatch', {
       sessionId: owners.sdkSessionId,
+      commandId,
+      provider,
       stage,
       ...failure.telemetry(),
+      ...diagnostic,
     });
+    beginOperationObservation('claude.sdk.input.refused', {
+      'session.id': owners.sdkSessionId,
+      ...(commandId ? { 'command.id': commandId } : {}),
+      'runtime.provider': provider,
+      'runtime.stage': stage,
+      ...runtimeFailureAttributes(failure),
+    }).end(true);
     try {
       owners.onUnsent(message, failure);
     } catch (reportingError) {
       failure.cause = new AggregateError(
         [cause, reportingError],
         'SDK input refusal and diagnostic delivery failure',
+        { cause: failure.cause },
       );
       log.warn('Could not report refused SDK input', {
         sessionId: owners.sdkSessionId,
+        commandId,
         stage,
         code: 'sdk_input_failure_reporting_failed',
         ...failure.telemetry(),
+        reportingFailure: runtimeFailureDiagnostics(reportingError),
       });
     }
     owners.controller.abort(failure);

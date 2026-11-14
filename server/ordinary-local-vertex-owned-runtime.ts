@@ -7,6 +7,7 @@ import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { readOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { isDeepStrictEqual } from 'node:util';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import { z } from 'zod';
 import { LocalVertexClaudeFirstCommandSchema, type AccountBinding } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
@@ -20,6 +21,7 @@ import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import {
   OrdinaryLocalVertexTarget,
@@ -122,10 +124,18 @@ export class OrdinaryLocalVertexOwnedRuntime {
     this.#operator.release();
   }
   private assertOwner() {
-    if (this.#closed) throw unavailable();
-    this.#signal.throwIfAborted();
-    this.#operator.assertCurrent();
-    this.#target.assertCurrentSync();
+    let check = 'owner.closed';
+    try {
+      if (this.#closed) throw unavailable();
+      check = 'owner.signal';
+      this.#signal.throwIfAborted();
+      check = 'owner.operator';
+      this.#operator.assertCurrent();
+      check = 'owner.target';
+      this.#target.assertCurrentSync();
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
+    }
   }
   environment() {
     const profiles = loadAccountProfiles();
@@ -163,25 +173,31 @@ export class OrdinaryLocalVertexOwnedRuntime {
   /** Idle custody remains current without revalidating a completed inference setting. */
   assertIdleSync(commandId: string) {
     this.assertOwner();
-    const command = this.#commands.get(commandId);
-    const receipt = this.owners.eventStore.getOrdinaryLocalVertexCommandAdmission(commandId);
-    if (!command || !receipt || !['uncertain', 'consumed'].includes(receipt.state))
-      throw unavailable();
-    if (
-      command.sdkRetrySourceCommandId &&
-      !readOwnedVertexRetrySource(
-        this.owners.eventStore,
-        this.owners.reservation.conversationId,
-        command.sdkRetrySourceCommandId,
-        !!this.owners.eventStore.getExecutionAdmission(
+    let check = 'owner.command_receipt';
+    try {
+      const command = this.#commands.get(commandId);
+      const receipt = this.owners.eventStore.getOrdinaryLocalVertexCommandAdmission(commandId);
+      if (!command || !receipt || !['uncertain', 'consumed'].includes(receipt.state))
+        throw unavailable();
+      if (
+        command.sdkRetrySourceCommandId &&
+        !readOwnedVertexRetrySource(
+          this.owners.eventStore,
           this.owners.reservation.conversationId,
-          commandId,
-        ),
+          command.sdkRetrySourceCommandId,
+          !!this.owners.eventStore.getExecutionAdmission(
+            this.owners.reservation.conversationId,
+            commandId,
+          ),
+        )
       )
-    )
-      throw unavailable();
-    command.selection.assertCurrentSync(command.expected);
-    this.credentialAuthority();
+        throw unavailable();
+      command.selection.assertCurrentSync(command.expected);
+      check = 'owner.credentials';
+      this.credentialAuthority();
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
+    }
   }
   async assertIdle(commandId: string) {
     this.assertIdleSync(commandId);
@@ -192,11 +208,15 @@ export class OrdinaryLocalVertexOwnedRuntime {
   assertStart(commandId: string) {
     this.assertIdleSync(commandId);
     const command = this.#commands.get(commandId)!;
-    loadAccountProfiles().validateModelSelection(
-      this.owners.reservation.binding,
-      command.expected.selection.model,
-      command.expected.selection.thinking,
-    );
+    try {
+      loadAccountProfiles().validateModelSelection(
+        this.owners.reservation.binding,
+        command.expected.selection.model,
+        command.expected.selection.thinking,
+      );
+    } catch (error) {
+      throw annotateAuthorityFailure(error, 'owner.model_selection');
+    }
     this.#active = commandId;
   }
   async assertEffect(commandId: string) {
@@ -373,7 +393,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       if (
         !hasPersistentRevocationAuthority() ||
         !custody ||
-        custody.authSessionId !== this.authSessionId ||
+        !ordinaryOperatorOwnsConversation(custody.authSessionId, this.authSessionId) ||
         !isDeepStrictEqual(
           custody.binding,
           this.owners.eventStore.getSessionRuntimeBinding(this.owners.reservation.conversationId),

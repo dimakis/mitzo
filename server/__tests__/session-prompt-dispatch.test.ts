@@ -12,6 +12,7 @@ const f = vi.hoisted(() => ({
   binding: {} as Record<string, unknown>,
   selection: {} as Record<string, unknown>,
   authorized: true,
+  primaryOperator: false,
   sdkOutcome: undefined as 'completed' | 'failed' | 'interrupted' | 'uncertain' | undefined,
   native: { captureInterruptTarget: vi.fn(), interruptIfCurrent: vi.fn() },
   current: vi.fn(),
@@ -36,7 +37,7 @@ vi.mock('../ordinary-sdk-turn-evidence.js', () => ({
 vi.mock('../auth.js', () => ({
   isAuthSessionCurrent: () => f.authorized,
   hasPersistentRevocationAuthority: () => true,
-  isAuthenticatedOperatorSessionId: () => false,
+  isAuthenticatedOperatorSessionId: () => f.primaryOperator,
 }));
 vi.mock('../codex-chat-session.js', () => ({ getCodexRuntime: () => f.native }));
 vi.mock('../agent-library-transport.js', () => ({ bindAgentLibraryTransport: () => f.release }));
@@ -72,6 +73,7 @@ vi.mock('../ordinary-openshell-codex-entry.js', () => ({
 
 function fixture(harness = 'codex', location = 'local') {
   f.authorized = true;
+  f.primaryOperator = false;
   f.sdkOutcome = undefined;
   f.dispatch.mockClear();
   f.current.mockClear();
@@ -173,6 +175,19 @@ function fixture(harness = 'codex', location = 'local') {
     }),
   };
 }
+it('requires verified primary-operator identity for a different Claude prompt login', async () => {
+  const h = fixture('claude-sdk');
+  f.live = {
+    clientId: 'original-driver',
+    session: { ordinaryRuntimeOwner: { authSessionId: 'original-login' } },
+  };
+  await expect(h.port.inspect('worker', h.delivery.auth)).rejects.toThrow('current login');
+  f.primaryOperator = true;
+  await expect(h.port.inspect('worker', h.delivery.auth)).resolves.toEqual({ busy: false });
+  f.authorized = false;
+  await expect(h.port.inspect('worker', h.delivery.auth)).rejects.toThrow('authorization');
+  expect(f.dispatch).not.toHaveBeenCalled();
+});
 it('forwards the exact idle SDK sender fence into ordinary admission', async () => {
   const h = fixture('claude-sdk');
   f.live = {
@@ -428,54 +443,77 @@ it('observes SDK readiness and terminal evidence without substituting generic ex
   expect(fxt.port.observedOutcome!(prompt.auth, 'worker', 'sdk-command')).toBe('completed');
   fxt.port.close();
 });
-it.each([
-  'current',
-  'successor',
-  'claimed',
-  'settled',
-  'foreign',
-  'revoked',
-  'owner_changed',
-  'auth_lost',
-])(
-  'routes SDK Stop only to the original ordinary owner and keeps uncertain claims observational: %s',
-  async (scenario) => {
+it.each(
+  [false, true].flatMap((sharedLogin) =>
+    [
+      'current',
+      'successor',
+      'claimed',
+      'settled',
+      'foreign',
+      'revoked',
+      'owner_changed',
+      'session_changed',
+      'binding_changed',
+      'wrong_command_session',
+      'auth_lost',
+      'sender_cancelled',
+    ]
+      .filter((scenario) => !sharedLogin || scenario !== 'foreign')
+      .map((scenario) => ({ sharedLogin, scenario })),
+  ),
+)(
+  'routes SDK Stop only to the original ordinary owner: $scenario, second login: $sharedLogin',
+  async ({ scenario, sharedLogin }) => {
     const h = fixture('claude-sdk');
-    h.events.getSendCommand = () => ({ sessionId: 'worker' }) as never;
+    f.primaryOperator = sharedLogin;
+    h.events.getSendCommand = () =>
+      ({ sessionId: scenario === 'wrong_command_session' ? 'other-session' : 'worker' }) as never;
     h.events.getOrdinarySdkInterruptReceipt = () =>
       scenario === 'claimed' ? ({ retained: true } as never) : undefined;
     f.sdkOutcome = scenario === 'settled' ? 'completed' : 'uncertain';
     const captured = { commandId: scenario === 'successor' ? 'successor-command' : 'original' };
+    let cancelled = false;
     const control = {
       captureInterruptTarget: vi.fn(() => captured),
       interruptIfCurrent: vi.fn(async () => {
         if (scenario === 'auth_lost') f.authorized = false;
+        if (scenario === 'sender_cancelled') cancelled = true;
         return 'requested';
       }),
     };
     const session = {
       ordinaryRuntimeOwner: {
-        authSessionId: scenario === 'foreign' ? 'other' : 'login',
+        authSessionId: scenario === 'foreign' || sharedLogin ? 'other' : 'login',
         sdkTurns: control,
       },
     };
     f.live = { session };
-    if (scenario === 'owner_changed')
+    if (['owner_changed', 'session_changed', 'binding_changed'].includes(scenario))
       control.captureInterruptTarget.mockImplementation(() => {
-        session.ordinaryRuntimeOwner = { ...session.ordinaryRuntimeOwner };
+        if (scenario === 'owner_changed')
+          session.ordinaryRuntimeOwner = { ...session.ordinaryRuntimeOwner };
+        if (scenario === 'session_changed') f.live = { session: { ...session } };
+        if (scenario === 'binding_changed')
+          vi.spyOn(h.events, 'getSessionRuntimeBinding').mockReturnValue({
+            ...f.binding,
+            account: { accountId: 'replacement-account' },
+          } as never);
         return captured;
       });
     f.authorized = scenario !== 'revoked';
     try {
-      const result = h.port.stopOrdinary!(
-        h.delivery.auth,
-        'worker',
-        'original',
-        'sdk-stop',
-        vi.fn(),
-      );
+      const result = h.port.stopOrdinary!(h.delivery.auth, 'worker', 'original', 'sdk-stop', () => {
+        if (cancelled) throw Error('Sender cancelled');
+      });
       if (scenario === 'revoked' || scenario === 'auth_lost')
         await expect(result).rejects.toThrow('authorization');
+      else if (scenario === 'binding_changed')
+        await expect(result).rejects.toThrow('custody changed');
+      else if (scenario === 'wrong_command_session')
+        await expect(result).rejects.toThrow('Original ordinary command');
+      else if (scenario === 'sender_cancelled')
+        await expect(result).rejects.toThrow('Sender cancelled');
       else
         await expect(result).resolves.toBe(
           scenario === 'current'
@@ -487,13 +525,15 @@ it.each([
                 : 'uncertain',
         );
       expect(control.interruptIfCurrent).toHaveBeenCalledTimes(
-        ['current', 'auth_lost'].includes(scenario) ? 1 : 0,
+        ['current', 'auth_lost', 'sender_cancelled'].includes(scenario) ? 1 : 0,
       );
+      if (['current', 'auth_lost', 'sender_cancelled'].includes(scenario))
+        expect(control.interruptIfCurrent).toHaveBeenCalledWith('sdk-stop', captured);
       if (scenario === 'revoked' || scenario === 'auth_lost')
         expect(() => h.port.observedOutcome!(h.delivery.auth, 'worker', 'original')).toThrow(
           'authorization',
         );
-      else
+      else if (scenario !== 'wrong_command_session')
         expect(h.port.observedOutcome!(h.delivery.auth, 'worker', 'original')).toBe(
           scenario === 'settled' ? 'completed' : 'uncertain',
         );

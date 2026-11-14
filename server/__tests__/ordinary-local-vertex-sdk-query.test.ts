@@ -7,6 +7,10 @@ import {
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { SessionRuntimeError } from '../session-runtime-error.js';
+import {
+  annotateAuthorityFailure,
+  runtimeFailureDiagnostics,
+} from '../runtime-failure-diagnostics.js';
 import { AsyncQueue } from '../async-queue.js';
 import { retainCallbackOutcome } from '../turn-callbacks.js';
 import {
@@ -18,6 +22,53 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it('preserves the input authority cause when reporting also fails', async () => {
+  let prompt!: AsyncIterable<unknown>;
+  vi.mocked(query).mockImplementation((request) => {
+    prompt = request.prompt as AsyncIterable<unknown>;
+    return { close: vi.fn() } as never;
+  });
+  const cause = annotateAuthorityFailure(
+    new Error('private-authority-detail'),
+    'selection.session_mode',
+  );
+  const reportingError = new Error('private-reporting-detail');
+  const controller = new AbortController();
+  const input = new AsyncQueue<SDKUserMessage>();
+  const onUnsent = vi.fn(() => {
+    throw reportingError;
+  });
+  createOrdinaryLocalVertexSdkQuery({
+    options: {},
+    input,
+    controller,
+    lifetime: new SdkHookLifetime(),
+    sdkSessionId: 'original',
+    cwd: '/task',
+    authorize: async () => {
+      throw cause;
+    },
+    authorizeSync: () => {},
+    adapt: (native) => native as never,
+    settings: () => ({}),
+    inputChanged: () => {},
+    onUnsent,
+  });
+  input.push({
+    type: 'user',
+    session_id: 'original',
+    parent_tool_use_id: null,
+    message: { role: 'user', content: 'private prompt' },
+  });
+  await expect(prompt[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+    code: 'input_not_dispatched',
+  });
+  expect(onUnsent).toHaveBeenCalledOnce();
+  const failure = controller.signal.reason as SessionRuntimeError;
+  expect(failure.cause).toMatchObject({ errors: [cause, reportingError], cause });
+  expect(runtimeFailureDiagnostics(failure).failedCheck).toBe('selection.session_mode');
+  expect(JSON.stringify(runtimeFailureDiagnostics(failure))).not.toContain('private-');
+});
 it.each([
   { type: 'custom', prompt: 'reviewed instructions', snapshot: true },
   { type: 'custom', prompt: ['reviewed instructions', 'second block'], snapshot: true },

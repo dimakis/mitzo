@@ -6,6 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance, Options } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { agentLibrarySource } from '../../server/__tests__/fixtures/agent-library-source.js';
+import type { Attributes, Span, SpanStatus } from '@opentelemetry/api';
 vi.mock('../../server/claude-account-history.js', () => ({
   readClaudeAccountHistory: vi.fn(async (sessionId: string, cwd: string) => ({
     info: { sessionId, cwd },
@@ -19,11 +20,42 @@ const services = vi.hoisted(() => ({
   library: undefined as unknown,
   query: vi.fn(),
   credentialReadFailure: false,
+  diagnostics: [] as Array<Record<string, unknown>>,
+  captureStartupLogs: false,
+  serializedLogs: [] as string[],
   requests: [] as Array<{
     options: Record<string, unknown>;
     prompt: AsyncIterable<Record<string, unknown>>;
   }>,
 }));
+vi.mock('../../server/logger.js', async (original) => {
+  const actual = await original<typeof import('../../server/logger.js')>();
+  return {
+    ...actual,
+    createLogger(module: string) {
+      const logger = actual.createLogger(module);
+      return {
+        ...logger,
+        error(message: string, fields?: Record<string, unknown>) {
+          if (services.captureStartupLogs)
+            actual
+              ._buildLogger({
+                write(chunk) {
+                  services.serializedLogs.push(chunk);
+                },
+              })
+              .child({ module })
+              .error(fields ?? {}, message);
+          logger.error(message, fields);
+        },
+        warn(message: string, fields?: Record<string, unknown>) {
+          if (module === 'owned-sdk-query') services.diagnostics.push({ message, ...fields });
+          logger.warn(message, fields);
+        },
+      };
+    },
+  };
+});
 // Model only the external free-space observation for these tiny fixtures. The
 // actual descriptor-relative copy, capacity guard, Git and owner stores execute.
 // The physical host is under disk pressure; this does not qualify its free space.
@@ -151,6 +183,9 @@ afterEach(async () => {
   services.requests.length = 0;
   services.query.mockReset();
   services.credentialReadFailure = false;
+  services.diagnostics.length = 0;
+  services.serializedLogs.length = 0;
+  services.captureStartupLogs = false;
 });
 it.each(
   [
@@ -212,6 +247,43 @@ it.each(
       anthropicApi: true,
       credentialFailure,
     })),
+    ...['agent', 'auto', 'ask'].flatMap((probeMode) =>
+      [false, true].flatMap((personal) =>
+        [false, true].map((eagerProbe) => ({
+          personal,
+          managed: personal,
+          refuseStartup: false,
+          stdinRevocation: false,
+          idleSuccess: false,
+          startupProbe: true,
+          probeMode,
+          eagerProbe,
+        })),
+      ),
+    ),
+    ...[false, true].flatMap((personal) =>
+      ['mode', 'workspace'].flatMap((authorityFailure) =>
+        ['original', 'close', 'abort-error'].map((refusalExit) => ({
+          personal,
+          managed: personal,
+          refuseStartup: false,
+          stdinRevocation: false,
+          idleSuccess: false,
+          startupProbe: true,
+          probeMode: 'auto',
+          authorityFailure,
+          refusalExit,
+        })),
+      ),
+    ),
+    ...[false, true].map((personal) => ({
+      personal,
+      managed: personal,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+      startupWorkspaceFailure: true,
+    })),
     ...[false, true].flatMap((personal) =>
       ['default', 'explicit', 'excluded'].map((repositoryProfile) => ({
         personal,
@@ -224,6 +296,12 @@ it.each(
       })),
     ),
   ].map((scenario) => ({
+    authorityFailure: 'none',
+    refusalExit: 'original',
+    startupWorkspaceFailure: false,
+    eagerProbe: false,
+    startupProbe: false,
+    probeMode: 'agent',
     anthropicApi: false,
     credentialFailure: 'none',
     repositoryTransfer: false,
@@ -231,7 +309,7 @@ it.each(
     ...scenario,
   })),
 )(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure repositoryTransfer=$repositoryTransfer repositoryProfile=$repositoryProfile',
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure startupProbe=$startupProbe probeMode=$probeMode eagerProbe=$eagerProbe authorityFailure=$authorityFailure refusalExit=$refusalExit startupWorkspaceFailure=$startupWorkspaceFailure repositoryTransfer=$repositoryTransfer repositoryProfile=$repositoryProfile',
   async ({
     personal,
     managed,
@@ -240,6 +318,12 @@ it.each(
     idleSuccess,
     anthropicApi,
     credentialFailure,
+    startupProbe,
+    probeMode,
+    eagerProbe,
+    authorityFailure,
+    refusalExit,
+    startupWorkspaceFailure,
     repositoryTransfer,
     repositoryProfile,
   }) => {
@@ -247,6 +331,10 @@ it.each(
     const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
     vi.resetModules();
+    // Use the real Pino builder/serializer with an isolated in-memory destination.
+    // The mock factory retains its production singleton across resetModules;
+    // changing LOG_FILE_PATH between cases would still reuse the first file.
+    services.captureStartupLogs = startupWorkspaceFailure;
     const { ClaudeSubscriptionCustody } =
       await import('../../server/claude-subscription-custody.js');
     const { ownedVertexRuntimeFixture } =
@@ -583,6 +671,53 @@ it.each(
       transferCalls.push(commandId);
     }
     const informationCalls: string[] = [];
+    const spans: Array<{
+      name: string;
+      attributes: Attributes;
+      status?: SpanStatus;
+      ended?: boolean;
+    }> = [];
+    if (authorityFailure !== 'none') {
+      const { tracer } = await import('../../server/tracing.js');
+      vi.spyOn(tracer, 'startSpan').mockImplementation((name) => {
+        const recorded: (typeof spans)[number] = { name, attributes: {} };
+        spans.push(recorded);
+        return {
+          setAttribute: (key: string, value: unknown) => {
+            Object.assign(recorded.attributes, { [key]: value });
+          },
+          setAttributes: (attributes: Attributes) => {
+            Object.assign(recorded.attributes, attributes);
+          },
+          setStatus: (status: SpanStatus) => {
+            recorded.status = status;
+          },
+          addEvent: () => {},
+          recordException: () => {},
+          spanContext: () => ({
+            traceId: '11111111111111111111111111111111',
+            spanId: '1111111111111111',
+            traceFlags: 1,
+          }),
+          end: () => {
+            recorded.ended = true;
+          },
+        } as unknown as Span;
+      });
+    }
+    let releaseStartupProbe!: () => void;
+    const startupProbeReady = new Promise<void>((resolve) => {
+      releaseStartupProbe = resolve;
+    });
+    if (startupProbe) {
+      Object.assign(f.request.selection.agent, {
+        profileId: 'default-mitzo',
+        revision: 1,
+        kind: 'builtin',
+      });
+      Object.assign(f.request.selection.permission, { mode: probeMode });
+      Object.assign(f.request.runtime, { mode: probeMode });
+    }
     async function invokeInformation(options: Options, commandId: string) {
       if (idleSuccess) return; // This scenario intentionally selects only communication.
       if (![f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold'].includes(commandId))
@@ -664,13 +799,37 @@ it.each(
     const history: string[] = [];
     const approvedInputs: string[] = [];
     const providerInputs: string[] = [];
+    const { OrdinaryLocalWorkspaceOwner } =
+      await import('../../server/ordinary-local-workspace-owner.js');
+    const startupCause = Object.assign(new Error('synthetic-secret /private/account'), {
+      code: 'EPERM',
+    });
+    let startupThrown: unknown;
     services.query.mockImplementation((request) => {
       services.requests.push(request);
       const id = request.options.resume ?? request.options.sessionId;
       const closed = { value: false };
-      const process = request.options.spawnClaudeCodeProcess({
-        signal: request.options.abortController.signal,
-      });
+      if (startupWorkspaceFailure)
+        vi.spyOn(OrdinaryLocalWorkspaceOwner.prototype, 'assertCurrentSync').mockImplementationOnce(
+          () => {
+            throw startupCause;
+          },
+        );
+      const process = (() => {
+        try {
+          return request.options.spawnClaudeCodeProcess({
+            signal: request.options.abortController.signal,
+          });
+        } catch (error) {
+          startupThrown = error;
+          throw error;
+        }
+      })();
+      const eagerInputs = eagerProbe ? request.prompt[Symbol.asyncIterator]() : undefined;
+      const eagerFirst = eagerInputs?.next().then(
+        (result: IteratorResult<Record<string, unknown>>) => ({ result }),
+        (error: unknown) => ({ error }),
+      );
       const instance = {
         accountInfo: vi.fn(async () => ({
           email: refuseStartup ? 'other@example.test' : 'person@example.test',
@@ -678,10 +837,29 @@ it.each(
           apiProvider: 'firstParty',
         })),
         async *[Symbol.asyncIterator]() {
+          if (startupProbe) await startupProbeReady;
           if (idleInputReady) await idleInputReady;
           if (credentialFailure === 'input') services.credentialReadFailure = true;
-          const inputs = request.prompt[Symbol.asyncIterator]();
-          for await (const message of { [Symbol.asyncIterator]: () => inputs }) {
+          const inputs = eagerInputs
+            ? (async function* () {
+                const first = await eagerFirst!;
+                if ('error' in first) throw first.error;
+                if (!first.result.done) yield first.result.value;
+                yield* { [Symbol.asyncIterator]: () => eagerInputs };
+              })()
+            : request.prompt[Symbol.asyncIterator]();
+          const sdkInputs = (async function* () {
+            try {
+              yield* { [Symbol.asyncIterator]: () => inputs };
+            } catch (error) {
+              if (authorityFailure === 'none' || refusalExit === 'original') throw error;
+              // Model both SDK outcomes after the owner has retained the refusal.
+              expect(request.options.abortController.signal.reason).toBe(error);
+              if (refusalExit === 'abort-error')
+                throw Object.assign(new Error('SDK query aborted'), { name: 'AbortError' });
+            }
+          })();
+          for await (const message of sdkInputs) {
             if (closed.value) break;
             const inputUuid = message.uuid ?? `input-${message.mitzoMessageId}`;
             history.push(message.mitzoMessageId);
@@ -920,7 +1098,7 @@ it.each(
       {
         repositoryWorkspaceId: f.reservation.id,
         clientMsgId: f.request.clientMsgId,
-        mode: 'agent',
+        mode: probeMode as 'agent' | 'auto' | 'ask',
         text: f.request.payload.text,
         sourceSnapshots: [agentLibrarySource],
       },
@@ -950,11 +1128,116 @@ it.each(
     outbox.start();
     expect(outbox.enqueue(wire, 1, 'public-vertex-draft')).toBe(true);
     await vi.waitFor(
-      () => expect(receipts).toHaveBeenCalledWith(expect.objectContaining({ state: 'consumed' })),
+      () =>
+        expect(receipts).toHaveBeenCalledWith(
+          expect.objectContaining({
+            state: startupWorkspaceFailure ? 'retained' : 'consumed',
+          }),
+        ),
       { timeout: 10000 },
     );
-    expect(persisted).toBe('[]');
+    if (startupWorkspaceFailure) expect(persisted).toContain(wire.clientMsgId);
+    else expect(persisted).toBe('[]');
     outbox.stop();
+    if (startupWorkspaceFailure) {
+      const sessionId = f.reservation.conversationId;
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+      expect(providerInputs).toEqual([]);
+      expect(services.requests).toHaveLength(1);
+      expect((startupThrown as Error).cause).toBe(startupCause);
+      const serialized = services.serializedLogs.join('');
+      const records = serialized
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      const startup = records.filter(
+        (record) => record.msg === 'startChat failed after register, cleaning up',
+      );
+      expect(startup).toHaveLength(1);
+      expect(serialized).not.toMatch(/synthetic-secret|private\/account/);
+      expect(startup[0]).toMatchObject({
+        code: 'ordinary_sdk_startup_failed',
+        stage: 'sdk_startup',
+        sessionId,
+        commandId: wire.clientMsgId,
+        failedCheck: 'selection.workspace',
+        causeCode: 'EPERM',
+      });
+      expect(startup[0]).not.toHaveProperty('err');
+      expect(JSON.stringify(transport.send.mock.calls)).not.toContain('synthetic-secret');
+      return;
+    }
+    if (startupProbe) {
+      // Observe the input after /send releases its temporary authority. Eager
+      // probes begin consuming during query construction; delayed probes wait
+      // until this release, exercising both sides of that lifetime boundary.
+      expect(providerInputs).toEqual([]);
+      if (authorityFailure === 'mode')
+        chat.eventStore.upsertSession({ sessionId: f.reservation.conversationId, mode: 'ask' });
+      if (authorityFailure === 'workspace')
+        vi.spyOn(f.workspace, 'reserveHostTask').mockRejectedValueOnce(
+          Object.assign(new Error('synthetic-secret /private/account'), { code: 'EPERM' }),
+        );
+      releaseStartupProbe();
+      if (authorityFailure !== 'none') {
+        const sessionId = f.reservation.conversationId;
+        await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+        const errors = chat.eventStore
+          .getSessionEvents(sessionId)
+          .filter((event) => event.type === 'error');
+        expect(errors).toHaveLength(1);
+        expect(providerInputs).toEqual([]);
+        const diagnosticId = (errors[0].payload.runtimeFailure as { diagnosticId: string })
+          .diagnosticId;
+        const failedCheck =
+          authorityFailure === 'mode' ? 'selection.session_mode' : 'workspace.reserve';
+        expect(services.diagnostics).toEqual([
+          expect.objectContaining({
+            sessionId,
+            commandId: wire.clientMsgId,
+            provider: personal ? 'anthropic-claude' : 'anthropic-vertex',
+            stage: 'input_authority',
+            runtimeFailureCode: 'input_not_dispatched',
+            diagnosticId,
+            failedCheck,
+            ...(authorityFailure === 'workspace' ? { causeCode: 'EPERM' } : {}),
+          }),
+        ]);
+        expect(transport.send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'error',
+            sessionId,
+            clientMsgId: wire.clientMsgId,
+            error: expect.stringContaining('Message saved.'),
+          }),
+        );
+        await vi.waitFor(() =>
+          expect(spans.find((span) => span.name === 'chat.start')?.ended).toBe(true),
+        );
+        for (const name of ['claude.sdk.input.refused', 'session', 'chat.start']) {
+          expect(spans.find((span) => span.name === name)).toMatchObject({
+            ended: true,
+            status: { code: 2 },
+            attributes: {
+              'runtime.diagnostic_id': diagnosticId,
+              'runtime.failed_check': failedCheck,
+            },
+          });
+        }
+        expect(
+          JSON.stringify([errors, services.diagnostics, spans, transport.send.mock.calls]),
+        ).not.toMatch(/synthetic-secret|private\/account/);
+        expect(errors[0].payload.runtimeFailure).not.toHaveProperty('failedCheck');
+        return;
+      }
+      await vi.waitFor(() => expect(providerInputs).toHaveLength(1), { timeout: 10000 });
+      expect(
+        chat.eventStore
+          .getSessionEvents(f.reservation.conversationId)
+          .filter((event) => event.type === 'error'),
+      ).toEqual([]);
+      return;
+    }
     if (refuseStartup || credentialFailure !== 'none') {
       const sessionId = f.reservation.conversationId;
       await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
