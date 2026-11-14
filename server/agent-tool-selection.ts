@@ -54,11 +54,11 @@ export function assertAgentToolRoute(
       throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
     }
     if (ref.id.startsWith('mcp:')) {
-      if (['local-api', 'codex', 'codex-owned-local'].includes(route)) continue;
+      if (['local-api', 'codex', 'codex-owned-local', 'claude-sdk'].includes(route)) continue;
       throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
     }
     if (ref.id.startsWith('api:')) {
-      if (['local-api', 'codex'].includes(route)) continue;
+      if (['local-api', 'codex', 'claude-sdk'].includes(route)) continue;
       throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
     }
     const entry = catalog.find((tool) => tool.id === ref.id && tool.version === ref.version);
@@ -68,8 +68,9 @@ export function assertAgentToolRoute(
 }
 export function agentToolReferenceSupportsRoute(ref: AgentToolReference, route: string): boolean {
   if (ref.id.startsWith('custom:')) return route === 'local-api';
-  if (ref.id.startsWith('mcp:')) return ['local-api', 'codex', 'codex-owned-local'].includes(route);
-  if (ref.id.startsWith('api:')) return ['local-api', 'codex'].includes(route);
+  if (ref.id.startsWith('mcp:'))
+    return ['local-api', 'codex', 'codex-owned-local', 'claude-sdk'].includes(route);
+  if (ref.id.startsWith('api:')) return ['local-api', 'codex', 'claude-sdk'].includes(route);
   return agentToolCatalog().some(
     (tool) => tool.id === ref.id && tool.version === ref.version && tool.routes.includes(route),
   );
