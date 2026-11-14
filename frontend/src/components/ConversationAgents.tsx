@@ -152,7 +152,9 @@ function ConversationAgentsBody({
             ? 'Choose an account and model.'
             : profileReason
               ? profileReason
-              : joiningOwner.kind === 'application' && setup.repositoryBlocked
+              : joiningOwner.kind === 'application' &&
+                  setup.repositoryBlocked &&
+                  setup.repositoryWorkspaceId
                 ? 'Finish repository preparation in Where it runs before reviewing.'
                 : joiningOwner.kind === 'application' &&
                     (!setup.repositoryWorkspaceId || !setup.permissionMode)

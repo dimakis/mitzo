@@ -2313,7 +2313,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../frontend/src/components/ConversationAgents.tsx':
-    '5b72324536e9b5de29232482aac326702cab82ccd23a9bde5d717b59f736f846',
+    '9e3cb54066656270e2f6760ba945ffd30fbee884e0848705959044280e4fb6db',
   '../../frontend/src/components/ConversationAgents.css':
     'c492395c67a921487dd2461328ef39a2cd4f911c3db1192bc8862832eaa5c851',
   '../../frontend/src/components/ComposerResponders.tsx':

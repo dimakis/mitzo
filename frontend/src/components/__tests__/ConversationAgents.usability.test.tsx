@@ -25,6 +25,9 @@ vi.mock('../ChatAgentProfilePicker', () => ({
 vi.mock('../ConversationRepositoryPicker', () => ({
   ConversationRepositoryPicker: ({ onChange }: { onChange(value: unknown): void }) => (
     <>
+      <button type="button" onClick={() => onChange({ repositoryBlocked: true })}>
+        Clear repository
+      </button>
       <button
         type="button"
         onClick={() =>
@@ -118,6 +121,9 @@ it('explains missing setup and submits the pinned Default Mitzo after repository
     target: { value: 'Review the plan' },
   });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Choose account and model' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: /Where it runs,/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Clear repository' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   expect(within(dialog).getByText('Choose a repository in Where it runs.')).toBeTruthy();
   expect(
     (within(dialog).getByRole('button', { name: 'Review joining brief' }) as HTMLButtonElement)
