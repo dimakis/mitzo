@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1161-claude-parity-information-integration';
+  'v1.0.1162-claude-retry-fifo-handshake';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3602,7 +3602,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '4056f8db7885588d05eb37b8626df2f9c7b77d3c80e078a1c1a3e5637d873aca',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '422a1012abbbfdca2c13a04c5765e0a2267ccff0a8c63bc0f39cc2a80b4c3e76',
+    '5bd84c5f36eeefe32b47bf4c6e7013ce4aea31e16d175e980efa26e1c0e9fe91',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':

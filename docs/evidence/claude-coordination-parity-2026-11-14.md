@@ -191,6 +191,19 @@ retained. Changed conflict-file lint, formatting and source artifact verificatio
 are required before publication. Hosted compilation/CI and targeted current-head
 Centaur review remain merge gates; baseline review `5901683432` is retained.
 
+Hosted run `43600664255`, unit shard 2 job `132465888867`, retained two
+Retry-consumer failures: source/retry/first successor were observed, while one
+one-second polling assertion expected both full successor query reopens. Cleanup
+then retired the still-progressing owner. The other 7,176 shard checks passed.
+Both cases reproduce as passing locally without source changes. The fixture now
+observes and releases each successor through explicit input/result promises,
+asserting that B runs while C remains queued before allowing C. The overall
+30-second test deadline and production timeouts are unchanged. All three affected
+Retry matrix cases pass after this stronger FIFO handshake; original hosted logs
+and unit artifacts remain retained. No runtime code changes in this correction.
+Source pins advance to `v1.0.1162-claude-retry-fifo-handshake`; fresh hosted checks
+and exact-head review remain required.
+
 ## Integration custody and limits
 
 PR #1342 remains draft/open/conflicting at `b2675af8199ab8a99f3628d3d93c4e65145c7244`

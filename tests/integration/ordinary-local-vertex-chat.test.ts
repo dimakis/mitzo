@@ -1581,6 +1581,18 @@ it.each([
     }
     const history: string[] = [];
     let finishSource: (() => void) | undefined, finishRetry: (() => void) | undefined;
+    const tails = new Map(
+      ['retry-tail-b', 'retry-tail-c'].map((id) => {
+        let observe!: () => void, finish!: () => void;
+        const observed = new Promise<void>((resolve) => {
+          observe = resolve;
+        });
+        const released = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        return [id, { observe, finish, observed, released }] as const;
+      }),
+    );
     let accountWait: Promise<void> | undefined;
     let accountWaiting = false;
     services.query.mockImplementation((request) => {
@@ -1621,6 +1633,11 @@ it.each([
               await new Promise<void>((resolve) => {
                 finishRetry = resolve;
               });
+            else if (tails.has(commandId)) {
+              const tail = tails.get(commandId)!;
+              tail.observe();
+              await tail.released;
+            }
             if (closed) return;
             yield {
               type: 'result',
@@ -1647,6 +1664,7 @@ it.each([
     cleanups.push(async () => {
       finishSource?.();
       finishRetry?.();
+      for (const tail of tails.values()) tail.finish();
       chat.registry
         .findBySessionId(f.reservation.conversationId)
         ?.session.ordinaryRuntimeOwner?.close();
@@ -1802,9 +1820,16 @@ it.each([
     ).toBe(200);
     expect(services.requests).toHaveLength(requestCount);
     finishRetry!();
-    await vi.waitFor(() =>
-      expect(history).toEqual([source.clientMsgId, childId, 'retry-tail-b', 'retry-tail-c']),
-    );
+    // Observe each actual input and release its result explicitly. Two complete
+    // authority/history reopens do not share one polling assertion's deadline.
+    await tails.get('retry-tail-b')!.observed;
+    expect(history).toEqual([source.clientMsgId, childId, 'retry-tail-b']);
+    expect(chat.eventStore.getCurrentExecutionCommandId(id)).toBe('retry-tail-b');
+    expect(chat.eventStore.getPendingOrdinaryLocalVertexCommandIds(id)).toEqual(['retry-tail-c']);
+    tails.get('retry-tail-b')!.finish();
+    await tails.get('retry-tail-c')!.observed;
+    expect(history).toEqual([source.clientMsgId, childId, 'retry-tail-b', 'retry-tail-c']);
+    tails.get('retry-tail-c')!.finish();
     await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
     expect(chat.eventStore.getSession(id)).toMatchObject({
       cwd: original.cwd,
