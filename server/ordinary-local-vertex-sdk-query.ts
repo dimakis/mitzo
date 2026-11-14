@@ -138,7 +138,10 @@ export function createOrdinaryLocalVertexSdkQuery<
   inputChanged(queue: AsyncQueue<SDKUserMessage>): void;
   /** Retain and deliver a refused input before abort retires its live viewer. */
   onUnsent(message: SDKUserMessage, error: SessionRuntimeError): void;
-  peerMessages?(): Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> | undefined;
+  peerMessages?():
+    | (Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> &
+        Partial<Pick<SdkAgentMessageRuntime, 'cancelInput'>>)
+    | undefined;
   mcpServers?(state: {
     retired: boolean;
     completing: boolean;
@@ -223,24 +226,31 @@ export function createOrdinaryLocalVertexSdkQuery<
       try {
         owners.authorizeSync(owners.controller.signal);
         const state = states.get(current());
-        const peerInput = owners
-          .peerMessages?.()
-          ?.beforeInput(message, !!state && !state.retired && !state.completing, state);
-        if (peerInput === false) continue;
+        const peers = owners.peerMessages?.();
+        const commandId = (message as SDKUserMessage & { mitzoMessageId?: unknown }).mitzoMessageId;
+        const ordinary = typeof commandId === 'string' && /^\S{1,200}$/.test(commandId);
         if (owners.beforeInput) {
-          const commandId = (message as SDKUserMessage & { mitzoMessageId?: unknown })
-            .mitzoMessageId;
-          if (typeof commandId === 'string' && /^\S{1,200}$/.test(commandId)) {
+          if (ordinary) {
             const allowed = owners.beforeInput!(commandId);
             assertOrdinarySynchronousFence(commandId, () =>
               typeof allowed === 'boolean' ? undefined : allowed,
             );
             if (allowed === false) {
+              // Stop's positive cancellation settles the ordinary input before
+              // the peer guard observes the now-paused recipient. No stdin ran.
+              peers?.cancelInput?.(message);
               continue;
             }
-          } else if (peerInput !== true)
-            throw Error('Original SDK input command identity unavailable');
+          }
         }
+        const peerInput = peers?.beforeInput(
+          message,
+          !!state && !state.retired && !state.completing,
+          state,
+        );
+        if (peerInput === false) continue;
+        if (owners.beforeInput && !ordinary && peerInput !== true)
+          throw Error('Original SDK input command identity unavailable');
       } catch (error) {
         refuseInput(message, error, 'ordinary_input_authority');
       }

@@ -94,6 +94,7 @@ it.each(['async', 'sync', 'wrapped'] as const)(
       'SaveKnowledgeDraft',
       'AgentReadTasks',
       'AgentProposeTask',
+      'StartSession',
       'TelosCreateSession',
     ]);
     const operation = sdk.handlers.get('SymposiumProposeProfile')!(

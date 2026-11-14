@@ -14,7 +14,7 @@ import {
   getPendingRequestsBySession,
   resolvePending,
 } from '../../packages/harness/src/permissions.js';
-import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from '../async-queue.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
@@ -309,8 +309,11 @@ it('invokes service requests on first query, queued successor and cold continuat
   const f = await fixture();
   f.service.grant('original', f.connection.id, f.connection.revision);
   const requests: Options[] = [];
+  const inputs: AsyncIterable<SDKUserMessage>[] = [];
   vi.mocked(query).mockImplementation((request) => {
     requests.push(request.options!);
+    if (typeof request.prompt === 'string') throw Error('Expected the owned input stream');
+    inputs.push(request.prompt);
     return { close: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
   });
   const start = (resume = false) => {
@@ -345,6 +348,20 @@ it('invokes service requests on first query, queued successor and cold continuat
       },
     });
   };
+  const dispatch = async (owner: ReturnType<typeof start>, index: number) => {
+    const message: SDKUserMessage = {
+      type: 'user',
+      message: { role: 'user', content: `service request ${index}` },
+      parent_tool_use_id: null,
+      session_id: 'original',
+    };
+    owner.push(message);
+    // History exists only after the original query actually dispatches input.
+    expect(await inputs[index][Symbol.asyncIterator]().next()).toEqual({
+      done: false,
+      value: message,
+    });
+  };
   const connect = async (options: Options) => {
     const server = options.mcpServers!['mitzo-connections'] as ReturnType<
       typeof createCredentialSdkServer
@@ -365,16 +382,19 @@ it('invokes service requests on first query, queued successor and cold continuat
   };
   const owner = start();
   await owner.apply({ model: 'offline-first' } as never);
+  await dispatch(owner, 0);
   const first = await connect(requests[0]);
   expect((await first()).isError).toBe(false);
   await owner.apply({ model: 'offline-successor' } as never);
   const next = await connect(requests[1]);
   expect(requests[1].resume).toBe('original');
+  await dispatch(owner, 1);
   expect((await first()).isError).toBe(true);
   expect((await next()).isError).toBe(false);
   const cold = start(true);
   await cold.apply({ model: 'offline-cold' } as never);
   expect(requests[2].resume).toBe('original');
+  await dispatch(cold, 2);
   expect((await (await connect(requests[2]))()).isError).toBe(false);
   expect(f.send).toHaveBeenCalledTimes(3);
 });
