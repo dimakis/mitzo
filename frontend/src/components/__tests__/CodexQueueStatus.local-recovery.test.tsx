@@ -20,9 +20,13 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-it.each([false, true])(
-  'continues an eligible local Codex command with current signed connection (connected=%s)',
-  async (connected) => {
+it.each([
+  { connected: false, paused: false, queued: 0, failed: 1 },
+  { connected: true, paused: false, queued: 0, failed: 1 },
+  { connected: true, paused: true, queued: 1, failed: 0 },
+])(
+  'continues an eligible local queue with current signed connection (connected=$connected paused=$paused)',
+  async ({ connected, paused, queued, failed }) => {
     const timeout = vi.spyOn(AbortSignal, 'timeout');
     vi.mocked(apiFetch).mockImplementation(
       async (path) =>
@@ -32,12 +36,12 @@ it.each([false, true])(
             String(path).endsWith('/meta')
               ? {
                   codexQueue: {
-                    paused: false,
+                    paused,
                     connected,
                     canContinue: true,
-                    queued: 0,
+                    queued,
                     interrupted: 0,
-                    failed: 1,
+                    failed,
                     retryable: false,
                   },
                 }

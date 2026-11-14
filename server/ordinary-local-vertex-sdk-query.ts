@@ -131,7 +131,7 @@ export function createOrdinaryLocalVertexSdkQuery<
   authorizeSync(signal: AbortSignal): void;
   /** Trusted ordinary command/source fence, after every awaited SDK account
    * check and immediately before yielding that exact frozen user input. */
-  beforeInput?(commandId: string): void;
+  beforeInput?(commandId: string): boolean | void;
   adapt(query: Query): T;
   settings(
     selection: OrdinaryLocalCommandAdmission['selection'],
@@ -147,6 +147,7 @@ export function createOrdinaryLocalVertexSdkQuery<
   }): Options['mcpServers'];
 }) {
   let input = owners.input;
+  let hasHistory = !!owners.options.resume;
   const runs = new AsyncQueue<Query>();
   type State = SdkCallbackState & {
     processClose?: ReturnType<typeof observeOrdinarySdkProcessClose>;
@@ -230,14 +231,21 @@ export function createOrdinaryLocalVertexSdkQuery<
         if (owners.beforeInput) {
           const commandId = (message as SDKUserMessage & { mitzoMessageId?: unknown })
             .mitzoMessageId;
-          if (typeof commandId === 'string' && /^\S{1,200}$/.test(commandId))
-            assertOrdinarySynchronousFence(commandId, () => owners.beforeInput!(commandId));
-          else if (peerInput !== true)
+          if (typeof commandId === 'string' && /^\S{1,200}$/.test(commandId)) {
+            const allowed = owners.beforeInput!(commandId);
+            assertOrdinarySynchronousFence(commandId, () =>
+              typeof allowed === 'boolean' ? undefined : allowed,
+            );
+            if (allowed === false) {
+              continue;
+            }
+          } else if (peerInput !== true)
             throw Error('Original SDK input command identity unavailable');
         }
       } catch (error) {
         refuseInput(message, error, 'ordinary_input_authority');
       }
+      hasHistory = true;
       yield message;
     }
   };
@@ -280,10 +288,15 @@ export function createOrdinaryLocalVertexSdkQuery<
         : {}),
       ...(owners.mcpServers ? { mcpServers: owners.mcpServers(state) } : {}),
       ...(selection
-        ? { ...owners.settings(selection), sessionId: undefined, resume: owners.sdkSessionId }
+        ? {
+            ...owners.settings(selection),
+            ...(hasHistory
+              ? { sessionId: undefined, resume: owners.sdkSessionId }
+              : { sessionId: owners.sdkSessionId, resume: undefined }),
+          }
         : {}),
     };
-    if (selection) delete options.sessionId;
+    if (selection && hasHistory) delete options.sessionId;
     const native = query({ prompt: prompt(input, () => native), options });
     states.set(native, state);
     return native;
@@ -415,11 +428,12 @@ export function createOrdinaryLocalVertexSdkQuery<
         first = false;
         return;
       }
-      await assertOrdinaryLocalVertexHistory(
-        owners.sdkSessionId,
-        owners.cwd,
-        owners.options.env?.CLAUDE_CONFIG_DIR,
-      );
+      if (hasHistory)
+        await assertOrdinaryLocalVertexHistory(
+          owners.sdkSessionId,
+          owners.cwd,
+          owners.options.env?.CLAUDE_CONFIG_DIR,
+        );
       await owners.authorize(owners.controller.signal);
       const state = states.get(native)!;
       state.retired = true;
