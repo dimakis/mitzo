@@ -153,9 +153,10 @@ async function fixture(kind: 'mcp' | 'api', explicit: boolean | 'empty' = true) 
     assertCurrent: async () => assertCurrentSync(),
     assertCurrentSync,
   });
-  const open = async () => {
+  const open = async (checkTool?: (wire: string) => 'allow' | 'deny') => {
     let retired = false;
     const server = library!.createServer({
+      checkTool,
       assertCurrent: async () => {
         assertCurrentSync();
         if (retired) throw Error('query retired');
@@ -244,6 +245,48 @@ it.each(['mcp', 'api'] as const)('preserves the canonical %s skill ceiling', asy
   expect((await q.invoke()).isError).toBe(true);
   expect(f.callTool).not.toHaveBeenCalled();
   expect(f.send).not.toHaveBeenCalled();
+});
+it.each(['mcp', 'api'] as const)(
+  'checks the original %s command ceiling with its actual SDK wire name',
+  async (kind) => {
+    const f = await fixture(kind);
+    const checkTool = vi.fn((): 'allow' | 'deny' => 'deny');
+    const q = await f.open(checkTool);
+    expect((await q.invoke()).isError).toBe(true);
+    expect(checkTool).toHaveBeenCalledWith(`mcp__mitzo-tool-library__${q.tools[0].name}`);
+    expect(f.callTool).not.toHaveBeenCalled();
+    expect(f.send).not.toHaveBeenCalled();
+    expect(f.connect).not.toHaveBeenCalled();
+  },
+);
+it.each(['mcp', 'api'] as const)(
+  'allows the exact frozen %s wire across successor adapters without lending an inner alias',
+  async (kind) => {
+    const f = await fixture(kind);
+    const wire = f.library!.allowedTools[0];
+    const checkTool = vi.fn((name: string): 'allow' | 'deny' => (name === wire ? 'allow' : 'deny'));
+    for (let turn = 0; turn < 3; turn++) {
+      const q = await f.open(checkTool);
+      expect((await q.invoke()).isError).not.toBe(true);
+      q.retire();
+      expect((await q.invoke()).isError).toBe(true);
+    }
+    expect(checkTool).toHaveBeenCalledWith(wire);
+    expect(checkTool.mock.calls.every(([name]) => name === wire)).toBe(true);
+    expect(kind === 'mcp' ? f.callTool : f.send).toHaveBeenCalledTimes(3);
+  },
+);
+it('rechecks the original MCP wire ceiling after asynchronous source preparation', async () => {
+  const f = await fixture('mcp');
+  let allowed = true;
+  const q = await f.open(() => (allowed ? 'allow' : 'deny'));
+  const connect = f.connect.getMockImplementation()!;
+  f.connect.mockImplementationOnce(async () => {
+    allowed = false;
+    return connect();
+  });
+  expect((await q.invoke()).isError).toBe(true);
+  expect(f.callTool).not.toHaveBeenCalled();
 });
 it('refuses a tool outside the published selection', async () => {
   const f = await fixture('mcp');

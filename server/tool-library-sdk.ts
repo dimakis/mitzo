@@ -28,6 +28,7 @@ interface Boundary {
   assertCurrent(signal: AbortSignal): Promise<void>;
   assertCurrentSync(signal: AbortSignal): void;
   runCallback?: TurnCallbackRunner;
+  checkTool?(wire: string): 'allow' | 'deny';
 }
 
 /** Transport adaptation only. Published receipts, lazy MCP launches and API requests
@@ -154,8 +155,35 @@ export async function createSdkToolLibrary(
       const instance = new McpServer({ name: 'mitzo-tool-library', version: '1.0.0' });
       // Keep the exact published JSON schemas; do not convert them into a second schema language.
       instance.server.registerCapabilities({ tools: {} });
-      let admitted: ReturnType<typeof admit> | undefined;
-      const tools = () => (admitted ??= admit(boundary));
+      // Existing lazy admissions retain the exact named callback authority;
+      // one tool's cached owner cannot lend its ceiling to another wire name.
+      const admitted = new Map<string, ReturnType<typeof admit>>();
+      const toolBoundary = (name: string): Boundary => {
+        const assertTool = () => {
+          if (boundary.checkTool && boundary.checkTool(prefix + name) !== 'allow')
+            throw Error('Tool not allowed by the frozen command skill ceiling');
+        };
+        return {
+          async assertCurrent(signal) {
+            assertTool();
+            await boundary.assertCurrent(signal);
+            assertTool();
+          },
+          assertCurrentSync(signal) {
+            assertTool();
+            boundary.assertCurrentSync(signal);
+            assertTool();
+          },
+        };
+      };
+      const tools = (name: string, authority: Boundary) => {
+        let pending = admitted.get(name);
+        if (!pending) {
+          pending = admit(authority);
+          admitted.set(name, pending);
+        }
+        return pending;
+      };
       instance.server.setRequestHandler(ListToolsRequestSchema, async () => {
         current(boundary);
         return {
@@ -172,11 +200,12 @@ export async function createSdkToolLibrary(
           const name = request.params.name;
           try {
             callSignal.throwIfAborted();
-            await boundary.assertCurrent(callSignal);
-            current(boundary);
             if (!names.has(name) || !agentToolAllowed(options.session, prefix + name))
               throw Error('Tool is not selected by the published profile');
-            const admitted = await tools();
+            const authority = toolBoundary(name);
+            await authority.assertCurrent(callSignal);
+            current(authority);
+            const admitted = await tools(name, authority);
             const input = request.params.arguments ?? {};
             const result =
               (await admitted.api?.execute(name, input, callSignal)) ??
@@ -191,8 +220,8 @@ export async function createSdkToolLibrary(
                   }),
                 callSignal,
               ));
-            await boundary.assertCurrent(callSignal);
-            current(boundary);
+            await authority.assertCurrent(callSignal);
+            current(authority);
             callSignal.throwIfAborted();
             return copyCallbackOutcome(result, {
               content: codexToolResultContentItems(result).map((item) => {
@@ -216,8 +245,8 @@ export async function createSdkToolLibrary(
         });
       });
       instance.server.onclose = () => {
-        if (admitted)
-          void admitted.then(
+        for (const pending of admitted.values())
+          void pending.then(
             async (result) => {
               try {
                 await result.mcp?.close();

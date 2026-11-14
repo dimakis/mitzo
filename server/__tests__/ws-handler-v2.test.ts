@@ -2111,7 +2111,7 @@ describe('handleSendV2 reattach', () => {
 // ─── handleSendV2 skill policy timing ───────────────────────────────────────
 
 describe('handleSendV2 skill policy', () => {
-  it('calls setSkillPolicy with found.clientId on active-resume path', () => {
+  it('refuses a restricted skill before sending to an active legacy runtime', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (setSkillPolicy as ReturnType<typeof vi.fn>).mockClear();
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({
@@ -2125,7 +2125,6 @@ describe('handleSendV2 skill policy', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-active', session: {} });
     sessionReg.isActive.mockReturnValue(false);
-    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -2145,27 +2144,18 @@ describe('handleSendV2 skill policy', () => {
       ctx,
     );
 
-    // Must use found.clientId ('c1:sess-active'), not connectionId ('c1')
-    expect(setSkillPolicy).toHaveBeenCalledWith(expect.anything(), 'c1:sess-active', [
-      'Read',
-      'Write',
-    ]);
-    expect(sendToChat).toHaveBeenCalledWith(
-      'c1:sess-active',
-      'rendered prompt',
-      undefined,
-      undefined,
-      'cmsg-sp',
-      undefined,
-      undefined,
-      undefined,
-      '/test-skill',
-      undefined,
-      expect.any(Function),
+    expect(setSkillPolicy).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringMatching(/tool restrictions/),
+        clientMsgId: 'cmsg-sp',
+      }),
     );
   });
 
-  it('calls setSkillPolicy with composite clientId on resume path', () => {
+  it('refuses a restricted skill before cold resume or startup allocation', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (setSkillPolicy as ReturnType<typeof vi.fn>).mockClear();
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({
@@ -2198,8 +2188,15 @@ describe('handleSendV2 skill policy', () => {
       ctx,
     );
 
-    // Resume path uses composite clientId
-    expect(setSkillPolicy).toHaveBeenCalledWith(expect.anything(), 'c1:sess-resume', ['Read']);
+    expect(setSkillPolicy).not.toHaveBeenCalled();
+    expect(startChat).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringMatching(/tool restrictions/),
+        clientMsgId: 'cmsg-sp2',
+      }),
+    );
   });
 });
 
@@ -2832,7 +2829,6 @@ describe('handleSendV2 routing', () => {
       type: 'skill',
       name: 'commit',
       renderedPrompt: 'Create a commit...',
-      allowedTools: ['Bash'],
       arguments: '-m "test"',
     });
     (startChat as ReturnType<typeof vi.fn>).mockImplementationOnce(
@@ -3913,7 +3909,6 @@ describe('handleSendV2 state-based routing', () => {
       type: 'skill',
       name: 'commit',
       renderedPrompt: 'Create a commit...',
-      allowedTools: ['Bash'],
       arguments: '-m "test"',
     });
     vi.mocked(preflightStartupProviderCommand).mockImplementationOnce(() => {
@@ -3943,7 +3938,6 @@ describe('handleSendV2 state-based routing', () => {
       type: 'skill',
       name: 'commit',
       renderedPrompt: 'Create a commit...',
-      allowedTools: ['Bash'],
       arguments: '-m "test"',
     });
     vi.mocked(startChat).mockImplementationOnce(async (_transport, _clientId, _prompt, options) => {
@@ -6474,7 +6468,6 @@ it('settles admitted startup even when its skill notification cannot be delivere
     type: 'skill',
     name: 'commit',
     renderedPrompt: 'Create a commit',
-    allowedTools: ['Bash'],
     arguments: '',
   });
   const deliver = transport.send.bind(transport);

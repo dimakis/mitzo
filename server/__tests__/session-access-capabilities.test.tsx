@@ -15,7 +15,7 @@ vi.mock('../logger.js', () => ({ createLogger: () => ({ warn }) }));
 function fixture(
   provider = 'anthropic-claude',
   location = 'local',
-  profile?: { tools: Array<{ id: string; version: 1 }> },
+  profile?: { tools: Array<{ id: string; version: number }> },
 ) {
   const session = {
     sessionId: 'chat',

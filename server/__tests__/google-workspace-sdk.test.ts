@@ -22,7 +22,7 @@ afterEach(async () => {
   setConnectionsRuntime(null);
   vi.restoreAllMocks();
 });
-async function fixture(selected?: boolean) {
+async function fixture(selected?: boolean, checkTool?: (wire: string) => 'allow' | 'deny') {
   const google = googleReadFixture();
   const service = new GoogleWorkspaceManagement(google.options);
   setConnectionsRuntime({
@@ -55,6 +55,7 @@ async function fixture(selected?: boolean) {
     assertCurrent: async () => assert(),
     assertCurrentSync: assert,
     runCallback: (work) => callbacks.track(work),
+    checkTool,
   });
   const client = new Client({ name: 'offline-google', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -118,6 +119,32 @@ it('honors the exact SDK wire identity in a restricted skill', async () => {
   const f = await fixture(true);
   setSkillPolicy(f.registry, 'owner', ['mcp__mitzo-connections__GoogleWorkspaceRead']);
   expect((await f.read()).isError).not.toBe(true);
+});
+it.each([false, true])(
+  'checks the original Google command wire ceiling, selected=%s',
+  async (allowed) => {
+    const expected = 'mcp__mitzo-connections__GoogleWorkspaceRead';
+    const checkTool = vi.fn((wire: string): 'allow' | 'deny' =>
+      allowed && wire === expected ? 'allow' : 'deny',
+    );
+    const f = await fixture(true, checkTool);
+    const result = await f.read();
+    expect(result.isError === true).toBe(!allowed);
+    expect(checkTool).toHaveBeenCalledWith(expected);
+    expect(f.google.readRequest).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    expect(f.google.exportCredentials).toHaveBeenCalledTimes(allowed ? 1 : 0);
+  },
+);
+it('rechecks the frozen Google ceiling after asynchronous credential preparation', async () => {
+  let allowed = true;
+  const f = await fixture(true, () => (allowed ? 'allow' : 'deny'));
+  const exportCredentials = f.google.exportCredentials.getMockImplementation()!;
+  f.google.exportCredentials.mockImplementationOnce(async () => {
+    allowed = false;
+    return exportCredentials();
+  });
+  expect((await f.read()).isError).toBe(true);
+  expect(f.google.readRequest).not.toHaveBeenCalled();
 });
 it('returns a sanitized visible diagnostic for a failed Google read', async () => {
   const f = await fixture();
