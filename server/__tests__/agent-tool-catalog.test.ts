@@ -96,7 +96,7 @@ it('keeps legacy behavior but blocks explicit selections on unsupported routes a
   ).not.toThrow();
   expect(() =>
     assertAgentToolRoute(
-      { tools: [{ id: 'mitzo:ConnectionRequest', version: 1 }] } as never,
+      { tools: [{ id: 'mitzo:ApplySecretRelay', version: 1 }] } as never,
       'claude-sdk',
     ),
   ).toThrow(/unavailable/i);

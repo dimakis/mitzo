@@ -4,7 +4,7 @@
  */
 export const SDK_CONNECTION_PREFIX = 'mcp__mitzo-connections__';
 const connectionHelpers: readonly string[] = Object.freeze([
-  'ListConnections',
+  ...nativeConnectionToolNames,
   'SymposiumReadProfiles',
   'SymposiumConsult',
   'SymposiumProposeProfile',
@@ -21,3 +21,4 @@ export function ordinarySdkHelperPolicyName(name: string): string | undefined {
   if (name === 'AskUserQuestion' || name === 'RequestWebAccess') return name;
   return connectionHelpers.includes(name) ? `${SDK_CONNECTION_PREFIX}${name}` : undefined;
 }
+import { nativeConnectionToolNames } from './credential-connection-tools.js';

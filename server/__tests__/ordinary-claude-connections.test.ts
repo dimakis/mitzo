@@ -8,6 +8,8 @@ import { agentToolCatalog } from '../agent-tool-catalog.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from '../agent-tool-selection.js';
 import { CredentialConnections, CredentialConnectionStore } from '../credential-connections.js';
 import { setCredentialConnectionsRuntime } from '../credential-connections-runtime.js';
+import { nativeConnectionToolNames } from '../credential-connection-tools.js';
+import { ordinarySdkConnectionHelperTools } from '../ordinary-sdk-helper-registration.js';
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -25,7 +27,7 @@ async function fixture(mode: 'ask' | 'agent' | 'auto' = 'agent', selected?: bool
     read: vi.fn(async () => 'PRIVATE_FIXTURE_TOKEN'),
     remove: vi.fn(async () => {}),
   };
-  const send = vi.fn(async () => ({ status: 200, body: 'must not be requested' }));
+  const send = vi.fn(async () => ({ status: 200, body: 'offline service result' }));
   const service = new CredentialConnections(store, vault, send);
   const connection = await service.create(
     {
@@ -33,7 +35,7 @@ async function fixture(mode: 'ask' | 'agent' | 'auto' = 'agent', selected?: bool
       endpoint: 'https://service.example.test',
       auth: { kind: 'bearer' },
       paths: ['/api/'],
-      methods: ['GET'],
+      methods: ['GET', 'POST'],
     },
     { secret: 'PRIVATE_FIXTURE_TOKEN' },
   );
@@ -122,7 +124,7 @@ it.each(['ask', 'agent', 'auto'] as const)(
       'ConnectionWebSocket',
       'HomeAssistantDashboard',
     ]) {
-      expect(await f.names()).not.toContain(name);
+      expect(await f.names()).toContain(name);
       expect(await f.client.callTool({ name, arguments: {} })).toMatchObject({ isError: true });
     }
   },
@@ -149,12 +151,55 @@ it.each([true, false])('respects explicit profile discovery selection=%s', async
   ).toMatchObject({ behavior: selected ? 'allow' : 'deny' });
 });
 
-it('makes only read-only connection discovery eligible on the Claude route', () => {
+it('makes existing native connection operations eligible on the Claude route', () => {
   const connections = agentToolCatalog().filter((entry) => entry.source === 'Connections');
   expect(
     connections.filter((entry) => entry.routes.includes('claude-sdk')).map((entry) => entry.name),
-  ).toEqual(['ListConnections']);
+  ).toEqual(expect.arrayContaining([...nativeConnectionToolNames]));
+  for (const name of nativeConnectionToolNames)
+    expect(ordinarySdkConnectionHelperTools).toContain(`mcp__mitzo-connections__${name}`);
 });
+
+it.each(['GET', 'POST'] as const)(
+  'invokes an authorized %s through the actual SDK MCP and service owner',
+  async (method) => {
+    const f = await fixture();
+    f.service.grant('original', f.connection.id, f.connection.revision);
+    const result = await f.client.callTool({
+      name: 'ConnectionRequest',
+      arguments: {
+        connectionId: f.connection.id,
+        method,
+        path: '/api/example',
+      },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(f.text(result)).toContain('offline service result');
+    expect(f.text(result)).not.toContain('PRIVATE_FIXTURE_TOKEN');
+    expect(f.send).toHaveBeenCalledOnce();
+  },
+);
+
+it.each(['ask-write', 'revoked', 'cancelled', 'retired', 'wrong-path'] as const)(
+  'blocks service effects for %s at SDK invocation',
+  async (failure) => {
+    const f = await fixture(failure === 'ask-write' ? 'ask' : 'auto');
+    f.service.grant('original', f.connection.id, f.connection.revision);
+    if (failure === 'revoked') f.service.revokeSession('original', f.connection.id);
+    if (failure === 'cancelled') f.session.abortController.abort();
+    if (failure === 'retired') f.authority.current = false;
+    const result = await f.client.callTool({
+      name: 'ConnectionRequest',
+      arguments: {
+        connectionId: f.connection.id,
+        method: 'POST',
+        path: failure === 'wrong-path' ? '/forbidden' : '/api/example',
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(f.send).not.toHaveBeenCalled();
+  },
+);
 
 it('retains per-session access states without borrowing another chat grant', async () => {
   const f = await fixture();

@@ -120,7 +120,9 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                               ? [
                                   'local-api',
                                   'codex',
-                                  ...(tool.name === 'ListConnections' ? ['claude-sdk'] : []),
+                                  ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
+                                    ? ['claude-sdk']
+                                    : []),
                                   ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
                                     ? ['codex-owned-local']
                                     : []),
