@@ -422,6 +422,7 @@ export function SharedConversationBody({
     textOnly: true,
     boundedFirstCommand: true,
     guardedConversation: false,
+    recipientRecovery: !sending.pending && !presentation.error,
     validateSend: undefined,
     onInterrupt: undefined,
     running: !!sending.pending,
@@ -436,7 +437,7 @@ export function SharedConversationBody({
             ...member,
             name: names[member.id] ?? member.name,
           })),
-          disabled: !!sending.pending,
+          disabled: !!sending.pending || composerResponders.disabled,
         }
       : undefined,
     sendDisabledReason: presentation.error ?? sending.disabledReason,

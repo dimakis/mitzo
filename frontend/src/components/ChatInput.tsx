@@ -84,6 +84,8 @@ interface Props {
   replyTarget?: MessageReplyContext;
   onClearReply?: () => void;
   responders?: ComposerResponderSelection;
+  /** This route can resolve its supplied refusal by changing recipients. */
+  recipientRecovery?: boolean;
   /** A retained delivery route may support text and voice but no attachments. */
   textOnly?: boolean;
   settings?: ReactNode;
@@ -191,7 +193,7 @@ function ChatInputOwner(props: Props) {
   const sink = useComposerStatusSink();
   const shared = useContext(SharedConversationComposerContext);
   const routed =
-    shared?.sourceConversationId === props.sessionId
+    shared && shared.sourceConversationId === props.sessionId
       ? {
           ...props,
           ...shared.props,
@@ -208,6 +210,7 @@ function ChatInputOwner(props: Props) {
 }
 
 function ChatInputContent({
+  recipientRecovery = false,
   steeringTargetCommandId,
   replyTarget,
   onClearReply,
@@ -1626,7 +1629,10 @@ function ChatInputContent({
       <ChatStatusMessage
         status={sendDisabledReason}
         action={
-          needsRecipients && responders.maximum !== 1 && !responders.disabled
+          needsRecipients &&
+          (!suppliedSendDisabledReason || recipientRecovery) &&
+          responders.maximum !== 1 &&
+          !responders.disabled
             ? { label: 'Choose who replies', onClick: chooseResponders }
             : retainedPayloadUnsupported && !suppliedSendDisabledReason
               ? undefined
