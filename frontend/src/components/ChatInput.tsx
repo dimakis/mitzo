@@ -14,6 +14,8 @@ import { ChatStatusMessage, type ChatStatusAction } from './ChatStatusMessage';
 import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
 import { SharedConversationComposerContext } from '../lib/shared-conversation-composer';
+import { ChatInputMountContext } from '../lib/chat-input-mount';
+import { ActiveContext, SinkContext } from '../lib/composer-status-context';
 import {
   useState,
   useContext,
@@ -156,6 +158,9 @@ const EMPTY_MESSAGES: FinishedMessage[] = [];
 
 export function ChatInput(props: Props) {
   const sink = useComposerStatusSink();
+  const statusActive = useContext(ActiveContext);
+  const host = useContext(ChatInputMountContext);
+  const slot = useRef<HTMLDivElement>(null);
   const shared = useContext(SharedConversationComposerContext);
   const routed =
     shared?.sourceConversationId === props.sessionId
@@ -165,11 +170,33 @@ export function ChatInput(props: Props) {
           sourceStop: props.running && !shared.props.running ? props.onStop : undefined,
         }
       : props;
+  const content = (
+    <SinkContext.Provider value={sink}>
+      <ActiveContext.Provider value={statusActive}>
+        <ChatInputOwner {...routed} />
+      </ActiveContext.Provider>
+    </SinkContext.Provider>
+  );
+  const mounted = host && host.sessionId === props.sessionId ? host : null;
+  const latestContent = useRef(content);
+  latestContent.current = content;
+  useLayoutEffect(() => {
+    if (mounted && slot.current) return mounted.attach(slot.current, latestContent.current);
+    // Updates publish separately; changing handlers must not detach the DOM.
+  }, [mounted]);
+  useLayoutEffect(() => {
+    if (mounted && slot.current) mounted.update(slot.current, content);
+  });
+  return mounted ? <div className="chat-input-mount" ref={slot} /> : content;
+}
+
+function ChatInputOwner(props: Props) {
+  const sink = useComposerStatusSink();
   return sink ? (
-    <ChatInputContent {...routed} />
+    <ChatInputContent {...props} />
   ) : (
     <ComposerStatusProvider>
-      <ChatInputContent {...routed} />
+      <ChatInputContent {...props} />
     </ComposerStatusProvider>
   );
 }
@@ -1591,7 +1618,7 @@ function ChatInputContent({
       <ChatStatusMessage
         status={sendDisabledReason}
         action={
-          needsRecipients && !responders.disabled
+          needsRecipients && responders.maximum !== 1 && !responders.disabled
             ? { label: 'Choose who replies', onClick: chooseResponders }
             : sendDisabledAction
         }
