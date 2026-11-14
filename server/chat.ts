@@ -2785,6 +2785,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
           onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
+          ...(options.ordinarySdkAuthority
+            ? {
+                assertCurrentSync: () =>
+                  options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+              }
+            : {}),
         }),
       );
       const sdkAgentCommunication = options.ordinarySdkAuthority

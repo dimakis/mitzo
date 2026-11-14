@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1149-claude-cold-preinput';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1150-claude-stop-approval-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +24,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-native-development.test.ts':
-    'f1be3b1855b241731fc507bd5477ac2b0fd5e31c987b98c7ff2b5dc49db2e7c3',
+    'f670e08f660fbbaa92cf1baebcc849f826c0f940f6e797a5fcf032c00add7f8e',
+  '../../packages/harness/src/worktree-guard.ts':
+    '0e2280cdc706abee7b9cea3686231f29988f425620f6a3ade841beae1fb16e68',
+  '../../packages/harness/__tests__/sdk-write-scope.test.ts':
+    'a9d8f82c2719a402d3704a7ed80dc10cff38ae42f151b47dc3feed3fe3e77d40',
+  '../../packages/harness/__tests__/permission-live-authority.test.ts':
+    '66a1c90d0751fdb6df9f1898070772acb957084247e6abf9b1fd1d18ff2d7767',
   '../__tests__/symposium-recording-runtime.test.ts':
     'df304c9f5a82e7f8034aaf5b88717ffdf3bd8cfc28cfef22410ec06b61205820',
   '../specialist-review-routing.ts':
@@ -1205,7 +1212,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-project-instructions.ts':
     '21e00374db10075507c43f3cfb3898e20a18c2bf1035af0e26cdecfed0c33341',
   '../../packages/harness/__tests__/permission-handler.test.ts':
-    'feef7302d25d161769edaaa5f5669dca1a11abce41a685437dc7fa7c423646a0',
+    'ab4c058d7c4d0216ff417555496f327edaf295e1d2f2f7f6ff0cad772660c92e',
   '../__tests__/trusted-native-operation.test.ts':
     'a4f7c7f0b6078f5908b67e6c14af1ba5ee8b96c7ebba90ceac778c556442c8b7',
   '../__tests__/trusted-native-operation-partial.test.ts':
@@ -2422,7 +2429,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-item-tools.ts': '6338abf7d20c0a7ee4f68de4c85e49a75acb8a76545822fba14246d86efe6abf',
   '../telos-mcp-server.ts': '06e4c5f62691696f36f387d930660704f9e56dc1a877fdc9062957bf786dd28a',
   '../../packages/harness/src/tool-tiers.ts':
-    '03e9e7036f3e5d935211879f53a7c222aa6e8f8a298fa92f3e90fc850230d884',
+    'd687bdf0f309bd45ec4be61b812f39a8be11f2c2db259e79221c89b93eac8483',
   '../../frontend/src/components/ChatWelcome.tsx':
     'be4dd3a9269459ddbfeeab8daa3b55c3fdc12bad84f12446a4dece772036ae5f',
   '../../frontend/src/components/CompactionMarker.tsx':
@@ -2609,7 +2616,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     'cc79b091161db6d4c150353b822f5035143606c609d769ca632aa6a79b484207',
   '../../packages/harness/src/permission-handler.ts':
-    '361c907bf47bd4bcc14be44773dcaced03865d926a08fb0bed6a13eb9f810e35',
+    '63da4781fa65d27f2ea27f5d072ad616a6a8cade2230be200914ef86126a7032',
   '../../packages/harness/src/permissions.ts':
     '270fe368651d74c25e4b7068429b9926ca4dd791f3eb81d78f6621afdebf02a4',
   '../../packages/protocol/src/session-approval-scope.ts':
@@ -2670,7 +2677,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': 'f8dea22ac3bff4b633687df57f7af0aa217577cd4f0b9e2682a495f18eb75b7a',
+  '../chat.ts': '834ad150d4364d00dcab018d4506e17b7e2338dd402aecae28a3c8f349586c2d',
   '../../packages/harness/src/session-registry.ts':
     '7c333231448cb52efe82233ccbcf81ac3e4f560228c4c4bb2b150cb07341a869',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -3578,7 +3585,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '5fe0e25012c1d5324c32cf76f25397cc6a9a97321a3a14a5e1b6f6195ebfc5bd',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    'f2cf258a46b70f3a020178bea0983785dd2bce1a77fb81ed31aa1927d447453f',
+    '36a3e576a4ccabfd6d85a60c5929fe916bd552ea5840c96f27ea747be90ab302',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
