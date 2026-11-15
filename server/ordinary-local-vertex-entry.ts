@@ -274,6 +274,7 @@ export async function startOwnedLocalVertexCommand(
           session.ownedLocalAuthSessionId = owner.authSessionId;
           retainNativeHostToolOperator(session, options.operatorConnectionId);
           session.ordinaryRuntimeOwner = {
+            supportsTurnLifecycle: true,
             location: 'local',
             authSessionId: owner.authSessionId,
             identity: owner,
@@ -294,6 +295,8 @@ export async function startOwnedLocalVertexCommand(
             },
             sdkTurns: {
               stop: (requestId) => queue!.stop(requestId),
+              stopBeforeInput: (commandId, requestId) =>
+                queue!.stopBeforeInput(commandId, requestId),
               resumeQueue: () => queue!.resumeQueue(),
               captureInterruptTarget: () => queue!.captureInterruptTarget(),
               interruptIfCurrent: (requestId, target) =>

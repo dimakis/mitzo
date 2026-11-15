@@ -629,6 +629,49 @@ it('prepares the first Add agent from one ordinary chat without a placeholder se
       participantSessionIds: ['solo'],
     }),
   ).toThrow();
+  store.admitOrdinaryLocalCommand(
+    {
+      sessionId: 'history-child',
+      selectedModel: 'offline-fixture',
+      cwd: '/fixture',
+      repositoryWorkspaceId: 'workspace',
+      accountBinding: { ...binding.account, accountLabel: 'Fixture', model: 'offline-fixture' },
+    },
+    binding,
+    {
+      clientMsgId: pending.allocationOperationId,
+      requestFingerprint: 'history-allocation',
+      selection,
+      payload: { text: 'Offline allocation fixture' },
+    },
+  );
+  store.collaborationConversation.recordAllocation(freshGroup, pending.joinId, {
+    operationId: pending.allocationOperationId,
+    sessionId: 'history-child',
+    settings,
+  });
+  store.collaborationConversation.linkJoin(freshGroup, pending.joinId, 1);
+  const history = {
+    state: 'participant_history',
+    sourceConversationId: 'history-child',
+    originalConversationId: 'solo',
+    collaboration: store.getSessionCollaboration(freshGroup),
+  };
+  expect(store.collaborationConversation.sourceSetup('history-child')).toEqual(history);
+  store.close();
+  store = new EventStore(path);
+  expect(store.collaborationConversation.sourceSetup('history-child')).toEqual(history);
+  store.setSessionCollaboration(freshGroup, {
+    expectedRevision: 2,
+    participantSessionIds: ['solo'],
+  });
+  store.setSessionCollaboration(freshGroup, {
+    expectedRevision: 3,
+    participantSessionIds: ['solo', 'history-child'],
+  });
+  expect(() => store.collaborationConversation.sourceSetup('history-child')).toThrow(
+    'snapshot_changed',
+  );
 });
 
 it('rolls membership back if its projection cannot commit', () => {
