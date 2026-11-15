@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1203-claude-recovery-inspection';
+  'v1.0.1204-claude-recovery-browser-coverage';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2207,7 +2207,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/chat-model-settings.spec.ts':
     'd1a199def861983d7917fb348117ee7fbc5cf0cb84667f972b912c34b1446209',
   '../../tests/offline/chat-queue-steering.spec.ts':
-    '66288dbc3bf6d48ef18257e6367516f5729d0c4ae38f3bc16255ca2475904a82',
+    '57348325ce8711bdfdeb7d542cda1a7e14b345fae7b399dc2087cf21e38949ee',
   '../../tests/offline/chat-runtime-tools.spec.ts':
     '79e59c9fde6aeb2f39be147999eb9185f4a182fce2e2faaaf42f670d2918da33',
   '../../tests/offline/chat-settings-surface.spec.ts':

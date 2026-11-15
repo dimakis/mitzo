@@ -54,7 +54,7 @@ function recoveryApp(f: Awaited<ReturnType<typeof admittedRuntime>>, auth?: Auth
   app.use(
     createCodexQueueRouter({
       authorizeMutation: (id, operator) => assertOwnedVertexQueueControl(f.events, id, operator),
-      binding: (id) => f.events.getSession(id)?.accountBinding,
+      binding: (id) => f.events.getSession(id)?.accountBinding ?? undefined,
       recovery: (id, _binding, operator) => readOwnedVertexRecovery(f.events, id, operator),
       overview: (id) => readOwnedVertexQueueOverview(f.events, id),
       cancel: () => 'not_found',

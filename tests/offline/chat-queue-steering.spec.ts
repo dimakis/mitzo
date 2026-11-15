@@ -35,7 +35,8 @@ for (const theme of ['dark', 'light'])
     const queued: unknown[] = [],
       steered: Record<string, unknown>[] = [],
       stopped: unknown[] = [];
-    let status: 'accepted' | 'stale_target' | 'uncertain' = 'accepted';
+    let status: 'accepted' | 'stale_target' | 'uncertain' | 'diagnostic' = 'accepted';
+    const diagnosticId = '84b57f38-264c-4d56-aed1-cb5a9c381e92';
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.route('**/*', (route) => {
@@ -51,6 +52,15 @@ for (const theme of ['dark', 'light'])
       if (path.endsWith('/codex-queue/steer')) {
         const body = route.request().postDataJSON();
         steered.push(body);
+        if (status === 'diagnostic')
+          return route.fulfill({
+            status: 409,
+            json: {
+              code: 'turn_steering_unconfirmed',
+              diagnosticId,
+              error: 'private upstream detail',
+            },
+          });
         return route.fulfill({
           status: status === 'stale_target' ? 409 : 200,
           json: { requestId: body.requestId, status },
@@ -217,11 +227,17 @@ for (const theme of ['dark', 'light'])
     await correct(page);
     await expect(page.getByRole('alert')).toContainText('That turn has finished');
     await expect(input).toHaveValue('A later correction');
-    status = 'uncertain';
+    status = 'diagnostic';
     await input.fill('An unconfirmed correction');
     await correct(page);
     await expect(page.getByRole('alert')).toContainText('delivery not confirmed');
+    await expect(page.getByRole('alert')).toContainText(diagnosticId);
+    await expect(page.getByRole('alert')).not.toContainText('private upstream detail');
     await expect(input).toHaveValue('An unconfirmed correction');
+    await page.screenshot({
+      path: info.outputPath(`steering-reference-${theme}.png`),
+      fullPage: true,
+    });
     await input.fill('A separate queued task');
     await input.press('Enter');
     await expect(input).toHaveValue('');
