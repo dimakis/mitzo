@@ -18,7 +18,13 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
-  roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+  // The login's cancellation/completion has settled before cleanup. Bound
+  // retries for transient directory contention; persistent failure still fails.
+  roots
+    .splice(0)
+    .forEach((root) =>
+      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
+    );
 });
 function disposableAccount() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-login-sandbox-')));

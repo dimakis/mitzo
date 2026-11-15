@@ -59,6 +59,8 @@ export function ConversationAgents(props: {
   messages: FinishedMessage[];
   repository?: string;
   compact?: boolean;
+  /** Shared ordinary discussions keep names in their existing header action. */
+  showParticipantNames?: boolean;
   leading?: ReactNode;
   actions?: ReactNode;
   settings?: ReactNode;
@@ -91,6 +93,7 @@ function ConversationAgentsBody({
   messages,
   repository,
   compact,
+  showParticipantNames,
   leading,
   actions,
   settings,
@@ -133,6 +136,7 @@ function ConversationAgentsBody({
     if (restoredSetup) setSetup(structuredClone(restoredSetup));
   }, [restoredSetup]);
   const names = agents.map((a) => a.name).join(', ');
+  const namesVisible = !compact || showParticipantNames;
   const headerAgents = agents.slice(0, 2);
   const nameValid =
     /^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(setup.name) &&
@@ -195,14 +199,14 @@ function ConversationAgentsBody({
         <div
           className={
             compact
-              ? 'conversation-agents-entry'
+              ? `conversation-agents-entry${namesVisible ? ' conversation-agents-entry--named' : ''}`
               : `conversation-participants${leading ? ' workspace-controls--navigation' : ''}`
           }
         >
           {leading}
           <button
             type="button"
-            className={`conversation-participants-trigger${compact ? ' header-action' : ''}`}
+            className={`conversation-participants-trigger${compact && !namesVisible ? ' header-action' : ''}`}
             aria-label={`Agents${names ? ', ' + names : ''}`}
             aria-expanded={open}
             onClick={(event) => {
@@ -212,7 +216,7 @@ function ConversationAgentsBody({
             }}
           >
             <UiIcon name={compact || agents.length <= 1 ? 'bot' : 'agents'} />
-            {!compact && (
+            {namesVisible && (
               <span>
                 <strong>
                   <span className="conversation-participant-names">
@@ -242,7 +246,7 @@ function ConversationAgentsBody({
                 <small>{agents.length > 1 ? 'Shared discussion' : 'Agent chat'}</small>
               </span>
             )}
-            {!compact && <UiIcon name="down" />}
+            {namesVisible && <UiIcon name="down" />}
           </button>
           {actions}
         </div>

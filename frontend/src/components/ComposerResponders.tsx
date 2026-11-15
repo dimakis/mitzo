@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useId, type RefObject } from 'react';
 import type { CollaborationMessageInput } from '@mitzo/protocol';
 import { MotionPresence } from './MotionPresence';
+import { UiIcon } from './UiIcon';
 import './ComposerResponders.css';
 
 export interface ComposerResponderSelection {
@@ -13,6 +14,8 @@ export interface ComposerResponderSelection {
   maximum?: number;
   /** Keep the submitting composer mounted until its receipt settles. */
   disabled?: boolean;
+  /** Ordinary shared toolbar keeps names in the picker and accessible summary. */
+  iconOnly?: boolean;
 }
 export function ComposerResponders({
   selection,
@@ -33,6 +36,7 @@ export function ComposerResponders({
   const trigger = useRef<HTMLButtonElement>(null);
   const openedFromInput = useRef(false);
   const panelId = useId();
+  const selectionId = useId();
   const intent =
     selection.responders ??
     (selection.selectedIds.length
@@ -110,9 +114,10 @@ export function ComposerResponders({
     <div className="composer-responders" ref={root}>
       <button
         type="button"
-        className="chat-input-btn composer-responders-trigger"
+        className={`chat-input-btn composer-responders-trigger${selection.iconOnly ? ' composer-responders-trigger--icon' : ''}`}
         ref={trigger}
         aria-label="Choose who replies"
+        aria-describedby={selection.iconOnly ? selectionId : undefined}
         aria-controls={activeOpen ? panelId : undefined}
         aria-expanded={activeOpen}
         disabled={selection.disabled}
@@ -124,8 +129,13 @@ export function ComposerResponders({
           setOpen((v) => !v);
         }}
       >
-        @{label && <span>{label}</span>}
+        {selection.iconOnly ? <UiIcon name="agents" /> : <>@{label && <span>{label}</span>}</>}
       </button>
+      {selection.iconOnly && (
+        <span id={selectionId} className="sr-only">
+          {label ? 'Replies: ' + label : 'Choose an agent for this prompt'}
+        </span>
+      )}
       <MotionPresence open={activeOpen} kind="popover">
         <div
           id={panelId}

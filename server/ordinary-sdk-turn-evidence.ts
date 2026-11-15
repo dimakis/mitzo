@@ -18,6 +18,7 @@ type Store = Pick<
   EventStore,
   | 'getOrdinarySdkTurnEvents'
   | 'getSendCommand'
+  | 'getOrdinarySdkInputCancellation'
   | 'getOrdinaryCommandExecutionAdmission'
   | 'readOrdinaryCommandExecutionEvidence'
   | 'getOrdinaryReplySourceEvents'
@@ -124,7 +125,14 @@ export class OrdinarySdkTurnEvidence {
 
 export function observedOrdinarySdkOutcome(store: Store, sessionId: string, commandId: string) {
   const { accepted, settled } = retained(store, sessionId, commandId);
-  if (!accepted) return;
+  if (!accepted) {
+    const cancellation = store.getOrdinarySdkInputCancellation(sessionId, commandId);
+    return cancellation === 'stopped'
+      ? ('interrupted' as const)
+      : cancellation === 'abandoned'
+        ? ('failed' as const)
+        : undefined;
+  }
   if (!settled || store.getOrdinaryProviderTurnTerminal(sessionId, commandId) !== settled.status)
     return 'uncertain' as const;
   return settled.status;

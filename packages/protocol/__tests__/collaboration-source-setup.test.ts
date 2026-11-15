@@ -126,8 +126,24 @@ it('does not infer a fresh origin from membership when its begin proof is corrup
 });
 it('does not bootstrap imported source history', () => {
   store.upsertSession({ sessionId: 'imported', conversationSource: 'external_import' });
+  expect(store.collaborationConversation.sourceSetup('imported')).toEqual({
+    state: 'ordinary_history',
+    sourceConversationId: 'imported',
+    reason: 'external_import',
+  });
+  expect(store.listSessionCollaborations('imported').collaborations).toEqual([]);
+  const group = randomUUID();
+  store.setSessionCollaboration(group, {
+    expectedRevision: 0,
+    participantSessionIds: ['source', 'imported'],
+  });
+  expect(store.collaborationConversation.sourceSetup('imported')).toEqual({
+    state: 'unavailable',
+    sourceConversationId: 'imported',
+    reason: 'origin_unverified',
+  });
+  store.hideSession('imported');
   expect(() => store.collaborationConversation.sourceSetup('imported')).toThrow(
     'unavailable_recipient',
   );
-  expect(store.listSessionCollaborations('imported').collaborations).toEqual([]);
 });

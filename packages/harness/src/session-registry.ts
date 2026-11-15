@@ -51,6 +51,8 @@ export interface ManagedSession {
     /** Frozen server entry identity; absent resume is the ordinary first-command path. */
     initialPreparationOperationId?: string;
     initialResume?: boolean;
+    /** This live owner retains exact per-command dispatch/acceptance fences. */
+    supportsTurnLifecycle?: true;
     admit(
       command: unknown,
       preparationSignal?: AbortSignal,
@@ -61,6 +63,7 @@ export interface ManagedSession {
     /** Existing owned SDK queue only; native query selection stays private. */
     sdkTurns?: {
       stop(requestId: string): Promise<void>;
+      stopBeforeInput(commandId: string, requestId: string): Promise<boolean>;
       resumeQueue(): Promise<void>;
       captureInterruptTarget(): OrdinarySdkInterruptTarget | undefined;
       interruptIfCurrent(

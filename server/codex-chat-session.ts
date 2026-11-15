@@ -760,6 +760,7 @@ interface Options {
   /** Exact admitted ordinary OpenShell target; bypasses deployment route inference. */
   ownedOpenShell?: OwnedOpenShellCodexChatAdmission;
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+  ordinaryTurnLifecycleForCommand?(commandId: string): OrdinaryTurnLifecycle | undefined;
   firstCommandAuthority?: OrdinaryFirstCommandAuthority;
   /** Host-owned admitted-command context delivery; never a public execution port. */
   ordinaryCollaborationDelivery?: OrdinaryCollaborationDelivery;
@@ -1017,6 +1018,8 @@ async function openCodexChatBound(
   onDemandConnections: readonly Connection[] = [],
   deferInitialSend = false,
 ) {
+  const ordinaryTurnLifecycle = (commandId: string) =>
+    options.ordinaryTurnLifecycleForCommand?.(commandId) ?? options.ordinaryTurnLifecycle;
   let firstCommandAuthority = captureOrdinaryFirstCommandAuthority(
     options.firstCommandAuthority,
     options.messageId,
@@ -2882,6 +2885,7 @@ async function openCodexChatBound(
     ...(options.ownedLocal
       ? {
           enableToolFailureContinuation: !options.ordinaryTurnLifecycle && !options.adviserScope,
+          toolFailureContinuationAllowed: (commandId: string) => !ordinaryTurnLifecycle(commandId),
           admitToolFailureContinuation: (input: Parameters<CodexConversation['enqueue']>[0]) => {
             options.assertWorkTurnAdmission?.();
             options.assertAgentContextAuthorization?.();
@@ -3377,7 +3381,7 @@ async function openCodexChatBound(
       if (ownedHost) options.assertAgentContextAuthorization?.();
       options.ownedLocal?.assertBeforeDispatch(messageId);
       options.ownedOpenShell?.assertBeforeDispatch(messageId);
-      options.ordinaryTurnLifecycle?.beforeDispatch(messageId);
+      ordinaryTurnLifecycle(messageId)?.beforeDispatch(messageId);
       beginTrackedProviderAttempt(options.session, messageId);
       // Ordinary owned turns do not use closeout's provider-attempt ledger.
       // Persist this boundary only after every admission fence succeeds, before
@@ -3412,7 +3416,7 @@ async function openCodexChatBound(
           turnId,
           suppliedContextHash(pendingAdditionalContext),
         );
-      options.ordinaryTurnLifecycle?.accepted(messageId, threadId, turnId);
+      ordinaryTurnLifecycle(messageId)?.accepted(messageId, threadId, turnId);
       if (options.ownedLocal || options.ownedOpenShell) {
         try {
           acceptedReplyExecution = captureOrdinaryReplyExecution(
@@ -3463,10 +3467,10 @@ async function openCodexChatBound(
           commandId: messageId,
         });
       }
-      options.ordinaryTurnLifecycle?.terminal(messageId, turnId, status);
+      ordinaryTurnLifecycle(messageId)?.terminal(messageId, turnId, status);
     },
     onProviderTerminalConflict: (messageId, _threadId, turnId) =>
-      options.ordinaryTurnLifecycle?.terminalConflict?.(messageId, turnId),
+      ordinaryTurnLifecycle(messageId)?.terminalConflict?.(messageId, turnId),
     onProviderComplete: (messageId, status) => {
       finishTrackedProviderAttempt(options.session, messageId, status);
       try {
