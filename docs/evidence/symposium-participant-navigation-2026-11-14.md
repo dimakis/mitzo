@@ -408,3 +408,33 @@ prior overlapping local runs are not added to this count. Source registration
 `v1.0.1187-symposium-sdk-fixture-lifetime` preserves all 2,503 entries and renews
 only this test's hash. Fresh CI and exact-head final review are still required;
 the device queue-continuation failure remains independently open.
+
+## Accepted Telos source integration
+
+Accepted main advanced to `2ec453f0214e6c03571ceb51697b8faeeab8da8c`, parent
+`4bc83d18`, tree `64791304f975b609ab8cc2f539bcb287f42babec`, after #1359
+landed. That accepted tree equals the reviewed SDK contribution `900ef419`.
+The SDK fixture is byte-identical to our already adopted copy, so it is not
+imported twice. The merge also retains accepted Telos current-team preparation,
+original hold/diagnostic failure handling, the native test observer, and the
+device fixture's same-render readiness change. Those accepted sources establish
+no new grouping or assignment authority here. No applicable instruction file
+changed and no owned production navigation/identity code conflicted.
+
+Only the registry revision conflicted. Its merged fingerprints already match
+the final source bytes; registration under
+`v1.0.1188-symposium-accepted-telos-composition` retains the exact 2,503-key
+parent union with no dropped accepted pin. The SDK, device and native test files
+are each byte-identical to accepted main. The accepted device readiness change
+does not alter the separately observed queue-continuation sequence; line-449
+evidence remains open, now against accepted device blob
+`53477c90a5b3c2abdbe924b349b78967271e68e6`.
+
+Own focused composition validation passes 144 tests in nine suites, one worker/
+1 GiB: actual persisted session cache/list/search/attention and older-source
+qualification beside accepted Telos discovery/hold-failure and native-observer
+controls. Unchanged prior production and fixture qualifications are retained
+separately; there is no unchanged-head rerun or new full-suite claim. Source
+fingerprints, formatting, focused lint and whitespace checks qualify this
+metadata resolution. New-head normal CI and relevant trusted review continuity
+remain required. No merge turn or deployment is inferred from accepted #1359.
