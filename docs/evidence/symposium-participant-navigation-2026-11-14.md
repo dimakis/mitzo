@@ -305,3 +305,40 @@ adopted fixture fingerprint changes under
 `v1.0.1185-symposium-provider-fixture-recovery`; all 2,503 entries and every other
 fingerprint are preserved. Normal successor CI and exact-head trusted Centaur
 follow-up remain required before readiness.
+
+The ensuing hosted run `43663571520` at
+`7aa6609802cedcd5f8099f958a977c8c4fe1aaa5` failed unit shard 2/4, job
+`132658740174`, on one new actual-guard control: `retains failed retirement and
+actual guarded detach causes without closing an active store`, line 225:1,
+exceeded its unchanged default 5,000ms whole-test budget. The final tail reports
+no first/queued/retained/cold lifecycle assertion failure. It reports 517 other
+files and 7,359 tests passed, seven files and 50 tests skipped. The artifact is
+`14142046601`, SHA256
+`dc43ebefaabcbf05561a61d1a0a01e0f637c5798a0bf9cb69b05c6274bd291a9`.
+This exact error and fixture preimage were sent to the existing owner for the
+reviewed setup-only successor. The timeout identifies the whole test, not the
+specific asynchronous phase; no deadline increase or unexplained rerun is used.
+
+The setup-only correction is reused from the same owner's published
+`d43ea9ba51f95ce291b81ea1d628ec0e367c6246`, tree
+`d3afdef87ff48faf734884ef23fca38636977a63`, after independent published-byte
+binding. Our exact prior fixture blob `47610a58827f5d700c3a5f023ac7d7549be23f84`
+matches the incremental handoff preimage; its patch SHA256 is
+`274936e58b186f0fe4a55dfc08be946ba477dc16e2d4f15695fa11e48e33886a`.
+The adopted final blob is `6fe3d2b5f93dcfe00783b38fe792f7b996365eee`.
+Only the guard control's setup changes: a private temporary REPO_PATH and real
+chat EventStore/registry replace unrelated prepared Git/account/task setup.
+The synthetic session is explicitly persisted. All actual setter, registry,
+store-liveness and original-cause assertions remain. Default whole-test 5s,
+phase/lifecycle 10s and scenario 60s limits are unchanged. No production code,
+helper/transfer logic, composer fixture or foreign manifest is imported. The
+matching whole-test error still does not identify its original asynchronous phase.
+
+Own affected-path qualification passes five selected checks in 52.67s, one
+worker/1 GiB: the actual guard (3.740s), both cleanup controls, and the two
+following Vertex/personal default-transfer scenarios. The other 52 scenarios
+are explicitly unselected. This overlaps the prior nine-check qualification and
+is not added to it as a new total. All unrelated source and fingerprints remain
+unchanged; the 2,503-entry union is preserved under
+`v1.0.1186-symposium-guard-fixture-setup`, with only the adopted test pin renewed.
+Hosted timeout resolution and exact-head final qualification remain pending.
