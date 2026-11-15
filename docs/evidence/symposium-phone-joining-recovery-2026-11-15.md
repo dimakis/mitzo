@@ -1,5 +1,38 @@
 # PR1347 recovery against accepted main
 
+## SDK fixture lifetime follow-up
+
+Exact19f3a5ad6 full43666128078 is terminal FAILURE. Unit2 job132667474156
+again failed guard225/default5000ms on reviewed d43 fixture6fe3d2b5; original
+log/artifact are retained under `current-19f3a5ad6/`. Its hosted phase/cause is
+unproved. After verifying actual failure and exact preimage SHA256
+`b7ad0de82642a4117572af3c2bc49e174ddb2f57a3cfcb213897273f8f94881b`, only
+canonical writer2208's reviewed SDK lifetime delta from1359/900ef419 was adopted.
+Incremental patch SHA256
+`0b561d71384b4d1bac4765961e8463d8d7d4682b6350f5b889aaf660b96186e9`
+produces SDK file SHA256
+`360841b6c6de8609e275732c226740d986a4a3b69ccbde961b8bdb1e53fecf18`.
+Synchronous cleanup registration precedes acquisition; initialization joins
+before retirement and environment reset, with abort/closing fences against late
+publication. Original causes, actual guarded detach and store/root assertions
+remain. Setup10s hook plus body5s explicitly increases total allowance;
+lifecycle10s and scenario60s remain. Six affected controls pass52.10s including
+the delayed-init control and both following default transfers. These overlap
+earlier checks. Own2491 keys/revision1193 and lint/format/source checks pass.
+No production/native/Telos/foreign registry import; all14 original anchors and
+accepted1356 source remain unchanged. Fresh CI and exact-head review required.
+
+The separate native API job132667112428 also failed repository preparation,
+diagnostic48d02f39-bdd3-45a1-ad8e-ddebb0b7d5b3,
+command79b1bcc0-c5a3-4c48-946e-9fb4a7f3974a,
+call815fd160-5ab3-4667-a335-54f8136e350a. Native log SHA256
+`62cbb4104a1766d96162d38fa6c43c203a54b4d64e3639e64f4a0852ff21f65f`,
+artifact14143309849 SHA256
+`c50576bd85094494469b1f98c43821be32bae0c64be7a14522aa747d0393789a`.
+Reason/effect remain unknown; no original replay or capture-cause inference.
+This SDK-only patch also does not address the separately reported Messages API
+device449 failure. Neither uncertainty is device/production qualification.
+
 ## Guarded cleanup fixture follow-up on accepted main4bc
 
 The exact6f2 full run43664027274 failed Unit2 job132660152834 in only the

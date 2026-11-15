@@ -198,8 +198,28 @@ async function retireSdkFixture(
 }
 // afterEach restores the host environment; each scenario must clear its private
 // enrollments again before exercising real privacy guards against fixture paths.
-beforeEach(resetOfflineUserEnvironment);
-async function resetSdkFixture() {
+let pendingSdkReset: Promise<void> | null = null;
+async function resetSdkFixtureEnvironment() {
+  if (pendingSdkReset) await pendingSdkReset;
+  resetOfflineUserEnvironment();
+}
+beforeEach(resetSdkFixtureEnvironment);
+function resetSdkFixture() {
+  const preceding = pendingSdkReset;
+  const reset = (async () => {
+    if (preceding) await preceding;
+    await resetSdkFixtureState();
+  })();
+  pendingSdkReset = reset;
+  // Track completion without replacing the rejecting promise returned to its
+  // lifecycle owner. A pending teardown fences later environment changes.
+  const settled = () => {
+    if (pendingSdkReset === reset) pendingSdkReset = null;
+  };
+  void reset.then(settled, settled);
+  return reset;
+}
+async function resetSdkFixtureState() {
   const failures: unknown[] = [];
   for (const cleanup of cleanups.splice(0).reverse()) {
     try {
@@ -222,42 +242,137 @@ async function resetSdkFixture() {
     throw new AggregateError(failures, 'SDK fixture cleanup failed', { cause: failures[0] });
 }
 afterEach(resetSdkFixture);
-it('retains failed retirement and actual guarded detach causes without closing an active store', async () => {
-  vi.resetModules();
-  // This control needs real chat owners and persistence, not a prepared Git
-  // repository, account catalog or SDK command. Keep its setup inside the
-  // default test budget without changing the retirement/guard assertions.
-  const { mkdtemp, realpath, rm } = await import('node:fs/promises');
-  const { join } = await import('node:path');
-  const { tmpdir } = await import('node:os');
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'sdk-retirement-guard-')));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
-  vi.stubEnv('REPO_PATH', root);
-  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
-  const chat = await import('../../server/chat.js');
-  const { ConnectionRegistry } = await import('@mitzo/harness');
-  const connections = new ConnectionRegistry();
-  chat.setConnectionRegistry(connections);
-  const conversationId = randomUUID();
-  chat.eventStore.upsertSession({
-    sessionId: conversationId,
-    conversationSource: 'mitzo',
-    summary: 'Guarded SDK fixture cleanup',
-  });
+const guardedCleanupCase =
+  'retains failed retirement and actual guarded detach causes without closing an active store';
+const delayedCleanupCase =
+  'retires delayed guard initialization within its aborted fixture before resetting shared state';
+type GuardedChat = Pick<
+  typeof import('../../server/chat.js'),
+  'eventStore' | 'registry' | 'setConnectionRegistry' | 'getConnectionRegistry'
+>;
+let guardedCleanupFixture: Awaited<ReturnType<typeof prepareGuardedCleanupFixture>>;
+let delayedCleanupOutcome: Awaited<ReturnType<typeof exerciseDelayedGuardInitialization>>;
+beforeEach(async ({ task, signal }) => {
+  if (task.name === guardedCleanupCase)
+    guardedCleanupFixture = await prepareGuardedCleanupFixture(signal);
+  if (task.name === delayedCleanupCase)
+    delayedCleanupOutcome = await exerciseDelayedGuardInitialization(signal);
+});
+function prepareGuardedCleanupFixture(
+  signal: AbortSignal,
+  loadChat: () => Promise<GuardedChat> = () => import('../../server/chat.js'),
+) {
+  const started = performance.now();
+  const phase = (stage: string) =>
+    console.info('[offline-sdk-cleanup-fixture]', stage, {
+      elapsedMs: Math.round(performance.now() - started),
+    });
+  let root: string | null = null;
+  let rootRemovable = true;
+  let chat: GuardedChat | null = null;
   const clientId = 'guarded-fixture-cleanup';
-  chat.registry.register(clientId, {
-    sessionId: conversationId,
-    transport: { send: vi.fn(), isOpen: () => true },
-    abortController: new AbortController(),
-    sessionAllowList: new Set(),
-    mode: 'agent',
+  let connections: import('@mitzo/harness').ConnectionRegistry | null = null;
+  let closing = false;
+  const current = () => {
+    signal.throwIfAborted();
+    if (closing) throw Error('SDK cleanup fixture has retired');
+  };
+  // Register exactly once, before any asynchronous acquisition. Late resources
+  // belong to this callback, never to the next case's global cleanup snapshot.
+  cleanups.push(async () => {
+    closing = true;
+    const failures: unknown[] = [];
+    try {
+      await initialization;
+    } catch (cause) {
+      failures.push(cause);
+    }
+    if (chat) {
+      phase('owner_cleanup');
+      const acquired = chat;
+      try {
+        await retireSdkFixture(
+          async () => {
+            acquired.registry.remove(clientId);
+          },
+          () => acquired.setConnectionRegistry(null),
+          () => {
+            connections?.dispose();
+            acquired.eventStore.close();
+            rootRemovable = true;
+          },
+        );
+      } catch (cause) {
+        failures.push(cause);
+      }
+    }
+    if (root) {
+      if (!rootRemovable)
+        failures.push(
+          Error('SDK cleanup fixture store retirement is unconfirmed; retain its temporary root'),
+        );
+      else {
+        phase('root_cleanup');
+        try {
+          const { rm } = await import('node:fs/promises');
+          await rm(root, { recursive: true, force: true });
+        } catch (cause) {
+          failures.push(cause);
+        }
+      }
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1)
+      throw new AggregateError(failures, 'SDK guard fixture initialization or retirement failed', {
+        cause: failures[0],
+      });
   });
-  cleanups.push(() => {
-    chat.registry.remove(clientId);
-    chat.setConnectionRegistry(null);
-    connections.dispose();
-    chat.eventStore.close();
-  });
+  const initialization = (async () => {
+    current();
+    vi.resetModules();
+    phase('private_root');
+    const { mkdtemp, realpath } = await import('node:fs/promises');
+    current();
+    const { join } = await import('node:path');
+    current();
+    const { tmpdir } = await import('node:os');
+    current();
+    root = await mkdtemp(join(tmpdir(), 'sdk-retirement-guard-'));
+    current();
+    root = await realpath(root);
+    current();
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+    phase('chat_import');
+    rootRemovable = false;
+    chat = await loadChat();
+    current();
+    const { ConnectionRegistry } = await import('@mitzo/harness');
+    current();
+    connections = new ConnectionRegistry();
+    chat.setConnectionRegistry(connections);
+    phase('owner_registration');
+    const conversationId = randomUUID();
+    chat.eventStore.upsertSession({
+      sessionId: conversationId,
+      conversationSource: 'mitzo',
+      summary: 'Guarded SDK fixture cleanup',
+    });
+    chat.registry.register(clientId, {
+      sessionId: conversationId,
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      sessionAllowList: new Set(),
+      mode: 'agent',
+    });
+    phase('ready');
+    return { chat, connections, conversationId, clientId, phase };
+  })();
+  return initialization;
+}
+it(guardedCleanupCase, async () => {
+  const { chat, connections, conversationId, clientId, phase } = guardedCleanupFixture;
+  phase('control');
   const retirementCause = Error('Original owned retirement failed');
   let detachCause: unknown;
   let observed: unknown;
@@ -289,6 +404,99 @@ it('retains failed retirement and actual guarded detach causes without closing a
   expect(chat.registry.get(clientId)).toBeDefined();
   expect(chat.getConnectionRegistry()).toBe(connections);
   expect(() => chat.eventStore.getSession(conversationId)).not.toThrow();
+});
+async function exerciseDelayedGuardInitialization(taskSignal: AbortSignal) {
+  const previousRoot = process.env.REPO_PATH;
+  const controller = new AbortController();
+  let entered!: () => void;
+  let release!: () => void;
+  const reachedImport = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const heldImport = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const abort = () => {
+    controller.abort(taskSignal.reason);
+    release();
+  };
+  taskSignal.addEventListener('abort', abort, { once: true });
+  if (taskSignal.aborted) abort();
+  let acquiredChat: GuardedChat | undefined;
+  let acquiredRoot: string | undefined;
+  const initialization = prepareGuardedCleanupFixture(controller.signal, async () => {
+    const chat = await import('../../server/chat.js');
+    acquiredChat = chat;
+    acquiredRoot = process.env.REPO_PATH;
+    entered();
+    await heldImport;
+    return chat;
+  });
+  const initialOutcome = initialization.then(
+    () => ({ ok: true as const }),
+    (cause: unknown) => ({ ok: false as const, cause }),
+  );
+  try {
+    await Promise.race([reachedImport, initialization]);
+    const cause = Error('Original guard setup lifetime ended');
+    controller.abort(cause);
+    const teardown = resetSdkFixture();
+    const teardownOutcome = teardown.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, cause: error }),
+    );
+    let followingAdmitted = false;
+    const followingOutcome = resetSdkFixtureEnvironment().then(
+      () => {
+        followingAdmitted = true;
+        return { ok: true as const };
+      },
+      (error: unknown) => ({ ok: false as const, cause: error }),
+    );
+    const cleanupCountDuringRetirement = cleanups.length;
+    const privateEnvironmentHeld = process.env.REPO_PATH === acquiredRoot;
+    release();
+    const [initial, retired, following] = await Promise.all([
+      initialOutcome,
+      teardownOutcome,
+      followingOutcome,
+    ]);
+    if (initial.ok || retired.ok || following.ok)
+      throw Error('An aborted guard fixture or following environment was admitted');
+    if (!acquiredChat || !acquiredRoot) throw Error('The held fixture import was not acquired');
+    return {
+      cause,
+      initialCause: initial.cause,
+      retirementCause: retired.cause,
+      followingCause: following.cause,
+      chat: acquiredChat,
+      root: acquiredRoot,
+      cleanupCountDuringRetirement,
+      privateEnvironmentHeld,
+      followingAdmitted,
+      environmentRestored: process.env.REPO_PATH === previousRoot,
+    };
+  } finally {
+    release();
+    taskSignal.removeEventListener('abort', abort);
+  }
+}
+it(delayedCleanupCase, async () => {
+  const f = delayedCleanupOutcome;
+  expect(f.initialCause).toBe(f.cause);
+  expect(f.retirementCause).toBe(f.cause);
+  expect(f.followingCause).toBe(f.cause);
+  expect(f.cleanupCountDuringRetirement).toBe(0);
+  expect(f.privateEnvironmentHeld).toBe(true);
+  expect(f.environmentRestored).toBe(true);
+  expect(f.followingAdmitted).toBe(false);
+  expect([...f.chat.registry.entries(true)]).toEqual([]);
+  expect(f.chat.getConnectionRegistry()).toBeNull();
+  expect(() => f.chat.eventStore.getSession(randomUUID())).toThrow(/connection is not open/);
+  expect(cleanups).toEqual([]);
+  expect(services.requests).toEqual([]);
+  const { access } = await import('node:fs/promises');
+  await expect(access(f.root)).rejects.toMatchObject({ code: 'ENOENT' });
 });
 it.each([false, true])(
   'retains cleanup causes and clears SDK state (multiple=%s)',
