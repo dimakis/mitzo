@@ -148,7 +148,12 @@ it.each([
     const assertCurrent = () => {
       if (!authorized) throw Error('Revoked synthetic operator');
     };
+    let finishRetirement!: () => void;
+    const retirement = new Promise<void>((resolve) => {
+      finishRetirement = resolve;
+    });
     const retire = vi.fn(async () => {
+      if (scenario === 'concurrent') await retirement;
       if (scenario === 'revoked') authorized = false;
       if (scenario === 'cancelled') f.native.signal.abort();
       if (scenario === 'release') throw Error('Retirement response lost');
@@ -295,13 +300,26 @@ it.each([
         return append(sessionId, type, payload);
       });
     }
-    let result = await service.approve(
-      record.proposalId,
-      'user',
-      edits,
-      record.revision,
-      authority,
-    );
+    const approval = service.approve(record.proposalId, 'user', edits, record.revision, authority);
+    if (scenario === 'concurrent') {
+      try {
+        await vi.waitFor(() => expect(retire).toHaveBeenCalledOnce());
+        const duplicate = await service.approve(
+          record.proposalId,
+          'user',
+          edits,
+          record.revision,
+          authority,
+        );
+        expect(duplicate.state).toBe('starting');
+        expect(f.work.read(itemId, f.actor).assignments.find((a) => a.role === role)).toEqual(
+          assignment,
+        );
+      } finally {
+        finishRetirement();
+      }
+    }
+    let result = await approval;
     if (['busy', 'revoked', 'cancelled', 'release'].includes(scenario)) {
       expect(result.state).toBe('uncertain');
       expect(sessionLaunchFailureCause(record.proposalId)?.cause).toBeInstanceOf(Error);
@@ -328,8 +346,6 @@ it.each([
         authority,
       );
     }
-    if (scenario === 'concurrent')
-      await service.approve(record.proposalId, 'user', edits, record.revision, authority);
     if (result.state !== 'assigned')
       throw sessionLaunchFailureCause(record.proposalId) ?? Error(result.error);
     expect(result).toMatchObject({ state: 'assigned', childSessionId: target, commandId: null });

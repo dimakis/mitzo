@@ -100,6 +100,13 @@ types correct that declaration without changing runtime authority. The 67
 canonical role/adaptor tests and all 2,511 source fingerprints passed again.
 The local broad server compiler also exhausted its 1 GiB heap; its failed
 receipt and log were retained, and full compilation remains a CI gate.
+The corrected candidate `e1dbc35574b083715f678fbc43f69095cbcd8cb8` then
+passed CI compilation/source preflight and shared frontend build in run
+`43770813686`. The final test refinement holds retirement open while a duplicate
+approval arrives: the duplicate observes `starting`, the former owner remains
+current during the hold, and release produces exactly one retirement and one
+assignment increment. All 57 current-source role tests passed; review snapshots
+were explicitly excluded from that count.
 
 Required combined-source CI and trusted exact-head Centaur final LGTM/`merge` with
 zero new/unresolved blockers remain mandatory. Material ownership/permission

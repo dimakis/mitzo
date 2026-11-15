@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1201-telos-owner-replacement.5';
+  'v1.0.1201-telos-owner-replacement.6';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3442,7 +3442,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-ordinary-canonical-journey.test.ts':
     '2f746ab543045fb194b270b4d495b8df5de235530be8205dfc930f94d9bb7764',
   '../__tests__/telos-ordinary-work-role-setup.test.ts':
-    '9f83af7f2a3e4d4fc0f903c8d0a0d601f0cf34d82f4f635d762b94e494e9bc09',
+    'cb941db092e0856674528d3cd51c4eaaff33ae85dde35f08d4f54dc0c5300f06',
   '../__tests__/telos-outcome-revision-routes.test.ts':
     '6c562e97ecc7502f5d38574a78d32b0ddf226c207f68efef49aeafc96308ab86',
   '../__tests__/telos-outcome-revision.test.ts':
