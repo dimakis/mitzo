@@ -43,6 +43,20 @@ it('compiles selected sources and required governance with the same portable rec
   expect(result.context.tokenCount).toBeLessThanOrEqual(recipe.tokenBudget);
   expect(result.context.sources.map((source) => source.path)).toContain('docs/design.md');
 });
+it('allows an empty ordinary task without weakening required recipe instructions', async () => {
+  const root = await workspace();
+  await rm(join(root, 'AGENTS.md'));
+  const instructions = { ...recipe, files: [], required: [], excluded: [] };
+  const result = await compileWorkspaceContext(
+    instructions,
+    { workspaceRoot: root, allowMissingInstructions: true },
+    contexgin,
+  );
+  expect(result.context.sources).toEqual([]);
+  await expect(
+    compileWorkspaceContext(instructions, { workspaceRoot: root }, contexgin),
+  ).rejects.toThrow(/canonical.*instructions/i);
+});
 it.each([
   'missing canonical',
   'symlink',
