@@ -1,0 +1,284 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/symposium-phone-joining[39m
+
+[90mstderr[2m | frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22m[2mretains a lost initial review attempt through Close, Agents and Add agent and retries its exact request
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'b80ed900-8848-4f37-8ace-077de6f1a967'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22m[2mrestores the original editable setup and exact lost review when the actual dialog remounts
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'6fe42407-282f-4104-9a40-90e9c3944f8e'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22m[2mrestores the actual dialog’s original review setup when its owner arrives late
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'b8c42d12-a9ff-42f4-b861-fe8e65021b42'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 851[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 696[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts [2m([22m[2m92 tests[22m[2m)[22m[33m 562[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps the theme and font definitions in one file [33m 557[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 390[2mms[22m[39m
+     [33m[2m✓[22m[39m requires every production interaction to use shared motion tokens and helpers [33m 388[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgents.usability.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 269[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 172[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[32m 83[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[32m 60[2mms[22m[39m
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mreplays the same review request after a lost response; explicit edits create a distinct request
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'010e005c-f4b7-4feb-aafd-2467aa304bf6'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mreplays the same review request after a lost response; explicit edits create a distinct request
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'1e8ab4e2-d5a3-447f-bfc9-49b9f62c00f4'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrejects a refreeze that changes the target
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'93b8005b-8f89-4197-919b-22dc9d8ed9c5'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrejects a refreeze that changes the source
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'6a20d431-95d5-4635-8ffc-4aaaa6a65b32'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrejects a refreeze that changes the brief
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'ea74c594-fbda-46f6-91d7-670fe8f48235'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrefuses missing display metadata for included saved content
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'90f2433d-30eb-41c5-8d53-76c0e843eef0'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrefuses wrong-version display metadata for included saved content
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'83b4f7f0-b9e6-4998-90f8-27ec8ea4ba93'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrefuses blank-title display metadata for included saved content
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'7530d1aa-64e9-49ae-9a32-48d3ac317558'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx [2m([22m[2m20 tests[22m[2m)[22m[32m 62[2mms[22m[39m
+[90mstderr[2m | frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22m[2mreplays retained normalized wire through actual hook/journal/client with current connection, no capture reads or invented capacity
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'00000000-0000-4000-8000-000000000020'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx [2m([22m[2m41 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/desktop-message-layout.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 45[2mms[22m[39m
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22m[2mreplays a lost review through its original request after remount
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'9548913b-ef5f-4f9f-aa5c-5d9cfd9a5f5c'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22m[2mrestores an edited brief and exact refreeze request with equivalent setup key ordering
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'88798f1b-85ee-4d95-a0ae-780330aa8f55'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22m[2mdoes not restore capacity readiness from a completed retained review
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'c3c31b0d-a501-4496-9ebe-71d24456bb43'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22m[2mactual hook refuses changed snapshot receipt after remount while replaying captured input
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'25813423-3fed-41a7-a690-d6c8c1c8ce17'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22m[2mactual hook refuses changed source receipt after remount while replaying captured input
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'005dba69-8577-4f61-a02e-4d7b2e078fd9'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22m[2mactual hook refuses changed settings receipt after remount while replaying captured input
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'323cf63d-88f5-42cb-8116-2c62ac4b4576'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[32m 46[2mms[22m[39m
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2msaves capture_pending before reading and captured before POST, and retries the exact cloned DTO after reload
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'e8b491b0-f72f-40d2-ab24-442662cbceee'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2msaves capture_pending before reading and captured before POST, and retries the exact cloned DTO after reload
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'e8b491b0-f72f-40d2-ab24-442662cbceee'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses POST when journal write 2 fails
+[22m[39mSymposium joining failed {
+  code: [32m'joining_capture_failed'[39m,
+  stage: [32m'capture'[39m,
+  requestId: [32m'8a6c8df4-e9bd-4694-acb1-a05b2aa25919'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses captured retry with mismatched group owner
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'08a4edcc-929d-4a17-b857-44bfa3ce080d'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses captured retry with mismatched legacy owner
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'42852e49-f4ae-4444-94f9-b0d4c12cee63'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses captured retry with mismatched source owner
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'06a2a10b-f1ec-44d8-8d7b-32920a9c9b0f'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses v1 application retries and only explicitly starts fresh while preserving the edited draft
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'cbe7d415-a537-4764-8fc3-aabee15ccd5d'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mcan repeat a pending observational capture after reload without changing its request ID
+[22m[39mSymposium joining failed {
+  code: [32m'joining_capture_failed'[39m,
+  stage: [32m'capture'[39m,
+  requestId: [32m'8471b09d-4e80-471c-aacd-dec90303bc80'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mcan repeat a pending observational capture after reload without changing its request ID
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'8471b09d-4e80-471c-aacd-dec90303bc80'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses a capture which changes public setup selectors before any POST
+[22m[39mSymposium joining failed {
+  code: [32m'joining_capture_failed'[39m,
+  stage: [32m'capture'[39m,
+  requestId: [32m'c3bf8658-965c-4b48-85fb-da98e07fc895'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'ZodError'[39m
+}
+
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[32m 44[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-recovery.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-target-intent.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/approved-designs.test.ts [2m([22m[2m2 tests[22m[2m | [22m[33m1 skipped[39m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/home-design.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-failure.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/briefing-dialog.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 1[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m21 passed[39m[22m[90m (21)[39m
+[2m      Tests [22m [1m[32m280 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (281)[39m
+[2m   Start at [22m 12:33:29
+[2m   Duration [22m 13.81s[2m (transform 1.24s, setup 0ms, import 4.00s, tests 3.45s, environment 4.44s)[22m
+

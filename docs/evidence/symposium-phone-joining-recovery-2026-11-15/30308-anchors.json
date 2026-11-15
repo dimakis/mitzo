@@ -1,0 +1,78 @@
+{
+  "source": "1347 composition after accepted1345",
+  "originalHead": "4f5dd94981c9c4bd4b9b31e639a3fae7f560772f",
+  "acceptedMain": "30308c49d319d0f5c66d0235a4e069ceedd792fc",
+  "anchors": [
+    {
+      "path": "frontend/src/components/ConversationAgents.css",
+      "anchor": "--conversation-dialog-max-height",
+      "present": true
+    },
+    {
+      "path": "frontend/src/components/ConversationAgents.css",
+      "anchor": ".home-dialog.conversation-agents-dialog",
+      "present": true
+    },
+    {
+      "path": "frontend/src/components/ConversationAgents.tsx",
+      "anchor": "PermissionModePicker",
+      "present": true
+    },
+    {
+      "path": "frontend/src/components/ConversationAgents.tsx",
+      "anchor": "permissionMode: 'agent'",
+      "present": true
+    },
+    {
+      "path": "frontend/src/components/ConversationAgents.tsx",
+      "anchor": "setup.repositoryBlocked",
+      "present": true
+    },
+    {
+      "path": "frontend/src/components/ConversationAgents.tsx",
+      "anchor": "page=\"permissions\"",
+      "present": true
+    },
+    {
+      "path": "frontend/src/components/ConversationJoiningReview.tsx",
+      "anchor": "flow.diagnostic.status",
+      "present": true
+    },
+    {
+      "path": "frontend/src/components/ConversationRepositoryPicker.tsx",
+      "anchor": "repositoryBlocked: value?.blocked ?? true",
+      "present": true
+    },
+    {
+      "path": "frontend/src/hooks/useConversationJoiningReview.ts",
+      "anchor": "conversationJoiningFailure(cause, reviewStage, input.requestId)",
+      "present": true
+    },
+    {
+      "path": "frontend/src/lib/conversation-joining-application-owner.ts",
+      "anchor": "if (setup.repositoryBlocked)",
+      "present": true
+    },
+    {
+      "path": "frontend/src/lib/quick-settings-context.ts",
+      "anchor": "'permissions'",
+      "present": true
+    },
+    {
+      "path": "server/collaboration-application-review.ts",
+      "anchor": "joining_settings_failed",
+      "present": true
+    },
+    {
+      "path": "server/collaboration-application-review.ts",
+      "anchor": "failure.cause = cause",
+      "present": true
+    },
+    {
+      "path": "server/collaboration-application-review.ts",
+      "anchor": "settingsStage = stage",
+      "present": true
+    }
+  ],
+  "approvedHtmlSha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc"
+}

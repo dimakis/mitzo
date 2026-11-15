@@ -1,0 +1,23 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/symposium-phone-joining[39m
+
+{"level":30,"time":1794746052857,"pid":49932,"hostname":"Dimitris-MacBook-Pro","module":"chat","dbPath":"/private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-shell-R6ZWYO/tmp/mitzo-application-review-7QfcKg/.mitzo/events.db","msg":"EventStore initialized"}
+{"level":40,"time":1794746053108,"pid":49932,"hostname":"Dimitris-MacBook-Pro","module":"collaboration-review","code":"joining_settings_failed","stage":"joining_preparation","requestId":"6afe563a-d1aa-4d71-9488-c00f604b378f","sourceConversationId":"source","errorType":"Error","msg":"Joining settings could not be resolved"}
+{"level":40,"time":1794746055504,"pid":49932,"hostname":"Dimitris-MacBook-Pro","module":"collaboration-review","code":"joining_settings_failed","stage":"joining_preparation","requestId":"baa6d669-5c24-4a89-b835-45c0958d4d7e","sourceConversationId":"source","errorType":"Error","msg":"Joining settings could not be resolved"}
+{"level":40,"time":1794746055717,"pid":49932,"hostname":"Dimitris-MacBook-Pro","module":"collaboration-review","code":"joining_settings_failed","stage":"joining_repository","requestId":"5cb2d57e-035b-45e5-bccd-6098c300668c","sourceConversationId":"source","errorType":"Error","msg":"Joining settings could not be resolved"}
+{"level":40,"time":1794746055966,"pid":49932,"hostname":"Dimitris-MacBook-Pro","module":"collaboration-review","code":"joining_settings_failed","stage":"joining_runtime","requestId":"7fbf9092-3e71-4f85-806c-8775a0032ae3","sourceConversationId":"source","errorType":"Error","msg":"Joining settings could not be resolved"}
+{"level":40,"time":1794746057958,"pid":49932,"hostname":"Dimitris-MacBook-Pro","module":"collaboration-review","code":"joining_settings_failed","stage":"joining_repository","requestId":"1c2f8884-362f-4779-85cd-174a20b393ac","sourceConversationId":"source","errorType":"Error","msg":"Joining settings could not be resolved"}
+{"level":40,"time":1794746058146,"pid":49932,"hostname":"Dimitris-MacBook-Pro","module":"collaboration-review","code":"joining_settings_failed","stage":"joining_account","requestId":"8b4763fc-1aaf-4fe3-a79d-a563126e715c","sourceConversationId":"source","errorType":"Error","msg":"Joining settings could not be resolved"}
+{"level":40,"time":1794746058349,"pid":49932,"hostname":"Dimitris-MacBook-Pro","module":"collaboration-review","code":"joining_settings_failed","stage":"joining_repository","requestId":"4b3917b4-a003-4948-ab2a-1e04b7d47ea0","sourceConversationId":"source","errorType":"Error","msg":"Joining settings could not be resolved"}
+ [32m✓[39m server/__tests__/collaboration-application-review.test.ts [2m([22m[2m35 tests[22m[2m)[22m[33m 7983[2mms[22m[39m
+   [33m[2m✓[22m[39m preserves a failed joining-settings cause internally while exposing only its safe contract code [33m 1187[2mms[22m[39m
+   [33m[2m✓[22m[39m reviews exact per-prompt context through actual source/settings owners without another session or command [33m 341[2mms[22m[39m
+   [33m[2m✓[22m[39m returns exact registered artifact labels and refuses unavailable retained artifact metadata [33m 354[2mms[22m[39m
+   [33m[2m✓[22m[39m rejects changed mode under an existing request before re-resolution [33m 318[2mms[22m[39m
+   [33m[2m✓[22m[39m refuses current different-transport observation authority even for an exact completed retry [33m 398[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m35 passed[39m[22m[90m (35)[39m
+[2m   Start at [22m 12:34:08
+[2m   Duration [22m 11.03s[2m (transform 2.43s, setup 0ms, import 2.95s, tests 7.98s, environment 0ms)[22m
+
