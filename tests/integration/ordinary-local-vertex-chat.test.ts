@@ -172,11 +172,62 @@ vi.mock('../../server/keychain-rotation-credentials.js', () => ({
   },
 }));
 const cleanups: Array<() => void | Promise<void>> = [];
+async function retireSdkFixture(
+  retire: () => Promise<void>,
+  detach: () => void,
+  close: () => void,
+) {
+  const failures: unknown[] = [];
+  try {
+    await retire();
+  } catch (cause) {
+    failures.push(cause);
+  }
+  try {
+    detach();
+  } catch (cause) {
+    failures.push(cause);
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1)
+    throw new AggregateError(failures, 'SDK fixture retirement and detach failed', {
+      cause: failures[0],
+    });
+  // Qualified retirement and guarded detach both precede store disposal.
+  close();
+}
 // afterEach restores the host environment; each scenario must clear its private
 // enrollments again before exercising real privacy guards against fixture paths.
-beforeEach(resetOfflineUserEnvironment);
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+let pendingSdkReset: Promise<void> | null = null;
+async function resetSdkFixtureEnvironment() {
+  if (pendingSdkReset) await pendingSdkReset;
+  resetOfflineUserEnvironment();
+}
+beforeEach(resetSdkFixtureEnvironment);
+function resetSdkFixture() {
+  const preceding = pendingSdkReset;
+  const reset = (async () => {
+    if (preceding) await preceding;
+    await resetSdkFixtureState();
+  })();
+  pendingSdkReset = reset;
+  // Track completion without replacing the rejecting promise returned to its
+  // lifecycle owner. A pending teardown fences later environment changes.
+  const settled = () => {
+    if (pendingSdkReset === reset) pendingSdkReset = null;
+  };
+  void reset.then(settled, settled);
+  return reset;
+}
+async function resetSdkFixtureState() {
+  const failures: unknown[] = [];
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    try {
+      await cleanup();
+    } catch (cause) {
+      failures.push(cause);
+    }
+  }
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -186,7 +237,309 @@ afterEach(async () => {
   services.diagnostics.length = 0;
   services.serializedLogs.length = 0;
   services.captureStartupLogs = false;
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1)
+    throw new AggregateError(failures, 'SDK fixture cleanup failed', { cause: failures[0] });
+}
+afterEach(resetSdkFixture);
+const guardedCleanupCase =
+  'retains failed retirement and actual guarded detach causes without closing an active store';
+const delayedCleanupCase =
+  'retires delayed guard initialization within its aborted fixture before resetting shared state';
+type GuardedChat = Pick<
+  typeof import('../../server/chat.js'),
+  'eventStore' | 'registry' | 'setConnectionRegistry' | 'getConnectionRegistry'
+>;
+let guardedCleanupFixture: Awaited<ReturnType<typeof prepareGuardedCleanupFixture>>;
+let delayedCleanupOutcome: Awaited<ReturnType<typeof exerciseDelayedGuardInitialization>>;
+beforeEach(async ({ task, signal }) => {
+  if (task.name === guardedCleanupCase)
+    guardedCleanupFixture = await prepareGuardedCleanupFixture(signal);
+  if (task.name === delayedCleanupCase)
+    delayedCleanupOutcome = await exerciseDelayedGuardInitialization(signal);
 });
+function prepareGuardedCleanupFixture(
+  signal: AbortSignal,
+  loadChat: () => Promise<GuardedChat> = () => import('../../server/chat.js'),
+) {
+  const started = performance.now();
+  const phase = (stage: string) =>
+    console.info('[offline-sdk-cleanup-fixture]', stage, {
+      elapsedMs: Math.round(performance.now() - started),
+    });
+  let root: string | null = null;
+  let rootRemovable = true;
+  let chat: GuardedChat | null = null;
+  const clientId = 'guarded-fixture-cleanup';
+  let connections: import('@mitzo/harness').ConnectionRegistry | null = null;
+  let closing = false;
+  const current = () => {
+    signal.throwIfAborted();
+    if (closing) throw Error('SDK cleanup fixture has retired');
+  };
+  // Register exactly once, before any asynchronous acquisition. Late resources
+  // belong to this callback, never to the next case's global cleanup snapshot.
+  cleanups.push(async () => {
+    closing = true;
+    const failures: unknown[] = [];
+    try {
+      await initialization;
+    } catch (cause) {
+      failures.push(cause);
+    }
+    if (chat) {
+      phase('owner_cleanup');
+      const acquired = chat;
+      try {
+        await retireSdkFixture(
+          async () => {
+            acquired.registry.remove(clientId);
+          },
+          () => acquired.setConnectionRegistry(null),
+          () => {
+            connections?.dispose();
+            acquired.eventStore.close();
+            rootRemovable = true;
+          },
+        );
+      } catch (cause) {
+        failures.push(cause);
+      }
+    }
+    if (root) {
+      if (!rootRemovable)
+        failures.push(
+          Error('SDK cleanup fixture store retirement is unconfirmed; retain its temporary root'),
+        );
+      else {
+        phase('root_cleanup');
+        try {
+          const { rm } = await import('node:fs/promises');
+          await rm(root, { recursive: true, force: true });
+        } catch (cause) {
+          failures.push(cause);
+        }
+      }
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1)
+      throw new AggregateError(failures, 'SDK guard fixture initialization or retirement failed', {
+        cause: failures[0],
+      });
+  });
+  const initialization = (async () => {
+    current();
+    vi.resetModules();
+    phase('private_root');
+    const { mkdtemp, realpath } = await import('node:fs/promises');
+    current();
+    const { join } = await import('node:path');
+    current();
+    const { tmpdir } = await import('node:os');
+    current();
+    root = await mkdtemp(join(tmpdir(), 'sdk-retirement-guard-'));
+    current();
+    root = await realpath(root);
+    current();
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+    phase('chat_import');
+    rootRemovable = false;
+    chat = await loadChat();
+    current();
+    const { ConnectionRegistry } = await import('@mitzo/harness');
+    current();
+    connections = new ConnectionRegistry();
+    chat.setConnectionRegistry(connections);
+    phase('owner_registration');
+    const conversationId = randomUUID();
+    chat.eventStore.upsertSession({
+      sessionId: conversationId,
+      conversationSource: 'mitzo',
+      summary: 'Guarded SDK fixture cleanup',
+    });
+    chat.registry.register(clientId, {
+      sessionId: conversationId,
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      sessionAllowList: new Set(),
+      mode: 'agent',
+    });
+    phase('ready');
+    return { chat, connections, conversationId, clientId, phase };
+  })();
+  return initialization;
+}
+it(guardedCleanupCase, async () => {
+  const { chat, connections, conversationId, clientId, phase } = guardedCleanupFixture;
+  phase('control');
+  const retirementCause = Error('Original owned retirement failed');
+  let detachCause: unknown;
+  let observed: unknown;
+  const close = vi.fn(() => chat.eventStore.close());
+  try {
+    await retireSdkFixture(
+      async () => {
+        throw retirementCause;
+      },
+      () => {
+        try {
+          chat.setConnectionRegistry(null);
+        } catch (cause) {
+          detachCause = cause;
+          throw cause;
+        }
+      },
+      close,
+    );
+  } catch (cause) {
+    observed = cause;
+  }
+  expect(detachCause).toBeInstanceOf(Error);
+  expect((detachCause as Error).message).toBe('Chat session owners are active');
+  expect(observed).toBeInstanceOf(AggregateError);
+  expect((observed as AggregateError).errors).toEqual([retirementCause, detachCause]);
+  expect((observed as AggregateError).cause).toBe(retirementCause);
+  expect(close).not.toHaveBeenCalled();
+  expect(chat.registry.get(clientId)).toBeDefined();
+  expect(chat.getConnectionRegistry()).toBe(connections);
+  expect(() => chat.eventStore.getSession(conversationId)).not.toThrow();
+});
+async function exerciseDelayedGuardInitialization(taskSignal: AbortSignal) {
+  const previousRoot = process.env.REPO_PATH;
+  const controller = new AbortController();
+  let entered!: () => void;
+  let release!: () => void;
+  const reachedImport = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const heldImport = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const abort = () => {
+    controller.abort(taskSignal.reason);
+    release();
+  };
+  taskSignal.addEventListener('abort', abort, { once: true });
+  if (taskSignal.aborted) abort();
+  let acquiredChat: GuardedChat | undefined;
+  let acquiredRoot: string | undefined;
+  const initialization = prepareGuardedCleanupFixture(controller.signal, async () => {
+    const chat = await import('../../server/chat.js');
+    acquiredChat = chat;
+    acquiredRoot = process.env.REPO_PATH;
+    entered();
+    await heldImport;
+    return chat;
+  });
+  const initialOutcome = initialization.then(
+    () => ({ ok: true as const }),
+    (cause: unknown) => ({ ok: false as const, cause }),
+  );
+  try {
+    await Promise.race([reachedImport, initialization]);
+    const cause = Error('Original guard setup lifetime ended');
+    controller.abort(cause);
+    const teardown = resetSdkFixture();
+    const teardownOutcome = teardown.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, cause: error }),
+    );
+    let followingAdmitted = false;
+    const followingOutcome = resetSdkFixtureEnvironment().then(
+      () => {
+        followingAdmitted = true;
+        return { ok: true as const };
+      },
+      (error: unknown) => ({ ok: false as const, cause: error }),
+    );
+    const cleanupCountDuringRetirement = cleanups.length;
+    const privateEnvironmentHeld = process.env.REPO_PATH === acquiredRoot;
+    release();
+    const [initial, retired, following] = await Promise.all([
+      initialOutcome,
+      teardownOutcome,
+      followingOutcome,
+    ]);
+    if (initial.ok || retired.ok || following.ok)
+      throw Error('An aborted guard fixture or following environment was admitted');
+    if (!acquiredChat || !acquiredRoot) throw Error('The held fixture import was not acquired');
+    return {
+      cause,
+      initialCause: initial.cause,
+      retirementCause: retired.cause,
+      followingCause: following.cause,
+      chat: acquiredChat,
+      root: acquiredRoot,
+      cleanupCountDuringRetirement,
+      privateEnvironmentHeld,
+      followingAdmitted,
+      environmentRestored: process.env.REPO_PATH === previousRoot,
+    };
+  } finally {
+    release();
+    taskSignal.removeEventListener('abort', abort);
+  }
+}
+it(delayedCleanupCase, async () => {
+  const f = delayedCleanupOutcome;
+  expect(f.initialCause).toBe(f.cause);
+  expect(f.retirementCause).toBe(f.cause);
+  expect(f.followingCause).toBe(f.cause);
+  expect(f.cleanupCountDuringRetirement).toBe(0);
+  expect(f.privateEnvironmentHeld).toBe(true);
+  expect(f.environmentRestored).toBe(true);
+  expect(f.followingAdmitted).toBe(false);
+  expect([...f.chat.registry.entries(true)]).toEqual([]);
+  expect(f.chat.getConnectionRegistry()).toBeNull();
+  expect(() => f.chat.eventStore.getSession(randomUUID())).toThrow(/connection is not open/);
+  expect(cleanups).toEqual([]);
+  expect(services.requests).toEqual([]);
+  const { access } = await import('node:fs/promises');
+  await expect(access(f.root)).rejects.toMatchObject({ code: 'ENOENT' });
+});
+it.each([false, true])(
+  'retains cleanup causes and clears SDK state (multiple=%s)',
+  async (multiple) => {
+    const firstCause = Error('First fixture cleanup failed');
+    const secondCause = Error('Second fixture cleanup failed');
+    const closed: string[] = [];
+    cleanups.push(() => {
+      closed.push('first');
+      throw firstCause;
+    });
+    if (multiple)
+      cleanups.push(() => {
+        closed.push('second');
+        throw secondCause;
+      });
+    services.requests.push({
+      options: {},
+      prompt: (async function* () {
+        yield {};
+      })(),
+    });
+    services.query.mockReturnValue('Retained previous SDK request');
+    services.credentialReadFailure = true;
+    services.diagnostics.push({ retained: true });
+    let observed: unknown;
+    try {
+      await resetSdkFixture();
+    } catch (cause) {
+      observed = cause;
+    }
+    if (multiple) {
+      expect(observed).toBeInstanceOf(AggregateError);
+      expect((observed as AggregateError).errors).toEqual([secondCause, firstCause]);
+      expect((observed as AggregateError).cause).toBe(secondCause);
+    } else expect(observed).toBe(firstCause);
+    expect(closed).toEqual(multiple ? ['second', 'first'] : ['first']);
+    expect(services.requests).toEqual([]);
+    expect(services.query()).toBeUndefined();
+    expect(services.credentialReadFailure).toBe(false);
+    expect(services.diagnostics).toEqual([]);
+  },
+);
 it.each(
   [
     {
@@ -799,6 +1152,38 @@ it.each(
     const history: string[] = [];
     const approvedInputs: string[] = [];
     const providerInputs: string[] = [];
+    type FixturePhase = 'information' | 'repository';
+    type FixtureOutcome = { ok: true } | { ok: false; cause: unknown };
+    const fixtureOutcomes = new Map<string, FixtureOutcome>();
+    const runFixturePhase = async (
+      commandId: string,
+      phase: FixturePhase,
+      work: () => Promise<void>,
+    ) => {
+      try {
+        await work();
+        fixtureOutcomes.set(`${commandId}:${phase}`, { ok: true });
+      } catch (cause) {
+        fixtureOutcomes.set(`${commandId}:${phase}`, { ok: false, cause });
+        throw cause;
+      }
+    };
+    const waitForFixturePhase = async (commandId: string, phase: FixturePhase) => {
+      const key = `${commandId}:${phase}`;
+      await vi.waitFor(() => expect(fixtureOutcomes.has(key), key).toBe(true), {
+        timeout: 10_000,
+      });
+      const outcome = fixtureOutcomes.get(key)!;
+      if (!outcome.ok) throw outcome.cause;
+    };
+    const waitForFixtureWork = async (commandId: string) => {
+      if (!repositoryTransfer) return;
+      // Input observation precedes real MCP/Git work for every SDK command,
+      // including the retained cold predecessor. Bound its phases separately
+      // from the existing startup, pause and terminal-state contracts.
+      await waitForFixturePhase(commandId, 'information');
+      await waitForFixturePhase(commandId, 'repository');
+    };
     const { OrdinaryLocalWorkspaceOwner } =
       await import('../../server/ordinary-local-workspace-owner.js');
     const startupCause = Object.assign(new Error('synthetic-secret /private/account'), {
@@ -904,8 +1289,12 @@ it.each(
                 parent_tool_use_id: null,
                 message: { role: 'user', content: message.message.content },
               };
-            await invokeInformation(request.options as Options, message.mitzoMessageId);
-            await transferRepository(request.options as Options, message.mitzoMessageId);
+            await runFixturePhase(message.mitzoMessageId, 'information', () =>
+              invokeInformation(request.options as Options, message.mitzoMessageId),
+            );
+            await runFixturePhase(message.mitzoMessageId, 'repository', () =>
+              transferRepository(request.options as Options, message.mitzoMessageId),
+            );
             // Exercise the installed callback on each first/queued/cold query,
             // while its original ordinary command still owns the SDK input.
             const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
@@ -1016,15 +1405,19 @@ it.each(
     });
     const agentTasks = await import('../../server/agent-task-runtime.js');
     cleanups.push(() => agentTasks.closeAgentTasks());
-    cleanups.push(async () => {
-      const live = chat.registry.findBySessionId(f.reservation.conversationId);
-      live?.session.ordinaryRuntimeOwner?.close();
-      await vi.waitFor(() =>
-        expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
-      );
-      chat.setConnectionRegistry(null);
-      chat.eventStore.close();
-    });
+    cleanups.push(() =>
+      retireSdkFixture(
+        async () => {
+          const live = chat.registry.findBySessionId(f.reservation.conversationId);
+          live?.session.ordinaryRuntimeOwner?.close();
+          await vi.waitFor(() =>
+            expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
+          );
+        },
+        () => chat.setConnectionRegistry(null),
+        () => chat.eventStore.close(),
+      ),
+    );
     const transport = { send: vi.fn(), isOpen: () => true };
     // Freeze the request clock while invoking its deadline callback explicitly.
     vi.spyOn(performance, 'now').mockReturnValue(Math.trunc(performance.now()));
@@ -1273,6 +1666,7 @@ it.each(
     expect(deadline).toBeTypeOf('function');
     if (typeof deadline === 'function') deadline();
     // The synthetic provider executes real MCP readers before reaching its pause.
+    await waitForFixtureWork(f.request.clientMsgId);
     await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'), { timeout: 10_000 });
     expect(providerInputs[0]).toContain(agentLibrarySource.content);
     expect(providerInputs[0]).toContain(
@@ -1583,6 +1977,7 @@ it.each(
     });
     expect(providerInputs[1]).toContain('Create or refine a clickable mockup for Frozen followup');
     expect(chat.eventStore.getSendCommand('queued')?.payload.text).toBe('/mockup Frozen followup');
+    await waitForFixtureWork('queued');
     await vi.waitFor(
       () =>
         expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
@@ -1676,6 +2071,7 @@ it.each(
     // Cold recovery first runs the acknowledged predecessor, including its
     // real MCP/permission callbacks. Wait for that startup separately, then
     // prove the new input cannot overtake its still-unsettled result.
+    await waitForFixtureWork('retained-cold-tail');
     await vi.waitFor(() => expect(releaseRetainedTail).toBeTypeOf('function'), {
       timeout: repositoryWorkTimeoutMs,
     });
@@ -1707,6 +2103,7 @@ it.each(
     });
     // The actual owner recreates its MCP surface for queued and cold queries.
     // Their terminal callbacks are retired; inspect exposure without re-executing them.
+    await waitForFixtureWork('cold');
     await vi.waitFor(
       () =>
         expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
@@ -1843,7 +2240,9 @@ it.each(
         payload: { text: 'Stop this turn' },
       }),
     ).resolves.toMatchObject({ status: 202 });
-    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
+    // A cold active-stop input still performs its real permission handshake.
+    // Use the same bounded readiness allowance as the initial SDK input.
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'), { timeout: 10_000 });
     await expect(
       invoke('/continue', {
         ...wire,

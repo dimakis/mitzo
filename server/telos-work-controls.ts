@@ -12,6 +12,7 @@ import {
   type TelosWorkView,
 } from '@mitzo/protocol';
 import { TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
+import { retainTelosDiagnosticFailure } from './telos-operation-failure.js';
 interface Control {
   controlId: string;
   input: ReturnType<typeof TelosWorkControlRequestSchema.parse>;
@@ -515,8 +516,13 @@ export class TelosWorkControls {
       let views: TelosWorkControlView[] = [];
       try {
         views = this.inbox(itemId, { kind: 'conversation', id: conversationId });
-      } catch {
-        /* Denial still holds when evidence cannot be attributed. */
+      } catch (diagnosticCause) {
+        retainTelosDiagnosticFailure(error, diagnosticCause, {
+          stage: 'control_application_evidence',
+          operation: scope,
+          sessionId: conversationId,
+          itemId,
+        });
       }
       for (const view of views) {
         if (view.scope !== scope || view.stage === 'released') continue;
@@ -528,16 +534,28 @@ export class TelosWorkControls {
           .find((w) => w.itemId === itemId && w.conversationId === conversationId);
         const revision = target?.assignmentRevision ?? worker?.assignmentRevision;
         if (revision === undefined) continue;
-        this.recordApplied(
-          {
-            controlId: view.controlId,
+        try {
+          this.recordApplied(
+            {
+              controlId: view.controlId,
+              itemId,
+              conversationId,
+              assignmentRevision: revision,
+              evidenceRef: `host-denial:${scope}:${view.controlId}:${itemId}:${revision}`,
+            },
+            () => true,
+          );
+        } catch (diagnosticCause) {
+          // Evidence persistence cannot replace the original host refusal or
+          // manufacture an applied receipt. Other exact controls still qualify.
+          retainTelosDiagnosticFailure(error, diagnosticCause, {
+            stage: 'control_application_evidence',
+            operation: scope,
+            sessionId: conversationId,
             itemId,
-            conversationId,
-            assignmentRevision: revision,
-            evidenceRef: `host-denial:${scope}:${view.controlId}:${itemId}:${revision}`,
-          },
-          () => true,
-        );
+            controlId: view.controlId,
+          });
+        }
       }
       throw error;
     }
