@@ -1,5 +1,10 @@
 [
   {
+    "path": "f4d-compile-original.log",
+    "size": 57530,
+    "sha256": "9336c05b050a2b04abeaacc5a728351a3adbd34abe2dc126a4828ac7ecf401a9"
+  },
+  {
     "path": "independent-review.md.txt",
     "size": 2900,
     "sha256": "e3b087e55f7f050fc30858d0628cc9578051d6d879dd6e79e33156aae77c9aca"
@@ -48,6 +53,11 @@
     "path": "native-successful-view.log",
     "size": 994,
     "sha256": "106843a25a9712e204e21f23347d96cef0da8503d4e03c1e5bf00ff1fbfc5b73"
+  },
+  {
+    "path": "native-type-correction-controls.log",
+    "size": 1409,
+    "sha256": "1b6fcf6425b753252806f2db99baccb37beca140c26180c75f0a6684f5b4825b"
   },
   {
     "path": "owner-0b93-combined-slice3-controls.log",

@@ -1,0 +1,544 @@
+﻿2026-11-15T01:38:27.8709276Z Current runner version: '2.338.2'
+2026-11-15T01:38:27.8744808Z ##[group]Runner Image Provisioner
+2026-11-15T01:38:27.8746314Z Hosted Compute Agent
+2026-11-15T01:38:27.8747286Z Version: 20261103.629
+2026-11-15T01:38:27.8748539Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-15T01:38:27.8749803Z Build Date: 2026-11-03T17:26:59Z
+2026-11-15T01:38:27.8751082Z Worker ID: {1a22631e-2932-4588-957e-06ad82ac0260}
+2026-11-15T01:38:27.8752290Z Region: eastus
+2026-11-15T01:38:27.8753392Z Cloud: Azure
+2026-11-15T01:38:27.8754380Z ##[endgroup]
+2026-11-15T01:38:27.8757175Z ##[group]Operating System
+2026-11-15T01:38:27.8758302Z Ubuntu
+2026-11-15T01:38:27.8759205Z 26.04.1
+2026-11-15T01:38:27.8760150Z LTS
+2026-11-15T01:38:27.8761075Z ##[endgroup]
+2026-11-15T01:38:27.8762091Z ##[group]Runner Image
+2026-11-15T01:38:27.8763148Z Image: ubuntu-26.04
+2026-11-15T01:38:27.8764119Z Version: 20261111.196.1
+2026-11-15T01:38:27.8766462Z Included Software: https://github.com/actions/runner-images/blob/ubuntu26/20261111.196/images/ubuntu/Ubuntu2604-Readme.md
+2026-11-15T01:38:27.8769318Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu26%2F20261111.196
+2026-11-15T01:38:27.8771018Z ##[endgroup]
+2026-11-15T01:38:27.8772975Z ##[group]GITHUB_TOKEN Permissions
+2026-11-15T01:38:27.8776227Z Contents: read
+2026-11-15T01:38:27.8777335Z Metadata: read
+2026-11-15T01:38:27.8778268Z ##[endgroup]
+2026-11-15T01:38:27.8781534Z Secret source: Actions
+2026-11-15T01:38:27.8783149Z Cache mode: write
+2026-11-15T01:38:27.8784870Z Prepare workflow directory
+2026-11-15T01:38:27.9374246Z Prepare all required actions
+2026-11-15T01:38:27.9449216Z Getting action download info
+2026-11-15T01:38:28.0992348Z Download action repository 'actions/checkout@v7' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-15T01:38:28.2012635Z Download action repository 'actions/upload-artifact@v7' (SHA:cf430e030ddbb5b0abf93d22962f4752f3646cd9)
+2026-11-15T01:38:28.3603162Z Complete job name: Compile and source preflight
+2026-11-15T01:38:28.4581487Z ##[group]Run actions/checkout@v7
+2026-11-15T01:38:28.4582411Z with:
+2026-11-15T01:38:28.4582865Z   repository: dimakis/mitzo
+2026-11-15T01:38:28.4586969Z   token: ***
+2026-11-15T01:38:28.4587422Z   ssh-strict: true
+2026-11-15T01:38:28.4587864Z   ssh-user: git
+2026-11-15T01:38:28.4588317Z   persist-credentials: true
+2026-11-15T01:38:28.4588798Z   clean: true
+2026-11-15T01:38:28.4589244Z   sparse-checkout-cone-mode: true
+2026-11-15T01:38:28.4589765Z   fetch-depth: 1
+2026-11-15T01:38:28.4590194Z   fetch-tags: false
+2026-11-15T01:38:28.4590640Z   show-progress: true
+2026-11-15T01:38:28.4591097Z   lfs: false
+2026-11-15T01:38:28.4591510Z   submodules: false
+2026-11-15T01:38:28.4591961Z   set-safe-directory: true
+2026-11-15T01:38:28.4592471Z   allow-unsafe-pr-checkout: false
+2026-11-15T01:38:28.4593225Z env:
+2026-11-15T01:38:28.4593661Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:38:28.4594171Z ##[endgroup]
+2026-11-15T01:38:28.7264972Z Syncing repository: dimakis/mitzo
+2026-11-15T01:38:28.7268143Z ##[group]Getting Git version info
+2026-11-15T01:38:28.7269676Z Working directory is '/home/runner/work/mitzo/mitzo'
+2026-11-15T01:38:28.7271765Z [command]/usr/bin/git version
+2026-11-15T01:38:28.7282338Z git version 2.56.1
+2026-11-15T01:38:28.7307565Z ##[endgroup]
+2026-11-15T01:38:28.7320669Z Temporarily overriding HOME='/home/runner/work/_temp/60ea67c7-21bb-4313-a91c-bbda7de6cb6a' before making global git config changes
+2026-11-15T01:38:28.7322903Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-15T01:38:28.7327067Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-15T01:38:28.7388303Z Deleting the contents of '/home/runner/work/mitzo/mitzo'
+2026-11-15T01:38:28.7391563Z ##[group]Determining repository object format
+2026-11-15T01:38:28.7393398Z ##[endgroup]
+2026-11-15T01:38:28.7394884Z ##[group]Initializing the repository
+2026-11-15T01:38:28.7398079Z [command]/usr/bin/git init /home/runner/work/mitzo/mitzo
+2026-11-15T01:38:28.7518904Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-15T01:38:28.7521041Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-15T01:38:28.7522128Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-15T01:38:28.7523116Z hint: call:
+2026-11-15T01:38:28.7523816Z hint:
+2026-11-15T01:38:28.7524502Z hint: 	git config --global init.defaultBranch <name>
+2026-11-15T01:38:28.7525440Z hint:
+2026-11-15T01:38:28.7526464Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-15T01:38:28.7527579Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-15T01:38:28.7528875Z hint:
+2026-11-15T01:38:28.7529747Z hint: 	git branch -m <name>
+2026-11-15T01:38:28.7530658Z hint:
+2026-11-15T01:38:28.7531918Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-15T01:38:28.7533387Z Initialized empty Git repository in /home/runner/work/mitzo/mitzo/.git/
+2026-11-15T01:38:28.7544552Z [command]/usr/bin/git remote add origin https://github.com/dimakis/mitzo
+2026-11-15T01:38:28.7600408Z ##[endgroup]
+2026-11-15T01:38:28.7602093Z ##[group]Disabling automatic garbage collection
+2026-11-15T01:38:28.7603957Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-15T01:38:28.7641838Z ##[endgroup]
+2026-11-15T01:38:28.7643737Z ##[group]Setting up auth
+2026-11-15T01:38:28.7647683Z Removing SSH command configuration
+2026-11-15T01:38:28.7648578Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-15T01:38:28.7687282Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-15T01:38:28.8151280Z Removing HTTP extra header
+2026-11-15T01:38:28.8157405Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-15T01:38:28.8191438Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-15T01:38:28.8476647Z Removing includeIf entries pointing to credentials config files
+2026-11-15T01:38:28.8481291Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-15T01:38:28.8515843Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-15T01:38:28.8812600Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-15T01:38:28.8869045Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git.path /home/runner/work/_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config
+2026-11-15T01:38:28.8907494Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config
+2026-11-15T01:38:28.8951287Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config
+2026-11-15T01:38:28.8988625Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config
+2026-11-15T01:38:28.9020109Z ##[endgroup]
+2026-11-15T01:38:28.9022209Z ##[group]Fetching the repository
+2026-11-15T01:38:28.9026556Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +56743346d5e9db8869a77a6c5d96871eb5ff146b:refs/remotes/pull/1355/merge
+2026-11-15T01:38:32.1561249Z From https://github.com/dimakis/mitzo
+2026-11-15T01:38:32.1563246Z  * [new ref]         56743346d5e9db8869a77a6c5d96871eb5ff146b -> pull/1355/merge
+2026-11-15T01:38:32.1567568Z ##[endgroup]
+2026-11-15T01:38:32.1568885Z ##[group]Determining the checkout info
+2026-11-15T01:38:32.1570444Z ##[endgroup]
+2026-11-15T01:38:32.1656415Z [command]/usr/bin/git sparse-checkout disable
+2026-11-15T01:38:32.1679126Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-15T01:38:32.1683196Z ##[group]Checking out the ref
+2026-11-15T01:38:32.1685787Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1355/merge
+2026-11-15T01:38:32.9436388Z Note: switching to 'refs/remotes/pull/1355/merge'.
+2026-11-15T01:38:32.9437577Z 
+2026-11-15T01:38:32.9438414Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-15T01:38:32.9439483Z changes and commit them, and you can discard any commits you make in this
+2026-11-15T01:38:32.9440585Z state without impacting any branches by switching back to a branch.
+2026-11-15T01:38:32.9441244Z 
+2026-11-15T01:38:32.9441765Z If you want to create a new branch to retain commits you create, you may
+2026-11-15T01:38:32.9442760Z do so (now or later) by using -c with the switch command. Example:
+2026-11-15T01:38:32.9443322Z 
+2026-11-15T01:38:32.9443580Z   git switch -c <new-branch-name>
+2026-11-15T01:38:32.9443846Z 
+2026-11-15T01:38:32.9444006Z Or undo this operation with:
+2026-11-15T01:38:32.9444242Z 
+2026-11-15T01:38:32.9444416Z   git switch -
+2026-11-15T01:38:32.9444617Z 
+2026-11-15T01:38:32.9444918Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-15T01:38:32.9445824Z 
+2026-11-15T01:38:32.9446320Z HEAD is now at 5674334 Merge f4d20f82bf0defc6db705f25c177c21e45f30529 into 4bc83d18f24bb14f24b7c190a32c2a4fa0834963
+2026-11-15T01:38:32.9477675Z ##[endgroup]
+2026-11-15T01:38:32.9536779Z [command]/usr/bin/git log -1 --format=%H
+2026-11-15T01:38:32.9564464Z 56743346d5e9db8869a77a6c5d96871eb5ff146b
+2026-11-15T01:38:32.9851224Z Prepare all required actions
+2026-11-15T01:38:32.9851797Z Getting action download info
+2026-11-15T01:38:33.0460294Z Download action repository 'actions/setup-node@v7' (SHA:949feb2413d6458794dcd2491c4babbbce0c15c1)
+2026-11-15T01:38:33.1223896Z ##[group]Run ./.github/actions/ci-node
+2026-11-15T01:38:33.1224205Z with:
+2026-11-15T01:38:33.1224405Z   node-version: 24.22.1
+2026-11-15T01:38:33.1224620Z env:
+2026-11-15T01:38:33.1224841Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:38:33.1225084Z ##[endgroup]
+2026-11-15T01:38:33.1283076Z ##[start-action display=Run actions/setup-node@v7;id=__self.__actions_setup-node]
+2026-11-15T01:38:33.1417462Z ##[group]Run actions/setup-node@v7
+2026-11-15T01:38:33.1417744Z with:
+2026-11-15T01:38:33.1417945Z   node-version: 24.22.1
+2026-11-15T01:38:33.1418166Z   cache: npm
+2026-11-15T01:38:33.1418363Z   check-latest: false
+2026-11-15T01:38:33.1420859Z   token: ***
+2026-11-15T01:38:33.1421085Z   package-manager-cache: true
+2026-11-15T01:38:33.1421372Z env:
+2026-11-15T01:38:33.1421569Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:38:33.1421819Z ##[endgroup]
+2026-11-15T01:38:33.2771056Z Attempting to download 24.22.1...
+2026-11-15T01:38:33.7592582Z Acquiring 24.22.1 - x64 from https://github.com/actions/node-versions/releases/download/24.22.1-39619001896/node-24.22.1-linux-x64.tar.gz
+2026-11-15T01:38:34.2140917Z Extracting ...
+2026-11-15T01:38:34.2273434Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/22a6a516-f606-417a-829c-6b65bacb1d43 -f /home/runner/work/_temp/65a306ad-1397-4b15-afc8-9199680d853c
+2026-11-15T01:38:35.0092492Z Adding to the cache ...
+2026-11-15T01:38:36.7825164Z ##[group]Environment details
+2026-11-15T01:38:37.0127068Z node: v24.22.1
+2026-11-15T01:38:37.0127489Z npm: 11.19.1
+2026-11-15T01:38:37.0127810Z yarn: 1.22.22
+2026-11-15T01:38:37.0128543Z ##[endgroup]
+2026-11-15T01:38:37.0145136Z [command]/opt/hostedtoolcache/node/24.22.1/x64/bin/npm config get cache
+2026-11-15T01:38:37.1085875Z /home/runner/.npm
+2026-11-15T01:38:37.1766637Z Cache hit for: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-15T01:38:38.2400285Z Received 230686720 of 422744543 (54.6%), 219.8 MBs/sec
+2026-11-15T01:38:39.0594602Z Received 422744543 of 422744543 (100.0%), 222.1 MBs/sec
+2026-11-15T01:38:39.0595038Z Cache Size: ~403 MB (422744543 B)
+2026-11-15T01:38:39.0638283Z [command]/usr/bin/tar -xf /home/runner/work/_temp/9176298f-6e82-453d-ba52-fafa7fcdcd3e/cache.tzst -P -C /home/runner/work/mitzo/mitzo --use-compress-program unzstd
+2026-11-15T01:38:39.8669253Z Cache restored successfully
+2026-11-15T01:38:39.8847220Z Cache restored from key: node-cache-Linux-x64-npm-0961a3b3123fc300cfde8e43cd0bba5b3a0f7b226507f3cc335d1c8434ad40af
+2026-11-15T01:38:39.9056592Z ##[end-action id=__self.__actions_setup-node;outcome=success;conclusion=success;duration_ms=6777]
+2026-11-15T01:38:39.9060072Z ##[start-action display=Run npm install --global npm@11.18.0;id=__self.__run]
+2026-11-15T01:38:39.9099005Z ##[group]Run npm install --global npm@11.18.0
+2026-11-15T01:38:39.9099388Z [36;1mnpm install --global npm@11.18.0[0m
+2026-11-15T01:38:39.9157192Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-15T01:38:39.9157559Z env:
+2026-11-15T01:38:39.9157762Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:38:39.9158007Z ##[endgroup]
+2026-11-15T01:38:41.6369589Z 
+2026-11-15T01:38:41.6377807Z changed 18 packages in 2s
+2026-11-15T01:38:41.6378065Z 
+2026-11-15T01:38:41.6378266Z 15 packages are looking for funding
+2026-11-15T01:38:41.6378581Z   run `npm fund` for details
+2026-11-15T01:38:41.6872225Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=1781]
+2026-11-15T01:38:41.6874949Z ##[start-action display=Run npm install --no-audit;id=__self.__run_2]
+2026-11-15T01:38:41.6899511Z ##[group]Run npm install --no-audit
+2026-11-15T01:38:41.6899843Z [36;1mnpm install --no-audit[0m
+2026-11-15T01:38:41.6949899Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-15T01:38:41.6950264Z env:
+2026-11-15T01:38:41.6950473Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:38:41.6950734Z ##[endgroup]
+2026-11-15T01:38:42.6747233Z npm warn skipping integrity check for git dependency ssh://git@github.com/dimakis/contexgin.git
+2026-11-15T01:38:48.5910056Z npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+2026-11-15T01:38:49.5257916Z npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+2026-11-15T01:39:05.3886579Z npm warn gitignore-fallback No .npmignore file found, using .gitignore for file exclusion. Consider creating a .npmignore file to explicitly control published files.
+2026-11-15T01:39:14.0946626Z 
+2026-11-15T01:39:14.0949184Z > mitzo@1.0.0 postinstall
+2026-11-15T01:39:14.0949883Z > node scripts/prepare-terminal-native.mjs
+2026-11-15T01:39:14.0950272Z 
+2026-11-15T01:39:14.1750318Z 
+2026-11-15T01:39:14.1750937Z > mitzo@1.0.0 prepare
+2026-11-15T01:39:14.1751494Z > husky || true
+2026-11-15T01:39:14.1751779Z 
+2026-11-15T01:39:14.3478718Z 
+2026-11-15T01:39:14.3479441Z added 1026 packages in 33s
+2026-11-15T01:39:14.3479834Z 
+2026-11-15T01:39:14.3480526Z 280 packages are looking for funding
+2026-11-15T01:39:14.3481786Z   run `npm fund` for details
+2026-11-15T01:39:14.3503016Z npm warn allow-scripts 6 packages have install scripts not yet covered by allowScripts:
+2026-11-15T01:39:14.3504503Z npm warn allow-scripts   better-sqlite3@13.0.3 (install: node-gyp rebuild)
+2026-11-15T01:39:14.3506272Z npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install || node-gyp rebuild --release)
+2026-11-15T01:39:14.3507992Z npm warn allow-scripts   esbuild@0.28.2 (postinstall: node install.js)
+2026-11-15T01:39:14.3526456Z npm warn allow-scripts   node-pty@1.1.0 (install: node scripts/prebuild.js || node-gyp rebuild; postinstall: node scripts/post-install.js)
+2026-11-15T01:39:14.3528404Z npm warn allow-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+2026-11-15T01:39:14.3530477Z npm warn allow-scripts   esbuild@0.25.12 (postinstall: node install.js)
+2026-11-15T01:39:14.3531570Z npm warn allow-scripts
+2026-11-15T01:39:14.3532904Z npm warn allow-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+2026-11-15T01:39:14.5136297Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=32826]
+2026-11-15T01:39:14.5220871Z ##[group]Run npm run build:server
+2026-11-15T01:39:14.5221204Z [36;1mnpm run build:server[0m
+2026-11-15T01:39:14.5270528Z shell: /usr/bin/bash -e {0}
+2026-11-15T01:39:14.5270785Z env:
+2026-11-15T01:39:14.5270993Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:39:14.5271261Z ##[endgroup]
+2026-11-15T01:39:14.6265154Z 
+2026-11-15T01:39:14.6265964Z > mitzo@1.0.0 build:server
+2026-11-15T01:39:14.6267776Z > npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs && node scripts/check-iana-address-data.mjs && npm run check:security-backport --silent
+2026-11-15T01:39:14.6269018Z 
+2026-11-15T01:39:46.9506582Z Reviewed handler artifacts verified for v1.0.2; Connections runtime v1.0.1187-symposium-integrated-acceptance.
+2026-11-15T01:39:47.0091595Z Generated IANA address data verified.
+2026-11-15T01:39:47.1968160Z Verified forge security backport: cc8af9578474c2300d10f4ee3452836b65d13d0a9e0bb8042131bd059d718053
+2026-11-15T01:39:47.2801691Z Verified Zod3 security backport: 8015e5779cb5623bd72113c7b0841d6abf931000f12ef3f2453568cbb9a3612c
+2026-11-15T01:39:47.3118451Z ##[group]Run npx tsc --noEmit
+2026-11-15T01:39:47.3118773Z [36;1mnpx tsc --noEmit[0m
+2026-11-15T01:39:47.3168473Z shell: /usr/bin/bash -e {0}
+2026-11-15T01:39:47.3168739Z env:
+2026-11-15T01:39:47.3168945Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:39:47.3169194Z ##[endgroup]
+2026-11-15T01:40:35.1413525Z ##[error]server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts(353,16): error TS2554: Expected 5 arguments, but got 4.
+2026-11-15T01:40:35.1424826Z ##[error]server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts(390,42): error TS2339: Property 'requestJson' does not exist on type 'SandboxedCommandOptions'.
+2026-11-15T01:40:35.1428140Z ##[error]server/__tests__/prepared-repository-native-read.test.ts(167,42): error TS2339: Property 'requestJson' does not exist on type 'SandboxedCommandOptions'.
+2026-11-15T01:40:35.1431333Z ##[error]server/__tests__/prepared-repository-native-read.test.ts(174,68): error TS2345: Argument of type 'readonly string[]' is not assignable to parameter of type 'WithAsymmetricMatcher<string>[]'.
+2026-11-15T01:40:35.1433495Z   The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'WithAsymmetricMatcher<string>[]'.
+2026-11-15T01:40:35.4377163Z ##[error]Process completed with exit code 2.
+2026-11-15T01:40:35.4425575Z ##[group]Run cd frontend && npx tsc -b
+2026-11-15T01:40:35.4426154Z [36;1mcd frontend && npx tsc -b[0m
+2026-11-15T01:40:35.4475017Z shell: /usr/bin/bash -e {0}
+2026-11-15T01:40:35.4475387Z env:
+2026-11-15T01:40:35.4475597Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:40:35.4475874Z ##[endgroup]
+2026-11-15T01:41:20.8075714Z ##[group]Run npm run check:source-artifacts
+2026-11-15T01:41:20.8076123Z [36;1mnpm run check:source-artifacts[0m
+2026-11-15T01:41:20.8126243Z shell: /usr/bin/bash -e {0}
+2026-11-15T01:41:20.8126495Z env:
+2026-11-15T01:41:20.8126699Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:41:20.8126959Z ##[endgroup]
+2026-11-15T01:41:20.9132381Z 
+2026-11-15T01:41:20.9132869Z > mitzo@1.0.0 check:source-artifacts
+2026-11-15T01:41:20.9133726Z > node scripts/check-reviewed-handler-artifacts.mjs --source
+2026-11-15T01:41:20.9134225Z 
+2026-11-15T01:41:21.2575957Z Reviewed handler artifacts verified for v1.0.2; Connections runtime v1.0.1187-symposium-integrated-acceptance.
+2026-11-15T01:41:21.2876276Z ##[group]Run python3 scripts/test-native-notification-boot.py
+2026-11-15T01:41:21.2876803Z [36;1mpython3 scripts/test-native-notification-boot.py[0m
+2026-11-15T01:41:21.2877201Z [36;1mpython3 scripts/test-ci-native-candidate.py[0m
+2026-11-15T01:41:21.2926492Z shell: /usr/bin/bash -e {0}
+2026-11-15T01:41:21.2926937Z env:
+2026-11-15T01:41:21.2927146Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:41:21.2927394Z ##[endgroup]
+2026-11-15T01:41:21.3904510Z CI_NATIVE_STAGE {"stage": "boot-join", "event": "start", "timestamp": "2026-11-15T01:41:21.390218+00:00"}
+2026-11-15T01:41:21.3906111Z CI_NATIVE_STAGE {"stage": "boot-join", "event": "end", "status": "failed", "seconds": 8.117300001231342e-05, "timestamp": "2026-11-15T01:41:21.390298+00:00"}
+2026-11-15T01:41:21.3909179Z CI_NATIVE_STAGE {"stage": "boot-join", "event": "start", "timestamp": "2026-11-15T01:41:21.390789+00:00"}
+2026-11-15T01:41:21.3910518Z CI_NATIVE_STAGE {"stage": "boot-join", "event": "end", "status": "failed", "seconds": 5.6164999989505304e-05, "timestamp": "2026-11-15T01:41:21.390845+00:00"}
+2026-11-15T01:41:21.3943727Z CI_NATIVE_STAGE {"stage": "boot-start", "event": "start", "timestamp": "2026-11-15T01:41:21.394234+00:00"}
+2026-11-15T01:41:21.3945056Z CI_NATIVE_STAGE {"stage": "boot-start", "event": "end", "status": "passed", "seconds": 5.375000000640284e-05, "timestamp": "2026-11-15T01:41:21.394291+00:00"}
+2026-11-15T01:41:21.3947089Z CI_NATIVE_STAGE {"stage": "native-checks-and-build", "event": "start", "timestamp": "2026-11-15T01:41:21.394325+00:00"}
+2026-11-15T01:41:21.3949028Z CI_NATIVE_STAGE {"stage": "native-checks-and-build", "event": "end", "status": "failed", "seconds": 2.4595999946086522e-05, "timestamp": "2026-11-15T01:41:21.394349+00:00"}
+2026-11-15T01:41:21.3950836Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "start", "timestamp": "2026-11-15T01:41:21.394558+00:00"}
+2026-11-15T01:41:21.3952400Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "end", "status": "passed", "seconds": 3.964500001529814e-05, "timestamp": "2026-11-15T01:41:21.394598+00:00"}
+2026-11-15T01:41:21.3956234Z CI_NATIVE_STAGE {"stage": "delete", "event": "start", "timestamp": "2026-11-15T01:41:21.394633+00:00"}
+2026-11-15T01:41:21.3976332Z CI_NATIVE_STAGE {"stage": "delete", "event": "end", "status": "passed", "seconds": 4.64560000068559e-05, "timestamp": "2026-11-15T01:41:21.394679+00:00"}
+2026-11-15T01:41:21.3985452Z .........Native failure evidence retained at /tmp/tmp5k7121d2/evidence/attempt-1i6iueml
+2026-11-15T01:41:21.3986504Z CI_NATIVE_STAGE {"stage": "boot-start", "event": "start", "timestamp": "2026-11-15T01:41:21.396911+00:00"}
+2026-11-15T01:41:21.3987707Z CI_NATIVE_STAGE {"stage": "boot-start", "event": "end", "status": "passed", "seconds": 4.20580000195514e-05, "timestamp": "2026-11-15T01:41:21.396953+00:00"}
+2026-11-15T01:41:21.3988936Z CI_NATIVE_STAGE {"stage": "native-checks-and-build", "event": "start", "timestamp": "2026-11-15T01:41:21.396970+00:00"}
+2026-11-15T01:41:21.3990398Z CI_NATIVE_STAGE {"stage": "native-checks-and-build", "event": "end", "status": "failed", "seconds": 1.2174000005416019e-05, "timestamp": "2026-11-15T01:41:21.396982+00:00"}
+2026-11-15T01:41:21.3991584Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "start", "timestamp": "2026-11-15T01:41:21.397104+00:00"}
+2026-11-15T01:41:21.3992752Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "end", "status": "passed", "seconds": 2.5698999991163873e-05, "timestamp": "2026-11-15T01:41:21.397130+00:00"}
+2026-11-15T01:41:21.3993832Z CI_NATIVE_STAGE {"stage": "delete", "event": "start", "timestamp": "2026-11-15T01:41:21.397143+00:00"}
+2026-11-15T01:41:21.3994980Z CI_NATIVE_STAGE {"stage": "delete", "event": "end", "status": "passed", "seconds": 1.9826999960059766e-05, "timestamp": "2026-11-15T01:41:21.397163+00:00"}
+2026-11-15T01:41:21.3996313Z .Native failure evidence retained at /tmp/tmpm8b6nq3j/attempt-a5qaj5y8
+2026-11-15T01:41:21.4006026Z .Native failure evidence retained at /tmp/tmpo788e_90/attempt-f720t78k
+2026-11-15T01:41:21.4011955Z Native failure evidence retained at /tmp/tmpo788e_90/attempt-6nvrc9xv
+2026-11-15T01:41:21.4020799Z .Native failure evidence retained at /tmp/tmpkn4www1p/evidence/attempt-k0h2yunx
+2026-11-15T01:41:21.4034580Z CI_NATIVE_STAGE {"stage": "boot-start", "event": "start", "timestamp": "2026-11-15T01:41:21.403329+00:00"}
+2026-11-15T01:41:21.4036615Z CI_NATIVE_STAGE {"stage": "boot-start", "event": "end", "status": "passed", "seconds": 4.833100001633284e-05, "timestamp": "2026-11-15T01:41:21.403377+00:00"}
+2026-11-15T01:41:21.4038424Z CI_NATIVE_STAGE {"stage": "native-checks-and-build", "event": "start", "timestamp": "2026-11-15T01:41:21.403413+00:00"}
+2026-11-15T01:41:21.4040584Z CI_NATIVE_STAGE {"stage": "native-checks-and-build", "event": "end", "status": "passed", "seconds": 2.035799997202048e-05, "timestamp": "2026-11-15T01:41:21.403432+00:00"}
+2026-11-15T01:41:21.4045429Z Booting an isolated iPhone simulator for the offline bridge test.
+2026-11-15T01:41:21.4046811Z CI_NATIVE_STAGE {"stage": "install", "event": "start", "timestamp": "2026-11-15T01:41:21.404463+00:00"}
+2026-11-15T01:41:21.4048584Z CI_NATIVE_STAGE {"stage": "install", "event": "end", "status": "passed", "seconds": 7.086299996217349e-05, "timestamp": "2026-11-15T01:41:21.404534+00:00"}
+2026-11-15T01:41:21.4050472Z CI_NATIVE_STAGE {"stage": "launch", "event": "start", "timestamp": "2026-11-15T01:41:21.404563+00:00"}
+2026-11-15T01:41:21.4052278Z CI_NATIVE_STAGE {"stage": "launch", "event": "end", "status": "passed", "seconds": 3.2070000031581e-05, "timestamp": "2026-11-15T01:41:21.404595+00:00"}
+2026-11-15T01:41:21.4053940Z CI_NATIVE_STAGE {"stage": "container-lookup", "event": "start", "timestamp": "2026-11-15T01:41:21.404625+00:00"}
+2026-11-15T01:41:21.4056002Z CI_NATIVE_STAGE {"stage": "container-lookup", "event": "end", "status": "passed", "seconds": 4.870100002563049e-05, "timestamp": "2026-11-15T01:41:21.404674+00:00"}
+2026-11-15T01:41:21.4057380Z CI_NATIVE_STAGE {"stage": "bridge", "event": "start", "timestamp": "2026-11-15T01:41:21.404696+00:00"}
+2026-11-15T01:41:21.4058512Z CI_NATIVE_STAGE {"stage": "bridge", "event": "end", "status": "passed", "seconds": 9.737200002746249e-05, "timestamp": "2026-11-15T01:41:21.404794+00:00"}
+2026-11-15T01:41:21.4059248Z Real web-to-native notification configuration succeeded.
+2026-11-15T01:41:21.4059868Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "start", "timestamp": "2026-11-15T01:41:21.405211+00:00"}
+2026-11-15T01:41:21.4060807Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "end", "status": "passed", "seconds": 5.256899999039888e-05, "timestamp": "2026-11-15T01:41:21.405263+00:00"}
+2026-11-15T01:41:21.4061695Z CI_NATIVE_STAGE {"stage": "delete", "event": "start", "timestamp": "2026-11-15T01:41:21.405296+00:00"}
+2026-11-15T01:41:21.4062599Z CI_NATIVE_STAGE {"stage": "delete", "event": "end", "status": "passed", "seconds": 3.510599998435282e-05, "timestamp": "2026-11-15T01:41:21.405331+00:00"}
+2026-11-15T01:41:21.4076707Z Booting an isolated iPhone simulator for the offline bridge test.
+2026-11-15T01:41:21.4077618Z CI_NATIVE_STAGE {"stage": "boot", "event": "start", "timestamp": "2026-11-15T01:41:21.407578+00:00"}
+2026-11-15T01:41:21.4079040Z CI_NATIVE_STAGE {"stage": "boot", "event": "end", "status": "passed", "seconds": 0.00015134400001670656, "timestamp": "2026-11-15T01:41:21.407729+00:00"}
+2026-11-15T01:41:21.4080304Z CI_NATIVE_STAGE {"stage": "install", "event": "start", "timestamp": "2026-11-15T01:41:21.407765+00:00"}
+2026-11-15T01:41:21.4081888Z CI_NATIVE_STAGE {"stage": "install", "event": "end", "status": "passed", "seconds": 0.00012981399999034693, "timestamp": "2026-11-15T01:41:21.407894+00:00"}
+2026-11-15T01:41:21.4083147Z CI_NATIVE_STAGE {"stage": "launch", "event": "start", "timestamp": "2026-11-15T01:41:21.407927+00:00"}
+2026-11-15T01:41:21.4084177Z CI_NATIVE_STAGE {"stage": "launch", "event": "end", "status": "passed", "seconds": 4.3762000018432445e-05, "timestamp": "2026-11-15T01:41:21.407971+00:00"}
+2026-11-15T01:41:21.4085587Z CI_NATIVE_STAGE {"stage": "container-lookup", "event": "start", "timestamp": "2026-11-15T01:41:21.408014+00:00"}
+2026-11-15T01:41:21.4086485Z ..Native evidence capture failed: OSError
+2026-11-15T01:41:21.4087539Z CI_NATIVE_STAGE {"stage": "container-lookup", "event": "end", "status": "passed", "seconds": 5.404099999850587e-05, "timestamp": "2026-11-15T01:41:21.408067+00:00"}
+2026-11-15T01:41:21.4088618Z CI_NATIVE_STAGE {"stage": "bridge", "event": "start", "timestamp": "2026-11-15T01:41:21.408103+00:00"}
+2026-11-15T01:41:21.4089554Z CI_NATIVE_STAGE {"stage": "bridge", "event": "end", "status": "failed", "seconds": 5.2036999989013566e-05, "timestamp": "2026-11-15T01:41:21.408155+00:00"}
+2026-11-15T01:41:21.4090471Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "start", "timestamp": "2026-11-15T01:41:21.408542+00:00"}
+2026-11-15T01:41:21.4091395Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "end", "status": "failed", "seconds": 6.026200003361737e-05, "timestamp": "2026-11-15T01:41:21.408601+00:00"}
+2026-11-15T01:41:21.4092347Z CI_NATIVE_STAGE {"stage": "delete", "event": "start", "timestamp": "2026-11-15T01:41:21.408633+00:00"}
+2026-11-15T01:41:21.4093288Z CI_NATIVE_STAGE {"stage": "delete", "event": "end", "status": "failed", "seconds": 3.5737000018798426e-05, "timestamp": "2026-11-15T01:41:21.408668+00:00"}
+2026-11-15T01:41:21.4106425Z Native fixture cleanup failed: shutdown: TimeoutExpired; delete: RuntimeError
+2026-11-15T01:41:21.4109275Z Booting an isolated iPhone simulator for the offline bridge test.
+2026-11-15T01:41:21.4109923Z CI_NATIVE_STAGE {"stage": "boot", "event": "start", "timestamp": "2026-11-15T01:41:21.410862+00:00"}
+2026-11-15T01:41:21.4111577Z CI_NATIVE_STAGE {"stage": "boot", "event": "end", "status": "passed", "seconds": 0.00018257199997151474, "timestamp": "2026-11-15T01:41:21.411045+00:00"}
+2026-11-15T01:41:21.4112528Z CI_NATIVE_STAGE {"stage": "install", "event": "start", "timestamp": "2026-11-15T01:41:21.411073+00:00"}
+2026-11-15T01:41:21.4113861Z CI_NATIVE_STAGE {"stage": "install", "event": "end", "status": "passed", "seconds": 0.000144672000033097, "timestamp": "2026-11-15T01:41:21.411218+00:00"}
+2026-11-15T01:41:21.4114870Z CI_NATIVE_STAGE {"stage": "launch", "event": "start", "timestamp": "2026-11-15T01:41:21.411246+00:00"}
+2026-11-15T01:41:21.4116206Z CI_NATIVE_STAGE {"stage": "launch", "event": "end", "status": "passed", "seconds": 3.9204000017889484e-05, "timestamp": "2026-11-15T01:41:21.411286+00:00"}
+2026-11-15T01:41:21.4117132Z CI_NATIVE_STAGE {"stage": "container-lookup", "event": "start", "timestamp": "2026-11-15T01:41:21.411315+00:00"}
+2026-11-15T01:41:21.4118245Z CI_NATIVE_STAGE {"stage": "container-lookup", "event": "end", "status": "passed", "seconds": 4.530500001465043e-05, "timestamp": "2026-11-15T01:41:21.411360+00:00"}
+2026-11-15T01:41:21.4119122Z CI_NATIVE_STAGE {"stage": "bridge", "event": "start", "timestamp": "2026-11-15T01:41:21.411391+00:00"}
+2026-11-15T01:41:21.4120599Z CI_NATIVE_STAGE {"stage": "bridge", "event": "end", "status": "passed", "seconds": 0.00015190499999562235, "timestamp": "2026-11-15T01:41:21.411544+00:00"}
+2026-11-15T01:41:21.4121340Z Real web-to-native notification configuration succeeded.
+2026-11-15T01:41:21.4122557Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "start", "timestamp": "2026-11-15T01:41:21.411903+00:00"}
+2026-11-15T01:41:21.4124045Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "end", "status": "passed", "seconds": 5.387099997733458e-05, "timestamp": "2026-11-15T01:41:21.411957+00:00"}
+2026-11-15T01:41:21.4124943Z CI_NATIVE_STAGE {"stage": "delete", "event": "start", "timestamp": "2026-11-15T01:41:21.411988+00:00"}
+2026-11-15T01:41:21.4126097Z CI_NATIVE_STAGE {"stage": "delete", "event": "end", "status": "passed", "seconds": 3.532599998834485e-05, "timestamp": "2026-11-15T01:41:21.412023+00:00"}
+2026-11-15T01:41:21.4134785Z Booting an isolated iPhone simulator for the offline bridge test.
+2026-11-15T01:41:21.4135647Z CI_NATIVE_STAGE {"stage": "boot", "event": "start", "timestamp": "2026-11-15T01:41:21.413403+00:00"}
+2026-11-15T01:41:21.4137345Z CI_NATIVE_STAGE {"stage": "boot", "event": "end", "status": "passed", "seconds": 0.0001976799999852119, "timestamp": "2026-11-15T01:41:21.413601+00:00"}
+2026-11-15T01:41:21.4138488Z CI_NATIVE_STAGE {"stage": "install", "event": "start", "timestamp": "2026-11-15T01:41:21.413629+00:00"}
+2026-11-15T01:41:21.4139982Z CI_NATIVE_STAGE {"stage": "install", "event": "end", "status": "passed", "seconds": 0.00014297899997472996, "timestamp": "2026-11-15T01:41:21.413773+00:00"}
+2026-11-15T01:41:21.4141150Z CI_NATIVE_STAGE {"stage": "launch", "event": "start", "timestamp": "2026-11-15T01:41:21.413801+00:00"}
+2026-11-15T01:41:21.4142094Z CI_NATIVE_STAGE {"stage": "launch", "event": "end", "status": "passed", "seconds": 3.8130999996610626e-05, "timestamp": "2026-11-15T01:41:21.413839+00:00"}
+2026-11-15T01:41:21.4143171Z CI_NATIVE_STAGE {"stage": "container-lookup", "event": "start", "timestamp": "2026-11-15T01:41:21.413868+00:00"}
+2026-11-15T01:41:21.4144217Z CI_NATIVE_STAGE {"stage": "container-lookup", "event": "end", "status": "passed", "seconds": 3.4905000006801856e-05, "timestamp": "2026-11-15T01:41:21.413903+00:00"}
+2026-11-15T01:41:21.4145646Z CI_NATIVE_STAGE {"stage": "bridge", "event": "start", "timestamp": "2026-11-15T01:41:21.413932+00:00"}
+2026-11-15T01:41:21.4146592Z CI_NATIVE_STAGE {"stage": "bridge", "event": "end", "status": "passed", "seconds": 0.00012706900002967814, "timestamp": "2026-11-15T01:41:21.414059+00:00"}
+2026-11-15T01:41:21.4147563Z Real web-to-native notification configuration succeeded.
+2026-11-15T01:41:21.4148220Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "start", "timestamp": "2026-11-15T01:41:21.414422+00:00"}
+2026-11-15T01:41:21.4149146Z CI_NATIVE_STAGE {"stage": "shutdown", "event": "end", "status": "failed", "seconds": 5.447199998798169e-05, "timestamp": "2026-11-15T01:41:21.414477+00:00"}
+2026-11-15T01:41:21.4150002Z CI_NATIVE_STAGE {"stage": "delete", "event": "start", "timestamp": "2026-11-15T01:41:21.414676+00:00"}
+2026-11-15T01:41:21.4150909Z CI_NATIVE_STAGE {"stage": "delete", "event": "end", "status": "passed", "seconds": 4.2680000035488774e-05, "timestamp": "2026-11-15T01:41:21.414718+00:00"}
+2026-11-15T01:41:21.4155565Z ..
+2026-11-15T01:41:21.4156160Z ----------------------------------------------------------------------
+2026-11-15T01:41:21.4156618Z Ran 16 tests in 0.026s
+2026-11-15T01:41:21.4156769Z 
+2026-11-15T01:41:21.4156853Z OK
+2026-11-15T01:41:21.4835087Z CI_NATIVE_STAGE {"stage": "keychain", "event": "start", "timestamp": "2026-11-15T01:41:21.483274+00:00"}
+2026-11-15T01:41:21.4837121Z CI_NATIVE_STAGE {"stage": "keychain", "event": "end", "status": "passed", "seconds": 6.107499996232946e-05, "timestamp": "2026-11-15T01:41:21.483333+00:00"}
+2026-11-15T01:41:21.4838546Z CI_NATIVE_STAGE {"stage": "swift", "event": "start", "timestamp": "2026-11-15T01:41:21.483371+00:00"}
+2026-11-15T01:41:21.4839988Z CI_NATIVE_STAGE {"stage": "swift", "event": "end", "status": "passed", "seconds": 2.069900000378766e-05, "timestamp": "2026-11-15T01:41:21.483391+00:00"}
+2026-11-15T01:41:21.4841692Z CI_NATIVE_STAGE {"stage": "watch-receipts", "event": "start", "timestamp": "2026-11-15T01:41:21.483421+00:00"}
+2026-11-15T01:41:21.4843562Z CI_NATIVE_STAGE {"stage": "watch-receipts", "event": "end", "status": "passed", "seconds": 2.590799999779847e-05, "timestamp": "2026-11-15T01:41:21.483447+00:00"}
+2026-11-15T01:41:21.4845445Z CI_NATIVE_STAGE {"stage": "watch-approval", "event": "start", "timestamp": "2026-11-15T01:41:21.483476+00:00"}
+2026-11-15T01:41:21.4846600Z CI_NATIVE_STAGE {"stage": "watch-approval", "event": "end", "status": "passed", "seconds": 2.4045000031946984e-05, "timestamp": "2026-11-15T01:41:21.483500+00:00"}
+2026-11-15T01:41:21.4847538Z CI_NATIVE_STAGE {"stage": "app-build", "event": "start", "timestamp": "2026-11-15T01:41:21.483549+00:00"}
+2026-11-15T01:41:21.4848477Z CI_NATIVE_STAGE {"stage": "app-build", "event": "end", "status": "passed", "seconds": 2.567800004271703e-05, "timestamp": "2026-11-15T01:41:21.483574+00:00"}
+2026-11-15T01:41:21.4849374Z CI_NATIVE_STAGE {"stage": "watch-bundle", "event": "start", "timestamp": "2026-11-15T01:41:21.483603+00:00"}
+2026-11-15T01:41:21.4850616Z CI_NATIVE_STAGE {"stage": "watch-bundle", "event": "end", "status": "passed", "seconds": 2.3163000037129677e-05, "timestamp": "2026-11-15T01:41:21.483626+00:00"}
+2026-11-15T01:41:21.4851530Z CI_NATIVE_STAGE {"stage": "keychain", "event": "start", "timestamp": "2026-11-15T01:41:21.483767+00:00"}
+2026-11-15T01:41:21.4852617Z CI_NATIVE_STAGE {"stage": "keychain", "event": "end", "status": "failed", "seconds": 2.9314999949292542e-05, "timestamp": "2026-11-15T01:41:21.483796+00:00"}
+2026-11-15T01:41:21.4853771Z ..CI_NATIVE_FAILURE keychain: CalledProcessError: Command '['/usr/bin/python3', 'scripts/test-keychain-helper.py']' returned non-zero exit status 1.
+2026-11-15T01:41:21.4854395Z .
+2026-11-15T01:41:21.4854714Z ----------------------------------------------------------------------
+2026-11-15T01:41:21.4855070Z Ran 3 tests in 0.001s
+2026-11-15T01:41:21.4855380Z 
+2026-11-15T01:41:21.4855471Z OK
+2026-11-15T01:41:21.4855952Z CI_NATIVE_STAGE {"stage": "keychain", "event": "start", "timestamp": "2026-11-15T01:41:21.483952+00:00"}
+2026-11-15T01:41:21.4856876Z CI_NATIVE_STAGE {"stage": "keychain", "event": "end", "status": "failed", "seconds": 3.3172000030390336e-05, "timestamp": "2026-11-15T01:41:21.483986+00:00"}
+2026-11-15T01:41:21.4857712Z CI_NATIVE_STAGE {"stage": "swift", "event": "start", "timestamp": "2026-11-15T01:41:21.484040+00:00"}
+2026-11-15T01:41:21.4858605Z CI_NATIVE_STAGE {"stage": "swift", "event": "end", "status": "passed", "seconds": 2.6600000012422242e-05, "timestamp": "2026-11-15T01:41:21.484066+00:00"}
+2026-11-15T01:41:21.4859492Z CI_NATIVE_STAGE {"stage": "watch-receipts", "event": "start", "timestamp": "2026-11-15T01:41:21.484095+00:00"}
+2026-11-15T01:41:21.4860459Z CI_NATIVE_STAGE {"stage": "watch-receipts", "event": "end", "status": "passed", "seconds": 2.3303000034502475e-05, "timestamp": "2026-11-15T01:41:21.484118+00:00"}
+2026-11-15T01:41:21.4861367Z CI_NATIVE_STAGE {"stage": "watch-approval", "event": "start", "timestamp": "2026-11-15T01:41:21.484146+00:00"}
+2026-11-15T01:41:21.4862330Z CI_NATIVE_STAGE {"stage": "watch-approval", "event": "end", "status": "passed", "seconds": 2.14500000197404e-05, "timestamp": "2026-11-15T01:41:21.484167+00:00"}
+2026-11-15T01:41:21.4863216Z CI_NATIVE_STAGE {"stage": "app-build", "event": "start", "timestamp": "2026-11-15T01:41:21.484194+00:00"}
+2026-11-15T01:41:21.4864149Z CI_NATIVE_STAGE {"stage": "app-build", "event": "end", "status": "passed", "seconds": 2.1479999986695475e-05, "timestamp": "2026-11-15T01:41:21.484215+00:00"}
+2026-11-15T01:41:21.4865034Z CI_NATIVE_STAGE {"stage": "watch-bundle", "event": "start", "timestamp": "2026-11-15T01:41:21.484241+00:00"}
+2026-11-15T01:41:21.4866086Z CI_NATIVE_STAGE {"stage": "watch-bundle", "event": "end", "status": "passed", "seconds": 2.127999999856911e-05, "timestamp": "2026-11-15T01:41:21.484262+00:00"}
+2026-11-15T01:41:21.4984138Z ##[group]Run python3 scripts/test-ci-build-output.py
+2026-11-15T01:41:21.4984573Z [36;1mpython3 scripts/test-ci-build-output.py[0m
+2026-11-15T01:41:21.5033644Z shell: /usr/bin/bash -e {0}
+2026-11-15T01:41:21.5033898Z env:
+2026-11-15T01:41:21.5034101Z   MITZO_CI_NODE_VERSION: 24.22.1
+2026-11-15T01:41:21.5034351Z ##[endgroup]
+2026-11-15T01:41:22.1895831Z ......../usr/lib/python3.14/zipfile/__init__.py:1721: UserWarning: Duplicate name: 'dist/index.js'
+2026-11-15T01:41:22.1896604Z   return self._open_to_write(zinfo, force_zip64=force_zip64)
+2026-11-15T01:41:22.8362486Z ............/usr/lib/python3.14/zipfile/__init__.py:1721: UserWarning: Duplicate name: 'frontend/dist/index.html'
+2026-11-15T01:41:22.8363208Z   return self._open_to_write(zinfo, force_zip64=force_zip64)
+2026-11-15T01:41:23.6736705Z ...........
+2026-11-15T01:41:23.6737449Z ----------------------------------------------------------------------
+2026-11-15T01:41:23.6738103Z Ran 31 tests in 2.082s
+2026-11-15T01:41:23.6738423Z 
+2026-11-15T01:41:23.6738575Z OK
+2026-11-15T01:41:23.6739499Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6740815Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6742172Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6743609Z {"restoredFiles": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6745583Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6746909Z {"files": 4, "bytes": 125, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6748170Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6749420Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6750657Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6751882Z {"files": 5, "bytes": 152, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6753108Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6754351Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6755481Z {"files": 4, "bytes": 158, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6756249Z {"files": 4, "bytes": 158, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6756990Z {"files": 4, "bytes": 158, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6757731Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6758432Z {"files": 4, "bytes": 139, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6759133Z {"files": 4, "bytes": 158, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6759816Z {"files": 4, "bytes": 158, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6760508Z {"files": 4, "bytes": 158, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6761188Z {"files": 4, "bytes": 158, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6761891Z {"files": 4, "bytes": 158, "candidate": "1b3f776dec72bd637467a934433d3b6c768351f6", "scope": "server"}
+2026-11-15T01:41:23.6762915Z {"files": 4, "bytes": 139, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6763644Z {"files": 4, "bytes": 139, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6764353Z {"files": 4, "bytes": 158, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6765050Z {"files": 4, "bytes": 158, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6766506Z {"files": 4, "bytes": 158, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6767268Z {"files": 4, "bytes": 158, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6767977Z {"files": 4, "bytes": 139, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6768668Z {"files": 4, "bytes": 139, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6769429Z {"restoredFiles": 4, "bytes": 139, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6770186Z {"files": 4, "bytes": 139, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6770927Z {"restoredFiles": 4, "bytes": 139, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "server"}
+2026-11-15T01:41:23.6771793Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6772546Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6774171Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6775760Z {"restoredFiles": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6777074Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6778450Z {"files": 1, "bytes": 8, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6779308Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6780028Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6780736Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6781460Z {"files": 2, "bytes": 46, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6782162Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6782867Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6783579Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6784284Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6784987Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6786218Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6786945Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6787667Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6788380Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6789083Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6790351Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6791578Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6792331Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6793053Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6793756Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6794466Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6795456Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6796192Z {"files": 1, "bytes": 41, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6796911Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6797621Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6798372Z {"restoredFiles": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6799119Z {"files": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6800153Z {"restoredFiles": 1, "bytes": 33, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "frontend"}
+2026-11-15T01:41:23.6800929Z {"files": 3, "bytes": 117, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "workspace"}
+2026-11-15T01:41:23.6801662Z {"files": 8, "bytes": 145, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "ios-web"}
+2026-11-15T01:41:23.6802432Z {"restoredFiles": 8, "bytes": 145, "candidate": "90a3e5a73da3d61c0050edf7e95ddc46b79bea1a", "scope": "ios-web"}
+2026-11-15T01:41:23.6803196Z {"files": 3, "bytes": 117, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6803968Z {"restoredFiles": 3, "bytes": 117, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6804725Z {"files": 3, "bytes": 117, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6805607Z {"files": 3, "bytes": 117, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6806384Z {"restoredFiles": 3, "bytes": 117, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6807140Z {"files": 3, "bytes": 117, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6807871Z {"files": 3, "bytes": 118, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6808622Z {"files": 3, "bytes": 118, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6809362Z {"files": 3, "bytes": 118, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6810079Z {"files": 3, "bytes": 118, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6810805Z {"files": 3, "bytes": 118, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6811527Z {"files": 1, "bytes": 37, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6812279Z {"restoredFiles": 1, "bytes": 37, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6813029Z {"files": 1, "bytes": 37, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6813848Z {"files": 1, "bytes": 41, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6814559Z {"files": 1, "bytes": 41, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6815358Z {"files": 1, "bytes": 41, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6816051Z {"files": 1, "bytes": 41, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6816748Z {"files": 1, "bytes": 41, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6817473Z {"files": 3, "bytes": 117, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6818202Z {"files": 3, "bytes": 117, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6818929Z {"files": 3, "bytes": 118, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "workspace"}
+2026-11-15T01:41:23.6819638Z {"files": 1, "bytes": 37, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6820331Z {"files": 1, "bytes": 41, "candidate": "7ac9a0d351470ad8e5379fa37e76ec8024d6196e", "scope": "ios-web"}
+2026-11-15T01:41:23.6989345Z Post job cleanup.
+2026-11-15T01:41:23.6992795Z ##[start-action display=Run actions/setup-node@v7;id=__c63cb9ce-9030-4ff4-8042-2ebb9daa44a3.__actions_setup-node]
+2026-11-15T01:41:23.6996066Z ##[end-action id=__c63cb9ce-9030-4ff4-8042-2ebb9daa44a3.__actions_setup-node;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-15T01:41:23.7082406Z Post job cleanup.
+2026-11-15T01:41:23.7983757Z [command]/usr/bin/git version
+2026-11-15T01:41:23.8029820Z git version 2.56.1
+2026-11-15T01:41:23.8068743Z Temporarily overriding HOME='/home/runner/work/_temp/ee70d3fd-ea74-4e39-949f-d291eee17f63' before making global git config changes
+2026-11-15T01:41:23.8070300Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-15T01:41:23.8074138Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mitzo/mitzo
+2026-11-15T01:41:23.8110616Z Removing SSH command configuration
+2026-11-15T01:41:23.8117329Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-15T01:41:23.8171672Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-15T01:41:23.8490918Z Removing HTTP extra header
+2026-11-15T01:41:23.8500260Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-15T01:41:23.8567599Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-15T01:41:23.8878185Z Removing includeIf entries pointing to credentials config files
+2026-11-15T01:41:23.8885867Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-15T01:41:23.8914349Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-15T01:41:23.8915536Z includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-15T01:41:23.8916384Z includeif.gitdir:/github/workspace/.git.path
+2026-11-15T01:41:23.8917008Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-15T01:41:23.8923261Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path
+2026-11-15T01:41:23.8947703Z /home/runner/work/_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config
+2026-11-15T01:41:23.8958599Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-eae7421b\-ee4c\-4046\-9c82\-1d773e111758\.config
+2026-11-15T01:41:23.8997063Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path
+2026-11-15T01:41:23.9021586Z /home/runner/work/_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config
+2026-11-15T01:41:23.9030329Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/mitzo/mitzo/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-eae7421b\-ee4c\-4046\-9c82\-1d773e111758\.config
+2026-11-15T01:41:23.9063373Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-15T01:41:23.9086948Z /github/runner_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config
+2026-11-15T01:41:23.9095840Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-eae7421b\-ee4c\-4046\-9c82\-1d773e111758\.config
+2026-11-15T01:41:23.9132147Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-15T01:41:23.9156033Z /github/runner_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config
+2026-11-15T01:41:23.9164384Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-eae7421b\-ee4c\-4046\-9c82\-1d773e111758\.config
+2026-11-15T01:41:23.9198117Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-15T01:41:23.9478916Z Removing credentials config '/home/runner/work/_temp/git-credentials-eae7421b-ee4c-4046-9c82-1d773e111758.config'
+2026-11-15T01:41:23.9629305Z Evaluate and set job outputs
+2026-11-15T01:41:23.9636333Z Cleaning up orphan processes

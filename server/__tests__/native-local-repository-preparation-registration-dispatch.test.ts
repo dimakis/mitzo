@@ -355,6 +355,11 @@ async function assertSanitizedCaptureDiagnostic(
         { ...f.a.initial.lease.binding, accountId: 'foreign' },
         commandId,
         callId,
+        {
+          turnId: value.diagnostic.turnId,
+          toolName: 'PrepareLocalRepository',
+          requestHash: createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+        },
       ),
     ).toThrow();
     expect(JSON.stringify(receipt)).not.toContain(secret);
@@ -387,7 +392,9 @@ async function assertSanitizedCaptureDiagnostic(
   vi.spyOn(sandboxedCommand, 'executeSandboxedCommand').mockImplementation(async (request) => {
     await request.beforeSpawnAsync?.();
     request.beforeSpawn?.();
-    const operation = JSON.parse(request.requestJson!).operation;
+    if (!('requestJson' in request) || typeof request.requestJson !== 'string')
+      throw Error('Private fixture request missing');
+    const operation = JSON.parse(request.requestJson).operation;
     if (operation === 'CapturePreparationObjectStore') {
       stores++;
       if (physicalFailure === 'transport') throw privateError;

@@ -164,14 +164,16 @@ it.runIf(process.platform === 'darwin').each([
       .mockImplementation(async (request) => {
         await request.beforeSpawnAsync?.();
         request.beforeSpawn?.();
-        const input = JSON.parse(request.requestJson!);
+        if (!('requestJson' in request) || typeof request.requestJson !== 'string')
+          throw Error('Private fixture request missing');
+        const input = JSON.parse(request.requestJson);
         const phase = input.operation === 'CapturePreparationObjectStore' ? 'capture' : 'verify';
         expect(input.operation).toBe(
           phase === 'capture' ? 'CapturePreparationObjectStore' : 'VerifyPreparationObjectStore',
         );
         expect(request.maxOutputBytes).toBe(phase === 'capture' ? 4 * 1024 * 1024 : 32768);
         expect(request.writableRoots).toEqual([request.cwd]);
-        expect(request.deniedRoots).toEqual(expect.arrayContaining(f.policy.deniedRoots));
+        expect(request.deniedRoots).toEqual(expect.arrayContaining([...f.policy.deniedRoots]));
         expect(request.privateOutput).toBe('separate');
         expect(request.timeoutMs).toBeLessThanOrEqual(30000);
         let stdout = JSON.stringify(

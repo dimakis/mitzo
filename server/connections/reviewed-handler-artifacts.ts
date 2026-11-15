@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1187-symposium-integrated-acceptance';
+  'v1.0.1189-symposium-integrated-acceptance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2896,7 +2896,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-preparation-custody.test.ts':
     '9f925d78116b8ee4edaefd1cd14f71622b9416384af55fcbe755065ea483acef',
   '../__tests__/native-local-repository-preparation-registration-dispatch.test.ts':
-    '473fa757a306b19f2ac63c8ad20a2120c18abfc4ef9382f86718811172f83013',
+    'a09af95348824d63f7945209965ca90b8fc1c0898e2ff9e4e804590deb079ff4',
   '../__tests__/native-local-repository-preparation.test.ts':
     'df0fc8240d29fa138e61aa5e3f3338d08996edc5df8c9a455f6596b85bc2a889',
   '../__tests__/native-local-repository-read-projection.test.ts':
@@ -3116,7 +3116,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-native-public-untransferred.test.ts':
     '82edf2022ad9b78b656ed8a121143018f55cec78e849c7fa2cf23d30c78e1843',
   '../__tests__/prepared-repository-native-read.test.ts':
-    '6da24a577429f6b84707c8f0e5d93a2fdfb13ad14a3451d681230cf85544e1ec',
+    '679b24ff67397165af227c1268b0d371139455e4aa1025dc474180b09fd576f4',
   '../__tests__/prepared-repository-native-recovery.test.ts':
     'b603ee7ad71f1f5f9eb18cb50eabe762e81b18f81c216e42f172aa8a04ffab41',
   '../__tests__/prepared-repository-physical-boundary.test.ts':

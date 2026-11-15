@@ -69,3 +69,16 @@ branch results; the earlier uncertain six-case command is not requalified.
 Readiness allowance changes from one to ten seconds remain explicit; lifecycle
 ten seconds and scenario sixty seconds remain unchanged. Original hosted causes
 are unproved. No whole #1359 branch, Telos source or foreign registry was imported.
+
+Hosted compile follow-up: exact published f4d20f82b CI43664029172,
+job132659348172, reported four TypeScript errors in the two new test instruments:
+a missing negative-control receipt identity, private transport request narrowing,
+and a readonly expected-array argument. The test-only correction supplies the
+original identity, checks the private request field before parsing, and copies the
+readonly expectation. All assertions remain. The affected 26 checks pass with six
+existing physical gates skipped; lint/format pass. The exact reviewed five native
+production files remain unchanged. Original compile output SHA256
+`9336c05b050a2b04abeaacc5a728351a3adbd34abe2dc126a4828ac7ecf401a9`
+and corrected-control output are retained as `f4d-compile-original.log` and
+`native-type-correction-controls.log`. Hosted compilation and current-head final
+review still require fresh results; a local transpiled test pass is not a typecheck.
