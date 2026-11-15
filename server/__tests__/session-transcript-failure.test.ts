@@ -1,14 +1,81 @@
 import express from 'express';
 import request from 'supertest';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { StoredEvent } from '@mitzo/protocol';
 import { replayEventsToTranscript } from '../conversation-transcript.js';
 import { createSessionMessagesHandler } from '../session-messages-route.js';
 import { observeTranscriptSync } from '../transcript-observation.js';
 import { TranscriptReadFailure } from '../transcript-read-failure.js';
+import { retainedRuntimeFailure } from '../runtime-failure-diagnostics.js';
 
 const log = vi.hoisted(() => ({ warn: vi.fn(), info: vi.fn() }));
 vi.mock('../logger.js', () => ({ createLogger: () => log }));
+afterEach(() => log.warn.mockReset());
+
+function failingHistory(cause: unknown) {
+  const replay = () =>
+    observeTranscriptSync('projection', () => {
+      throw cause;
+    });
+  const app = express();
+  app.get(
+    '/sessions/:id/messages',
+    createSessionMessagesHandler({
+      getMessages: async () => replay(),
+      getSessionTranscript: async () => replay(),
+      getReconnectTranscript: replay,
+      getDurableSessionTranscript: replay,
+    }),
+  );
+  return app;
+}
+
+it.each(['', '?transcript=1', '?throughSeq=2', '?transcript=durable'])(
+  'retains the actual handler cause under its returned reference %s even if logging fails',
+  async (query) => {
+    const cause = Error('PRIVATE history /private/account');
+    const diagnosticCause = Error('PRIVATE logger payload');
+    log.warn.mockImplementation(() => {
+      throw diagnosticCause;
+    });
+    const result = await request(failingHistory(cause))
+      .get('/sessions/original/messages' + query)
+      .timeout(2000)
+      .expect(500);
+    const id = result.headers['x-mitzo-diagnostic-id'];
+    expect(id).toMatch(/^[a-f0-9-]{36}$/);
+    expect(retainedRuntimeFailure(id)).toEqual({ cause, diagnosticCause });
+    expect(retainedRuntimeFailure(id)?.cause).toBe(cause);
+    expect(result.body).toEqual({ error: 'Session transcript unavailable' });
+    expect(JSON.stringify([result.body, result.headers, log.warn.mock.calls])).not.toMatch(
+      /PRIVATE|private\/account|logger payload/,
+    );
+  },
+);
+
+it('retains non-Error history failures internally without serializing them', async () => {
+  const cause = { private: 'PRIVATE upstream content' };
+  const result = await request(failingHistory(cause))
+    .get('/sessions/original/messages')
+    .expect(500);
+  const retained = retainedRuntimeFailure(result.headers['x-mitzo-diagnostic-id']);
+  expect(retained?.cause).toBeInstanceOf(Error);
+  expect((retained?.cause as Error).cause).toBe(cause);
+  expect(JSON.stringify([result.body, log.warn.mock.calls])).not.toContain('PRIVATE');
+});
+
+it('evicts old handler causes from the shared bounded host buffer', async () => {
+  const cause = Error('PRIVATE retained cause');
+  const app = failingHistory(cause);
+  const ids: string[] = [];
+  for (let index = 0; index < 33; index++) {
+    const result = await request(app).get('/sessions/original/messages').expect(500);
+    ids.push(result.headers['x-mitzo-diagnostic-id']);
+  }
+  expect(new Set(ids).size).toBe(33);
+  expect(retainedRuntimeFailure(ids[0]!)).toBeUndefined();
+  for (const id of ids.slice(1)) expect(retainedRuntimeFailure(id)?.cause).toBe(cause);
+});
 
 it('retains the original replay failure without disclosing its content in diagnostics', () => {
   const cause = Error('PRIVATE upstream body /private/account');
@@ -66,6 +133,9 @@ it.each([
       .expect(500);
     expect(result.body).toEqual({ error: 'Session transcript unavailable' });
     expect(result.headers['x-mitzo-diagnostic-id']).toEqual(expect.any(String));
+    expect(retainedRuntimeFailure(result.headers['x-mitzo-diagnostic-id'])?.cause).toEqual(
+      expect.objectContaining({ message: 'Unmatched attributed tool result in stored transcript' }),
+    );
     expect(log.warn).toHaveBeenCalledWith(
       'Session transcript unavailable',
       expect.objectContaining({
