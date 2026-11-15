@@ -1,4 +1,7 @@
 import type { EventStore } from './event-store.js';
+import { isDeepStrictEqual } from 'node:util';
+import { checkSkillTool } from '@mitzo/harness';
+import type { OrdinarySkillContext } from '@mitzo/protocol';
 import {
   OrdinarySdkInterruptTargetSchema,
   type OrdinarySdkInterruptTarget,
@@ -10,11 +13,23 @@ import {
   type OrdinaryTurnLifecycle,
 } from './ordinary-turn-lifecycle.js';
 import type { OrdinarySdkTurnEvidence } from './ordinary-sdk-turn-evidence.js';
-import type { OrdinarySdkQueryControl } from './ordinary-local-vertex-sdk-query.js';
+import type {
+  OrdinarySdkQueryControl,
+  OrdinarySdkCommandToolAuthority,
+} from './ordinary-local-vertex-sdk-query.js';
+import {
+  ordinarySdkRetryCommandId,
+  readOwnedVertexRetrySource,
+} from './ordinary-local-vertex-queue.js';
 
 /** A FIFO controller for one existing SDK query. The durable queue is the existing
  * ordinary/send ledger; this object only tracks the live query's active command. */
-type ActiveSdkCommand = { commandId: string; execution: ExecutionToken };
+type ActiveSdkCommand = {
+  commandId: string;
+  execution: ExecutionToken;
+  skillContext?: OrdinarySkillContext;
+  inputReleased: boolean;
+};
 export class OrdinaryLocalVertexCommandOwner {
   #active?: ActiveSdkCommand;
   #pending: string[] = [];
@@ -26,6 +41,7 @@ export class OrdinaryLocalVertexCommandOwner {
   #paused = false;
   #inputYielded = false;
   #resultObserved = false;
+  #resultDeliveryPending = false;
   #deferredStop?: { requestId: string; resolve(): void; reject(error: unknown): void };
   #interruptTargets = new WeakMap<object, { active: ActiveSdkCommand; native: object }>();
   constructor(
@@ -113,6 +129,19 @@ export class OrdinaryLocalVertexCommandOwner {
       });
     }
   }
+  /** A shared Stop can address an admitted input before a native echo exists.
+   * Yielded/foreign inputs keep the native target's existing uncertainty rules. */
+  async stopBeforeInput(commandId: string, requestId: string): Promise<boolean> {
+    if (
+      this.#active?.commandId !== commandId ||
+      this.#inputYielded ||
+      this.#inputUuid ||
+      this.#resultObserved
+    )
+      return false;
+    await this.stop(requestId);
+    return true;
+  }
   #cancelStoppedInput(): boolean {
     if (
       !this.#active ||
@@ -173,8 +202,50 @@ export class OrdinaryLocalVertexCommandOwner {
     assertOrdinarySynchronousFence(commandId, () =>
       this.#turnLifecycle(commandId)?.beforeDispatch(commandId),
     );
+    this.#assertSkillContext(this.#active);
+    this.#active.inputReleased = true;
     this.#inputYielded = true;
     return true;
+  }
+  #assertSkillContext(active: ActiveSdkCommand): void {
+    const context = this.owners.store.getOrdinarySkillContext(
+      this.owners.sessionId,
+      active.commandId,
+    );
+    if (
+      !isDeepStrictEqual(context, active.skillContext) ||
+      (context && this.owners.store.getSendCommand(active.commandId)?.payload.text !== context.text)
+    )
+      throw Error('Original SDK command skill context changed');
+  }
+  #toolAuthority(active: ActiveSdkCommand): OrdinarySdkCommandToolAuthority {
+    const ceiling =
+      active.skillContext?.allowedTools === undefined
+        ? null
+        : new Set(active.skillContext.allowedTools);
+    return Object.freeze({
+      commandId: active.commandId,
+      checkTool: (name: string): 'allow' | 'deny' => {
+        if (
+          this.#failed ||
+          this.#paused ||
+          this.#active !== active ||
+          !active.inputReleased ||
+          !this.owners.assertCurrentSync
+        )
+          throw Error('Original SDK tool command unavailable');
+        assertOrdinarySynchronousFence(active.commandId, () => this.owners.assertCurrentSync!());
+        const session = this.owners.store.getSession(this.owners.sessionId);
+        if (
+          session?.executionId !== active.execution.executionId ||
+          session.executionGeneration !== active.execution.generation ||
+          !['RUNNING', 'REQUIRES_ACTION'].includes(session.executionPhase ?? '')
+        )
+          throw Error('Original SDK tool command execution unavailable');
+        this.#assertSkillContext(active);
+        return checkSkillTool(ceiling, name);
+      },
+    });
   }
   acceptsPeerMessages(): boolean {
     return !this.#paused && !this.#failed;
@@ -204,12 +275,27 @@ export class OrdinaryLocalVertexCommandOwner {
       ? this.#active.commandId
       : undefined;
   }
-  enqueue(commandId: string, preparationSignal?: AbortSignal): Promise<void> {
+  enqueue(
+    commandId: string,
+    preparationSignal?: AbortSignal,
+    retrySourceCommandId?: string,
+  ): Promise<void> {
     return this.#serialize(
       async () => {
         preparationSignal?.throwIfAborted();
         await this.#fence();
         preparationSignal?.throwIfAborted();
+        if (
+          retrySourceCommandId &&
+          (this.#active ||
+            commandId !== ordinarySdkRetryCommandId(retrySourceCommandId) ||
+            !readOwnedVertexRetrySource(
+              this.owners.store,
+              this.owners.sessionId,
+              retrySourceCommandId,
+            ))
+        )
+          throw Error('Original SDK retry source unavailable');
         const command = this.owners.store.getSendCommand(commandId);
         const admission = this.owners.store.getOrdinaryLocalVertexCommandAdmission(commandId);
         if (command?.sessionId !== this.owners.sessionId || !admission)
@@ -232,6 +318,8 @@ export class OrdinaryLocalVertexCommandOwner {
           !this.#pending.includes(commandId)
         )
           this.#pending.push(commandId);
+        if (retrySourceCommandId)
+          this.#pending = [commandId, ...this.#pending.filter((id) => id !== commandId)];
         if (!this.#active) this.#paused = false;
         await this.#dispatch(preparationSignal, commandId);
       },
@@ -239,7 +327,12 @@ export class OrdinaryLocalVertexCommandOwner {
       commandId,
     );
   }
-  complete(commandId: string, failed = false, inputUuid?: string): Promise<void> {
+  complete(
+    commandId: string,
+    failed = false,
+    inputUuid?: string,
+    { dispatchSuccessor = true } = {},
+  ): Promise<void> {
     return this.#serialize(async () => {
       await this.#fence();
       if (this.#active?.commandId !== commandId)
@@ -262,12 +355,21 @@ export class OrdinaryLocalVertexCommandOwner {
           .turnLifecycle?.(commandId)
           ?.terminal(commandId, inputUuid, failed ? 'failed' : 'completed');
       }
-      this.#paused = stopping;
+      this.#paused = stopping || failed;
       this.#active = undefined;
       this.#inputDispatched = undefined;
       this.#inputYielded = false;
       this.#resultObserved = false;
+      this.#resultDeliveryPending = !dispatchSuccessor;
       this.owners.onTerminal?.(commandId);
+      if (dispatchSuccessor) await this.#dispatch();
+    });
+  }
+  /** Advance only after the preceding result's usage and completion are delivered. */
+  dispatchQueued(): Promise<void> {
+    return this.#serialize(async () => {
+      this.#resultDeliveryPending = false;
+      // Dispatch owns the fresh authority check when there is work to release.
       await this.#dispatch();
     });
   }
@@ -297,7 +399,11 @@ export class OrdinaryLocalVertexCommandOwner {
       throw Error('Original SDK reply input acknowledgment unavailable');
     this.owners.turnEvidence.message(this.#active.commandId, messageId);
   }
-  resultObserved(inputUuid: string | undefined, failed = false): Promise<void> {
+  resultObserved(
+    inputUuid: string | undefined,
+    failed = false,
+    options?: { dispatchSuccessor?: boolean },
+  ): Promise<void> {
     if (!this.#active || !inputUuid || this.#inputUuid !== inputUuid) {
       this.#failed = true;
       this.owners.query.abort();
@@ -306,7 +412,7 @@ export class OrdinaryLocalVertexCommandOwner {
     const commandId = this.#active.commandId;
     this.#resultObserved = true;
     this.#inputUuid = undefined;
-    return this.complete(commandId, failed, inputUuid);
+    return this.complete(commandId, failed, inputUuid, options);
   }
   async #fence() {
     if (this.#failed) throw Error('Original SDK owner unavailable');
@@ -367,7 +473,8 @@ export class OrdinaryLocalVertexCommandOwner {
     if (!this.owners.store.deployment.canDispatch(this.owners.sessionId)) return;
     while (this.#pending.length && this.owners.store.getSendCommand(this.#pending[0]!)?.error)
       this.#pending.shift();
-    if (this.#active || this.#paused || !this.#pending.length) return;
+    if (this.#active || this.#paused || this.#resultDeliveryPending || !this.#pending.length)
+      return;
     const commandId = this.#pending[0]!;
     const assertPreparation = () => {
       if (commandId === admittingCommandId) preparationSignal?.throwIfAborted();
@@ -379,6 +486,15 @@ export class OrdinaryLocalVertexCommandOwner {
     await this.#fence();
     assertPreparation();
     this.#turnLifecycle(commandId);
+    const payload = this.owners.store.getSendCommand(commandId)!.payload;
+    const skillContext = this.owners.store.getOrdinarySkillContext(
+      this.owners.sessionId,
+      commandId,
+    );
+    if (skillContext && skillContext.text !== payload.text)
+      throw Error('Original SDK command skill context changed');
+    if (skillContext?.allowedTools !== undefined && !this.owners.query.bindCommandToolAuthority)
+      throw Error('SDK command tool ceiling enforcement unavailable');
     // A signed queue control may cancel this consumed head during authority I/O.
     // Observe that exact cancellation before allocating an execution generation.
     if (
@@ -403,7 +519,7 @@ export class OrdinaryLocalVertexCommandOwner {
       this.owners.sessionId,
       commandId,
     ).token;
-    this.#active = { commandId, execution };
+    this.#active = { commandId, execution, skillContext, inputReleased: false };
     this.#dispatchingCommandId = undefined;
     // No running turn exists here. SDK control calls are acknowledged before
     // yielding the next frozen user input; tool-result continuations bypass this.
@@ -419,8 +535,12 @@ export class OrdinaryLocalVertexCommandOwner {
       await this.#fence();
       assertPreparation();
     }
-    const payload = this.owners.store.getSendCommand(commandId)!.payload;
     if (this.#cancelStoppedInput()) return;
+    this.#assertSkillContext(this.#active);
+    if (this.owners.query.bindCommandToolAuthority)
+      assertOrdinarySynchronousFence(commandId, () =>
+        this.owners.query.bindCommandToolAuthority!(this.#toolAuthority(this.#active!)),
+      );
     this.#inputDispatched = commandId;
     await this.owners.query.push(commandId, structuredClone(admission), structuredClone(payload));
     await this.#fence();

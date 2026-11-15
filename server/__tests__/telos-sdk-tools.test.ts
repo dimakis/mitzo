@@ -43,7 +43,10 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function fixture(explicit: boolean | 'excluded' = false) {
+async function fixture(
+  explicit: boolean | 'excluded' = false,
+  checkTool?: (name: string) => 'allow' | 'deny',
+) {
   const data = createTelosCanonicalData();
   cleanup.push(() => data.close());
   const registry = new SessionRegistry();
@@ -109,6 +112,7 @@ async function fixture(explicit: boolean | 'excluded' = false) {
     if (!current) throw Error('retired');
   };
   const server = createTelosSdkServer({
+    checkTool,
     session,
     registry,
     events: data.events,
@@ -163,6 +167,30 @@ async function fixture(explicit: boolean | 'excluded' = false) {
     },
   };
 }
+
+it.each([[], ['TelosListItems'], ['mcp__telos__TelosListItems']].map((ceiling) => ({ ceiling })))(
+  'enforces the original exact wire-name ceiling through the Telos MCP handler ($ceiling)',
+  async ({ ceiling }) => {
+    const checked: string[] = [];
+    const f = await fixture(false, (name) => {
+      checked.push(name);
+      return ceiling.includes(name) ? 'allow' : 'deny';
+    });
+    expect((await f.call('TelosListItems', {})).isError).toBe(
+      !ceiling.includes('mcp__telos__TelosListItems'),
+    );
+    expect(checked).toContain('mcp__telos__TelosListItems');
+  },
+);
+
+it('withholds a Telos result when its original command ceiling is revoked during authority renewal', async () => {
+  let allowed = true;
+  const f = await fixture(false, () => (allowed ? 'allow' : 'deny'));
+  f.afterCurrent(() => {
+    allowed = false;
+  });
+  expect((await f.call('TelosListItems', {})).isError).toBe(true);
+});
 
 function ordinaryQuery(f: Awaited<ReturnType<typeof fixture>>, cold = false) {
   const controller = new AbortController();
@@ -273,6 +301,37 @@ async function ordinaryClient(f: Awaited<ReturnType<typeof fixture>>) {
   };
   return { client, terminal };
 }
+
+it('preserves the real oversized review refusal through the SDK without displaying a card or mutating work', async () => {
+  const f = await fixture();
+  const items = new TelosItemStore(f.dbPath);
+  cleanup.push(() => items.close());
+  const before = items.read('studio');
+  let cards = 0;
+  f.beforeApproval(() => cards++);
+  const result = await f.call('TelosManageItem', {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'oversized-review',
+    expectedRevision: before.revision,
+    intent: 'i'.repeat(7000),
+    rationale: 'r'.repeat(4000),
+    note: 'Synthetic oversized request',
+  });
+  expect(result.isError).toBe(true);
+  expect(f.value(result)).toMatchObject({
+    message: 'Tool input is too large to review safely. Split it into smaller operations.',
+    failure: {
+      code: 'invalid_input',
+      phase: 'approval',
+      effectStatus: 'not_started',
+      recovery: 'correct_input',
+    },
+  });
+  expect(cards).toBe(0);
+  expect(items.read('studio')).toEqual(before);
+  expect(f.outcome()).toBe('settled');
+});
 
 it.each([
   'denied',

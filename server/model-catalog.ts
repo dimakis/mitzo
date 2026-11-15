@@ -7,6 +7,24 @@ export const CatalogModel = z.object({
   defaultReasoningEffort: z.string().optional(),
 });
 export type CatalogModel = z.infer<typeof CatalogModel>;
+/** Admission depends on support and availability, not discovery time, labels or
+ * whether an identical catalog came from configuration or a successful refresh.
+ * Keep the full discovery diagnostics in inventory responses for observation. */
+export function modelAdmissionCapabilities(entry: {
+  models: readonly CatalogModel[];
+  modelDiscovery: { stale: boolean };
+}) {
+  return {
+    models: entry.models
+      .map(({ id, reasoningEfforts, defaultReasoningEffort }) => ({
+        id,
+        reasoningEfforts: [...new Set(reasoningEfforts ?? [])].sort(),
+        defaultReasoningEffort,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+    stale: entry.modelDiscovery.stale,
+  };
+}
 /** Only application-owned diagnostics may cross the catalog boundary. */
 export class ModelDiscoveryError extends Error {
   readonly failure: { code: 'claude_sign_in_unavailable'; diagnosticId: string };

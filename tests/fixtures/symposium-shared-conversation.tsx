@@ -56,6 +56,7 @@ function Conversation() {
           )!;
           return {
             id: member.id,
+            historySessionId: member.id === 'architect' ? undefined : member.id,
             name: member.name,
             state: member.id === 'reviewer' ? 'Outcome uncertain' : 'Independent session',
             policy: { reads: policy.readsFutureDiscussion, replies: policy.repliesByDefault },

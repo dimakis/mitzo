@@ -43,6 +43,46 @@ afterEach(() => {
   for (const s of stores.splice(0)) s.close();
 });
 describe('ordinary Local Vertex durable command admission', () => {
+  it('atomically withdraws only unclaimed commands and fences every later admission', () => {
+    const store = open();
+    store.admitOrdinaryLocalVertexCommand(meta, binding, input);
+    const withdrawal = {
+      clientMsgId: 'withdraw-me',
+      sessionId: meta.sessionId,
+      wireFingerprint: 'a'.repeat(64),
+    };
+    expect(store.withdrawUnadmittedOrdinaryCommand(withdrawal)).toBe(true);
+    expect(store.withdrawUnadmittedOrdinaryCommand(withdrawal)).toBe(true);
+    expect(() =>
+      store.withdrawUnadmittedOrdinaryCommand({ ...withdrawal, sessionId: 'foreign' }),
+    ).toThrow();
+    expect(() =>
+      store.withdrawUnadmittedOrdinaryCommand({ ...withdrawal, wireFingerprint: 'b'.repeat(64) }),
+    ).toThrow();
+    expect(() => store.claimClientCommand(withdrawal.clientMsgId, 'late-original')).toThrow();
+    expect(() =>
+      store.insertSendCommand(withdrawal.clientMsgId, meta.sessionId, input.payload),
+    ).toThrow(/withdrawn/);
+    expect(() =>
+      store.beginExecution(meta.sessionId, undefined, withdrawal.clientMsgId, 'late-original'),
+    ).toThrow(/withdrawn/);
+    expect(() =>
+      store.admitOrdinaryLocalVertexContinuation(meta, binding, {
+        ...input,
+        clientMsgId: withdrawal.clientMsgId,
+      }),
+    ).toThrow();
+    expect(store.getSendCommand(withdrawal.clientMsgId)).toBeUndefined();
+    expect(store.getExecutionAdmission(meta.sessionId, withdrawal.clientMsgId)).toBeUndefined();
+    expect(
+      store.withdrawUnadmittedOrdinaryCommand({ ...withdrawal, clientMsgId: input.clientMsgId }),
+    ).toBe(false);
+    store.claimClientCommand('claimed-first', 'original');
+    expect(
+      store.withdrawUnadmittedOrdinaryCommand({ ...withdrawal, clientMsgId: 'claimed-first' }),
+    ).toBe(false);
+    expect(() => store.claimClientCommand('claimed-first', 'original')).not.toThrow();
+  });
   it('atomically freezes settings and exact retries without allocating execution', () => {
     const store = open();
     expect(store.admitOrdinaryLocalVertexCommand(meta, binding, input).duplicate).toBe(false);
@@ -89,6 +129,16 @@ describe('ordinary Local Vertex durable command admission', () => {
       reopened.completeOrdinaryLocalVertexCommand('c1');
       expect(first.getOrdinaryLocalVertexCommandAdmission('c1')?.state).toBe('consumed');
       expect(first.claimOrdinaryLocalVertexCommandDispatch('c1')).toBe(false);
+      const withdrawal = {
+        clientMsgId: 'cold-withdrawal',
+        sessionId: meta.sessionId,
+        wireFingerprint: 'a'.repeat(64),
+      };
+      expect(first.withdrawUnadmittedOrdinaryCommand(withdrawal)).toBe(true);
+      expect(reopened.withdrawUnadmittedOrdinaryCommand(withdrawal)).toBe(true);
+      expect(() => second.claimClientCommand(withdrawal.clientMsgId, 'late-original')).toThrow(
+        /withdrawn/,
+      );
     } finally {
       for (const s of stores.splice(0)) s.close();
       rmSync(dir, { recursive: true });

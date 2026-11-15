@@ -4,6 +4,7 @@ import { useMitzoStore } from '@mitzo/client/hooks';
 import { ReviewerSheetHost } from './AddReviewerSheet';
 import { OrdinaryCollaborationHost } from './OrdinaryCollaborationEntry';
 import { OrdinarySharedConversationHost } from './SharedConversation';
+import { ChatInputHost } from './ChatInputHost';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { ChatView } from '../pages/ChatView';
 import { DesktopChatView } from '../pages/DesktopChatView';
@@ -60,7 +61,7 @@ function ResponsiveChatBody({
         <OrdinarySharedConversationHost sourceConversationId={sessionId}>
           <ReviewerSheetHost sessionId={sessionId} initialProfile={initialProfile}>
             <TelosSourceNavigationProvider request={sourceRequest} sessionId={sessionId}>
-              {screen}
+              <ChatInputHost sessionId={sessionId ?? undefined}>{screen}</ChatInputHost>
             </TelosSourceNavigationProvider>
           </ReviewerSheetHost>
         </OrdinarySharedConversationHost>

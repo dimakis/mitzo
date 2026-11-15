@@ -1,3 +1,4 @@
+import { OrdinaryCommandWithdrawals } from './ordinary-command-withdrawals.js';
 export { DeploymentStore } from './deployment-store.js';
 export {
   maintenanceFingerprint,
@@ -91,6 +92,7 @@ import { OrdinaryLocalVertexCommandAdmissionSchema } from './ordinary-local-vert
 import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
 import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
+import { parseOrdinarySkillContext, type OrdinarySkillContext } from './ordinary-skill-context.js';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import { AgentCommunicationStore } from './agent-communication-store.js';
 import { UserTurnSteeringStore } from './user-turn-steering-store.js';
@@ -387,6 +389,12 @@ const SCHEMA = `
     request_fingerprint TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS ordinary_command_withdrawals (
+    client_msg_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    wire_fingerprint TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS auth_revocations (
     auth_session_id TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL
@@ -570,6 +578,42 @@ export class EventStore {
       });
     });
   }
+  /** The pre-input cancellation owner proved this exact failed input never ran.
+   * Keep its error/consumed receipt; ordinary derived sources still reject errors. */
+  withOrdinaryUnsentSdkRetryContext<T>(
+    sessionId: string,
+    sourceCommandId: string,
+    operation: (assertSourceCurrent: () => void) => T,
+  ): T {
+    return this.contextTransitions.withAdmissionLock(() => {
+      this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+      const source = this.getSendCommand(sourceCommandId)!;
+      const receipt = this.getOrdinaryLocalVertexCommandAdmission(sourceCommandId);
+      const execution = this.getExecutionAdmission(sessionId, sourceCommandId);
+      const epoch = this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0;
+      const assertSourceCurrent = () => {
+        this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+        const current = this.getSendCommand(sourceCommandId)!;
+        if (
+          !execution ||
+          receipt?.state !== 'consumed' ||
+          current.error !== 'Cancelled before SDK dispatch' ||
+          this.getExecutionTerminalReason(execution.token) !== 'abandoned' ||
+          this.getOrdinarySdkTurnEvents(sessionId, sourceCommandId).length !== 0 ||
+          (this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0) !== epoch ||
+          !isDeepStrictEqual(current, source) ||
+          !isDeepStrictEqual(this.getOrdinaryLocalVertexCommandAdmission(sourceCommandId), receipt)
+        )
+          throw Error('Original SDK pre-input cancellation proof unavailable');
+      };
+      assertSourceCurrent();
+      return this.withOrdinaryContextAdmission(sessionId, epoch, () => {
+        const result = operation(assertSourceCurrent);
+        assertSourceCurrent();
+        return result;
+      });
+    });
+  }
   private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
     scope: OrdinaryCommandWireScope;
     assertCurrentSync: () => void;
@@ -584,6 +628,7 @@ export class EventStore {
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
   private readonly sessionLearning: SessionLearningStore;
+  private readonly commandWithdrawals: OrdinaryCommandWithdrawals;
   private readonly ordinaryWorkspaceSessions: OrdinaryWorkspaceSessionStore;
   private readonly sessionLifecycle: SessionLifecycleStore;
   private readonly executionLedger: ExecutionLedger<SessionRow>;
@@ -669,6 +714,7 @@ export class EventStore {
   ): void {
     this.assertConversationIdentity(sessionId);
     this.db!.transaction(() => {
+      this.assertClientCommandNotWithdrawn(clientMsgId);
       this.removals.assertAdmissible(sessionId);
       this.deployment.assertAdmission(sessionId, clientMsgId);
       if (this.userSteering.hasRequest(clientMsgId))
@@ -2786,18 +2832,30 @@ export class EventStore {
           'Identity belongs to a user correction',
         );
       const existing = this.db!.prepare(
-        'SELECT request_fingerprint FROM client_command_claims WHERE client_msg_id = ?',
-      ).get(clientMsgId) as { request_fingerprint: string } | undefined;
-      if (existing && existing.request_fingerprint !== requestFingerprint)
+        'SELECT (SELECT request_fingerprint FROM client_command_claims WHERE client_msg_id=?) AS request_fingerprint, EXISTS(SELECT 1 FROM ordinary_command_withdrawals WHERE client_msg_id=?) AS withdrawn',
+      ).get(clientMsgId, clientMsgId) as { request_fingerprint: string | null; withdrawn: number };
+      if (existing.withdrawn) throw Error('Command was withdrawn before admission');
+      if (
+        existing.request_fingerprint !== null &&
+        existing.request_fingerprint !== requestFingerprint
+      )
         throw new ExecutionAdmissionError(
           'fingerprint_conflict',
           'Command ID already admitted for a different request',
         );
-      if (!existing)
+      if (existing.request_fingerprint === null)
         this.db!.prepare(
           'INSERT INTO client_command_claims (client_msg_id, request_fingerprint) VALUES (?, ?)',
         ).run(clientMsgId, requestFingerprint);
     }).immediate();
+  }
+
+  private assertClientCommandNotWithdrawn(clientMsgId: string) {
+    this.commandWithdrawals.assertOpen(clientMsgId);
+  }
+
+  withdrawUnadmittedOrdinaryCommand(input: Parameters<OrdinaryCommandWithdrawals['withdraw']>[0]) {
+    return this.commandWithdrawals.withdraw(input);
   }
 
   recoverPendingSendCommands(options: { excludeSymposium?: boolean } = {}): void {
@@ -2899,6 +2957,12 @@ export class EventStore {
       db.pragma('journal_mode = WAL');
       db.pragma('foreign_keys = ON');
       db.exec(SCHEMA);
+      this.commandWithdrawals = new OrdinaryCommandWithdrawals({
+        database: () => this.db!,
+        hasConversation: (id) => !!this.getSession(id),
+        hasSendCommand: (id) => !!this.getSendCommand(id),
+        claimCommand: (id, fingerprint) => this.claimClientCommand(id, fingerprint),
+      });
       this.removals = new SessionRemovalStore(db);
       this.deployment = new DeploymentStore(db);
       this.contextTransitions = new OrdinaryContextTransitionStore(db);
@@ -2983,9 +3047,18 @@ export class EventStore {
         this.collaborationConversation.membershipChanged(membership),
       );
       this.collaborationConversation = new CollaborationConversationStore(db, {
+        navigationUnavailable: (identity) =>
+          this.log.info('Participant navigation record unavailable', {
+            stage: 'participant_navigation',
+            code: 'participant_navigation_record_unavailable',
+            ...identity,
+          }),
         sourceSetupAvailable: (id) =>
           this.isCollaborationParticipantAvailable(id) &&
           this.getSession(id)?.conversationSource !== 'external_import',
+        ordinaryHistoryAvailable: (id) =>
+          this.isCollaborationParticipantAvailable(id) &&
+          this.getSession(id)?.conversationSource === 'external_import',
         membership: (id) => this.getSessionCollaboration(id),
         setMembership: (id, input) => this.setSessionCollaboration(id, input),
         beginMembership: (id, sourceSessionId) =>
@@ -3166,6 +3239,7 @@ export class EventStore {
         statements: this.stmts,
         assertConversationIdentity: (id) => this.assertConversationIdentity(id),
         assertExecutionAdmission: (id, commandId) => {
+          if (commandId) this.assertClientCommandNotWithdrawn(commandId);
           this.removals.assertAdmissible(id);
           this.contextTransitions.assertAdmission(id, this.preparedContextEpoch(id));
           if (commandId && this.getSendCommand(commandId))
@@ -3988,6 +4062,38 @@ export class EventStore {
     return this.executionLedger.getExecutionAdmission(sessionId, clientMsgId);
   }
 
+  /** Exact pre-input cancellation, independent of today's active generation.
+   * An error string or absent SDK echo alone never proves this outcome. */
+  getOrdinarySdkInputCancellation(
+    sessionId: string,
+    commandId: string,
+  ): 'stopped' | 'abandoned' | undefined {
+    const command = this.getSendCommand(commandId);
+    const execution = this.getExecutionAdmission(sessionId, commandId);
+    if (
+      command?.sessionId !== sessionId ||
+      !execution ||
+      this.getOrdinaryLocalVertexCommandAdmission(commandId)?.state !== 'consumed' ||
+      command.error !== 'Cancelled before SDK dispatch' ||
+      this.getOrdinarySdkTurnEvents(sessionId, commandId).length !== 0
+    )
+      return;
+    const terminal = this.getExecutionTerminalReason(execution.token);
+    return terminal === 'stopped' || terminal === 'abandoned' ? terminal : undefined;
+  }
+
+  /** Identity of the current execution, independent of later queued settings. */
+  getCurrentExecutionCommandId(sessionId: string): string | undefined {
+    const meta = this.getSession(sessionId);
+    if (!meta?.executionId || !meta.executionGeneration) return;
+    return (
+      this.db!.prepare(
+        'SELECT client_msg_id FROM execution_admissions WHERE session_id=? AND execution_id=? AND generation=?',
+      ).get(sessionId, meta.executionId, meta.executionGeneration) as
+        { client_msg_id: string } | undefined
+    )?.client_msg_id;
+  }
+
   /** Positive pre-input cancellation evidence, not an inference from missing
    * SDK history or missing acknowledgements. Every execution must be covered. */
   hasOnlyCancelledOrdinarySdkInputs(sessionId: string): boolean {
@@ -3998,14 +4104,7 @@ export class EventStore {
     ).all(sessionId) as Array<{ client_msg_id: string }>;
     if (!commands.length || commands.length !== meta.executionGeneration) return false;
     return commands.every(({ client_msg_id: id }) => {
-      const execution = this.getExecutionAdmission(sessionId, id)!;
-      const terminal = this.getExecutionTerminalReason(execution.token);
-      return (
-        (terminal === 'stopped' || terminal === 'abandoned') &&
-        this.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed' &&
-        this.getSendCommand(id)?.error === 'Cancelled before SDK dispatch' &&
-        this.getOrdinarySdkTurnEvents(sessionId, id).length === 0
-      );
+      return this.getOrdinarySdkInputCancellation(sessionId, id) !== undefined;
     });
   }
 
@@ -4695,35 +4794,31 @@ export class EventStore {
   admitWithOrdinarySkillContext(
     sessionId: string,
     commandId: string,
-    context: { text: string; prompt: string },
+    context: OrdinarySkillContext,
     admit: () => void,
   ): void {
+    const captured = parseOrdinarySkillContext(context);
     this.db!.transaction(() => {
       admit();
       const previous = this.getOrdinarySkillContext(sessionId, commandId);
-      if (previous && (previous.text !== context.text || previous.prompt !== context.prompt))
-        throw Error('Skill command changed');
+      if (previous && !isDeepStrictEqual(previous, captured)) throw Error('Skill command changed');
       if (!previous)
-        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...context });
+        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...captured });
     })();
   }
-  getOrdinarySkillContext(
-    sessionId: string,
-    commandId: string,
-  ): { text: string; prompt: string } | undefined {
+  getOrdinarySkillContext(sessionId: string, commandId: string): OrdinarySkillContext | undefined {
     const rows = this.db!.prepare(
       `SELECT payload FROM events WHERE session_id=? AND type='ordinary_skill_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
     ).all(sessionId, commandId) as Array<{ payload: string }>;
     if (!rows.length) return undefined;
-    const contexts = rows.map((row) => JSON.parse(row.payload));
+    const contexts = rows.map((row) => {
+      const { messageId: _, ...context } = JSON.parse(row.payload);
+      return parseOrdinarySkillContext(context);
+    });
     const first = contexts[0];
-    if (
-      typeof first.text !== 'string' ||
-      typeof first.prompt !== 'string' ||
-      contexts.some((context) => context.text !== first.text || context.prompt !== first.prompt)
-    )
+    if (contexts.some((context) => !isDeepStrictEqual(context, first)))
       throw Error('Skill command changed');
-    return { text: first.text, prompt: first.prompt };
+    return first;
   }
 
   getMessageReplyContext(sessionId: string, commandId: string): MessageReplyContext | undefined {
@@ -9002,7 +9097,15 @@ export class EventStore {
    * Prefer a matching message snippet when the title also matches.
    */
   searchSessions(query: string, limit = 20): SessionSearchResult[] {
-    return this.sessionMetadata.searchSessions(query, limit);
+    return this.sessionMetadata.searchSessions(
+      query,
+      limit,
+      Object.fromEntries(
+        this.collaborationConversation
+          .navigation()
+          .map((r) => [r.sessionId, r.sourceConversationId]),
+      ),
+    );
   }
 
   searchSessionsAsync(
@@ -9011,7 +9114,13 @@ export class EventStore {
     signal?: AbortSignal,
     cacheDirectory?: string,
   ): Promise<SessionSearchResult[]> {
-    return this.sessionMetadata.searchSessionsAsync(query, limit, signal, cacheDirectory);
+    return this.sessionMetadata.searchSessionsAsync(query, limit, signal, cacheDirectory, () =>
+      Object.fromEntries(
+        this.collaborationConversation
+          .navigation()
+          .map((r) => [r.sessionId, r.sourceConversationId]),
+      ),
+    );
   }
 
   markSessionInactive(sessionId: string): void {

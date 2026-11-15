@@ -555,6 +555,7 @@ export function buildPermissionHandler(
 
     const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput, {
       onDemandCreate: handlerOpts?.onDemandCreate,
+      signal: opts.signal,
     });
     if (worktreeViolation) {
       return { behavior: 'deny', message: worktreeViolation };
@@ -569,10 +570,9 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: 'Original approval scope changed' };
     if (!observationCurrent())
       return { behavior: 'deny', message: 'Original approval input or invocation changed' };
-    if (nativeApproval || githubRepository) {
+    {
       const activeClient = currentClientId();
       if (
-        originalSignal.aborted ||
         !nativeScopeCurrent() ||
         !activeClient ||
         (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
@@ -639,6 +639,7 @@ export function buildPermissionHandler(
       return {
         behavior: 'deny',
         message: 'Tool input is too large to review safely. Split it into smaller operations.',
+        failure: toolFailure('invalid_input', 'approval', 'not_started'),
       };
     const inputSummary = summarizeToolInput(toolName, _toolInput);
     const tier = getToolTier(toolName);

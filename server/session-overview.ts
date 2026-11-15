@@ -248,7 +248,26 @@ export class SessionOverviewEmitter {
       liveActivities.push(this.persistentToActivity(meta, now));
     }
 
-    return liveActivities.filter((activity) => !this.deps.isSessionHidden(activity.sessionId));
+    const navigation = new Map(
+      (this.deps.eventStore.collaborationConversation?.navigation() ?? []).map((r) => [
+        r.sessionId,
+        r.sourceConversationId,
+      ]),
+    );
+    return liveActivities
+      .filter((activity) => !this.deps.isSessionHidden(activity.sessionId))
+      .map((activity) => {
+        const source = navigation.get(activity.sessionId);
+        return source
+          ? {
+              ...activity,
+              presentationConversation: {
+                id: source,
+                title: this.deps.getSessionTitle(source) || 'Untitled conversation',
+              },
+            }
+          : activity;
+      });
   }
 
   private deriveActivity(

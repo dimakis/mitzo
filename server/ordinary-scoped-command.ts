@@ -38,6 +38,7 @@ export interface OwnedOrdinaryDispatchInput {
   continuation: boolean;
   recovery?: boolean;
   existingOwner: boolean;
+  sdkRetrySourceCommandId?: string;
   workspaceKind: 'ordinary' | 'repository';
   preparationOperationId?: string;
   profile?: AgentLibraryVersion;
@@ -85,6 +86,8 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
     binding.harness.implementation === 'codex' && binding.execution.location === 'local';
   const localSdk =
     binding.harness.implementation === 'claude-sdk' && binding.execution.location === 'local';
+  if (input.sdkRetrySourceCommandId && (!localSdk || !input.continuation))
+    throw Error('Original local SDK continuation required for retry');
   if (
     input.firstCommandAuthority &&
     (!localCodex ||
@@ -122,11 +125,13 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
             ...common,
             assertCurrent: input.assertCurrent,
             ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+            sdkRetrySourceCommandId: input.sdkRetrySourceCommandId,
           })
         : startOwnedLocalVertexCommand(input.transport, input.clientId, {
             ...startup,
             ownerAuthSessionId,
             ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+            sdkRetrySourceCommandId: input.sdkRetrySourceCommandId,
             ...(!continuation && input.preparationOperationId
               ? { preparationOperationId: input.preparationOperationId }
               : {}),
@@ -184,7 +189,11 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
             });
       }
       return continuation && existing && !input.recovery
-        ? sendOwnedLocalCodexCommand(common)
+        ? sendOwnedLocalCodexCommand({
+            ...common,
+            assertCurrent: input.assertCurrent,
+            ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+          })
         : startOwnedLocalCodexCommand(input.transport, input.clientId, {
             workspaceKind: input.workspaceKind,
             ...(!continuation && input.preparationOperationId

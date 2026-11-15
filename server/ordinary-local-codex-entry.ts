@@ -1,6 +1,11 @@
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import {
+  annotateAuthorityFailure,
+  runtimeFailureDiagnostics,
+  recordRuntimeFailure,
+} from './runtime-failure-diagnostics.js';
+import {
   capturePostAdoptionWire,
   observePostAdoptionWire,
   ordinaryWireFingerprint,
@@ -521,7 +526,11 @@ function createOwnedCodexEntryRouter(
     }
   });
   const executeCommand =
-    (continuation: boolean, observeOnly = false): import('express').RequestHandler =>
+    (
+      continuation: boolean,
+      observeOnly = false,
+      withdrawOnly = false,
+    ): import('express').RequestHandler =>
     async (req, res) => {
       // Workspace normalization and provider startup consume the same request
       // budget. A second phase must not restart the clock after preparation.
@@ -572,6 +581,12 @@ function createOwnedCodexEntryRouter(
         });
       let input = structuredClone(parsed.data);
       if (
+        withdrawOnly &&
+        (!continuation || input.runOn !== 'local' || input.runtime.harness !== 'claude-sdk')
+      )
+        return res.status(409).json({ ok: false, code: 'withdrawal_unavailable' });
+      if (
+        !withdrawOnly &&
         /^\s*\/(?:deliberate|fuse)(?:\s|$)/.test(input.payload.text) &&
         !ctx.eventStore.getSendCommand(input.clientMsgId)
       )
@@ -827,7 +842,7 @@ function createOwnedCodexEntryRouter(
       };
       if (
         existingOwner &&
-        !(input.runtime.harness === 'codex'
+        !(['codex', 'claude-sdk'].includes(input.runtime.harness)
           ? ordinaryOperatorOwnsConversation(existingOwner.session.ownedLocalAuthSessionId, auth.id)
           : existingOwner.session.ownedLocalAuthSessionId === auth.id)
       )
@@ -996,11 +1011,42 @@ function createOwnedCodexEntryRouter(
             .status(409)
             .json({ ok: false, code: 'bound_route_unavailable', error: unavailable });
       }
+      if (withdrawOnly) {
+        try {
+          const captured = captureAgentLibraryAuthorization(connectionId);
+          captured.assertCurrent();
+          if (captured.auth.id !== auth.id) throw Error(unavailable);
+          const wireFingerprint = ordinaryWireFingerprint(parsed.data);
+          if (
+            !ctx.eventStore.withdrawUnadmittedOrdinaryCommand({
+              clientMsgId: input.clientMsgId,
+              sessionId,
+              wireFingerprint,
+            })
+          )
+            return res.status(409).json({ ok: false, code: 'withdrawal_unavailable' });
+          return res.status(200).json({
+            ok: true,
+            code: 'command_withdrawn',
+            clientMsgId: input.clientMsgId,
+            sessionId,
+            wireFingerprint,
+          });
+        } catch (cause) {
+          log.warn('Ordinary command withdrawal unavailable', {
+            sessionId,
+            clientMsgId: input.clientMsgId,
+            ...runtimeFailureDiagnostics(annotateAuthorityFailure(cause, 'command_withdrawal')),
+          });
+          return res.status(409).json({ ok: false, code: 'withdrawal_unavailable' });
+        }
+      }
       const controller = new AbortController();
       let authority: ReturnType<typeof retainAgentContextAuthority> | undefined;
       let releaseBinding: (() => void) | undefined;
       let releaseStartup: (() => void) | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let preparationCheck = 'operator_authority';
       try {
         const captured = captureAgentLibraryAuthorization(connectionId);
         captured.assertCurrent();
@@ -1013,15 +1059,21 @@ function createOwnedCodexEntryRouter(
         releaseStartup = reserveRepositoryStartup(sessionId);
         timer = abortAtStartupDeadline(controller);
         authority.assertCurrent();
+        preparationCheck = 'runtime_inventory';
         const { profiles, catalog, result, agentContextPresets } = inventory(
           input.runOn,
           input.runtime.harness,
           continuation ? retainedRuntimeBinding : undefined,
         );
+        preparationCheck = 'capability_revision';
         if (
-          (!recoverRetained &&
-            result.capabilityRevision !== input.capabilityRevision &&
-            !historicalCapabilityQualified) ||
+          !recoverRetained &&
+          result.capabilityRevision !== input.capabilityRevision &&
+          !historicalCapabilityQualified
+        )
+          throw Error(unavailable);
+        preparationCheck = 'runtime_route';
+        if (
           !result.routes.some(
             (route) =>
               isDeepStrictEqual(route.account, input.runtime.account) &&
@@ -1031,6 +1083,7 @@ function createOwnedCodexEntryRouter(
           catalog.resolve(input.runtime).status !== 'compatible'
         )
           throw Error(unavailable);
+        preparationCheck = 'model_selection';
         const account = result.accounts.find((entry) =>
           isDeepStrictEqual(entry.account, input.runtime.account),
         );
@@ -1044,6 +1097,7 @@ function createOwnedCodexEntryRouter(
             : !model.reasoningEfforts?.includes(input.selection.thinking))
         )
           throw Error(unavailable);
+        preparationCheck = 'account_binding';
         const binding: AccountBinding = profiles.resolve(
           input.runtime.account.accountId,
           input.selection.model,
@@ -1056,10 +1110,13 @@ function createOwnedCodexEntryRouter(
           if (selected.nativeAuth !== undefined || selected.workspaceId !== undefined)
             throw Error(unavailable);
         }
+        preparationCheck = 'agent_profile';
         const profile = readOrdinaryCodexAgentProfile(getAgentLibrary(), input.selection.agent);
         if (!profile || profile.definition.contextRecipe?.source === 'packs')
           throw Error(unavailable);
+        preparationCheck = 'agent_context';
         assertOrdinaryCodexContextIdentity(profile, input.selection, undefined, binding.provider);
+        preparationCheck = 'agent_profile_route';
         if (
           ordinaryCodexAgentProfileRouteProjection(
             [profile],
@@ -1081,6 +1138,7 @@ function createOwnedCodexEntryRouter(
           ).agentProfileRejections.length
         )
           throw Error(unavailable);
+        preparationCheck = 'workspace_selection';
         if (!ordinaryInput && (!BASE_REPO || !isAbsolute(BASE_REPO))) throw Error(unavailable);
         if (automaticLocalRepository) {
           authority.assertCurrent();
@@ -1102,6 +1160,7 @@ function createOwnedCodexEntryRouter(
           );
           authority.assertCurrent();
         }
+        preparationCheck = 'workspace_identity';
         const preparedRepository =
           !ordinaryInput && !continuation
             ? ctx.eventStore.getOrdinarySessionPreparationForConversation(sessionId)
@@ -1169,6 +1228,7 @@ function createOwnedCodexEntryRouter(
             return resolved.binding;
           })(),
         };
+        preparationCheck = 'workspace_reservation';
         authority.assertCurrent();
         if (!ordinaryInput && !continuation && input.runOn === 'local')
           await observeLocalCodexPhase('repository_reservation', () =>
@@ -1183,10 +1243,11 @@ function createOwnedCodexEntryRouter(
             signal: controller.signal,
           });
         authority.assertCurrent();
+        preparationCheck = 'live_owner';
         const live = ctx.sessionRegistry.findBySessionId(sessionId);
         if (
           live &&
-          !(input.runtime.harness === 'codex'
+          !(['codex', 'claude-sdk'].includes(input.runtime.harness)
             ? ordinaryOperatorOwnsConversation(live.session.ownedLocalAuthSessionId, auth.id)
             : live.session.ownedLocalAuthSessionId === auth.id)
         )
@@ -1227,6 +1288,7 @@ function createOwnedCodexEntryRouter(
               ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()!.config.workdir }
               : {}),
           });
+        preparationCheck = 'command_dispatch';
         const resultCommand = originalLocalWire
           ? await ctx.eventStore.withOrdinaryCommandWireAdmission(
               {
@@ -1257,6 +1319,7 @@ function createOwnedCodexEntryRouter(
               dispatchCurrentCommand,
             )
           : await dispatchCurrentCommand();
+        preparationCheck = 'command_receipt';
         authority.assertCurrent();
         const receipt =
           input.runOn === 'local' && input.runtime.harness === 'codex'
@@ -1272,10 +1335,18 @@ function createOwnedCodexEntryRouter(
           state: receipt.state,
         });
       } catch (error) {
+        const preparationFailure = annotateAuthorityFailure(error, preparationCheck);
         const retainedFailure =
-          findSessionRuntimeError(error) ??
-          new SessionRuntimeError('runtime_unavailable', { cause: error });
+          findSessionRuntimeError(preparationFailure) ??
+          new SessionRuntimeError('runtime_unavailable', { cause: preparationFailure });
+        const span = trace.getActiveSpan();
+        if (span)
+          recordRuntimeFailure(
+            span,
+            findSessionRuntimeError(preparationFailure) ? preparationFailure : retainedFailure,
+          );
         let state: string | undefined;
+        let receiptObservationUnavailable = false;
         try {
           if (ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId === sessionId)
             state = (
@@ -1284,14 +1355,16 @@ function createOwnedCodexEntryRouter(
                 : ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)
             )?.state;
         } catch {
-          /* Retain original evidence. */
+          receiptObservationUnavailable = true;
         }
         log.warn('Ordinary command preparation failed', {
           sessionId,
           clientMsgId: input.clientMsgId,
           ...codexRuntimeErrorTelemetry(error instanceof Error ? error : retainedFailure),
           ...retainedFailure.telemetry(),
-          state: state ?? 'not_admitted',
+          ...runtimeFailureDiagnostics(preparationFailure),
+          state: state ?? (receiptObservationUnavailable ? 'unavailable' : 'not_admitted'),
+          ...(receiptObservationUnavailable ? { receiptObservationUnavailable: true } : {}),
         });
         return res.status(409).json({
           ok: false,
@@ -1320,8 +1393,9 @@ function createOwnedCodexEntryRouter(
   const sendCommand = (
     continuation: boolean,
     observeOnly = false,
+    withdrawOnly = false,
   ): import('express').RequestHandler => {
-    const execute = executeCommand(continuation, observeOnly);
+    const execute = executeCommand(continuation, observeOnly, withdrawOnly);
     return async (req, res, next) => {
       const header = req.headers.traceparent;
       const parent = typeof header === 'string' ? contextFromTraceparent(header) : context.active();
@@ -1337,6 +1411,7 @@ function createOwnedCodexEntryRouter(
   };
   router.post(ordinary ? '/first' : '/send', requireSameOriginJson, sendCommand(false));
   router.post('/continue', requireSameOriginJson, sendCommand(true));
+  router.post('/continue/withdraw', requireSameOriginJson, sendCommand(true, false, true));
   router.post(
     ordinary ? '/first/receipt' : '/send/receipt',
     requireSameOriginJson,

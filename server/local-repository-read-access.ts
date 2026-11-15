@@ -55,6 +55,7 @@ export interface LocalRepositoryReadAuthority {
   verifyPreparationObjectStore?(capture: Readonly<PreparationObjectStoreCapture>): Promise<void>;
   captureRepositoryObservation?(
     input: RepositoryObservationInput,
+    onRetained?: (capture: Readonly<RepositoryObservationCapture>) => void,
   ): Promise<Readonly<RepositoryObservationCapture>>;
   verifyRepositoryBaseObservation?(capture: Readonly<RepositoryObservationCapture>): Promise<void>;
   verifyRepositoryObservation?(capture: Readonly<RepositoryObservationCapture>): Promise<void>;
@@ -322,13 +323,62 @@ export class LocalRepositoryReadAccess {
       throw unavailable();
     await this.authorize(input.sourcePath);
     if (input.taskRoot) await this.authorize(input.taskRoot);
+    const limits = input.limits;
+    for (const [value, maximum] of [
+      [limits?.maxBytes, 32 * 1024 * 1024],
+      [limits?.maxEntries, 100000],
+    ])
+      if (value !== undefined && (!Number.isSafeInteger(value) || value < 0 || value > maximum!))
+        throw unavailable();
+    const bytes = Math.min(
+      limits?.maxBytes ?? 32 * 1024 * 1024,
+      64 * 1024 * 1024 - this.budget.totalBytes - this.budget.inFlightBytes,
+    );
+    const entries = Math.min(
+      limits?.maxEntries ?? 100000,
+      100000 - this.budget.totalEntries - this.budget.inFlightEntries,
+    );
+    if (bytes <= 0) throw new LocalRepositoryGitInspectionError('limit', 'snapshot-bytes');
+    if (entries <= 0) throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
+    this.budget.inFlightBytes += bytes;
+    this.budget.inFlightEntries += entries;
+    let retained = false;
+    const charge = (capture: Readonly<RepositoryObservationCapture>) => {
+      if (
+        retained ||
+        capture.plan.limits?.maxBytes !== bytes ||
+        capture.plan.limits.maxEntries !== entries
+      )
+        throw unavailable();
+      const actualBytes = capture.data.files.reduce(
+        (sum, file) => sum + Buffer.byteLength(file.bytes, 'base64'),
+        0,
+      );
+      const actualEntries = capture.data.entries.length;
+      if (!Number.isSafeInteger(actualBytes) || actualBytes > bytes || actualEntries > entries)
+        throw unavailable();
+      this.budget.totalBytes += actualBytes;
+      this.budget.totalEntries += actualEntries;
+      this.budget.inFlightBytes -= bytes;
+      this.budget.inFlightEntries -= entries;
+      retained = true;
+    };
     let captured: Readonly<RepositoryObservationCapture>;
     try {
-      captured = await this.authority.captureRepositoryObservation(input);
+      captured = await this.authority.captureRepositoryObservation(
+        { ...input, limits: { maxBytes: bytes, maxEntries: entries } },
+        charge,
+      );
+      if (!retained) throw unavailable();
     } catch (error) {
       if (error instanceof RepositoryObservationReadAccessError)
         throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
       throw error;
+    } finally {
+      if (!retained) {
+        this.budget.inFlightBytes -= bytes;
+        this.budget.inFlightEntries -= entries;
+      }
     }
     if (
       captured.plan.mode !== input.mode ||
@@ -365,9 +415,48 @@ export class LocalRepositoryReadAccess {
     this.assertCapturedPath = captureNativeObservationParser(this.authority, captured);
     this.check();
   }
-  private totalBytes = 0;
-  private inFlightBytes = 0;
-  private totalEntries = 0;
+  private budget = { totalBytes: 0, inFlightBytes: 0, totalEntries: 0, inFlightEntries: 0 };
+  /** Fresh observation view only: original authority/ceiling and the query's
+   * charged+reserved resource budget remain shared. This grants no new scope. */
+  forkForRepositoryObservation() {
+    this.check();
+    if (
+      this.ceiling &&
+      (this.ceiling.owner.assertReadable !== this.ceiling.assertReadable ||
+        this.ceiling.owner.revalidate !== this.ceiling.revalidate ||
+        Object.getOwnPropertyDescriptor(this.authority, 'assertCurrentSync')?.value !==
+          this.ceiling.originalCurrentSync)
+    )
+      throw unavailable();
+    const fork = new LocalRepositoryReadAccess(this.authority, this.ceiling?.owner);
+    fork.budget = this.budget;
+    return fork;
+  }
+  private reserveEntries(maximum = 10000) {
+    const count = Math.min(
+      maximum,
+      100000 - this.budget.totalEntries - this.budget.inFlightEntries,
+    );
+    if (count <= 0) throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
+    this.budget.inFlightEntries += count;
+    let released = false;
+    const release = () => {
+      if (!released) {
+        this.budget.inFlightEntries -= count;
+        released = true;
+      }
+    };
+    return {
+      count,
+      release,
+      commit: (actual: number) => {
+        if (released || !Number.isSafeInteger(actual) || actual < 0 || actual > count)
+          throw unavailable();
+        this.budget.totalEntries += actual;
+        release();
+      },
+    };
+  }
   private directoryRevision = 0;
   private readonly ceiling?: Readonly<{
     owner: LocalRepositoryReadCeiling;
@@ -589,25 +678,12 @@ export class LocalRepositoryReadAccess {
       roots.some((path) => !this.anchors.has(path) || this.directories.has(path))
     )
       throw unavailable();
-    const batch = this.authority.executeDirectoryVerification;
-    if (!batch) {
-      const results = await Promise.allSettled(roots.map((path) => this.list(path)));
-      for (const result of results) if (result.status === 'rejected') throw result.reason;
-      return;
-    }
-    const requests: NativeAnchoredReadRequest[] = [];
-    for (const path of roots) requests.push(await this.directoryRequest(path));
-    const results = await batch.call(
-      this.authority,
-      requests,
-      this.authority.signal ?? new AbortController().signal,
-      Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
-    );
-    if (!Array.isArray(results) || results.length !== requests.length) throw unavailable();
-    for (let index = 0; index < requests.length; index++)
-      await this.directoryEntries(roots[index], requests[index].identity, results[index], false);
+    await this.preloadDirectories(roots);
   }
-  private async directoryRequest(path: string): Promise<NativeAnchoredReadRequest> {
+  private async directoryRequest(
+    path: string,
+    maxEntries = 10000,
+  ): Promise<NativeAnchoredReadRequest> {
     await this.authorize(path);
     const anchor = this.anchor(path);
     const target = path === anchor.rootPath ? this.entries.get(path)! : await this.stat(path);
@@ -625,7 +701,7 @@ export class LocalRepositoryReadAccess {
       parentIdentity: parent.identity,
       identity: target.identity,
       limit: 1,
-      maxEntries: 10000,
+      maxEntries,
       maxNameBytes: 1024 * 1024,
     };
   }
@@ -633,19 +709,25 @@ export class LocalRepositoryReadAccess {
     await this.authorize(path);
     if (!fresh && this.directories.has(path)) return [...this.directories.get(path)!.values()];
     if (this.preparationCapture || this.repositoryCapture) throw unavailable();
-    const request = await this.directoryRequest(path);
-    const result = await (
-      this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
-    )(
-      request,
-      this.authority.signal ?? new AbortController().signal,
-      Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
-    );
-    return this.directoryEntries(path, request.identity, result, fresh);
+    const reservation = fresh ? undefined : this.reserveEntries();
+    try {
+      const request = await this.directoryRequest(path, reservation?.count);
+      const result = await (
+        this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
+      )(
+        request,
+        this.authority.signal ?? new AbortController().signal,
+        Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+      );
+      return await this.directoryEntries(path, request.identity, result, fresh, reservation);
+    } finally {
+      reservation?.release();
+    }
   }
   private parseDirectoryEntries(
     identity: NativeReadIdentity,
     result: { content: string; is_error: boolean },
+    maxEntries = 10000,
   ) {
     if (result.is_error && result.content === 'Anchored read limit exceeded')
       throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
@@ -664,7 +746,7 @@ export class LocalRepositoryReadAccess {
       !equalIdentity(value.identity, identity) ||
       !('entries' in value) ||
       !Array.isArray(value.entries) ||
-      value.entries.length > 10000 ||
+      value.entries.length > maxEntries ||
       !('truncated' in value) ||
       value.truncated !== false ||
       !('incomplete' in value) ||
@@ -705,14 +787,18 @@ export class LocalRepositoryReadAccess {
     identity: NativeReadIdentity,
     result: { content: string; is_error: boolean },
     fresh: boolean,
+    reservation?: ReturnType<LocalRepositoryReadAccess['reserveEntries']>,
   ): Promise<LocalRepositoryReadEntry[]> {
     await this.authorize(path);
-    const { entries, incomplete } = this.parseDirectoryEntries(identity, result);
-    if (!fresh && this.totalEntries + entries.size > 100000)
-      throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
+    const { entries, incomplete } = this.parseDirectoryEntries(
+      identity,
+      result,
+      reservation?.count,
+    );
     if (incomplete) this.excludedDirectories.add(path);
     if (!fresh) {
-      this.totalEntries += entries.size;
+      if (!reservation) throw unavailable();
+      reservation.commit(entries.size);
       this.directories.set(path, entries);
       for (const entry of entries.values()) this.entries.set(join(path, entry.name), entry);
     }
@@ -821,110 +907,119 @@ export class LocalRepositoryReadAccess {
     };
     const revision = this.directoryRevision;
     const pending = captured.filter((path) => !this.directories.has(path));
-    const requests: NativeAnchoredReadRequest[] = [];
-    for (const item of known) {
-      await this.authorize(item.path);
-      current();
-      if (item.parentPath !== item.path) {
-        await this.authorize(item.parentPath);
+    const reservations: Array<ReturnType<LocalRepositoryReadAccess['reserveEntries']>> = [];
+    try {
+      // Hold aggregate capacity across every authorization/transport await. A
+      // candidate fork cannot consume a preload's promised entry capacity.
+      for (let index = 0; index < pending.length; index++) reservations.push(this.reserveEntries());
+      const requests: NativeAnchoredReadRequest[] = [];
+      for (const item of known) {
+        await this.authorize(item.path);
         current();
-      }
-      if (pending.includes(item.path))
-        requests.push(
-          Object.freeze({
-            operation: 'ListDirectory',
-            deniedRoots: freezeNativeReadExclusions([
-              ...new Set([
-                ...this.deniedRoots,
-                ...localRepositoryReadDirectoryExclusions(item.path),
-              ]),
-            ]),
-            file_path: item.path,
-            rootAnchor: item.anchor,
-            identity: item.targetState.identity,
-            parentIdentity: item.parentState.identity,
-            limit: 1,
-            maxEntries: 10000,
-            maxNameBytes: 1024 * 1024,
-          }),
-        );
-    }
-    if (this.directoryRevision !== revision) throw unavailable();
-    let results: readonly { content: string; is_error: boolean }[] = [];
-    if (requests.length) {
-      const batch = this.authority.executeDirectoryVerification;
-      if (batch !== undefined && typeof batch !== 'function') throw unavailable();
-      if (batch) {
-        results = await Reflect.apply(batch, this.authority, [
-          Object.freeze(requests),
-          this.authority.signal ?? new AbortController().signal,
-          Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
-        ]);
-        current();
-      } else {
-        const sequential: Array<{ content: string; is_error: boolean }> = [];
-        for (const request of requests) {
-          sequential.push(
-            await Reflect.apply(
-              this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation,
-              this.authority,
-              [
-                request,
-                this.authority.signal ?? new AbortController().signal,
-                Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
-              ],
-            ),
-          );
+        if (item.parentPath !== item.path) {
+          await this.authorize(item.parentPath);
           current();
         }
-        results = sequential;
+        if (pending.includes(item.path))
+          requests.push(
+            Object.freeze({
+              operation: 'ListDirectory',
+              deniedRoots: freezeNativeReadExclusions([
+                ...new Set([
+                  ...this.deniedRoots,
+                  ...localRepositoryReadDirectoryExclusions(item.path),
+                ]),
+              ]),
+              file_path: item.path,
+              rootAnchor: item.anchor,
+              identity: item.targetState.identity,
+              parentIdentity: item.parentState.identity,
+              limit: 1,
+              maxEntries: reservations[pending.indexOf(item.path)].count,
+              maxNameBytes: 1024 * 1024,
+            }),
+          );
       }
-    }
-    if (!Array.isArray(results) || results.length !== requests.length) throw unavailable();
-    let outputBytes = 0;
-    const staged = results.map((result, index) => {
-      if (!result || typeof result !== 'object' || Array.isArray(result)) throw unavailable();
-      const content = Object.getOwnPropertyDescriptor(result, 'content');
-      const error = Object.getOwnPropertyDescriptor(result, 'is_error');
-      if (
-        !content ||
-        !('value' in content) ||
-        typeof content.value !== 'string' ||
-        !error ||
-        !('value' in error) ||
-        typeof error.value !== 'boolean'
-      )
-        throw unavailable();
-      outputBytes += Buffer.byteLength(content.value);
-      if (outputBytes > 2 * 1024 * 1024 - 1024) throw unavailable();
-      return {
-        path: requests[index].file_path,
-        ...this.parseDirectoryEntries(requests[index].identity, {
-          content: content.value,
-          is_error: error.value,
-        }),
-      };
-    });
-    const added = staged.reduce((sum, item) => sum + item.entries.size, 0);
-    if (this.totalEntries + added > 100000)
-      throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
-    for (const path of captured) {
-      await this.authorize(path);
+      if (this.directoryRevision !== revision) throw unavailable();
+      let results: readonly { content: string; is_error: boolean }[] = [];
+      if (requests.length) {
+        const batch = this.authority.executeDirectoryVerification;
+        if (batch !== undefined && typeof batch !== 'function') throw unavailable();
+        if (batch) {
+          results = await Reflect.apply(batch, this.authority, [
+            Object.freeze(requests),
+            this.authority.signal ?? new AbortController().signal,
+            Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+          ]);
+          current();
+        } else {
+          const sequential: Array<{ content: string; is_error: boolean }> = [];
+          for (const request of requests) {
+            sequential.push(
+              await Reflect.apply(
+                this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation,
+                this.authority,
+                [
+                  request,
+                  this.authority.signal ?? new AbortController().signal,
+                  Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+                ],
+              ),
+            );
+            current();
+          }
+          results = sequential;
+        }
+      }
+      if (!Array.isArray(results) || results.length !== requests.length) throw unavailable();
+      let outputBytes = 0;
+      const staged = results.map((result, index) => {
+        if (!result || typeof result !== 'object' || Array.isArray(result)) throw unavailable();
+        const content = Object.getOwnPropertyDescriptor(result, 'content');
+        const error = Object.getOwnPropertyDescriptor(result, 'is_error');
+        if (
+          !content ||
+          !('value' in content) ||
+          typeof content.value !== 'string' ||
+          !error ||
+          !('value' in error) ||
+          typeof error.value !== 'boolean'
+        )
+          throw unavailable();
+        outputBytes += Buffer.byteLength(content.value);
+        if (outputBytes > 2 * 1024 * 1024 - 1024) throw unavailable();
+        return {
+          path: requests[index].file_path,
+          ...this.parseDirectoryEntries(
+            requests[index].identity,
+            {
+              content: content.value,
+              is_error: error.value,
+            },
+            reservations[index].count,
+          ),
+        };
+      });
+      for (const path of captured) {
+        await this.authorize(path);
+        current();
+      }
+      if (this.directoryRevision !== revision) throw unavailable();
       current();
+      if (this.directoryRevision !== revision) throw unavailable();
+      // No await after the final genuine original-owner fence. Parsing, aggregate
+      // budgets and every target's post-result ceiling all succeeded above.
+      staged.forEach((item, index) => reservations[index].commit(item.entries.size));
+      for (const item of staged) {
+        this.directories.set(item.path, item.entries);
+        for (const entry of item.entries.values())
+          this.entries.set(join(item.path, entry.name), entry);
+        if (item.incomplete) this.excludedDirectories.add(item.path);
+      }
+      if (staged.length) this.directoryRevision++;
+    } finally {
+      for (const reservation of reservations) reservation.release();
     }
-    if (this.directoryRevision !== revision) throw unavailable();
-    current();
-    if (this.directoryRevision !== revision) throw unavailable();
-    // No await after the final genuine original-owner fence. Parsing, aggregate
-    // budgets and every target's post-result ceiling all succeeded above.
-    for (const item of staged) {
-      this.directories.set(item.path, item.entries);
-      for (const entry of item.entries.values())
-        this.entries.set(join(item.path, entry.name), entry);
-      if (item.incomplete) this.excludedDirectories.add(item.path);
-    }
-    this.totalEntries += added;
-    if (staged.length) this.directoryRevision++;
   }
   /** File-alias text only; this never grants access to the link target. */
   async readLink(path: string) {
@@ -1008,9 +1103,9 @@ export class LocalRepositoryReadAccess {
     // reads may overlap, but their aggregate capture budget never does. Cached
     // bytes above perform no new physical read and need no new reservation.
     const reservation = Math.min(entry.size, limit, 16 * 1024 * 1024);
-    if (this.totalBytes + this.inFlightBytes + reservation > 64 * 1024 * 1024)
+    if (this.budget.totalBytes + this.budget.inFlightBytes + reservation > 64 * 1024 * 1024)
       throw new LocalRepositoryGitInspectionError('limit', 'snapshot-bytes');
-    this.inFlightBytes += reservation;
+    this.budget.inFlightBytes += reservation;
     try {
       const parent = await this.stat(dirname(path));
       if (!parent) throw unavailable();
@@ -1049,12 +1144,12 @@ export class LocalRepositoryReadAccess {
         (prefix && result.truncated !== bytes.length < entry.size)
       )
         throw unavailable();
-      this.totalBytes += bytes.length;
+      this.budget.totalBytes += bytes.length;
       if (bytes.length === entry.size) this.capturedBytes.set(path, Buffer.from(bytes));
       this.consumed.set(path, structuredClone(entry));
       return bytes;
     } finally {
-      this.inFlightBytes -= reservation;
+      this.budget.inFlightBytes -= reservation;
     }
   }
   async verify() {

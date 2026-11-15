@@ -1,3 +1,4 @@
+import { useLocalCommandRecovery } from '../components/LocalCommandRecovery';
 import { localCommandStatusMessage } from '@mitzo/client';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import { SessionLaunchConfigSchema, supportsUserTurnSteering } from '@mitzo/protocol';
@@ -255,6 +256,8 @@ function DesktopChatViewContent() {
     JSON.stringify([messages.branch, sessionMetadataRevision]),
     markDraftEdited,
   );
+  const withdrawLocalCommand = useMitzoStore((s) => s.withdrawLocalCommand);
+
   const explicitNew = localRuntime.visible && !activeSessionId;
   const [clearedExtraToolsScope, setClearedExtraToolsScope] = useState<string | null>(null);
   const currentExtraTools =
@@ -387,6 +390,14 @@ function DesktopChatViewContent() {
   const settingsSearch = draftSearch.toString();
 
   const connected = connection.status === 'connected';
+  const deliveryRecovery = useLocalCommandRecovery({
+    command: localCommand,
+    connected,
+    recover: recoverLocalCommand,
+    withdraw: withdrawLocalCommand,
+    refresh: localRuntime.refresh,
+    scope: commandSessionId || newChatDraft.draft.id,
+  });
 
   // Local model state — persisted to localStorage, sent in payload
   const [summaryForSession, setSummaryForSession] = useState<{
@@ -1804,6 +1815,7 @@ function DesktopChatViewContent() {
         <div
           className={`desktop-chat-center workspace-chat${!activeSessionId ? ' chat-page--new' : ''}`}
         >
+          {deliveryRecovery.dialog}
           <TelosChatRouteLayout
             route={telosRoute}
             conversationId={activeSessionId}
@@ -2174,15 +2186,7 @@ function DesktopChatViewContent() {
                       }
                       sendDisabledAction={
                         localCommand && !['pending', 'consumed'].includes(localCommand.state)
-                          ? {
-                              label: 'Retry',
-                              onClick: () => {
-                                recoverLocalCommand();
-                              },
-                              disabled:
-                                localCommand.state !== 'blocked' &&
-                                (!connected || !localCommand.request),
-                            }
+                          ? deliveryRecovery.action
                           : undefined
                       }
                       sendDisabledReason={

@@ -43,7 +43,7 @@ export function SessionInspector({
       />
       {session.telosTaskId && <SessionWorkLink taskId={session.telosTaskId} />}
       {activity && <SessionActivityDetails activity={activity} connected={connected} />}
-      <SavedSessionHistory sessionId={session.id} />
+      <SavedSessionHistory sessionId={session.matchedSessionId ?? session.id} />
       <SessionContextUsage usage={session.contextUsage} />
       <button type="button" className="session-open-conversation" onClick={onOpen}>
         Open conversation <UiIcon name="forward" size={16} />

@@ -24,6 +24,204 @@ const receipt = (state = 'consumed') =>
   );
 afterEach(() => vi.useRealTimers());
 
+it.each(['lost_ack', 'archive_failed', 'retirement_failed', 'auth_changed'] as const)(
+  'keeps the original scope and draft after withdrawal %s',
+  async (failure) => {
+    const saved = disk();
+    const stuck = {
+      ...command,
+      sessionId: 'old-chat',
+      runtime: {
+        ...command.runtime,
+        harness: 'claude-sdk',
+        account: { ...command.runtime.account, provider: 'anthropic-claude' },
+      },
+    };
+    saved.setItem('', JSON.stringify([{ body: stuck, scope: 1, uncertain: true }]));
+    let finish!: () => void;
+    let archiveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      archiveStarted = resolve;
+    });
+    let flushes = 0;
+    const storage = {
+      ...saved,
+      archiveWithdrawn: vi.fn(() => {
+        archiveStarted();
+        if (failure === 'archive_failed') throw Error('offline archive failure');
+      }),
+      flush: vi.fn(async () => {
+        if (failure === 'retirement_failed' && ++flushes === 2)
+          throw Error('offline removal failure');
+        if (failure === 'auth_changed')
+          await new Promise<void>((resolve) => {
+            finish = resolve;
+          });
+      }),
+    };
+    const notify = vi.fn();
+    const fetch = vi.fn(async () => {
+      if (failure === 'lost_ack') throw Error('offline lost response');
+      return Response.json({
+        ok: true,
+        code: 'command_withdrawn',
+        clientMsgId: stuck.clientMsgId,
+        sessionId: 'old-chat',
+        wireFingerprint: 'a'.repeat(64),
+      });
+    });
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage,
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    try {
+      const result = outbox.withdrawLocalCommand(stuck.clientMsgId);
+      if (failure === 'auth_changed') {
+        await started;
+        outbox.rejectAll('Authentication changed');
+        finish();
+      }
+      expect(await result).toBe(false);
+      expect(JSON.parse(saved.getItem()!)[0].body).toEqual(stuck);
+      expect(outbox.enqueue({ ...stuck, clientMsgId: 'replacement' }, 2)).toBe(false);
+      expect(notify).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: '_local_command_withdrawn' }),
+      );
+      expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      outbox.stop();
+    }
+  },
+);
+
+it.each(['archive', 'retirement'] as const)(
+  'durably withdraws through held %s flush and fences late receipt writes',
+  async (heldStage) => {
+    const saved = disk();
+    const stuck = {
+      ...command,
+      sessionId: 'old-chat',
+      runtime: {
+        ...command.runtime,
+        harness: 'claude-sdk',
+        account: { ...command.runtime.account, provider: 'anthropic-claude' },
+      },
+    };
+    saved.setItem('', JSON.stringify([{ body: stuck, scope: 1, uncertain: true }]));
+    let finish: (() => void) | undefined;
+    let archived: string | undefined;
+    let releaseReceipt!: (response: Response) => void;
+    const storage = {
+      ...saved,
+      archiveWithdrawn: (value: string) => {
+        archived = value;
+      },
+      flush: vi.fn(async () => {}),
+    };
+    if (heldStage === 'retirement') storage.flush.mockResolvedValueOnce(undefined);
+    storage.flush.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const notify = vi.fn();
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) =>
+      url.endsWith('/withdraw')
+        ? Response.json({
+            ok: true,
+            code: 'command_withdrawn',
+            clientMsgId: stuck.clientMsgId,
+            sessionId: 'old-chat',
+            wireFingerprint: 'a'.repeat(64),
+          })
+        : url.endsWith('/receipt')
+          ? new Promise<Response>((resolve) => {
+              releaseReceipt = resolve;
+            })
+          : Promise.reject(Error('Unrelated offline delivery refused')),
+    );
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage,
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    try {
+      const observation =
+        heldStage === 'retirement' ? outbox.reconcileLocalCommand(stuck.clientMsgId) : undefined;
+      const withdrawn = outbox.withdrawLocalCommand(stuck.clientMsgId);
+      await vi.waitFor(() =>
+        expect(storage.flush).toHaveBeenCalledTimes(heldStage === 'retirement' ? 2 : 1),
+      );
+      const submitted = fetch.mock.calls.find(([url]) => url.endsWith('/withdraw'))!;
+      expect(submitted[0]).toBe('/api/chat/runtime/continue/withdraw');
+      expect(JSON.parse(submitted[1]!.body as string)).toEqual(stuck);
+      if (observation) {
+        releaseReceipt(Response.json({ code: 'receipt_pending' }, { status: 409 }));
+        await observation;
+        expect(saved.getItem()).toBe('[]');
+        expect(
+          outbox.enqueue({ ...stuck, clientMsgId: 'independent', sessionId: 'another-chat' }, 2),
+        ).toBe(true);
+        await vi.waitFor(() =>
+          expect(notify).toHaveBeenCalledWith(
+            expect.objectContaining({ state: 'uncertain', clientMsgId: 'independent' }),
+          ),
+        );
+        expect(
+          JSON.parse(saved.getItem()!).map(
+            (entry: { body: { clientMsgId: string } }) => entry.body.clientMsgId,
+          ),
+        ).toEqual(['independent']);
+      }
+      expect(outbox.enqueue({ ...stuck, clientMsgId: 'replacement' }, 2)).toBe(false);
+      expect(notify).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: '_local_command_withdrawn' }),
+      );
+      finish!();
+      expect(await withdrawn).toBe(true);
+      expect(
+        JSON.parse(saved.getItem()!).some(
+          (entry: { body: { clientMsgId: string } }) =>
+            entry.body.clientMsgId === stuck.clientMsgId,
+        ),
+      ).toBe(false);
+      expect(JSON.parse(archived!)).toMatchObject({
+        body: stuck,
+        withdrawal: { code: 'command_withdrawn' },
+      });
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({ type: '_local_command_withdrawn', request: stuck }),
+      );
+      expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
+      expect(outbox.retryLocalCommand(stuck.clientMsgId)).toBe(false);
+      outbox.stop();
+      const restored = new SendOutbox({
+        url: '/local/send',
+        storage: saved,
+        fetch,
+        notify,
+        localFirstCommand: true,
+      });
+      restored.start();
+      restored.selectLocalSession('old-chat');
+      expect(restored.retryLocalCommand(stuck.clientMsgId)).toBe(false);
+      expect(notify).toHaveBeenLastCalledWith({ type: '_local_command_state', state: 'idle' });
+      restored.stop();
+    } finally {
+      outbox.stop();
+    }
+  },
+);
+
 it.each(['stop', 'rejectAll'] as const)(
   'keeps a late storage callback inert after %s while still blocked',
   (action) => {

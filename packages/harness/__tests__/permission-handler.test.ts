@@ -1162,6 +1162,7 @@ describe('buildPermissionHandler', () => {
     const abort = new AbortController();
     registry.register('client-1', {
       transport,
+      sessionId: 'pre-aborted-session',
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -1185,6 +1186,9 @@ describe('buildPermissionHandler', () => {
       message: 'Tool approval cancelled because the operation was aborted',
       failure: { code: 'cancelled', phase: 'approval', effectStatus: 'not_started' },
     });
+    expect(transport.sent).toEqual([]);
+    expect(getPendingRequestsBySession('pre-aborted-session')).toEqual([]);
+    expect(registry.get('client-1')?.sessionAllowList).toEqual(new Set());
   });
   it.each([
     'Write',

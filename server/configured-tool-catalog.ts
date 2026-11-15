@@ -207,7 +207,7 @@ export class ConfiguredToolCatalog {
                   source: tool.server,
                   required: false,
                   behavior: 'mixed',
-                  routes: ['local-api', 'codex', 'codex-owned-local'],
+                  routes: ['local-api', 'codex', 'codex-owned-local', 'claude-sdk'],
                   requirement:
                     'Configured stdio source. Current source authorization and tool approval required; new session required for catalog changes.',
                 };

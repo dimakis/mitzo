@@ -4,9 +4,15 @@ import { ConnectionRegistry } from '../../packages/harness/src/connection-regist
 import { runQueryLoop, drainQueryLoopFinalization } from '../query-loop.js';
 import { classifyProviderFailure } from '../provider-failure.js';
 import * as notificationCenter from '../notification-center.js';
+import * as ntfyTransport from '../notify.js';
+import * as pushoverTransport from '../pushover.js';
+import { registerPermissionNotificationOwner } from '@mitzo/harness';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
+import { OrdinaryLocalVertexCommandOwner } from '../ordinary-local-vertex-command-owner.js';
+import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
 
 /** Lightweight in-memory span for testing OTel instrumentation. */
@@ -120,6 +126,7 @@ function fakeRegistry(
   };
   return {
     get: vi.fn(() => (removed ? null : session)),
+    findBySessionId: vi.fn(() => undefined),
     setSessionId: vi.fn((_, id: string) => {
       session.sessionId = id;
     }),
@@ -501,6 +508,67 @@ describe('runQueryLoop', () => {
     },
   );
 
+  it.each([true, false])(
+    'uses one completion delivery owner for detached SDK turns (central: %s)',
+    async (central) => {
+      const record = vi
+        .spyOn(notificationCenter, 'recordTurnNotification')
+        .mockImplementation(() => {});
+      const ntfy = vi.spyOn(ntfyTransport, 'sendTurnCompleteNotification').mockResolvedValue();
+      const pushover = vi
+        .spyOn(pushoverTransport, 'sendTurnCompleteNotification')
+        .mockResolvedValue();
+      const release = central ? registerPermissionNotificationOwner() : () => {};
+      try {
+        registry = fakeRegistry(transport, { attached: false });
+        await runQueryLoop(
+          eventStream([
+            {
+              type: 'stream_event',
+              event: { type: 'message_start', message: { id: 'completion-text' } },
+            },
+            {
+              type: 'stream_event',
+              event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+            },
+            {
+              type: 'stream_event',
+              event: {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'text_delta', text: 'Private completion text' },
+              },
+            },
+            { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+            {
+              type: 'assistant',
+              message: { content: [{ type: 'text', text: 'Private completion text' }] },
+              session_id: 'completion-owner',
+            },
+            { type: 'result', session_id: 'completion-owner' },
+          ]),
+          clientId,
+          registry,
+          abortController,
+        );
+        expect(record).toHaveBeenCalledExactlyOnceWith(
+          'completion-owner',
+          expect.any(Number),
+          'Private completion text',
+          undefined,
+          true,
+        );
+        expect(ntfy).toHaveBeenCalledTimes(central ? 0 : 1);
+        expect(pushover).toHaveBeenCalledTimes(central ? 0 : 1);
+      } finally {
+        release();
+        record.mockRestore();
+        ntfy.mockRestore();
+        pushover.mockRestore();
+      }
+    },
+  );
+
   it('notifies the final written outcome after message flush and never reuses it for another turn', async () => {
     const record = vi
       .spyOn(notificationCenter, 'recordTurnNotification')
@@ -606,6 +674,51 @@ describe('runQueryLoop', () => {
 
     expect(onFirstEventOutcome).toHaveBeenCalledTimes(1);
     expect(onFirstEventOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+  it.each([true, false])(
+    'classifies a normally closed stream with runtime refusal=%s without misclassifying Stop',
+    async (refused) => {
+      const failure = new SessionRuntimeError('input_not_dispatched');
+      const onTerminalOutcome = vi.fn();
+      abortController.abort(refused ? failure : undefined);
+      await runQueryLoop(
+        eventStream([]),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { onTerminalOutcome },
+      );
+      const span = recordedSpans.filter((span) => span.name === 'session').at(-1)!;
+      expect(span.status.code).toBe(refused ? 2 : 1);
+      expect(span.endCount).toBe(1);
+      expect(onTerminalOutcome).toHaveBeenCalledWith(refused ? failure : undefined);
+      expect(span.attributes['runtime.diagnostic_id']).toBe(
+        refused ? failure.diagnosticId : undefined,
+      );
+    },
+  );
+
+  it('retains the refusal outcome when the SDK throws a generic AbortError', async () => {
+    const failure = new SessionRuntimeError('input_not_dispatched');
+    const onTerminalOutcome = vi.fn();
+    const stream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          abortController.abort(failure);
+          throw Object.assign(new Error('SDK query aborted'), { name: 'AbortError' });
+        },
+      }),
+    };
+    await runQueryLoop(stream, clientId, registry, abortController, undefined, undefined, {
+      onTerminalOutcome,
+    });
+    expect(onTerminalOutcome).toHaveBeenCalledExactlyOnceWith(failure);
+    const span = recordedSpans.filter((span) => span.name === 'session').at(-1)!;
+    expect(span.status.code).toBe(2);
+    expect(span.attributes['runtime.diagnostic_id']).toBe(failure.diagnosticId);
+    expect(span.endCount).toBe(1);
   });
 
   it('admits the first provider event exactly once', async () => {
@@ -802,10 +915,11 @@ describe('runQueryLoop', () => {
       undefined,
       {
         onUserInput: (_clientId, uuid) => received.push(`input:${uuid}`),
-        onResult: (_clientId, result, inputUuid) =>
+        onResult: (_clientId, result, inputUuid) => {
           received.push(
             `result:${result.is_error === true ? 'failed' : 'completed'}:${inputUuid ?? 'none'}`,
-          ),
+          );
+        },
       },
     );
 
@@ -834,10 +948,265 @@ describe('runQueryLoop', () => {
       abortController,
       undefined,
       undefined,
-      { onResult: (_clientId, _result, inputUuid) => resultInputs.push(inputUuid) },
+      {
+        onResult: (_clientId, _result, inputUuid) => {
+          resultInputs.push(inputUuid);
+        },
+      },
     );
 
     expect(resultInputs).toEqual([undefined, undefined]);
+  });
+
+  it.each([
+    { uuid: 'background-notification', isSynthetic: true },
+    { uuid: 'original-input', isReplay: true },
+  ])('keeps the original result correlation after SDK input $uuid', async (extra) => {
+    const onUserInput = vi.fn();
+    const onResult = vi.fn();
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'user',
+          uuid: 'original-input',
+          parent_tool_use_id: null,
+          message: { role: 'user', content: 'do the work' },
+        },
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'reply' } } },
+        {
+          type: 'user',
+          ...extra,
+          parent_tool_use_id: null,
+          message: { role: 'user', content: 'background task finished' },
+        },
+        { type: 'result', session_id: 'sess-1', is_error: false },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onUserInput, onResult },
+    );
+    expect(onUserInput).toHaveBeenCalledExactlyOnceWith(clientId, 'original-input');
+    expect(onResult).toHaveBeenCalledWith(
+      clientId,
+      expect.objectContaining({ is_error: false }),
+      'original-input',
+    );
+  });
+
+  it.each([false, true])(
+    'preserves confirmed completion when successor preparation fails: %s',
+    async (successorFails) => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'personal-claude';
+      const binding = {
+        version: 2 as const,
+        account: {
+          accountId: 'personal',
+          provider: 'anthropic-claude' as const,
+          profileRevision: 'profile',
+        },
+        harness: { implementation: 'claude-sdk' as const },
+        execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'target' },
+      };
+      const meta = {
+        sessionId,
+        repositoryWorkspaceId: 'workspace',
+        cwd: '/fixture',
+        accountBinding: { ...binding.account, accountLabel: 'Personal Claude', model: 'offline' },
+      };
+      const command = (id: string) => ({
+        clientMsgId: id,
+        requestFingerprint: `fingerprint-${id}`,
+        payload: { text: id },
+        selection: {
+          version: 1 as const,
+          agent: { profileId: 'published', revision: 1 },
+          context: { source: 'none' as const, revision: null },
+          permission: { mode: 'ask' as const, revision: 0 },
+          model: 'offline',
+          thinking: null,
+        },
+      });
+      const query = {
+        setModel: vi.fn(async () => {}),
+        setMaxThinkingTokens: vi.fn(async () => {}),
+        push: vi.fn(async (_id: string) => {}),
+        abort: vi.fn(),
+      };
+      const owner = new OrdinaryLocalVertexCommandOwner({
+        store,
+        sessionId,
+        assertCurrent: async () => {},
+        query,
+        settings: () => ({ model: 'offline', thinkingTokens: null }),
+        turnEvidence: new OrdinarySdkTurnEvidence(store, sessionId, sessionId),
+      });
+      try {
+        store.admitOrdinaryLocalVertexCommand(meta, binding, command('first'));
+        store.append(sessionId, 'user_message', { messageId: 'first', text: 'first' });
+        await owner.enqueue('first');
+        store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+        await owner.enqueue('second');
+        if (successorFails)
+          query.setModel.mockRejectedValueOnce(Error('private successor preparation detail'));
+        registry.setSessionId(clientId, sessionId);
+        await runQueryLoop(
+          eventStream([
+            {
+              type: 'user',
+              uuid: 'first-input',
+              parent_tool_use_id: null,
+              message: { role: 'user', content: 'first' },
+            },
+            { type: 'stream_event', event: { type: 'message_start', message: { id: 'reply' } } },
+            {
+              type: 'user',
+              uuid: 'notification',
+              isSynthetic: true,
+              parent_tool_use_id: null,
+              message: { role: 'user', content: 'background task finished' },
+            },
+            {
+              type: 'result',
+              session_id: sessionId,
+              is_error: false,
+              usage: { input_tokens: 7, output_tokens: 3 },
+              total_cost_usd: 0.01,
+            },
+          ]),
+          clientId,
+          registry,
+          abortController,
+          store,
+          undefined,
+          {
+            initialClientMsgId: 'first',
+            onUserInput: (_clientId, id) => owner.inputObserved(id),
+            onResult: (_clientId, result, id) =>
+              owner.resultObserved(id, result.is_error === true, { dispatchSuccessor: false }),
+            onResultDelivered: async () => {
+              try {
+                await owner.dispatchQueued();
+              } catch (cause) {
+                const failure = new SessionRuntimeError('runtime_unavailable', { cause });
+                abortController.abort(failure);
+                throw failure;
+              }
+            },
+          },
+        );
+        expect(query.abort).toHaveBeenCalledTimes(successorFails ? 1 : 0);
+        expect(store.getOrdinaryProviderTurnTerminal(sessionId, 'first')).toBe('completed');
+        expect(store.getOrdinaryProviderTurnTerminal(sessionId, 'second')).toBeUndefined();
+        expect(query.push.mock.calls.map((args) => args[0])).toEqual(
+          successorFails ? ['first'] : ['first', 'second'],
+        );
+        expect(store.getSession(sessionId)).toMatchObject({
+          inputTokens: 7,
+          outputTokens: 3,
+          totalCostUsd: 0.01,
+        });
+        const ends = transport.sent.filter((msg) => msg.type === 'session_end');
+        expect(ends).toHaveLength(1);
+        expect(ends[0]).not.toHaveProperty('terminalReason');
+        expect(ends[0]).toMatchObject({ usage: { inputTokens: 7, outputTokens: 3 } });
+        expect(transport.sent.filter((msg) => msg.type === 'error')).toHaveLength(
+          successorFails ? 1 : 0,
+        );
+        if (successorFails) {
+          expect(store.getLatestEvent(sessionId, 'error')?.payload).toHaveProperty(
+            'runtimeFailure',
+          );
+          expect(JSON.stringify(transport.sent)).not.toContain(
+            'private successor preparation detail',
+          );
+        }
+      } finally {
+        store.close();
+      }
+    },
+  );
+
+  it('awaits result settlement before publishing completion', async () => {
+    let release!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = vi.fn();
+    const running = runQueryLoop(
+      eventStream([{ type: 'result', session_id: 'sess-1' }]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      {
+        onResult: async () => {
+          started();
+          await settled;
+        },
+      },
+    );
+    try {
+      await vi.waitFor(() => expect(started).toHaveBeenCalledOnce());
+      expect(transport.sent.filter((msg) => msg.type === 'session_end')).toEqual([]);
+    } finally {
+      release();
+      await running;
+    }
+    expect(transport.sent.filter((msg) => msg.type === 'session_end')).toHaveLength(1);
+  });
+
+  it('reports result settlement failure even when its owner aborts the query', async () => {
+    const store = new EventStore(':memory:');
+    registry.setSessionId(clientId, 'sess-1');
+    store.upsertSession({ sessionId: 'sess-1', cwd: '/fixture' });
+    store.append('sess-1', 'user_message', { messageId: 'original-command', text: 'do the work' });
+    const failure = new SessionRuntimeError('runtime_unavailable', {
+      cause: new Error('private result identity detail'),
+    });
+    try {
+      await runQueryLoop(
+        eventStream([{ type: 'result', session_id: 'sess-1' }]),
+        clientId,
+        registry,
+        abortController,
+        store,
+        undefined,
+        {
+          initialClientMsgId: 'original-command',
+          onResult: () => {
+            abortController.abort(failure);
+            throw failure;
+          },
+        },
+      );
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({
+          type: 'error',
+          error: failure.publicMessage(),
+        }),
+      );
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({
+          type: 'session_end',
+          terminalReason: 'failed',
+        }),
+      );
+      expect(JSON.stringify(transport.sent)).not.toContain('private result identity detail');
+      expect(store.getLatestEvent('sess-1', 'error')?.payload).toMatchObject({
+        error: failure.publicMessage(),
+        runtimeFailure: failure.telemetry(),
+      });
+      expect(store.getLatestEvent('sess-1', 'session_end')?.payload).toMatchObject({
+        terminalReason: 'failed',
+      });
+    } finally {
+      store.close();
+    }
   });
 
   it('emits block_start+block_delta+block_end for thinking blocks', async () => {

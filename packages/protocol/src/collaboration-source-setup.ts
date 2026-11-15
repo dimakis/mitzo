@@ -11,10 +11,29 @@ const source = { sourceConversationId: CollaborationBeginSchema.shape.sessionId 
 export const CollaborationSourceSetupSchema = z.discriminatedUnion('state', [
   z.strictObject({ state: z.literal('unstarted'), ...source }),
   z.strictObject({
+    state: z.literal('ordinary_history'),
+    ...source,
+    reason: z.literal('external_import'),
+  }),
+  z.strictObject({
     state: z.literal('selected'),
     ...source,
     collaboration: SessionCollaborationSchema,
   }),
+  z
+    .strictObject({
+      state: z.literal('participant_history'),
+      ...source,
+      originalConversationId: CollaborationBeginSchema.shape.sessionId,
+      collaboration: SessionCollaborationSchema,
+    })
+    .refine(
+      (value) =>
+        value.originalConversationId !== value.sourceConversationId &&
+        value.collaboration.participantSessionIds.includes(value.sourceConversationId) &&
+        value.collaboration.participantSessionIds.includes(value.originalConversationId),
+      'Participant history relationship changed',
+    ),
   z.strictObject({
     state: z.literal('unavailable'),
     ...source,

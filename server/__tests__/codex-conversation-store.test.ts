@@ -1502,7 +1502,12 @@ it('requires explicit confirmation for an ambiguous failed turn even without a h
   s.claimNext('c', binding);
   s.pauseForRecovery('c', binding, 'ambiguous', 'failed', 'resume', undefined, true, true);
 
-  expect(s.queueSummary('c', binding)).toMatchObject({ requiresRetryConfirmation: true });
+  expect(s.queueSummary('c', binding)).toMatchObject({
+    failed: 1,
+    retryable: true,
+    requiresRetryConfirmation: true,
+    operation: { commandId: 'ambiguous', state: 'ambiguous_effect' },
+  });
   expect(s.retryLatestFailed('c', binding)).toBe('confirmation_required');
   expect(s.retryLatestFailed('c', binding, Date.now(), true)).toBe('queued');
   s.close();
