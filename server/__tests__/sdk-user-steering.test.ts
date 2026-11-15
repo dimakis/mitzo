@@ -178,3 +178,22 @@ it('requires the exact image payload in the provider acknowledgement', async () 
   expect(f.runtime.observe({ ...message })).toBe(true);
   expect(await f.runtime.steer(input, f.authorize)).toEqual({ status: 'accepted' });
 });
+
+it.each([false, true])(
+  'settles only provably unsubmitted corrections when the original turn finishes (submitted=%s)',
+  async (submitted) => {
+    const f = fixture();
+    await f.runtime.steer(f.input, f.authorize);
+    if (submitted) expect(f.runtime.beforeInput(f.submitted(), true)).toBe(true);
+    const waiting = f.runtime.waitForReceipt(f.input);
+    expect(f.runtime.observe({ type: 'result' })).toBe(false);
+    const expected = submitted ? 'uncertain' : 'rejected';
+    expect(await waiting).toEqual({ status: expected });
+    expect(await f.runtime.steer(f.input, f.authorize)).toEqual({ status: expected });
+    if (!submitted) expect(f.runtime.beforeInput(f.submitted(), true)).toBe(false);
+    expect(f.push).toHaveBeenCalledTimes(1);
+    const restarted = f.reopen();
+    expect(await restarted.steer(f.input, f.authorize)).toEqual({ status: expected });
+    expect(f.push).toHaveBeenCalledTimes(1);
+  },
+);
