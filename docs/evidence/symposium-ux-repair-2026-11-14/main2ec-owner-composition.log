@@ -1,0 +1,38 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+{"code":"telos_diagnostic_sink_failed","diagnosticId":"c9de09c3-fa50-4271-9fbc-f0231779c53c","stage":"control_application_evidence","operation":"safe_point","sessionId":"job-worker","itemId":"slice-1","operationFailure":{"reason":"unexpected","errorKind":"error"},"diagnosticFailure":{"reason":"unexpected","errorKind":"error"}}
+ [32m✓[39m server/__tests__/telos-work-controls.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 1391[2mms[22m[39m
+   [33m[2m✓[22m[39m CT12: real HTTP control commands derive the current conversation and reject forged actors, host proof and unrelated inbox reads [33m 750[2mms[22m[39m
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+Preparing worktree (new branch 'test-branch')
+ [32m✓[39m server/__tests__/trusted-native-operation-partial.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 18841[2mms[22m[39m
+   [33m[2m✓[22m[39m bounds full workspace validation for a multi-file commit with a current synchronous owner [33m 3097[2mms[22m[39m
+   [33m[2m✓[22m[39m stops object preparation on synchronous revocation before publishing a commit [33m 1020[2mms[22m[39m
+   [33m[2m✓[22m[39m retains full object-write validation without synchronous authority (existing fanout) [33m 1014[2mms[22m[39m
+   [33m[2m✓[22m[39m retains full object-write validation without synchronous authority (new fanout) [33m 1030[2mms[22m[39m
+   [33m[2m✓[22m[39m leaves no corrupt loose object when authority revokes after a new destination is created [33m 1929[2mms[22m[39m
+   [33m[2m✓[22m[39m keeps HEAD and index consistent after update-ref succeeds but authority revokes (reported error=false) [33m 2070[2mms[22m[39m
+   [33m[2m✓[22m[39m keeps HEAD and index consistent after update-ref succeeds but authority revokes (reported error=true) [33m 2002[2mms[22m[39m
+   [33m[2m✓[22m[39m keeps HEAD and index consistent after update-ref succeeds but authority revokes (reported error=abort) [33m 1988[2mms[22m[39m
+   [33m[2m✓[22m[39m classifies an ambiguous ref response at the original old outcome without discarding uncertainty [33m 1195[2mms[22m[39m
+   [33m[2m✓[22m[39m classifies an ambiguous ref response at the original other outcome without discarding uncertainty [33m 1201[2mms[22m[39m
+   [33m[2m✓[22m[39m accepts the same immutable Git object with different valid compression [33m 1133[2mms[22m[39m
+   [33m[2m✓[22m[39m retains the original prepared index when the checkout switches branch after the ref effect [33m 1162[2mms[22m[39m
+ [32m✓[39m server/__tests__/telos-current-work.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m      Tests [22m [1m[32m28 passed[39m[22m[90m (28)[39m
+[2m   Start at [22m 03:48:27
+[2m   Duration [22m 21.60s[2m (transform 770ms, setup 0ms, import 1.09s, tests 20.24s, environment 0ms)[22m
+

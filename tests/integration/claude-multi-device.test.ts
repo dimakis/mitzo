@@ -266,22 +266,28 @@ it.each([
     expect(composer.result.current.commandAvailable).toBe(true);
     expect(composer.result.current.continuation).toBe(true);
     expect(composer.result.current.binding).toEqual(chat.eventStore.getSessionRuntimeBinding(id));
-    await waitFor(() => expect(composer.result.current.reason).toBeUndefined());
     const { prepareLocalContinuationCommand } =
       await import('../../frontend/src/lib/explicit-local-chat.js');
-    const prepared = prepareLocalContinuationCommand(
-      composer.result.current.intent,
-      composer.result.current.inventory,
-      {
+    // Inventory and retained intent settle in separate hook effects. Observe
+    // readiness and prepare from the same render, rather than an earlier reason
+    // followed by a newer, temporarily mismatched capability revision.
+    const prepared = await waitFor(() => {
+      const current = composer.result.current;
+      expect(current.metadataPending).toBe(false);
+      expect(current.reason).toBeUndefined();
+      const command = prepareLocalContinuationCommand(current.intent, current.inventory, {
         sessionId: id,
         clientMsgId: `queued-${id}`,
         mode: 'agent',
         text: 'Retain mobile work',
-        repositoryWorkspaceId: composer.result.current.repositoryWorkspaceId,
-        retainedAgentProfile: composer.result.current.agentProfile,
-        retainedAgentContext: composer.result.current.agentContext,
-      },
-    );
+        repositoryWorkspaceId: current.repositoryWorkspaceId,
+        retainedAgentProfile: current.agentProfile,
+        retainedAgentContext: current.agentContext,
+      });
+      expect(command.reason).toBeUndefined();
+      expect(command.request).not.toBeNull();
+      return command;
+    });
     expect(prepared.reason).toBeUndefined();
     expect(prepared.request).not.toBeNull();
     const mobileMetadata = await fetch(`${origin}/api/sessions/${id}/meta`, {

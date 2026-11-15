@@ -1,0 +1,11 @@
+{
+  "artifactId": 14145272419,
+  "sha256": "e51dac65ed1493c7ca33e850a29efd37a7adf1111a2b4956eb0052dbfb173abc",
+  "files": [
+    {
+      "path": "symposium-application.log",
+      "bytes": 203148,
+      "sha256": "d227a445d8a73ef4f07585674eb395874766b7efe647fbae54597e542b94d974"
+    }
+  ]
+}
