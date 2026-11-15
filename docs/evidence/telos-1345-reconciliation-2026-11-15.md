@@ -11,10 +11,10 @@ Additive merge `baf2011626db3942f2760945880ee0a7226fd6ad` composes accepted
 main `4bc83d18f24bb14f24b7c190a32c2a4fa0834963` (#1356), which retains accepted
 #1342/#1362. The sole conflict was registry metadata. All 2,489 accepted keys
 and this PR's overview entry remain; fingerprints use actual composed bytes.
-Final runtime revision is `v1.0.1186-telos-sdk-fixture-composition`.
+Final runtime revision is `v1.0.1187-telos-guard-fixture-setup`.
 Accepted runtime/UI, privacy, recovery, Stop and permission guards are retained.
 
-## Minimal shared fixture handoff
+## Initial shared fixture handoff
 
 Fixture owner `2208b5d4-686e-8b94-82bc-8d46e0611614` explicitly handed off only
 `tests/integration/ordinary-local-vertex-chat.test.ts` from published #1359
@@ -68,3 +68,34 @@ GitHub reconciliation workflow or internal FIXED entry is not final approval.
 No forced duplicate review is requested. Bounded specialist authorization and
 recovery returned no policy/contribution; no independent assessment is inferred.
 Membership/discovery semantic dependencies and combined acceptance remain separate.
+
+## Guard-only setup follow-up
+
+Target `d96dda36` run `43663942644`, Unit 2 job `132659889967`, failed the actual
+guarded-detach control at its default 5,000ms whole-test deadline. This differs
+from the earlier four transfer failures. The timeout does not identify its exact
+asynchronous phase; no hosted root-cause or fix claim is inferred.
+
+The same sole fixture owner handed off only the setup delta from published #1359
+`d43ea9ba51f95ce291b81ea1d628ec0e367c6246`, reviewed against its exact bytes.
+It removes unrelated repository/account/task bootstrap from the guard-only
+control, seeds a synthetic conversation in the real EventStore and registry, and
+retains every actual guard, original-cause and store-disposal assertion.
+Default test 5s, lifecycle 10s and scenario 60s deadlines are unchanged.
+
+- Required preimage: prior adopted blob `47610a58827f5d700c3a5f023ac7d7549be23f84`.
+- Final adopted blob: `6fe3d2b5f93dcfe00783b38fe792f7b996365eee`.
+- Final file SHA256: `b7ad0de82642a4117572af3c2bc49e174ddb2f57a3cfcb213897273f8f94881b`.
+- Applied incremental patch SHA256: `274936e58b186f0fe4a55dfc08be946ba477dc16e2d4f15695fa11e48e33886a`.
+
+Target qualification passes all five affected controls/following cases in 51.67s:
+actual guard, two cleanup controls, and personal/Vertex default transfers. One
+worker/1GiB, unchanged assertions/deadlines. Earlier 330 focused, nine fixture
+and ten native results cover unchanged paths and remain separate overlapping
+evidence, not a new combined total. Only the test setup, its derived pin/runtime
+and this evidence change. All 2,490 registry keys remain; source, lint, format
+and whitespace checks pass. No other #1359 source is imported.
+
+Preserve prior automatic review job `7567` for `d96dda36` alongside the earlier
+ledger. Current successor service receipt, exact-head public final review and
+normal combined CI remain required; no duplicate or forced review is requested.

@@ -224,18 +224,29 @@ async function resetSdkFixture() {
 afterEach(resetSdkFixture);
 it('retains failed retirement and actual guarded detach causes without closing an active store', async () => {
   vi.resetModules();
-  const { ownedVertexRuntimeFixture } =
-    await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
-  const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true });
-  services.workspace = f.workspace;
-  services.library = f.library;
+  // This control needs real chat owners and persistence, not a prepared Git
+  // repository, account catalog or SDK command. Keep its setup inside the
+  // default test budget without changing the retirement/guard assertions.
+  const { mkdtemp, realpath, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'sdk-retirement-guard-')));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
   const chat = await import('../../server/chat.js');
   const { ConnectionRegistry } = await import('@mitzo/harness');
   const connections = new ConnectionRegistry();
   chat.setConnectionRegistry(connections);
+  const conversationId = randomUUID();
+  chat.eventStore.upsertSession({
+    sessionId: conversationId,
+    conversationSource: 'mitzo',
+    summary: 'Guarded SDK fixture cleanup',
+  });
   const clientId = 'guarded-fixture-cleanup';
   chat.registry.register(clientId, {
-    sessionId: f.reservation.conversationId,
+    sessionId: conversationId,
     transport: { send: vi.fn(), isOpen: () => true },
     abortController: new AbortController(),
     sessionAllowList: new Set(),
@@ -277,7 +288,7 @@ it('retains failed retirement and actual guarded detach causes without closing a
   expect(close).not.toHaveBeenCalled();
   expect(chat.registry.get(clientId)).toBeDefined();
   expect(chat.getConnectionRegistry()).toBe(connections);
-  expect(() => chat.eventStore.getSession(f.reservation.conversationId)).not.toThrow();
+  expect(() => chat.eventStore.getSession(conversationId)).not.toThrow();
 });
 it.each([false, true])(
   'retains cleanup causes and clears SDK state (multiple=%s)',
