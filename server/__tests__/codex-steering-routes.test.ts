@@ -2,6 +2,8 @@ import express from 'express';
 import request from 'supertest';
 import { expect, it, vi } from 'vitest';
 import { createCodexQueueRouter } from '../codex-queue-routes.js';
+const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', () => ({ createLogger: () => ({ warn }) }));
 const binding = {
   accountId: 'account',
   accountLabel: 'Account',
@@ -69,4 +71,29 @@ it('fails closed on original-owner refusal', async () => {
   });
   await request(f.app).post('/sessions/chat/codex-queue/steer').send(input).expect(403);
   expect(f.steer).not.toHaveBeenCalled();
+});
+
+it('correlates an unexpected steering failure without exposing private payloads or claiming rejection', async () => {
+  const f = fixture();
+  f.steer.mockRejectedValueOnce(new TypeError('private-token-and-prompt'));
+  const res = await request(f.app).post('/sessions/chat/codex-queue/steer').send(input).expect(409);
+  expect(res.body).toMatchObject({
+    code: 'turn_steering_unconfirmed',
+    diagnosticId: expect.any(String),
+  });
+  expect(res.body.status).toBeUndefined();
+  expect(res.body.error).toContain(res.body.diagnosticId);
+  expect(warn).toHaveBeenLastCalledWith(
+    'Turn correction could not be confirmed',
+    expect.objectContaining({
+      code: 'turn_steering_unconfirmed',
+      stage: 'steering_dispatch',
+      sessionId: 'chat',
+      requestId: input.requestId,
+      targetCommandId: input.targetCommandId,
+      diagnosticId: res.body.diagnosticId,
+      causeType: 'TypeError',
+    }),
+  );
+  expect(JSON.stringify([res.body, warn.mock.calls])).not.toContain('private-token-and-prompt');
 });

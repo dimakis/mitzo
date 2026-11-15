@@ -88,6 +88,7 @@ export function useTurnSteering(
     }
     let status = 'uncertain';
     let refusalProven = false;
+    let diagnosticId: string | undefined;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -112,6 +113,14 @@ export function useTurnSteering(
         })(),
         expired,
       ]);
+      if (
+        receipt.body.code === 'turn_steering_unconfirmed' &&
+        typeof receipt.body.diagnosticId === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          receipt.body.diagnosticId,
+        )
+      )
+        diagnosticId = receipt.body.diagnosticId;
       if (
         receipt.body.requestId === input.requestId &&
         ['accepted', 'rejected', 'stale_target', 'uncertain'].includes(receipt.body.status)
@@ -159,7 +168,9 @@ export function useTurnSteering(
       if (owner.current === scope)
         setFeedback({
           owner: scope,
-          error: 'Correction delivery not confirmed. Retry checks the original correction.',
+          error:
+            'Correction delivery not confirmed. Retry checks the original correction.' +
+            (diagnosticId ? ` Reference: ${diagnosticId}` : ''),
         });
     }
     render((n) => n + 1);

@@ -8,6 +8,11 @@ import type { AuthSession } from './auth.js';
 import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { CodexConversationStore } from './codex-conversation-store.js';
+import { randomUUID } from 'node:crypto';
+import { createLogger } from './logger.js';
+import { runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
+
+const log = createLogger('codex-queue-routes');
 
 interface Dependencies {
   steer?(
@@ -149,9 +154,19 @@ export function createCodexQueueRouter(deps: Dependencies) {
       res
         .status(result.status === 'accepted' ? 200 : result.status === 'uncertain' ? 202 : 409)
         .json({ requestId: input.data.requestId, status: result.status });
-    } catch {
+    } catch (cause) {
+      const diagnostic = { code: 'turn_steering_unconfirmed', diagnosticId: randomUUID() };
+      log.warn('Turn correction could not be confirmed', {
+        ...diagnostic,
+        stage: 'steering_dispatch',
+        sessionId: req.params.id,
+        requestId: input.data.requestId,
+        targetCommandId: input.data.targetCommandId,
+        ...runtimeFailureDiagnostics(cause),
+      });
       res.status(409).json({
-        error: 'The correction could not be confirmed. Keep the text and check the active turn.',
+        ...diagnostic,
+        error: `The correction could not be confirmed. Keep the text and check the active turn. Reference: ${diagnostic.diagnosticId}`,
       });
     }
   });

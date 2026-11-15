@@ -17,6 +17,9 @@ import { join } from 'node:path';
 import { runQueryLoop } from '../query-loop.js';
 import { OrdinaryLocalVertexCommandOwner } from '../ordinary-local-vertex-command-owner.js';
 import * as nativeHistory from '../ordinary-local-vertex-native-history.js';
+import express from 'express';
+import request from 'supertest';
+import { createCodexQueueRouter } from '../codex-queue-routes.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
 
 const cleanup: Array<() => void> = [];
@@ -183,12 +186,12 @@ it('requires exact submitted idle input acknowledgement and rejects replay after
   expect(f.create().observe(ack)).toBe(true);
 });
 
-async function composedFixture() {
+async function composedFixture(personal = false) {
   const binding = {
     version: 2 as const,
     account: {
       accountId: 'vertex',
-      provider: 'anthropic-vertex' as const,
+      provider: personal ? ('anthropic-claude' as const) : ('anthropic-vertex' as const),
       profileRevision: 'exact-profile',
     },
     harness: { implementation: 'claude-sdk' as const },
@@ -217,11 +220,18 @@ async function composedFixture() {
     store.admitOrdinaryLocalVertexCommand(meta, binding, command('original')),
   );
   const events = new AsyncQueue<Record<string, unknown>>();
+  const accountInfo = vi.fn(async () => ({
+    email: 'fixture@example.com',
+    subscriptionType: 'Claude Pro',
+    apiProvider: 'firstParty',
+    apiKeySource: 'none',
+  }));
   let stdin!: AsyncIterable<SDKUserMessage>;
   vi.mocked(query).mockImplementation((request) => {
     stdin = request.prompt as typeof stdin;
     return {
       close: () => events.close(),
+      accountInfo,
       [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
     } as never;
   });
@@ -231,7 +241,14 @@ async function composedFixture() {
   const sdk = createOrdinaryLocalVertexSdkQuery<
     AsyncIterable<Record<string, unknown>> & { close(): void }
   >({
-    options: {},
+    options: personal
+      ? {
+          env: {
+            MITZO_CLAUDE_EXPECTED_EMAIL: 'fixture@example.com',
+            MITZO_CLAUDE_EXPECTED_PLAN: 'pro',
+          },
+        }
+      : {},
     input: new AsyncQueue<SDKUserMessage>(),
     lifetime: new SdkHookLifetime(),
     sdkSessionId: 'worker',
@@ -335,12 +352,78 @@ async function composedFixture() {
     ordinaryPush: push,
     abort,
     state: () => state,
+    accountInfo,
     finish: async () => {
       sdk.query.close();
       await loop;
     },
   };
 }
+
+it.each([
+  ['unsubmitted', 'rejected', 409],
+  ['submitted', 'uncertain', 202],
+  ['acknowledged', 'accepted', 200],
+] as const)(
+  'reports a %s personal Claude correction through HTTP and the real SDK consumer',
+  async (stage, status, code) => {
+    const f = await composedFixture(true);
+    const input = {
+      requestId: randomUUID(),
+      targetCommandId: 'original',
+      text: 'Correct the order.',
+    };
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createCodexQueueRouter({
+        authorizeMutation: () => f.assertCurrent(),
+        binding: () => f.events.getSession('worker')!.accountBinding!,
+        overview: () => ({ queued: [], cancelledIds: [], hasMore: false }),
+        cancel: () => 'not_found',
+        retry: async () => 'not_found',
+        reattach: async () => 'unavailable',
+        steer: async (_id, _binding, correction) =>
+          f.runtime.steerUser(correction, f.assertCurrent),
+      }),
+    );
+    const response = request(app)
+      .post('/worker/codex-queue/steer')
+      .send(input)
+      .then((value) => value);
+    await vi.waitFor(() => expect(f.push).toHaveBeenCalledOnce());
+    const queued = f.push.mock.calls[0][0];
+    if (stage !== 'unsubmitted') {
+      expect((await f.inputs.next()).value).toBe(queued);
+      if (stage === 'acknowledged')
+        f.stream.push({
+          type: 'user',
+          session_id: 'worker',
+          uuid: queued.uuid,
+          message: queued.message,
+        });
+    }
+    f.stream.push({
+      type: 'result',
+      session_id: 'worker',
+      uuid: 'original-result',
+      is_error: false,
+    });
+    const res = await response;
+    expect(res.status).toBe(code);
+    expect(res.body).toEqual({ requestId: input.requestId, status });
+    await vi.waitFor(() => expect(f.resultIds).toEqual([originalInputId]));
+    expect(await f.settlements[0]).toBe('completed');
+    expect(f.observedInputs.mock.calls).toEqual([[originalInputId]]);
+    expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original', 'successor']);
+    expect(f.accountInfo).toHaveBeenCalledTimes(stage === 'unsubmitted' ? 1 : 2);
+    const retry = await request(app).post('/worker/codex-queue/steer').send(input);
+    expect(retry.body).toEqual(res.body);
+    expect(f.push).toHaveBeenCalledOnce();
+    expect(f.abort).not.toHaveBeenCalled();
+    await f.finish();
+  },
+);
 
 it('consumes a user correction ACK before the ordinary owner and releases its successor only on the original result', async () => {
   const f = await composedFixture();
