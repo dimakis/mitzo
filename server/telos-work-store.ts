@@ -819,7 +819,7 @@ export class TelosWorkStore {
           !retained ||
           JSON.stringify(retained.setup) !== JSON.stringify(setup) ||
           retained.receipt ||
-          setup.input.createOnly !== true
+          (setup.input.createOnly !== true && !setup.input.replacement)
         )
           conflict('Original unfinished role reservation required');
         const proof: unknown = assertAbsent();
@@ -976,10 +976,13 @@ export class TelosWorkStore {
               `SELECT request_id FROM telos_work_role_setups WHERE receipt IS NULL
             AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
             AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
-            AND (?=1 OR json_extract(intent,'$.input.createOnly')=1) LIMIT 1`,
+            AND (?=1 OR json_extract(intent,'$.input.createOnly')=1 OR json_extract(intent,'$.input.replacement') IS NOT NULL) LIMIT 1`,
             )
-            .get(input.itemId, input.role, input.createOnly ? 1 : 0) as
-            { request_id: string } | undefined;
+            .get(
+              input.itemId,
+              input.role,
+              input.createOnly || ('replacement' in input && input.replacement) ? 1 : 0,
+            ) as { request_id: string } | undefined;
           if (pending)
             conflict(
               `This role is reserved by unfinished setup ${pending.request_id}. Recover that original request; absence of a receipt does not authorize replacement.`,
@@ -989,6 +992,17 @@ export class TelosWorkStore {
             this.snapshot(input.itemId).assignments.some((a) => a.role === input.role)
           )
             conflict('Create-only cannot replace an existing assignment');
+          if ('replacement' in input && input.replacement) {
+            const replacement = input.replacement;
+            const current = this.snapshot(input.itemId).assignments.find(
+              (a) => a.role === input.role,
+            );
+            if (
+              current?.conversation.conversationId !== replacement.conversationId ||
+              current.revision !== replacement.assignmentRevision
+            )
+              conflict('The reviewed current owner changed');
+          }
         }
         const setup = TelosWorkRoleSetupRequestIntentSchema.parse({
           actorId,
@@ -1507,6 +1521,40 @@ export class TelosWorkStore {
       };
     })();
   }
+  /** Read-only proposal scope. Only the existing interactive operator review
+   * can commit this replacement; ordinary caller text confers no assignment. */
+  sessionReplacementScope(sourceConversationId: string, itemId: string) {
+    return this.db.transaction(() => {
+      if (!this.policy.ordinaryConversation(sourceConversationId))
+        throw new TelosWorkError(
+          'unauthorized',
+          'An available ordinary originating chat is required',
+        );
+      this.assertLifecycleActive(itemId);
+      const item = this.snapshot(itemId);
+      const role =
+        item.kind === 'work_item'
+          ? 'worker'
+          : item.kind === 'coordinator' || item.kind === 'outcome'
+            ? 'lead'
+            : null;
+      if (!role) invalid('Classify the selected work before replacing its owner');
+      const assignment = item.assignments.find((a) => a.role === role);
+      if (!assignment) conflict('No current owner exists; use reviewed initial role setup');
+      return {
+        version: 1 as const,
+        parentItemId: null,
+        parentAssignmentRevision: null,
+        itemId,
+        expectedRevision: item.revision,
+        role,
+        replacement: {
+          conversationId: assignment.conversation.conversationId,
+          assignmentRevision: assignment.revision,
+        },
+      };
+    })();
+  }
   /** One consistent brief/relationship boundary for a source preview. */
   readSourceTarget(itemId: string, actor: TelosWorkActor) {
     this.operator(actor);
@@ -1789,7 +1837,7 @@ export class TelosWorkStore {
               `SELECT intent FROM telos_work_role_setups WHERE receipt IS NULL
             AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
             AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
-            AND json_extract(intent,'$.input.createOnly')=1`,
+            AND (json_extract(intent,'$.input.createOnly')=1 OR json_extract(intent,'$.input.replacement') IS NOT NULL)`,
             )
             .all(input.itemId, input.role) as { intent: string }[];
           if (

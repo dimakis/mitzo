@@ -66,7 +66,8 @@ export async function executeTelosCreateSession(
       record.data.requestId !== parsed.data.requestId ||
       record.data.telos.itemId !== parsed.data.itemId ||
       record.data.telos.expectedRevision !== parsed.data.expectedRevision ||
-      record.data.telos.adoption?.conversationId !== parsed.data.existingConversationId
+      record.data.telos.adoption?.conversationId !== parsed.data.existingConversationId ||
+      Boolean(record.data.telos.replacement) !== Boolean(parsed.data.replaceOwner)
     )
       return {
         content:

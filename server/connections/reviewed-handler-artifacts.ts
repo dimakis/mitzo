@@ -1568,7 +1568,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-control-support.ts':
     'afe208126d189cd85b883714e53276108c2087c35570be6d2fef48db90bfd41d',
   '../../packages/protocol/src/session-launch.ts':
-    '4a89037a4baa7833155021bea78c787788ff65c39e4d30179106eaf7db6b4a64',
+    '7a43f9617edbb6fd9516b0f849f5aecc1f82f344dce43d4a2d0ab586131e5dd6',
   '../../packages/protocol/src/session-learning-store.ts':
     'a52a99eb875a9e4ac66bbc0fb9697e0a7ec835862234b42b515580489c5e4adf',
   '../../packages/protocol/src/session-learning.ts':
@@ -1600,7 +1600,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-backlog.ts':
     'a084915d72ffae9a10f6c39c26fed2137b836c66c8cf49c083cbd2887de5b169',
   '../../packages/protocol/src/telos-ordinary-work.ts':
-    '089cf4badcbcec7b133d1336fb7c623e48f6cb46a76580da04066f66f193f583',
+    'afc10e0f6467160de48ce754665e8b87e6bd326f9fb862456b5d805507ab6961',
   '../../packages/protocol/src/telos-outcome.ts':
     '83bee1e714dfd9a1d5d24d9827ceb84964a4d212614afef8c7e6a96c1b4e9910',
   '../../packages/protocol/src/telos-source.ts':
@@ -3442,7 +3442,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-ordinary-canonical-journey.test.ts':
     '2f746ab543045fb194b270b4d495b8df5de235530be8205dfc930f94d9bb7764',
   '../__tests__/telos-ordinary-work-role-setup.test.ts':
-    '0d0e5bf14e875aade16ced9e90ac9e3605c48841e066e87ad7cbd2e6600f2a62',
+    'df227b71ff8f4d5849b01135beefca58825c896e205fa2c0f9f6d049c123c388',
   '../__tests__/telos-outcome-revision-routes.test.ts':
     '6c562e97ecc7502f5d38574a78d32b0ddf226c207f68efef49aeafc96308ab86',
   '../__tests__/telos-outcome-revision.test.ts':
@@ -4370,8 +4370,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-launch-runtime.ts':
     '67ff54a8ad2a35fa1521d25d042ed661be2c82b6060bf54507bd12ab16910370',
   '../session-launch-service.ts':
-    '81fc3f3a1f1d584b529aa4ac46eae013ab4bb039d8eeef410e9dd2006966e637',
-  '../session-launch-store.ts': '7fa843ada57aeeb14b7b076daf03f282cc9d93932246a6213ef29a27c18dfb99',
+    '63acde5c2f83668093eb0385f6bae85d89b9257fadd8e47f6e2a04fd4f9e9636',
+  '../session-launch-store.ts': 'fb81b892e6721fc3f7c4a8768a6a8de9102b35f95597da7e1629d6e2a1779a18',
   '../session-launch-tools-selection.ts':
     '41652d9862067bbe6973029442eb5c7fac7f9c9ec6d977e14a21d13455e126a4',
   '../session-launch-tools.ts': 'bf201a37ef3cd16c78e45529cc4192c47e9ac75768107acf7d35349d960cc7db',
@@ -4611,9 +4611,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-session-launch-adapters.ts':
     '930c5b1be8585501e576ecb848b9005b075a2359c8b9e570ba721f63d6ab9a00',
   '../telos-session-launch-host.ts':
-    '45c52f5f642e5dede2bff95825e887aa073dcbd75455bffc256a7eb4b8402560',
+    '559ea0f1ed9b7c8385b3bcb6fdf88f8d3e0c07fae26d57f6e815bc457f6264cc',
   '../telos-session-launch-tool.ts':
-    '798dada4477681d1ce329023055262017a868d218da23dc945aeb28b6eaca992',
+    '17c431356aed5416bfff93a411a595436c9159f85f4f8820b14248539444c831',
   '../telos-session-proposal-failure.ts':
     'dc06e7747319a35365008030fb31c6258813b39e02d566a873818a16877e3a30',
   '../telos-snooze.ts': '49b2223c1fd366213314318739255b215f4a8ada9cab1f3a341c7d52947a5ba6',
@@ -4655,7 +4655,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-work-role-setup.ts': '8f0990272d82af46f0ade034954f23aff88cf6b04459603bac473e79d06b157f',
   '../telos-work-routes.ts': 'dc5fdb00bb67543ab503036e3fce4ee6a1f24c993dba0ce5f09b83dedbf4f76d',
   '../telos-work-schema.ts': '6c9406ceec10bee8bf13f57c7b7f6e003805ee58071bdda8f5cc4c0738cd62e4',
-  '../telos-work-store.ts': '4c7be702e90e7d036679345030cdcec4e8ba7343e3e41cb433751a5f40267cc5',
+  '../telos-work-store.ts': 'd7f06226c7ffcfb5831aef4266fbd4a88bb74448d1b32c5ea94fc58abcc156c7',
   '../telos-work-tools.ts': 'ee8ea14d0bd6ac21b92b24755863c6082ed5e0a0eeaa453c6461b904bbda7727',
   '../telos-work-updates.ts': 'f9895bff5c5a6e4ea228edae36ec60c034b52c4d9aa7e526c81b3047b2b33e01',
   '../telos-worker-start-authority.ts':
