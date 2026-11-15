@@ -91,6 +91,7 @@ import { OrdinaryLocalVertexCommandAdmissionSchema } from './ordinary-local-vert
 import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
 import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
+import { parseOrdinarySkillContext, type OrdinarySkillContext } from './ordinary-skill-context.js';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import { AgentCommunicationStore } from './agent-communication-store.js';
 import { UserTurnSteeringStore } from './user-turn-steering-store.js';
@@ -564,6 +565,42 @@ export class EventStore {
           throw Error('Original source context changed');
       };
       return this.withOrdinaryContextAdmission(sessionId, sourceEpoch, () => {
+        const result = operation(assertSourceCurrent);
+        assertSourceCurrent();
+        return result;
+      });
+    });
+  }
+  /** The pre-input cancellation owner proved this exact failed input never ran.
+   * Keep its error/consumed receipt; ordinary derived sources still reject errors. */
+  withOrdinaryUnsentSdkRetryContext<T>(
+    sessionId: string,
+    sourceCommandId: string,
+    operation: (assertSourceCurrent: () => void) => T,
+  ): T {
+    return this.contextTransitions.withAdmissionLock(() => {
+      this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+      const source = this.getSendCommand(sourceCommandId)!;
+      const receipt = this.getOrdinaryLocalVertexCommandAdmission(sourceCommandId);
+      const execution = this.getExecutionAdmission(sessionId, sourceCommandId);
+      const epoch = this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0;
+      const assertSourceCurrent = () => {
+        this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+        const current = this.getSendCommand(sourceCommandId)!;
+        if (
+          !execution ||
+          receipt?.state !== 'consumed' ||
+          current.error !== 'Cancelled before SDK dispatch' ||
+          this.getExecutionTerminalReason(execution.token) !== 'abandoned' ||
+          this.getOrdinarySdkTurnEvents(sessionId, sourceCommandId).length !== 0 ||
+          (this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0) !== epoch ||
+          !isDeepStrictEqual(current, source) ||
+          !isDeepStrictEqual(this.getOrdinaryLocalVertexCommandAdmission(sourceCommandId), receipt)
+        )
+          throw Error('Original SDK pre-input cancellation proof unavailable');
+      };
+      assertSourceCurrent();
+      return this.withOrdinaryContextAdmission(sessionId, epoch, () => {
         const result = operation(assertSourceCurrent);
         assertSourceCurrent();
         return result;
@@ -3988,6 +4025,39 @@ export class EventStore {
     return this.executionLedger.getExecutionAdmission(sessionId, clientMsgId);
   }
 
+  /** Identity of the current execution, independent of later queued settings. */
+  getCurrentExecutionCommandId(sessionId: string): string | undefined {
+    const meta = this.getSession(sessionId);
+    if (!meta?.executionId || !meta.executionGeneration) return;
+    return (
+      this.db!.prepare(
+        'SELECT client_msg_id FROM execution_admissions WHERE session_id=? AND execution_id=? AND generation=?',
+      ).get(sessionId, meta.executionId, meta.executionGeneration) as
+        { client_msg_id: string } | undefined
+    )?.client_msg_id;
+  }
+
+  /** Positive pre-input cancellation evidence, not an inference from missing
+   * SDK history or missing acknowledgements. Every execution must be covered. */
+  hasOnlyCancelledOrdinarySdkInputs(sessionId: string): boolean {
+    const meta = this.getSession(sessionId);
+    if (meta?.executionPhase !== 'TERMINAL') return false;
+    const commands = this.db!.prepare(
+      'SELECT client_msg_id FROM execution_admissions WHERE session_id = ?',
+    ).all(sessionId) as Array<{ client_msg_id: string }>;
+    if (!commands.length || commands.length !== meta.executionGeneration) return false;
+    return commands.every(({ client_msg_id: id }) => {
+      const execution = this.getExecutionAdmission(sessionId, id)!;
+      const terminal = this.getExecutionTerminalReason(execution.token);
+      return (
+        (terminal === 'stopped' || terminal === 'abandoned') &&
+        this.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed' &&
+        this.getSendCommand(id)?.error === 'Cancelled before SDK dispatch' &&
+        this.getOrdinarySdkTurnEvents(sessionId, id).length === 0
+      );
+    });
+  }
+
   /** Start one durable provider dispatch owned by the exact active execution token. */
   beginProviderAttempt(
     executionToken: ExecutionToken,
@@ -4405,7 +4475,17 @@ export class EventStore {
       )
         return;
       const stopped = this.transitionExecution(execution, 'STOPPING');
-      if (!stopped.applied) return;
+      // User Stop can precede the SDK input echo. It pauses the execution then;
+      // the exact native interrupt is claimed only after that echo arrives.
+      // An already-claimed native effect still cannot be replayed under a new ID.
+      if (!stopped.applied && stopped.status !== 'already_stopping') return;
+      if (
+        this.db!.prepare(
+          `SELECT 1 FROM events WHERE session_id = ? AND type = 'ordinary_sdk_interrupt_claimed'
+         AND json_extract(payload, '$.target.commandId') = ? LIMIT 1`,
+        ).get(sessionId, target.commandId)
+      )
+        return;
       this.append(sessionId, 'ordinary_sdk_interrupt_claimed', receipt);
       return { fresh: true, receipt };
     }).immediate();
@@ -4664,35 +4744,31 @@ export class EventStore {
   admitWithOrdinarySkillContext(
     sessionId: string,
     commandId: string,
-    context: { text: string; prompt: string },
+    context: OrdinarySkillContext,
     admit: () => void,
   ): void {
+    const captured = parseOrdinarySkillContext(context);
     this.db!.transaction(() => {
       admit();
       const previous = this.getOrdinarySkillContext(sessionId, commandId);
-      if (previous && (previous.text !== context.text || previous.prompt !== context.prompt))
-        throw Error('Skill command changed');
+      if (previous && !isDeepStrictEqual(previous, captured)) throw Error('Skill command changed');
       if (!previous)
-        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...context });
+        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...captured });
     })();
   }
-  getOrdinarySkillContext(
-    sessionId: string,
-    commandId: string,
-  ): { text: string; prompt: string } | undefined {
+  getOrdinarySkillContext(sessionId: string, commandId: string): OrdinarySkillContext | undefined {
     const rows = this.db!.prepare(
       `SELECT payload FROM events WHERE session_id=? AND type='ordinary_skill_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
     ).all(sessionId, commandId) as Array<{ payload: string }>;
     if (!rows.length) return undefined;
-    const contexts = rows.map((row) => JSON.parse(row.payload));
+    const contexts = rows.map((row) => {
+      const { messageId: _, ...context } = JSON.parse(row.payload);
+      return parseOrdinarySkillContext(context);
+    });
     const first = contexts[0];
-    if (
-      typeof first.text !== 'string' ||
-      typeof first.prompt !== 'string' ||
-      contexts.some((context) => context.text !== first.text || context.prompt !== first.prompt)
-    )
+    if (contexts.some((context) => !isDeepStrictEqual(context, first)))
       throw Error('Skill command changed');
-    return { text: first.text, prompt: first.prompt };
+    return first;
   }
 
   getMessageReplyContext(sessionId: string, commandId: string): MessageReplyContext | undefined {

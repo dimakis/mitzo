@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { extname } from 'node:path';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import {
   findArtifactCapabilityByExtension,
   TelosSourceMaterialCursorSchema,
@@ -213,6 +214,12 @@ export class TelosArtifactStore {
     return !/^life[-_ ]?ops$/i.test(item.profile ?? '');
   }
 
+  /** Shared HTTP/SDK response policy; source packets retain their separate operator path. */
+  assertResponseEligibility(metadata: TelosArtifactMetadata): void {
+    if (metadata.sourceKind !== 'source_capture' && !this.userUploadAllowed(metadata.itemId))
+      throw Object.assign(new Error('Saved artifact unavailable'), { status: 403 });
+  }
+
   retryReceipt(
     sessionId: string,
     requestId: string,
@@ -361,7 +368,7 @@ export class TelosArtifactStore {
       })
       .immediate();
   }
-  /** Private owned-native composition only. The supplied scope is real host
+  /** Private authenticated host composition only. The supplied scope is real host
    * authority, never JSON. This method owns the actual outer commit; a borrowed
    * active work transaction must retain its own final commit fence instead. */
   saveGuarded(
@@ -374,7 +381,9 @@ export class TelosArtifactStore {
     const assertCurrent = () => {
       const result: unknown = assertScopeCurrent();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'item-authority', {
+          conversationId: detached.sessionId,
+        });
         throw new Error('Synchronous artifact authority required');
       }
     };

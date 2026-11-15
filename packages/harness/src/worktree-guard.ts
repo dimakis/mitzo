@@ -1,11 +1,19 @@
 import type { ManagedSession } from './session-registry.js';
+import { isAbsolute, resolve } from 'node:path';
 import { createLogger } from './logger.js';
 
 const log = createLogger('worktree-guard');
 
-const WRITE_TOOLS = new Set(['Write', 'Edit', 'StrReplace', 'EditNotebook', 'MultiEdit']);
+const WRITE_TOOLS = new Set([
+  'Write',
+  'Edit',
+  'StrReplace',
+  'EditNotebook',
+  'NotebookEdit',
+  'MultiEdit',
+]);
 const SHELL_TOOLS = new Set(['Bash', 'Shell']);
-const PATH_FIELDS = ['file_path', 'path', 'target_notebook'];
+const PATH_FIELDS = ['file_path', 'path', 'target_notebook', 'notebook_path'];
 const TRUSTED_ABSOLUTE_EXECUTABLES = new Set(['/opt/homebrew/bin/gws', '/usr/bin/git']);
 
 const stats = { allowed: 0, denied: 0 };
@@ -27,10 +35,12 @@ export function resetWorktreeGuardStats() {
  */
 export type OnDemandCreateFn = (
   absolutePath: string,
+  signal?: AbortSignal,
 ) => Promise<{ repoName: string; worktreePath: string } | null>;
 
 export interface CheckWorktreePolicyOptions {
   onDemandCreate?: OnDemandCreateFn;
+  signal?: AbortSignal;
 }
 
 /**
@@ -63,8 +73,10 @@ function findAllowedWorktree(
   absolutePath: string,
   worktreePaths: Map<string, { path: string; wtId: string }>,
 ): { repoName: string; worktreePath: string } | null {
+  absolutePath = resolve(absolutePath);
   for (const [name, { path }] of worktreePaths) {
-    if (absolutePath.startsWith(path + '/') || absolutePath === path) {
+    const root = resolve(path);
+    if (absolutePath.startsWith(root + '/') || absolutePath === root) {
       return { repoName: name, worktreePath: path };
     }
   }
@@ -113,13 +125,16 @@ export async function checkWorktreePolicy(
   toolInput: Record<string, unknown>,
   opts?: CheckWorktreePolicyOptions,
 ): Promise<string | null> {
+  opts?.signal?.throwIfAborted();
   if (session.worktreePaths.size === 0) return null;
 
   if (WRITE_TOOLS.has(toolName)) {
     let checkedAnyPath = false;
     for (const field of PATH_FIELDS) {
-      const filePath = toolInput[field];
-      if (typeof filePath !== 'string' || !filePath.startsWith('/')) continue;
+      const requestedPath = toolInput[field];
+      if (typeof requestedPath !== 'string' || (!isAbsolute(requestedPath) && !session.cwd))
+        continue;
+      const filePath = resolve(session.cwd ?? '/', requestedPath);
       checkedAnyPath = true;
 
       const allowed = findAllowedWorktree(filePath, session.worktreePaths);
@@ -127,8 +142,11 @@ export async function checkWorktreePolicy(
 
       // Try on-demand creation if a callback is provided
       if (opts?.onDemandCreate) {
-        const created = await opts.onDemandCreate(filePath);
-        if (created) {
+        const created = await (opts.signal
+          ? opts.onDemandCreate(filePath, opts.signal)
+          : opts.onDemandCreate(filePath));
+        opts.signal?.throwIfAborted();
+        if (created && !session.worktreePaths.has(created.repoName)) {
           session.worktreePaths.set(created.repoName, {
             path: created.worktreePath,
             wtId: session.wtId ?? '',
@@ -170,8 +188,11 @@ export async function checkWorktreePolicy(
       if (findAllowedWorktree(p, session.worktreePaths)) continue;
 
       if (opts?.onDemandCreate) {
-        const created = await opts.onDemandCreate(p);
-        if (created) {
+        const created = await (opts.signal
+          ? opts.onDemandCreate(p, opts.signal)
+          : opts.onDemandCreate(p));
+        opts.signal?.throwIfAborted();
+        if (created && !session.worktreePaths.has(created.repoName)) {
           session.worktreePaths.set(created.repoName, {
             path: created.worktreePath,
             wtId: session.wtId ?? '',

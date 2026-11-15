@@ -20,11 +20,13 @@ import {
   specialistToolSchema,
   SpecialistRouteSchema,
   ConsultationInputSchema,
+  SpecialistAuthorizationInputSchema,
   type SpecialistRoute,
   type SpecialistPolicy,
   type ConsultationRecord,
 } from './specialist-consultation-contract.js';
 import { createLogger } from './logger.js';
+import { isDeepStrictEqual } from 'node:util';
 import { specialistRoleExecution } from './specialist-role-execution.js';
 import { specialistDiagnostic } from './specialist-consultation-diagnostics.js';
 import { specialistReviewDiversity, specialistReviewerRank } from './specialist-review-routing.js';
@@ -221,31 +223,52 @@ export class SpecialistConsultations {
     const input = specialistToolSchema.parse({ ...(raw as object), operation: 'authorize' });
     if (!input.requestId || !input.routes || !input.repository || !input.connectionId)
       throw Error('Authorization requires requestId, repository, connectionId and routes');
+    const authorizationInput = SpecialistAuthorizationInputSchema.parse({
+      requestId: input.requestId,
+      repository: input.repository,
+      connectionId: input.connectionId,
+      routes: input.routes,
+      durationMinutes: input.durationMinutes,
+      maxConsultations: input.maxConsultations,
+      maxContextBytes: input.maxContextBytes,
+    });
     const prior = this.receipts.findPolicy(a.leadSessionId, input.requestId);
-    const versions = getAgentLibrary().list('user').versions;
+    if (prior) {
+      this.receipts.assertPolicy(a.leadSessionId, a.auth.id, input.requestId);
+      const original = this.receipts.authorizationInput(a.leadSessionId, input.requestId);
+      if (!original)
+        throw Error('Original policy request is unavailable; review a new authorization requestId');
+      if (!isDeepStrictEqual(original, authorizationInput))
+        throw Error('Consultation policy request conflict');
+    }
+    const versions = prior ? [] : getAgentLibrary().list('user').versions;
     const routes: SpecialistRoute[] = [];
-    for (const choice of input.routes) {
-      const eligible = versions.filter((p) =>
-        choice.agent
-          ? p.profileId === choice.agent.profileId && p.revision === choice.agent.revision
-          : p.definition.modelPolicyRole === choice.role || p.definition.role === choice.role,
-      );
-      const latest = new Map<string, AgentLibraryVersion>();
-      for (const p of eligible)
-        if ((latest.get(p.profileId)?.revision ?? 0) < p.revision) latest.set(p.profileId, p);
-      if (latest.size !== 1)
-        throw Error(
-          `Role ${choice.role} needs one exact published specialist; select its agent revision from catalog`,
-        );
-      const profile = [...latest.values()][0];
+    for (const [index, choice] of authorizationInput.routes.entries()) {
       const binding = loadAccountProfiles().resolve(choice.accountId, choice.model);
-      const route = SpecialistRouteSchema.parse({
-        ...choice,
-        agent: { profileId: profile.profileId, revision: profile.revision },
-        profileHash: profile.contentHash,
-        provider: binding.provider,
-        accountRevision: binding.profileRevision,
-      });
+      let route: SpecialistRoute;
+      if (prior) route = prior.routes[index];
+      else {
+        const eligible = versions.filter((p) =>
+          choice.agent
+            ? p.profileId === choice.agent.profileId && p.revision === choice.agent.revision
+            : p.definition.modelPolicyRole === choice.role || p.definition.role === choice.role,
+        );
+        const latest = new Map<string, AgentLibraryVersion>();
+        for (const p of eligible)
+          if ((latest.get(p.profileId)?.revision ?? 0) < p.revision) latest.set(p.profileId, p);
+        if (latest.size !== 1)
+          throw Error(
+            `Role ${choice.role} needs one exact published specialist; select its agent revision from catalog`,
+          );
+        const profile = [...latest.values()][0];
+        route = SpecialistRouteSchema.parse({
+          ...choice,
+          agent: { profileId: profile.profileId, revision: profile.revision },
+          profileHash: profile.contentHash,
+          provider: binding.provider,
+          accountRevision: binding.profileRevision,
+        });
+      }
       await this.resolveRoute(route);
       if (
         !(repositoryWorkspaceCatalog(binding).repositories ?? []).some(
@@ -264,9 +287,9 @@ export class SpecialistConsultations {
       routes,
       expiresAt:
         prior?.expiresAt ??
-        Math.min(a.auth.expiresAt, Date.now() + (input.durationMinutes ?? 30) * 60000),
-      maxConsultations: input.maxConsultations ?? 4,
-      maxContextBytes: input.maxContextBytes ?? 32000,
+        Math.min(a.auth.expiresAt, Date.now() + authorizationInput.durationMinutes * 60000),
+      maxConsultations: authorizationInput.maxConsultations,
+      maxContextBytes: authorizationInput.maxContextBytes,
     };
     const display = {
       ...selection,
@@ -279,6 +302,8 @@ export class SpecialistConsultations {
     this.current(a);
     for (const route of routes) await this.resolveRoute(route);
     this.current(a);
+    if (prior) this.receipts.assertPolicy(a.leadSessionId, a.auth.id, prior.policyId);
+    if (selection.expiresAt <= Date.now()) throw Error('Consultation policy expired');
     const groups = prior
       ? undefined
       : this.owners.events.listSessionCollaborations(a.leadSessionId);
@@ -291,6 +316,7 @@ export class SpecialistConsultations {
       a.auth.id,
       selection,
       groups?.collaborations[0]?.collaborationId,
+      authorizationInput,
     );
     if (!this.owners.events.getSessionCollaboration(policy.collaborationId))
       this.owners.events.collaborationConversation.begin(policy.collaborationId, {

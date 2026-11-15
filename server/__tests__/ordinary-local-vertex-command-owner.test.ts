@@ -6,6 +6,11 @@ import type { OrdinaryTurnLifecycle } from '../ordinary-turn-lifecycle.js';
 import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
 import { randomUUID } from 'node:crypto';
 import { replayEventsToMessages } from '../conversation-transcript.js';
+import type { OrdinarySdkCommandToolAuthority } from '../ordinary-local-vertex-sdk-query.js';
+import {
+  ordinarySdkRetryCommandId,
+  readOwnedVertexRetrySource,
+} from '../ordinary-local-vertex-queue.js';
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
 const binding = {
@@ -45,6 +50,8 @@ function setup(turnLifecycle?: OrdinaryTurnLifecycle, recordEvidence = false) {
   const assertCurrent = vi.fn();
   const assertCurrentSync = vi.fn();
   const query = {
+    bindCommandToolAuthority: undefined as
+      ((authority: OrdinarySdkCommandToolAuthority) => void) | undefined,
     applySettings: undefined as
       ((selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>) | undefined,
     setModel: vi.fn(async (model: string) => {
@@ -64,7 +71,7 @@ function setup(turnLifecycle?: OrdinaryTurnLifecycle, recordEvidence = false) {
     ),
     abort: vi.fn(),
   };
-  const owner = new OrdinaryLocalVertexCommandOwner({
+  const owners = {
     store,
     sessionId: 'session',
     assertCurrent,
@@ -73,15 +80,178 @@ function setup(turnLifecycle?: OrdinaryTurnLifecycle, recordEvidence = false) {
     turnEvidence: recordEvidence
       ? new OrdinarySdkTurnEvidence(store, 'session', 'sdk-thread')
       : undefined,
-    ownsClaim: (id) => store.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed',
+    ownsClaim: (id: string) =>
+      store.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed',
     query,
-    settings: (selection) => ({
+    settings: (selection: OrdinaryLocalCommandAdmission['selection']) => ({
       model: selection.model,
       thinkingTokens: selection.thinking === null ? null : 10000,
     }),
-  });
-  return { store, owner, calls, query, assertCurrent, assertCurrentSync };
+  };
+  const owner = new OrdinaryLocalVertexCommandOwner(owners);
+  return {
+    store,
+    owner,
+    calls,
+    query,
+    assertCurrent,
+    assertCurrentSync,
+    restart: () => new OrdinaryLocalVertexCommandOwner(owners),
+  };
 }
+it('binds an immutable ceiling to the released input and never lends it to a queued successor', async () => {
+  const f = setup();
+  f.store.admitWithOrdinarySkillContext(
+    'session',
+    'first',
+    { text: 'first', prompt: 'Instructions', allowedTools: ['Read', 'Agent'] },
+    () => {},
+  );
+  const authorities: OrdinarySdkCommandToolAuthority[] = [];
+  f.query.bindCommandToolAuthority = (authority) => {
+    authorities.push(authority);
+  };
+  await f.owner.enqueue('first');
+  const first = authorities[0];
+  expect(first?.commandId).toBe('first');
+  expect(() => first.checkTool('Read')).toThrow(/input|command/);
+  f.owner.assertInputCurrent('first');
+  expect(first.checkTool('Read')).toBe('allow');
+  expect(first.checkTool('Write')).toBe('deny');
+  expect(first.checkTool('Agent')).toBe('deny');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+  await f.owner.enqueue('second');
+  expect(authorities).toHaveLength(1);
+  expect(first.checkTool('Write')).toBe('deny');
+  f.owner.inputObserved('first-input');
+  await f.owner.resultObserved('first-input');
+  expect(authorities).toHaveLength(2);
+  expect(() => first.checkTool('Read')).toThrow(/command/);
+  f.owner.assertInputCurrent('second');
+  expect(authorities[1].checkTool('Write')).toBe('allow');
+});
+it('refuses a restricted input before execution admission if its query cannot bind the ceiling', async () => {
+  const f = setup();
+  f.store.admitWithOrdinarySkillContext(
+    'session',
+    'first',
+    { text: 'first', prompt: 'Instructions', allowedTools: [] },
+    () => {},
+  );
+  await expect(f.owner.enqueue('first')).rejects.toThrow(/ceiling.*unavailable/);
+  expect(f.store.getExecutionAdmission('session', 'first')).toBeUndefined();
+  expect(f.query.push).not.toHaveBeenCalled();
+});
+it.each(['authority', 'stopping', 'context'] as const)(
+  'rechecks %s revocation for the original command at every tool call',
+  async (kind) => {
+    const f = setup();
+    const context = { text: 'first', prompt: 'Instructions', allowedTools: ['Read'] };
+    f.store.admitWithOrdinarySkillContext('session', 'first', context, () => {});
+    let authority!: OrdinarySdkCommandToolAuthority;
+    f.query.bindCommandToolAuthority = (next) => {
+      authority = next;
+    };
+    await f.owner.enqueue('first');
+    f.owner.assertInputCurrent('first');
+    expect(authority.checkTool('Read')).toBe('allow');
+    if (kind === 'authority')
+      f.assertCurrentSync.mockImplementation(() => {
+        throw Error('Runtime revoked');
+      });
+    else if (kind === 'stopping')
+      f.store.transitionExecution(
+        f.store.getExecutionAdmission('session', 'first')!.token,
+        'STOPPING',
+      );
+    else
+      f.store.append('session', 'ordinary_skill_context', {
+        messageId: 'first',
+        ...context,
+        allowedTools: ['Write'],
+      });
+    expect(() => authority.checkTool('Read')).toThrow();
+    expect(() => authority.checkTool('Write')).toThrow();
+  },
+);
+it('restores a never-started FIFO ceiling into a fresh owner without replaying a completed command', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  await f.owner.complete('first');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('recovered'));
+  f.store.admitWithOrdinarySkillContext(
+    'session',
+    'recovered',
+    { text: 'recovered', prompt: 'Instructions', allowedTools: [] },
+    () => {},
+  );
+  let authority!: OrdinarySdkCommandToolAuthority;
+  f.query.bindCommandToolAuthority = (next) => {
+    authority = next;
+  };
+  const recovered = f.restart();
+  await recovered.enqueue('recovered');
+  recovered.assertInputCurrent('recovered');
+  expect(authority.checkTool('Read')).toBe('deny');
+  await recovered.complete('recovered');
+  expect(() => authority.checkTool('Read')).toThrow(/command/);
+  await expect(recovered.enqueue('first')).rejects.toThrow(/replay/);
+});
+it('retries a positively cancelled preparation as a new exact intent without resetting its failed receipt', async () => {
+  const f = setup();
+  const controller = new AbortController();
+  let release!: () => void;
+  f.query.setModel.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const pending = f.owner.enqueue('first', controller.signal);
+  const refused = expect(pending).rejects.toThrow('Explicit preparation deadline');
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  controller.abort(Error('Explicit preparation deadline'));
+  release();
+  await refused;
+  expect(f.query.push).not.toHaveBeenCalled();
+  expect(f.query.abort).not.toHaveBeenCalled();
+  const original = f.store.getSendCommand('first');
+  expect(original?.error).toBe('Cancelled before SDK dispatch');
+  expect(readOwnedVertexRetrySource(f.store, 'session')).toMatchObject({
+    sourceCommandId: 'first',
+    requiresConfirmation: false,
+  });
+  expect(() => f.store.withOrdinaryDerivedCommandContext('session', 'first', () => {})).toThrow(
+    /source admission failed/i,
+  );
+  const childId = ordinarySdkRetryCommandId('first');
+  f.store.withOrdinaryUnsentSdkRetryContext('session', 'first', (current) => {
+    current();
+    f.store.admitOrdinaryLocalVertexContinuation(meta, binding, {
+      ...command(childId),
+      payload: original!.payload,
+    });
+  });
+  await f.owner.enqueue(childId, undefined, 'first');
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual([childId]);
+  expect(f.store.getSendCommand('first')).toEqual(original);
+  expect(f.store.getOrdinaryLocalVertexCommandAdmission('first')?.state).toBe('consumed');
+  await f.owner.complete(childId);
+});
+
+it('refuses generic failed pre-input evidence without the original cancellation or settled SDK result', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  const token = f.store.getExecutionAdmission('session', 'first')!.token;
+  f.store.transitionExecution(token, 'TERMINAL', 'failed');
+  f.store.failSendCommand('first', 'Unknown provider or tool outcome');
+  expect(readOwnedVertexRetrySource(f.store, 'session')).toBeUndefined();
+  expect(() => f.store.withOrdinaryUnsentSdkRetryContext('session', 'first', () => {})).toThrow(
+    /proof unavailable/i,
+  );
+  expect(f.query.push).toHaveBeenCalledOnce();
+});
+
 it('renews only the exact active, not-yet-acknowledged SDK input at its final yield', async () => {
   const lifecycle = { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() };
   const f = setup(lifecycle, true);
@@ -117,6 +287,152 @@ it('offers a peer steering target only after the original SDK input is acknowled
   expect(f.owner.peerTurnTarget()).toBe('first');
   await f.owner.resultObserved('original-input');
   expect(f.owner.peerTurnTarget()).toBeUndefined();
+});
+it('coalesces concurrent Continue requests without aborting the newly running command', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+  await f.owner.enqueue('second');
+  f.store.transitionExecution(f.store.getExecutionAdmission('session', 'first')!.token, 'STOPPING');
+  await f.owner.complete('first');
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+  await expect(Promise.all([f.owner.resumeQueue(), f.owner.resumeQueue()])).resolves.toEqual([
+    undefined,
+    undefined,
+  ]);
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
+  expect(f.query.abort).not.toHaveBeenCalled();
+});
+it('cancels a stopped input before its final SDK yield and keeps successors paused', async () => {
+  const f = setup(undefined, true);
+  await f.owner.enqueue('first');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+  await f.owner.enqueue('second');
+  await f.owner.stop(randomUUID());
+  expect(f.owner.assertInputCurrent('first')).toBe(false);
+  expect(f.store.getSession('session')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+  expect(f.store.getOrdinarySdkTurnEvents('session', 'first')).toEqual([]);
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+  expect(f.store.hasOnlyCancelledOrdinarySdkInputs('session')).toBe(true);
+  await f.owner.resumeQueue();
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
+  expect(f.store.hasOnlyCancelledOrdinarySdkInputs('session')).toBe(false);
+  await f.owner.stop(randomUUID());
+  expect(f.owner.assertInputCurrent('second')).toBe(false);
+  expect(f.store.hasOnlyCancelledOrdinarySdkInputs('session')).toBe(true);
+  // A generation without a correlated cancellation receipt invalidates the proof.
+  const uncorrelated = f.store.beginExecution('session').token;
+  f.store.transitionExecution(uncorrelated, 'TERMINAL', 'stopped');
+  expect(f.store.hasOnlyCancelledOrdinarySdkInputs('session')).toBe(false);
+  expect(f.query.abort).not.toHaveBeenCalled();
+});
+it('cancels Stop during settings preparation without pushing input or dispatching successors', async () => {
+  const f = setup(undefined, true);
+  let release!: () => void;
+  f.query.setModel.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const first = f.owner.enqueue('first');
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  await f.owner.stop(randomUUID());
+  release();
+  await first;
+  expect(f.query.push).not.toHaveBeenCalled();
+  expect(f.query.abort).not.toHaveBeenCalled();
+  expect(f.store.getSession('session')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+});
+it.each(['push', 'post-push-fence'] as const)(
+  'preserves every FIFO successor when a stopped pre-input command is cancelled during %s',
+  async (phase) => {
+    const f = setup(undefined, true);
+    await f.owner.enqueue('first');
+    f.owner.assertInputCurrent('first');
+    f.owner.inputObserved('first-input');
+    for (const id of ['second', 'third', 'fourth']) {
+      f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command(id));
+      await f.owner.enqueue(id);
+      f.store.claimOrdinaryLocalVertexCommandDispatch(id);
+      f.store.completeOrdinaryLocalVertexCommand(id);
+    }
+    let release!: () => void;
+    let waiting = false;
+    const pendingFence = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const wait = () => {
+      waiting = true;
+      return pendingFence;
+    };
+    f.query.push.mockImplementationOnce(async (id) => {
+      f.calls.push(`push:${id}`);
+      if (phase === 'push') await wait();
+      else f.assertCurrent.mockImplementationOnce(wait);
+    });
+    const completed = f.owner.resultObserved('first-input');
+    await vi.waitFor(() => expect(waiting).toBe(true));
+    expect(f.owner.activeCommandId()).toBe('second');
+    await f.owner.stop(randomUUID());
+    expect(f.owner.assertInputCurrent('second')).toBe(false);
+    expect(f.store.getSendCommand('second')?.error).toBe('Cancelled before SDK dispatch');
+    expect(f.store.getOrdinarySdkTurnEvents('session', 'second')).toEqual([]);
+    const continuing = f.owner.resumeQueue();
+    release();
+    await completed;
+    await continuing;
+    expect(f.store.getSendCommand('second')?.error).toBe('Cancelled before SDK dispatch');
+    expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second', 'third']);
+    f.owner.assertInputCurrent('third');
+    f.owner.inputObserved('third-input');
+    await f.owner.resultObserved('third-input');
+    expect(f.query.push.mock.calls.map(([id]) => id)).toEqual([
+      'first',
+      'second',
+      'third',
+      'fourth',
+    ]);
+    f.owner.assertInputCurrent('fourth');
+    f.owner.inputObserved('fourth-input');
+    await f.owner.resultObserved('fourth-input');
+    expect(f.owner.activeCommandId()).toBeUndefined();
+    expect(f.query.abort).not.toHaveBeenCalled();
+  },
+);
+it('retains Stop while a result is settling even without a native interrupt target', async () => {
+  const f = setup(undefined, true);
+  await f.owner.enqueue('first');
+  f.owner.assertInputCurrent('first');
+  f.owner.inputObserved('input');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+  await f.owner.enqueue('second');
+  let release!: () => void;
+  f.assertCurrent.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const result = f.owner.resultObserved('input');
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  await f.owner.stop(randomUUID());
+  expect(f.store.getSession('session')?.executionPhase).toBe('STOPPING');
+  release();
+  await result;
+  expect(f.store.getSession('session')).toMatchObject({
+    executionPhase: 'TERMINAL',
+    executionTerminalReason: 'stopped',
+  });
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+  await f.owner.resumeQueue();
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
 });
 it('projects a positively cancelled queued peer message into both retained transcripts before any provider input', async () => {
   const f = setup();

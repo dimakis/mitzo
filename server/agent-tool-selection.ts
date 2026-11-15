@@ -1,4 +1,5 @@
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
+import { telosSdkToolNames, telosSdkPrefix } from './telos-sdk-definitions.js';
 import type { AgentToolReference, SymposiumProfileDefinition } from '@mitzo/protocol';
 import { agentToolCatalog } from './agent-tool-catalog.js';
 import { TASK_MCP_SERVER_NAME } from './host-mcp-servers.js';
@@ -54,11 +55,11 @@ export function assertAgentToolRoute(
       throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
     }
     if (ref.id.startsWith('mcp:')) {
-      if (['local-api', 'codex', 'codex-owned-local'].includes(route)) continue;
+      if (['local-api', 'codex', 'codex-owned-local', 'claude-sdk'].includes(route)) continue;
       throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
     }
     if (ref.id.startsWith('api:')) {
-      if (['local-api', 'codex'].includes(route)) continue;
+      if (['local-api', 'codex', 'claude-sdk'].includes(route)) continue;
       throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
     }
     const entry = catalog.find((tool) => tool.id === ref.id && tool.version === ref.version);
@@ -68,8 +69,9 @@ export function assertAgentToolRoute(
 }
 export function agentToolReferenceSupportsRoute(ref: AgentToolReference, route: string): boolean {
   if (ref.id.startsWith('custom:')) return route === 'local-api';
-  if (ref.id.startsWith('mcp:')) return ['local-api', 'codex', 'codex-owned-local'].includes(route);
-  if (ref.id.startsWith('api:')) return ['local-api', 'codex'].includes(route);
+  if (ref.id.startsWith('mcp:'))
+    return ['local-api', 'codex', 'codex-owned-local', 'claude-sdk'].includes(route);
+  if (ref.id.startsWith('api:')) return ['local-api', 'codex', 'claude-sdk'].includes(route);
   return agentToolCatalog().some(
     (tool) => tool.id === ref.id && tool.version === ref.version && tool.routes.includes(route),
   );
@@ -92,6 +94,12 @@ export function bindAgentToolSelection(
 export function hasAgentToolSelection(session: object): boolean {
   return selections.get(session) !== undefined;
 }
+/** The immutable server-bound route determines the exact skill identity, never tool JSON. */
+export function agentToolPolicyName(session: object, canonicalName: string): string {
+  return selectionRoutes.get(session) === 'claude-sdk'
+    ? (ordinarySdkHelperPolicyName(canonicalName) ?? canonicalName)
+    : canonicalName;
+}
 /** Explicit profiles start only tool sources whose receipt admission was implemented. */
 export function configuredMcpSourcesForAgentSelection<T>(
   session: object,
@@ -103,11 +111,14 @@ export function agentToolAllowed(session: object, name: string): boolean {
   const selection = selections.get(session);
   if (selection === undefined) return true;
   if (configuredSelections.get(session)?.includes(name)) return true;
+  const telosName = name.startsWith(telosSdkPrefix) ? name.slice(telosSdkPrefix.length) : '';
   const canonical = name.startsWith(sdkPrefix)
     ? name.slice(sdkPrefix.length)
-    : name === 'mcp__telos__TelosCreateSession'
-      ? 'TelosCreateSession'
-      : name;
+    : name === 'mcp__mitzo-web-access__RequestWebAccess'
+      ? 'RequestWebAccess'
+      : telosName === 'TelosCreateSession' || telosSdkToolNames.includes(telosName)
+        ? telosName
+        : name;
   const route = selectionRoutes.get(session) ?? 'local-api';
   const entry = agentToolCatalog().find(
     (tool) => tool.name === canonical && tool.routes.includes(route),

@@ -1,12 +1,29 @@
 import { randomUUID } from 'node:crypto';
-import { TelosCreateSessionInputSchema } from '@mitzo/protocol';
-import { sessionLaunchTools } from './session-launch-tools.js';
-import { telosSessionLaunchDefinition } from './telos-session-launch-tool.js';
+import { GoogleWorkspaceReadSchema } from './google-workspace-read.js';
+import { registerGoogleWorkspaceSdkTool } from './google-workspace-sdk.js';
+import {
+  StartSessionInputSchema,
+  TelosCreateSessionInputSchema,
+  AgentReadTasksSchema,
+  AgentTaskProposalInputSchema,
+} from '@mitzo/protocol';
+import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
+import {
+  sessionHistoryToolSchemas,
+  sessionHistoryToolDefinitions,
+} from './session-history-tools.js';
+import { sessionSdkHistoryTools } from './session-history-sdk.js';
+import type { EventStore } from './event-store.js';
+import { sessionLaunchTools, sessionLaunchDefinitions } from './session-launch-tools.js';
 import { learningToolSchemas, learningToolDefinitions } from './session-learning-tools.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
-import { copyCallbackOutcome, type TurnCallbackRunner } from './turn-callbacks.js';
+import {
+  copyCallbackOutcome,
+  retainCallbackOutcome,
+  type TurnCallbackRunner,
+} from './turn-callbacks.js';
 import {
   AgentCommunicationSdkInput,
   agentCommunicationDefinitions,
@@ -30,9 +47,12 @@ import {
 import {
   credentialConnectionSchemas,
   credentialConnectionToolDefinitions,
+  nativeConnectionToolNames,
 } from './credential-connection-tools.js';
 import { sessionCredentialTools } from './session-credential-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
+import { assertToolResultAuthority, copyToolResultAuthority } from './codex-tool-result.js';
+import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
 
 const prefix = 'mcp__mitzo-connections__';
 /** Keep SDK auto-admission and the mandatory PreToolUse route fence aligned.
@@ -45,6 +65,11 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  StartSession: StartSessionInputSchema,
+  GoogleWorkspaceRead: GoogleWorkspaceReadSchema,
+  AgentReadTasks: AgentReadTasksSchema,
+  AgentProposeTask: AgentTaskProposalInputSchema,
+  ...sessionHistoryToolSchemas,
   TelosCreateSession: TelosCreateSessionInputSchema,
   AgentCommunication: AgentCommunicationSdkInput,
   ...sessionPromptSchemas,
@@ -62,6 +87,43 @@ const definitions = [
   ...learningToolDefinitions,
   ...sessionPromptDefinitions,
 ];
+/** Guidance follows the same captured selection as registration. */
+export function sdkInformationInstructions(session: ManagedSession): string {
+  const guidance = [
+    [
+      'AgentCommunication',
+      'AgentCommunication list discovers owned ordinary chats and their current delivery capabilities; it is not a saved-history search.',
+    ],
+    [
+      'SearchPastSessions',
+      'SearchPastSessions searches authorized saved history. Follow its continuation fields; incomplete pages are not a full inventory.',
+    ],
+    [
+      'ReadPastSession',
+      'ReadPastSession reads public messages from an exact authorized saved conversation, preserving the returned snapshot while paging.',
+    ],
+    [
+      'ReadKnowledge',
+      'ReadKnowledge identifies accepted Knowledge Library documents and their exact revisions.',
+    ],
+    [
+      'SaveKnowledgeDraft',
+      'SaveKnowledgeDraft saves a proposal for existing accepted documents after reading them. A draft is not reviewed, accepted or published.',
+    ],
+    [
+      'AgentReadTasks',
+      'AgentReadTasks lists or reads saved Agent Library task definitions and exact revisions.',
+    ],
+    [
+      'AgentProposeTask',
+      'AgentProposeTask retains the expected revision and exact profile pin for user review; it never runs or schedules a task.',
+    ],
+  ];
+  return guidance
+    .filter(([name]) => agentToolAllowed(session, name))
+    .map(([, text]) => '\n' + text)
+    .join('');
+}
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
 export function credentialSdkPermission(
   name: string,
@@ -110,7 +172,12 @@ export function createCredentialSdkServer(
     assertCurrent(signal: AbortSignal): Promise<void>;
     assertCurrentSync(signal: AbortSignal): void;
     runCallback?: TurnCallbackRunner;
-    agentCommunication?(): Pick<ReturnType<typeof sessionAgentCommunicationTools>, 'execute'>;
+    /** Original query/command ceiling; selection and operation authority still apply. */
+    checkTool?(name: string): 'allow' | 'deny';
+    agentCommunication?(
+      assertToolCurrent: () => void,
+    ): Pick<ReturnType<typeof sessionAgentCommunicationTools>, 'execute'>;
+    historyEvents?: EventStore;
   },
 ) {
   const runtimeId = randomUUID();
@@ -130,30 +197,35 @@ export function createCredentialSdkServer(
       }
     },
   };
-  let current: { id: string; tools: ReturnType<typeof sessionCredentialTools> } | undefined;
-  return createSdkMcpServer({
+  const originalCheckTool = boundary?.checkTool;
+  const current = new Map<
+    string,
+    { id: string; tools: ReturnType<typeof sessionCredentialTools> }
+  >();
+  const server = createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
     tools: filterAgentTools(session, [
       ...(boundary?.profilesOnly
         ? [
-            ...credentialConnectionToolDefinitions.filter(
-              (tool) => tool.name === 'ListConnections',
+            ...credentialConnectionToolDefinitions.filter((tool) =>
+              nativeConnectionToolNames.has(tool.name),
             ),
             ...profileToolDefinitions,
             ...sessionPromptDefinitions,
             ...learningToolDefinitions,
+            ...knowledgeToolDefinitions,
+            ...agentTaskToolDefinitions,
           ]
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
-      ...(boundary ? [telosSessionLaunchDefinition] : []),
+      ...(boundary?.historyEvents ? sessionHistoryToolDefinitions : []),
+      ...(boundary ? sessionLaunchDefinitions : []),
     ]).map((definition) =>
       tool(
         definition.name,
-        boundary?.profilesOnly && definition.name === 'ListConnections'
-          ? 'List configured Mitzo connections and their access state. Returns metadata only; this Claude route does not expose connection access requests or service requests. Credentials remain private. Open Connections to configure services.'
-          : definition.description,
-        schemas[definition.name as keyof typeof schemas].shape,
+        definition.description,
+        schemas[definition.name as Exclude<keyof typeof schemas, 'GoogleWorkspaceRead'>].shape,
         async (input, extra) => {
           const callSignal =
             extra !== null &&
@@ -165,6 +237,21 @@ export function createCredentialSdkServer(
           const signal = callSignal
             ? AbortSignal.any([session.abortController.signal, callSignal])
             : session.abortController.signal;
+          const assertDelivery = (result: object) => {
+            try {
+              assertToolResultAuthority(result);
+            } catch (error) {
+              // A withheld read is a settled observation, never an uncertain
+              // write. Runtime refusal/cancellation still takes the throw path.
+              if (
+                !signal.aborted &&
+                error instanceof Error &&
+                isReadOnlyBuiltinToolCall(definition.name, input)
+              )
+                retainCallbackOutcome(error, 'settled');
+              throw error;
+            }
+          };
           if (signal.aborted)
             return {
               content: [{ type: 'text' as const, text: 'Tool call cancelled before dispatch.' }],
@@ -181,6 +268,23 @@ export function createCredentialSdkServer(
                 },
               },
               async (signal) => {
+                const assertCommandTool = () => {
+                  if (originalCheckTool && originalCheckTool(prefix + definition.name) !== 'allow')
+                    throw Error('Tool not allowed by the frozen command skill ceiling');
+                };
+                assertCommandTool();
+                const toolAuthority = authority && {
+                  async assertCurrent(signal: AbortSignal) {
+                    assertCommandTool();
+                    await authority.assertCurrent(signal);
+                    assertCommandTool();
+                  },
+                  assertCurrentSync(signal: AbortSignal) {
+                    assertCommandTool();
+                    authority.assertCurrentSync(signal);
+                    assertCommandTool();
+                  },
+                };
                 const id = sessionId();
                 if (!id)
                   return {
@@ -189,15 +293,48 @@ export function createCredentialSdkServer(
                     ],
                     isError: true,
                   };
-                if (definition.name === 'TelosCreateSession' && authority) {
-                  await authority.assertCurrent(signal);
+                if (
+                  boundary?.historyEvents &&
+                  Object.hasOwn(sessionHistoryToolSchemas, definition.name)
+                ) {
+                  await toolAuthority!.assertCurrent(signal);
+                  const result = await sessionSdkHistoryTools({
+                    events: boundary.historyEvents,
+                    session,
+                    registry,
+                    signal,
+                    ...toolAuthority!,
+                  }).execute(definition.name, input, signal, {
+                    turnId: runtimeId,
+                    callId: String(
+                      (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+                    ),
+                  });
+                  await toolAuthority!.assertCurrent(signal);
+                  if (!result) throw Error('History handler unavailable');
+                  assertDelivery(result);
+                  qualifyToolResult(definition.name, input, signal, result);
+                  return copyToolResultAuthority(
+                    result,
+                    copyCallbackOutcome(result, {
+                      content: [{ type: 'text' as const, text: result.content }],
+                      isError: result.isError,
+                    }),
+                  );
+                }
+                if (
+                  (definition.name === 'StartSession' ||
+                    definition.name === 'TelosCreateSession') &&
+                  toolAuthority
+                ) {
+                  await toolAuthority.assertCurrent(signal);
                   const result = await sessionLaunchTools({
                     sessionId: id,
                     session,
                     registry,
                     permissionPrefix: prefix,
-                    assertCurrent: () => authority.assertCurrent(signal),
-                    assertCurrentSync: () => authority.assertCurrentSync(signal),
+                    assertCurrent: () => toolAuthority.assertCurrent(signal),
+                    assertCurrentSync: () => toolAuthority.assertCurrentSync(signal),
                   }).execute(
                     input,
                     signal,
@@ -207,20 +344,20 @@ export function createCredentialSdkServer(
                         (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
                       ),
                     },
-                    'TelosCreateSession',
+                    definition.name,
                   );
-                  await authority.assertCurrent(signal);
+                  await toolAuthority.assertCurrent(signal);
                   return {
                     content: [{ type: 'text' as const, text: JSON.stringify(result) }],
                     isError: false,
                   };
                 }
                 if (definition.name === 'AgentCommunication' && boundary?.agentCommunication) {
-                  await authority!.assertCurrent(signal);
+                  await toolAuthority!.assertCurrent(signal);
                   const peerInput = AgentCommunicationSdkInput.parse(input);
                   const result = await executeAgentCommunicationTool(
                     () =>
-                      boundary.agentCommunication!().execute(peerInput, signal, {
+                      boundary.agentCommunication!(assertCommandTool).execute(peerInput, signal, {
                         turnId: runtimeId,
                         callId: String(
                           (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
@@ -232,14 +369,15 @@ export function createCredentialSdkServer(
                       recipientConversationId: peerInput.recipientConversationId,
                     },
                   );
-                  await authority!.assertCurrent(signal);
+                  await toolAuthority!.assertCurrent(signal);
                   return copyCallbackOutcome(result, {
                     content: [{ type: 'text' as const, text: result.content }],
                     isError: result.isError,
                   });
                 }
-                if (current?.id !== id)
-                  current = {
+                let selected = current.get(definition.name);
+                if (selected?.id !== id) {
+                  selected = {
                     id,
                     tools: sessionCredentialTools(
                       id,
@@ -247,24 +385,27 @@ export function createCredentialSdkServer(
                       registry,
                       prefix,
                       undefined,
-                      authority
-                        ? () => authority.assertCurrent(session.abortController.signal)
+                      toolAuthority
+                        ? () => toolAuthority.assertCurrent(session.abortController.signal)
                         : undefined,
-                      authority
-                        ? () => authority.assertCurrentSync(session.abortController.signal)
+                      toolAuthority
+                        ? () => toolAuthority.assertCurrentSync(session.abortController.signal)
                         : undefined,
-                      false,
+                      !!boundary?.profilesOnly,
                       { boundary: boundary?.connectionBoundary },
                     ),
                   };
-                await authority?.assertCurrent(signal);
-                const rawResult = await current.tools.execute(definition.name, input, signal, {
+                  current.set(definition.name, selected);
+                }
+                await toolAuthority?.assertCurrent(signal);
+                const rawResult = await selected.tools.execute(definition.name, input, signal, {
                   turnId: runtimeId,
                   callId: String(
                     (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
                   ),
                 });
-                await authority?.assertCurrent(signal);
+                await toolAuthority?.assertCurrent(signal);
+                if (rawResult) assertDelivery(rawResult);
                 const result =
                   rawResult && qualifyToolResult(definition.name, input, signal, rawResult);
                 const delivered = {
@@ -276,33 +417,46 @@ export function createCredentialSdkServer(
                   ],
                   isError: result?.isError ?? true,
                 };
-                return result ? copyCallbackOutcome(result, delivered) : delivered;
+                return result
+                  ? copyToolResultAuthority(result, copyCallbackOutcome(result, delivered))
+                  : delivered;
               },
-            ).catch((error: unknown) => {
-              const authorityFailed = error instanceof SdkAuthorityFailure;
-              const cause = authorityFailed ? error.cause : error;
-              const failure = reportToolFailure(cause, {
-                sessionId: sessionId() ?? runtimeId,
-                tool: definition.name,
-                signal,
-              });
-              // Authority failures, cancellation and timeout retirement retain
-              // their fences. Report before propagating the original cause.
-              if (
-                authorityFailed ||
-                signal.aborted ||
-                cause instanceof ToolGuardTimeoutError ||
-                findSessionRuntimeError(cause)
-              )
-                throw cause;
-              return copyCallbackOutcome(failure, {
-                content: [{ type: 'text' as const, text: failure.content }],
-                isError: true,
-              });
-            }),
+            )
+              .then((result) => {
+                // Guard cleanup may await too. Recheck the canonical source and
+                // caller immediately before returning the MCP payload.
+                assertDelivery(result);
+                return result;
+              })
+              .catch((error: unknown) => {
+                const authorityFailed = error instanceof SdkAuthorityFailure;
+                const cause = authorityFailed ? error.cause : error;
+                const failure = reportToolFailure(cause, {
+                  sessionId: sessionId() ?? runtimeId,
+                  tool: definition.name,
+                  signal,
+                });
+                // Authority failures, cancellation and timeout retirement retain
+                // their fences. Keep the original cause inside a safe runtime
+                // wrapper: the SDK serializes thrown messages to the model.
+                if (authorityFailed) throw findSessionRuntimeError(error) ?? error;
+                if (cause instanceof ToolGuardTimeoutError) throw cause;
+                if (signal.aborted || findSessionRuntimeError(cause))
+                  throw (
+                    findSessionRuntimeError(cause) ??
+                    new SessionRuntimeError('runtime_unavailable', { cause })
+                  );
+                return copyCallbackOutcome(failure, {
+                  content: [{ type: 'text' as const, text: failure.content }],
+                  isError: true,
+                });
+              }),
           );
         },
       ),
     ),
   });
+  if (boundary)
+    registerGoogleWorkspaceSdkTool(server.instance, sessionId, session, registry, boundary);
+  return server;
 }

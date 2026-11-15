@@ -6,6 +6,10 @@ import {
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { SessionRuntimeError } from '../session-runtime-error.js';
+import {
+  annotateAuthorityFailure,
+  runtimeFailureDiagnostics,
+} from '../runtime-failure-diagnostics.js';
 import { AsyncQueue } from '../async-queue.js';
 import { retainCallbackOutcome } from '../turn-callbacks.js';
 import {
@@ -17,6 +21,53 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it('preserves the input authority cause when reporting also fails', async () => {
+  let prompt!: AsyncIterable<unknown>;
+  vi.mocked(query).mockImplementation((request) => {
+    prompt = request.prompt as AsyncIterable<unknown>;
+    return { close: vi.fn() } as never;
+  });
+  const cause = annotateAuthorityFailure(
+    new Error('private-authority-detail'),
+    'selection.session_mode',
+  );
+  const reportingError = new Error('private-reporting-detail');
+  const controller = new AbortController();
+  const input = new AsyncQueue<SDKUserMessage>();
+  const onUnsent = vi.fn(() => {
+    throw reportingError;
+  });
+  createOrdinaryLocalVertexSdkQuery({
+    options: {},
+    input,
+    controller,
+    lifetime: new SdkHookLifetime(),
+    sdkSessionId: 'original',
+    cwd: '/task',
+    authorize: async () => {
+      throw cause;
+    },
+    authorizeSync: () => {},
+    adapt: (native) => native as never,
+    settings: () => ({}),
+    inputChanged: () => {},
+    onUnsent,
+  });
+  input.push({
+    type: 'user',
+    session_id: 'original',
+    parent_tool_use_id: null,
+    message: { role: 'user', content: 'private prompt' },
+  });
+  await expect(prompt[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+    code: 'input_not_dispatched',
+  });
+  expect(onUnsent).toHaveBeenCalledOnce();
+  const failure = controller.signal.reason as SessionRuntimeError;
+  expect(failure.cause).toMatchObject({ errors: [cause, reportingError], cause });
+  expect(runtimeFailureDiagnostics(failure).failedCheck).toBe('selection.session_mode');
+  expect(JSON.stringify(runtimeFailureDiagnostics(failure))).not.toContain('private-');
+});
 it.each([
   { type: 'custom', prompt: 'reviewed instructions', snapshot: true },
   { type: 'custom', prompt: ['reviewed instructions', 'second block'], snapshot: true },
@@ -566,7 +617,7 @@ it('retires old native hooks and permissions without executing or aborting the s
     permission = vi.fn(async () => ({ behavior: 'allow', updatedInput: {} }));
   const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
     options: {
-      sessionId: 'original',
+      resume: 'original',
       extraArgs: { 'offline-existing-flag': null },
       systemPrompt: { type: 'preset', preset: 'claude_code', append: 'Original profile context.' },
       hooks: { PreToolUse: [{ hooks: [effect] }] },
@@ -593,7 +644,9 @@ it('retires old native hooks and permissions without executing or aborting the s
     preset: 'claude_code',
     append: expect.stringContaining('Original profile context.'),
   });
-  expect((requests[0].options.systemPrompt as { append: string }).append).toContain('gws --help');
+  expect((requests[0].options.systemPrompt as { append: string }).append).toContain(
+    'GoogleWorkspaceRead when available',
+  );
   expect(requests[0].options.tools).toBeUndefined();
   await owner.apply({ model: 'first' } as never);
   await owner.apply({ model: 'second', thinking: 'high' } as never);
@@ -701,7 +754,7 @@ it('does not replace a native query until its exact spawned process closes and f
     return process as never;
   });
   const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
-    options: { sessionId: 'original', spawnClaudeCodeProcess: spawn },
+    options: { resume: 'original', spawnClaudeCodeProcess: spawn },
     input: new AsyncQueue(),
     lifetime: new SdkHookLifetime(),
     sdkSessionId: 'original',
@@ -759,7 +812,7 @@ it('preserves segmented SDK system prompts when appending local CLI guidance', (
   expect(requests[0].options.systemPrompt).toEqual([
     'Original profile.',
     'Original instructions.',
-    expect.stringContaining('gws --help'),
+    expect.stringContaining('GoogleWorkspaceRead when available'),
   ]);
   controller.abort();
 });

@@ -7,6 +7,7 @@ import {
   selectSupplementalShard,
 } from '../../tests/integration/telos-s9/integrated-candidate/supplemental-shards.mjs';
 const workflow = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
+  on: Record<string, { types?: string[] }>;
   jobs: Record<
     string,
     {
@@ -17,6 +18,11 @@ const workflow = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
     }
   >;
 };
+it('validates PR candidates without launching a duplicate full suite after merge', () => {
+  expect(workflow.on).toEqual({
+    pull_request: { types: ['opened', 'synchronize', 'reopened'] },
+  });
+});
 const selection = JSON.parse(
   readFileSync(
     'tests/integration/telos-s9/integrated-candidate/closed-supplemental-selection.json',

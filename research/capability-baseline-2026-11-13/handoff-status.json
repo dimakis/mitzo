@@ -1,0 +1,22 @@
+{
+  "asOf": "2026-11-13",
+  "candidateHead": "74f8ce1ff5d9cd77f820cd64cec66eea5f097490",
+  "codeHead": "bf5771a7",
+  "acceptedBase": "23816770cc1d80b16c557dd88f7078c7cf53f163",
+  "recipientConversationId": "16f8de38-05ab-8734-ab84-a544ab9559ed",
+  "requestId": "559491cd-63fb-4cb1-ae21-24b71db8ed2a",
+  "delivery": "not_confirmed",
+  "failure": {
+    "code": "recipient_unavailable",
+    "stage": "ownership",
+    "message": "The recipient is unavailable to this signed operator."
+  },
+  "recovery": "Retain local-integration-checkpoint.md and the candidate commits. No retry, alternate transport or proxy relay. Feature PR custody remains unresolved before publication or final CI.",
+  "remainingValidation": [
+    "Compatibility integration of existing PR1342 and PR1343 heads under the feature owner's selected custody",
+    "One Access HTTP listener test blocked by current task network:none scope",
+    "Coordinated combined-source full CI and trusted current-head review",
+    "Separately authorized live provider/process/device qualification"
+  ],
+  "externalMutations": "No push, new PR, hosted CI, main merge, deployment or live model call. Routine Telos updates deferred."
+}

@@ -75,7 +75,11 @@ it('routes Telos proposals through the owned callback and refuses retired query 
       expect.objectContaining({ permissionPrefix: 'mcp__mitzo-connections__' }),
     );
     retired = true;
-    await expect(tool.handler(input)).rejects.toThrow('query retired');
+    await expect(tool.handler(input)).rejects.toMatchObject({
+      name: 'SessionRuntimeError',
+      code: 'runtime_unavailable',
+      cause: { message: 'query retired' },
+    });
     expect(execute).toHaveBeenCalledOnce();
   } finally {
     adapter.mockRestore();
@@ -115,7 +119,11 @@ it('exposes peer messaging only through an explicitly installed owned SDK callba
     expect(JSON.stringify(result)).toContain('runtime_unsupported');
     expect(execute).toHaveBeenCalledOnce();
     current = false;
-    await expect(tool!.handler({ operation: 'list' })).rejects.toThrow('revoked');
+    await expect(tool!.handler({ operation: 'list' })).rejects.toMatchObject({
+      name: 'SessionRuntimeError',
+      code: 'runtime_unavailable',
+      cause: { message: 'revoked' },
+    });
     expect(execute).toHaveBeenCalledOnce();
   } finally {
     registry.dispose();
@@ -145,7 +153,11 @@ it('propagates SDK peer authority revocation after execution instead of reportin
       agentCommunication: () => ({ execute }),
     });
     const tool = mocked.tools.find((item) => item.name === 'AgentCommunication');
-    await expect(tool!.handler({ operation: 'list' })).rejects.toThrow('revoked after execution');
+    await expect(tool!.handler({ operation: 'list' })).rejects.toMatchObject({
+      name: 'SessionRuntimeError',
+      code: 'runtime_unavailable',
+      cause: { message: 'revoked after execution' },
+    });
     expect(execute).toHaveBeenCalledOnce();
   } finally {
     registry.dispose();

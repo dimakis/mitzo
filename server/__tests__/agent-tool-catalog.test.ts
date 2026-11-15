@@ -10,10 +10,10 @@ it.each([
   'TelosCreateChild',
   'TelosCreateFeature',
 ])(
-  'makes %s selectable for ordinary native backlog triage without requiring a lead role',
+  'makes %s selectable for ordinary native and Claude backlog triage without requiring a lead role',
   (name) => {
     expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
-      routes: ['codex-owned-local'],
+      routes: ['codex-owned-local', 'claude-sdk'],
       behavior:
         name === 'TelosManageItem' ? 'mixed' : name.startsWith('TelosCreate') ? 'write' : 'read',
       requirement: expect.stringContaining('operator'),
@@ -35,17 +35,18 @@ import {
 } from '../agent-tool-selection.js';
 
 it.each(['SearchPastSessions', 'ReadPastSession'])(
-  'registers %s only as optional owned-local read capability',
+  'registers %s as optional owned-local native and guarded SDK read capability',
   (name) => {
     expect(agentToolCatalog().find((tool) => tool.name === name)).toMatchObject({
       source: 'History',
       behavior: 'read',
-      routes: ['codex-owned-local'],
+      routes: ['codex-owned-local', 'claude-sdk'],
       required: false,
     });
     const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
     expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
-    for (const route of ['codex', 'local-api', 'openshell', 'claude-sdk'])
+    expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+    for (const route of ['codex', 'local-api', 'openshell'])
       expect(() => assertAgentToolRoute(definition, route)).toThrow();
   },
 );
@@ -96,7 +97,7 @@ it('keeps legacy behavior but blocks explicit selections on unsupported routes a
   ).not.toThrow();
   expect(() =>
     assertAgentToolRoute(
-      { tools: [{ id: 'mitzo:ConnectionRequest', version: 1 }] } as never,
+      { tools: [{ id: 'mitzo:ApplySecretRelay', version: 1 }] } as never,
       'claude-sdk',
     ),
   ).toThrow(/unavailable/i);
@@ -139,6 +140,30 @@ it('keeps required structured questions available to explicit Claude SDK profile
   ).not.toThrow();
 });
 
+it.each(['Bash', 'Read', 'Write', 'Edit'])(
+  'admits the selected existing Claude SDK builtin %s without selecting other native tools',
+  (name) => {
+    const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
+    expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+    const selected = {};
+    bindAgentToolSelection(selected, definition, 'claude-sdk');
+    expect(agentToolAllowed(selected, name)).toBe(true);
+    for (const other of ['Bash', 'Read', 'Write', 'Edit'].filter((tool) => tool !== name))
+      expect(agentToolAllowed(selected, other)).toBe(false);
+    for (const other of ['GitCommit', 'GitHubRead', `mcp__other__${name}`])
+      expect(agentToolAllowed(selected, other)).toBe(false);
+    const excluded = {};
+    bindAgentToolSelection(excluded, { tools: [] } as never, 'claude-sdk');
+    expect(agentToolAllowed(excluded, name)).toBe(false);
+    const legacy = {};
+    bindAgentToolSelection(legacy, undefined, 'claude-sdk');
+    expect(agentToolAllowed(legacy, name)).toBe(true);
+    expect(() =>
+      assertAgentToolRoute({ tools: [{ id: `mitzo:${name}`, version: 2 }] } as never, 'claude-sdk'),
+    ).toThrow(/unavailable/i);
+  },
+);
+
 it('refuses missing connection dependencies before exposing an unusable selected operation', async () => {
   const { assertAgentToolAvailability } = await import('../agent-tool-selection.js');
   const runtime = await import('../credential-connections-runtime.js');
@@ -178,12 +203,12 @@ it('registers task proposals separately from execution with explicit selection c
   expect(agentToolCatalog().find((tool) => tool.name === 'AgentReadTasks')).toMatchObject({
     version: 1,
     behavior: 'read',
-    routes: ['local-api', 'codex-owned-local'],
+    routes: ['local-api', 'codex-owned-local', 'claude-sdk'],
   });
   expect(agentToolCatalog().find((tool) => tool.name === 'AgentProposeTask')).toMatchObject({
     version: 1,
     behavior: 'write',
-    routes: ['local-api', 'codex-owned-local'],
+    routes: ['local-api', 'codex-owned-local', 'claude-sdk'],
   });
   const session = {};
   bindAgentToolSelection(session, { tools: [] } as never);
@@ -211,29 +236,31 @@ it('limits the configured main merge tool to explicit owned native selection', (
 });
 
 it.each(['TelosStartSlice', 'TelosWorkControl'])(
-  'selects existing %s only on the owned local route without granting a role',
+  'selects existing %s on owned local and Claude routes without granting a role',
   (name) => {
     const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
     expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
-      routes: ['codex-owned-local'],
-      requirement: expect.stringContaining('current retained lead'),
+      routes: ['codex-owned-local', 'claude-sdk'],
+      requirement: expect.stringContaining('current retained'),
     });
     expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
-    for (const route of ['local-api', 'codex', 'openshell', 'claude-sdk', 'symposium'])
+    expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+    for (const route of ['local-api', 'codex', 'openshell', 'symposium'])
       expect(() => assertAgentToolRoute(definition, route)).toThrow();
   },
 );
 
 it.each(['TelosGetItem', 'TelosUpdateItem'])(
-  'enrolls %s only as an explicitly selected owned-local current-lead operation',
+  'enrolls %s as an owned-local and Claude current-lead operation',
   (name) => {
     const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
     expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
-      routes: ['codex-owned-local'],
-      requirement: expect.stringContaining('current retained lead'),
+      routes: ['codex-owned-local', 'claude-sdk'],
+      requirement: expect.stringContaining('retained lead'),
     });
     expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
-    for (const route of ['local-api', 'codex', 'openshell', 'claude-sdk', 'symposium'])
+    expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+    for (const route of ['local-api', 'codex', 'openshell', 'symposium'])
       expect(() => assertAgentToolRoute(definition, route)).toThrow();
     expect(() =>
       assertAgentToolRoute(

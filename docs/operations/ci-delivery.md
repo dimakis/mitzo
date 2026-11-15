@@ -168,7 +168,7 @@ The native repository, joined and portable supplemental jobs use one conservativ
 Ordinary prose-only documentation and iOS-only changes skip these unrelated
 server/browser journeys; the latter still selects native Swift/build coverage.
 Runtime spikes, proof records, admission instructions, shared/runtime/CI code,
-unknown paths, incomplete diffs and main run the complete relevant selection.
+unknown paths and incomplete diffs run the complete relevant selection.
 Core, compiler/source validation and the complete Linux unit selection remain.
 The joined and final gates require a successful selector and accept skips only
 when explicitly unselected; missing, cancelled, failed or contradictory evidence
@@ -198,7 +198,7 @@ still fails. No acceptance case, assertion or deadline is removed.
   individual 15-minute envelopes remain unchanged, and the job cutoff fails closed.
   No production, operation, assertion or authentication deadline is expanded.
   Runtime and unknown changes conservatively select this owner, as do incomplete
-  diffs and main. Bundled skills, AGENTS.md, CLAUDE.md and authority rules also
+  diffs. Bundled skills, AGENTS.md, CLAUDE.md and authority rules also
   select it. Only ordinary prose and iOS-only changes may skip it; the final
   `ci` gate rejects absent selections or outcomes contradicting selection.
 - The twelve joined groups (fourteen actual App file cases) run in three separate
@@ -267,12 +267,32 @@ does not by itself prove an OOM or a test failure. Job timeout bounds and the
 shorter shards contain the ordinary tail; a lost hosted VM may still require
 GitHub-side cleanup after the process stops.
 
+## PR validation without a duplicate merge run
+
+The full `CI` workflow runs on PR open, synchronization and reopen events. It no
+longer starts another full suite on a push to main. Compiler/source validation,
+core checks, complete unit discovery, selected browser/native/prepared owners and
+their mandatory aggregators are unchanged. Unknown paths and incomplete PR diffs
+still select every owner; ordinary prose and iOS-only changes retain their existing
+bounded selection. A main run formerly forced every optional owner, but contained
+no unique default-branch test or build step.
+
+Build output and production-frontend evidence remain scoped to the PR workflow
+run and candidate identity. No repository consumer requires a main-push CI
+artifact; do not relabel PR artifacts as accepted-commit artifacts. Recovery and
+landing reconciliation remain separate trusted default-branch workflows awakened
+by PR CI events, and Centaur's App-bound final LGTM is still required. Strict
+up-to-date protection and exact-head guarded merge retain combined-result
+validation. After merge, verify GitHub's accepted commit and its source tree
+against the tested combined candidate; do not claim a post-merge CI run exists.
+The narrow native-helper workflows retain their existing independent triggers.
+
 ## One bounded infrastructure retry
 
 PR concurrency is scoped to both the PR and its combined candidate SHA. A new
 candidate can start while an older runner shuts down; identical-candidate runs
-still supersede each other. Main keeps its original SHA-scoped identity and is
-never cancelled by this cleanup.
+still supersede each other. Historical main runs retain their SHA-scoped identity
+and are never cancelled by this cleanup.
 
 The trusted recovery workflow also handles requested CI runs after acceptance on
 the default branch. It fetches canonical current PR/run identities and requests
@@ -456,6 +476,17 @@ environment before claiming the interruption handoff works end to end.
 
 ## Browser journey readiness
 
+On 14 November, native repository run `43535298136` retained a publication
+helper deadline failure during final owner validation on a loaded macOS runner.
+The registration fixture now makes deep synchronous profiling opt-in with
+`MITZO_NATIVE_READ_PROFILE=1`, matching the standalone reader fixture. Basic
+timing, identity, ownership, receipt and helper diagnostics remain enabled;
+every assertion and deadline remains unchanged. Profiling overhead is a
+hypothesis, not a proved cause. A separate discovery result was
+`inspection-unavailable` without a retained underlying cause. Helper diagnostics
+now retain sanitized failure classifications and timestamps for its next run;
+the evidence does not justify changing production discovery or its bounds.
+
 Observe each navigation or chooser action before it starts. Fresh draft runtime inventory must be consumed before configuring ordinary settings; role review depends on those settings, so its ten-second response phase follows configuration. Retain existing UI assertions and interaction deadlines. Require exact item/role or conversation identity, successful status and completed schema-valid bodies; task-page waits match a valid task tree by exact task ID. Deliberately delayed collection reads remain outside chooser readiness when canonical record/work reads are the tested dependency.
 
 The worker-replacement journey now observes its fresh item-work GET from the
@@ -471,6 +502,14 @@ This extends the permitted navigation-to-assertion sequence within the unchanged
 or history assertions, or wait for unrelated collection hydration.
 
 The complete native non-git journey keeps its 120-second local envelope and uses a finite 180-second CI envelope. Retained hosted-runner evidence completed it in 106–112 seconds and cut off a valid final replay at 120 seconds. This is a composed fixture allowance; production, individual request, helper, approval and handoff deadlines remain unchanged. Timeouts still require diagnosis rather than automatic retry.
+
+On 14 November, run `43535298136` reached the native role-composition lead chat
+but exhausted its five-second textbox assertion after direct navigation. Retained
+metadata's observation time fell within the final second of that window. The journey now reuses
+the exact-conversation metadata observer before navigation, requiring a fresh,
+completed 200 response for the intended lead within the existing ten-second
+readiness allowance. The five-second textbox assertion and whole-case bound
+remain unchanged; the next hosted run must verify the complete journey.
 
 ## Exact Node version for compiled transfers, 30 October 2026
 

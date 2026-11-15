@@ -1,0 +1,155 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/symposium-phone-joining[39m
+
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts [2m([22m[2m92 tests[22m[2m)[22m[33m 637[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps the theme and font definitions in one file [33m 632[2mms[22m[39m
+[90mstderr[2m | frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22m[2mreplays retained normalized wire through actual hook/journal/client with current connection, no capture reads or invented capacity
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'00000000-0000-4000-8000-000000000020'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx [2m([22m[2m41 tests[22m[2m)[22m[32m 54[2mms[22m[39m
+ [31m❯[39m server/__tests__/collaboration-application-review.test.ts [2m([22m[2m35 tests[22m[2m | [22m[31m35 failed[39m[2m)[22m[32m 71[2mms[22m[39m
+[31m   [31m×[31m preserves a failed joining-settings cause internally while exposing only its safe contract code[39m[32m 7[2mms[22m[39m
+[31m   [31m×[31m lists exact registered artifact versions through current source/transport authority without candidate bytes[39m[32m 3[2mms[22m[39m
+[31m   [31m×[31m reviews exact per-prompt context through actual source/settings owners without another session or command[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m recovers original per-prompt review after settings change and requires explicit re-review[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses reused review identity, revoked source or transport authority before per-prompt recovery[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m recovers the exact review after policy drift and refreezes only with explicit new intent[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m derives actual settings and compiles visible source without allocating or dispatching[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m recovers an exact completed review before resolving changed mutable account settings[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m returns exact registered artifact labels and refuses unavailable retained artifact metadata[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m concurrent identical requests retain one immutable review and no allocation[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m renews real credential custody instead of accepting the preparation row alone[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses an actual reserved target rather than reusing the source workspace[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses target reservation that commits during asynchronous ordinary requalification[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m freezes permission intent and the exact published revision across awaited setup[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses late privacy changes before the actual snapshot transaction commits[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses late source-bytes changes before the actual snapshot transaction commits[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m rejects changed brief under an existing request before re-resolution[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m rejects changed mode under an existing request before re-resolution[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m rejects changed previous under an existing request before re-resolution[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m rejects changed agent under an existing request before re-resolution[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m rejects changed account under an existing request before re-resolution[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses null-agent rather than manufacturing setup[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses unknown-account rather than manufacturing setup[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses wrong-workspace rather than manufacturing setup[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses missing-mode rather than manufacturing setup[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses caller-revision rather than manufacturing setup[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses current revoked observation authority even for an exact completed retry[39m[32m 4[2mms[22m[39m
+[31m   [31m×[31m refuses current different-transport observation authority even for an exact completed retry[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses current hidden observation authority even for an exact completed retry[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m refuses current aborted observation authority even for an exact completed retry[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m retains original source custody for the synchronous save fence[39m[32m 0[2mms[22m[39m
+[31m   [31m×[31m refuses a save assertion without both an opened source and its synchronous authority owner[39m[32m 0[2mms[22m[39m
+[31m   [31m×[31m checks the originally observed visible bytes instead of reopening a changed witness[39m[32m 0[2mms[22m[39m
+[31m   [31m×[31m refuses a promise-returning source save assertion[39m[32m 0[2mms[22m[39m
+[31m   [31m×[31m refuses a value-returning source save assertion[39m[32m 0[2mms[22m[39m
+[90mstderr[2m | frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22m[2mretains a lost initial review attempt through Close, Agents and Add agent and retries its exact request
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'93eec1e2-9007-41f5-9e84-0f247d05e8b8'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22m[2mrestores the original editable setup and exact lost review when the actual dialog remounts
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'e3247258-139a-41f6-9146-40b9252d7c8b'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22m[2mrestores the actual dialog’s original review setup when its owner arrives late
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'dceedf83-4d0c-4a48-931f-08468d1c16f1'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 901[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgents.usability.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 279[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 172[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgents.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 188[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-recovery.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 111[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 410[2mms[22m[39m
+     [33m[2m✓[22m[39m requires every production interaction to use shared motion tokens and helpers [33m 409[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/desktop-message-layout.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 51[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/approved-designs.test.ts [2m([22m[2m2 tests[22m[2m | [22m[33m1 skipped[39m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-failure.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/home-design.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/briefing-dialog.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 1[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 35 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mpreserves a failed joining-settings cause internally while exposing only its safe contract code
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mlists exact registered artifact versions through current source/transport authority without candidate bytes
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mreviews exact per-prompt context through actual source/settings owners without another session or command
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrecovers original per-prompt review after settings change and requires explicit re-review
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses reused review identity, revoked source or transport authority before per-prompt recovery
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrecovers the exact review after policy drift and refreezes only with explicit new intent
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mderives actual settings and compiles visible source without allocating or dispatching
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrecovers an exact completed review before resolving changed mutable account settings
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mreturns exact registered artifact labels and refuses unavailable retained artifact metadata
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mconcurrent identical requests retain one immutable review and no allocation
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrenews real credential custody instead of accepting the preparation row alone
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses an actual reserved target rather than reusing the source workspace
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses target reservation that commits during asynchronous ordinary requalification
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mfreezes permission intent and the exact published revision across awaited setup
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses late privacy changes before the actual snapshot transaction commits
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses late source-bytes changes before the actual snapshot transaction commits
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrejects changed brief under an existing request before re-resolution
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrejects changed mode under an existing request before re-resolution
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrejects changed previous under an existing request before re-resolution
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrejects changed agent under an existing request before re-resolution
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrejects changed account under an existing request before re-resolution
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses null-agent rather than manufacturing setup
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses unknown-account rather than manufacturing setup
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses wrong-workspace rather than manufacturing setup
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses missing-mode rather than manufacturing setup
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses caller-revision rather than manufacturing setup
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses current revoked observation authority even for an exact completed retry
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses current different-transport observation authority even for an exact completed retry
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses current hidden observation authority even for an exact completed retry
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses current aborted observation authority even for an exact completed retry
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mretains original source custody for the synchronous save fence
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses a save assertion without both an opened source and its synchronous authority owner
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mchecks the originally observed visible bytes instead of reopening a changed witness
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses a promise-returning source save assertion
+[41m[1m FAIL [22m[49m server/__tests__/collaboration-application-review.test.ts[2m > [22mrefuses a value-returning source save assertion
+[31m[1mError[22m: Cannot find module '/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/symposium-phone-joining/packages/sqlite-file-owner/build/Release/mitzo_sqlite_file_owner.node'
+Require stack:
+- /Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/symposium-phone-joining/packages/sqlite-file-owner/index.cjs[39m
+[36m [2m❯[22m binding packages/sqlite-file-owner/index.cjs:[2m7:22[22m[39m
+    [90m  5|[39m [35mlet[39m native[33m;[39m
+    [90m  6|[39m [35mfunction[39m [34mbinding[39m() {
+    [90m  7|[39m   [35mreturn[39m (native [33m??=[39m [34mrequire[39m(filename))[33m;[39m
+    [90m   |[39m                      [31m^[39m
+    [90m  8|[39m }
+    [90m  9|[39m
+[90m [2m❯[22m exports.retainUnqualifiedConnection packages/sqlite-file-owner/index.cjs:[2m30:59[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/35]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m15 passed[39m[22m[90m (16)[39m
+[2m      Tests [22m [1m[31m35 failed[39m[22m[2m | [22m[1m[32m188 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (224)[39m
+[2m   Start at [22m 00:31:24
+[2m   Duration [22m 12.44s[2m (transform 2.39s, setup 0ms, import 5.25s, tests 2.93s, environment 2.84s)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

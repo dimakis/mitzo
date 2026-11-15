@@ -270,6 +270,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
         () => performance.now(),
         () => profilePhase ?? phase,
       );
+      const profiling = process.env.MITZO_NATIVE_READ_PROFILE === '1';
       const trace = {
         policyCalls: 0,
         policyMs: 0,
@@ -280,7 +281,9 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
         scratch: [] as string[],
       };
       const compose = nativePolicy.composeOwnedLocalNativeExecutionPolicy;
-      const profiledCompose = synchronous.wrap('nativePolicy.compose', compose);
+      const profiledCompose = profiling
+        ? synchronous.wrap('nativePolicy.compose', compose)
+        : compose;
       vi.spyOn(nativePolicy, 'composeOwnedLocalNativeExecutionPolicy').mockImplementation(
         (...args) => {
           const start = performance.now();
@@ -362,7 +365,8 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
         factsBudgets.push(args[1].timeoutMs);
         return facts(...args);
       });
-      cleanups.push(installSignedNativeReadStages(synchronous, new NativeReadBoundaryProfile()));
+      if (profiling)
+        cleanups.push(installSignedNativeReadStages(synchronous, new NativeReadBoundaryProfile()));
       const f = await localRepositoryNativeToolFixture(
         cleanups,
         async () => {
@@ -487,6 +491,7 @@ export function registerNativeRepositoryWorkflow(account: 'api' | 'subscription'
               metadataBudgets,
               factsBudgets,
               metrics: f.a.metrics,
+              profiling,
               synchronous: synchronous.snapshot(),
               filesystemCallBudget,
               privateHelperBoundaries,

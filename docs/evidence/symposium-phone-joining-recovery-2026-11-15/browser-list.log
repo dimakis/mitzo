@@ -1,0 +1,39 @@
+Listing tests:
+  [browser-startup-0] › ../support/browser-startup.setup.ts:5:1 › browser startup
+  [browser-startup-1] › ../support/browser-startup.setup.ts:5:1 › browser startup
+  [mobile-webkit] › symposium-approved-design.spec.ts:24:3 › Symposium approved design: real chat, Agents and fresh setup (dark)
+  [mobile-webkit] › symposium-approved-design.spec.ts:24:3 › Symposium approved design: real chat, Agents and fresh setup (light)
+  [mobile-webkit] › symposium-dialog-controls.spec.ts:32:3 › Add agent retains its own visible pickers inside chat settings (dark)
+  [mobile-webkit] › symposium-dialog-controls.spec.ts:32:3 › Add agent retains its own visible pickers inside chat settings (light)
+  [mobile-webkit] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: claude (dark)
+  [mobile-webkit] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: api (dark)
+  [mobile-webkit] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: claude (light)
+  [mobile-webkit] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: api (light)
+  [mobile-webkit] › symposium-joining-review.spec.ts:148:3 › Symposium joining review: approved frozen context and brief (dark)
+  [mobile-webkit] › symposium-joining-review.spec.ts:148:3 › Symposium joining review: approved frozen context and brief (light)
+  [mobile-chromium] › symposium-approved-design.spec.ts:24:3 › Symposium approved design: real chat, Agents and fresh setup (dark)
+  [mobile-chromium] › symposium-approved-design.spec.ts:24:3 › Symposium approved design: real chat, Agents and fresh setup (light)
+  [mobile-chromium] › symposium-dialog-controls.spec.ts:32:3 › Add agent retains its own visible pickers inside chat settings (dark)
+  [mobile-chromium] › symposium-dialog-controls.spec.ts:32:3 › Add agent retains its own visible pickers inside chat settings (light)
+  [mobile-chromium] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: claude (dark)
+  [mobile-chromium] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: api (dark)
+  [mobile-chromium] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: claude (light)
+  [mobile-chromium] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: api (light)
+  [mobile-chromium] › symposium-joining-review.spec.ts:148:3 › Symposium joining review: approved frozen context and brief (dark)
+  [mobile-chromium] › symposium-joining-review.spec.ts:148:3 › Symposium joining review: approved frozen context and brief (light)
+  [desktop-chromium] › symposium-approved-design.spec.ts:24:3 › Symposium approved design: real chat, Agents and fresh setup (dark)
+  [desktop-chromium] › symposium-approved-design.spec.ts:24:3 › Symposium approved design: real chat, Agents and fresh setup (light)
+  [desktop-chromium] › symposium-dialog-controls.spec.ts:32:3 › Add agent retains its own visible pickers inside chat settings (dark)
+  [desktop-chromium] › symposium-dialog-controls.spec.ts:32:3 › Add agent retains its own visible pickers inside chat settings (light)
+  [desktop-chromium] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: claude (dark)
+  [desktop-chromium] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: api (dark)
+  [desktop-chromium] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: claude (light)
+  [desktop-chromium] › symposium-joining-review.spec.ts:19:5 › Symposium participant repository: api (light)
+  [desktop-chromium] › symposium-joining-review.spec.ts:148:3 › Symposium joining review: approved frozen context and brief (dark)
+  [desktop-chromium] › symposium-joining-review.spec.ts:148:3 › Symposium joining review: approved frozen context and brief (light)
+Total: 32 tests in 4 files
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice
