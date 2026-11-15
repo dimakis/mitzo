@@ -3427,19 +3427,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                   );
             session.model = _admission.selection.model;
             if (!eventStore.agentCommunication.forCommand(id))
-              storeAndEchoIfNew(
-                session.sessionId!,
-                id,
-                frozenPayload.text,
-                clientId,
-                session.transport,
-                session.observers,
-                imagePreviews(frozenPayload.images),
-                undefined,
-                frozenPayload.sourceSnapshots,
-                'user',
-                false,
-              );
+              echoOwnedSdkCommand(session.sessionId!, id, frozenPayload);
             ownedQuery.push(
               makeUserMessage(message, 'now', id, undefined, undefined, frozenPayload.images),
             );
@@ -4927,7 +4915,7 @@ export async function prepareOwnedCodexChat(
 }
 
 /** Echo uses the existing transcript owner after guarded native FIFO admission. */
-export function echoOwnedCodexCommand(
+function echoOwnedCommand(
   sessionId: string,
   commandId: string,
   payload: {
@@ -4936,10 +4924,10 @@ export function echoOwnedCodexCommand(
     replyToMessageId?: string;
     images?: Array<{ data: string; mediaType: string }>;
   },
-): void {
+): { duplicate: boolean; clientId: string } {
   const current = registry.findBySessionId(sessionId);
-  if (!current) throw Error('Owned Codex conversation unavailable');
-  storeAndEchoIfNew(
+  if (!current) throw Error('Owned conversation unavailable');
+  const duplicate = storeAndEchoIfNew(
     sessionId,
     commandId,
     payload.text,
@@ -4952,6 +4940,17 @@ export function echoOwnedCodexCommand(
     'user',
     false,
   );
+  return { duplicate, clientId: current.clientId };
+}
+
+export function echoOwnedCodexCommand(...args: Parameters<typeof echoOwnedCommand>): void {
+  echoOwnedCommand(...args);
+}
+
+/** The owned SDK route bypasses the legacy query-loop naming callbacks. */
+export function echoOwnedSdkCommand(...args: Parameters<typeof echoOwnedCommand>): void {
+  const { duplicate, clientId } = echoOwnedCommand(...args);
+  if (!duplicate) void tryAutoRename(args[0], clientId);
 }
 
 /**
@@ -4966,7 +4965,7 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
     const promptCount = eventStore.incrementPromptCount(sessionId);
     if (!shouldAutoRename(promptCount, sessionMeta.manuallyRenamed)) return;
 
-    const events = eventStore.getSessionEvents(sessionId);
+    const events = eventStore.getSessionNamingEvents(sessionId, { includeRecentRequests: true });
     const prompts = sessionNamingPrompts(events, sessionMeta.initialPrompt);
     const newName = await accountSessionName(prompts, sessionMeta.accountBinding);
     if (!newName) return;

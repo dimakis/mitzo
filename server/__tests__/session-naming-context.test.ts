@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import type { StoredEvent } from '@mitzo/protocol';
 import { sessionNamingPrompts, sessionDisplayName } from '../session-naming-context.js';
+import { repositoryChatContext } from '../repository-chat-startup.js';
 
 function conversation(prompt: string, reply: string): StoredEvent[] {
   return [
@@ -12,6 +13,34 @@ function conversation(prompt: string, reply: string): StoredEvent[] {
     { type: 'message_end', payload: { messageId: 'reply' } },
   ].map((event, seq) => ({ ...event, sessionId: 'chat-12345678', seq, createdAt: seq }));
 }
+
+it('repairs legacy Claude workspace titles from the public request without naming the envelope', () => {
+  const text = 'Fix calendar sync';
+  const envelope =
+    repositoryChatContext({
+      id: 'offline',
+      repository: 'local/primary',
+      baseBranch: 'main',
+      baseOid: 'a'.repeat(40),
+      featureBranch: 'task/offline',
+    }) + text;
+  const events = conversation(envelope, 'I’ll fix calendar sync.');
+  for (const summary of [
+    'Mitzo repository workspace : local/primary',
+    'Mitzo repository workspace offline: local/primary',
+  ]) {
+    expect(sessionDisplayName({ sessionId: 's', summary, initialPrompt: envelope }, events)).toBe(
+      text,
+    );
+    expect(sessionDisplayName({ sessionId: 's', summary, manuallyRenamed: true }, events)).toBe(
+      summary,
+    );
+  }
+  expect(sessionNamingPrompts(events, envelope)).toEqual([text]);
+  expect(sessionDisplayName({ sessionId: 's', summary: '', initialPrompt: envelope }, events)).toBe(
+    text,
+  );
+});
 
 it('recovers the specific PR subject behind a merge follow-up', () => {
   const events = conversation(

@@ -217,6 +217,7 @@ export function isGenericSessionName(name: string): boolean {
     .trim();
   return (
     !text ||
+    /^mitzo repository workspace [^:\n]*:\s*[^\s/]+\/[^\s]+/.test(text) ||
     /^(?:hi|hey|hello|yo|yes|yeah|yea|yep|sure|ok|okay|thanks|thank you|done|fixed now|looks good|go ahead|do it|continue|proceed|keep going|carry on|any update|any updates|status|check again|try again)(?: please)?$/.test(
       text,
     ) ||
