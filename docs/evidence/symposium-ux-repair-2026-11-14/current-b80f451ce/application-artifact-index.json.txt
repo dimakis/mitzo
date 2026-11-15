@@ -1,0 +1,16 @@
+{
+  "artifactId": 14142905881,
+  "sha256": "b279c283550fbe970437c306b7d2f40033c08aaae7675be8258d2a925ddd6d16",
+  "bytes": 6730,
+  "runId": 43666863080,
+  "sourceHead": "b80f451cee242d70df0b67f9f2b94d0cb18aff91",
+  "mergeHead": "f29a6521d5080c479b676847e776132ab98400ec",
+  "jobId": 132668065056,
+  "files": [
+    {
+      "path": "symposium-application.log",
+      "bytes": 201456,
+      "sha256": "7821bbccd6eeb654c35dfa80ca1e23870e35b2b0fe7b28b5823805acf8f45e8f"
+    }
+  ]
+}

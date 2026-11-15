@@ -1,0 +1,20 @@
+{
+  "artifactId": 14143366878,
+  "runId": 43666863254,
+  "jobId": 132669608755,
+  "sourceHead": "b80f451cee242d70df0b67f9f2b94d0cb18aff91",
+  "sha256": "f88150cd7dbbc77deb24753bf2a4caa4772b74288f42ede3f0b1e3b46ef77a8b",
+  "bytes": 320660,
+  "files": [
+    {
+      "path": "files-2.json",
+      "bytes": 226698,
+      "sha256": "e7ad1ac4bb06bf70922bad94ac92fe478e0b48efb52b671e443318df4163ad78"
+    },
+    {
+      "path": "report-2.json",
+      "bytes": 2388567,
+      "sha256": "8217a6dc7e9ab5f9cae044b6c0e2219f6ea605cd3b94df6278a7b799b314f08e"
+    }
+  ]
+}

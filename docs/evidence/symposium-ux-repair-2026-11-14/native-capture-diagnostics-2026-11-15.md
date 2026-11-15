@@ -83,6 +83,41 @@ and corrected-control output are retained as `f4d-compile-original.log` and
 `native-type-correction-controls.log`. Hosted compilation and current-head final
 review still require fresh results; a local transpiled test pass is not a typecheck.
 
+## SDK fixture lifetime follow-up after the post-d43 timeout
+
+The b80 full43666863254 is terminal FAILURE: Unit2 job132669608755 again
+timed out in guard225/default5000ms on reviewed d43 fixture6fe3d2b5. Its
+original log/artifact remain under `current-b80f451ce/`; no hosted phase/cause
+was proved. Only the existing writer2208's independently reviewed SDK lifetime
+delta from1359/900ef419 was adopted after verifying actual failure and exact
+preimage SHA256 `b7ad0de82642a4117572af3c2bc49e174ddb2f57a3cfcb213897273f8f94881b`.
+Patch SHA256 `0b561d71384b4d1bac4765961e8463d8d7d4682b6350f5b889aaf660b96186e9`
+yields file SHA256 `360841b6c6de8609e275732c226740d986a4a3b69ccbde961b8bdb1e53fecf18`.
+No native/Telos source, full1359 branch or foreign registry is imported.
+
+Cleanup registers synchronously before acquisition, joins initialization,
+fences late publication on abort/closing and serializes following environment
+reset. The actual registry/store/guard and original-cause assertions remain.
+Setup explicitly uses a normal10s hook plus default5s body, increasing total
+allowance; lifecycle10s and scenario60s remain unchanged. The separate device
+Messages API449 failure is not repaired or qualified by this SDK-only patch.
+Six own SDK checks pass54.02s, including delayed initialization, guard, both
+cleanup controls and both following default transfer variants. The separate
+phone checkout's six checks pass52.10s; counts overlap earlier qualification.
+Own2514-key union/revision1192 and scoped lint/format/source checks pass.
+Fresh successor CI and final exact-head review remain required.
+
+The same b80 full also failed native API job132668841680 at actual repository
+preparation, diagnostic1268218f-a015-41f5-a2a2-1cbdd0d41f6f,
+commandd1041134-91f3-45e8-af95-f4fac2b43aa8,
+callb6c8d579-0e5e-46d4-8e00-76c901779e9e. Original native log SHA256
+`f2d5051c02036eb8b6a84ea6093ea17926554d4d1b54b3ea933cd243a4ee32ce`,
+artifact14143941710 SHA256
+`6d0ee823519e5b17f11c19158a6d1fe967c11f83f6ca169edb841df38ad0cb0d`.
+Reason/effect remain unknown, inspect_operation/after_reconciliation retained.
+The SDK fixture patch does not repair this native failure. The reviewed five
+production files remain exact5cee patch; no original operation was replayed.
+
 ## Existing-test contract follow-up after current hosted CI
 
 Exact2248449e1 completed hosted compile/source preflight132661241472 and Core
