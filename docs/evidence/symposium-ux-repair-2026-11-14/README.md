@@ -1,5 +1,12 @@
 # Ordinary Symposium acceptance — slice 3
 
+Latest accepted-main8676 integration:
+[source, conflict custody, observed checks and open gates](main-8676-integration/STATUS.md).
+[Source coverage and separate1347 gap](accepted-main-8676-inventory.md).
+The earlier sections retain dated failures and checkpoints; they are not approval
+of the current combined head. The prior19/62 hosted matrix and original native
+capture failure remain in [the707f checkpoint](current-707f7c13c/acceptance-matrix.md).
+
 Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.

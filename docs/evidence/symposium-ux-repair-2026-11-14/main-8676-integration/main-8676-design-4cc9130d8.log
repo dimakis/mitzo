@@ -1,0 +1,23 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts [2m([22m[2m92 tests[22m[2m)[22m[33m 689[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps the theme and font definitions in one file [33m 683[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 412[2mms[22m[39m
+     [33m[2m✓[22m[39m requires every production interaction to use shared motion tokens and helpers [33m 410[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/desktop-message-layout.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 52[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/approved-designs.test.ts [2m([22m[2m2 tests[22m[2m | [22m[33m1 skipped[39m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/home-design.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/briefing-dialog.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 1[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m7 passed[39m[22m[90m (7)[39m
+[2m      Tests [22m [1m[32m109 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (110)[39m
+[2m   Start at [22m 00:17:00
+[2m   Duration [22m 3.32s[2m (transform 95ms, setup 0ms, import 494ms, tests 1.17s, environment 1.00s)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

@@ -1,0 +1,25 @@
+{
+  "total_count": 1,
+  "artifacts": [
+    {
+      "id": 14124322188,
+      "node_id": "MDg6QXJ0aWZhY3QxNDEyNDMyMjE4OA==",
+      "name": "symposium-application-f407e79d9116851935c54b75e3c8a39907754f2b-1",
+      "size_in_bytes": 6853,
+      "url": "https://api.github.com/repos/dimakis/mitzo/actions/artifacts/14124322188",
+      "archive_download_url": "https://api.github.com/repos/dimakis/mitzo/actions/artifacts/14124322188/zip",
+      "expired": false,
+      "digest": "sha256:cb545106bb027b62b561e188c75a95fa987e6b517cda7aac9c3461573218a302",
+      "created_at": "2026-11-14T17:33:49Z",
+      "updated_at": "2026-11-14T17:33:49Z",
+      "expires_at": "2026-11-21T17:33:48Z",
+      "workflow_run": {
+        "id": 43621524389,
+        "repository_id": 1197762550,
+        "head_repository_id": 1197762550,
+        "head_branch": "test/symposium-integrated-acceptance",
+        "head_sha": "707f7c13cf5491360a7d4adec39045b43ee08ba0"
+      }
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "parents": [
+    "707f7c13cf5491360a7d4adec39045b43ee08ba0",
+    "8676db5788f24e818f2c997da2011029ae11c68d"
+  ],
+  "leftKeys": 2488,
+  "rightKeys": 2473,
+  "unionKeys": 2512,
+  "missingLeft": [],
+  "missingRight": [],
+  "newMainKeys": [
+    "../../packages/harness/src/skill-policy.ts",
+    "../../packages/protocol/src/ordinary-skill-context.ts",
+    "../../packages/protocol/src/session-control-support.ts",
+    "../../tests/integration/claude-multi-device.test.ts",
+    "../__tests__/google-workspace-sdk.test.ts",
+    "../__tests__/ordinary-claude-task-execution.test.ts",
+    "../__tests__/ordinary-local-vertex-sdk-effects.test.ts",
+    "../__tests__/ordinary-sdk-command-skill-boundary.test.ts",
+    "../__tests__/ordinary-sdk-profile-retirement.test.ts",
+    "../__tests__/restricted-skill-enforcement.test.ts",
+    "../__tests__/routes.test.ts",
+    "../__tests__/runtime-failure-diagnostics.test.ts",
+    "../__tests__/skills-registry.test.ts",
+    "../__tests__/specialist-authorization-replay.test.ts",
+    "../__tests__/tool-library-sdk.test.ts",
+    "../__tests__/tracing.test.ts",
+    "../__tests__/ws-handler-v2.test.ts",
+    "../google-workspace-sdk.ts",
+    "../runtime-failure-diagnostics.ts",
+    "../session-control-support.ts",
+    "../skill-runtime-support.ts",
+    "../slash-commands.ts",
+    "../tool-library-sdk.ts",
+    "../tracing.ts"
+  ]
+}

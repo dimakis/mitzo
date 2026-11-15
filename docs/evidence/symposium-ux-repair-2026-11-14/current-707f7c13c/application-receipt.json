@@ -1,0 +1,11 @@
+{
+  "head": "707f7c13cf5491360a7d4adec39045b43ee08ba0",
+  "mergeBuild": "f407e79d9116851935c54b75e3c8a39907754f2b",
+  "runId": 43621524389,
+  "applicationJobId": 132528061725,
+  "result": "19 passed:14 authenticated application,5client/portal",
+  "artifactId": 14124322188,
+  "artifactSha256": "cb545106bb027b62b561e188c75a95fa987e6b517cda7aac9c3461573218a302",
+  "artifactBytes": 6853,
+  "logSha256": "47f257796ac30635b405c2004bcf456db6cc0d262f70abb9b9275b6778e411e6"
+}
