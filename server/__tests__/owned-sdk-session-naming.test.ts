@@ -70,3 +70,38 @@ it.each(['anthropic-claude', 'anthropic-vertex', 'anthropic-api'] as const)(
     ).toHaveLength(4);
   },
 );
+
+it('names a substantive request after a generic start and a long tool history', async () => {
+  const id = 'owned-sdk-late-request';
+  const transport = { send: vi.fn(), isOpen: () => true };
+  chat.eventStore.upsertSession({
+    sessionId: id,
+    conversationSource: 'mitzo',
+    initialPrompt: 'Continue',
+    accountBinding: {
+      accountId: 'fixture',
+      accountLabel: 'Offline',
+      provider: 'anthropic-claude',
+      model: 'fixture',
+      profileRevision: 'offline',
+    },
+  });
+  chat.registry.register(id, {
+    sessionId: id,
+    transport,
+    abortController: new AbortController(),
+    mode: 'auto',
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  chat.echoOwnedSdkCommand(id, 'first', { text: 'Continue' });
+  for (let i = 0; i < 300; i++)
+    chat.eventStore.append(id, 'tool_result', { result: 'PRIVATE tool output '.repeat(100) });
+  chat.echoOwnedSdkCommand(id, 'second', { text: 'Continue' });
+  chat.echoOwnedSdkCommand(id, 'third', { text: 'Continue' });
+  chat.echoOwnedSdkCommand(id, 'fourth', { text: 'Repair delayed calendar notifications' });
+  await vi.waitFor(() =>
+    expect(chat.eventStore.getSession(id)?.summary).toBe('Repair delayed calendar notifications'),
+  );
+  expect(chat.eventStore.getSession(id)?.promptCount).toBe(4);
+});

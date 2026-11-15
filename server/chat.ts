@@ -4923,7 +4923,7 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
     const promptCount = eventStore.incrementPromptCount(sessionId);
     if (!shouldAutoRename(promptCount, sessionMeta.manuallyRenamed)) return;
 
-    const events = eventStore.getSessionNamingEvents(sessionId);
+    const events = eventStore.getSessionNamingEvents(sessionId, { includeRecentRequests: true });
     const prompts = sessionNamingPrompts(events, sessionMeta.initialPrompt);
     const newName = await accountSessionName(prompts, sessionMeta.accountBinding);
     if (!newName) return;
