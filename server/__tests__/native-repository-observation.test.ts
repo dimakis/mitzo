@@ -358,8 +358,9 @@ it('rejects forged over-budget capture data before decoded buffers or entry maps
       transport,
     ),
   ).rejects.toThrow('Repository observation unavailable');
+  const bufferCalls: ReadonlyArray<readonly unknown[]> = buffers.mock.calls;
   expect(
-    buffers.mock.calls.filter(([value, encoding]) => value === 'YWI=' && encoding === 'base64'),
+    bufferCalls.filter(([value, encoding]) => value === 'YWI=' && encoding === 'base64'),
   ).toHaveLength(0);
   expect(
     (

@@ -113,6 +113,8 @@ async function signedNameScan(
       timeout: request.timeoutMs,
       maxBuffer: request.maxOutputBytes,
     });
+    if (!('requestJson' in request) || typeof request.requestJson !== 'string')
+      throw Error('Expected a private repository observation request');
     await options.afterHelper?.(JSON.parse(request.requestJson));
     return { content: result.stdout, stdout: result.stdout, stderr: result.stderr, isError: false };
   };
@@ -120,7 +122,9 @@ async function signedNameScan(
   vi.spyOn(sandbox, 'executePrivateRepositoryObservation').mockImplementation(execute);
   if (options.afterVerification) {
     const verify = LocalRepositoryReadAccess.prototype.verify;
-    vi.spyOn(LocalRepositoryReadAccess.prototype, 'verify').mockImplementation(async function () {
+    vi.spyOn(LocalRepositoryReadAccess.prototype, 'verify').mockImplementation(async function (
+      this: LocalRepositoryReadAccess,
+    ) {
       await verify.call(this);
       options.afterVerification!();
     });
@@ -224,7 +228,11 @@ describe.runIf(process.platform === 'darwin')('signed name-scan observation cont
     });
     expect(captures).toBe(1);
     expect(result.value).toMatchObject({ state: 'ambiguous', candidates: [] });
-    const operations = result.runs.map((run) => JSON.parse(run.requestJson).operation);
+    const operations = result.runs.map((run) => {
+      if (!('requestJson' in run) || typeof run.requestJson !== 'string')
+        throw Error('Expected a private repository observation request');
+      return JSON.parse(run.requestJson).operation;
+    });
     expect(operations).not.toContain('ReadBytes');
   });
 

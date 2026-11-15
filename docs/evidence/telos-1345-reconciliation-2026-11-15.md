@@ -266,3 +266,25 @@ accepted current-work/control suites in 48.48s. Shared protocol/harness/client
 TypeScript builds pass. These reruns overlap earlier evidence and are not added
 as unique coverage. The 15s query cap, signed-suite cardinality, lifecycle/scenario
 deadlines and incomplete full-discovery result remain unchanged.
+
+## Test-source type correction after published preflight
+
+Published head `3f4211a3`, CI `43681994638`, primary preflight job
+`132714401442` failed with six TypeScript diagnostics in the three new test
+sources: generic sandbox options do not expose `requestJson`, the verification
+mock needed an explicit receiver type, the timeout field is optional, and the
+overloaded `Buffer.from` spy exposes a one-argument tuple. The correction narrows
+the actual private request at runtime, types the original receiver, explicitly
+requires a numeric timeout within the unchanged 15s cap, and reads spy arguments
+as unknown tuples. No assertion is removed, production source is unchanged, and
+the published DISC-AGG-01 resolution remains intact. The three changed pins are
+regenerated with all 2,504 keys retained at revision `v1.0.1192-telos-fixture-types`.
+
+The three changed files pass semantic TypeScript diagnostics using the repository
+configuration (the complete server check remains in CI; an earlier broad local
+check exhausted the required 1 GiB heap). Two native suites pass 40 tests with the
+same one disabled source diagnostic in 55.84s. Six affected signed discovery
+controls pass in 34.34s; the other 23 cases were deliberately unselected. These
+reruns overlap prior evidence, and the earlier full-29 result remains incomplete.
+The original hosted discovery cause and separate UNKNOWN preparation are not
+reclassified or replayed. Fresh published-head CI and trusted review remain gates.

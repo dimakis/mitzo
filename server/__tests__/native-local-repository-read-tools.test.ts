@@ -305,7 +305,11 @@ async function signedReadPositive(
     if (pathCase === 'query') {
       // The name scan must qualify the candidate through the same bounded
       // physical observation as explicit discovery, without widening scope.
-      const requests = runs.map((run) => JSON.parse(run.requestJson));
+      const requests = runs.map((run) => {
+        if (!('requestJson' in run) || typeof run.requestJson !== 'string')
+          throw Error('Expected a private repository observation request');
+        return JSON.parse(run.requestJson);
+      });
       const captures = requests.filter((run) => run.operation === 'CaptureRepositoryObservation');
       expect(captures).toHaveLength(1);
       expect(captures[0].repositoryPlan).toMatchObject({
@@ -317,7 +321,9 @@ async function signedReadPositive(
       expect(requests.filter((run) => run.operation === 'VerifyRepositoryObservation')).toEqual([
         expect.objectContaining({ repositoryPlan: captures[0].repositoryPlan }),
       ]);
-      expect(runs.every((run) => run.timeoutMs <= 15000)).toBe(true);
+      expect(runs.every((run) => typeof run.timeoutMs === 'number' && run.timeoutMs <= 15000)).toBe(
+        true,
+      );
     }
     expect(runs.length).toBeGreaterThan(0);
     for (const scratch of new Set(runs.map((r) => r.cwd)))

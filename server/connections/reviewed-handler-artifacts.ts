@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1191-telos-accepted-navigation';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1192-telos-fixture-types';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2781,7 +2780,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-cached-stat.test.ts':
     '9997545be8bb48fefbeb7420574c3cb926426b37c407328240f680709e472f99',
   '../__tests__/local-repository-discovery.test.ts':
-    '0c262ff78a6832aeb0c804b19e4cae476bfedc53769c9d6176dc7d3fa5462805',
+    '34859bb7cade377c99880478feb99c0c3cd45c540ec13a33266d4c99053bd008',
   '../__tests__/local-repository-domain-read.test.ts':
     '114efb143794b10fe69dfaae07c38d981320dab347a147a2ac2e0a1666422768',
   '../__tests__/local-repository-host-git.test.ts':
@@ -2893,7 +2892,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-read-registration.test.ts':
     '60ce30ac6cbbd0d36d50a6ad090c93687ec014ddf0765a7bb00700c00045e19b',
   '../__tests__/native-local-repository-read-tools.test.ts':
-    'bddf9ede70ae6d996d0b5317dc0b4c7a4d4f5937c18f5df4c991e280894b4ac8',
+    '0298f4c3f2b7b8bdfcb706efe71e06f39339b43e3a334f2c04e83147cf175c8d',
   '../__tests__/native-local-repository-remote.test.ts':
     '2f8725106b7c5941cbc9471d5d67eac403acb52f839ae80309ba46afcb7f0961',
   '../__tests__/native-notification-evidence.test.ts':
@@ -2913,7 +2912,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-repository-object-store.test.ts':
     '4781e2bff264c43c846e8ccf61c4d6417a6a38ae99f758a907475e885a07666f',
   '../__tests__/native-repository-observation.test.ts':
-    'eb671177b5e53f66735eb63a29cffc478eabbf97690dcc93bee0391bf762b510',
+    'd28941b6c375ee1d4233c3f238d5c5ad17e1d798740a9fb72d38486fd84f43af',
   '../__tests__/native-repository-worker-module-closure.test.ts':
     '1efdd91982a2f17c79fe12b14bacd8e5b3aca16ffce76850bf89b259a2e301e1',
   '../__tests__/native-responses-runner.test.ts':
