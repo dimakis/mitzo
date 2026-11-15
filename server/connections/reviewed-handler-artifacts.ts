@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1195-chat-storage-write-recovery';
+  'v1.0.1196-chat-storage-fixture-type';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -911,7 +911,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/indexed-chat-disk.test.ts':
     'a8e1104aa17cf95ff7b85229989e5a244f4f2db1dc8de317c2a6bcbda8245ccc',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
-    '6aa6504dfdfded72339465bc9d94f80a3f46195d94af0524c483b95fe6355698',
+    'f9da1910cf41f8196f42a7f509f68676223bb87e9a0ad56816317a97c88bf006',
   '../../frontend/src/lib/__tests__/legacy-native-continuation.test.ts':
     'ff48f05ef91b85c36eaf93bc94e770adc11864bbe191b92a8fcc3acae230dfe2',
   '../../frontend/src/lib/__tests__/model-visibility.test.ts':

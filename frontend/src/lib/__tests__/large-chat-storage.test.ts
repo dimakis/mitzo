@@ -254,7 +254,7 @@ it.each(['before write', 'commit acknowledgement', 'foreign replacement'] as con
       const body = (
         await import('../../../../packages/client/src/__tests__/fixtures/local-first-command')
       ).localFirstCommandFixture;
-      const fetch = vi.fn(async (_url: string, _init: RequestInit) =>
+      const fetch = vi.fn(async (_url: string, _init?: RequestInit) =>
         Response.json(
           {
             ok: true,
@@ -304,7 +304,7 @@ it.each(['before write', 'commit acknowledgement', 'foreign replacement'] as con
         return;
       }
       expect(fetch).toHaveBeenCalledExactlyOnceWith('/local/send', expect.any(Object));
-      expect(JSON.parse(String(fetch.mock.calls[0][1].body))).toEqual(body);
+      expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual(body);
       expect(open).toHaveBeenCalledTimes(2);
       expect(notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'consumed' }));
       expect(chatStorage.failed).toBe(false);
@@ -407,7 +407,7 @@ it.each(['local', 'openshell'] as const)(
       expect(storage.getItem('draft')).toBe(draft);
       release();
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-      expect(JSON.parse(String(fetch.mock.calls[0][1].body))).toEqual(body);
+      expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual(body);
       expect(f.disk.get('draft')).toBe(draftReference);
       const cold = new LargeChatStorage(f.storage, f.backend);
       await cold.ready();
