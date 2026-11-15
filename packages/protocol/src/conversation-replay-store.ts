@@ -205,7 +205,10 @@ export class ConversationReplayStore<Row> {
   /** Session-list naming examines only a small chronological prefix. Preserve
    * message/block and closeout boundaries, never decode arbitrary payloads or
    * continue scanning a long chat merely to repair a generic display title. */
-  getSessionNamingEvents(sessionId: string): StoredEvent[] {
+  getSessionNamingEvents(
+    sessionId: string,
+    options: { includeRecentRequests?: boolean } = {},
+  ): StoredEvent[] {
     const rows = this.db!.prepare(
       `SELECT ${HISTORY_COLUMNS},
         CASE WHEN type='user_message' THEN json_extract(payload,'$.source')='closeout' ELSE 0 END AS closeout
@@ -222,6 +225,34 @@ export class ConversationReplayStore<Row> {
       const event = historyEvent(sessionId, row);
       if (row.closeout) event.payload.source = 'closeout';
       events.push(event);
+    }
+    if (options.includeRecentRequests) {
+      // Automatic naming must see a later substantive request even when tools
+      // filled the prefix. Project only complete ordinary user text in SQL;
+      // neither tool payloads nor other audiences enter this bounded suffix.
+      const recent = this.db!.prepare(
+        `SELECT ${HISTORY_COLUMNS} FROM events
+         WHERE session_id=? AND type='user_message' AND qualified=0
+           AND json_type(payload,'$.text')='text'
+           AND length(CAST(json_extract(payload,'$.text') AS BLOB))<=32768
+           AND json_extract(payload,'$.source') IS NOT 'closeout'
+           AND NOT (
+             COALESCE(json_extract(payload,'$.messageId'),'') GLOB 'closeout-*'
+             AND length(COALESCE(json_extract(payload,'$.messageId'),''))=73
+             AND substr(COALESCE(json_extract(payload,'$.messageId'),''),10) NOT GLOB '*[^a-f0-9]*'
+           )
+         ORDER BY seq DESC LIMIT 8`,
+      ).iterate({ textStart: 1, textLength: 32769 }, sessionId);
+      const seen = new Set(events.map((event) => event.seq));
+      let recentBytes = 0;
+      for (const row of recent as Iterable<HistoryRow>) {
+        if (seen.has(row.seq)) continue;
+        const size = row.text?.length ?? 0;
+        if (row.text_truncated || recentBytes + size > 32768) continue;
+        recentBytes += size;
+        events.push(historyEvent(sessionId, row));
+      }
+      events.sort((a, b) => a.seq - b.seq);
     }
     return events;
   }

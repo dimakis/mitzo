@@ -2,6 +2,10 @@ import type { RequestHandler } from 'express';
 import { createHash } from 'node:crypto';
 import { beginTranscriptObservation, observeTranscriptAsync } from './transcript-observation.js';
 import { sendTranscriptResponse } from './transcript-response.js';
+import { TranscriptReadFailure } from './transcript-read-failure.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('session-transcript');
 
 /** Replay can reject corrupt or unverifiable history. Express 4 does not catch
  * rejected async handlers, so contain all transcript variants at this boundary. */
@@ -23,6 +27,7 @@ export function createSessionMessagesHandler(read: {
     return { result, joined: false };
   };
   return async (req, res) => {
+    let variant = 'request';
     const observation = beginTranscriptObservation('request', {
       'transcript.session_fingerprint': createHash('sha256')
         .update(req.params.id as string)
@@ -35,7 +40,8 @@ export function createSessionMessagesHandler(read: {
         const sessionId = req.params.id as string;
         const revision = read.getRevision?.(sessionId);
         const transcript = req.query.transcript;
-        const respond = async (variant: string, work: () => unknown, cursor?: number) => {
+        const respond = async (selectedVariant: string, work: () => unknown, cursor?: number) => {
+          variant = selectedVariant;
           observation.annotate({
             'transcript.variant': variant,
             ...(cursor === undefined ? {} : { 'transcript.reconnect_cursor': cursor }),
@@ -88,7 +94,13 @@ export function createSessionMessagesHandler(read: {
           return;
         }
         await respond('messages', () => read.getMessages(sessionId));
-      } catch {
+      } catch (cause) {
+        const failure = new TranscriptReadFailure(cause, variant);
+        log.warn('Session transcript unavailable', {
+          sessionId: req.params.id,
+          ...failure.telemetry(),
+        });
+        res.setHeader?.('X-Mitzo-Diagnostic-Id', failure.diagnosticId);
         observation.end(true);
         // Never return partial history, retry another source, or expose stored content.
         res.status(500).json({ error: 'Session transcript unavailable' });
