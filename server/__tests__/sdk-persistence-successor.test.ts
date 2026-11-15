@@ -15,7 +15,7 @@ import type { SessionRegistry } from '../session-registry.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
   getSessionInfo: vi.fn(async () => ({ sessionId: 'session', cwd: '/task' })),
-  getSessionMessages: vi.fn(async () => [{ uuid: 'first-input' }]),
+  getSessionMessages: vi.fn(async () => [{ uuid: 'be1f9b3c-9b56-46ac-b77d-d26a108d075a' }]),
 }));
 
 it.each(['session_writes_lost', 'mirror_error'])(
@@ -110,16 +110,20 @@ it.each(['session_writes_lost', 'mirror_error'])(
             messageId: id,
             text: String(payload.text),
           });
+          const inputUuid: SDKUserMessage['uuid'] =
+            id === 'first'
+              ? 'be1f9b3c-9b56-46ac-b77d-d26a108d075a'
+              : '7fbc1b2f-3e1e-43d0-91db-d6f8a7951d09';
           const message = {
             type: 'user' as const,
             session_id: 'session',
             parent_tool_use_id: null,
-            uuid: `${id}-input`,
+            uuid: inputUuid,
             message: { role: 'user' as const, content: String(payload.text) },
             mitzoMessageId: id,
           };
           sdk.push(message);
-          expect((await prompts.at(-1)!.next()).value).toMatchObject({ uuid: `${id}-input` });
+          expect((await prompts.at(-1)!.next()).value).toMatchObject({ uuid: inputUuid });
           streams[prompts.length - 1].push(message);
           if (id === 'second') {
             streams[1].push({ type: 'result', session_id: 'session', is_error: false });

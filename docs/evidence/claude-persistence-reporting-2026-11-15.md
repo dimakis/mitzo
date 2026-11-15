@@ -55,6 +55,9 @@ Scoped lint and strict standalone diagnostic-module typing also passed.
 Whole-server/test typing exhausted the prescribed 1 GiB heap; it is left to
 hosted preflight rather than increasing the local resource ceiling.
 Hosted checks and exact-head source review remain required for acceptance.
+Hosted typing subsequently caught a synthetic input ID incompatible with the
+pinned SDK's UUID template type. The coupled fixture now uses real fixed UUIDs
+for both inputs and still passes; current-head hosted typing must verify the fix.
 
 Accepted naming/transcript changes from PR #1365 at
 `5d81903c4d6a9511d517304be84b81769b4e23e1` were integrated to repair the actual
