@@ -167,8 +167,16 @@ const integer = (value: number | undefined, fallback: number, ceiling: number) =
     : fallback;
 const errorCode = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
 
-async function context(request: ReadRequest) {
+async function context(
+  request: ReadRequest,
+  candidate?: { path: string; deadline: number; readAccess: LocalRepositoryReadAccess },
+) {
   request.signal?.throwIfAborted();
+  const checkCandidateDeadline = () => {
+    if (candidate && Date.now() >= candidate.deadline)
+      throw new LocalRepositoryGitInspectionError('limit', 'timeout');
+  };
+  checkCandidateDeadline();
   const captureReadAnchor = request.captureReadAnchor;
   if (typeof captureReadAnchor !== 'function')
     throw new LocalRepositoryGitInspectionError('access', 'read-anchor-required');
@@ -181,6 +189,7 @@ async function context(request: ReadRequest) {
     request.signal?.throwIfAborted();
     throw new LocalRepositoryGitInspectionError('access', 'read-exclusions-required');
   }
+  checkCandidateDeadline();
   const hostWide = request.accessScope.kind === 'host-wide';
   const suppliedRoots = request.accessScope.kind === 'roots' ? [...request.accessScope.roots] : [];
   const suppliedDenials = freezeNativeReadExclusions([
@@ -215,7 +224,11 @@ async function context(request: ReadRequest) {
       typeof revalidateReadAccess !== 'function')
   )
     throw new LocalRepositoryGitInspectionError('access', 'original-native-reader-required');
-  const deadline = Math.min(Date.now() + limits.timeoutMs, nativeReader?.deadline ?? Infinity);
+  const deadline = Math.min(
+    Date.now() + limits.timeoutMs,
+    nativeReader?.deadline ?? Infinity,
+    candidate?.deadline ?? Infinity,
+  );
   const check = () => {
     request.signal?.throwIfAborted();
     nativeReader?.signal?.throwIfAborted();
@@ -308,27 +321,35 @@ async function context(request: ReadRequest) {
       check();
     },
   });
-  const readAccess = nativeReader
-    ? new LocalRepositoryReadAccess(nativeReader, ceiling)
-    : new LocalRepositoryReadAccess({
-        deniedRoots: suppliedDenials,
-        assertReadable: async (path) => {
-          if (!isAbsolute(path) || !allowed(path))
-            throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
-          await authorize(path);
-        },
-        captureReadAnchor: async (path) => {
-          await canonical(path);
-          const anchor = await captureReadAnchor(path, request.signal);
-          await canonical(path);
-          return anchor;
-        },
-        executeReadOperation: request.executeReadOperation,
-        signal: request.signal,
-        deadline,
-      });
+  const readAccess =
+    candidate?.readAccess ??
+    (nativeReader
+      ? new LocalRepositoryReadAccess(nativeReader, ceiling)
+      : new LocalRepositoryReadAccess({
+          deniedRoots: suppliedDenials,
+          assertReadable: async (path) => {
+            if (!isAbsolute(path) || !allowed(path))
+              throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+            await authorize(path);
+          },
+          captureReadAnchor: async (path) => {
+            await canonical(path);
+            const anchor = await captureReadAnchor(path, request.signal);
+            await canonical(path);
+            return anchor;
+          },
+          executeReadOperation: request.executeReadOperation,
+          signal: request.signal,
+          deadline,
+        }));
+  const canCaptureCandidate = readAccess.canCaptureRepositoryObservation;
   const requestedSource =
-    'explicitPath' in request ? request.explicitPath : 'path' in request ? request.path : undefined;
+    candidate?.path ??
+    ('explicitPath' in request
+      ? request.explicitPath
+      : 'path' in request
+        ? request.path
+        : undefined);
   // Native capture must happen before pinning roots, but inside the explicit
   // discovery result classifier. Preserve the original reader/owner and join
   // one initialization; failures never enable an ambient fallback.
@@ -338,7 +359,7 @@ async function context(request: ReadRequest) {
       if (nativeReader?.captureRepositoryObservation && typeof requestedSource === 'string') {
         await canonical(requestedSource);
         await readAccess.captureRepositoryObservation({
-          mode: 'explicitPath' in request ? 'discovery' : 'orientation',
+          mode: candidate || 'explicitPath' in request ? 'discovery' : 'orientation',
           sourcePath: requestedSource,
           readableRoots: hostWide ? ['/'] : roots,
           additionalDeniedRoots: suppliedDenials,
@@ -405,6 +426,7 @@ async function context(request: ReadRequest) {
     readAccess,
     initialize,
     metadata,
+    canCaptureCandidate,
     deniedContent,
     authorize,
   };
@@ -514,15 +536,31 @@ export async function discoverLocalRepository(
     result.truncated = true;
     if (!result.limitReasons.includes(reason)) result.limitReasons.push(reason);
   };
+  const candidateContexts: Array<Awaited<ReturnType<typeof context>>> = [];
   const candidate = async (path: string) => {
-    await ctx.initialize();
-    await ctx.readAccess.pinRoot(path);
-    const metadata = await ctx.metadata(path);
+    // A scan already pinned its namespace. Qualify a matching repository in a
+    // fresh access view of the SAME original reader, scope and callbacks; the
+    // existing compound observation refuses capture on an already pinned view.
+    // Retain every view until full-scan verification, including failed captures.
+    const selected =
+      !request.explicitPath && ctx.canCaptureCandidate
+        ? await context(request, {
+            path,
+            deadline: ctx.deadline,
+            readAccess: ctx.readAccess.forkForRepositoryObservation(),
+          })
+        : ctx;
+    if (selected !== ctx) candidateContexts.push(selected);
+    ctx.check();
+    await selected.initialize();
+    await selected.readAccess.pinRoot(path);
+    const metadata = await selected.metadata(path);
     await readLocalRepositoryGitFacts(metadata, {
-      readAccess: ctx.readAccess,
+      readAccess: selected.readAccess,
       signal: request.signal,
       timeoutMs: Math.max(1, ctx.deadline - Date.now()),
     });
+    ctx.check();
     const top = metadata.path;
     if (!result.candidates.some((entry) => entry.path === top))
       result.candidates.push({ name: basename(top), path: top });
@@ -671,7 +709,15 @@ export async function discoverLocalRepository(
     }
   }
   try {
+    // Candidate facts and scan namespace must ALL remain current after the
+    // complete search. Never return an early unique match or restart its clock.
+    for (const selected of candidateContexts) {
+      ctx.check();
+      await selected.readAccess.verify();
+    }
+    ctx.check();
     await ctx.readAccess.verify();
+    ctx.check();
   } catch (error) {
     request.signal?.throwIfAborted();
     result.candidates = [];
