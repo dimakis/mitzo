@@ -4,6 +4,7 @@ import {
   observeOperationAsync,
   observeOperationSync,
 } from './operation-observation.js';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 
 type Phase =
   | 'request'
@@ -35,8 +36,20 @@ export function observeTranscriptSync<T>(
   phase: Phase,
   work: (observation: ReturnType<typeof beginTranscriptObservation>) => T,
 ): T {
-  return observeOperationSync(`transcript.${phase}`, work);
+  return observeOperationSync(`transcript.${phase}`, (observation) => {
+    try {
+      return work(observation);
+    } catch (cause) {
+      throw annotateAuthorityFailure(cause, `transcript.${phase}`);
+    }
+  });
 }
 export function observeTranscriptAsync<T>(phase: Phase, work: () => Promise<T>): Promise<T> {
-  return observeOperationAsync(`transcript.${phase}`, work);
+  return observeOperationAsync(`transcript.${phase}`, async () => {
+    try {
+      return await work();
+    } catch (cause) {
+      throw annotateAuthorityFailure(cause, `transcript.${phase}`);
+    }
+  });
 }
