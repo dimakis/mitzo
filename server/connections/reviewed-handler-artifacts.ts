@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1201-lazy-delivery-review';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1202-claude-persistence-reporting';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../sdk-persistence-diagnostics.ts':
+    'a55a64d3ecdce52ca6664cbfae1f874d41a99c5f6c19646d76b03e27d92b95d9',
+  '../__tests__/sdk-persistence-diagnostics.test.ts':
+    'd1119548395b58dbf1a3861b8267a73f45ceb1057ab42da5ca76fcb0ffefb86a',
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../frontend/src/components/LocalCommandRecovery.tsx':
@@ -2994,7 +2999,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-sdk-effects.test.ts':
     '0e3db17e1c9485d1dd45fd641ecf836692417121ab69da025778c06b960f9249',
   '../__tests__/ordinary-local-vertex-sdk-query.test.ts':
-    '080353c07813d9764baf5b7c92155b3ecb460672b238e1684f6bb6db1937ef5b',
+    '1d59c7dff372eecdf9fb192b41db26ee807b0c51fde19329e5f3576237cd8aa8',
   '../__tests__/ordinary-openshell-codex-entry-role.test.ts':
     'a5e568b62845cfb70c25995e7c0bbbc1815c61aa63c7fe069e6dcea719e96235',
   '../__tests__/ordinary-openshell-codex-owned-runtime.test.ts':
@@ -3152,7 +3157,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-standalone-repository-observation.test.ts':
     'de3c7ae943e87a97165186f5ca8a6e099548a9c341a9fddf31f6b0ca5f8b1855',
   '../__tests__/query-loop.test.ts':
-    '3f520f0760746fa2d8738020a78ef005f262bd974bc6899f6a22768bf112602b',
+    'b8b49e0fbd1152204135a54f16effaf9473f50bc1dc5a5fd4d792621de89f402',
   '../__tests__/read-only-git.test.ts':
     'f25212a013ea287948f5651a75d2a3aacfe5593ba668cf26ae1f83e6a8e326d2',
   '../__tests__/reconnect-delivery.integration.test.ts':
@@ -4143,7 +4148,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-process.ts':
     'fb9323a7fe3a55d6998dd70e0b6e16ff5f008ecb763bc8da9777b7f24514a30e',
   '../ordinary-local-vertex-sdk-query.ts':
-    '7b8c1795728c5393c1f6415df8d3825b25467ed57ea107436dd01fd470c3f50e',
+    '41b95b8aecc5cd8205b1b61bb6d394106de13013d10b0cc6859a0cf6735bfef2',
   '../ordinary-local-workspace-owner.ts':
     '877d3056b325d2770f1565cd82cd15650d34ad99e641a28d4bfa00c5fdc56fe4',
   '../ordinary-openshell-codex-entry-owner.ts':
@@ -4244,7 +4249,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': 'f81b17aae2f822db5420e500d298f77ae185d768f7bf5335a5fc72065f196338',
+  '../query-loop.ts': '5ccc01229c84c9fc901d8367f65d03006c8b04bd0e936a31f095cb0ac42326f6',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',
