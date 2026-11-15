@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1205-claude-git-setup';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1205-claude-git-setup.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3223,7 +3223,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sandboxed-command-private-output.test.ts':
     'a2169291ec705b7d15341519df8f5f1309e39d46008cbd5962e59efa1236cc6c',
   '../__tests__/sandboxed-command-worker.test.ts':
-    'e4162f6bbb6d010b2a385f761b90897a3b3afcdc0f217ed645fb9a1b2a5685e5',
+    '53aee43aea4ee880bb33c60adea0dbb217bd31dcc59ebef08932811269f349ce',
   '../__tests__/sdk-agent-message-runtime.test.ts':
     '34d056276865a714113fb07a2ed361607ea1b971c20fdfe04792cab98fc62629',
   '../__tests__/sdk-child-environment.test.ts':
@@ -4309,7 +4309,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../sandboxed-command-worker.ts':
-    '9c7b71448dd2b6782e711fa9964f444cc94244fff0fad33123eda886467428d7',
+    '9d397a94c18906f8818a853250f83b1265a8cbe165d9b9b51934918dcdb8b04d',
   '../sandboxed-command.ts': '9746e664ae5983080fa51f5d928869e5d8af9bb51defad496ef6643d83a35043',
   '../sdk-agent-message-runtime.ts':
     'e1b474fc5ae0a91d06b0cb4149298d5837b5d8f01c913dafb8890daa17bff034',

@@ -38,17 +38,56 @@ export interface SandboxWorkerPayload {
   privateRepositoryCheckoutJson?: string;
 }
 
-/** Add a deny-only outer Seatbelt policy. SRT's allowGitConfig is global; the
+/** Add deny-only rules to the pinned SRT Seatbelt policy. Its allowGitConfig is global; the
  * SDK must only gain config writes for repositories created below its workspace.
- * Applying this before SRT retains its complete network/private/hook policy and
- * avoids parsing or rewriting a third-party shell command or generated profile.
+ * macOS cannot apply a second sandbox_init after entering the first sandbox.
+ * Decode only SRT's literal single-quote encoding, never execute a shell parser,
+ * and fail closed if its invocation contract changes. Retain every argv value
+ * and append restrictions to its original profile; do not reconstruct its policy.
  */
 export function wrapSdkGitMetadata(command: string, root: string): string {
   validatePath(root);
+  const argv: string[] = [];
+  let offset = 0;
+  while (offset < command.length) {
+    if (/\s/.test(command[offset]!)) {
+      offset++;
+      continue;
+    }
+    let value = '';
+    while (offset < command.length && !/\s/.test(command[offset]!)) {
+      if (command[offset] === "'") {
+        const end = command.indexOf("'", offset + 1);
+        if (end < 0) throw Error('Unsupported SRT SDK sandbox invocation');
+        value += command.slice(offset + 1, end);
+        offset = end + 1;
+      } else if (command.startsWith('"\'"', offset)) {
+        value += "'";
+        offset += 3;
+      } else {
+        const literal = /^[A-Za-z0-9_./:=@+,-]+/.exec(command.slice(offset));
+        if (!literal) throw Error('Unsupported SRT SDK sandbox invocation');
+        value += literal[0];
+        offset += literal[0].length;
+      }
+    }
+    argv.push(value);
+  }
+  const sandbox = argv.indexOf('/usr/bin/sandbox-exec');
+  if (
+    argv[0] !== 'env' ||
+    sandbox < 1 ||
+    argv.lastIndexOf('/usr/bin/sandbox-exec') !== sandbox ||
+    argv.length !== sandbox + 6 ||
+    argv[sandbox + 1] !== '-p' ||
+    argv[sandbox + 4] !== '-c' ||
+    !argv[sandbox + 3]!.startsWith('/') ||
+    !argv[sandbox + 2]!.startsWith('(version 1)\n') ||
+    !/\n\(deny default[ )]/.test(argv[sandbox + 2]!)
+  )
+    throw Error('Unsupported SRT SDK sandbox invocation');
   const string = (value: string) => JSON.stringify(value);
-  const profile = [
-    '(version 1)',
-    '(allow default)',
+  const restrictions = [
     `(deny file-write* (require-all (regex ${string('.*/\\.git(/.*)?$')}) (require-not (subpath ${string(root)}))))`,
     `(deny file-write* (subpath ${string(join(root, '.git'))}))`,
     // Pin the selected workspace and its ancestors against replacement.
@@ -60,8 +99,9 @@ export function wrapSdkGitMetadata(command: string, root: string): string {
       );
     })(),
   ].join('\n');
+  argv[sandbox + 2] = argv[sandbox + 2]! + '\n' + restrictions;
   const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
-  return ['/usr/bin/sandbox-exec', '-p', profile, '/bin/sh', '-c', command].map(quote).join(' ');
+  return argv.map(quote).join(' ');
 }
 
 interface WorkerDependencies {
