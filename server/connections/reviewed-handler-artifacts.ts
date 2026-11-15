@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1181-symposium-integrated-acceptance';
+  'v1.0.1185-symposium-integrated-acceptance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1872,7 +1872,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/native-subagent-visibility.test.tsx':
     '75cf48bc38aa942998df4e0ae0a409cf991a205c8bc7c7d60d8d9df5bbde6bdd',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '9a2af663921e3da7b23910179056dc68b95748079a3efb165eb83398a185c30d',
+    'd2f72bc931a30d3aa54eeb02e769663b2c8991d50528e9280df1bf8a0ebc02b1',
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
     '6131e244eeb63a813e90f11e81ccc542eefbd66ae3f25df6472ca4218b252c35',
   '../../tests/integration/symposium-application-review-recovery.test.tsx':
@@ -2438,7 +2438,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-login-process.test.ts':
     '8491548c1254c90f448098979f1494473278433ab0f77558ca7a41b0a998a150',
   '../__tests__/claude-login-sandbox.native.test.ts':
-    '04b12c176cb8415012b61b10ad982b5849121688fdce93bc52ae60805e701a34',
+    '6a2b3e5f5f31b04a1c1565410553eda5ab2e273173d189b4fcf92f88b0324384',
   '../__tests__/claude-login-supervisor.test.ts':
     'b5bff226051d8e7ff843e301aaec27868146745622993cc625d46adc72ba05e9',
   '../__tests__/claude-login-verification.test.ts':
