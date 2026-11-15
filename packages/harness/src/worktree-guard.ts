@@ -35,10 +35,12 @@ export function resetWorktreeGuardStats() {
  */
 export type OnDemandCreateFn = (
   absolutePath: string,
+  signal?: AbortSignal,
 ) => Promise<{ repoName: string; worktreePath: string } | null>;
 
 export interface CheckWorktreePolicyOptions {
   onDemandCreate?: OnDemandCreateFn;
+  signal?: AbortSignal;
 }
 
 /**
@@ -123,6 +125,7 @@ export async function checkWorktreePolicy(
   toolInput: Record<string, unknown>,
   opts?: CheckWorktreePolicyOptions,
 ): Promise<string | null> {
+  opts?.signal?.throwIfAborted();
   if (session.worktreePaths.size === 0) return null;
 
   if (WRITE_TOOLS.has(toolName)) {
@@ -139,8 +142,11 @@ export async function checkWorktreePolicy(
 
       // Try on-demand creation if a callback is provided
       if (opts?.onDemandCreate) {
-        const created = await opts.onDemandCreate(filePath);
-        if (created) {
+        const created = await (opts.signal
+          ? opts.onDemandCreate(filePath, opts.signal)
+          : opts.onDemandCreate(filePath));
+        opts.signal?.throwIfAborted();
+        if (created && !session.worktreePaths.has(created.repoName)) {
           session.worktreePaths.set(created.repoName, {
             path: created.worktreePath,
             wtId: session.wtId ?? '',
@@ -182,8 +188,11 @@ export async function checkWorktreePolicy(
       if (findAllowedWorktree(p, session.worktreePaths)) continue;
 
       if (opts?.onDemandCreate) {
-        const created = await opts.onDemandCreate(p);
-        if (created) {
+        const created = await (opts.signal
+          ? opts.onDemandCreate(p, opts.signal)
+          : opts.onDemandCreate(p));
+        opts.signal?.throwIfAborted();
+        if (created && !session.worktreePaths.has(created.repoName)) {
           session.worktreePaths.set(created.repoName, {
             path: created.worktreePath,
             wtId: session.wtId ?? '',

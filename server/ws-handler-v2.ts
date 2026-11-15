@@ -1,5 +1,5 @@
 import { clearPublicationControllerSessionGrants } from './symposium-publication-approval.js';
-import { ownedLocalControlStatus } from './owned-local-codex-control.js';
+import { ownedLocalControlStatus, OWNED_LOCAL_CONTROL_ERROR } from './owned-local-codex-control.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import {
@@ -95,6 +95,7 @@ import {
 } from './chat.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { resolveSlashCommand } from './slash-commands.js';
+import { executableSkillResolution } from './skill-runtime-support.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
 import type { NativeCommandRegistry } from './native-commands.js';
 import { createLogger } from './logger.js';
@@ -314,10 +315,13 @@ function allowOwnedLocalControl(
     ) !== 'denied'
   )
     return true;
+  const diagnostic = { code: 'session_operator_denied', stage: 'session_control', sessionId };
+  log.warn('Session control denied', { ...diagnostic, connectionId });
   ctx.connRegistry.get(connectionId)?.transport.send({
     type: 'error',
-    sessionId,
-    error: 'Owned local session belongs to another login',
+    ...diagnostic,
+    nonfatal: true,
+    error: OWNED_LOCAL_CONTROL_ERROR,
   });
   return false;
 }
@@ -829,7 +833,9 @@ export function handleSendV2(
           : undefined;
         const cwd = validatedCwd ?? storedMeta?.cwd ?? BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
-        const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+        const resolution = executableSkillResolution(
+          resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES),
+        );
         if (msg.sourceSnapshots?.length && resolution.type === 'native')
           throw new Error(
             'Saved source snapshots require an ordinary chat prompt. Native commands do not consume them.',
@@ -1700,13 +1706,13 @@ export function handlePermissionResponseV2(
           (found ? getOwnerConnection(found.clientId) : undefined);
         const binding = ctx.eventStore.getSessionRuntimeBinding?.(pendingSessionId);
         const samePrimaryOperator =
-          binding?.harness.implementation === 'codex' &&
+          ['codex', 'claude-sdk'].includes(binding?.harness.implementation ?? '') &&
           ordinaryOperatorOwnsConversation(
             found?.session?.ownedLocalAuthSessionId,
             liveTransportAuthSessionId(connectionId),
           );
         // A live authenticated operator device may answer its watched
-        // Codex card without transferring the native execution attachment.
+        // runtime card without transferring the execution attachment.
         const sameOwnerWatcher =
           ownerConnection !== undefined &&
           liveTransportAuthSessionId(connectionId) !== undefined &&

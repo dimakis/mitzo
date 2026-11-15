@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { AgentLibraryStore } from '../agent-library-store.js';
 import { EventStore } from '../event-store.js';
 import { recordPermissionChange } from '../session-permission-revision.js';
+import { runtimeFailureDiagnostics } from '../runtime-failure-diagnostics.js';
 import { OrdinaryLocalCodexSelectionOwner } from '../ordinary-local-codex-selection-owner.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 import { ordinaryLocalCodexBootstrapId } from '../ordinary-local-codex-admission.js';
@@ -163,6 +164,36 @@ it('qualifies exact published agent, operator, permission and retained reservati
   });
   expect(() => f.owner.assertCurrentSync(f.expected)).not.toThrow();
 });
+it.each(['operator', 'permission', 'workspace'] as const)(
+  'retains the failing %s check without exposing its exception text',
+  async (scenario) => {
+    const f = fixture();
+    const original = Object.assign(new Error('synthetic-secret /private/path'), { code: 'EPERM' });
+    if (scenario === 'operator')
+      f.operator.assertCurrent.mockImplementation(() => {
+        throw original;
+      });
+    else if (scenario === 'permission')
+      recordPermissionChange(f.events, f.reservation.conversationId);
+    else f.workspace.reserveHostTask.mockRejectedValueOnce(original);
+    let failure: unknown;
+    try {
+      await f.owner.assertCurrent(f.expected);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect(runtimeFailureDiagnostics(failure).failedCheck).toBe(
+      scenario === 'operator'
+        ? 'selection.operator'
+        : scenario === 'permission'
+          ? 'selection.permission_revision'
+          : 'workspace.reserve',
+    );
+    expect(JSON.stringify(runtimeFailureDiagnostics(failure))).not.toContain('synthetic-secret');
+    if (scenario !== 'permission') expect((failure as Error).cause).toBe(original);
+  },
+);
 it('refuses an expired tool admission before accessing its workspace', async () => {
   const f = fixture();
   const admission = new AbortController();

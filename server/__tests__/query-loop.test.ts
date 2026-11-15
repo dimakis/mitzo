@@ -4,9 +4,13 @@ import { ConnectionRegistry } from '../../packages/harness/src/connection-regist
 import { runQueryLoop, drainQueryLoopFinalization } from '../query-loop.js';
 import { classifyProviderFailure } from '../provider-failure.js';
 import * as notificationCenter from '../notification-center.js';
+import * as ntfyTransport from '../notify.js';
+import * as pushoverTransport from '../pushover.js';
+import { registerPermissionNotificationOwner } from '@mitzo/harness';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
 
 /** Lightweight in-memory span for testing OTel instrumentation. */
@@ -501,6 +505,67 @@ describe('runQueryLoop', () => {
     },
   );
 
+  it.each([true, false])(
+    'uses one completion delivery owner for detached SDK turns (central: %s)',
+    async (central) => {
+      const record = vi
+        .spyOn(notificationCenter, 'recordTurnNotification')
+        .mockImplementation(() => {});
+      const ntfy = vi.spyOn(ntfyTransport, 'sendTurnCompleteNotification').mockResolvedValue();
+      const pushover = vi
+        .spyOn(pushoverTransport, 'sendTurnCompleteNotification')
+        .mockResolvedValue();
+      const release = central ? registerPermissionNotificationOwner() : () => {};
+      try {
+        registry = fakeRegistry(transport, { attached: false });
+        await runQueryLoop(
+          eventStream([
+            {
+              type: 'stream_event',
+              event: { type: 'message_start', message: { id: 'completion-text' } },
+            },
+            {
+              type: 'stream_event',
+              event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+            },
+            {
+              type: 'stream_event',
+              event: {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'text_delta', text: 'Private completion text' },
+              },
+            },
+            { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+            {
+              type: 'assistant',
+              message: { content: [{ type: 'text', text: 'Private completion text' }] },
+              session_id: 'completion-owner',
+            },
+            { type: 'result', session_id: 'completion-owner' },
+          ]),
+          clientId,
+          registry,
+          abortController,
+        );
+        expect(record).toHaveBeenCalledExactlyOnceWith(
+          'completion-owner',
+          expect.any(Number),
+          'Private completion text',
+          undefined,
+          true,
+        );
+        expect(ntfy).toHaveBeenCalledTimes(central ? 0 : 1);
+        expect(pushover).toHaveBeenCalledTimes(central ? 0 : 1);
+      } finally {
+        release();
+        record.mockRestore();
+        ntfy.mockRestore();
+        pushover.mockRestore();
+      }
+    },
+  );
+
   it('notifies the final written outcome after message flush and never reuses it for another turn', async () => {
     const record = vi
       .spyOn(notificationCenter, 'recordTurnNotification')
@@ -606,6 +671,51 @@ describe('runQueryLoop', () => {
 
     expect(onFirstEventOutcome).toHaveBeenCalledTimes(1);
     expect(onFirstEventOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+  it.each([true, false])(
+    'classifies a normally closed stream with runtime refusal=%s without misclassifying Stop',
+    async (refused) => {
+      const failure = new SessionRuntimeError('input_not_dispatched');
+      const onTerminalOutcome = vi.fn();
+      abortController.abort(refused ? failure : undefined);
+      await runQueryLoop(
+        eventStream([]),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { onTerminalOutcome },
+      );
+      const span = recordedSpans.filter((span) => span.name === 'session').at(-1)!;
+      expect(span.status.code).toBe(refused ? 2 : 1);
+      expect(span.endCount).toBe(1);
+      expect(onTerminalOutcome).toHaveBeenCalledWith(refused ? failure : undefined);
+      expect(span.attributes['runtime.diagnostic_id']).toBe(
+        refused ? failure.diagnosticId : undefined,
+      );
+    },
+  );
+
+  it('retains the refusal outcome when the SDK throws a generic AbortError', async () => {
+    const failure = new SessionRuntimeError('input_not_dispatched');
+    const onTerminalOutcome = vi.fn();
+    const stream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          abortController.abort(failure);
+          throw Object.assign(new Error('SDK query aborted'), { name: 'AbortError' });
+        },
+      }),
+    };
+    await runQueryLoop(stream, clientId, registry, abortController, undefined, undefined, {
+      onTerminalOutcome,
+    });
+    expect(onTerminalOutcome).toHaveBeenCalledExactlyOnceWith(failure);
+    const span = recordedSpans.filter((span) => span.name === 'session').at(-1)!;
+    expect(span.status.code).toBe(2);
+    expect(span.attributes['runtime.diagnostic_id']).toBe(failure.diagnosticId);
+    expect(span.endCount).toBe(1);
   });
 
   it('admits the first provider event exactly once', async () => {

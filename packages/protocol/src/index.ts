@@ -1,6 +1,7 @@
 export * from './markdown-paths.js';
 export * from './ordinary-turn.js';
 export { conversationActivities } from './conversation-activity.js';
+export type { OrdinarySkillContext } from './ordinary-skill-context.js';
 export {
   ToolFailureSchema,
   toolFailure,
@@ -431,3 +432,4 @@ export * from './session-prompts.js';
 export * from './native-subagents.js';
 export * from './session-access.js';
 export * from './session-learning.js';
+export * from './session-control-support.js';

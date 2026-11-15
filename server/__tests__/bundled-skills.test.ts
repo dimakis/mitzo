@@ -263,7 +263,7 @@ describe('bundled skills', () => {
   );
 
   it.each(['land-pr', 'autopilot', 'pr-shepherd', 'auto-pr-shepherd'])(
-    '/%s admits local review delegation without admitting unrelated tools',
+    '/%s retains review tools while refusing unqualified model delegation',
     (name) => {
       const result = resolveSlashCommand(`/${name} 1090 --prepare-only`, registry, new Set());
       if (result.type !== 'skill') throw Error('Expected a landing skill');
@@ -277,7 +277,6 @@ describe('bundled skills', () => {
         });
         setSkillPolicy(sessions, 'review', result.allowedTools!);
         for (const tool of [
-          'Agent',
           'TaskOutput',
           'TaskStop',
           'GitCommit',
@@ -286,6 +285,7 @@ describe('bundled skills', () => {
         ]) {
           expect(checkSkillPolicy(sessions, 'review', tool)).toBe('allow');
         }
+        expect(checkSkillPolicy(sessions, 'review', 'Agent')).toBe('deny');
         expect(checkSkillPolicy(sessions, 'review', 'mcp__unrelated__write')).toBe('deny');
       } finally {
         sessions.dispose();

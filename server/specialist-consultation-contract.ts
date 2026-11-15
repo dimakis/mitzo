@@ -27,6 +27,26 @@ export const ConsultationInputSchema = z.strictObject({
   reviewOf: z.uuid().optional(),
 });
 export type ConsultationInput = z.infer<typeof ConsultationInputSchema>;
+// Retained in the existing policy receipt alongside its resolved profile pins.
+// Defaults make omitted and explicitly defaulted retries the same request.
+export const SpecialistAuthorizationInputSchema = z
+  .strictObject({
+    requestId: z.uuid(),
+    repository: id,
+    connectionId: id,
+    routes: z.array(SpecialistRouteInputSchema).min(1).max(8),
+    durationMinutes: z.number().int().min(1).max(120).default(30),
+    maxConsultations: z.number().int().min(1).max(8).default(4),
+    maxContextBytes: z.number().int().min(1).max(128000).default(32000),
+  })
+  .transform((input) => ({
+    ...input,
+    routes: input.routes.map(({ agent, modelFamily, ...route }) => ({
+      ...route,
+      ...(agent === undefined ? {} : { agent }),
+      ...(modelFamily === undefined ? {} : { modelFamily }),
+    })),
+  }));
 export const SpecialistPolicyInputSchema = z.strictObject({
   requestId: z.uuid(),
   expiresAt: z.number().int().positive(),
