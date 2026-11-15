@@ -11,6 +11,7 @@ type Pending = {
   input: CodexSteerInput;
   authorize(): void;
   attempted: boolean;
+  rejected?: boolean;
   query?: object;
   waiters: Set<(status: Outcome) => void>;
 };
@@ -45,6 +46,7 @@ export class SdkUserSteering {
       operator: string;
       assertCurrent(): void;
       activeCommandId(): string | undefined;
+      ordinaryCommandId?(): string | undefined;
       push(input: SDKUserMessage): void;
     },
   ) {}
@@ -145,6 +147,9 @@ export class SdkUserSteering {
   ): boolean | undefined {
     const pending = this.inputs.get(message);
     if (!pending) return;
+    // A result may win while this input awaits asynchronous account checks.
+    // Its positive pre-stdin refusal must survive that late queue drain.
+    if (pending.rejected) return false;
     const { events, sessionId, operator } = this.owner;
     try {
       pending.authorize();
@@ -179,6 +184,39 @@ export class SdkUserSteering {
     query?: object,
     queryAvailable = true,
   ): boolean {
+    if (event.type === 'result' && query && queryAvailable) {
+      const target = this.owner.ordinaryCommandId
+        ? this.owner.ordinaryCommandId()
+        : this.owner.activeCommandId();
+      const { events, sessionId, operator } = this.owner;
+      for (const [uuid, pending] of this.pending) {
+        if (pending.input.targetCommandId !== target) continue;
+        if (pending.attempted) {
+          // Stdin release without its exact echo proves neither acceptance nor
+          // rejection. Retain the original durable identity without replay.
+          log.warn('SDK correction outcome remains unconfirmed at turn completion', {
+            code: 'sdk_correction_ack_unconfirmed',
+            stage: 'turn_completion',
+            sessionId,
+            requestId: pending.input.requestId,
+            targetCommandId: target,
+          });
+          for (const finish of pending.waiters) finish('uncertain');
+        } else {
+          events.userSteering.transition(sessionId, operator, pending.input, 'rejected');
+          pending.rejected = true;
+          for (const finish of pending.waiters) finish('rejected');
+          log.warn('SDK correction refused because its turn finished before stdin', {
+            code: 'sdk_correction_turn_finished',
+            stage: 'turn_completion',
+            sessionId,
+            requestId: pending.input.requestId,
+            targetCommandId: target,
+          });
+        }
+        this.pending.delete(uuid);
+      }
+    }
     if (event.type !== 'user' || typeof event.uuid !== 'string' || event.parent_tool_use_id)
       return false;
     const { events, sessionId, operator } = this.owner;
