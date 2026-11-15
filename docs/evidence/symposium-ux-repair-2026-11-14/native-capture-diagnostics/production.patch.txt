@@ -1,0 +1,411 @@
+diff --git a/server/codex-tool-failure.ts b/server/codex-tool-failure.ts
+index e8d51d6f1..f631bc967 100644
+--- a/server/codex-tool-failure.ts
++++ b/server/codex-tool-failure.ts
+@@ -10,6 +10,10 @@ import { performance } from 'node:perf_hooks';
+ import { z } from 'zod';
+ import { PendingHostTaskError } from './pending-host-task.js';
+ import type { CodexToolResult } from './codex-tool-result.js';
++import {
++  PreparationObjectStoreFailureCheckSchema,
++  preparationObjectStoreFailureCheck,
++} from './native-repository-object-store.js';
+ 
+ export type ToolFailureCode =
+   | 'cancelled'
+@@ -44,6 +48,7 @@ const FailureDetailSchema = z.strictObject({
+     'invalid_input',
+   ]),
+   effectStatus: z.enum(['not_started', 'unknown', 'completed']),
++  check: PreparationObjectStoreFailureCheckSchema.optional(),
+ });
+ export const CodexToolFailureDiagnosticSchema = FailureDetailSchema.extend({
+   phase: z.enum(['approval', 'execution', 'cleanup']).optional(),
+@@ -169,6 +174,7 @@ function failureProjection(
+                 stage: item.diagnostic.stage,
+                 reason: item.diagnostic.reason,
+                 effectStatus: 'unknown',
++                ...(item.diagnostic.check ? { check: item.diagnostic.check } : {}),
+               }),
+             ],
+       ),
+@@ -180,6 +186,7 @@ function failureProjection(
+         phase: 'cleanup',
+         reason: selected.diagnostic.reason,
+         effectStatus: 'unknown',
++        ...(selected.diagnostic.check ? { check: selected.diagnostic.check } : {}),
+         ...(original
+           ? {
+               primary:
+@@ -188,6 +195,7 @@ function failureProjection(
+                   stage: original.diagnostic.stage,
+                   reason: original.diagnostic.reason,
+                   effectStatus: original.diagnostic.effectStatus,
++                  ...(original.diagnostic.check ? { check: original.diagnostic.check } : {}),
+                 }),
+             }
+           : {}),
+@@ -199,6 +207,7 @@ function failureProjection(
+     };
+   }
+   const typed = chain.find((failure) => failure instanceof CodexToolFailure);
++  const check = chain.map(preparationObjectStoreFailureCheck).find((value) => value !== undefined);
+   const expired = chain.find((failure) => failure instanceof ApprovalExpiredError);
+   const timeout = chain.find((failure) => failure instanceof ToolGuardTimeoutError);
+   const boundary = chain.find((failure) => failure instanceof PendingHostTaskError);
+@@ -267,6 +276,7 @@ function failureProjection(
+     code,
+     diagnostic: {
+       ...diagnostic,
++      ...(check ? { check } : {}),
+       ...(timeout ? { phase: timeout.phase } : {}),
+       ...(code === 'cancelled' ? { reason: 'cancelled' as const } : {}),
+     },
+diff --git a/server/local-repository-native-reader.ts b/server/local-repository-native-reader.ts
+index beede253e..0a375e718 100644
+--- a/server/local-repository-native-reader.ts
++++ b/server/local-repository-native-reader.ts
+@@ -7,7 +7,9 @@ import {
+ } from './native-repository-observation.js';
+ import {
+   preparationObjectStoreCommand,
+-  parsePreparationObjectStoreCapture,
++  parsePreparationObjectStoreCaptureOutput,
++  parsePreparationObjectStoreVerificationOutput,
++  annotatePreparationObjectStoreFailure,
+   type PreparationObjectStoreCapture,
+ } from './native-repository-object-store.js';
+ import { localRepositoryReadDirectoryExclusionNames } from './local-repository-read-exclusions.js';
+@@ -302,10 +304,11 @@ export async function captureLocalRepositoryReader(
+         signal,
+         timeoutMs: Math.max(1, Math.min(30000, deadline - Date.now())),
+         maxOutputBytes: 4 * 1024 * 1024,
++      }).catch((error: unknown) => {
++        throw annotatePreparationObjectStoreFailure(error, 'object_store_capture_transport');
+       });
+       current();
+-      if (result.isError) throw unavailable();
+-      const captured = parsePreparationObjectStoreCapture(JSON.parse(result.stdout), target);
++      const captured = parsePreparationObjectStoreCaptureOutput(result, target);
+       objectStores.set(captured, plan);
+       return captured;
+     },
+@@ -320,10 +323,10 @@ export async function captureLocalRepositoryReader(
+         signal,
+         timeoutMs: Math.max(1, Math.min(30000, deadline - Date.now())),
+         maxOutputBytes: 32768,
++      }).catch((error: unknown) => {
++        throw annotatePreparationObjectStoreFailure(error, 'object_store_verify_transport');
+       });
+-      if (result.isError) throw unavailable();
+-      const value = JSON.parse(result.stdout);
+-      if (value.verified !== true || Object.keys(value).length !== 1) throw unavailable();
++      parsePreparationObjectStoreVerificationOutput(result);
+       current();
+     },
+     captureRepositoryObservation: async (input: RepositoryObservationInput) => {
+diff --git a/server/local-repository-preparation-object-data.ts b/server/local-repository-preparation-object-data.ts
+index 0dfefabac..6ce695aa5 100644
+--- a/server/local-repository-preparation-object-data.ts
++++ b/server/local-repository-preparation-object-data.ts
+@@ -1,6 +1,7 @@
+ import { lstat } from 'node:fs/promises';
+ import { dirname, isAbsolute, join, resolve } from 'node:path';
+ import { isDeepStrictEqual } from 'node:util';
++import { withCodexToolCleanup } from './codex-tool-failure.js';
+ import { AuthoritySnapshot } from './sandbox-authority.js';
+ import {
+   captureNativeHostReadOwner,
+@@ -47,12 +48,8 @@ function ownedDisposer(
+   // This closure retains ONLY independently owned scratch custody/data. It has
+   // no read owner, context, permission success or disposed reader environment.
+   return Object.freeze(async () => {
+-    try {
+-      const pending: unknown = Reflect.apply(action, artifact, []);
+-      if (!(pending instanceof Promise) || (await pending) !== undefined) throw unavailable();
+-    } catch {
+-      throw unavailable();
+-    }
++    const pending: unknown = Reflect.apply(action, artifact, []);
++    if (!(pending instanceof Promise) || (await pending) !== undefined) throw unavailable();
+   });
+ }
+ /** PRE-APPROVAL READ only. This never approves source Git effects. Every pending
+@@ -101,6 +98,7 @@ export async function captureLocalRepositoryPreparationObjectData(
+     reader = await captureNativeLocalRepositoryReader(context, {
+       deadline: preparationReadDeadline(deadline, context.signal),
+     });
++    let primary: { error: unknown } | undefined;
+     try {
+       const access = new LocalRepositoryReadAccess(reader);
+       const source = await access.pinRoot(originalFacts.source.path);
+@@ -127,15 +125,15 @@ export async function captureLocalRepositoryPreparationObjectData(
+       artifact = await creation;
+       await access.verify();
+       current();
+-    } finally {
+-      await joinCapture();
+-      try {
+-        await reader.dispose();
+-      } finally {
+-        await owner.assertCurrent();
+-        current();
+-      }
++    } catch (error) {
++      primary = { error };
+     }
++    // Joining is deliberately outside bounded cleanup: timeout cannot authorize
++    // disposal while the original capture is still creating owned scratch.
++    await joinCapture();
++    await withCodexToolCleanup(async () => {
++      if (primary) throw primary.error;
++    }, [() => reader!.dispose(), () => owner.assertCurrent(), current]);
+     if (!artifact) throw unavailable();
+     const view = freezePendingHostTaskData(structuredClone(artifact.view));
+     const values = {
+@@ -157,10 +155,14 @@ export async function captureLocalRepositoryPreparationObjectData(
+         Object.fromEntries(Object.entries(values).map(([key, value]) => [key, { value }])),
+       ),
+     ) as LocalRepositoryPreparationObjectData;
+-  } catch {
++  } catch (error) {
+     await joinCapture();
+-    if (artifact) await ownedDisposer(artifact)();
+-    throw unavailable();
++    return await withCodexToolCleanup(
++      async (): Promise<never> => {
++        throw error;
++      },
++      artifact ? [ownedDisposer(artifact)] : [],
++    );
+   }
+ }
+ function property(input: unknown, key: string): unknown {
+diff --git a/server/local-repository-preparation-objects.ts b/server/local-repository-preparation-objects.ts
+index f43461a19..6519e4316 100644
+--- a/server/local-repository-preparation-objects.ts
++++ b/server/local-repository-preparation-objects.ts
+@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
+ import type { PreparationObjectStoreCapture } from './native-repository-object-store.js';
+ import { createHash } from 'node:crypto';
+ import { validNativeRepositoryTreeRelativePath } from './native-tree-publication.js';
++import { withCodexToolCleanup } from './codex-tool-failure.js';
+ import { AuthoritySnapshot, type SerializedAuthority } from './sandbox-authority.js';
+ import {
+   privateRepositoryCheckoutConfig,
+@@ -300,6 +301,7 @@ export async function captureLocalRepositoryPreparationObjects(
+   let total = 0,
+     files = 0;
+   let completed = false;
++  let primary: { error: unknown } | undefined;
+   let view!: LocalRepositoryPreparationObjectView;
+   try {
+     check();
+@@ -559,20 +561,34 @@ export async function captureLocalRepositoryPreparationObjects(
+     });
+     check();
+     completed = true;
+-  } catch {
+-    // All diagnostics are private; cleanup and the outward owner fence still run.
++  } catch (error) {
++    primary = { error };
+   }
++  // Join the original verification under its existing reader/deadline before
++  // disposing any scratch. The cleanup helper only aggregates already settled
++  // fence errors here; its timeout must never race this physical producer.
++  const finalFailures: unknown[] = [];
+   try {
+     check();
+     await access.verify();
+     check();
+-  } catch {
+-    completed = false;
++  } catch (error) {
++    finalFailures.push(error);
+   }
+-  if (!completed) {
+-    if (dispose) await dispose();
+-    signal?.throwIfAborted();
+-    throw unavailable();
++  try {
++    await withCodexToolCleanup(
++      async () => {
++        if (primary) throw primary.error;
++        if (!completed) throw unavailable();
++      },
++      finalFailures.map((error) => () => {
++        throw error;
++      }),
++    );
++  } catch (error) {
++    return await withCodexToolCleanup(async (): Promise<never> => {
++      throw error;
++    }, [...(dispose ? [dispose] : []), () => signal?.throwIfAborted()]);
+   }
+   return Object.freeze({ view, dispose: dispose! });
+ }
+diff --git a/server/native-repository-object-store.ts b/server/native-repository-object-store.ts
+index 130952690..3b1108ae3 100644
+--- a/server/native-repository-object-store.ts
++++ b/server/native-repository-object-store.ts
+@@ -1,6 +1,94 @@
+ import { z } from 'zod';
+ import { isAbsolute, resolve } from 'node:path';
+ import type { NativeReadAnchor } from './native-file-operation.js';
++const refusalCheck = z.enum(['request', 'anchors', 'objects', 'inventory', 'copy', 'consistency']);
++export const PreparationObjectStoreFailureCheckSchema = z.enum([
++  'object_store_capture_request',
++  'object_store_capture_anchors',
++  'object_store_capture_objects',
++  'object_store_capture_inventory',
++  'object_store_capture_copy',
++  'object_store_capture_consistency',
++  'object_store_capture_transport',
++  'object_store_capture_json',
++  'object_store_capture_schema',
++  'object_store_verify_request',
++  'object_store_verify_anchors',
++  'object_store_verify_objects',
++  'object_store_verify_inventory',
++  'object_store_verify_copy',
++  'object_store_verify_consistency',
++  'object_store_verify_transport',
++  'object_store_verify_json',
++  'object_store_verify_schema',
++]);
++type ObjectStoreCheck = z.infer<typeof PreparationObjectStoreFailureCheckSchema>;
++// Private provenance retains original error identity/errno without adding raw
++// exceptions or parser excerpts to the serializable error/result contract.
++const failureChecks = new WeakMap<object, ObjectStoreCheck>();
++export function annotatePreparationObjectStoreFailure(
++  error: unknown,
++  check: ObjectStoreCheck,
++): unknown {
++  if ((typeof error === 'object' && error !== null) || typeof error === 'function') {
++    failureChecks.set(error, PreparationObjectStoreFailureCheckSchema.parse(check));
++    return error;
++  }
++  return objectStoreFailure(check);
++}
++export function preparationObjectStoreFailureCheck(error: unknown): ObjectStoreCheck | undefined {
++  return typeof error === 'object' && error !== null ? failureChecks.get(error) : undefined;
++}
++function objectStoreFailure(check: ObjectStoreCheck) {
++  const error = Error('Preparation object store unavailable');
++  failureChecks.set(error, check);
++  return error;
++}
++function objectStoreOutput(
++  result: { stdout: string; isError?: boolean },
++  operation: 'capture' | 'verify',
++): unknown {
++  const failure = (check: z.infer<typeof refusalCheck> | 'transport' | 'json' | 'schema') =>
++    objectStoreFailure(`object_store_${operation}_${check}`);
++  if (
++    typeof result.stdout !== 'string' ||
++    Buffer.byteLength(result.stdout) > (operation === 'capture' ? 4 * 1024 * 1024 : 32768)
++  )
++    throw failure('transport');
++  let value: unknown;
++  try {
++    value = JSON.parse(result.stdout);
++  } catch {
++    throw failure('json');
++  }
++  const refusal = z
++    .strictObject({ error: z.literal('unavailable'), check: refusalCheck })
++    .safeParse(value);
++  if (refusal.success) throw failure(refusal.data.check);
++  // A failed process cannot supply a success record. Extra/mixed/unknown refusal
++  // fields fall through to the unchanged strict success schema and are refused.
++  if (result.isError) throw failure('transport');
++  return value;
++}
++export function parsePreparationObjectStoreCaptureOutput(
++  result: { stdout: string; isError?: boolean },
++  target: NativeReadAnchor,
++): Readonly<PreparationObjectStoreCapture> {
++  const value = objectStoreOutput(result, 'capture');
++  try {
++    return parsePreparationObjectStoreCapture(value, target);
++  } catch {
++    throw objectStoreFailure('object_store_capture_schema');
++  }
++}
++export function parsePreparationObjectStoreVerificationOutput(result: {
++  stdout: string;
++  isError?: boolean;
++}): void {
++  const value = objectStoreOutput(result, 'verify');
++  if (!z.strictObject({ verified: z.literal(true) }).safeParse(value).success)
++    throw objectStoreFailure('object_store_verify_schema');
++}
+ const path = z
+   .string()
+   .min(1)
+@@ -85,8 +173,10 @@ export function preparationObjectStoreCommand(input: unknown) {
+  * alternates, accelerators and optional pack markers are never consumed. */
+ export const preparationObjectStoreProgram = String.raw`
+ import hashlib, json, os, re, stat, sys, time
++check_stage = 'request'
+ 
+ def run(request):
++    global check_stage
+     deadline = time.monotonic() + 30
+     def check():
+         if time.monotonic() >= deadline: raise RuntimeError()
+@@ -120,14 +210,18 @@ def run(request):
+                 if len(names) >= maximum or name_bytes > 1024 * 1024: raise RuntimeError()
+                 names.append(child.name)
+         return sorted(names)
++    check_stage = 'anchors'
+     source=directory(plan['source']['rootPath']); target=directory(plan['target']['rootPath'])
+     try:
+         if ident(os.fstat(source))!=plan['source']['identity'] or ident(os.fstat(target))!=plan['target']['identity']: raise RuntimeError()
+         if request['operation']=='capture' and bounded_names(target, 1): raise RuntimeError()
++        check_stage = 'objects'
+         objects_path=os.path.join(plan['source']['rootPath'],'objects'); allowed(objects_path)
+         objects=os.open('objects',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=source)
+         try:
+             def inspect(copy):
++                global check_stage
++                check_stage = 'inventory'
+                 witnesses=[]; files=[]; total=0
+                 names=bounded_names(objects, 258)
+                 if len(names)>258: raise RuntimeError()
+@@ -158,6 +252,7 @@ def run(request):
+                             witnesses.append([relative,state(info)])
+                             item={'path':relative,'size':info.st_size}
+                             if copy:
++                                check_stage = 'copy'
+                                 original=os.open(child,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=shard)
+                                 output=None
+                                 try:
+@@ -180,6 +275,7 @@ def run(request):
+                                     if output is not None: os.close(output)
+                                     os.close(original)
+                             files.append(item)
++                            check_stage = 'inventory'
+                     finally:
+                         if destination is not None: os.close(destination)
+                         os.close(shard)
+@@ -187,8 +283,11 @@ def run(request):
+             capture=request['operation']=='capture'
+             files,digest=inspect(capture)
+             if capture:
+-                if inspect(False)[1]!=digest: raise RuntimeError()
++                verification_digest=inspect(False)[1]
++                check_stage = 'consistency'
++                if verification_digest!=digest: raise RuntimeError()
+                 return {'files':files,'digest':digest}
++            check_stage = 'consistency'
+             if request['operation']!='verify' or digest!=request['digest']: raise RuntimeError()
+             return {'verified':True}
+         finally: os.close(objects)
+@@ -196,5 +295,5 @@ def run(request):
+ try:
+     print(json.dumps(run(json.load(sys.stdin))))
+ except Exception:
+-    print(json.dumps({'error':'unavailable'}))
++    print(json.dumps({'error':'unavailable','check':check_stage}))
+ `;

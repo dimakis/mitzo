@@ -1,0 +1,1 @@
+{"parents": ["HEAD", "origin/main"], "parentKeys": [2512, 2489], "unionKeys": 2514, "version": "v1.0.1187-symposium-integrated-acceptance"}

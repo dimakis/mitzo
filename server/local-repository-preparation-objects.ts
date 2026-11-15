@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import type { PreparationObjectStoreCapture } from './native-repository-object-store.js';
 import { createHash } from 'node:crypto';
 import { validNativeRepositoryTreeRelativePath } from './native-tree-publication.js';
+import { withCodexToolCleanup } from './codex-tool-failure.js';
 import { AuthoritySnapshot, type SerializedAuthority } from './sandbox-authority.js';
 import {
   privateRepositoryCheckoutConfig,
@@ -300,6 +301,7 @@ export async function captureLocalRepositoryPreparationObjects(
   let total = 0,
     files = 0;
   let completed = false;
+  let primary: { error: unknown } | undefined;
   let view!: LocalRepositoryPreparationObjectView;
   try {
     check();
@@ -559,20 +561,34 @@ export async function captureLocalRepositoryPreparationObjects(
     });
     check();
     completed = true;
-  } catch {
-    // All diagnostics are private; cleanup and the outward owner fence still run.
+  } catch (error) {
+    primary = { error };
   }
+  // Join the original verification under its existing reader/deadline before
+  // disposing any scratch. The cleanup helper only aggregates already settled
+  // fence errors here; its timeout must never race this physical producer.
+  const finalFailures: unknown[] = [];
   try {
     check();
     await access.verify();
     check();
-  } catch {
-    completed = false;
+  } catch (error) {
+    finalFailures.push(error);
   }
-  if (!completed) {
-    if (dispose) await dispose();
-    signal?.throwIfAborted();
-    throw unavailable();
+  try {
+    await withCodexToolCleanup(
+      async () => {
+        if (primary) throw primary.error;
+        if (!completed) throw unavailable();
+      },
+      finalFailures.map((error) => () => {
+        throw error;
+      }),
+    );
+  } catch (error) {
+    return await withCodexToolCleanup(async (): Promise<never> => {
+      throw error;
+    }, [...(dispose ? [dispose] : []), () => signal?.throwIfAborted()]);
   }
   return Object.freeze({ view, dispose: dispose! });
 }

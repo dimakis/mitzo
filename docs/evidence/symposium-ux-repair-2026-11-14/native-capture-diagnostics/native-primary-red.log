@@ -1,0 +1,76 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+ [31m❯[39m server/__tests__/local-repository-preparation-object-data.test.ts [2m([22m[2m20 tests[22m[2m | [22m[31m2 failed[39m[2m | [22m[33m18 skipped[39m[2m)[22m[32m 14[2mms[22m[39m
+   [2m[90m↓[39m[22m closes the original read owner before exposing only bound object data and scratch custody
+   [2m[90m↓[39m[22m joins capture after cancellation even before the disposer assignment can complete
+   [2m[90m↓[39m[22m disposes assigned scratch when read-owner cleanup refuses outward delivery
+[31m   [31m×[31m preserves the exact primary failure when the independent cleanup fences succeed[39m[32m 9[2mms[22m[39m
+[31m   [31m×[31m retains primary, reader disposal and independent full/sync final failures[39m[32m 4[2mms[22m[39m
+   [2m[90m↓[39m[22m joins both private root and parent observations before refusing use
+   [2m[90m↓[39m[22m rejects changed copied config bytes at use without extending any authority
+   [2m[90m↓[39m[22m rejects changed copied object bytes at use without extending any authority
+   [2m[90m↓[39m[22m rejects foreign scratch replacement and preserves its canary
+   [2m[90m↓[39m[22m refuses changed context correlation before using retained data
+   [2m[90m↓[39m[22m refuses changed request correlation before using retained data
+   [2m[90m↓[39m[22m refuses changed facts correlation before using retained data
+   [2m[90m↓[39m[22m refuses changed base correlation before using retained data
+   [2m[90m↓[39m[22m refuses a missing original parser witness before opening a new source reader
+   [2m[90m↓[39m[22m refuses a substituted immutable witness even when its descriptive bytes are identical
+   [2m[90m↓[39m[22m refuses malformed historical witness before any source reader
+   [2m[90m↓[39m[22m refuses malformed historical witness before any source reader
+   [2m[90m↓[39m[22m refuses malformed historical witness before any source reader
+   [2m[90m↓[39m[22m rejects an accessor witness without invoking its getter
+   [2m[90m↓[39m[22m retains the exact bounded file witness outside the existing facts hash
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m server/__tests__/local-repository-preparation-object-data.test.ts[2m > [22mpreserves the exact primary failure when the independent cleanup fences succeed
+[31m[1mAssertionError[22m: expected Error: Prepared private object data unava… to be Error: PRIVATE capture { code: 'ENOS…' } // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  Error {[22m
+[32m-   "message": "PRIVATE capture",[39m
+[32m-   "code": "ENOSPC",[39m
+[31m+   "message": "Prepared private object data unavailable",[39m
+[2m  }[22m
+
+[36m [2m❯[22m server/__tests__/local-repository-preparation-object-data.test.ts:[2m206:121[22m[39m
+    [90m204|[39m   const primary = Object.assign(Error('PRIVATE capture'), { code: 'ENO…
+    [90m205|[39m   vi.mocked(captureLocalRepositoryPreparationObjects).mockRejectedValu…
+    [90m206|[39m   await expect(captureLocalRepositoryPreparationObjectData(f.context, …
+    [90m   |[39m                                                                                                                         [31m^[39m
+    [90m207|[39m   [34mexpect[39m(f[33m.[39mreader[33m.[39mdispose)[33m.[39m[34mtoHaveBeenCalledOnce[39m()[33m;[39m
+    [90m208|[39m   [34mexpect[39m(f[33m.[39mcontext[33m.[39massertCurrent)[33m.[39m[34mtoHaveBeenCalledTimes[39m([34m2[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m server/__tests__/local-repository-preparation-object-data.test.ts[2m > [22mretains primary, reader disposal and independent full/sync final failures
+[31m[1mAssertionError[22m: expected 'internal_failure' to be 'cancelled' // Object.is equality[39m
+
+Expected: [32m"cancelled"[39m
+Received: [31m"internal_failure"[39m
+
+[36m [2m❯[22m server/__tests__/local-repository-preparation-object-data.test.ts:[2m224:23[22m[39m
+    [90m222|[39m   try { await captureLocalRepositoryPreparationObjectData(context, f.r…
+    [90m223|[39m   const value = JSON.parse(codexToolFailureResult(failure, false, unde…
+    [90m224|[39m   [34mexpect[39m(value[33m.[39merror)[33m.[39m[34mtoBe[39m([32m'cancelled'[39m)[33m;[39m
+    [90m   |[39m                       [31m^[39m
+    [90m225|[39m   expect(value.diagnostic.primary).toMatchObject({ reason: 'storage_fu…
+    [90m226|[39m   expect(value.diagnostic.cleanup.map((item: { reason: string }) => it…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[33m18 skipped[39m[90m (20)[39m
+[2m   Start at [22m 01:11:09
+[2m   Duration [22m 989ms[2m (transform 482ms, setup 0ms, import 870ms, tests 14ms, environment 0ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

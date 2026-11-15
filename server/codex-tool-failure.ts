@@ -10,6 +10,10 @@ import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import { PendingHostTaskError } from './pending-host-task.js';
 import type { CodexToolResult } from './codex-tool-result.js';
+import {
+  PreparationObjectStoreFailureCheckSchema,
+  preparationObjectStoreFailureCheck,
+} from './native-repository-object-store.js';
 
 export type ToolFailureCode =
   | 'cancelled'
@@ -44,6 +48,7 @@ const FailureDetailSchema = z.strictObject({
     'invalid_input',
   ]),
   effectStatus: z.enum(['not_started', 'unknown', 'completed']),
+  check: PreparationObjectStoreFailureCheckSchema.optional(),
 });
 export const CodexToolFailureDiagnosticSchema = FailureDetailSchema.extend({
   phase: z.enum(['approval', 'execution', 'cleanup']).optional(),
@@ -169,6 +174,7 @@ function failureProjection(
                 stage: item.diagnostic.stage,
                 reason: item.diagnostic.reason,
                 effectStatus: 'unknown',
+                ...(item.diagnostic.check ? { check: item.diagnostic.check } : {}),
               }),
             ],
       ),
@@ -180,6 +186,7 @@ function failureProjection(
         phase: 'cleanup',
         reason: selected.diagnostic.reason,
         effectStatus: 'unknown',
+        ...(selected.diagnostic.check ? { check: selected.diagnostic.check } : {}),
         ...(original
           ? {
               primary:
@@ -188,6 +195,7 @@ function failureProjection(
                   stage: original.diagnostic.stage,
                   reason: original.diagnostic.reason,
                   effectStatus: original.diagnostic.effectStatus,
+                  ...(original.diagnostic.check ? { check: original.diagnostic.check } : {}),
                 }),
             }
           : {}),
@@ -199,6 +207,7 @@ function failureProjection(
     };
   }
   const typed = chain.find((failure) => failure instanceof CodexToolFailure);
+  const check = chain.map(preparationObjectStoreFailureCheck).find((value) => value !== undefined);
   const expired = chain.find((failure) => failure instanceof ApprovalExpiredError);
   const timeout = chain.find((failure) => failure instanceof ToolGuardTimeoutError);
   const boundary = chain.find((failure) => failure instanceof PendingHostTaskError);
@@ -267,6 +276,7 @@ function failureProjection(
     code,
     diagnostic: {
       ...diagnostic,
+      ...(check ? { check } : {}),
       ...(timeout ? { phase: timeout.phase } : {}),
       ...(code === 'cancelled' ? { reason: 'cancelled' as const } : {}),
     },

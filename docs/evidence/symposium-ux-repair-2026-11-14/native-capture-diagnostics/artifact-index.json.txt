@@ -1,0 +1,62 @@
+[
+  {
+    "path": "independent-review.md.txt",
+    "size": 2900,
+    "sha256": "e3b087e55f7f050fc30858d0628cc9578051d6d879dd6e79e33156aae77c9aca"
+  },
+  {
+    "path": "native-diagnostic-red.log",
+    "size": 5678,
+    "sha256": "26c35dc17e67907e7cfa210fe2901bceb94e8facd2dd9322f5f02bf43b12d340"
+  },
+  {
+    "path": "native-focused-final.log",
+    "size": 2577,
+    "sha256": "14427db0b8ae537acbef668fd2d301f07442c9fa15eba7a35c8a56f617256ebe"
+  },
+  {
+    "path": "native-pinned-and-adapter.log",
+    "size": 167,
+    "sha256": "a20d752238404ab7ef80ce810973f8f78326b5a2e9662b9a7d820f17113a97fd"
+  },
+  {
+    "path": "native-primary-red.log",
+    "size": 5544,
+    "sha256": "19bfcf6a6ad5a56d873b9ce8b06f843ba97ab8b72fe0df1cc31765a936f975a8"
+  },
+  {
+    "path": "native-real-producer-adapter-final.log",
+    "size": 1211,
+    "sha256": "9a52fee153fdc3301c07bec8160a4071cb27ab2d89a78c9596f4dd676cedc028"
+  },
+  {
+    "path": "native-registry-union.json.txt",
+    "size": 140,
+    "sha256": "5fee432463a41bf3bfbf129290f04cdd15b1ddf2577a92cdef03db71ce03a399"
+  },
+  {
+    "path": "native-required-consumer-guarded-green.log",
+    "size": 580,
+    "sha256": "140e70c68915cac8fe7169a33f20cbb6b44a5ba97185674eedad495f6b14fc97"
+  },
+  {
+    "path": "native-required-consumer-red.log",
+    "size": 3948,
+    "sha256": "56ec8fa3868ef51426e0f7b3b56834ebd335e49e16a39c7eba9980e0263d0e85"
+  },
+  {
+    "path": "native-successful-view.log",
+    "size": 994,
+    "sha256": "106843a25a9712e204e21f23347d96cef0da8503d4e03c1e5bf00ff1fbfc5b73"
+  },
+  {
+    "path": "owner-0b93-combined-slice3-controls.log",
+    "size": 43296,
+    "sha256": "1879898a1b567e24c810df08a13569b090b89c138443ef4ba85ddd1a53f370b2"
+  },
+  {
+    "path": "production.patch.txt",
+    "size": 17636,
+    "sha256": "5cee44eb1766ff7005ace7aaa0eefd797666900f9cd9339fe48710f79d81b45b"
+  }
+]

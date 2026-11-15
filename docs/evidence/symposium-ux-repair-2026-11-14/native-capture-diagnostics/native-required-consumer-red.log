@@ -1,0 +1,59 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+ [31m❯[39m server/__tests__/preparation-object-store-cause-consumer.test.ts [2m([22m[2m4 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[32m 134[2mms[22m[39m
+[31m   [31m×[31m retains actual native-store refusal through required preparation consumer and none cleanup failure[39m[32m 42[2mms[22m[39m
+[31m   [31m×[31m retains actual native-store refusal through required preparation consumer and verify cleanup failure[39m[32m 34[2mms[22m[39m
+[31m   [31m×[31m retains actual native-store refusal through required preparation consumer and dispose cleanup failure[39m[32m 31[2mms[22m[39m
+[31m   [31m×[31m retains actual native-store refusal through required preparation consumer and both cleanup failure[39m[32m 28[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 4 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mretains actual native-store refusal through required preparation consumer and none cleanup failure
+[31m[1mAssertionError[22m: expected Error: Preparation objects unavailable to be Error: Preparation object store unavailab… // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  Error {[22m
+[32m-   "message": "Preparation object store unavailable",[39m
+[31m+   "message": "Preparation objects unavailable",[39m
+[2m  }[22m
+
+[36m [2m❯[22m server/__tests__/preparation-object-store-cause-consumer.test.ts:[2m53:42[22m[39m
+    [90m 51|[39m     } [35mcatch[39m (error) { failure [33m=[39m error[33m;[39m }
+    [90m 52|[39m     [34mexpect[39m(capture)[33m.[39m[34mtoHaveBeenCalledOnce[39m()[33m;[39m
+    [90m 53|[39m     [35mif[39m (mode [33m===[39m [32m'none'[39m) [34mexpect[39m(failure)[33m.[39m[34mtoBe[39m(primary)[33m;[39m
+    [90m   |[39m                                          [31m^[39m
+    [90m 54|[39m     const value = JSON.parse(codexToolFailureResult(failure, false, un…
+    [90m 55|[39m     [34mexpect[39m(value[33m.[39mdiagnostic[33m.[39meffectStatus)[33m.[39m[34mtoBe[39m([32m'unknown'[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mretains actual native-store refusal through required preparation consumer and verify cleanup failure
+[41m[1m FAIL [22m[49m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mretains actual native-store refusal through required preparation consumer and dispose cleanup failure
+[41m[1m FAIL [22m[49m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mretains actual native-store refusal through required preparation consumer and both cleanup failure
+[31m[1mAssertionError[22m: expected undefined to be 'object_store_capture_copy' // Object.is equality[39m
+
+[32m- Expected:[39m
+"object_store_capture_copy"
+
+[31m+ Received:[39m
+undefined
+
+[36m [2m❯[22m server/__tests__/preparation-object-store-cause-consumer.test.ts:[2m57:66[22m[39m
+
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m4 failed[39m[22m[90m (4)[39m
+[2m   Start at [22m 01:26:48
+[2m   Duration [22m 1.16s[2m (transform 531ms, setup 0ms, import 929ms, tests 134ms, environment 0ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice

@@ -13,6 +13,7 @@ import {
 } from '../local-repository-native-read.js';
 import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
 import * as sandboxedCommand from '../sandboxed-command.js';
+import { codexToolFailureResult } from '../codex-tool-failure.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -139,6 +140,89 @@ it.runIf(process.platform === 'darwin').each(['current', 'before', 'after'] as c
       } finally {
         await reader.dispose();
       }
+    });
+  },
+);
+
+it.runIf(process.platform === 'darwin').each([
+  ['capture', 'refusal'],
+  ['verify', 'refusal'],
+  ['capture', 'json'],
+  ['verify', 'json'],
+  ['capture', 'transport'],
+  ['verify', 'transport'],
+  ['capture', 'oversize'],
+  ['verify', 'oversize'],
+  ['capture', 'revoke'],
+  ['capture', 'cancel'],
+] as const)(
+  'keeps exact object-store %s/%s failure through real reader and live physical fences',
+  async (operation, outcome) => {
+    const f = await fixture();
+    const execute = vi
+      .spyOn(sandboxedCommand, 'executeSandboxedCommand')
+      .mockImplementation(async (request) => {
+        await request.beforeSpawnAsync?.();
+        request.beforeSpawn?.();
+        const input = JSON.parse(request.requestJson!);
+        const phase = input.operation === 'CapturePreparationObjectStore' ? 'capture' : 'verify';
+        expect(input.operation).toBe(
+          phase === 'capture' ? 'CapturePreparationObjectStore' : 'VerifyPreparationObjectStore',
+        );
+        expect(request.maxOutputBytes).toBe(phase === 'capture' ? 4 * 1024 * 1024 : 32768);
+        expect(request.writableRoots).toEqual([request.cwd]);
+        expect(request.deniedRoots).toEqual(expect.arrayContaining(f.policy.deniedRoots));
+        expect(request.privateOutput).toBe('separate');
+        expect(request.timeoutMs).toBeLessThanOrEqual(30000);
+        let stdout = JSON.stringify(
+          phase === 'capture' ? { files: [], digest: 'a'.repeat(64) } : { verified: true },
+        );
+        if (phase === operation) {
+          if (outcome === 'refusal') stdout = '{"error":"unavailable","check":"inventory"}';
+          if (outcome === 'json') stdout = 'PRIVATE_SENTINEL stdout parserexcerpt';
+          if (outcome === 'oversize') stdout = ' '.repeat(request.maxOutputBytes! + 1);
+          if (outcome === 'transport')
+            throw Object.assign(Error('PRIVATE_SENTINEL stderr credential'), { code: 'ETIMEDOUT' });
+          if (outcome === 'revoke') f.revoke();
+          if (outcome === 'cancel') f.abort();
+        }
+        return { content: stdout, stdout, stderr: 'PRIVATE_SENTINEL stderr', isError: false };
+      });
+    await withPreparedRepositoryBarrierReadScope(f.policy, 'completed', f.owners, async (scope) => {
+      const reader = await capturePreparedRepositoryReader(scope, { deadline: Date.now() + 30000 });
+      let error: unknown;
+      try {
+        const captured = await reader.capturePreparationObjectStore!(
+          { rootPath: f.source, identity: { dev: '1', ino: '2' } },
+          'sha1',
+        );
+        if (operation === 'verify') await reader.verifyPreparationObjectStore!(captured);
+      } catch (caught) {
+        error = caught;
+      } finally {
+        await reader.dispose();
+      }
+      expect(error).toBeDefined();
+      const value = JSON.parse(
+        codexToolFailureResult(error, false, undefined, 'repository_preparation').content,
+      );
+      expect(value.diagnostic.effectStatus).toBe('unknown');
+      expect(value.retry).toBe('after_reconciliation');
+      if (outcome === 'refusal')
+        expect(value.diagnostic.check).toBe(`object_store_${operation}_inventory`);
+      if (outcome === 'json') expect(value.diagnostic.check).toBe(`object_store_${operation}_json`);
+      if (outcome === 'oversize' || outcome === 'transport')
+        expect(value.diagnostic.check).toBe(`object_store_${operation}_transport`);
+      if (outcome === 'cancel') expect(value.error).toBe('cancelled');
+      expect(JSON.stringify(value)).not.toMatch(/PRIVATE_SENTINEL|parserexcerpt|credential/);
+      await expect(
+        reader.capturePreparationObjectStore!(
+          { rootPath: f.source, identity: { dev: '1', ino: '2' } },
+          'sha1',
+        ),
+      ).rejects.toThrow();
+      expect(execute).toHaveBeenCalledTimes(operation === 'capture' ? 1 : 2);
+      expect(await readFile(join(f.source, 'witness.txt'), 'utf8')).toBe('ORIGINAL SOURCE BYTES');
     });
   },
 );

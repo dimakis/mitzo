@@ -7,7 +7,9 @@ import {
 } from './native-repository-observation.js';
 import {
   preparationObjectStoreCommand,
-  parsePreparationObjectStoreCapture,
+  parsePreparationObjectStoreCaptureOutput,
+  parsePreparationObjectStoreVerificationOutput,
+  annotatePreparationObjectStoreFailure,
   type PreparationObjectStoreCapture,
 } from './native-repository-object-store.js';
 import { localRepositoryReadDirectoryExclusionNames } from './local-repository-read-exclusions.js';
@@ -302,10 +304,11 @@ export async function captureLocalRepositoryReader(
         signal,
         timeoutMs: Math.max(1, Math.min(30000, deadline - Date.now())),
         maxOutputBytes: 4 * 1024 * 1024,
+      }).catch((error: unknown) => {
+        throw annotatePreparationObjectStoreFailure(error, 'object_store_capture_transport');
       });
       current();
-      if (result.isError) throw unavailable();
-      const captured = parsePreparationObjectStoreCapture(JSON.parse(result.stdout), target);
+      const captured = parsePreparationObjectStoreCaptureOutput(result, target);
       objectStores.set(captured, plan);
       return captured;
     },
@@ -320,10 +323,10 @@ export async function captureLocalRepositoryReader(
         signal,
         timeoutMs: Math.max(1, Math.min(30000, deadline - Date.now())),
         maxOutputBytes: 32768,
+      }).catch((error: unknown) => {
+        throw annotatePreparationObjectStoreFailure(error, 'object_store_verify_transport');
       });
-      if (result.isError) throw unavailable();
-      const value = JSON.parse(result.stdout);
-      if (value.verified !== true || Object.keys(value).length !== 1) throw unavailable();
+      parsePreparationObjectStoreVerificationOutput(result);
       current();
     },
     captureRepositoryObservation: async (input: RepositoryObservationInput) => {

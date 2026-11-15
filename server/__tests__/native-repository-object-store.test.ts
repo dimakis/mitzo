@@ -2,7 +2,18 @@ import { createHash } from 'node:crypto';
 import { afterEach, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+  readdir,
+  link,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { preparationObjectStoreProgram } from '../native-repository-object-store.js';
@@ -91,6 +102,7 @@ it('streams bounded large pack containers to owned scratch and detects source ch
   await writeFile(path, 'changed');
   expect(await run({ operation: 'verify', plan, digest: capture.digest })).toEqual({
     error: 'unavailable',
+    check: 'consistency',
   });
 });
 it('refuses linked or denied object storage before copying its bytes', async () => {
@@ -114,6 +126,81 @@ it('refuses linked or denied object storage before copying its bytes', async () 
     objectFormat: 'sha1',
     deniedRoots: [join(root, 'private')],
   };
-  expect(await run({ operation: 'capture', plan })).toEqual({ error: 'unavailable' });
+  expect(await run({ operation: 'capture', plan })).toEqual({
+    error: 'unavailable',
+    check: 'objects',
+  });
   expect(await readFile(join(root, 'private', 'sentinel'), 'utf8')).toBe('secret');
 });
+it('keeps pre-copy and partial-copy refusals bounded without disclosing names or private bytes', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-object-store-partial-')));
+  roots.push(root);
+  const common = join(root, 'common'),
+    target = join(root, 'target');
+  await mkdir(join(common, 'objects', '00'), { recursive: true });
+  await mkdir(target);
+  const anchor = async (rootPath: string) => {
+    const s = await stat(rootPath, { bigint: true });
+    return { rootPath, identity: { dev: String(s.dev), ino: String(s.ino) } };
+  };
+  const plan = {
+    version: 'preparation-object-store-v1',
+    source: await anchor(common),
+    target: await anchor(target),
+    objectFormat: 'sha1',
+    deniedRoots: [],
+  };
+  // The first valid opaque object is copied before a later invalid inventory
+  // entry. Refusal never establishes not_started or permits replay.
+  const first = '0'.repeat(38);
+  await writeFile(join(common, 'objects', '00', first), 'opaque object');
+  await writeFile(
+    join(common, 'objects', '00', 'PRIVATE-invalid-credential-name'),
+    'PRIVATE bytes',
+  );
+  const reply = await run({ operation: 'capture', plan });
+  expect(reply).toEqual({ error: 'unavailable', check: 'inventory' });
+  expect(await readFile(join(target, '00', first), 'utf8')).toBe('opaque object');
+  expect(JSON.stringify(reply)).not.toMatch(/PRIVATE|credential|bytes/);
+  expect(
+    await run({
+      operation: 'capture',
+      plan: { ...plan, source: { ...plan.source, identity: { dev: '0', ino: '0' } } },
+    }),
+  ).toEqual({ error: 'unavailable', check: 'anchors' });
+});
+it.each(['denied', 'linked', 'oversized'] as const)(
+  'retains the physical %s object guard and original private canary',
+  async (guard) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-object-store-guard-')));
+    roots.push(root);
+    const common = join(root, 'common'),
+      target = join(root, 'target'),
+      canary = join(root, 'private');
+    await mkdir(join(common, 'objects', '00'), { recursive: true });
+    await mkdir(target);
+    await writeFile(canary, 'PRIVATE canary');
+    const file = join(common, 'objects', '00', '0'.repeat(38));
+    if (guard === 'linked') await link(canary, file);
+    else
+      await writeFile(file, guard === 'oversized' ? Buffer.alloc(16 * 1024 * 1024 + 1) : 'opaque');
+    const anchor = async (rootPath: string) => {
+      const s = await stat(rootPath, { bigint: true });
+      return { rootPath, identity: { dev: String(s.dev), ino: String(s.ino) } };
+    };
+    const plan = {
+      version: 'preparation-object-store-v1',
+      source: await anchor(common),
+      target: await anchor(target),
+      objectFormat: 'sha1',
+      deniedRoots: guard === 'denied' ? [common] : [],
+    };
+    expect(await run({ operation: 'capture', plan })).toEqual({
+      error: 'unavailable',
+      check: guard === 'denied' ? 'anchors' : 'inventory',
+    });
+    expect(await readFile(canary, 'utf8')).toBe('PRIVATE canary');
+    if (guard === 'denied') expect(await readdir(target)).toEqual([]);
+    else expect(await readdir(join(target, '00'))).toEqual([]);
+  },
+);

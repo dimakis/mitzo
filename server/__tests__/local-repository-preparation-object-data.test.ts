@@ -13,6 +13,7 @@ import {
 import type { LocalRepositoryAllocationFacts } from '../local-repository-allocation-facts.js';
 import { pendingHostTaskDecisionHash, type PendingHostTaskRequest } from '../pending-host-task.js';
 import * as fs from 'node:fs/promises';
+import { codexToolFailureResult } from '../codex-tool-failure.js';
 
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>();
@@ -178,6 +179,15 @@ it('joins capture after cancellation even before the disposer assignment can com
   await Promise.resolve();
   expect(done).toBe(false);
   expect(f.reader.dispose).not.toHaveBeenCalled();
+  vi.useFakeTimers();
+  try {
+    await vi.advanceTimersByTimeAsync(10001);
+    expect(done).toBe(false);
+    expect(f.reader.dispose).not.toHaveBeenCalled();
+    expect(f.artifact.dispose).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
   release(f.artifact);
   await outcome;
   expect(f.reader.dispose).toHaveBeenCalledOnce();
@@ -197,6 +207,108 @@ it('disposes assigned scratch when read-owner cleanup refuses outward delivery',
     ),
   ).rejects.toThrow();
   expect(f.artifact.dispose).toHaveBeenCalledOnce();
+});
+it('preserves the exact primary failure when the independent cleanup fences succeed', async () => {
+  const f = await fixture();
+  const primary = Object.assign(Error('PRIVATE capture'), { code: 'ENOSPC' });
+  vi.mocked(captureLocalRepositoryPreparationObjects).mockRejectedValue(primary);
+  await expect(
+    captureLocalRepositoryPreparationObjectData(
+      f.context,
+      f.request,
+      f.facts,
+      f.hash,
+      f.deadline,
+      f.witness,
+    ),
+  ).rejects.toBe(primary);
+  expect(f.reader.dispose).toHaveBeenCalledOnce();
+  expect(f.context.assertCurrent).toHaveBeenCalledTimes(2);
+});
+it('retains primary, reader disposal and independent full/sync final failures', async () => {
+  const f = await fixture();
+  const primary = Object.assign(Error('PRIVATE capture'), { code: 'ENOSPC' });
+  const disposal = Object.assign(Error('PRIVATE disposal'), { code: 'ETIMEDOUT' });
+  const full = Object.assign(Error('PRIVATE full'), { code: 'EACCES' });
+  let finalSync = false;
+  vi.mocked(captureLocalRepositoryPreparationObjects).mockImplementation(async () => {
+    finalSync = true;
+    throw primary;
+  });
+  f.reader.dispose.mockRejectedValue(disposal);
+  vi.mocked(f.context.assertCurrent)
+    .mockImplementationOnce(async () => {})
+    .mockRejectedValue(full);
+  const sync = vi.fn(() => {
+    if (finalSync) throw new DOMException('PRIVATE sync', 'AbortError');
+  });
+  const context = Object.freeze({ ...f.context, assertCurrentSync: sync });
+  let failure: unknown;
+  try {
+    await captureLocalRepositoryPreparationObjectData(
+      context,
+      f.request,
+      f.facts,
+      f.hash,
+      f.deadline,
+      f.witness,
+    );
+  } catch (error) {
+    failure = error;
+  }
+  const value = JSON.parse(
+    codexToolFailureResult(failure, false, undefined, 'repository_preparation').content,
+  );
+  expect(value.error).toBe('cancelled');
+  expect(value.diagnostic.primary).toMatchObject({
+    reason: 'storage_full',
+    effectStatus: 'unknown',
+  });
+  expect(value.diagnostic.cleanup.map((item: { reason: string }) => item.reason)).toEqual([
+    'deadline',
+    'filesystem_denied',
+    'cancelled',
+  ]);
+  expect(JSON.stringify(value)).not.toContain('PRIVATE');
+  expect(f.reader.dispose).toHaveBeenCalledOnce();
+  expect(f.context.assertCurrent).toHaveBeenCalledTimes(2);
+  expect(sync).toHaveBeenCalled();
+});
+it('retains owned artifact disposal failures after a completed capture and every reader fence', async () => {
+  const f = await fixture();
+  f.reader.dispose.mockRejectedValue(Object.assign(Error('PRIVATE reader'), { code: 'ENOSPC' }));
+  vi.mocked(f.context.assertCurrent)
+    .mockImplementationOnce(async () => {})
+    .mockRejectedValue(Object.assign(Error('PRIVATE full'), { code: 'EACCES' }));
+  f.artifact.dispose.mockRejectedValue(
+    Object.assign(Error('PRIVATE artifact'), { code: 'ETIMEDOUT' }),
+  );
+  let failure: unknown;
+  try {
+    await captureLocalRepositoryPreparationObjectData(
+      f.context,
+      f.request,
+      f.facts,
+      f.hash,
+      f.deadline,
+      f.witness,
+    );
+  } catch (error) {
+    failure = error;
+  }
+  const value = JSON.parse(
+    codexToolFailureResult(failure, false, undefined, 'repository_preparation').content,
+  );
+  expect(value.diagnostic.effectStatus).toBe('unknown');
+  expect(value.diagnostic.cleanup.map((item: { reason: string }) => item.reason)).toEqual([
+    'storage_full',
+    'filesystem_denied',
+    'deadline',
+  ]);
+  expect(JSON.stringify(value)).not.toContain('PRIVATE');
+  expect(f.artifact.dispose).toHaveBeenCalledOnce();
+  expect(f.reader.dispose).toHaveBeenCalledOnce();
+  expect(f.context.assertCurrent).toHaveBeenCalledTimes(2);
 });
 it('joins both private root and parent observations before refusing use', async () => {
   const f = await fixture();

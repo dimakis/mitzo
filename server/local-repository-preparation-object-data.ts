@@ -1,6 +1,7 @@
 import { lstat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { withCodexToolCleanup } from './codex-tool-failure.js';
 import { AuthoritySnapshot } from './sandbox-authority.js';
 import {
   captureNativeHostReadOwner,
@@ -47,12 +48,8 @@ function ownedDisposer(
   // This closure retains ONLY independently owned scratch custody/data. It has
   // no read owner, context, permission success or disposed reader environment.
   return Object.freeze(async () => {
-    try {
-      const pending: unknown = Reflect.apply(action, artifact, []);
-      if (!(pending instanceof Promise) || (await pending) !== undefined) throw unavailable();
-    } catch {
-      throw unavailable();
-    }
+    const pending: unknown = Reflect.apply(action, artifact, []);
+    if (!(pending instanceof Promise) || (await pending) !== undefined) throw unavailable();
   });
 }
 /** PRE-APPROVAL READ only. This never approves source Git effects. Every pending
@@ -101,6 +98,7 @@ export async function captureLocalRepositoryPreparationObjectData(
     reader = await captureNativeLocalRepositoryReader(context, {
       deadline: preparationReadDeadline(deadline, context.signal),
     });
+    let primary: { error: unknown } | undefined;
     try {
       const access = new LocalRepositoryReadAccess(reader);
       const source = await access.pinRoot(originalFacts.source.path);
@@ -127,15 +125,15 @@ export async function captureLocalRepositoryPreparationObjectData(
       artifact = await creation;
       await access.verify();
       current();
-    } finally {
-      await joinCapture();
-      try {
-        await reader.dispose();
-      } finally {
-        await owner.assertCurrent();
-        current();
-      }
+    } catch (error) {
+      primary = { error };
     }
+    // Joining is deliberately outside bounded cleanup: timeout cannot authorize
+    // disposal while the original capture is still creating owned scratch.
+    await joinCapture();
+    await withCodexToolCleanup(async () => {
+      if (primary) throw primary.error;
+    }, [() => reader!.dispose(), () => owner.assertCurrent(), current]);
     if (!artifact) throw unavailable();
     const view = freezePendingHostTaskData(structuredClone(artifact.view));
     const values = {
@@ -157,10 +155,14 @@ export async function captureLocalRepositoryPreparationObjectData(
         Object.fromEntries(Object.entries(values).map(([key, value]) => [key, { value }])),
       ),
     ) as LocalRepositoryPreparationObjectData;
-  } catch {
+  } catch (error) {
     await joinCapture();
-    if (artifact) await ownedDisposer(artifact)();
-    throw unavailable();
+    return await withCodexToolCleanup(
+      async (): Promise<never> => {
+        throw error;
+      },
+      artifact ? [ownedDisposer(artifact)] : [],
+    );
   }
 }
 function property(input: unknown, key: string): unknown {

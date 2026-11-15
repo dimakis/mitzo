@@ -1,6 +1,94 @@
 import { z } from 'zod';
 import { isAbsolute, resolve } from 'node:path';
 import type { NativeReadAnchor } from './native-file-operation.js';
+const refusalCheck = z.enum(['request', 'anchors', 'objects', 'inventory', 'copy', 'consistency']);
+export const PreparationObjectStoreFailureCheckSchema = z.enum([
+  'object_store_capture_request',
+  'object_store_capture_anchors',
+  'object_store_capture_objects',
+  'object_store_capture_inventory',
+  'object_store_capture_copy',
+  'object_store_capture_consistency',
+  'object_store_capture_transport',
+  'object_store_capture_json',
+  'object_store_capture_schema',
+  'object_store_verify_request',
+  'object_store_verify_anchors',
+  'object_store_verify_objects',
+  'object_store_verify_inventory',
+  'object_store_verify_copy',
+  'object_store_verify_consistency',
+  'object_store_verify_transport',
+  'object_store_verify_json',
+  'object_store_verify_schema',
+]);
+type ObjectStoreCheck = z.infer<typeof PreparationObjectStoreFailureCheckSchema>;
+// Private provenance retains original error identity/errno without adding raw
+// exceptions or parser excerpts to the serializable error/result contract.
+const failureChecks = new WeakMap<object, ObjectStoreCheck>();
+export function annotatePreparationObjectStoreFailure(
+  error: unknown,
+  check: ObjectStoreCheck,
+): unknown {
+  if ((typeof error === 'object' && error !== null) || typeof error === 'function') {
+    failureChecks.set(error, PreparationObjectStoreFailureCheckSchema.parse(check));
+    return error;
+  }
+  return objectStoreFailure(check);
+}
+export function preparationObjectStoreFailureCheck(error: unknown): ObjectStoreCheck | undefined {
+  return typeof error === 'object' && error !== null ? failureChecks.get(error) : undefined;
+}
+function objectStoreFailure(check: ObjectStoreCheck) {
+  const error = Error('Preparation object store unavailable');
+  failureChecks.set(error, check);
+  return error;
+}
+function objectStoreOutput(
+  result: { stdout: string; isError?: boolean },
+  operation: 'capture' | 'verify',
+): unknown {
+  const failure = (check: z.infer<typeof refusalCheck> | 'transport' | 'json' | 'schema') =>
+    objectStoreFailure(`object_store_${operation}_${check}`);
+  if (
+    typeof result.stdout !== 'string' ||
+    Buffer.byteLength(result.stdout) > (operation === 'capture' ? 4 * 1024 * 1024 : 32768)
+  )
+    throw failure('transport');
+  let value: unknown;
+  try {
+    value = JSON.parse(result.stdout);
+  } catch {
+    throw failure('json');
+  }
+  const refusal = z
+    .strictObject({ error: z.literal('unavailable'), check: refusalCheck })
+    .safeParse(value);
+  if (refusal.success) throw failure(refusal.data.check);
+  // A failed process cannot supply a success record. Extra/mixed/unknown refusal
+  // fields fall through to the unchanged strict success schema and are refused.
+  if (result.isError) throw failure('transport');
+  return value;
+}
+export function parsePreparationObjectStoreCaptureOutput(
+  result: { stdout: string; isError?: boolean },
+  target: NativeReadAnchor,
+): Readonly<PreparationObjectStoreCapture> {
+  const value = objectStoreOutput(result, 'capture');
+  try {
+    return parsePreparationObjectStoreCapture(value, target);
+  } catch {
+    throw objectStoreFailure('object_store_capture_schema');
+  }
+}
+export function parsePreparationObjectStoreVerificationOutput(result: {
+  stdout: string;
+  isError?: boolean;
+}): void {
+  const value = objectStoreOutput(result, 'verify');
+  if (!z.strictObject({ verified: z.literal(true) }).safeParse(value).success)
+    throw objectStoreFailure('object_store_verify_schema');
+}
 const path = z
   .string()
   .min(1)
@@ -85,8 +173,10 @@ export function preparationObjectStoreCommand(input: unknown) {
  * alternates, accelerators and optional pack markers are never consumed. */
 export const preparationObjectStoreProgram = String.raw`
 import hashlib, json, os, re, stat, sys, time
+check_stage = 'request'
 
 def run(request):
+    global check_stage
     deadline = time.monotonic() + 30
     def check():
         if time.monotonic() >= deadline: raise RuntimeError()
@@ -120,14 +210,18 @@ def run(request):
                 if len(names) >= maximum or name_bytes > 1024 * 1024: raise RuntimeError()
                 names.append(child.name)
         return sorted(names)
+    check_stage = 'anchors'
     source=directory(plan['source']['rootPath']); target=directory(plan['target']['rootPath'])
     try:
         if ident(os.fstat(source))!=plan['source']['identity'] or ident(os.fstat(target))!=plan['target']['identity']: raise RuntimeError()
         if request['operation']=='capture' and bounded_names(target, 1): raise RuntimeError()
+        check_stage = 'objects'
         objects_path=os.path.join(plan['source']['rootPath'],'objects'); allowed(objects_path)
         objects=os.open('objects',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=source)
         try:
             def inspect(copy):
+                global check_stage
+                check_stage = 'inventory'
                 witnesses=[]; files=[]; total=0
                 names=bounded_names(objects, 258)
                 if len(names)>258: raise RuntimeError()
@@ -158,6 +252,7 @@ def run(request):
                             witnesses.append([relative,state(info)])
                             item={'path':relative,'size':info.st_size}
                             if copy:
+                                check_stage = 'copy'
                                 original=os.open(child,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=shard)
                                 output=None
                                 try:
@@ -180,6 +275,7 @@ def run(request):
                                     if output is not None: os.close(output)
                                     os.close(original)
                             files.append(item)
+                            check_stage = 'inventory'
                     finally:
                         if destination is not None: os.close(destination)
                         os.close(shard)
@@ -187,8 +283,11 @@ def run(request):
             capture=request['operation']=='capture'
             files,digest=inspect(capture)
             if capture:
-                if inspect(False)[1]!=digest: raise RuntimeError()
+                verification_digest=inspect(False)[1]
+                check_stage = 'consistency'
+                if verification_digest!=digest: raise RuntimeError()
                 return {'files':files,'digest':digest}
+            check_stage = 'consistency'
             if request['operation']!='verify' or digest!=request['digest']: raise RuntimeError()
             return {'verified':True}
         finally: os.close(objects)
@@ -196,5 +295,5 @@ def run(request):
 try:
     print(json.dumps(run(json.load(sys.stdin))))
 except Exception:
-    print(json.dumps({'error':'unavailable'}))
+    print(json.dumps({'error':'unavailable','check':check_stage}))
 `;
