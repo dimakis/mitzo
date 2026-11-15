@@ -54,6 +54,10 @@ export const TelosTeamCommandSchema = z.discriminatedUnion('operation', [
   z.strictObject({ ...command, operation: z.literal('unlink'), membershipId: id }),
   z.strictObject({ ...command, operation: z.literal('replace'), membershipId: id, ...selection }),
 ]);
+export const TelosManageTeamInputSchema = z.union([
+  z.strictObject({ operation: z.literal('read'), itemId: id }),
+  TelosTeamCommandSchema,
+]);
 export const TelosTeamReceiptSchema = z.strictObject({
   requestId: id,
   commandId: z.uuid(),

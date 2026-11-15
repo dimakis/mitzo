@@ -16,6 +16,14 @@ parity are outside this delivery. A proposal is not assignment or readiness.
 
 ## Reviewed owner replacement
 
+`TelosManageTeam` exposes the explicit operational roster to ordinary native and
+Claude SDK chats. Read returns the team revision and current/former memberships;
+link, replace and unlink use that revision and exact request-only approval.
+Investigators, implementers, reviewers, merge agents and contributors keep their
+independent settings. These operations use the canonical team journal and never
+change runtime role assignments or transcript/execution authority. Native and SDK
+adapters classify only its `read` operation as free of mutation.
+
 An available ordinary chat can propose replacement through `TelosCreateSession`
 with `replaceOwner: true`, the owned item's ID/current revision and the exact
 `existingConversationId`. The target may be the proposing chat. It must satisfy

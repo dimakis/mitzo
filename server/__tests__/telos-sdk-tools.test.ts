@@ -168,6 +168,48 @@ async function fixture(
   };
 }
 
+it.each([false, true])(
+  'maintains contributor membership through the actual SDK and request-only approval (explicit: %s)',
+  async (explicit) => {
+    const f = await fixture(explicit);
+    expect((await f.client.listTools()).tools.map((tool) => tool.name)).toContain(
+      'TelosManageTeam',
+    );
+    const before = f.value(
+      await f.call('TelosManageTeam', { operation: 'read', itemId: 'studio' }),
+    ).team;
+    const input = {
+      operation: 'link',
+      itemId: 'studio',
+      requestId: 'sdk-investigator',
+      expectedRevision: before.revision,
+      conversationId: 'planning',
+      displayName: 'Studio planning',
+      role: 'investigator',
+      responsibility: 'Investigate the current plan',
+      reportsToMembershipId: null,
+    };
+    const linked = await f.call('TelosManageTeam', input);
+    expect(linked.isError, JSON.stringify(linked.content)).toBe(false);
+    const team = f.value(linked).team;
+    expect(team.members).toMatchObject([
+      { conversationId: 'planning', role: 'investigator', state: 'current' },
+    ]);
+    expect(f.work.read('studio', f.actor).assignments).toEqual([]);
+    expect(f.value(await f.call('TelosManageTeam', input))).toEqual(f.value(linked));
+    f.deny();
+    const unlink = await f.call('TelosManageTeam', {
+      operation: 'unlink',
+      itemId: 'studio',
+      requestId: 'sdk-unlink-denied',
+      expectedRevision: team.revision,
+      membershipId: team.members[0].membershipId,
+    });
+    expect(unlink.isError).toBe(true);
+    expect(f.work.readTeam('studio', f.actor).members[0].state).toBe('current');
+  },
+);
+
 it.each([[], ['TelosListItems'], ['mcp__telos__TelosListItems']].map((ceiling) => ({ ceiling })))(
   'enforces the original exact wire-name ceiling through the Telos MCP handler ($ceiling)',
   async ({ ceiling }) => {

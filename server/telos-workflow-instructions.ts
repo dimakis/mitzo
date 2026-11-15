@@ -70,6 +70,10 @@ Creation provenance remains distinct from current responsibility. Arbitrary exis
 orchestrator handover requires a supported reviewed binding flow; do not rewrite private session data.
 Preserve existing assignments, attempts and receipts; linking alone grants no permissions or execution.
 Ordinary operator-authorized peer messaging does not require a shared Telos item or parent/child link.
+Use TelosManageTeam to read the explicit operational team, then link/unlink contributors or replace
+a membership with the returned team revision and exact requestId. Mutations need request-only operator
+approval. Investigators, implementers, reviewers and merge agents retain independent chats/settings.
+Membership alone does not change canonical lead/worker assignments, transcript access or permissions.
 Use the current assigned coordinator for work reports, while independent audit/collaboration chats
 remain eligible through their own verified operator, runtime and messaging authority. Work links
 route responsibility; they do not grant or restrict general peer-message authority.
