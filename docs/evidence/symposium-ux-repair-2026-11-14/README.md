@@ -1,6 +1,13 @@
 # Ordinary Symposium acceptance — slice 3
 
-Latest accepted-main8676 integration:
+Latest composition integrates accepted mainbbf after source #1354/#1356 landing:
+[residual source and current local checks](accepted-main-bbf-integration.md),
+[current acceptance matrix](acceptance-matrix.md). Publishedb6d's exact21/62 hosted
+success and full-CI failures remain in [its original checkpoint](current-b6d2310a1/STATUS.md).
+New combined CI and trusted final exact-head review remain required; no merge turn
+or production/device completion is implied.
+
+Historical accepted-main8676 integration:
 [source, conflict custody, observed checks and open gates](main-8676-integration/STATUS.md).
 [Source coverage and separate1347 gap](accepted-main-8676-inventory.md).
 The earlier sections retain dated failures and checkpoints; they are not approval
@@ -11,7 +18,7 @@ Independent evidence session: `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 This is an ordinary session, without a Telos lead/worker assignment. No other
 session's execution grant, runtime qualification or merge authority is inherited.
 
-## Current integrated source and approval gates
+## Historical integrated source and approval gates
 
 Accepted main416faccb366f64ab858897f5b4bfa465e91ef385 (#1350) is integrated in
 917c671018bbe629a7caa600bcc9f6b6a2485090. Owner6807db803 is integrated as27ba38c4b;

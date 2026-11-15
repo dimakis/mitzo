@@ -1,0 +1,98 @@
+{
+  "source": "b6d2310a1955a501393fc08af910436a0036f7df",
+  "run": 43674377272,
+  "artifactId": 14146515723,
+  "sha256": "90b55256b7d634694efb1238b067fa78415e5f93718b3793b96316cf3c854926",
+  "files": [
+    {
+      "path": "standalone-task-proofs.json",
+      "bytes": 4399,
+      "sha256": "d329f9660a872264fc4e23b6e8ce1bf39191e50c2a57470d2372aae2bc72a911"
+    },
+    {
+      "path": "native-repository-workflows-processes/api/command-process.json",
+      "bytes": 25,
+      "sha256": "ac4b2c3fac431ea2d938f8f287d37ef778a6efabeff0d79466cd24a2d1060c20"
+    },
+    {
+      "path": "native-repository-workflows-processes/api/command.log",
+      "bytes": 11254,
+      "sha256": "f7d7a77a4dd0e1e0a865237ea864b45a0d023810f158c70a6ed4b7814865d9e3"
+    },
+    {
+      "path": "native-repository-workflows-processes/api/exit.json",
+      "bytes": 85,
+      "sha256": "02a16b8d05e212fc4af682df6a6e7d7461873adfe8ee4a4260f6af87155fb739"
+    },
+    {
+      "path": "native-repository-workflows-processes/api/resources.jsonl",
+      "bytes": 3614,
+      "sha256": "2bf15c828de7e6d2d3df501bb783b7725fa6208cffd7c58005c14c45e7198b06"
+    },
+    {
+      "path": "native-repository-workflows-processes/api/run.json",
+      "bytes": 2640,
+      "sha256": "64e07e3fcec40e101c4772a4e10caec41766998c294be29821dfd0fa156ab2ee"
+    },
+    {
+      "path": "native-repository-workflows-processes/api/stderr.log",
+      "bytes": 2441,
+      "sha256": "f8870333a44b7a2e7940c6ee87a306d648329017ace89a4972e7aa019bb07f58"
+    },
+    {
+      "path": "native-repository-workflows-processes/api/stdout.log",
+      "bytes": 8813,
+      "sha256": "16c25f3417778e66a01d121cd990453c72b48defa0bb1e381a3ae5f84a563400"
+    },
+    {
+      "path": "native-repository-workflows-processes/subscription/command-process.json",
+      "bytes": 25,
+      "sha256": "eccb94e508c483706529b4b310b34b0d645f9ee21db291cbe497b72e56b57a30"
+    },
+    {
+      "path": "native-repository-workflows-processes/subscription/command.log",
+      "bytes": 10642,
+      "sha256": "cca326d512bae2eedc63b9b5f0bb9ff652df46830250b7638d17defc284eaed8"
+    },
+    {
+      "path": "native-repository-workflows-processes/subscription/exit.json",
+      "bytes": 85,
+      "sha256": "466f2cfa826ab42ed8ea51c3d6b7f7108b3d511518d9666579529ae3ddd089d9"
+    },
+    {
+      "path": "native-repository-workflows-processes/subscription/resources.jsonl",
+      "bytes": 3612,
+      "sha256": "3f1355acad726bf3777553d731ba6491cb2d667f2e71d05d8f0cd46bf1b3fc50"
+    },
+    {
+      "path": "native-repository-workflows-processes/subscription/run.json",
+      "bytes": 2662,
+      "sha256": "dff209019c4030c14e8c7c494c71a6d017a4ec5b942d9418374fc72a7e1ab7f9"
+    },
+    {
+      "path": "native-repository-workflows-processes/subscription/stderr.log",
+      "bytes": 2446,
+      "sha256": "a52a093df9870153754f307ff3810acbf5755255c53bb42f65bb0bb1cd67af77"
+    },
+    {
+      "path": "native-repository-workflows-processes/subscription/stdout.log",
+      "bytes": 8196,
+      "sha256": "b6e36c81b9a45c97eaa3a36e439c62a35b61cce51e2f6d8317be6851f07b9011"
+    },
+    {
+      "path": "native-repository-workflows-processes/summary.json",
+      "bytes": 476,
+      "sha256": "b223c76da29ba42244376e4287703b411be306b0c0fbcbdd502377a37cdba17c"
+    },
+    {
+      "path": "native-repository-workflows/api.json",
+      "bytes": 10628,
+      "sha256": "7bbab9069c380707213d64b920ad257e455a96057b774ab4dfe70e3ed181f2af"
+    },
+    {
+      "path": "native-repository-workflows/subscription.json",
+      "bytes": 10617,
+      "sha256": "346b7f545aa026f5eeb8c42f5de3bbfb40f6c6891b20d2622b9b7795bda88bf7"
+    }
+  ]
+}

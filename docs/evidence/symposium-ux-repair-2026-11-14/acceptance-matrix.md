@@ -1,6 +1,28 @@
 # Integrated ordinary-chat acceptance
 
-## Current source: accepted-main merge917c67101
+## Current composition: accepted mainbbf after publishedb6d
+
+Actual accepted mainbbf0c17ef917897ef6d7cf236fc08b0b6f7bbd3a includes
+standalone #1354/#1356. The residual integration preserves the independent
+harness/evidence and exact reviewed five-file native diagnostics; no frontend
+production delta remains. [Composition and source custody](accepted-main-bbf-integration.md).
+
+| Current case                                                                                                                                                                                | Observed result                                                 | Exact test/artifact and boundary                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ordinary history/draft, setup/review, silent join, attributed streaming, concurrency, partial failure, Stop/lost response, reconnect/restart, deduplication and one inspectable Chats entry | PASS on combined working tree                                   | `tests/integration/symposium-ordinary-acceptance.test.tsx`, `accepted-bbf-integrated.log`; actual responsive/application/router/preparation/admission/reply owners, deterministic external execution.              |
+| Required owners, SDK responsive recovery and ordinary application journeys                                                                                                                  | PASS;14 authenticated application checks across the focused set | `symposium-required-owners.test.ts`, `symposium-sdk-responsive-recovery.test.tsx` and selected actual server UI suites, same21-check log. Missing owner controls remain required.                                  |
+| Assignment/fork versus unrelated navigation                                                                                                                                                 | PASS5 client/portal controls                                    | `symposium-composer-transfer.test.tsx`, same log; no authenticated assignment or browser geometry claim.                                                                                                           |
+| Acceptance diagnostic privacy/failing getters                                                                                                                                               | PASS2 controls                                                  | `symposium-acceptance-diagnostics.test.ts`, same log. Overall focused count21, duration100.66s.                                                                                                                    |
+| Native cause/check propagation, registered consumer, participant search and design                                                                                                          | PASS135,1 existing skip                                         | `bbf-diagnostic-navigation-design.log`,12 files/24.38s; six actual producer-consumer and four registered controls included, with deterministic external physical/account boundaries.                               |
+| Hosted ordinary responsive surface/reference comparison                                                                                                                                     | Historical PASS62 at exactb6d/merge5e5d                         | [Raw manifests/checkpoints/builds/routes/viewport and archive hashes](current-b6d2310a1/STATUS.md). Current composition requires new hosted evidence; no local browser launch or pixel-parity claim.               |
+| Full CI and trusted exact-head review                                                                                                                                                       | Successor qualification pending                                 | Original b6d full43674377272 FAILURE retains signed discovery, later materializer deadline/unknown effect and earlier device403409. No inferred causal fix, operation replay, parallel fixture fix or gate waiver. |
+| Separate phone setup repair                                                                                                                                                                 | #1347 remains independently owned and qualified                 | 14 anchors retained with acceptedbbf; its separate branch/head, CI and review are required. This harness does not absorb its production repair.                                                                    |
+
+Hard browser reload, original phone identifiers, physical phone/audio, live
+provider/runtime/production, icon/pixel parity, rich shared dispatch and
+simultaneous SDK Stop during reviewer uncertainty remain unqualified.
+
+## Historical source: accepted-main merge917c67101
 
 Branch `test/symposium-integrated-acceptance`, draft1355. Accepted main
 416faccb366f64ab858897f5b4bfa465e91ef385 (#1350) is integrated as

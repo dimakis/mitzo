@@ -1,0 +1,18 @@
+{
+  "source": "b6d2310a1955a501393fc08af910436a0036f7df",
+  "run": 43674377272,
+  "artifactId": 14146656550,
+  "sha256": "d06f5ef7f60887767502737e093859273f3aa49ecdde7c05d83959a3506fa5c5",
+  "files": [
+    {
+      "path": "files-1.json",
+      "bytes": 226907,
+      "sha256": "9726c74a2c0530aec986ea941e09f46b064ea0f9a80743825c26e2aed118ef57"
+    },
+    {
+      "path": "report-1.json",
+      "bytes": 2212749,
+      "sha256": "3bbfbf507cc2c19bdd28d387f26637f73759da96f19aeb9be8cbfa46da6ff4dd"
+    }
+  ]
+}

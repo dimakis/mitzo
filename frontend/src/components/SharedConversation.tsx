@@ -41,12 +41,12 @@ import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
+import { useSessionOverview } from '../hooks/useSessionOverview';
+import { sessionActivityLabel } from '../lib/session-activity';
 import {
   SharedConversationComposerContext,
   type SharedConversationComposerRouting,
 } from '../lib/shared-conversation-composer';
-import { useSessionOverview } from '../hooks/useSessionOverview';
-import { sessionActivityLabel } from '../lib/session-activity';
 
 const applicationApi = new MitzoApiClient(apiFetch);
 const EMPTY_CONTEXT: string[] = [];

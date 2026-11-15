@@ -1,0 +1,15 @@
+{
+  "source": "b6d2310a1955a501393fc08af910436a0036f7df",
+  "merge": "5e5d98d247a8986698fade586c98d515b889be1d",
+  "run": 43674377219,
+  "job": 132691182714,
+  "artifact": 14145429573,
+  "sha256": "58c01caf205d78f5375d57a62512e44b34cf97214b29f68c9cd11b4faff4af7e",
+  "files": [
+    {
+      "path": "symposium-application.log",
+      "bytes": 189048,
+      "sha256": "5718993f28577be837ca243cde81dcf368a2b45f82403334248fdeb93a5ef9d3"
+    }
+  ]
+}
