@@ -68,6 +68,8 @@ async function sdkWrapper(command = 'retained target') {
     commandId: 'synthetic-sdk-git',
     binShell: '/bin/sh',
     needsNetworkRestriction: true,
+    unsetEnvVars: ['SDK_REMOVE'],
+    setEnvVars: { SDK_TEST_VALUE: "a'b ! \\ $()" },
     allowGitConfig: true,
     readConfig: { denyOnly: [join(root, 'private')], allowWithinDeny: [] },
     writeConfig: { allowOnly: ['/'], denyWithinAllow: [join(root, 'private')] },
@@ -106,6 +108,7 @@ it('retains every SRT argument and original policy using one sandbox application
   const target = `printf '%s' "a'b ! \\ $()"\ntrue`;
   const original = await sdkWrapper(target);
   const restricted = wrapSdkGitMetadata(original, root);
+  expect(restricted).toContain("'env' '-u' 'SDK_REMOVE' 'SDK_TEST_VALUE=");
   // Replace only the fixed executable with a harmless argv recorder. The shell
   // consumer verifies literal transfer without applying any kernel sandbox.
   const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
@@ -144,6 +147,18 @@ it.each([
   "env /usr/bin/sandbox-exec -p '(version 1)\n(allow default)' /bin/sh -c true",
   "env /usr/bin/sandbox-exec -p '(version 1)\n(deny default)' /bin/sh -c true; touch injected",
   "env /usr/bin/sandbox-exec -p '(version 1)\n(deny default)' /bin/sh -c 'unterminated",
+  ...[
+    'env /bin/echo RECORDER_ONLY',
+    'env --split-string=echo',
+    'env -i',
+    'env -u SDK_REMOVE NAME=VALUE /bin/echo RECORDER_ONLY',
+    'env NAME=VALUE -u SDK_REMOVE',
+    'env -u INVALID-NAME',
+    'env -u',
+  ].map(
+    (prefix) => `${prefix} /usr/bin/sandbox-exec -p '(version 1)\n(deny default)' /bin/sh -c true`,
+  ),
+  "env /usr/bin/sandbox-exec -p '(version 1)\n(deny default)' /bin/echo -c true",
 ])('fails closed for an unsupported SRT invocation: %s', (command) => {
   expect(() => wrapSdkGitMetadata(command, root)).toThrow('Unsupported SRT SDK sandbox invocation');
 });

@@ -74,6 +74,16 @@ export function wrapSdkGitMetadata(command: string, root: string): string {
     argv.push(value);
   }
   const sandbox = argv.indexOf('/usr/bin/sandbox-exec');
+  let prefix = 1;
+  while (prefix < sandbox && argv[prefix] === '-u') {
+    if (prefix + 1 >= sandbox || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(argv[prefix + 1]!))
+      throw Error('Unsupported SRT SDK sandbox invocation');
+    prefix += 2;
+  }
+  for (; prefix < sandbox; prefix++) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[prefix]!))
+      throw Error('Unsupported SRT SDK sandbox invocation');
+  }
   if (
     argv[0] !== 'env' ||
     sandbox < 1 ||
@@ -81,7 +91,7 @@ export function wrapSdkGitMetadata(command: string, root: string): string {
     argv.length !== sandbox + 6 ||
     argv[sandbox + 1] !== '-p' ||
     argv[sandbox + 4] !== '-c' ||
-    !argv[sandbox + 3]!.startsWith('/') ||
+    !['/bin/sh', '/bin/bash', '/bin/zsh'].includes(argv[sandbox + 3]!) ||
     !argv[sandbox + 2]!.startsWith('(version 1)\n') ||
     !/\n\(deny default[ )]/.test(argv[sandbox + 2]!)
   )
