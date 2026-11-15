@@ -6,6 +6,11 @@ import {
 } from '@mitzo/harness';
 import { replayEventsToMessages } from './conversation-transcript.js';
 
+/** Old SDK startups stored the generated workspace preamble as public input. */
+function namingRequest(prompt: string): string {
+  return prompt.replace(/^Mitzo repository workspace [^\n]*\n\n/, '');
+}
+
 /** Use public conversation text only; tools, thinking and other seats are not naming context. */
 export function sessionNamingPrompts(
   events: StoredEvent[],
@@ -27,8 +32,9 @@ export function sessionNamingPrompts(
     }
     return !closeout;
   });
-  const prompts = extractRecentPrompts(ordinary);
-  if (initialPrompt && !prompts.includes(initialPrompt)) prompts.unshift(initialPrompt);
+  const prompts = extractRecentPrompts(ordinary).map(namingRequest);
+  const initial = initialPrompt && namingRequest(initialPrompt);
+  if (initial && !prompts.includes(initial)) prompts.unshift(initial);
   const requests = prompts.filter((prompt) => generateSessionNameFallback([prompt]));
   if (requests.length) return requests;
 
@@ -81,7 +87,9 @@ export function sessionDisplayName(
   events: StoredEvent[] | (() => StoredEvent[]),
 ): string {
   if (meta.manuallyRenamed || !isGenericSessionName(meta.summary ?? '')) return meta.summary ?? '';
-  const initial = generateSessionNameFallback(meta.initialPrompt ? [meta.initialPrompt] : []);
+  const initial = generateSessionNameFallback(
+    meta.initialPrompt ? [namingRequest(meta.initialPrompt)] : [],
+  );
   if (initial) return initial;
   return (
     generateSessionNameFallback(
