@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1183-symposium-parity-integration';
+  'v1.0.1184-telos-evidence-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1842,13 +1842,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/tool-results.tsx':
     'eb7865e4b52ff45456117c2ef0d9264da366434ae606fb0592f3a90cd8578ecb',
   '../../tests/integration/claude-multi-device.test.ts':
-    '23b1d7945df8d1159ac119a57c4b0d16fcf480b67e81cb174b0843aa8313d5e2',
+    '1b3788eaf2d816ffb02f1f3c3890b93996ddade6175caaa06cb289f304dddf35',
   '../../tests/integration/claude-subagent-failures.test.tsx':
     'a61cd2455304ae14aaa360f782db9f6bab9c2e700a47bbdb3aa13d33d650be0c',
   '../../tests/integration/native-subagent-visibility.test.tsx':
     '75cf48bc38aa942998df4e0ae0a409cf991a205c8bc7c7d60d8d9df5bbde6bdd',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '9a2af663921e3da7b23910179056dc68b95748079a3efb165eb83398a185c30d',
+    'b7ad0de82642a4117572af3c2bc49e174ddb2f57a3cfcb213897273f8f94881b',
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
     '6131e244eeb63a813e90f11e81ccc542eefbd66ae3f25df6472ca4218b252c35',
   '../../tests/integration/symposium-application-review-recovery.test.tsx':
