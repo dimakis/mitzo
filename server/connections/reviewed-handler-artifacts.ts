@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1201-telos-owner-replacement.4';
+  'v1.0.1201-telos-owner-replacement.5';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4655,7 +4655,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-work-role-setup.ts': '8f0990272d82af46f0ade034954f23aff88cf6b04459603bac473e79d06b157f',
   '../telos-work-routes.ts': 'dc5fdb00bb67543ab503036e3fce4ee6a1f24c993dba0ce5f09b83dedbf4f76d',
   '../telos-work-schema.ts': '6c9406ceec10bee8bf13f57c7b7f6e003805ee58071bdda8f5cc4c0738cd62e4',
-  '../telos-work-store.ts': 'd7f06226c7ffcfb5831aef4266fbd4a88bb74448d1b32c5ea94fc58abcc156c7',
+  '../telos-work-store.ts': '8d2d46d8ee8f91ced19cfd31b9b83244c1a4fe3b72e30d5082ea75fe5cc9888f',
   '../telos-work-tools.ts': 'ee8ea14d0bd6ac21b92b24755863c6082ed5e0a0eeaa453c6461b904bbda7727',
   '../telos-work-updates.ts': 'f9895bff5c5a6e4ea228edae36ec60c034b52c4d9aa7e526c81b3047b2b33e01',
   '../telos-worker-start-authority.ts':

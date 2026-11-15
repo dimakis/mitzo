@@ -93,6 +93,14 @@ owner tests; source dependency bytes were not modified.
 
 ## Remaining delivery boundaries
 
+Initial candidate `c8611567596a093e01aca185564a4da61b12c4e2` failed CI
+run `43770112858` during compilation: the replacement scope inferred `role` as
+`string`, rather than the shared `lead | worker` contract. Explicit literal
+types correct that declaration without changing runtime authority. The 67
+canonical role/adaptor tests and all 2,511 source fingerprints passed again.
+The local broad server compiler also exhausted its 1 GiB heap; its failed
+receipt and log were retained, and full compilation remains a CI gate.
+
 Required combined-source CI and trusted exact-head Centaur final LGTM/`merge` with
 zero new/unresolved blockers remain mandatory. Material ownership/permission
 changes require independent scrutiny; no local independent agent was recruited

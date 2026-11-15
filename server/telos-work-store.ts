@@ -1534,9 +1534,9 @@ export class TelosWorkStore {
       const item = this.snapshot(itemId);
       const role =
         item.kind === 'work_item'
-          ? 'worker'
+          ? ('worker' as const)
           : item.kind === 'coordinator' || item.kind === 'outcome'
-            ? 'lead'
+            ? ('lead' as const)
             : null;
       if (!role) invalid('Classify the selected work before replacing its owner');
       const assignment = item.assignments.find((a) => a.role === role);
