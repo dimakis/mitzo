@@ -404,7 +404,9 @@ export function createOrdinaryLocalVertexSdkQuery<
   let native = create();
   const firstQuery = native;
   runs.push(native);
+  let closed = false;
   const close = () => {
+    closed = true;
     states.get(native)!.retired = true;
     states.get(native)!.callbacks.seal();
     input.close();
@@ -421,20 +423,20 @@ export function createOrdinaryLocalVertexSdkQuery<
           // The consumer correlates input echoes and message starts with its
           // current FIFO command. A terminal/retired query cannot contribute
           // provenance to that successor, even while its stream drains.
-          if (state.retired || owners.controller.signal.aborted) continue;
-          if (state.completing || terminal) {
-            // The SDK emits clean-exit persistence loss after its final result.
-            // This narrow same-session allowlist cannot reopen input/tool authority.
-            if (
-              terminal &&
-              sdkPersistenceDiagnostic(event, owners.sdkSessionId) &&
-              (event.subtype !== 'mirror_error' || owners.options.sessionStore)
-            ) {
-              await owners.authorize(owners.controller.signal);
-              if (!state.retired && !owners.controller.signal.aborted) yield event;
-            }
+          if (closed || owners.controller.signal.aborted) continue;
+          // Successor preparation retires the previous native query before its
+          // clean-exit diagnostics drain. That retirement seals effect callbacks;
+          // it does not relinquish this joined owner's same-session diagnostics.
+          if (
+            terminal &&
+            sdkPersistenceDiagnostic(event, owners.sdkSessionId) &&
+            (event.subtype !== 'mirror_error' || owners.options.sessionStore)
+          ) {
+            await owners.authorize(owners.controller.signal);
+            if (!closed && !owners.controller.signal.aborted) yield event;
             continue;
           }
+          if (state.retired || state.completing || terminal) continue;
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw Error('Original SDK thread identity changed');
           const queryState = states.get(run)!;

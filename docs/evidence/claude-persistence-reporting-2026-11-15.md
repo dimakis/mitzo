@@ -13,9 +13,10 @@ transcript/settings loss. A configured transcript mirror can likewise report
 `mirror_error`. Received results remain valid; native persistence is uncertain.
 
 The adapter now allows only same-session, parent-level persistence diagnostics
-after the terminal result, rechecking current authority before delivery. Retired
-queries, aborted owners, foreign/child events and unconfigured late mirror
-diagnostics remain excluded. Input, assistant and repeated-result events cannot
+after the terminal result, rechecking current authority before delivery. The joined
+owner drains these read-only diagnostics when successor preparation retires the
+previous native query. Closed/aborted owners, foreign/child events and unconfigured
+late mirror diagnostics remain excluded. Input, assistant and repeated-result events cannot
 establish successor provenance after completion.
 
 The query consumer translates these events into existing nonfatal error notices.
@@ -39,15 +40,28 @@ The regression seed continues the prior reporting owner's public handoff and
 unrun test draft from `ordinary-e25a873e-f4c1-4fcf-98fc-7b5ccff87ded`;
 that checkout and its uncertain setup operations were preserved unchanged.
 
-Final local run, one worker and 1 GiB Node heap: 263 passed, one existing
-conditional design skip, across ten files. Coverage includes both diagnostic
+Final local combined-tree run, one worker and 1 GiB Node heap: 298 passed, one existing
+conditional design skip, across fourteen files. Coverage includes both diagnostic
 types, duplicate suppression, log failure, original-cause retention and bounded
 eviction, redaction, foreign/child events, revocation, abort, retired-query fences,
 the live client reducer, durable cold replay and the existing design contracts.
+An independent full pass found that the original retired-query guard still lost
+warnings during queued successor turnover, and found an incorrectly typed client
+fixture. Both were corrected. A new coupled adapter, actual command owner and
+query consumer regression reproduced two delivered results but no warning before
+the correction; both diagnostic types now survive turnover into cold replay.
+The same regression rejects stale input/output/results from the old query.
 Scoped lint and strict standalone diagnostic-module typing also passed.
 Whole-server/test typing exhausted the prescribed 1 GiB heap; it is left to
 hosted preflight rather than increasing the local resource ceiling.
 Hosted checks and exact-head source review remain required for acceptance.
+
+Accepted naming/transcript changes from PR #1365 at
+`5d81903c4d6a9511d517304be84b81769b4e23e1` were integrated to repair the actual
+manifest conflict blocking CI. The accepted delta preserves the existing owned
+SDK admission/echo/push sequence; naming history reads and sanitized transcript
+failure annotations do not change query lifetime or diagnostic delivery. All
+accepted source hashes are retained alongside the reporting hashes.
 
 No provider/model call, live account operation, physical device test, production
 activation or actual stuck-session reconciliation was performed.

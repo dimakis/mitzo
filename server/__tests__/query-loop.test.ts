@@ -256,7 +256,7 @@ it.each([
       const state = parsed.messagesActions.reduce(messagesReducer, {
         ...INITIAL_MESSAGES_STATE,
         running: true,
-        current: { messageId: 'queued-successor-output', blocks: {}, blockOrder: [] },
+        current: { messageId: 'queued-successor-output', blocks: new Map(), blockOrder: [] },
       });
       expect(setRunning).not.toHaveBeenCalled();
       expect(state.running).toBe(true);
