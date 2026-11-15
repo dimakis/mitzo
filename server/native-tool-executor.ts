@@ -335,7 +335,7 @@ export function createNativeToolExecutor(
         return result(content);
       }
       if (block.name === 'GitCommit' && 'files' in parsed.data) {
-        const root = await realpath(session.cwd);
+        const root = await realpath(taskCwd ?? session.cwd);
         const files: string[] = [];
         const approvedIdentities = new Map<
           string,

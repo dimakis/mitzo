@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1202-claude-git-setup.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1202-claude-git-setup.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2936,7 +2936,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-telos-worker-materials.test.ts':
     '8fe2996730abcdcdd14ab4c4c67c638c4b51fd99a9abeb4d1d2a42698c2a7e12',
   '../__tests__/native-tool-executor.test.ts':
-    'ba881299d1e67af998cf89ad376a93a82ce6e301747bd478986f9d7d9541c0e6',
+    '25d42f52c8493e3fa4060ef43ec7f91f2bffe13458a3db713bc45a2b41e9c937',
   '../__tests__/notification-center.test.ts':
     'ff5627352ea837237c19ae7a37779b8c60be1b887da6f64871ecd29ba7585b15',
   '../__tests__/notification-routes.test.ts':
@@ -4025,7 +4025,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e74a7ba2c32ac26a1744a30749ae35b627d3736581b4f35194e11327520dbb0f',
   '../native-telos-worker-materials.ts':
     '36d27dcd564a758082503ad455dba3ffabacda3b558efc66a28d7a42437b55af',
-  '../native-tool-executor.ts': 'da602da8ad60e1dec4e9d0a916752fa49c585a84cd37fc33a5febcadb8e56b36',
+  '../native-tool-executor.ts': '87d8917cdc3395bf5da0cf3ca23f99b0fdd8ca98296be9ee8123b1ddefa5776d',
   '../native-tree-publication.ts':
     'f2c351fe07781a7e95d098372e04178d9de512d3d99f48e3d41bcecbb0dce54b',
   '../notification-actions.ts': '322bb97a4ebb174427372870c9b5215704387f6f587b987c7e3b6cb4fae2ee44',
