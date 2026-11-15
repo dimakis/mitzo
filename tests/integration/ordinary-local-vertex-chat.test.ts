@@ -6,6 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance, Options } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { agentLibrarySource } from '../../server/__tests__/fixtures/agent-library-source.js';
+import type { Attributes, Span, SpanStatus } from '@opentelemetry/api';
 vi.mock('../../server/claude-account-history.js', () => ({
   readClaudeAccountHistory: vi.fn(async (sessionId: string, cwd: string) => ({
     info: { sessionId, cwd },
@@ -19,11 +20,42 @@ const services = vi.hoisted(() => ({
   library: undefined as unknown,
   query: vi.fn(),
   credentialReadFailure: false,
+  diagnostics: [] as Array<Record<string, unknown>>,
+  captureStartupLogs: false,
+  serializedLogs: [] as string[],
   requests: [] as Array<{
     options: Record<string, unknown>;
     prompt: AsyncIterable<Record<string, unknown>>;
   }>,
 }));
+vi.mock('../../server/logger.js', async (original) => {
+  const actual = await original<typeof import('../../server/logger.js')>();
+  return {
+    ...actual,
+    createLogger(module: string) {
+      const logger = actual.createLogger(module);
+      return {
+        ...logger,
+        error(message: string, fields?: Record<string, unknown>) {
+          if (services.captureStartupLogs)
+            actual
+              ._buildLogger({
+                write(chunk) {
+                  services.serializedLogs.push(chunk);
+                },
+              })
+              .child({ module })
+              .error(fields ?? {}, message);
+          logger.error(message, fields);
+        },
+        warn(message: string, fields?: Record<string, unknown>) {
+          if (module === 'owned-sdk-query') services.diagnostics.push({ message, ...fields });
+          logger.warn(message, fields);
+        },
+      };
+    },
+  };
+});
 // Model only the external free-space observation for these tiny fixtures. The
 // actual descriptor-relative copy, capacity guard, Git and owner stores execute.
 // The physical host is under disk pressure; this does not qualify its free space.
@@ -151,6 +183,9 @@ afterEach(async () => {
   services.requests.length = 0;
   services.query.mockReset();
   services.credentialReadFailure = false;
+  services.diagnostics.length = 0;
+  services.serializedLogs.length = 0;
+  services.captureStartupLogs = false;
 });
 it.each(
   [
@@ -212,9 +247,69 @@ it.each(
       anthropicApi: true,
       credentialFailure,
     })),
-  ].map((scenario) => ({ anthropicApi: false, credentialFailure: 'none', ...scenario })),
+    ...['agent', 'auto', 'ask'].flatMap((probeMode) =>
+      [false, true].flatMap((personal) =>
+        [false, true].map((eagerProbe) => ({
+          personal,
+          managed: personal,
+          refuseStartup: false,
+          stdinRevocation: false,
+          idleSuccess: false,
+          startupProbe: true,
+          probeMode,
+          eagerProbe,
+        })),
+      ),
+    ),
+    ...[false, true].flatMap((personal) =>
+      ['mode', 'workspace'].flatMap((authorityFailure) =>
+        ['original', 'close', 'abort-error'].map((refusalExit) => ({
+          personal,
+          managed: personal,
+          refuseStartup: false,
+          stdinRevocation: false,
+          idleSuccess: false,
+          startupProbe: true,
+          probeMode: 'auto',
+          authorityFailure,
+          refusalExit,
+        })),
+      ),
+    ),
+    ...[false, true].map((personal) => ({
+      personal,
+      managed: personal,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+      startupWorkspaceFailure: true,
+    })),
+    ...[false, true].flatMap((personal) =>
+      ['default', 'explicit', 'excluded'].map((repositoryProfile) => ({
+        personal,
+        managed: false,
+        refuseStartup: false,
+        stdinRevocation: false,
+        idleSuccess: false,
+        repositoryTransfer: true,
+        repositoryProfile,
+      })),
+    ),
+  ].map((scenario) => ({
+    authorityFailure: 'none',
+    refusalExit: 'original',
+    startupWorkspaceFailure: false,
+    eagerProbe: false,
+    startupProbe: false,
+    probeMode: 'agent',
+    anthropicApi: false,
+    credentialFailure: 'none',
+    repositoryTransfer: false,
+    repositoryProfile: 'default',
+    ...scenario,
+  })),
 )(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure',
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure startupProbe=$startupProbe probeMode=$probeMode eagerProbe=$eagerProbe authorityFailure=$authorityFailure refusalExit=$refusalExit startupWorkspaceFailure=$startupWorkspaceFailure repositoryTransfer=$repositoryTransfer repositoryProfile=$repositoryProfile',
   async ({
     personal,
     managed,
@@ -223,11 +318,23 @@ it.each(
     idleSuccess,
     anthropicApi,
     credentialFailure,
+    startupProbe,
+    probeMode,
+    eagerProbe,
+    authorityFailure,
+    refusalExit,
+    startupWorkspaceFailure,
+    repositoryTransfer,
+    repositoryProfile,
   }) => {
     const nextModel = managed ? 'opus' : 'next-model';
     const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
     vi.resetModules();
+    // Use the real Pino builder/serializer with an isolated in-memory destination.
+    // The mock factory retains its production singleton across resetModules;
+    // changing LOG_FILE_PATH between cases would still reuse the first file.
+    services.captureStartupLogs = startupWorkspaceFailure;
     const { ClaudeSubscriptionCustody } =
       await import('../../server/claude-subscription-custody.js');
     const { ownedVertexRuntimeFixture } =
@@ -238,8 +345,374 @@ it.each(
       managed,
       anthropicApi: anthropicApi || (refuseStartup && !personal),
       ...(idleSuccess ? { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } : {}),
+      ...(repositoryProfile !== 'default'
+        ? {
+            tools: [
+              'Bash',
+              'Read',
+              'Write',
+              'Edit',
+              'AskUserQuestion',
+              'RequestWebAccess',
+              'AgentCommunication',
+              'SearchPastSessions',
+              'ReadPastSession',
+              'ReadKnowledge',
+              'SaveKnowledgeDraft',
+              'AgentReadTasks',
+              'AgentProposeTask',
+              'ListConnections',
+              'RequestConnectionAccess',
+              'ConnectionRequest',
+              'PrepareConnectionSetup',
+            ]
+              .filter((name) => repositoryProfile !== 'excluded' || name !== 'Write')
+              .map((name) => ({ id: `mitzo:${name}`, version: 1 as const })),
+          }
+        : {}),
     });
+    // Start in the ordinary MGMT-like task, with two unrelated configured sources.
+    // Only provider inference is simulated; preparation, permissions and Git run.
+    const transferred = new Map<string, string>();
+    const transferCalls: string[] = [];
+    const { join: repoJoin } = await import('node:path');
+    const { mkdtemp, readFile, realpath, rm, writeFile } = await import('node:fs/promises');
+    const { existsSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { execFileSync } = await import('node:child_process');
+    const targetRoot = repositoryTransfer
+      ? await realpath(await mkdtemp(repoJoin(tmpdir(), 'mitzo-transfer-')))
+      : f.root;
+    if (repositoryTransfer) cleanups.push(() => rm(targetRoot, { recursive: true, force: true }));
+    const repositorySources = ['mitzo', 'another', 'interrupted', 'removed'].map((name) => ({
+      name,
+      path: repoJoin(targetRoot, name),
+      head: '',
+    }));
+    const git = (path: string, ...args: string[]) =>
+      execFileSync(
+        'git',
+        ['-C', path, '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
+        {
+          encoding: 'utf8',
+          env: {
+            PATH: process.env.PATH,
+            GIT_CONFIG_GLOBAL: '/dev/null',
+            GIT_CONFIG_SYSTEM: '/dev/null',
+          },
+        },
+      ).trim();
+    if (repositoryTransfer) {
+      // BASE_REPO must itself be a real source to reproduce primary replacement.
+      execFileSync('git', ['init', '-q', '-b', 'main', f.root]);
+      git(f.root, 'config', 'user.name', 'Offline');
+      git(f.root, 'config', 'user.email', 'fixture@example.test');
+      await writeFile(repoJoin(f.root, 'primary.txt'), 'MGMT source\n');
+      git(f.root, 'add', 'primary.txt');
+      git(f.root, 'commit', '-qm', 'MGMT source');
+      for (const source of repositorySources) {
+        execFileSync('git', ['init', '-q', '-b', 'main', source.path]);
+        git(source.path, 'config', 'user.name', 'Offline');
+        git(source.path, 'config', 'user.email', 'fixture@example.test');
+        await writeFile(repoJoin(source.path, 'app.txt'), 'Original source\n');
+        git(source.path, 'add', 'app.txt');
+        git(source.path, 'commit', '-qm', 'Initial source');
+        source.head = git(source.path, 'rev-parse', 'HEAD');
+        await writeFile(repoJoin(source.path, 'app.txt'), 'User dirty work\n');
+      }
+      await writeFile(
+        repoJoin(f.root, '.mitzo.json'),
+        JSON.stringify({
+          repos: {
+            mgmt: f.root,
+            ...Object.fromEntries(repositorySources.map((s) => [s.name, s.path])),
+          },
+        }),
+      );
+    }
+    async function transferRepository(options: Options, commandId: string) {
+      if (!repositoryTransfer) return;
+      if (![f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold'].includes(commandId))
+        return;
+      const session = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+      const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
+      const useTool = async (
+        name: string,
+        input: Record<string, unknown>,
+        toolUseID: string,
+        signal = new AbortController().signal,
+      ) => {
+        const result = options.canUseTool!(name, input, {
+          signal,
+          toolUseID,
+          requestId: toolUseID,
+        });
+        let settled = false;
+        void result.then(
+          () => {
+            settled = true;
+          },
+          () => {
+            settled = true;
+          },
+        );
+        await vi.waitFor(
+          () => {
+            const pending = getPendingRequestsBySession(f.reservation.conversationId);
+            if (pending.length) {
+              expect(pending).toHaveLength(1);
+              expect(resolvePending(pending[0].permId, 'once')).toBe(true);
+            }
+            expect(settled || pending.length === 1).toBe(true);
+          },
+          { timeout: 10_000 },
+        );
+        return result;
+      };
+      if (commandId === 'queued' && repositoryProfile !== 'excluded') {
+        const primary = structuredClone(session.worktreePaths.get('primary'));
+        expect(
+          await useTool(
+            'Write',
+            { file_path: repoJoin(f.root, 'primary.txt'), content: 'Never replace custody' },
+            `${commandId}-primary-source`,
+          ),
+        ).toMatchObject({ behavior: 'deny' });
+        expect(session.worktreePaths.get('primary')).toEqual(primary);
+        expect(session.worktreePaths.has('mgmt')).toBe(false);
+        expect(git(f.root, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(
+          1,
+        );
+        expect(await readFile(repoJoin(f.root, 'primary.txt'), 'utf8')).toBe('MGMT source\n');
+
+        const source = repositorySources[2];
+        const sdkId = String(options.resume ?? options.sessionId);
+        const partial = repoJoin(source.path, '.claude', 'worktrees', sdkId);
+        const controller = new AbortController();
+        const { createWorktreeAsync } = await import('../../server/worktree.js');
+        await expect(
+          createWorktreeAsync(sdkId, source.path, {
+            startPoint: source.head,
+            safeLocalPreparation: true,
+            safeLocalRequireNew: true,
+            abortSignal: controller.signal,
+            safeLocalBeforeEffect: async () => {
+              if (existsSync(repoJoin(partial, '.git'))) {
+                controller.abort(Error('Interrupted after worktree registration'));
+                controller.signal.throwIfAborted();
+              }
+            },
+          }),
+        ).rejects.toThrow('Interrupted after worktree registration');
+        expect(existsSync(repoJoin(partial, '.git'))).toBe(true);
+        expect(existsSync(repoJoin(partial, 'app.txt'))).toBe(false);
+        expect(chat.eventStore.getLatestWorktreePath(session.sessionId!, source.name)).toBeNull();
+        const before = git(source.path, 'worktree', 'list', '--porcelain');
+        expect(
+          await useTool(
+            'Write',
+            { file_path: repoJoin(source.path, 'app.txt'), content: 'Never adopt uncertainty' },
+            `${commandId}-interrupted-source`,
+          ),
+        ).toMatchObject({ behavior: 'deny' });
+        expect(session.worktreePaths.has(source.name)).toBe(false);
+        expect(chat.eventStore.getLatestWorktreePath(session.sessionId!, source.name)).toBeNull();
+        expect(git(source.path, 'worktree', 'list', '--porcelain')).toBe(before);
+        expect(existsSync(repoJoin(partial, 'app.txt'))).toBe(false);
+        expect(git(source.path, 'rev-parse', 'HEAD')).toBe(source.head);
+        expect(await readFile(repoJoin(source.path, 'app.txt'), 'utf8')).toBe('User dirty work\n');
+
+        const removed = repositorySources[3];
+        expect(
+          await useTool(
+            'Write',
+            { file_path: repoJoin(removed.path, 'app.txt'), content: 'Prepare completed checkout' },
+            `${commandId}-removed-source`,
+          ),
+        ).toMatchObject({ behavior: 'deny' });
+        const completed = session.worktreePaths.get(removed.name)!.path;
+        expect(await readFile(repoJoin(completed, 'app.txt'), 'utf8')).toBe('Original source\n');
+        expect(chat.eventStore.getLatestWorktreePath(session.sessionId!, removed.name)).toBe(
+          completed,
+        );
+        git(removed.path, 'worktree', 'remove', completed);
+        expect(existsSync(completed)).toBe(false);
+      }
+      if (commandId === 'retained-cold-tail' && repositoryProfile !== 'excluded') {
+        const removed = repositorySources[3];
+        const completed = chat.eventStore.getLatestWorktreePath(session.sessionId!, removed.name)!;
+        expect(completed).toBeTruthy();
+        expect(existsSync(completed)).toBe(false);
+        expect(session.worktreePaths.has(removed.name)).toBe(false);
+        const controller = new AbortController();
+        const { OrdinaryLocalVertexSdkAuthority } =
+          await import('../../server/ordinary-local-vertex-sdk-authority.js');
+        const original = OrdinaryLocalVertexSdkAuthority.prototype.assertCurrent;
+        const authority = vi
+          .spyOn(OrdinaryLocalVertexSdkAuthority.prototype, 'assertCurrent')
+          .mockImplementation(async function (
+            this: InstanceType<typeof OrdinaryLocalVertexSdkAuthority>,
+            signal,
+          ) {
+            await original.call(this, signal);
+            if (existsSync(repoJoin(completed, '.git'))) {
+              controller.abort(Error('Interrupted recreation after historical completion'));
+              controller.signal.throwIfAborted();
+            }
+          });
+        try {
+          expect(
+            await useTool(
+              'Write',
+              {
+                file_path: repoJoin(removed.path, 'app.txt'),
+                content: 'Never recreate uncertainty',
+              },
+              `${commandId}-removed-source`,
+              controller.signal,
+            ),
+          ).toMatchObject({ behavior: 'deny' });
+          expect(existsSync(completed)).toBe(false);
+          expect(controller.signal.aborted).toBe(false); // Refuse before any recreation.
+          expect(session.worktreePaths.has(removed.name)).toBe(false);
+          expect(chat.eventStore.getLatestWorktreePath(session.sessionId!, removed.name)).toBe(
+            completed,
+          );
+          expect(
+            git(removed.path, 'worktree', 'list', '--porcelain').match(/^worktree /gm),
+          ).toHaveLength(1);
+          expect(git(removed.path, 'rev-parse', 'HEAD')).toBe(removed.head);
+          expect(await readFile(repoJoin(removed.path, 'app.txt'), 'utf8')).toBe(
+            'User dirty work\n',
+          );
+        } finally {
+          authority.mockRestore();
+        }
+      }
+      const sources = repositorySources.slice(0, commandId === f.request.clientMsgId ? 1 : 2);
+      for (const source of sources) {
+        if (repositoryProfile === 'excluded') {
+          expect(
+            await useTool(
+              'Write',
+              { file_path: repoJoin(source.path, 'app.txt'), content: 'Never admitted' },
+              `${commandId}-${source.name}-excluded`,
+            ),
+          ).toMatchObject({ behavior: 'deny' });
+          expect(session.worktreePaths.has(source.name)).toBe(false);
+          expect(
+            git(source.path, 'worktree', 'list', '--porcelain').match(/^worktree /gm),
+          ).toHaveLength(1);
+          expect(git(source.path, 'rev-parse', 'HEAD')).toBe(source.head);
+          expect(await readFile(repoJoin(source.path, 'app.txt'), 'utf8')).toBe(
+            'User dirty work\n',
+          );
+          continue;
+        }
+        if (!session.worktreePaths.has(source.name)) {
+          const result = await useTool(
+            'Write',
+            { file_path: repoJoin(source.path, 'app.txt'), content: 'Requested task edit' },
+            `${commandId}-${source.name}-prepare`,
+          );
+          expect(result.behavior).toBe('deny'); // Redirect the original source write.
+          const created = session.worktreePaths.get(source.name)?.path;
+          expect(created, JSON.stringify(result)).toBeDefined();
+          expect(JSON.stringify(result)).toContain(created);
+          if (transferred.has(source.name)) expect(created).toBe(transferred.get(source.name));
+          transferred.set(source.name, created!);
+        }
+        const task = session.worktreePaths.get(source.name)!.path;
+        expect(task).not.toBe(source.path);
+        const path = repoJoin(task, 'app.txt');
+        const content = `Completed in ${commandId}\n`;
+        expect(
+          await useTool('Write', { file_path: path, content }, `${commandId}-${source.name}-edit`),
+        ).toMatchObject({ behavior: 'allow' });
+        await writeFile(path, content);
+        expect(await readFile(path, 'utf8')).toBe(content);
+        const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+        expect(
+          await useTool(
+            'Bash',
+            { command: `git -C ${quote(task)} diff --check` },
+            `${commandId}-${source.name}-check`,
+          ),
+        ).toMatchObject({ behavior: 'allow' });
+        git(task, 'diff', '--check');
+        expect(
+          await useTool(
+            'Bash',
+            {
+              command: `git -C ${quote(task)} add -- app.txt && git -C ${quote(task)} commit -m ${quote(commandId)}`,
+            },
+            `${commandId}-${source.name}-commit`,
+          ),
+        ).toMatchObject({ behavior: 'allow' });
+        git(task, 'add', 'app.txt');
+        git(
+          task,
+          '-c',
+          'user.name=Offline',
+          '-c',
+          'user.email=fixture@example.test',
+          'commit',
+          '-qm',
+          commandId,
+        );
+        expect(git(source.path, 'rev-parse', 'HEAD')).toBe(source.head);
+        expect(await readFile(repoJoin(source.path, 'app.txt'), 'utf8')).toBe('User dirty work\n');
+      }
+      transferCalls.push(commandId);
+    }
     const informationCalls: string[] = [];
+    const spans: Array<{
+      name: string;
+      attributes: Attributes;
+      status?: SpanStatus;
+      ended?: boolean;
+    }> = [];
+    if (authorityFailure !== 'none') {
+      const { tracer } = await import('../../server/tracing.js');
+      vi.spyOn(tracer, 'startSpan').mockImplementation((name) => {
+        const recorded: (typeof spans)[number] = { name, attributes: {} };
+        spans.push(recorded);
+        return {
+          setAttribute: (key: string, value: unknown) => {
+            Object.assign(recorded.attributes, { [key]: value });
+          },
+          setAttributes: (attributes: Attributes) => {
+            Object.assign(recorded.attributes, attributes);
+          },
+          setStatus: (status: SpanStatus) => {
+            recorded.status = status;
+          },
+          addEvent: () => {},
+          recordException: () => {},
+          spanContext: () => ({
+            traceId: '11111111111111111111111111111111',
+            spanId: '1111111111111111',
+            traceFlags: 1,
+          }),
+          end: () => {
+            recorded.ended = true;
+          },
+        } as unknown as Span;
+      });
+    }
+    let releaseStartupProbe!: () => void;
+    const startupProbeReady = new Promise<void>((resolve) => {
+      releaseStartupProbe = resolve;
+    });
+    if (startupProbe) {
+      Object.assign(f.request.selection.agent, {
+        profileId: 'default-mitzo',
+        revision: 1,
+        kind: 'builtin',
+      });
+      Object.assign(f.request.selection.permission, { mode: probeMode });
+      Object.assign(f.request.runtime, { mode: probeMode });
+    }
     async function invokeInformation(options: Options, commandId: string) {
       if (idleSuccess) return; // This scenario intentionally selects only communication.
       if (![f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold'].includes(commandId))
@@ -314,19 +787,44 @@ it.each(
       }),
     );
     let releaseFirst: (() => void) | undefined;
+    let releaseRetainedTail: (() => void) | undefined;
     let consumePeer: (() => Promise<Record<string, unknown>>) | undefined;
     let idleInputReady: Promise<void> | undefined;
     let first = true;
     const history: string[] = [];
     const approvedInputs: string[] = [];
     const providerInputs: string[] = [];
+    const { OrdinaryLocalWorkspaceOwner } =
+      await import('../../server/ordinary-local-workspace-owner.js');
+    const startupCause = Object.assign(new Error('synthetic-secret /private/account'), {
+      code: 'EPERM',
+    });
+    let startupThrown: unknown;
     services.query.mockImplementation((request) => {
       services.requests.push(request);
       const id = request.options.resume ?? request.options.sessionId;
       const closed = { value: false };
-      const process = request.options.spawnClaudeCodeProcess({
-        signal: request.options.abortController.signal,
-      });
+      if (startupWorkspaceFailure)
+        vi.spyOn(OrdinaryLocalWorkspaceOwner.prototype, 'assertCurrentSync').mockImplementationOnce(
+          () => {
+            throw startupCause;
+          },
+        );
+      const process = (() => {
+        try {
+          return request.options.spawnClaudeCodeProcess({
+            signal: request.options.abortController.signal,
+          });
+        } catch (error) {
+          startupThrown = error;
+          throw error;
+        }
+      })();
+      const eagerInputs = eagerProbe ? request.prompt[Symbol.asyncIterator]() : undefined;
+      const eagerFirst = eagerInputs?.next().then(
+        (result: IteratorResult<Record<string, unknown>>) => ({ result }),
+        (error: unknown) => ({ error }),
+      );
       const instance = {
         accountInfo: vi.fn(async () => ({
           email: refuseStartup ? 'other@example.test' : 'person@example.test',
@@ -334,10 +832,29 @@ it.each(
           apiProvider: 'firstParty',
         })),
         async *[Symbol.asyncIterator]() {
+          if (startupProbe) await startupProbeReady;
           if (idleInputReady) await idleInputReady;
           if (credentialFailure === 'input') services.credentialReadFailure = true;
-          const inputs = request.prompt[Symbol.asyncIterator]();
-          for await (const message of { [Symbol.asyncIterator]: () => inputs }) {
+          const inputs = eagerInputs
+            ? (async function* () {
+                const first = await eagerFirst!;
+                if ('error' in first) throw first.error;
+                if (!first.result.done) yield first.result.value;
+                yield* { [Symbol.asyncIterator]: () => eagerInputs };
+              })()
+            : request.prompt[Symbol.asyncIterator]();
+          const sdkInputs = (async function* () {
+            try {
+              yield* { [Symbol.asyncIterator]: () => inputs };
+            } catch (error) {
+              if (authorityFailure === 'none' || refusalExit === 'original') throw error;
+              // Model both SDK outcomes after the owner has retained the refusal.
+              expect(request.options.abortController.signal.reason).toBe(error);
+              if (refusalExit === 'abort-error')
+                throw Object.assign(new Error('SDK query aborted'), { name: 'AbortError' });
+            }
+          })();
+          for await (const message of sdkInputs) {
             if (closed.value) break;
             const inputUuid = message.uuid ?? `input-${message.mitzoMessageId}`;
             history.push(message.mitzoMessageId);
@@ -383,6 +900,7 @@ it.each(
                 message: { role: 'user', content: message.message.content },
               };
             await invokeInformation(request.options as Options, message.mitzoMessageId);
+            await transferRepository(request.options as Options, message.mitzoMessageId);
             // Exercise the installed callback on each first/queued/cold query,
             // while its original ordinary command still owns the SDK input.
             const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
@@ -450,6 +968,14 @@ it.each(
               yield { ...peer, session_id: id };
               await completed;
             }
+            if (closed.value) return;
+            if (message.mitzoMessageId === 'retained-cold-tail')
+              await new Promise<void>((resolve) => {
+                releaseRetainedTail = resolve;
+                request.options.abortController.signal.addEventListener('abort', resolve, {
+                  once: true,
+                });
+              });
             if (closed.value) return;
             yield {
               type: 'assistant',
@@ -567,7 +1093,7 @@ it.each(
       {
         repositoryWorkspaceId: f.reservation.id,
         clientMsgId: f.request.clientMsgId,
-        mode: 'agent',
+        mode: probeMode as 'agent' | 'auto' | 'ask',
         text: f.request.payload.text,
         sourceSnapshots: [agentLibrarySource],
       },
@@ -597,11 +1123,116 @@ it.each(
     outbox.start();
     expect(outbox.enqueue(wire, 1, 'public-vertex-draft')).toBe(true);
     await vi.waitFor(
-      () => expect(receipts).toHaveBeenCalledWith(expect.objectContaining({ state: 'consumed' })),
+      () =>
+        expect(receipts).toHaveBeenCalledWith(
+          expect.objectContaining({
+            state: startupWorkspaceFailure ? 'retained' : 'consumed',
+          }),
+        ),
       { timeout: 10000 },
     );
-    expect(persisted).toBe('[]');
+    if (startupWorkspaceFailure) expect(persisted).toContain(wire.clientMsgId);
+    else expect(persisted).toBe('[]');
     outbox.stop();
+    if (startupWorkspaceFailure) {
+      const sessionId = f.reservation.conversationId;
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+      expect(providerInputs).toEqual([]);
+      expect(services.requests).toHaveLength(1);
+      expect((startupThrown as Error).cause).toBe(startupCause);
+      const serialized = services.serializedLogs.join('');
+      const records = serialized
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      const startup = records.filter(
+        (record) => record.msg === 'startChat failed after register, cleaning up',
+      );
+      expect(startup).toHaveLength(1);
+      expect(serialized).not.toMatch(/synthetic-secret|private\/account/);
+      expect(startup[0]).toMatchObject({
+        code: 'ordinary_sdk_startup_failed',
+        stage: 'sdk_startup',
+        sessionId,
+        commandId: wire.clientMsgId,
+        failedCheck: 'selection.workspace',
+        causeCode: 'EPERM',
+      });
+      expect(startup[0]).not.toHaveProperty('err');
+      expect(JSON.stringify(transport.send.mock.calls)).not.toContain('synthetic-secret');
+      return;
+    }
+    if (startupProbe) {
+      // Observe the input after /send releases its temporary authority. Eager
+      // probes begin consuming during query construction; delayed probes wait
+      // until this release, exercising both sides of that lifetime boundary.
+      expect(providerInputs).toEqual([]);
+      if (authorityFailure === 'mode')
+        chat.eventStore.upsertSession({ sessionId: f.reservation.conversationId, mode: 'ask' });
+      if (authorityFailure === 'workspace')
+        vi.spyOn(f.workspace, 'reserveHostTask').mockRejectedValueOnce(
+          Object.assign(new Error('synthetic-secret /private/account'), { code: 'EPERM' }),
+        );
+      releaseStartupProbe();
+      if (authorityFailure !== 'none') {
+        const sessionId = f.reservation.conversationId;
+        await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+        const errors = chat.eventStore
+          .getSessionEvents(sessionId)
+          .filter((event) => event.type === 'error');
+        expect(errors).toHaveLength(1);
+        expect(providerInputs).toEqual([]);
+        const diagnosticId = (errors[0].payload.runtimeFailure as { diagnosticId: string })
+          .diagnosticId;
+        const failedCheck =
+          authorityFailure === 'mode' ? 'selection.session_mode' : 'workspace.reserve';
+        expect(services.diagnostics).toEqual([
+          expect.objectContaining({
+            sessionId,
+            commandId: wire.clientMsgId,
+            provider: personal ? 'anthropic-claude' : 'anthropic-vertex',
+            stage: 'input_authority',
+            runtimeFailureCode: 'input_not_dispatched',
+            diagnosticId,
+            failedCheck,
+            ...(authorityFailure === 'workspace' ? { causeCode: 'EPERM' } : {}),
+          }),
+        ]);
+        expect(transport.send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'error',
+            sessionId,
+            clientMsgId: wire.clientMsgId,
+            error: expect.stringContaining('Message saved.'),
+          }),
+        );
+        await vi.waitFor(() =>
+          expect(spans.find((span) => span.name === 'chat.start')?.ended).toBe(true),
+        );
+        for (const name of ['claude.sdk.input.refused', 'session', 'chat.start']) {
+          expect(spans.find((span) => span.name === name)).toMatchObject({
+            ended: true,
+            status: { code: 2 },
+            attributes: {
+              'runtime.diagnostic_id': diagnosticId,
+              'runtime.failed_check': failedCheck,
+            },
+          });
+        }
+        expect(
+          JSON.stringify([errors, services.diagnostics, spans, transport.send.mock.calls]),
+        ).not.toMatch(/synthetic-secret|private\/account/);
+        expect(errors[0].payload.runtimeFailure).not.toHaveProperty('failedCheck');
+        return;
+      }
+      await vi.waitFor(() => expect(providerInputs).toHaveLength(1), { timeout: 10000 });
+      expect(
+        chat.eventStore
+          .getSessionEvents(f.reservation.conversationId)
+          .filter((event) => event.type === 'error'),
+      ).toEqual([]);
+      return;
+    }
     if (refuseStartup || credentialFailure !== 'none') {
       const sessionId = f.reservation.conversationId;
       await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
@@ -695,7 +1326,7 @@ it.each(
         ),
       ).resolves.toMatchObject({ behavior: 'deny' });
     }
-    if (personal) {
+    if (personal && repositoryProfile === 'default') {
       const sdkOptions = services.requests[0].options as Options;
       expect(sdkOptions.sandbox).toBeUndefined();
       for (const tool of ['Grep', 'Glob']) {
@@ -1037,6 +1668,20 @@ it.each(
         payload: { text: '/mockup Same retained task' },
       }),
     ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
+    // Cold recovery first runs the acknowledged predecessor, including its
+    // real MCP/permission callbacks. Wait for that startup separately, then
+    // prove the new input cannot overtake its still-unsettled result.
+    await vi.waitFor(() => expect(releaseRetainedTail).toBeTypeOf('function'), {
+      timeout: 10_000,
+    });
+    expect(history).toEqual([f.request.clientMsgId, 'queued', 'retained-cold-tail']);
+    expect(
+      chat.eventStore.getExecutionAdmission(f.reservation.conversationId, 'cold'),
+    ).toBeUndefined();
+    expect(chat.eventStore.getOrdinarySdkTurnEvents(f.reservation.conversationId, 'cold')).toEqual(
+      [],
+    );
+    releaseRetainedTail!();
     await vi.waitFor(
       () =>
         expect(history).toEqual([f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold']),
@@ -1071,6 +1716,13 @@ it.each(
     );
     for (const request of services.requests.slice(1))
       await inspectConnections(request.options as Options);
+    if (repositoryTransfer)
+      expect(transferCalls).toEqual([
+        f.request.clientMsgId,
+        'queued',
+        'retained-cold-tail',
+        'cold',
+      ]);
     if (!idleSuccess)
       expect(informationCalls).toEqual(
         expect.arrayContaining([f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold']),
@@ -1227,7 +1879,10 @@ it.each(
       true,
     );
   },
-  30_000,
+  // This journey starts five SDK commands and exercises four real MCP
+  // surfaces. Hosted runs spend about five seconds in each information turn;
+  // retain the individual phase deadlines and budget their combined journey.
+  60_000,
 );
 
 it.each([

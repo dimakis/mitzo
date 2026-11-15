@@ -20,10 +20,25 @@ export function registerGoogleWorkspaceSdkTool(
     assertCurrent(signal: AbortSignal): Promise<void>;
     assertCurrentSync(signal: AbortSignal): void;
     runCallback?: TurnCallbackRunner;
+    checkTool?(wire: string): 'allow' | 'deny';
   },
 ) {
   const name = googleWorkspaceReadDefinition.name;
   if (!agentToolAllowed(session, name) || !getConnectionsRuntime()?.googleWorkspace) return;
+  const assertTool = () => {
+    if (boundary.checkTool && boundary.checkTool(`mcp__mitzo-connections__${name}`) !== 'allow')
+      throw Error('Tool not allowed by the frozen command skill ceiling');
+  };
+  const assertCurrent = async (signal: AbortSignal) => {
+    assertTool();
+    await boundary.assertCurrent(signal);
+    assertTool();
+  };
+  const assertCurrentSync = (signal: AbortSignal) => {
+    assertTool();
+    boundary.assertCurrentSync(signal);
+    assertTool();
+  };
   server.registerTool(
     name,
     {
@@ -35,7 +50,7 @@ export function registerGoogleWorkspaceSdkTool(
       return (boundary.runCallback ?? ((work) => work()))(async () => {
         try {
           signal.throwIfAborted();
-          await boundary.assertCurrent(signal);
+          await assertCurrent(signal);
           const id = sessionId();
           if (!id) throw Error('Original Google read session unavailable');
           const tools = sessionGoogleWorkspaceTools({
@@ -43,11 +58,11 @@ export function registerGoogleWorkspaceSdkTool(
             session,
             registry,
             toolName: `mcp__mitzo-connections__${name}`,
-            assertCurrent: () => boundary.assertCurrent(signal),
-            assertCurrentSync: () => boundary.assertCurrentSync(signal),
+            assertCurrent: () => assertCurrent(signal),
+            assertCurrentSync: () => assertCurrentSync(signal),
           });
           const result = qualifyToolResult(name, input, signal, await tools.execute(input, signal));
-          await boundary.assertCurrent(signal);
+          await assertCurrent(signal);
           signal.throwIfAborted();
           return copyCallbackOutcome(result, {
             content: [{ type: 'text' as const, text: result.content }],
@@ -60,7 +75,7 @@ export function registerGoogleWorkspaceSdkTool(
             signal,
           });
           // The original query owns authority retirement; do not turn its refusal into success.
-          boundary.assertCurrentSync(signal);
+          assertCurrentSync(signal);
           signal.throwIfAborted();
           return copyCallbackOutcome(result, {
             content: [{ type: 'text' as const, text: result.content }],

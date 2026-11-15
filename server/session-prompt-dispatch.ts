@@ -158,7 +158,11 @@ export function createSessionPromptPort(
     if (
       live?.session.ordinaryRuntimeOwner?.authSessionId &&
       live.session.ordinaryRuntimeOwner.authSessionId !== auth.id &&
-      binding.harness.implementation !== 'codex'
+      binding.harness.implementation !== 'codex' &&
+      !(
+        binding.harness.implementation === 'claude-sdk' &&
+        ordinaryOperatorOwnsConversation(live.session.ordinaryRuntimeOwner.authSessionId, auth.id)
+      )
     )
       throw new SessionPromptError(
         'Open this session with your current login before scheduling work.',
@@ -392,7 +396,12 @@ export function createSessionPromptPort(
         current();
         const live = ctx.sessionRegistry.findBySessionId(sessionId);
         const owner = live?.session.ordinaryRuntimeOwner;
-        if (!live || !owner?.sdkTurns || owner.authSessionId !== auth.id) return 'unavailable';
+        if (
+          !live ||
+          !owner?.sdkTurns ||
+          !ordinaryOperatorOwnsConversation(owner.authSessionId, auth.id)
+        )
+          return 'unavailable';
         const target = owner.sdkTurns.captureInterruptTarget();
         if (target?.commandId !== commandId) return 'uncertain';
         current();
