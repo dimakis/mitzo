@@ -48,7 +48,7 @@ LOG_LEVEL=error npx vitest run \
   server/__tests__/published-host-knowledge.test.ts \
   server/__tests__/agent-context-compiler.test.ts \
   server/__tests__/agent-workspace-context.test.ts
-# 172 passing checks
+# 175 passing checks
 
 LOG_LEVEL=error npx vitest run \
   server/__tests__/google-workspace-sdk.test.ts \
@@ -62,6 +62,8 @@ npm run build:server --silent
 Coverage includes Personal and Vertex ordinary admission; boot/project/publication
 delivery into SDK options; actual published-memory reads; acknowledgement receipts;
 publication refresh, absent enrollment, revocation, failure and cancellation;
+actual startup error delivery before provider creation for unavailable/invalid
+publications and explicit empty boot fallback when ContexGin is unavailable;
 private/symlink project roots; selected-profile boundaries; every registered
 credential/helper, Telos and web schema's canonical argument names (including
 legitimately parameterless tools); Google numeric `pageSize`/`maxResults`, list

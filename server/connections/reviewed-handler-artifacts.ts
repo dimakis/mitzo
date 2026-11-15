@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-startup-context.test.ts':
     'ef9a5ed33d3f8a814bcad92e55d7681c0dbfdeca61eb9df7f5d59960bac5a5f6',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    '88e611a851189547d80591dbd38a96efa6f40fa9d2d8a962690586cc5a719832',
+    '446353d9717465e85294c97b6f5e530ee0508b4411a6525495964dcf1d196b37',
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../frontend/src/components/LocalCommandRecovery.tsx':

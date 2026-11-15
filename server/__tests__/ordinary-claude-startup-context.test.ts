@@ -111,6 +111,7 @@ async function fixture(personal: boolean) {
     return peer;
   });
   const chat = await import('../chat.js');
+  const sent = vi.fn();
   const tasks: Promise<void>[] = [];
   let currentCommand: string = f.request.clientMsgId;
   let reopen!: (
@@ -149,7 +150,7 @@ async function fixture(personal: boolean) {
       rejectAdmission = reject;
     });
     const task = chat.startChat(
-      { send: vi.fn(), isOpen: () => true },
+      { send: sent, isOpen: () => true },
       'startup-context',
       selected.payload.text,
       {
@@ -218,8 +219,38 @@ async function fixture(personal: boolean) {
     await Promise.allSettled(tasks);
     chat.eventStore.close();
   });
-  return { f, calls, streams, owner, chat, first, second, reconcile, restorePublication };
+  return { f, calls, streams, owner, chat, sent, first, second, reconcile, restorePublication };
 }
+it.each(['unavailable', 'invalid'] as const)(
+  'reports an enrolled publication %s through actual startup without creating a provider',
+  async (failure) => {
+    const x = await fixture(false);
+    x.reconcile.mockReset();
+    if (failure === 'unavailable')
+      x.reconcile.mockRejectedValue(Error('PRIVATE_PUBLISHER_FAILURE'));
+    else x.reconcile.mockResolvedValue({ ...x.first, sourceCommit: 'c'.repeat(40) });
+    await expect(x.owner.admit(x.f.request)).rejects.toThrow();
+    expect(x.calls).toEqual([]);
+    const errors = x.sent.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.type === 'error');
+    expect(errors.length).toBeGreaterThan(0);
+    expect(JSON.stringify(errors)).not.toContain('PRIVATE_PUBLISHER_FAILURE');
+  },
+  20_000,
+);
+
+it('retains the explicit empty boot fallback when ContexGin is unavailable while delivering verified project/publication context', async () => {
+  const x = await fixture(false);
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(Error('offline boot service')));
+  await x.owner.admit(x.f.request);
+  const session = x.chat.registry.get('startup-context')!;
+  expect(session.bootContext).toMatchObject({ source: 'local-fallback', sourceCount: 0 });
+  const append = (x.calls[0].systemPrompt as { append: string }).append;
+  expect(append).toContain('Keep the admitted branch.');
+  expect(append).toContain(x.first.sourceCommit);
+  expect(append).not.toContain('Compiled ordinary boot context');
+}, 20_000);
 it.each([false, true])(
   'delivers boot/project/published context to the actual ordinary SDK adapter, personal=%s',
   async (personal) => {
