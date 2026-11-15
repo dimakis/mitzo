@@ -92,6 +92,26 @@ whitespace checks pass. Hosted CI and trusted review of this integration delta
 remain required. The completed independent full-source review of `b30c3196`
 reported zero concrete blockers; its unchanged coverage remains the baseline.
 
+## CI integration fixture correction
+
+Hosted shard 2 in run `43772563660`, job `132992389700`, failed ten cases at
+`tests/integration/ordinary-local-vertex-chat.test.ts:2277`. Every failure was the
+old assertion that all fetches end in `/health`; the restored boot-context read
+intentionally adds the selected agent's context endpoint. The same shard passed
+518 other files and 7,357 checks. A single local journey reproduced that exact
+assertion failure before the correction.
+
+The offline fixture now supplies boot instructions at one exact mocked ContexGin
+endpoint and retains the blocked health fallback. It rejects other requests and
+asserts all first, replacement and cold SDK query prompts contain those boot
+instructions. Production behavior is unchanged. All ten failed account/repository
+journeys pass in four bounded batches, with 42 additional startup/Google schema
+checks passing. Each batch uses one worker and a 1 GiB heap; filtered-out cases
+are excluded from these counts. Source pins, scoped lint, formatting and whitespace
+pass. An earlier multi-case reproduction exceeded the task's 120-second ceiling;
+its retained uncertain receipt was inspected and that command was not replayed.
+Current-head hosted CI and trusted review remain required.
+
 ## Acceptance still open
 
 Source, landing, activation and live acceptance are distinct. This change does
