@@ -41,7 +41,6 @@ it.each(['anthropic-claude', 'anthropic-vertex', 'anthropic-api'] as const)(
     chat.registry.register(id, {
       sessionId: id,
       transport,
-      observers: new Set(),
       abortController: new AbortController(),
       mode: 'auto',
       cwd: root,

@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1202-claude-session-naming';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1203-claude-transcript-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4376,7 +4377,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-local-service-tools.ts':
     'ca62e5f6d16122403aaaec4cb441bb7e22a42da5ac8181e7472899bdcdfdcc9b',
   '../session-messages-route.ts':
-    'ca0b781bae8861105134f2fe0e2659c50510d9973f06c092f614234abeb00393',
+    'cbfdabeca4028d1c94c825b2136bec913c07068c15b5e7129d333640c423fa74',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
   '../session-model-settings.ts':
@@ -4685,7 +4686,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8b8f5ba60ebbfab09590625bac56497b59badbe18b5a67013ef4083fc1a6e167',
   '../tracing.ts': 'dcfee5c4b80b3816aac9192f05ddf89d6479ba9b7fe744c8e3ab95b544853631',
   '../transcript-observation.ts':
-    'c90e4f7da1a9ed9a939131aab98467353aa08a4e0b25702e75b610976b0c430b',
+    '0e37c59a895b617552ab299cd55ad7042c958f4aa4adf4067afa31ef42ca57f4',
+  '../transcript-read-failure.ts':
+    '26f81300edc5d036895e1142259151b7b4102bb719a96ec7aa5e30a6242cae99',
   '../transcript-response.ts': '6d738803a1af50e9c8fee76bfea804ee76bb1e40eb613eb4a3cb4cd4ca949578',
   '../transport-auth-ownership.ts':
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
