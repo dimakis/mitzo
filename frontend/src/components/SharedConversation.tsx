@@ -41,6 +41,8 @@ import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
 import { ChatStatusMessage } from './ChatStatusMessage';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
+import { useSessionOverview } from '../hooks/useSessionOverview';
+import { sessionActivityLabel } from '../lib/session-activity';
 import {
   SharedConversationComposerContext,
   type SharedConversationComposerRouting,
@@ -378,6 +380,7 @@ function useSharedConversation({
 
 export function SharedConversationAgents(props: ComponentProps<typeof ConversationAgents>) {
   const host = useContext(Context);
+  const { activities } = useSessionOverview();
   const presentSourceName =
     host && host.sourceConversationId === props.scope ? host.presentSourceName : undefined;
   const sourceName = props.agents.find((agent) => agent.id === props.scope)?.name;
@@ -391,15 +394,19 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
     ? view.participantSessionIds.map((id) => {
         const existing = props.agents.find((a) => a.id === id);
         const policy = view.policies.find((p) => p.sessionId === id);
+        const activity = activities.find((a) => a.sessionId === id);
         return {
           ...existing,
           id,
+          historySessionId: id !== props.scope ? id : undefined,
           name: existing?.name ?? names[id] ?? id,
           state: view.unavailableParticipantSessionIds.includes(id)
             ? 'Unavailable'
-            : id === props.scope
-              ? 'Current conversation'
-              : 'Joined',
+            : activity
+              ? sessionActivityLabel(activity)
+              : id === props.scope
+                ? 'Current conversation'
+                : 'Joined',
           policy: policy
             ? { reads: policy.readsFutureDiscussion, replies: policy.repliesByDefault }
             : undefined,

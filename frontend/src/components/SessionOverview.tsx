@@ -72,7 +72,7 @@ function SessionActivityCard({
 // ─── Main component ─────────────────────────────────────────────────────────
 
 export function SessionOverview() {
-  const { activities, attendCount } = useSessionOverview();
+  const { activities, attendCount } = useSessionOverview(true);
   const navigate = useNavigate();
 
   // Filter out idle/init — only show interesting sessions

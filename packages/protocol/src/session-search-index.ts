@@ -45,8 +45,13 @@ export interface SearchSession {
   session_id: string;
   summary: string | null;
   updated_at: number;
+  /** Display recency only; updated_at remains the execution title-match clock. */
+  conversation_updated_at?: number;
+  conversation_id?: string;
+  conversation_summary?: string | null;
 }
 export interface SearchHit extends SearchSession {
+  matched_session_id?: string;
   payload: string;
   matched_at: number;
 }

@@ -12,6 +12,7 @@ import {
 import { EventStore } from '../event-store.js';
 import { createSessionCollaborationRouter } from '../session-collaboration-router.js';
 let store: EventStore, app: express.Express, path: string;
+const navigationChanged = vi.fn();
 beforeEach(() => {
   store = new EventStore(':memory:');
   path = `/api/session-collaborations/${randomUUID()}`;
@@ -27,10 +28,27 @@ beforeEach(() => {
       };
     next();
   });
-  app.use('/api/session-collaborations', createSessionCollaborationRouter({ store }));
+  navigationChanged.mockClear();
+  app.use(
+    '/api/session-collaborations',
+    createSessionCollaborationRouter({ store, navigationChanged }),
+  );
 });
 afterEach(() => store.close());
 const body = { expectedRevision: 0, participantSessionIds: ['first', 'local'] };
+it('invalidates conversation navigation only after an accepted membership mutation', async () => {
+  expect((await request(app).put(path).set('x-operator', 'yes').send(body)).status).toBe(200);
+  expect(navigationChanged).toHaveBeenCalledOnce();
+  expect(
+    (
+      await request(app)
+        .put(path)
+        .set('x-operator', 'yes')
+        .send({ ...body, expectedRevision: 42 })
+    ).status,
+  ).toBe(409);
+  expect(navigationChanged).toHaveBeenCalledOnce();
+});
 it('resolves setup only through the existing live authenticated source transport', async () => {
   const url =
     '/api/session-collaborations/source-setup?sourceConversationId=first&clientId=source-client';

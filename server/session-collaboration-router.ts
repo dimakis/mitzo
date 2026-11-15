@@ -122,6 +122,7 @@ export function createSessionCollaborationRouter({
   review,
   messaging,
   forwarding,
+  navigationChanged,
 }: {
   store: EventStore;
   joining?:
@@ -130,6 +131,7 @@ export function createSessionCollaborationRouter({
   review?: () => CollaborationApplicationReview;
   messaging?: ApplicationCollaborationMessaging;
   forwarding?: CollaborationApplicationForwarding;
+  navigationChanged?: () => void;
 }) {
   const router = Router();
   router.use((_req, res, next) => {
@@ -470,7 +472,9 @@ export function createSessionCollaborationRouter({
             : await owner.confirm(auth.id, id.data, input.data, controller.signal);
       controller.signal.throwIfAborted();
       if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
-      return res.json(CollaborationJoinSchema.parse(result));
+      const retained = CollaborationJoinSchema.parse(result);
+      navigationChanged?.();
+      return res.json(retained);
     } catch (error) {
       if (res.destroyed) return;
       if (!isAuthSessionCurrent(auth))
@@ -591,7 +595,9 @@ export function createSessionCollaborationRouter({
     if (!id.success || !input.success)
       return res.status(400).json({ error: 'Invalid collaboration membership' });
     try {
-      return res.json(store.setSessionCollaboration(id.data, input.data));
+      const membership = store.setSessionCollaboration(id.data, input.data);
+      navigationChanged?.();
+      return res.json(membership);
     } catch (error) {
       return failure(res, error);
     }

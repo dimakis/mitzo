@@ -246,3 +246,23 @@ retain all 2,490 entries at runtime revision `v1.0.1190-telos-query-budget`.
 Fresh published-head CI/trusted final approval and the global sequential turn
 remain required. The uncertain preparation and independent feature acceptance
 remain open; no production write, model call, merge or deployment is claimed.
+
+## Accepted navigation composition
+
+Accepted #1354 main `bbf0c17ef917897ef6d7cf236fc08b0b6f7bbd3a` is composed once
+by additive merge after the qualified discovery correction `ce175f4b`. All
+accepted navigation, conversation identity, privacy and recovery source is kept.
+Only registry metadata conflicted: runtime revision and adjacent appended keys.
+Both key sets survive: 2,490 owned-baseline keys and all 2,503 accepted keys yield
+2,504 combined entries at `v1.0.1191-telos-accepted-navigation`. Actual fingerprints
+and union checks pass. The four scoped-reviewed discovery production hashes are
+unchanged; no #1355 diagnostic code or unaccepted team source is absorbed.
+Current-head combined CI and trusted final integration review remain mandatory.
+
+Post-composition qualification: 103 pass across six native observation/budget/
+batch/ceiling/cached-stat/signed-consumer suites in 62.75s, with the same one
+disabled source diagnostic; 358 pass across 16 owned Telos/peer/permission and
+accepted current-work/control suites in 48.48s. Shared protocol/harness/client
+TypeScript builds pass. These reruns overlap earlier evidence and are not added
+as unique coverage. The 15s query cap, signed-suite cardinality, lifecycle/scenario
+deadlines and incomplete full-discovery result remain unchanged.
