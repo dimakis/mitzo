@@ -3647,7 +3647,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           if (active) markFallbackCloseoutInputObserved(active, inputUuid);
           liveOrdinarySdkOwner?.inputObserved(inputUuid);
         },
-        onResult: (cId, result, inputUuid) => {
+        onResult: async (cId, result, inputUuid) => {
           const active = registry.get(cId);
           if (active)
             finishFallbackCloseout(
@@ -3655,18 +3655,21 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               result.is_error === true ? 'failed' : 'completed',
               inputUuid,
             );
-          if (liveOrdinarySdkOwner)
-            void liveOrdinarySdkOwner
-              .resultObserved(inputUuid, result.is_error === true)
-              .catch((err) => {
-                log.error('Original SDK result authority unavailable', {
-                  err,
-                  sessionId: active?.sessionId,
-                  code: 'ordinary_sdk_result_unavailable',
-                  stage: 'provider_terminal',
-                });
-                abortController.abort(err);
+          if (liveOrdinarySdkOwner) {
+            try {
+              await liveOrdinarySdkOwner.resultObserved(inputUuid, result.is_error === true);
+            } catch (err) {
+              log.error('Original SDK result authority unavailable', {
+                err,
+                sessionId: active?.sessionId,
+                code: 'ordinary_sdk_result_unavailable',
+                stage: 'provider_terminal',
               });
+              const failure = new SessionRuntimeError('runtime_unavailable', { cause: err });
+              abortController.abort(failure);
+              throw failure;
+            }
+          }
           options.adviserScope?.assertCurrent();
           options.onTurnResult?.(result, inputUuid);
         },
