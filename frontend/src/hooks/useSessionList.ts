@@ -73,7 +73,9 @@ function applyActivity(sessions: Session[], activeIds: Set<string> | null): Sess
   if (!activeIds) return sessions;
   let changed = false;
   const next = sessions.map((session) => {
-    const isActive = activeIds.has(session.id);
+    const isActive = [session.id, ...(session.participantSessionIds ?? [])].some((id) =>
+      activeIds.has(id),
+    );
     if (session.isActive === isActive && session.isAttached === isActive) return session;
     changed = true;
     return { ...session, isActive, isAttached: isActive };
