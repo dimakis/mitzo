@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1204-claude-recent-request-naming';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1207-claude-request-notices';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../claude-runtime-notices.ts':
+    'ed56147fe849cc3f1714a2c967a9d2e87d2fa4d2476a8ebb1c97e42e849de317',
+  '../__tests__/claude-runtime-notices.test.ts':
+    '09787813e392b6a10609f26202ecb57dde0d3dfa4db9349bd4dc74203f54bcb9',
+  '../__tests__/sdk-retry-notice-consumer.test.ts':
+    '5f7da2bd31faf14d4baf62a4f37d907ab5abe6e12d5e721dd8fe38fc34423a1e',
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../frontend/src/components/LocalCommandRecovery.tsx':
@@ -4245,7 +4250,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': 'f81b17aae2f822db5420e500d298f77ae185d768f7bf5335a5fc72065f196338',
+  '../query-loop.ts': '7f6cd8123b34bac8308a4ce4bc6c36ba2a88bb959446e82f43dd604c0c232576',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',
@@ -4297,7 +4302,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../retained-task-execution-result.ts':
     'a48f52c72ec87335e13dc6f159239ee31b8b4fb9da8f77593daca040918aa411',
   '../runtime-failure-diagnostics.ts':
-    '45b6d44a3a39c2ab7d5fc7123f43821b0d037993d8b216907b7b9237cd382a5d',
+    'd76d216fed768448db7aaf19710ccb86f3f0315c537074431e81a1f0e1e33b5e',
   '../runtime-performance.ts': '617d0732c9bde4619be7ae36a2513e275c0a897bd354acf9459b8bd3e61c0810',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../sandbox-inventory.ts': 'c785cab670191e142ef24d819b6e56950c910f7dffbb67613c0c71ac72bca4b9',
