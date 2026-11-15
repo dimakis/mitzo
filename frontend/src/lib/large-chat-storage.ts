@@ -1,5 +1,6 @@
 import { createBrowserId } from './browser-crypto';
 import { readChatStorage } from './chat-storage-read';
+import { writeChatStorage } from './chat-storage-write';
 import { createIndexedChatDisk } from './indexed-chat-disk';
 import { APP_FOREGROUND_EVENT } from './app-lifecycle-events';
 
@@ -262,6 +263,11 @@ export class LargeChatStorage {
 }
 
 let database: Promise<IDBDatabase> | undefined;
+const databaseOwners = new WeakMap<IDBDatabase, () => void>();
+function retireDatabase(db: IDBDatabase) {
+  databaseOwners.get(db)?.();
+  db.close();
+}
 function openDatabase(): Promise<IDBDatabase> {
   if (database) return database;
   const opened = new Promise<IDBDatabase>((resolve, reject) => {
@@ -287,6 +293,7 @@ function openDatabase(): Promise<IDBDatabase> {
       // WebKit can close the connection while the app is suspended. A resolved
       // promise for that closed handle must not poison every subsequent read.
       db.onclose = retire;
+      databaseOwners.set(db, retire);
       db.onversionchange = () => {
         retire();
         db.close();
@@ -310,13 +317,7 @@ async function operation<T>(
 ): Promise<T> {
   const db = await openDatabase();
   if (mode === 'readonly') return readChatStorage(db, run);
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction('payloads', mode);
-    const request = run(transaction.objectStore('payloads'));
-    transaction.oncomplete = () => resolve(request.result);
-    transaction.onerror = transaction.onabort = () =>
-      reject(transaction.error ?? Error('Chat storage write failed'));
-  });
+  return writeChatStorage(db, run, retireDatabase);
 }
 let disk: ReturnType<typeof createIndexedChatDisk> | undefined;
 let channel: BroadcastChannel | undefined;
@@ -326,6 +327,7 @@ function indexedDisk() {
     openDatabase,
     () => channel?.postMessage('changed'),
     () => window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED)),
+    retireDatabase,
   ));
 }
 let instance: LargeChatStorage | undefined;

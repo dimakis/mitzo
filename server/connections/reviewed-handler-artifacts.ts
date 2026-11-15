@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1194-claude-result-delivery';
+  'v1.0.1195-chat-storage-write-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/lib/chat-storage-write.ts':
+    '5ee77bede642adace111a8de275dbcd9b4c06e204fc4cee6110e4aaf8cb5ef8f',
   '../telos-work-overview.ts': '5292f40110c80c317f90be4afb75fa131440a1fca6c09fea833f28cc91e78b68',
   '../../frontend/src/components/SessionOverview.tsx':
     '637fba0e538b0dfa03353eabc213cf5b13b942d0c0ccd70a58a7c5c675d8584f',
@@ -907,9 +909,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/explicit-local-chat.test.ts':
     'cd5d3dd957838e994095eb2ac81f142f093d69112752b0f64c335ee0192d3b96',
   '../../frontend/src/lib/__tests__/indexed-chat-disk.test.ts':
-    '951db9581ed658fc261266880eca5bc35626249749896c7ff20a06fa59c46208',
+    'a8e1104aa17cf95ff7b85229989e5a244f4f2db1dc8de317c2a6bcbda8245ccc',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
-    '199eb6d9f3b11c7ce57c6bf8ea354849831941e6cb6d9d43d8bd139ae13df7cb',
+    '6aa6504dfdfded72339465bc9d94f80a3f46195d94af0524c483b95fe6355698',
   '../../frontend/src/lib/__tests__/legacy-native-continuation.test.ts':
     'ff48f05ef91b85c36eaf93bc94e770adc11864bbe191b92a8fcc3acae230dfe2',
   '../../frontend/src/lib/__tests__/model-visibility.test.ts':
@@ -1015,11 +1017,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/file-paths.ts':
     'dc6a94c8792ddee43d1acb0e635021fa66f2626e28e627f785ac7fbe13d198e3',
   '../../frontend/src/lib/indexed-chat-disk.ts':
-    '8033c3340ecce06f0fea6b5efb045f75bcb3bb97c2e12e281d68744d14dd1bf8',
+    'db93f63e9a52ecadcb6335acfa16b019ecc464c03ffed04c8ed6105e6c73d1fa',
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/lib/large-chat-storage.ts':
-    '1e36c2869568903abaa5b1694e7a20e69147fbcda3a41de55f1155e5710de943',
+    '6e5e5791b2e619d2114fe8857ae2537dceb38c303e844e233c3b010f57c00f38',
   '../../frontend/src/lib/launch-draft-delivery.ts':
     '05839a85eee84c490f9679ce36dc624280173a2d19c8b8ca5f8080a7fb19acb3',
   '../../frontend/src/lib/legacy-native-continuation.ts':
@@ -4120,7 +4122,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-capabilities.ts':
     'f1b3716a985362d937a421f92b4bbed8e58ce5d54b7e047bccca283f833a0cc1',
   '../ordinary-local-vertex-command-owner.ts':
-    '84d0d08bd7be15ef7a67b30874a0747e323f5732d6ff1d975d56250e97b72c2d',
+    '8ca2717150a22760764fe7f63595bbafbd402edcd76a67db55d3c80f6465f771',
   '../ordinary-local-vertex-custody.ts':
     '7f1ce782be5190881004a63aacf58d8df69acb0fe46d9bfe952c436cf6c2aed9',
   '../ordinary-local-vertex-entry.ts':

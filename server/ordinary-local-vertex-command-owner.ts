@@ -368,8 +368,8 @@ export class OrdinaryLocalVertexCommandOwner {
   /** Advance only after the preceding result's usage and completion are delivered. */
   dispatchQueued(): Promise<void> {
     return this.#serialize(async () => {
-      await this.#fence();
       this.#resultDeliveryPending = false;
+      // Dispatch owns the fresh authority check when there is work to release.
       await this.#dispatch();
     });
   }
