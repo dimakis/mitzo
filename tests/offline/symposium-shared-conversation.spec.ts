@@ -224,6 +224,9 @@ for (const theme of ['dark', 'light'])
     const agents = page.getByRole('button', { name: /^Agents,/ });
     await agents.click();
     const dialog = page.getByRole('dialog', { name: 'Agents', exact: true });
+    const participantHistory = dialog.getByRole('link', { name: 'Open Reviewer history' });
+    await expect(participantHistory).toHaveAttribute('href', '/chat/reviewer');
+    expect((await participantHistory.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first().click();
     try {
       await expect(dialog.getByRole('status')).toHaveText('Saving discussion sharing choices…');

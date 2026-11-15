@@ -14,12 +14,12 @@ db.exec(`
   PRAGMA temp_store=MEMORY;
   CREATE VIRTUAL TABLE documents USING fts5(text, delta, session_id UNINDEXED,
     matched_at UNINDEXED, seq UNINDEXED, tokenize='trigram');
-  CREATE TABLE sessions(session_id TEXT PRIMARY KEY, summary TEXT, updated_at INTEGER);
+  CREATE TABLE sessions(session_id TEXT PRIMARY KEY, summary TEXT, updated_at INTEGER, conversation_id TEXT, conversation_summary TEXT);
 `);
 const append = db.prepare(
   'INSERT INTO documents(rowid,text,delta,session_id,matched_at,seq) VALUES(?,?,?,?,?,?)',
 );
-const session = db.prepare('INSERT INTO sessions VALUES(?,?,?)');
+const session = db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?)');
 parentPort!.on(
   'message',
   (message: {
@@ -48,7 +48,13 @@ parentPort!.on(
       db.transaction(() => {
         db.exec('DELETE FROM sessions');
         for (const row of message.sessions!)
-          session.run(row.session_id, row.summary, row.updated_at);
+          session.run(
+            row.session_id,
+            row.summary,
+            row.updated_at,
+            row.conversation_id ?? row.session_id,
+            row.conversation_summary ?? row.summary,
+          );
       })();
       const query = message.query!;
       const pattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
@@ -58,17 +64,17 @@ parentPort!.on(
       const rows = db
         .prepare(
           `WITH candidates AS (
-      SELECT d.session_id, s.summary, json_object('text',d.text,'delta',d.delta) AS payload,
+      SELECT s.conversation_id AS session_id, s.conversation_summary AS summary, d.session_id AS matched_session_id, json_object('text',d.text,'delta',d.delta) AS payload,
         d.matched_at, d.seq AS matched_seq, s.updated_at, 1 AS content_match
       FROM documents d JOIN sessions s ON s.session_id=d.session_id
       WHERE ${indexed ? 'documents MATCH ? AND' : ''}
         (d.text LIKE ? ESCAPE '\\' OR d.delta LIKE ? ESCAPE '\\')
-      UNION ALL SELECT session_id, summary, json_object('text',summary), updated_at, 0,
+      UNION ALL SELECT conversation_id, conversation_summary, session_id, json_object('text',summary), updated_at, 0,
         updated_at, 0 FROM sessions WHERE summary LIKE ? ESCAPE '\\'
     ), matches AS (
       SELECT *, ROW_NUMBER() OVER (PARTITION BY session_id
         ORDER BY content_match DESC, matched_at DESC, matched_seq DESC) AS match_rank FROM candidates
-    ) SELECT session_id, summary, payload, matched_at, updated_at FROM matches
+    ) SELECT session_id, summary, matched_session_id, payload, matched_at, updated_at FROM matches
       WHERE match_rank=1 ORDER BY matched_at DESC, matched_seq DESC LIMIT ?`,
         )
         .all(

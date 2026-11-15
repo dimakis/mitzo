@@ -45,6 +45,11 @@ export function mergeSessionActivities(
   const combined = new Map(
     sessions.map((s) => [s.id, { ...s, ...retainSessionModel(observations, s.id, s) }]),
   );
+  // Retire a participant row retained in an older cached page. Raw execution
+  // evidence remains available to control consumers through the activity store.
+  for (const a of activities)
+    for (const participant of a.participantActivities ?? [])
+      if (participant.sessionId !== a.sessionId) combined.delete(participant.sessionId);
   // Retain model uncertainty across disconnect without reviving stale activity.
   for (const a of lastKnownActivities) {
     const saved = combined.get(a.sessionId);
