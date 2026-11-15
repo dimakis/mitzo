@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1199-withdrawal-visual-evidence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1200-withdrawal-page-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -648,7 +648,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/EnmaasAccountSetup.test.tsx':
     '19105741eae1938b88326aec7ecee8b16b540d1dd7bdd184babe84e433600fe6',
   '../../frontend/src/components/__tests__/HomeDialog.test.tsx':
-    'c4a935519a7e75d09dfce0b4df66f877f36c1471029b5b2109f792f1a7343ac9',
+    '44e0506efa5642af8969926ba220e568e4f9a91d565ac8af2e9ccd53f9c0f4e6',
   '../../frontend/src/components/__tests__/LegacyNativeContinuation.test.tsx':
     'af76895425ad0ca8c257559b3a2145f72f66023161b1a969299e624f28b029a4',
   '../../frontend/src/components/__tests__/MessageActions.selection.test.tsx':
@@ -1123,7 +1123,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/BackupsView.tsx':
     '12d153ee61c3c2e7e9fd1771369e49ba799a1530521c3db501f28d4eeee07dc2',
   '../../frontend/src/pages/ChatView.tsx':
-    '6706278c588323e53b8a0cce41c6639537f5b9e62bbca275158777b23581ea22',
+    '661aa21711ffc86f1d032b84468dc70f87f6a8f8f83b53be414cc838d4607b3b',
   '../../frontend/src/pages/ConnectionSetupView.tsx':
     'cbffe9d8e9bd438da3abf3118540310b6acedb635b61b1506b913ae374d18e43',
   '../../frontend/src/pages/ConnectionsRoute.tsx':
@@ -1131,7 +1131,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/ConnectionsView.tsx':
     '77c1c5bdb486e6abc6d081f5d2fd98c50b0cf4ff8096e1fa4fd23828644d14d2',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'f78e25a0d642340bda5fc2bbe0c8be23ebdcdee2a9ed7a1a209a41f6204bafb2',
+    'cbfc5aa36968c6bb90fc56efbd0dc843b3063ccf36795dad325ebd9f8525b6c8',
   '../../frontend/src/pages/FileViewer.tsx':
     '0e00272198278445e891fcb707deabf5c1ce1dc5303262088e6ce1d695dd6a2c',
   '../../frontend/src/pages/MockupsView.css':

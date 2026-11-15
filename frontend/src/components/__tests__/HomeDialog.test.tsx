@@ -1,3 +1,4 @@
+import { OrdinaryRuntimeContinuationCommandSchema } from '@mitzo/protocol';
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -5,6 +6,22 @@ import { HomeDialog } from '../HomeDialog';
 import { useState } from 'react';
 import { useLocalCommandRecovery } from '../LocalCommandRecovery';
 import { localFirstCommandFixture } from '../../../../packages/client/src/__tests__/fixtures/local-first-command';
+
+function claudeRecoveryCommand(id: string) {
+  return {
+    state: 'uncertain',
+    request: OrdinaryRuntimeContinuationCommandSchema.parse({
+      ...localFirstCommandFixture,
+      clientMsgId: id,
+      sessionId: id,
+      runtime: {
+        ...localFirstCommandFixture.runtime,
+        harness: 'claude-sdk',
+        account: { ...localFirstCommandFixture.runtime.account, provider: 'anthropic-claude' },
+      },
+    }),
+  };
+}
 
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -25,21 +42,7 @@ it('reviews delivery without sending and preserves the mounted draft through ref
   const recover = vi.fn(() => true),
     withdraw = vi.fn(async () => false),
     refresh = vi.fn();
-  const command = {
-    state: 'uncertain',
-    request: {
-      ...localFirstCommandFixture,
-      sessionId: 'old-chat',
-      runtime: {
-        ...localFirstCommandFixture.runtime,
-        harness: 'claude-sdk' as const,
-        account: {
-          ...localFirstCommandFixture.runtime.account,
-          provider: 'anthropic-claude' as const,
-        },
-      },
-    },
-  };
+  const command = claudeRecoveryCommand('old-chat');
   function Host() {
     const recovery = useLocalCommandRecovery({
       command,
@@ -84,15 +87,7 @@ it.each([true, false])(
     );
     const refresh = vi.fn();
     function Host({ id }: { id: string }) {
-      const command = {
-        state: 'uncertain',
-        request: {
-          ...localFirstCommandFixture,
-          clientMsgId: id,
-          sessionId: id,
-          runtime: { ...localFirstCommandFixture.runtime, harness: 'claude-sdk' as const },
-        },
-      };
+      const command = claudeRecoveryCommand(id);
       const recovery = useLocalCommandRecovery({
         command,
         connected: true,
