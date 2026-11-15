@@ -35,8 +35,13 @@ The currently supported child is an independent Local Mac Codex session. Caller 
 Mac Claude and Local Mac/OpenShell Codex; Claude on OpenShell remains unsupported. Unsupported child
 routes must return their reason before allocation. Do not copy credentials, permissions or arbitrary
 transcripts. Use explicit reviewed source references and a self-contained handoff.
-TelosCreateSession is create-only: its assigned receipt confirms creation, not current responsibility,
-execution admission, runtime readiness or completion. A separate start needs its proper authority and
+TelosCreateSession creation/adoption starts no command. For explicit owner replacement from any available
+ordinary chat, set replaceOwner:true, select the owned item itself and existingConversationId (possibly
+the proposing chat). The existing operator review must approve the exact former assignment and incoming
+idle compatible chat. Only its canonical receipt changes responsibility; a proposal or brief does not.
+Prior conversation attribution and attempts remain, and account, permission and execution grants are not
+inherited. Recover the original request after uncertainty. Its assigned receipt confirms assignment,
+not execution admission, runtime readiness or completion. A separate start needs its proper authority and
 receipt. Preserve the exact requestId and arguments after uncertainty. Never silently substitute plain
 StartSession for work-bound creation. Existing-chat adoption requires its own supported reviewed flow.
 Read TelosManageItem with view: overview and inspect workContext for current named lead/worker and assignment
