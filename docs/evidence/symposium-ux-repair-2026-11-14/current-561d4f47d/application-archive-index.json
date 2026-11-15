@@ -1,0 +1,15 @@
+{
+  "runId": 43712624009,
+  "jobId": 132807292335,
+  "prHead": "561d4f47d42bf473bd5708a5bafa0ecea580e935",
+  "mergeHead": "1f5625bad23f20a674e6443948fafe4794759f64",
+  "artifactId": 14161317207,
+  "archiveSha256": "53be267d83f30b63c9e09409a0672c92cf629129125bf605d6b7f4e59e315a72",
+  "files": [
+    {
+      "path": "symposium-application.log",
+      "bytes": 198957,
+      "sha256": "64f9e14b4111290c077489444096748806aead1687733506b112af2899d91e82"
+    }
+  ]
+}

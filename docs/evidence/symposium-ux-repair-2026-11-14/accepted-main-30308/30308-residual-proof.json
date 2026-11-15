@@ -1,0 +1,29 @@
+{
+  "reviewedParent": "561d4f47d42bf473bd5708a5bafa0ecea580e935",
+  "acceptedMain": "30308c49d319d0f5c66d0235a4e069ceedd792fc",
+  "nativeEightUnchangedFromReviewedComposition": [
+    "server/codex-tool-failure.ts",
+    "server/local-repository-preparation-objects.ts",
+    "server/local-repository-preparation-object-data.ts",
+    "server/native-repository-object-store.ts",
+    "server/local-repository-native-reader.ts",
+    "server/local-repository-discovery.ts",
+    "server/local-repository-read-access.ts",
+    "server/native-repository-observation.ts"
+  ],
+  "threeSourceModulesIdenticalToAcceptedMain": [
+    "server/local-repository-discovery.ts",
+    "server/local-repository-read-access.ts",
+    "server/native-repository-observation.ts"
+  ],
+  "readerSha256": "b9bb8e2ed0b06722384b35bb987e45712fe8f5cef18113ed25160683f2acb467",
+  "deviceSha256": "c82e6225fb026a70305c377e8fa1db3805091b11531960677d4cf81148ab39d7",
+  "frontendProductionDiff": "none",
+  "frontendTestDiff": ["frontend/src/components/__tests__/SharedConversation.test.tsx"],
+  "registry": {
+    "parents": ["HEAD", "30308c49d319d0f5c66d0235a4e069ceedd792fc"],
+    "parentKeys": [2516, 2504],
+    "unionKeys": 2517,
+    "version": "v1.0.1199-symposium-accepted-discovery-residual"
+  }
+}

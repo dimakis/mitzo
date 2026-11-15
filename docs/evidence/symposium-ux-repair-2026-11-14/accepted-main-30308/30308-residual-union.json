@@ -1,0 +1,6 @@
+{
+  "parents": ["HEAD", "30308c49d319d0f5c66d0235a4e069ceedd792fc"],
+  "parentKeys": [2516, 2504],
+  "unionKeys": 2517,
+  "version": "v1.0.1199-symposium-accepted-discovery-residual"
+}

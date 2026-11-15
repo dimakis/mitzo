@@ -1,0 +1,114 @@
+{
+  "artifactId": 14160693685,
+  "zipSha256": "24822620c5fd029d70c8af188c85d618e3e0475212841cac624262e957e451c5",
+  "entries": [
+    {
+      "archivePath": "standalone-task-proofs.json",
+      "retainedPath": "native/standalone-task-proofs.json.txt",
+      "bytes": 4398,
+      "sha256": "2228ea92c5a9b77d170eb856bc2bdd0128166fbf0e5a313a7648f2c1a52951c0"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/api/command-process.json",
+      "retainedPath": "native/native-repository-workflows-processes/api/command-process.json.txt",
+      "bytes": 25,
+      "sha256": "faf04dc62059048649341b5b450c91e9148bffb3d0718b165db79ff23af01a7c"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/api/command.log",
+      "retainedPath": "native/native-repository-workflows-processes/api/command.log",
+      "bytes": 10488,
+      "sha256": "7e977f6c4b87ad5d962bd5379eb4b7815aa86563b52d7568c5bff6836819feb1"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/api/exit.json",
+      "retainedPath": "native/native-repository-workflows-processes/api/exit.json.txt",
+      "bytes": 85,
+      "sha256": "7018f09030ed7160e9140daad09efb501ae2d2aa59396c49a8df3c99c70f00cb"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/api/resources.jsonl",
+      "retainedPath": "native/native-repository-workflows-processes/api/resources.jsonl",
+      "bytes": 2686,
+      "sha256": "bfe1ec1ea9671767967a96643016bbbbb2129709ed5da5a0c00fb5fe4208d11e"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/api/stderr.log",
+      "retainedPath": "native/native-repository-workflows-processes/api/stderr.log",
+      "bytes": 2441,
+      "sha256": "2f91583e72fb1070ba2e109fa3b42f6a9a10b182addef6a1255a87b51caaadee"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/api/stdout.log",
+      "retainedPath": "native/native-repository-workflows-processes/api/stdout.log",
+      "bytes": 8047,
+      "sha256": "ace58bda464d66acfa42cb10d27118ae5daeee999443f1d7094080e12367721b"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/api/run.json",
+      "retainedPath": "native/native-repository-workflows-processes/api/run.json.txt",
+      "bytes": 2642,
+      "sha256": "3f6d50d5152b1a95d61bfdb0e5d590b175fc9abb11f1e6ad31e2570f656735e1"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/subscription/command-process.json",
+      "retainedPath": "native/native-repository-workflows-processes/subscription/command-process.json.txt",
+      "bytes": 25,
+      "sha256": "c444f7adda2620efb3f6dc447df83381f688634ffd185d8bd88fb364d84e341f"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/subscription/command.log",
+      "retainedPath": "native/native-repository-workflows-processes/subscription/command.log",
+      "bytes": 10414,
+      "sha256": "7f85ff2835e381a099eb0638ab32099f8e5972e9d927e1326ef6cfaeb1903ecd"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/subscription/exit.json",
+      "retainedPath": "native/native-repository-workflows-processes/subscription/exit.json.txt",
+      "bytes": 85,
+      "sha256": "c22db04e5376bcca8e7bc0c91b3d9c5ff00034ae2e599bf266bfd33816853f83"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/subscription/resources.jsonl",
+      "retainedPath": "native/native-repository-workflows-processes/subscription/resources.jsonl",
+      "bytes": 2702,
+      "sha256": "f759ad34901f255eb507c2ba12256e62856c34301ae43eb34e2c1ce50f6f65ad"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/subscription/run.json",
+      "retainedPath": "native/native-repository-workflows-processes/subscription/run.json.txt",
+      "bytes": 2662,
+      "sha256": "34295de30314a16890d2d277a1debee2a172de07054cc83978698e73f52342ff"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/subscription/stderr.log",
+      "retainedPath": "native/native-repository-workflows-processes/subscription/stderr.log",
+      "bytes": 2446,
+      "sha256": "037479fedb47f5aa7546b39d512ec804d042beb43638e253d98fa1ec48c1e8d0"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/summary.json",
+      "retainedPath": "native/native-repository-workflows-processes/summary.json.txt",
+      "bytes": 476,
+      "sha256": "b223c76da29ba42244376e4287703b411be306b0c0fbcbdd502377a37cdba17c"
+    },
+    {
+      "archivePath": "native-repository-workflows-processes/subscription/stdout.log",
+      "retainedPath": "native/native-repository-workflows-processes/subscription/stdout.log",
+      "bytes": 7968,
+      "sha256": "2fdaa5d2cdf2d5baafa6b9ccc4be9e03aa4eeb9256664fb7839a982661306465"
+    },
+    {
+      "archivePath": "native-repository-workflows/api.json",
+      "retainedPath": "native/native-repository-workflows/api.json.txt",
+      "bytes": 10609,
+      "sha256": "b339517231e8ca5e29bf189d32910087207692b10153858a6074da660611fec4"
+    },
+    {
+      "archivePath": "native-repository-workflows/subscription.json",
+      "retainedPath": "native/native-repository-workflows/subscription.json.txt",
+      "bytes": 10624,
+      "sha256": "1aea8a0c539103bee0b96b88534c6981f0483db45f6b17e4bfc0a5e49a2996b5"
+    }
+  ]
+}

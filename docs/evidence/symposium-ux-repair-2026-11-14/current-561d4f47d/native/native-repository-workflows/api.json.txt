@@ -1,0 +1,313 @@
+{
+  "compilation": {
+    "compiler": "esbuild 0.28.2",
+    "config": {
+      "platform": "node",
+      "format": "esm",
+      "target": "es2022",
+      "bundle": false
+    },
+    "inputs": {
+      "sandboxed-command-worker.ts": "2a573c2e8c11ffdb61a537e9b190f820bebd7ee1479bc65a3b81ba0ba2ab120e",
+      "sandbox-authority.ts": "0a8f3b4bf7b2139c6131834e76ac0dadca3fe56a1966ccb4332fc07a14cf8413",
+      "native-file-operation.ts": "c3adf4c733857ed950dcdf02dc67b04b17db6b018ec9c08dff2fb49c2c3d4838",
+      "native-preparation-observation.ts": "c72eb636f9b9bf76f25c7e2f7d4d0cb1096f304da63f15f8821af45d8cdf4b9d",
+      "native-preparation-publication.ts": "a72ee2764232e104d850d0c5e7c5c05a5afd3143cf40e71b2e0ca9487211af37",
+      "native-repository-observation.ts": "ea1ef213b47231b209431d80fd7f107f203da45ab6e7dff6334376f4b5049f41",
+      "native-repository-topology.ts": "6aa601ad177c91b371cd2d756d4f13c5f94b5665951a791dfb7f8d16afb3bd7b",
+      "native-tree-publication.ts": "f2c351fe07781a7e95d098372e04178d9de512d3d99f48e3d41bcecbb0dce54b",
+      "private-repository-checkout.ts": "d147a054bfa26b2af6a44399505bcd59ccd2c8e94cdd8450925bf0f89371b262",
+      "local-repository-base.ts": "5ee783ec26a0b9f6f9850d054c3ac3d04ad70142b362e56619aebf426f68fcbe",
+      "local-repository-host-git.ts": "e1d17ff20ccefcb8ab85bb44d7c66e08cce4c6d8447158cd40e673cf0a078d36",
+      "git-branch.ts": "6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877",
+      "repository-git-container-policy.ts": "d6ba281d04e29552e89817f1ff899c77584c8b539a38c2bde58d764070a7d18b"
+    },
+    "outputs": {
+      "sandboxed-command-worker.js": "402e377b1f8ddc4eb56032eec93274ed631d898cb477f2e75f38638230632732",
+      "sandbox-authority.js": "58dd4a378bcc2593f1130ab4f33a2cb98f6df4e37b0698d36e33ccd4e75fd180",
+      "native-file-operation.js": "c038aa58568dee039fb3f92e21153f6ddabab4239e46e6424158ffe25dcf47e2",
+      "native-preparation-observation.js": "41c65177663c3adb3dd8f10060c8d2207d5bc86e70e49fbe28b139c9443142cb",
+      "native-preparation-publication.js": "7df913a7be5df619d0a1e9444ac6eaaf8de34273b1bbc95243f573bd545a7237",
+      "native-repository-observation.js": "6faaf7f995d6e32afcc11b45bf22de2f85aecd192b85074c5fb550ff041d82f6",
+      "native-repository-topology.js": "728aa58cbf42cd914b9dc3963a161abd2e4b3b39114ca996808afe6d192bcf07",
+      "native-tree-publication.js": "166b793d2093a1b780a3d189f99056a18abc0c951b60ed4b95b5187ec4766dba",
+      "private-repository-checkout.js": "98f19b5a98c4910ca8c844d0aaec58d43051ef139c93f432ca0025ff1ed5a8fa",
+      "local-repository-base.js": "c51bd5493a96d1252bcddf25153fdd49aee0b79d6f1090d9109f4320a3d6743a",
+      "local-repository-host-git.js": "3a8a431f6103cc184a6ea0e9a6c5d0116a5e19e2d6ea2b4a19fa7a07387cbac8",
+      "git-branch.js": "428e4eff7092dc099a5ed67cf5aeecac3255d96a7a8bc0a2c036a720f0f28804",
+      "repository-git-container-policy.js": "70cbf869e8ea2e4da0122e93361e36c639e006efa3e047144672f72f5053ca4e"
+    }
+  },
+  "account": "api",
+  "coldResume": true,
+  "viewerDetached": true,
+  "inspectOnly": false,
+  "revocationOnly": false,
+  "phase": "prepare",
+  "setupMs": 6599.875917000001,
+  "wholeCaseBudgetMs": 480000,
+  "operationTimings": {
+    "DiscoverLocalRepository": 5561.858209000002,
+    "InspectLocalRepository": 5615.177333,
+    "PrepareLocalRepository": 21431.405
+  },
+  "outcomes": {
+    "DiscoverLocalRepository": {
+      "success": true,
+      "state": "selected",
+      "candidateCount": 1
+    },
+    "InspectLocalRepository": {
+      "success": true,
+      "dirtyState": "unknown",
+      "instructionCount": 2
+    },
+    "PrepareLocalRepository": {
+      "success": false
+    }
+  },
+  "cleanupMs": 760.2710829999996,
+  "declaredBudgets": [
+    30000,
+    60000
+  ],
+  "deadlines": [
+    1794745255292,
+    1794745290768
+  ],
+  "metadataBudgets": [
+    27628,
+    58029,
+    58019,
+    58626
+  ],
+  "factsBudgets": [
+    27549,
+    57958,
+    58558
+  ],
+  "metrics": {
+    "syncCalls": 1405,
+    "syncMs": 9041.368495999974,
+    "asyncCalls": 66,
+    "asyncMs": 4658.165333000023
+  },
+  "profiling": false,
+  "synchronous": {
+    "instrumentedMs": 0,
+    "stages": {},
+    "windows": {}
+  },
+  "filesystemCallBudget": {
+    "trackedFiles": 6954,
+    "limit": 29908
+  },
+  "privateHelperBoundaries": [],
+  "preparationDiagnostics": {
+    "version": 1,
+    "stages": {},
+    "checks": {}
+  },
+  "preparationService": {
+    "receipt": {
+      "status": "not-reached"
+    },
+    "cas": {
+      "calls": 0,
+      "returned": 0,
+      "zeroChanges": 0
+    }
+  },
+  "trace": {
+    "policyCalls": 309,
+    "policyMs": 5188.860493999971,
+    "helpers": 12,
+    "helperMs": 11161.814080999997,
+    "helperErrors": 0,
+    "metadataError": "",
+    "scratch": [
+      "/private/tmp/mitzo-native-read-3MxyR4",
+      "/private/tmp/mitzo-native-read-3MxyR4",
+      "/private/tmp/mitzo-native-read-sip5Xe",
+      "/private/tmp/mitzo-native-read-sip5Xe",
+      "/private/tmp/mitzo-native-read-cubjXQ",
+      "/private/tmp/mitzo-native-read-cubjXQ",
+      "/private/tmp/mitzo-native-read-i53U5Q",
+      "/private/tmp/mitzo-native-read-i53U5Q",
+      "/private/tmp/mitzo-native-read-Nukgx0",
+      "/private/tmp/mitzo-native-read-Nukgx0",
+      "/private/tmp/mitzo-native-read-Nukgx0",
+      "/private/tmp/mitzo-native-read-Nukgx0"
+    ]
+  },
+  "phases": [
+    {
+      "commandSha": "e80e6860beed4c53381aa13ef159b8ee68b198c6918da90b4c3d71782ea6e874",
+      "started": 16500.014542,
+      "timeoutMs": 29042,
+      "operation": "CaptureRepositoryObservation",
+      "prefixMs": 284.6987079999999,
+      "childMs": 839.2076669999988,
+      "exit": 0,
+      "exitSignal": null,
+      "stdoutBytes": 6370,
+      "stderrBytes": 144,
+      "totalMs": 1130.660832999998,
+      "postMs": 6.754457999999431
+    },
+    {
+      "commandSha": "4e6c2f6ab340ca6ba63fcb6a63b4802140d29805cae1357e5fa7b0f1605c92c2",
+      "started": 18193.420875,
+      "timeoutMs": 27349,
+      "operation": "VerifyRepositoryObservation",
+      "prefixMs": 427.3825419999994,
+      "childMs": 603.5355410000011,
+      "exit": 0,
+      "exitSignal": null,
+      "stdoutBytes": 55,
+      "stderrBytes": 144,
+      "totalMs": 1034.6450829999994,
+      "postMs": 3.7269999999989523
+    },
+    {
+      "commandSha": "ec13f2f766f499120cb78c57d479262ffbd7fcca973e3cc0788f9091b3c6ebd1",
+      "started": 21743.054042,
+      "timeoutMs": 30000,
+      "operation": "CaptureRepositoryObservation",
+      "prefixMs": 373.52529100000174,
+      "childMs": 555.7252090000002,
+      "exit": 0,
+      "exitSignal": null,
+      "stdoutBytes": 64109,
+      "stderrBytes": 144,
+      "totalMs": 935.4942499999997,
+      "postMs": 6.243749999997817
+    },
+    {
+      "commandSha": "7d64ff1085cce7576fad4fd125c6039eab2d52a7dafd56ce63534bdc3e53a5ac",
+      "started": 23373.292625,
+      "timeoutMs": 30000,
+      "operation": "VerifyRepositoryObservation",
+      "prefixMs": 387.489542000003,
+      "childMs": 519.5138329999972,
+      "exit": 0,
+      "exitSignal": null,
+      "stdoutBytes": 55,
+      "stderrBytes": 144,
+      "totalMs": 912.791333000001,
+      "postMs": 5.787958000000799
+    },
+    {
+      "commandSha": "f06fd94aa0adf276a0cac5a583a64a3cbed0784c871592dbae01ba380223c5be",
+      "started": 32501.407958,
+      "timeoutMs": 30000,
+      "operation": "CaptureRepositoryObservation",
+      "prefixMs": 275.29599999999846,
+      "childMs": 924.5498340000049,
+      "exit": 0,
+      "exitSignal": null,
+      "stdoutBytes": 25445,
+      "stderrBytes": 144,
+      "totalMs": 1202.434959000002,
+      "postMs": 2.589124999998603
+    },
+    {
+      "commandSha": "993248ff5a3f545d6b7c695742b16cdaccf6a38fb3b4ed78525e650f8c590586",
+      "started": 34283.66875,
+      "timeoutMs": 30000,
+      "operation": "VerifyRepositoryObservation",
+      "prefixMs": 288.6359580000062,
+      "childMs": 413.12774999999965,
+      "exit": 0,
+      "exitSignal": null,
+      "stdoutBytes": 55,
+      "stderrBytes": 144,
+      "totalMs": 704.7477920000019,
+      "postMs": 2.9840839999960735
+    },
+    {
+      "commandSha": "b6412d9e84c297ce970ccb7113de81b1caeca853c0637661a45620ee3652b0f1",
+      "started": 37159.729542,
+      "timeoutMs": 30000,
+      "operation": "CaptureRepositoryObservation",
+      "prefixMs": 285.30520799999795,
+      "childMs": 406.80195800000365,
+      "exit": 0,
+      "exitSignal": null,
+      "stdoutBytes": 5087,
+      "stderrBytes": 144,
+      "totalMs": 694.9019580000022,
+      "postMs": 2.794792000000598
+    },
+    {
+      "commandSha": "af6b2b2f17068974b92f1255283fab8fbedbd91333219d33098fd88fcf6cd15f",
+      "started": 38369.179917,
+      "timeoutMs": 30000,
+      "operation": "VerifyRepositoryObservation",
+      "prefixMs": 276.66912500000035,
+      "childMs": 406.80695800000103,
+      "exit": 0,
+      "exitSignal": null,
+      "stdoutBytes": 55,
+      "stderrBytes": 144,
+      "totalMs": 686.6498329999959,
+      "postMs": 3.1737499999944703
+    },
+    {
+      "commandSha": "d2fed7f77cbfdd0f9035e2404be7c65da292bb4442d8788310dcb0f460fc71b4",
+      "started": 40826.854167,
+      "timeoutMs": 30000,
+      "operation": "CaptureReadAnchor",
+      "prefixMs": 258.8897500000021,
+      "childMs": 1118.1226250000036,
+      "exit": 0,
+      "exitSignal": null,
+      "totalMs": 1380.5997910000006,
+      "stdoutBytes": 173,
+      "stderrBytes": 144,
+      "postMs": 3.587415999994846
+    },
+    {
+      "commandSha": "60226d11ebb9e98b51e1e5579a49cf1610aaf864899f55e6dbc5c395a02245fa",
+      "started": 42561.184542,
+      "timeoutMs": 30000,
+      "operation": "CaptureReadAnchor",
+      "prefixMs": 185.40658299999632,
+      "childMs": 668.5632919999989,
+      "exit": 0,
+      "exitSignal": null,
+      "totalMs": 855.516165999994,
+      "stdoutBytes": 178,
+      "stderrBytes": 144,
+      "postMs": 1.546290999998746
+    },
+    {
+      "commandSha": "d75917e9c0bdf6ce01fd5bae667155c9fd14a5b77917d4c8d4a919ec9613a98c",
+      "started": 44104.218792,
+      "timeoutMs": 30000,
+      "operation": "capture",
+      "prefixMs": 182.69841599999927,
+      "childMs": 701.1498340000035,
+      "exit": 0,
+      "exitSignal": null,
+      "totalMs": 886.772791000003,
+      "stdoutBytes": 1306,
+      "stderrBytes": 144,
+      "postMs": 2.9245410000003176
+    },
+    {
+      "commandSha": "3728187f0d3f8e438720d8701b3b511818575c4600e9a1a5664d2c353c2ce6f6",
+      "started": 45975.750708,
+      "timeoutMs": 30000,
+      "operation": "verify",
+      "prefixMs": 161.83566699999938,
+      "childMs": 572.0402919999979,
+      "exit": 0,
+      "exitSignal": null,
+      "totalMs": 736.599291999999,
+      "stdoutBytes": 19,
+      "stderrBytes": 144,
+      "postMs": 2.7233330000017304
+    }
+  ]
+}

@@ -1,9 +1,9 @@
 # Ordinary Symposium acceptance — slice 3
 
-Latest composition integrates accepted mainbbf after source #1354/#1356 landing:
-[residual source and current local checks](accepted-main-bbf-integration.md),
-[current acceptance matrix](acceptance-matrix.md). Publishedb6d's exact21/62 hosted
-success and full-CI failures remain in [its original checkpoint](current-b6d2310a1/STATUS.md).
+Latest composition integrates accepted main30308 after #1345/#1354/#1356 landing:
+[residual source and combined local checks](accepted-main-30308/README.md),
+[current acceptance matrix](acceptance-matrix.md). Published561d's exact21/62 hosted
+success and full-CI failure remain in [its original checkpoint](current-561d4f47d/STATUS.md).
 New combined CI and trusted final exact-head review remain required; no merge turn
 or production/device completion is implied.
 

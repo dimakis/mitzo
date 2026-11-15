@@ -1,5 +1,20 @@
 # Integrated ordinary-chat acceptance
 
+## Current composition: accepted main30308
+
+Accepted #1345 now owns the discovery increment previously included by explicit
+handoff. [Residual identity and checks](accepted-main-30308/README.md) prove all
+eight reviewed native production modules remain unchanged from 561d, while the
+remaining production delta against main consists of the five diagnostic owners
+and their source registration. Registry union retains 2517 keys/revision1199.
+Fresh local qualification is 222 native/accepted-contract controls, plus twelve
+ordinary checks: five authenticated application, five client/portal and two
+diagnostic checks. These overlap earlier totals and are not additive. Packages,
+lint and pins pass; current combined hosted CI and trusted review remain required.
+[Original561d checkpoint](current-561d4f47d/STATUS.md) retains both focused21/62
+success and full native failure with UNKNOWN recovery, without replay or cause
+inference. The older composition below is a retained baseline.
+
 ## Current composition: accepted mainbbf after publishedb6d
 
 Actual accepted mainbbf0c17ef917897ef6d7cf236fc08b0b6f7bbd3a includes

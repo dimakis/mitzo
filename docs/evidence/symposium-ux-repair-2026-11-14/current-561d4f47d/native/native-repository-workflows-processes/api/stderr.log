@@ -1,0 +1,22 @@
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m server/__tests__/native-local-repository-read-registration-api.test.ts[2m > [22mregistered owned repository workflow survives cold login and viewer detach on api with actual OS fences
+[31m[1mAssertionError[22m: "{\"message\":\"The tool failed. Its diagnostic and recovery action follow.\",\"failure\":{\"code\":\"internal_failure\",\"phase\":\"execution\",\"effectStatus\":\"unknown\",\"recovery\":\"inspect_operation\"},\"error\":\"internal_failure\",\"action\":\"The outcome is uncertain. Inspect current state and the diagnostic reference before retrying; do not repeat a write blindly.\",\"diagnosticId\":\"3ed71a16-cc94-4d24-9923-79b557b5b2aa\",\"diagnostic\":{\"stage\":\"repository_preparation\",\"reason\":\"unknown\",\"effectStatus\":\"unknown\",\"commandId\":\"9997f27f-1c49-47ef-b3f1-791471e4fcd6\",\"attempt\":1,\"callId\":\"5af8a4bd-ef0f-416f-b8d7-14f0099ca4ea\",\"threadId\":\"thread-3aab3097-3c51-89a0-a339-c021074a74f1\",\"turnId\":\"turn-1\",\"generation\":0,\"release\":\"1.0.0\",\"nativeArtifactSha256\":\"112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b\",\"runtimeBindingRevision\":\"de857fb9c3d762b40f2e20efc21cfe4542085be40f3193f5691949e854061743\",\"nativeVersion\":\"0.160.0\",\"workspaceDigest\":\"077746abaf63604aa40701ae747c6bade834c6b8e2ae48e8386e598b9f8cc99c\"},\"retry\":\"after_reconciliation\"}": expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m server/__tests__/fixtures/native-repository-registered-workflow.ts:[2m679:77[22m[39m
+    [90m677|[39m           outcomes[33m.[39m[33mPrepareLocalRepository[39m [33m=[39m [34moutcome[39m(prepared)[33m;[39m
+    [90m678|[39m           [35mawait[39m [34mwriteEvidence[39m()[33m;[39m
+    [90m679|[39m           expect(prepared.response.success, JSON.stringify(prepared.va…
+    [90m   |[39m                                                                             [31m^[39m
+    [90m680|[39m           expect(prepared.value).toMatchObject({ state: 'materialized'…
+    [90m681|[39m           preparedDirectory [33m=[39m prepared[33m.[39mvalue[33m.[39mdirectory[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
