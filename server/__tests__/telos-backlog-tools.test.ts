@@ -572,6 +572,191 @@ it(
     expect(JSON.parse(reconstructed).item.summary).toBe(title);
   },
 );
+it('returns one bounded overview of legacy work without downloading its history or losing current responsibility', async () => {
+  const f = fixture();
+  f.items.update(
+    {
+      itemId: 'studio',
+      requestId: 'legacy-update',
+      expectedRevision: f.items.read('studio').revision,
+      note: 'Retained legacy evidence',
+    },
+    'ordinary-chat',
+  );
+  const legacy = 'Historical evidence and previous checkpoints. '.repeat(20_000);
+  f.db.prepare('UPDATE items SET summary=?,intent=? WHERE id=?').run(legacy, legacy, 'studio');
+  f.db.prepare('UPDATE telos_item_updates SET note=? WHERE item_id=?').run(legacy, 'studio');
+  const full = await f.run('TelosManageItem', {
+    operation: 'read',
+    itemId: 'studio',
+    view: 'full',
+  });
+  expect(JSON.parse(full.content).format).toBe('json-fragment');
+  const template = f.db.prepare('SELECT * FROM items WHERE id=?').get('studio') as Record<
+    string,
+    unknown
+  >;
+  const columns = Object.keys(template);
+  const insert = f.db.prepare(
+    `INSERT INTO items (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
+  );
+  for (let index = 0; index < 101; index++) {
+    const child = {
+      ...template,
+      id: `child-${String(index).padStart(2, '0')}`,
+      parent_id: 'studio',
+      summary: 'Child title '.repeat(100),
+      intent: 'Bounded child brief',
+    };
+    insert.run(...columns.map((column) => child[column as keyof typeof child]));
+  }
+  for (const input of [
+    {
+      operation: 'link',
+      role: 'lead',
+      conversation: { namespace: 'mitzo', conversationId: 'planning' },
+    },
+    {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'planning',
+      expectedAssignmentRevision: 0,
+    },
+  ])
+    f.work.execute(
+      {
+        itemId: 'studio',
+        requestId: String(input.operation),
+        expectedRevision: f.work.read('studio', f.actor).revision,
+        ...input,
+      },
+      f.actor,
+    );
+  const original = f.items.read('studio');
+  const result = await f.run('TelosManageItem', {
+    operation: 'read',
+    itemId: 'studio',
+    view: 'overview',
+  });
+  expect(result.isError, result.content).toBe(false);
+  expect(Buffer.byteLength(result.content)).toBeLessThan(16 * 1024);
+  const value = JSON.parse(result.content);
+  expect(value).toMatchObject({
+    view: 'overview',
+    item: { id: 'studio', revision: original.revision, status: original.status },
+    workContext: { currentLead: { conversationId: 'planning', assignmentRevision: 1 } },
+    details: {
+      tool: 'TelosManageItem',
+      input: { operation: 'read', itemId: 'studio', view: 'full' },
+    },
+  });
+  expect(value.truncatedFields).toEqual(
+    expect.arrayContaining(['item.summary', 'item.intent', 'item.updates[0].note']),
+  );
+  expect(value.workContext.assignmentHistory).toBeUndefined();
+  expect(value.counts.assignmentHistory).toEqual({
+    lead: { complete: true, knownConversations: 1 },
+    worker: { complete: true, knownConversations: 0 },
+  });
+  expect(value.truncatedFields).toContain('workContext.assignmentHistory');
+  expect(value.counts.children).toBe(101);
+  expect(value.item.children).toHaveLength(5);
+  expect(value.truncatedFields).toContain('item.children');
+  expect(value.workContext.children).toHaveLength(5);
+  expect(value.truncatedFields).toContain('workContext.children');
+  const children = await f.run('TelosListItems', { parentId: 'studio', limit: 100 });
+  const page = JSON.parse(children.content);
+  expect(page.items).toHaveLength(100);
+  const next = await f.run('TelosListItems', {
+    parentId: 'studio',
+    limit: 100,
+    cursor: page.nextCursor,
+  });
+  expect(JSON.parse(next.content).items).toHaveLength(1);
+  expect(value.format).toBeUndefined();
+  expect(f.items.read('studio')).toEqual(original);
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.events.getOrdinaryInitialCommandId('planning')).toBeUndefined();
+});
+it('retains the canonical edit token in an overview and rechecks authority instead of caching it', async () => {
+  const f = fixture();
+  const result = await f.run('TelosManageItem', {
+    operation: 'read',
+    itemId: 'studio',
+    view: 'overview',
+  });
+  expect(result.isError, result.content).toBe(false);
+  const value = JSON.parse(result.content);
+  expect(
+    (
+      await f.run('TelosManageItem', {
+        operation: 'edit',
+        itemId: 'studio',
+        requestId: 'overview-edit',
+        expectedRevision: value.item.revision,
+        summary: 'Reviewed home studio',
+        note: 'Operator approved this title',
+      })
+    ).isError,
+  ).toBe(false);
+  expect(f.items.read('studio').summary).toBe('Reviewed home studio');
+  for (const extra of [{ offset: 8192 }, { view: 'unknown' }])
+    expect(
+      (
+        await f.run('TelosManageItem', {
+          operation: 'read',
+          itemId: 'studio',
+          view: 'overview',
+          ...extra,
+        })
+      ).isError,
+    ).toBe(true);
+  f.retire();
+  expect(
+    (await f.run('TelosManageItem', { operation: 'read', itemId: 'studio', view: 'overview' }))
+      .isError,
+  ).toBe(true);
+});
+it('reads current lifecycle counts without materializing historical records, while full remains explicit', async () => {
+  const f = fixture();
+  for (const operation of ['archive', 'unarchive', 'pause'] as const)
+    f.work.executeLifecycle(
+      {
+        itemId: 'studio',
+        operation,
+        requestId: operation,
+        expectedRevision: f.work.readLifecycle('studio', f.actor).revision,
+      },
+      f.actor,
+    );
+  const full = f.work.readLifecycle('studio', f.actor);
+  const historyRead = vi.spyOn(f.work, 'readLifecycle').mockImplementation(() => {
+    throw Error('Historical lifecycle read forbidden for routine coordination');
+  });
+  const result = await f.run('TelosManageItem', {
+    operation: 'read',
+    itemId: 'studio',
+    view: 'overview',
+  });
+  expect(result.isError, result.content).toBe(false);
+  expect(historyRead).not.toHaveBeenCalled();
+  const value = JSON.parse(result.content);
+  expect(value.lifecycle).toMatchObject({
+    revision: full.revision,
+    effectiveDisposition: 'active',
+  });
+  expect(value.counts.lifecycleHistory).toBe(3);
+  expect(value.truncatedFields).toContain('lifecycle.history');
+  expect(value.truncatedFields).toContain('lifecycle.pause.controls');
+  expect(value.lifecycle.history).toBeUndefined();
+  historyRead.mockRestore();
+  const detailed = await f.run('TelosManageItem', {
+    operation: 'read',
+    itemId: 'studio',
+    view: 'full',
+  });
+  expect(JSON.parse(detailed.content).lifecycle.history).toEqual(full.history);
+});
 it('approves exact brief edits and canonical archive/unarchive with retryable receipts', async () => {
   const f = fixture();
   const edit = {

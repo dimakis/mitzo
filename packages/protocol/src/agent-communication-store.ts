@@ -87,6 +87,9 @@ export class AgentCommunicationStore {
     operator: string,
     origin: z.infer<typeof Origin>,
     raw: unknown,
+    /** Host-verified operator identity for separate logins; never tool input.
+     * Without a host resolver, the store retains its exact-login boundary. */
+    sameOperator?: (retainedOperator: string, currentOperator: string) => boolean,
   ): AgentMessage {
     const input = AgentMessageSendSchema.parse(raw);
     sender = id.parse(sender);
@@ -119,9 +122,10 @@ export class AgentCommunicationStore {
         if (input.replyTo) {
           const previous = this.retained(input.replyTo);
           if (
-            previous.operatorAuthSessionId !== operator ||
             previous.message.recipientConversationId !== sender ||
-            previous.message.senderConversationId !== input.recipientConversationId
+            previous.message.senderConversationId !== input.recipientConversationId ||
+            (previous.operatorAuthSessionId !== operator &&
+              !sameOperator?.(previous.operatorAuthSessionId, operator))
           )
             throw Error('Agent reply must address its original sender');
         }

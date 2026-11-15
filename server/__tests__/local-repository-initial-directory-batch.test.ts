@@ -153,7 +153,10 @@ it.each(['malformed', 'limit', 'denied', 'cancelled', 'revoked'] as const)(
     else await expect(pending).rejects.toThrow();
     expect(f.access.hasExclusionsWithin()).toBe(false);
     // Actual cache/budget observations, without clearing or replacing the owner.
-    expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(8);
+    expect(Object.getOwnPropertyDescriptor(f.access, 'budget')?.value).toMatchObject({
+      totalEntries: 8,
+      inFlightEntries: 0,
+    });
     expect(
       (Object.getOwnPropertyDescriptor(f.access, 'directories')?.value as Map<string, unknown>)
         .size,
@@ -194,8 +197,11 @@ it.each(['current-reference', 'aggregate-budget', 'aggregate-output'] as const)(
     const f = fixture();
     await f.ready();
     const before = kind === 'aggregate-budget' ? 99999 : 8;
-    if (kind === 'aggregate-budget')
-      Object.defineProperty(f.access, 'totalEntries', { value: before, writable: true });
+    const budget = Object.getOwnPropertyDescriptor(f.access, 'budget')!.value as {
+      totalEntries: number;
+      inFlightEntries: number;
+    };
+    if (kind === 'aggregate-budget') budget.totalEntries = before;
     vi.mocked(f.authority.executeDirectoryVerification!).mockImplementation(async (requests) => {
       if (kind === 'current-reference')
         Object.defineProperty(f.authority, 'assertCurrentSync', {
@@ -219,7 +225,7 @@ it.each(['current-reference', 'aggregate-budget', 'aggregate-output'] as const)(
       await expect(pending).rejects.toMatchObject({ kind: 'limit', reason: 'snapshot-entries' });
     else await expect(pending).rejects.toThrow();
     expect(f.access.hasExclusionsWithin()).toBe(false);
-    expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(before);
+    expect(budget).toMatchObject({ totalEntries: before, inFlightEntries: 0 });
     expect(
       (Object.getOwnPropertyDescriptor(f.access, 'directories')?.value as Map<string, unknown>)
         .size,
@@ -249,7 +255,10 @@ it('refuses reentrant cache drift while retaining the unrelated original observa
     unknown
   >;
   expect([...directories.keys()]).toEqual([root, `${root}/c`]);
-  expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(8);
+  expect(Object.getOwnPropertyDescriptor(f.access, 'budget')?.value).toMatchObject({
+    totalEntries: 8,
+    inFlightEntries: 0,
+  });
 });
 
 it('uses one pre/post authorization for each already-known target without a redundant stat lookup', async () => {

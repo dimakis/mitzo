@@ -39,7 +39,7 @@ TelosCreateSession is create-only: its assigned receipt confirms creation, not c
 execution admission, runtime readiness or completion. A separate start needs its proper authority and
 receipt. Preserve the exact requestId and arguments after uncertainty. Never silently substitute plain
 StartSession for work-bound creation. Existing-chat adoption requires its own supported reviewed flow.
-Read TelosManageItem.workContext to resolve the current named lead and worker with their assignment
+Read TelosManageItem with view: overview and inspect workContext for current named lead/worker and assignment
 revisions, chat paths, runtime observations and supported startup route. latestAllocation is historical
 allocation evidence, not a substitute for currentWorker. If those conversations differ, inspect the
 current assignment; never guess an alias or recreate the worker. Runtime observations grant no authority.
@@ -64,6 +64,10 @@ navigation for related work. This implies neither runtime nesting nor inherited 
 Creation provenance remains distinct from current responsibility. Arbitrary existing-chat attachment or
 orchestrator handover requires a supported reviewed binding flow; do not rewrite private session data.
 Preserve existing assignments, attempts and receipts; linking alone grants no permissions or execution.
+Ordinary operator-authorized peer messaging does not require a shared Telos item or parent/child link.
+Use the current assigned coordinator for work reports, while independent audit/collaboration chats
+remain eligible through their own verified operator, runtime and messaging authority. Work links
+route responsibility; they do not grant or restrict general peer-message authority.
 `;
 
 export function withTelosWorkflowInstructions(prompt: string): string {

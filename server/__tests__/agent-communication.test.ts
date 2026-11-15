@@ -92,6 +92,19 @@ it('correlates an explicit reply with its original participants and never manufa
       },
     ),
   ).toThrow(/reply/);
+  expect(() =>
+    events.agentCommunication.reserve(
+      'b',
+      'other-operator',
+      { turnId: 'reply', callId: 'reply' },
+      {
+        requestId: randomUUID(),
+        recipientConversationId: 'a',
+        text: 'Unverified login',
+        replyTo: first.messageId,
+      },
+    ),
+  ).toThrow(/reply/);
   const reply = events.agentCommunication.reserve(
     'b',
     'operator',

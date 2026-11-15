@@ -24,6 +24,19 @@ const Plan = z
     taskRoot: path.optional(),
     workspaceId: z.uuid().optional(),
     expectedTopology: PreparedTopologySchema.optional(),
+    // Private resource ceilings only; these can narrow, never raise, the fixed
+    // producer limits and carry no read authority.
+    limits: z
+      .strictObject({
+        maxBytes: z
+          .number()
+          .int()
+          .min(0)
+          .max(32 * 1024 * 1024)
+          .default(32 * 1024 * 1024),
+        maxEntries: z.number().int().min(0).max(100000).default(100000),
+      })
+      .optional(),
     readableRoots: z.array(path).min(1).max(256),
     deniedRoots: z.array(path).max(256),
     excludedNames: z
@@ -58,6 +71,7 @@ export type RepositoryObservationInput = Pick<
 > & {
   readableRoots?: readonly string[];
   additionalDeniedRoots?: readonly string[];
+  limits?: Readonly<{ maxBytes?: number; maxEntries?: number }>;
 };
 const Identity = z.strictObject({
   dev: z.string().regex(/^\d{1,32}$/),
@@ -127,6 +141,7 @@ export function freezeRepositoryObservationPlan(
     Object.freeze(value);
   };
   if (parsed.expectedTopology) freeze(parsed.expectedTopology);
+  if (parsed.limits) Object.freeze(parsed.limits);
   return Object.freeze(parsed);
 }
 export function projectRepositoryObservationRequest(input: unknown) {
@@ -186,8 +201,31 @@ export async function captureRepositoryObservation(
   transport: NativeFileHelperTransport,
 ): Promise<Readonly<RepositoryObservationCapture>> {
   const plan = freezeRepositoryObservationPlan(input),
-    value = await run(plan, undefined, signal, timeoutMs, transport),
-    data = Data.parse(value.data);
+    value = await run(plan, undefined, signal, timeoutMs, transport);
+  const maxBytes = plan.limits?.maxBytes ?? 32 * 1024 * 1024;
+  const maxEntries = plan.limits?.maxEntries ?? 100000;
+  // The transport's existing output cap still bounds raw JSON. Check narrowed
+  // collections/decoded sizes before schema copies, maps or Buffer allocation.
+  if (
+    !Array.isArray(value.data?.entries) ||
+    value.data.entries.length > maxEntries ||
+    !Array.isArray(value.data?.files)
+  )
+    throw fail();
+  let projectedBytes = 0;
+  for (const file of value.data.files) {
+    if (
+      typeof file?.bytes !== 'string' ||
+      file.bytes.length % 4 ||
+      !/^[A-Za-z0-9+/]*={0,2}$/.test(file.bytes)
+    )
+      throw fail();
+    projectedBytes +=
+      (file.bytes.length / 4) * 3 -
+      (file.bytes.endsWith('==') ? 2 : file.bytes.endsWith('=') ? 1 : 0);
+    if (projectedBytes > maxBytes) throw fail();
+  }
+  const data = Data.parse(value.data);
   if (
     data.mode !== plan.mode ||
     typeof value.digest !== 'string' ||
@@ -230,7 +268,7 @@ export async function captureRepositoryObservation(
     if (
       bytes.toString('base64') !== file.bytes ||
       bytes.length > entry.size ||
-      total > 32 * 1024 * 1024 ||
+      total > maxBytes ||
       (file.link ? entry.kind !== 'unsupported' : entry.kind !== 'file' || entry.nlink !== 1)
     )
       throw fail();
@@ -279,6 +317,8 @@ def repository_observation(request):
     exclusions, excluded_names, readable = plan['deniedRoots'], set(plan['excludedNames']), plan['readableRoots']
     entries, directories, files, absent = {}, {}, {}, set()
     total_bytes = 0
+    max_bytes = plan.get('limits', {}).get('maxBytes', 32 * 1024 * 1024)
+    max_entries = plan.get('limits', {}).get('maxEntries', 100000)
     def fail(): raise RuntimeError('Repository observation unavailable')
     def check():
         if time.monotonic() >= deadline: fail()
@@ -314,6 +354,7 @@ def repository_observation(request):
     def entry(path):
         allowed(path)
         if any(contains(missing,path) for missing in absent): return None
+        if path not in entries and len(entries) >= max_entries: fail()
         fd = open_directory(os.path.dirname(path))
         try:
             try: info = os.stat(os.path.basename(path), dir_fd=fd, follow_symlinks=False) if path != '/' else os.fstat(fd)
@@ -322,7 +363,6 @@ def repository_observation(request):
             value = state(path, info)
             if path in entries and entries[path] != value: fail()
             entries[path] = value
-            if len(entries) > 100000: fail()
             return value
         finally: os.close(fd)
     def bounded_names(fd, maximum=10000):
@@ -364,6 +404,8 @@ def repository_observation(request):
         link = stat.S_ISLNK(value['mode'])
         if value['nlink'] != 1 or (value['kind'] != 'file' and not (instruction and link)): fail()
         if value['size'] > limit and not instruction: fail()
+        if total_bytes + min(value['size'], limit) > max_bytes: fail()
+        if path not in files and len(files) >= 512: fail()
         parent_entry = entry(parent)
         # Hold one no-follow parent descriptor for this observation. Verification
         # opens the absolute chain afresh; no descriptor survives this process.
@@ -392,7 +434,7 @@ def repository_observation(request):
         finally: os.close(fd)
         encoded = base64.b64encode(data).decode('ascii')
         total_bytes += len(data)
-        if total_bytes > 32 * 1024 * 1024: fail()
+        if total_bytes > max_bytes: fail()
         files[path] = {'path': path, 'bytes': encoded, 'link': link}
         if len(files) > 512: fail()
         return data
