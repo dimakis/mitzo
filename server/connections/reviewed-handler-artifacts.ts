@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1185-telos-minimal-guard-fixture';
+  'v1.0.1186-telos-bounded-fixture-controls';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1848,7 +1848,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/native-subagent-visibility.test.tsx':
     '75cf48bc38aa942998df4e0ae0a409cf991a205c8bc7c7d60d8d9df5bbde6bdd',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    'b7ad0de82642a4117572af3c2bc49e174ddb2f57a3cfcb213897273f8f94881b',
+    '360841b6c6de8609e275732c226740d986a4a3b69ccbde961b8bdb1e53fecf18',
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
     '6131e244eeb63a813e90f11e81ccc542eefbd66ae3f25df6472ca4218b252c35',
   '../../tests/integration/symposium-application-review-recovery.test.tsx':
@@ -3489,7 +3489,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/transcript-response.test.ts':
     'b8885c2e12c9422252745ed18c722309fd3faf60fa236534fb8b34aecdb57c32',
   '../__tests__/trusted-native-operation-partial.test.ts':
-    'a68c08c982ff99e7511fa97e688b1ab21f1084ce92bb538f5571d5523365b83a',
+    '3b6bb301cba2a336dc94b61b910ff9232ef19c253e45e911c6b09d84eab96e79',
   '../__tests__/trusted-native-operation.test.ts':
     'a4f7c7f0b6078f5908b67e6c14af1ba5ee8b96c7ebba90ceac778c556442c8b7',
   '../__tests__/turn-callbacks.test.ts':
