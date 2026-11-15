@@ -11,7 +11,7 @@ Additive merge `baf2011626db3942f2760945880ee0a7226fd6ad` composes accepted
 main `4bc83d18f24bb14f24b7c190a32c2a4fa0834963` (#1356), which retains accepted
 #1342/#1362. The sole conflict was registry metadata. All 2,489 accepted keys
 and this PR's overview entry remain; fingerprints use actual composed bytes.
-Final runtime revision is `v1.0.1188-telos-fixture-lifetime`.
+Final runtime revision is `v1.0.1189-telos-accepted-discovery`.
 Accepted runtime/UI, privacy, recovery, Stop and permission guards are retained.
 
 ## Initial shared fixture handoff
@@ -137,3 +137,40 @@ format and whitespace checks pass. Earlier actual failures remain recorded.
 Current-head CI, trusted final review and the global sequential turn remain
 required; preserve prior automatic job `7576` and its finding ledger without
 requesting a forced duplicate.
+
+## Accepted discovery composition and approved baseline
+
+Accepted main `2ec453f0214e6c03571ceb51697b8faeeab8da8c` incorporates #1359
+as the sole successor of `4bc83d18`. This target incorporates it through one
+additive merge, preserving both histories and all accepted discovery/control,
+diagnostic, native and SDK fixture changes. The SDK test is byte-identical on
+both sides: blob `11a28dc3`, SHA256 `360841b6`. Prior minimal handoffs are now
+accepted-source equivalence; no second copy or alternate implementation remains.
+
+The only conflict was registry metadata. All 2,489 accepted keys plus the owned
+overview entry remain, with actual composed fingerprints and revision 1189.
+The bounded overview, lifecycle SQL counts, explicit full/fragment path,
+cross-login reply resolver, oversize refusal and their tests/docs remain this
+PR's contribution. The accepted current-team adapter stays separate and unwired;
+canonical membership and missing coordination facts are not invented or promoted
+to read/messaging authority. No formal assignment or runtime role is changed.
+
+Fresh public read verifies Centaur review `5908875551` on prior target
+`16a4eb575d2ec99b80bec20f7e6a8d57038b6f2e`: final LGTM, recommendation `merge`,
+zero new/unresolved blocking findings. Prior combined CI run `43670838120`
+completed successfully. Retain this approved baseline and original finding
+`CEN-017925FDE009`; new integration metadata and relevant accepted-source
+assumptions need trusted continuity/follow-up, not a duplicate whole-PR review.
+
+The new composed tree passes 358 tests across 16 focused suites in 52.30s,
+one worker/1GiB. This includes the owned repair consumers, accepted current-work
+and control owners, and accepted native partial-operation regressions. Source
+pins, lint, formatting, whitespace and registry-union checks pass. The unchanged
+SDK fixture retains its prior target/source qualification; historical runs
+overlap and are not added as unique coverage. No new live model test, production
+write or main full-suite dispatch is used.
+
+Fresh composed-head CI and exact-head final approval remain required. The
+approved prior head is not approval for this additive composition. No actual
+ready/merge turn, deployment or staging action is claimed; independently ready
+PRs retain their separate owners and queue eligibility.

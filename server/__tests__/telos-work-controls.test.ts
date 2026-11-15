@@ -1,15 +1,19 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import { TelosWorkStore } from '../telos-work-store.js';
+import { TelosWorkControls } from '../telos-work-controls.js';
+import { telosDiagnosticFailure } from '../telos-operation-failure.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 
 const closes: Array<() => void> = [];
-afterEach(() =>
+afterEach(() => {
+  vi.restoreAllMocks();
   closes
     .splice(0)
     .reverse()
-    .forEach((close) => close()),
-);
+    .forEach((close) => close());
+});
 function fixture() {
   const canonical = createTelosCanonicalData();
   closes.push(() => canonical.close());
@@ -334,6 +338,55 @@ it('CT12: the actual host denial boundary records only its exact recipient appli
   expect(() => f.work.enforceControlAction('slice-1', 'safe_point', 'job-worker')).toThrow();
   expect(f.work.readControl(c.controlId, f.actor).history).toHaveLength(1);
 });
+it.each(['inbox', 'recordApplied'] as const)(
+  'CT12: preserves the original hold refusal and visible %s failure without manufacturing applied evidence after restart',
+  (stage) => {
+    const f = fixture();
+    const c = f.request('safe_point');
+    const original = Error('PRIVATE original refusal');
+    const evidenceCause = Object.assign(Error('PRIVATE evidence storage failure'), {
+      code: 'SQLITE_BUSY',
+    });
+    vi.spyOn(TelosWorkControls.prototype, 'assertAction').mockImplementation(() => {
+      throw original;
+    });
+    vi.spyOn(TelosWorkControls.prototype, stage).mockImplementation(() => {
+      throw evidenceCause;
+    });
+    const fallback = vi.spyOn(fs, 'write').mockImplementation(((
+      _fd: number,
+      line: string,
+      done: (error: Error | null, written: number) => void,
+    ) => {
+      done(null, Buffer.byteLength(line));
+    }) as typeof fs.write);
+    expect(() => f.work.enforceControlAction('slice-1', 'safe_point', 'worker-1')).toThrow(
+      original,
+    );
+    expect(fallback).toHaveBeenCalledTimes(1);
+    const line = String(fallback.mock.calls[0][1]);
+    const diagnostic = JSON.parse(line);
+    expect(diagnostic).toMatchObject({
+      stage: 'control_application_evidence',
+      operation: 'safe_point',
+      sessionId: 'worker-1',
+      itemId: 'slice-1',
+      diagnosticFailure: { reason: 'sqlite_busy' },
+      ...(stage === 'recordApplied' ? { controlId: c.controlId } : {}),
+    });
+    expect(line).not.toContain('PRIVATE');
+    const retained = telosDiagnosticFailure(diagnostic.diagnosticId);
+    expect(retained?.operationCause).toBe(original);
+    expect(retained?.diagnosticCause).toBe(evidenceCause);
+    vi.restoreAllMocks();
+    f.restart();
+    const view = f.work.readControl(c.controlId, f.actor);
+    expect(view.history).toEqual([]);
+    expect(view.targets[0].workers[0].stage).toBe('requested');
+    expect(() => f.work.assertControlAction('slice-1', 'safe_point')).toThrow(/hold/i);
+    expect(() => f.work.assertControlAction('job-slice', 'safe_point')).not.toThrow();
+  },
+);
 it('CT12: a new dispatch consumes the coordinator hold before any allocation intent, and does not block an existing receipt lookup', () => {
   const f = fixture();
   const c = f.request('new_worker_dispatch');
