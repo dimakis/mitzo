@@ -112,6 +112,23 @@ pass. An earlier multi-case reproduction exceeded the task's 120-second ceiling;
 its retained uncertain receipt was inspected and that command was not replayed.
 Current-head hosted CI and trusted review remain required.
 
+## Accepted lifecycle integration
+
+Integrated accepted PR1367 at `f7bab377d071e8cf15ac4eaf4e7e59fa687ec087`
+after GitHub reported a concrete manifest conflict. Inspected the actual recovery
+inspection, retained diagnostic and steering-acknowledgement delta: recovery reads
+retain original operator/custody checks and cannot replay commands; completed
+turns reject undispatched corrections and preserve uncertain dispatched outcomes.
+These changes do not alter startup or replacement-context preparation.
+
+Only the manifest revision label required manual resolution. All entries and both
+parents' changed hashes are preserved. On the combined tree, 149 focused checks
+pass across ten startup/lifecycle/server/client files, plus one actual-owner SDK
+journey covering first/replacement/cold inputs; its 57 filtered cases are excluded.
+One worker/1 GiB, source pins, formatting and whitespace checks pass. Existing
+whole-source and independent review baselines remain; trusted integration review
+and combined current-head CI are still required.
+
 ## Acceptance still open
 
 Source, landing, activation and live acceptance are distinct. This change does
