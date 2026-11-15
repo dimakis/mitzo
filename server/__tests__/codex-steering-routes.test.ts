@@ -19,6 +19,11 @@ const input = {
 function fixture(status: import('../codex-steering.js').CodexSteerResult['status'] = 'accepted') {
   const steer = vi.fn(async () => ({ status }));
   const authorizeMutation = vi.fn();
+  const recovery = vi.fn(() => ({
+    status: 'unconfirmed',
+    commandId: 'original',
+    mayReplay: false,
+  }));
   const auth = { id: 'signed', expiresAt: Date.now() + 10000 };
   const app = express();
   app.use(express.json());
@@ -36,15 +41,52 @@ function fixture(status: import('../codex-steering.js').CodexSteerResult['status
       retry: async () => 'not_found',
       reattach: async () => 'unavailable',
       steer,
+      recovery,
     }),
   );
-  return { app, steer, authorizeMutation, auth };
+  return { app, steer, recovery, authorizeMutation, auth };
 }
 it('passes exact correction identity and middleware authorization to its original owner', async () => {
   const f = fixture();
   const res = await request(f.app).post('/sessions/chat/codex-queue/steer').send(input).expect(200);
   expect(res.body).toEqual({ requestId: 'correction', status: 'accepted' });
   expect(f.steer).toHaveBeenCalledExactlyOnceWith('chat', binding, input, f.auth);
+});
+
+it('guards the read-only recovery diagnostic with original queue custody', async () => {
+  const f = fixture();
+  const res = await request(f.app).get('/sessions/chat/codex-queue/recovery').expect(200);
+  expect(res.body).toEqual({ status: 'unconfirmed', commandId: 'original', mayReplay: false });
+  expect(f.recovery).toHaveBeenCalledExactlyOnceWith('chat', binding, f.auth);
+  f.authorizeMutation.mockImplementationOnce(() => {
+    throw Error('foreign sign-in');
+  });
+  await request(f.app).get('/sessions/chat/codex-queue/recovery').expect(403);
+  expect(f.recovery).toHaveBeenCalledOnce();
+});
+
+it('reports unavailable original evidence with a sanitized reference instead of hiding recovery activity', async () => {
+  const f = fixture();
+  f.recovery.mockImplementationOnce(() => {
+    throw new TypeError('private-state-content');
+  });
+  const res = await request(f.app).get('/sessions/chat/codex-queue/recovery').expect(503);
+  expect(res.body).toMatchObject({
+    code: 'sdk_recovery_inspection_unavailable',
+    diagnosticId: expect.any(String),
+  });
+  expect(res.body.status).toBeUndefined();
+  expect(warn).toHaveBeenLastCalledWith(
+    'SDK recovery inspection unavailable',
+    expect.objectContaining({
+      code: res.body.code,
+      diagnosticId: res.body.diagnosticId,
+      stage: 'recovery_inspection',
+      sessionId: 'chat',
+      causeType: 'TypeError',
+    }),
+  );
+  expect(JSON.stringify([res.body, warn.mock.calls])).not.toContain('private-state-content');
 });
 it('passes validated screenshot bytes with the exact correction identity', async () => {
   const f = fixture();

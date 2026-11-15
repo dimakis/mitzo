@@ -124,16 +124,31 @@ export class OrdinarySdkTurnEvidence {
 }
 
 export function observedOrdinarySdkOutcome(store: Store, sessionId: string, commandId: string) {
+  return readOrdinarySdkTurnDiagnostic(store, sessionId, commandId).sdkOutcome;
+}
+
+/** Validated retained provenance only. Missing input/result evidence is never
+ * proof of a safe replay; callers must qualify original operator custody. */
+export function readOrdinarySdkTurnDiagnostic(store: Store, sessionId: string, commandId: string) {
   const { accepted, settled } = retained(store, sessionId, commandId);
-  if (!accepted) {
-    const cancellation = store.getOrdinarySdkInputCancellation(sessionId, commandId);
-    return cancellation === 'stopped'
+  const cancellation = accepted
+    ? undefined
+    : store.getOrdinarySdkInputCancellation(sessionId, commandId);
+  const sdkOutcome = !accepted
+    ? cancellation === 'stopped'
       ? ('interrupted' as const)
       : cancellation === 'abandoned'
         ? ('failed' as const)
-        : undefined;
-  }
-  if (!settled || store.getOrdinaryProviderTurnTerminal(sessionId, commandId) !== settled.status)
-    return 'uncertain' as const;
-  return settled.status;
+        : undefined
+    : !settled || store.getOrdinaryProviderTurnTerminal(sessionId, commandId) !== settled.status
+      ? ('uncertain' as const)
+      : settled.status;
+  return {
+    inputAcknowledged: !!accepted,
+    ...(accepted
+      ? { providerThreadId: accepted.providerThreadId, providerTurnId: accepted.providerTurnId }
+      : {}),
+    ...(cancellation ? { inputCancellation: cancellation } : {}),
+    sdkOutcome,
+  };
 }

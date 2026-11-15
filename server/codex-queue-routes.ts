@@ -15,6 +15,11 @@ import { runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
 const log = createLogger('codex-queue-routes');
 
 interface Dependencies {
+  recovery?(
+    sessionId: string,
+    binding: AccountBinding,
+    authorization?: AuthSession,
+  ): Readonly<Record<string, unknown>>;
   steer?(
     sessionId: string,
     binding: AccountBinding,
@@ -86,6 +91,38 @@ export function createCodexQueueRouter(deps: Dependencies) {
       res.json(deps.overview(req.params.id, binding));
     } catch {
       res.status(409).json({ error: 'Cannot read this queue. Check the conversation account.' });
+    }
+  });
+  router.get('/:id/codex-queue/recovery', (req, res) => {
+    const binding = deps.binding(req.params.id);
+    if (!binding || !deps.recovery || !deps.authorizeMutation) {
+      res.status(404).json({ error: 'SDK recovery inspection is unavailable.' });
+      return;
+    }
+    const authorization = res.locals.authSession as AuthSession | undefined;
+    try {
+      deps.authorizeMutation(req.params.id, authorization);
+    } catch {
+      res.status(403).json({ error: 'Use the original sign-in to inspect this conversation.' });
+      return;
+    }
+    try {
+      res.json(deps.recovery(req.params.id, binding, authorization));
+    } catch (cause) {
+      const diagnostic = {
+        code: 'sdk_recovery_inspection_unavailable',
+        diagnosticId: randomUUID(),
+      };
+      log.warn('SDK recovery inspection unavailable', {
+        ...diagnostic,
+        stage: 'recovery_inspection',
+        sessionId: req.params.id,
+        ...runtimeFailureDiagnostics(cause),
+      });
+      res.status(503).json({
+        ...diagnostic,
+        error: `Original SDK evidence is unavailable. Preserve this conversation and inspect its original owner. Reference: ${diagnostic.diagnosticId}`,
+      });
     }
   });
   for (const [path, method] of [
