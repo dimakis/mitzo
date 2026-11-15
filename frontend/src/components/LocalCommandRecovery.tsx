@@ -19,6 +19,7 @@ export function useLocalCommandRecovery({
   scope: string;
 }) {
   const [reviewing, setReviewing] = useState<string | null>(null);
+  const [hasReview, setHasReview] = useState(false);
   const [pending, setPending] = useState<symbol | null>(null);
   const review = useRef<{ token: symbol; scope: string } | undefined>(undefined);
   const currentScope = useRef(scope);
@@ -46,13 +47,16 @@ export function useLocalCommandRecovery({
       disabled: command?.state !== 'blocked' && (!connected || !request),
       onClick: () => {
         if (eligible) {
+          setHasReview(true);
           review.current = { token: Symbol(), scope };
           setError(null);
           setReviewing(request.clientMsgId);
         } else recover();
       },
     },
-    dialog: (
+    // Normal chats need no modal DOM. Once opened, retain the shared sheet
+    // through closing/navigation so its focus and motion lifetime stay intact.
+    dialog: hasReview ? (
       <HomeDialog
         title="Message delivery"
         open={!!current}
@@ -116,6 +120,6 @@ export function useLocalCommandRecovery({
           </button>
         </div>
       </HomeDialog>
-    ),
+    ) : null,
   };
 }

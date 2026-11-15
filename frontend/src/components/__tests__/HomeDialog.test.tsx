@@ -62,6 +62,7 @@ it('reviews delivery without sending and preserves the mounted draft through ref
   }
   render(<Host />);
   const input = screen.getByRole('textbox');
+  expect(screen.queryByRole('dialog', { hidden: true })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Review delivery' }));
   expect(recover).not.toHaveBeenCalled();
   expect(withdraw).not.toHaveBeenCalled();
@@ -73,6 +74,8 @@ it('reviews delivery without sending and preserves the mounted draft through ref
   expect(refresh).not.toHaveBeenCalled();
   expect(screen.getByRole('textbox')).toBe(input);
   expect((input as HTMLTextAreaElement).value).toBe('Keep my edits');
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  expect(screen.queryByRole('dialog', { hidden: true })).not.toBeNull();
 });
 
 it.each([true, false])(

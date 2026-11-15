@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1200-withdrawal-page-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1201-lazy-delivery-review';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../frontend/src/components/LocalCommandRecovery.tsx':
-    '469c39e1f62e3c03fff03e6b214f2b968b899992d76e184584d8bbe5b2a1b683',
+    '11739a3f0bfb8d7622f3a0969e47dcb3cdab7ad21101bd00b9320729eb0fd8fa',
   '../../frontend/src/lib/chat-storage-write.ts':
     '5ee77bede642adace111a8de275dbcd9b4c06e204fc4cee6110e4aaf8cb5ef8f',
   '../telos-work-overview.ts': '5292f40110c80c317f90be4afb75fa131440a1fca6c09fea833f28cc91e78b68',
@@ -649,7 +648,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/EnmaasAccountSetup.test.tsx':
     '19105741eae1938b88326aec7ecee8b16b540d1dd7bdd184babe84e433600fe6',
   '../../frontend/src/components/__tests__/HomeDialog.test.tsx':
-    '44e0506efa5642af8969926ba220e568e4f9a91d565ac8af2e9ccd53f9c0f4e6',
+    '132da61dfdc5fe912b6a5a71b18aed711aa3877340797bcda1a3418bae14fc25',
   '../../frontend/src/components/__tests__/LegacyNativeContinuation.test.tsx':
     'af76895425ad0ca8c257559b3a2145f72f66023161b1a969299e624f28b029a4',
   '../../frontend/src/components/__tests__/MessageActions.selection.test.tsx':
