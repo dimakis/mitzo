@@ -186,3 +186,39 @@ No source is intentionally landed twice. Actual landing turns remain serialized
 by the global coordinator; this integration commit and publication do not merge
 or deploy anything. Reuse the baseline review and verify this integration delta
 before any exact-head final qualification.
+
+## Shared SDK fixture correction
+
+CI `43656741510` at integration head `5d586ccb35746aaa70062736a8faece5f490a8ce`
+failed unit shard 2/4, job `132637763568`, on three repository-transfer variants
+in `tests/integration/ordinary-local-vertex-chat.test.ts`. At line 1583 the 10s
+terminal wait observed `RUNNING` instead of `TERMINAL`: Vertex explicit profile,
+personal default and personal explicit. The shard reports 516 other files passed
+and seven skipped. This failure is retained; no unexplained retry was used.
+
+The existing shared-test owner (conversation `2208b5d4-686e-8b94-82bc-8d46e0611614`)
+provided the narrowly reusable test delta from
+`7c8c84b9cf14c713fe0a29feccebf0cf3c2e1bdd`. Our pre-correction test blob exactly
+matches its preimage `abba9b62246aa4f1037ce371e7a4babcb249883f`; the selected patch
+SHA256 is `3d986166288a46a66df7997c93fff1c3cc61c0f78c03ad21e705333f2c2ad7bb`.
+Only that test file's delta is adopted, with final blob
+`2898fb8c1c372a7efc57de9114dd1b0c66e2a7cd`. No Telos branch, composer correction
+or foreign source manifest is imported. Source review and fault-probe evidence
+remain with the originating owner; this branch independently inspects the delta.
+
+The fixture records each command's information/repository work outcome, preserves
+and rethrows its original failure, and waits for queued MCP/Git fixture work before
+the existing 10s SDK terminal assertion. Each added phase has a 10s bound. The
+total observation allowance is therefore longer; it is not the original 10s
+end-to-end budget from SDK input. Production runtime, permission, repository and
+control assertions are unchanged. Matching source/error location and this
+correction do not prove the original hosted cause.
+
+Own validation passes all six transfer variants (Vertex/personal, each with
+default, explicit and excluded profiles), one worker/1 GiB, in three bounded
+two-case runs: 56.18s, 56.28s and 38.06s. These are six distinct checks, with the
+other cases explicitly unselected in each run. The test's fingerprint is renewed
+locally under `v1.0.1182-symposium-provider-fixture-phases`, preserving all 2,487
+registration entries and every other fingerprint. The preceding 769 checks
+remain evidence for the unchanged production source; fresh full CI and a final
+exact-head Centaur integration/fixture follow-up remain mandatory.

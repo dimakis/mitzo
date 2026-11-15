@@ -794,6 +794,30 @@ it.each(
     const history: string[] = [];
     const approvedInputs: string[] = [];
     const providerInputs: string[] = [];
+    type FixturePhase = 'information' | 'repository';
+    type FixtureOutcome = { ok: true } | { ok: false; cause: unknown };
+    const fixtureOutcomes = new Map<string, FixtureOutcome>();
+    const runFixturePhase = async (
+      commandId: string,
+      phase: FixturePhase,
+      work: () => Promise<void>,
+    ) => {
+      try {
+        await work();
+        fixtureOutcomes.set(`${commandId}:${phase}`, { ok: true });
+      } catch (cause) {
+        fixtureOutcomes.set(`${commandId}:${phase}`, { ok: false, cause });
+        throw cause;
+      }
+    };
+    const waitForFixturePhase = async (commandId: string, phase: FixturePhase) => {
+      const key = `${commandId}:${phase}`;
+      await vi.waitFor(() => expect(fixtureOutcomes.has(key), key).toBe(true), {
+        timeout: 10_000,
+      });
+      const outcome = fixtureOutcomes.get(key)!;
+      if (!outcome.ok) throw outcome.cause;
+    };
     const { OrdinaryLocalWorkspaceOwner } =
       await import('../../server/ordinary-local-workspace-owner.js');
     const startupCause = Object.assign(new Error('synthetic-secret /private/account'), {
@@ -899,8 +923,12 @@ it.each(
                 parent_tool_use_id: null,
                 message: { role: 'user', content: message.message.content },
               };
-            await invokeInformation(request.options as Options, message.mitzoMessageId);
-            await transferRepository(request.options as Options, message.mitzoMessageId);
+            await runFixturePhase(message.mitzoMessageId, 'information', () =>
+              invokeInformation(request.options as Options, message.mitzoMessageId),
+            );
+            await runFixturePhase(message.mitzoMessageId, 'repository', () =>
+              transferRepository(request.options as Options, message.mitzoMessageId),
+            );
             // Exercise the installed callback on each first/queued/cold query,
             // while its original ordinary command still owns the SDK input.
             const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
@@ -1578,6 +1606,13 @@ it.each(
     });
     expect(providerInputs[1]).toContain('Create or refine a clickable mockup for Frozen followup');
     expect(chat.eventStore.getSendCommand('queued')?.payload.text).toBe('/mockup Frozen followup');
+    if (repositoryTransfer) {
+      // Observing SDK input does not finish its real MCP/Git fixture work. Keep
+      // each phase bounded and surface its original failure before checking the
+      // runtime's separate 10-second terminal-state contract.
+      await waitForFixturePhase('queued', 'information');
+      await waitForFixturePhase('queued', 'repository');
+    }
     await vi.waitFor(
       () =>
         expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
