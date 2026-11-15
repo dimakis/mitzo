@@ -17,6 +17,16 @@ function conflict(message: string): never {
   throw new TelosWorkError('conflict', message);
 }
 
+function readPersistedTeam<T>(data: string, schema: { parse(value: unknown): T }): T {
+  try {
+    return schema.parse(JSON.parse(data));
+  } catch (cause) {
+    // Persisted validation is a storage failure, not invalid caller input.
+    // Retain the original parse cause for the existing sanitized diagnostics.
+    throw new Error('Invalid persisted Telos team data', { cause });
+  }
+}
+
 /** Uses the canonical work owner's connection and transaction. No allocation,
  * context adoption, model dispatch, formal assignment or permission mutation. */
 export class TelosWorkTeam {
@@ -29,7 +39,7 @@ export class TelosWorkTeam {
       )
       .all(itemId) as { membership_id: string; data: string }[];
     const members = rows.map((row) => {
-      const member = TelosTeamMembershipSchema.parse(JSON.parse(row.data));
+      const member = readPersistedTeam(row.data, TelosTeamMembershipSchema);
       if (member.membershipId !== row.membership_id)
         throw new Error('Team membership identity mismatch');
       return member;
@@ -55,7 +65,7 @@ export class TelosWorkTeam {
           if (saved.fingerprint !== fingerprint)
             conflict('Team command identity reused with different input');
           return {
-            receipt: TelosTeamReceiptSchema.parse(JSON.parse(saved.receipt)),
+            receipt: readPersistedTeam(saved.receipt, TelosTeamReceiptSchema),
             changed: false,
           };
         }

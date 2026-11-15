@@ -11,6 +11,15 @@ shared ordinary/runtime/navigation owners remain outside this candidate.
 
 ## Test-first evidence
 
+- Follow-up for Centaur `CEN-2EB8564BA8AB` on 15 November: four real HTTP/client
+  regressions first failed. Schema-invalid persisted memberships and receipts
+  incorrectly returned 400; malformed JSON did not retain a wrapped cause.
+  Persisted parsing now wraps its original cause so the existing router returns
+  safe 503 and logs sanitized `invalid_schema`/`invalid_json` diagnostics. All
+  **51 team/API checks pass**, including the four new cases, unchanged stored
+  operation/receipt data after failure, private-payload exclusion and caller-input
+  400 controls. Scoped lint and formatting passed. This corrects the owned review
+  finding; exact-head Centaur follow-up and combined CI are still required.
 - Store tests were the first source artifact. Initial run: six failures on the
   absent readTeam port. All six passed with the canonical implementation.
 - API/client tests initially failed on absent routes and client methods. Forty

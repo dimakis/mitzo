@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1159-telos-team-membership.3';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1159-telos-team-membership.4';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '59cc8b2253885eeca8bdeec5aaef8f2834b63fda4be8af8345a259a722ffff43',
   '../__tests__/telos-work-team.test.ts':
     '1468234a26a05e9ac67bac47c57c5786faf0ce3d7632695f2535ce5247c03d93',
-  '../telos-work-team.ts': 'fc18fb01bd7ef4443dcf2368bdb45124a8b026f216d9edaa8abcf4e2d40ed213',
+  '../telos-work-team.ts': '8de567bf271a05130fb73b754382713c279fe6c32aa39961528aedcac5def341',
   '../session-history-sdk.ts': 'c62546f1e2ada88a976b97a5a32354713a3a537c7871c634d42f3d62c86d455e',
   '../__tests__/ordinary-claude-information.test.ts':
     'a56fa994583c78ddde1e1e6e8883fbdee0b38cdd800ba65770fb810822f04e73',
@@ -4177,7 +4177,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-backlog.test.ts':
     'e682d8e975298dd997b05183e6b676cefe9fd9944f229cee1f2f6f235237f32e',
   '../__tests__/telos-work-routes.test.ts':
-    '1b9033ce1106ddff3791246f89c1fc1bf7dc31c7116a20c50bb898dff36af9ac',
+    '458b1bce89b0f452d7d4da680e8870daa889e7b58c00edd4ad54c39af03fde9f',
   '../telos-backlog-tools.ts': 'e4577776c46ee0ab27bcaf3e2e105e53e5117f744f947a073c156548895de360',
   '../../tests/offline/telos-outcomes-workspace.spec.ts':
     'c01a12965a4e4679fee8b053959e717614c35899649ff1996eaff8d80746db0b',
