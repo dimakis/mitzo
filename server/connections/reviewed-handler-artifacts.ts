@@ -2209,7 +2209,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/chat-queue-steering.spec.ts':
     '66288dbc3bf6d48ef18257e6367516f5729d0c4ae38f3bc16255ca2475904a82',
   '../../tests/offline/steering-failure-reference.spec.ts':
-    'ec78ddc1529717a0cc078f567abffdcbf79b4161295e4ade4b1d484e1a4df1bb',
+    'fe164bcb7ec8411090af9048df5e3432c077c446668e97c38e1ae4c7c065e09f',
   '../../tests/offline/chat-runtime-tools.spec.ts':
     '79e59c9fde6aeb2f39be147999eb9185f4a182fce2e2faaaf42f670d2918da33',
   '../../tests/offline/chat-settings-surface.spec.ts':

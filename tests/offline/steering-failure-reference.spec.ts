@@ -81,7 +81,7 @@ for (const theme of ['dark', 'light'])
     expect(otherDispatches).toEqual([]);
     expect(errors).toEqual([]);
     await page.screenshot({
-      path: info.outputPath(`steering-reference-${theme}.png`),
+      path: info.outputPath(`chat-queue-steering-reference-${theme}.png`),
       fullPage: true,
     });
   });
