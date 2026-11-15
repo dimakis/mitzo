@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { SessionRegistry, setSkillPolicy } from '@mitzo/harness';
-import { createCredentialSdkServer } from '../credential-sdk-tools.js';
+import { createCredentialSdkServer, credentialSdkPermission } from '../credential-sdk-tools.js';
 import {
   assertAgentToolRoute,
   bindAgentToolSelection,
@@ -65,8 +65,13 @@ async function fixture(selected?: boolean, checkTool?: (wire: string) => 'allow'
     await client.close();
     await server.instance.close();
   });
-  const read = (args = { operation: 'drive.export', fileId: 'document', mimeType: 'text/plain' }) =>
-    client.callTool({ name: 'GoogleWorkspaceRead', arguments: args });
+  const read = (
+    args: Record<string, unknown> = {
+      operation: 'drive.export',
+      fileId: 'document',
+      mimeType: 'text/plain',
+    },
+  ) => client.callTool({ name: 'GoogleWorkspaceRead', arguments: args });
   return {
     google,
     service,
@@ -80,6 +85,69 @@ async function fixture(selected?: boolean, checkTool?: (wire: string) => 'allow'
     },
   };
 }
+
+it('advertises numeric and list fields through the actual SDK tools/list transport', async () => {
+  const f = await fixture();
+  const listed = (await f.client.listTools()).tools.find(
+    (tool) => tool.name === 'GoogleWorkspaceRead',
+  )!;
+  expect(listed.inputSchema).toMatchObject({
+    type: 'object',
+    required: ['operation'],
+    properties: {
+      operation: {
+        enum: [
+          'drive.list',
+          'drive.get',
+          'drive.export',
+          'docs.get',
+          'sheets.get',
+          'slides.get',
+          'calendar.list',
+        ],
+      },
+      pageSize: { type: 'integer', minimum: 1, maximum: 100 },
+      maxResults: { type: 'integer', minimum: 1, maximum: 100 },
+      ranges: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 10 },
+    },
+  });
+});
+
+it.each([
+  [{ operation: 'drive.list', pageSize: 7 }, 'pageSize=7'],
+  [{ operation: 'calendar.list', maxResults: 9 }, 'maxResults=9'],
+  [
+    { operation: 'sheets.get', spreadsheetId: 'sheet', ranges: ['Sheet1!A1:B2', 'Sheet2!C3'] },
+    'ranges=Sheet1%21A1%3AB2&ranges=Sheet2%21C3',
+  ],
+] as const)('dispatches typed Google arguments %j', async (input, query) => {
+  const f = await fixture();
+  expect((await f.read(input)).isError).not.toBe(true);
+  expect(JSON.stringify(f.google.readRequest.mock.calls)).toContain(query);
+});
+
+it.each([
+  { operation: 'drive.get' },
+  { operation: 'drive.get', fileId: 'document', pageSize: 7 },
+  { operation: 'calendar.list', ranges: ['A1'] },
+])('reports canonical operation validation before any Google preparation: %j', async (input) => {
+  const f = await fixture();
+  expect(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__GoogleWorkspaceRead',
+      input,
+      'owner',
+      f.registry,
+      f.session,
+    ),
+  ).toMatchObject({ behavior: 'allow' });
+  const result = await f.read(input);
+  expect(result.isError).toBe(true);
+  expect(JSON.stringify(result.content)).toContain('invalid_input');
+  expect(f.google.exportCredentials).not.toHaveBeenCalled();
+  expect(f.google.readRequest).not.toHaveBeenCalled();
+  await expect(f.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
+});
 
 it.each([undefined, true])(
   'invokes the canonical Google reader via SDK MCP, selected=%s',

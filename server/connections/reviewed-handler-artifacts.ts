@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1201-lazy-delivery-review';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1202-claude-google-schema';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2750,7 +2750,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/google-workspace-read.test.ts':
     '8e895932678529f13d8d7f0c7101c33f2f7a2c14f95c9ca9d34c720f5f275786',
   '../__tests__/google-workspace-sdk.test.ts':
-    '3969620ceb772825444d22d885a1707c2439e695270197bbbe45b0386830217a',
+    'ec161b75d71383e94fdf15f7440046eb20f121e7fdf46b6a92c34dd704682fa1',
   '../__tests__/historical-task-failure-evidence.test.ts':
     '01696f44c26c035cee508719ca0089b346c76063de2e83e9d840b2a74ff16e17',
   '../__tests__/host-codex-custody.test.ts':
@@ -3777,7 +3777,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-boundary.ts':
     '9a971fd857b76eb996cbb962d89950112a5118e7b6a363712a3cb20439b2e08a',
-  '../credential-sdk-tools.ts': '909e0b077d0693ad82db0df66ddd2d9d387965943d10a11fe330e06fd0315d3f',
+  '../credential-sdk-tools.ts': '2c2eabee622af013d3395042412899608d23096b756031e79987b1e13ebb4b58',
   '../credential-setup-application.ts':
     '6882cdc7036ec0c019392a5bf398aca9f196579d013c15f209815d0430cebd41',
   '../credential-setup-continuation.ts':
@@ -3854,8 +3854,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-seeded-source.ts': 'df6cd2643ac24cb5d85e136c3f82c400e8f50456a69993396e25808455613c92',
   '../google-workspace-management.ts':
     'a779bd5c9793ecd908a60c86a09c142d43b16fe52dc1f9c13def640fbc61ce31',
-  '../google-workspace-read.ts': '4101c150646b8371e6fbab26797638817265a585b15973075163352082f4815e',
-  '../google-workspace-sdk.ts': '7ec6fb285dd4de988daf8bd45ecf9962b74b008a9a70f1c696449ef7d664471d',
+  '../google-workspace-read.ts': '35ebfc556cd52f0d56869a11024a701caa2f62400f9031e2df1afecc39a713f3',
+  '../google-workspace-sdk.ts': '9325f20227b8d7df244d0483686b2e85a22ccddf9a7a158a6679d08407b0d1a2',
   '../historical-task-failure-evidence.ts':
     '26683810431221e65977bce305d0ad88e08519980c1b63703f0bad641ad4d01a',
   '../historical-task-failure-manifest.ts':
@@ -4340,7 +4340,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-credential-tools.ts':
     '549ad5f430b35150e400fcf090cbc3e07ec0e4ecace4a5ff960220e19f6a0155',
   '../session-google-workspace-tools.ts':
-    '2318ad33c06dfeff85eb6f70ea2410050260edffbea75453170ace89d784f921',
+    '19ea4eb15c153651486cbc726a6c332f9651e3efc0057084ae7f951a02288fd3',
   '../session-harness-routing.ts':
     'df35d893a2e6b86d7a9b89a715477f25b2e6f443426a8faac21eb9b12c9e61a5',
   '../session-history-authorization.ts':
