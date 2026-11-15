@@ -1,5 +1,31 @@
 # PR1347 recovery against accepted main
 
+## Guarded cleanup fixture follow-up on accepted main4bc
+
+The exact6f2 full run43664027274 failed Unit2 job132660152834 in only the
+new guarded-detach control at ordinary-local-vertex-chat.test.ts:225: its
+whole-test5000ms budget expired. The other516 files/7357 tests passed. This
+does not identify the asynchronous phase or establish a hosted timing cause.
+The original log is retained as `accepted-4bc/6f2-unit2-original.log`, SHA256
+`7045d4dd821813d0d17b2da88ecb2e17fe212d550025b5e4e3e06dd4d3db8b83`.
+
+Only the existing fixture owner's reviewed d43ea9ba setup delta was adopted
+after matching actual failure and exact47610a preimage. Incremental patch
+SHA256 `274936e58b186f0fe4a55dfc08be946ba477dc16e2d4f15695fa11e48e33886a`
+produces exact Git blob `6fe3d2b5f93dcfe00783b38fe792f7b996365eee`.
+The control now uses a private temporary repository path and the actual chat
+EventStore/registry/active-owner setter guard, without unrelated Git/account
+preparation. All guard, primary/cleanup-cause and active-store assertions remain.
+The default5s, lifecycle10s and scenario60s limits are unchanged. No production
+file, authority or disposal behavior is changed.
+
+Five affected checks pass in53.62s: the actual guard (3.35s), both cleanup
+controls and default-profile Vertex/personal transfer cases. The original log is
+`accepted-4bc/d43-five-controls.log`. These overlap previous fixture runs and
+are not additive qualification. Source pins retain all2491 keys at revision1190;
+targeted lint/format/source checks pass. Fresh exact-head CI and final Centaur
+remain required. The prior6f2 review/CI cannot qualify this successor.
+
 Recovery owner: ordinary session `eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`.
 The original writer is unavailable. This is source-custody recovery in a separate
 checkout, without a new worker, formal Telos reassignment or deployment.
