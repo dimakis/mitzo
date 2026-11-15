@@ -4,6 +4,7 @@ import type { SessionRegistry, ConnectionRegistry } from '@mitzo/harness';
 import type { SessionPromptDelivery } from '../session-prompt-store.js';
 import { createSessionPromptPort, sessionPromptText } from '../session-prompt-dispatch.js';
 import type { OwnedOrdinaryDispatchInput } from '../ordinary-scoped-command.js';
+import { CollaborationSettingsSchema } from '@mitzo/protocol';
 
 const f = vi.hoisted(() => ({
   dispatch: vi.fn<(input: OwnedOrdinaryDispatchInput) => Promise<{ dispatched: boolean }>>(
@@ -319,6 +320,55 @@ it('observes ordinary collaboration capability without binding or dispatching an
   fxt.port.close();
 });
 
+it.each(['codex', 'claude-sdk'])(
+  'uses an existing authenticated ordinary %s source with exact per-command observers',
+  async (harness) => {
+    const h = fixture(harness);
+    const session = {
+      ownedLocalAuthSessionId: 'login',
+      ordinaryRuntimeOwner: {
+        location: 'local',
+        authSessionId: 'login',
+        identity: {},
+        initialCommandId: 'original',
+        supportsTurnLifecycle: true,
+      },
+      transport: { send() {}, isOpen: () => true },
+    };
+    f.live = { clientId: 'original-owner', session };
+    const prompt: Parameters<typeof h.port.deliverOrdinary>[0] = {
+      sessionId: 'worker',
+      commandId: 'explicit-shared',
+      text: 'An explicit shared response',
+      auth: h.delivery.auth,
+      settings: CollaborationSettingsSchema.parse({
+        binding: f.binding,
+        selection: f.selection,
+        repositoryWorkspaceId: 'workspace',
+      }),
+      turnLifecycle: { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() },
+    };
+    await expect(h.port.inspectCollaboration!(prompt)).resolves.toBeUndefined();
+    expect(f.dispatch).not.toHaveBeenCalled();
+    await h.port.deliverOrdinary(prompt, new AbortController().signal, f.current);
+    expect(f.dispatch).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        sessionId: 'worker',
+        clientId: 'original-owner',
+        existingOwner: true,
+        ordinaryTurnLifecycle: expect.any(Object),
+        transport: session.transport,
+      }),
+    );
+    const observer = f.dispatch.mock.calls[0][0].ordinaryTurnLifecycle!;
+    observer.beforeDispatch(prompt.commandId);
+    expect(prompt.turnLifecycle!.beforeDispatch).toHaveBeenCalledWith(prompt.commandId);
+    session.ordinaryRuntimeOwner.authSessionId = 'foreign-login';
+    await expect(h.port.inspectCollaboration!(prompt)).rejects.toThrow();
+    h.port.close();
+  },
+);
+
 it.each([
   ['codex', 'local'],
   ['codex', 'openshell'],
@@ -458,6 +508,8 @@ it.each(
       'wrong_command_session',
       'auth_lost',
       'sender_cancelled',
+      'pre_input',
+      'yielded_without_echo',
     ]
       .filter((scenario) => !sharedLogin || scenario !== 'foreign')
       .map((scenario) => ({ sharedLogin, scenario })),
@@ -472,10 +524,13 @@ it.each(
     h.events.getOrdinarySdkInterruptReceipt = () =>
       scenario === 'claimed' ? ({ retained: true } as never) : undefined;
     f.sdkOutcome = scenario === 'settled' ? 'completed' : 'uncertain';
-    const captured = { commandId: scenario === 'successor' ? 'successor-command' : 'original' };
+    const captured = ['pre_input', 'yielded_without_echo'].includes(scenario)
+      ? undefined
+      : { commandId: scenario === 'successor' ? 'successor-command' : 'original' };
     let cancelled = false;
     const control = {
       captureInterruptTarget: vi.fn(() => captured),
+      stopBeforeInput: vi.fn(async () => scenario === 'pre_input'),
       interruptIfCurrent: vi.fn(async () => {
         if (scenario === 'auth_lost') f.authorized = false;
         if (scenario === 'sender_cancelled') cancelled = true;
@@ -516,7 +571,7 @@ it.each(
         await expect(result).rejects.toThrow('Sender cancelled');
       else
         await expect(result).resolves.toBe(
-          scenario === 'current'
+          ['current', 'pre_input'].includes(scenario)
             ? 'requested'
             : scenario === 'settled'
               ? 'settled'
@@ -527,6 +582,9 @@ it.each(
       expect(control.interruptIfCurrent).toHaveBeenCalledTimes(
         ['current', 'auth_lost', 'sender_cancelled'].includes(scenario) ? 1 : 0,
       );
+      if (['pre_input', 'yielded_without_echo'].includes(scenario))
+        expect(control.stopBeforeInput).toHaveBeenCalledExactlyOnceWith('original', 'sdk-stop');
+      else expect(control.stopBeforeInput).not.toHaveBeenCalled();
       if (['current', 'auth_lost', 'sender_cancelled'].includes(scenario))
         expect(control.interruptIfCurrent).toHaveBeenCalledWith('sdk-stop', captured);
       if (scenario === 'revoked' || scenario === 'auth_lost')

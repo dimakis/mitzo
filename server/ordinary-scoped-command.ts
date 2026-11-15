@@ -189,7 +189,11 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
             });
       }
       return continuation && existing && !input.recovery
-        ? sendOwnedLocalCodexCommand(common)
+        ? sendOwnedLocalCodexCommand({
+            ...common,
+            assertCurrent: input.assertCurrent,
+            ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+          })
         : startOwnedLocalCodexCommand(input.transport, input.clientId, {
             workspaceKind: input.workspaceKind,
             ...(!continuation && input.preparationOperationId

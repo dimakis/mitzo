@@ -66,6 +66,7 @@ export { CollaborationApiClient, CollaborationApiError } from './collaboration-a
 export {
   createCollaborationProjection,
   applyCollaborationEvents,
+  refreshCollaborationProjection,
 } from './collaboration-projection.js';
 export type { CollaborationProjection } from './collaboration-projection.js';
 export type {

@@ -34,6 +34,17 @@ it.each([
     },
   },
   { state: 'unstarted', sourceConversationId: 'ordinary-source', ready: true },
+  ...['ordinary-source', 'outside-group'].map((originalConversationId) => ({
+    state: 'participant_history',
+    sourceConversationId: 'ordinary-source',
+    originalConversationId,
+    collaboration: {
+      version: 1,
+      collaborationId: '00000000-0000-4000-8000-000000000001',
+      revision: 2,
+      participantSessionIds: ['ordinary-source', 'original'],
+    },
+  })),
 ])('rejects foreign or invented source-setup state', async (body) => {
   const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(body)));
   await expect(
