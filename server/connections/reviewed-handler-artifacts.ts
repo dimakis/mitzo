@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1192-telos-fixture-types';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1193-telos-device-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1870,7 +1871,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/tool-results.tsx':
     'eb7865e4b52ff45456117c2ef0d9264da366434ae606fb0592f3a90cd8578ecb',
   '../../tests/integration/claude-multi-device.test.ts':
-    '1b3788eaf2d816ffb02f1f3c3890b93996ddade6175caaa06cb289f304dddf35',
+    'c82e6225fb026a70305c377e8fa1db3805091b11531960677d4cf81148ab39d7',
   '../../tests/integration/claude-subagent-failures.test.tsx':
     'a61cd2455304ae14aaa360f782db9f6bab9c2e700a47bbdb3aa13d33d650be0c',
   '../../tests/integration/native-subagent-visibility.test.tsx':

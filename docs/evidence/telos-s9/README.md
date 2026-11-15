@@ -1,5 +1,8 @@
 # Telos S9 early offline acceptance evidence
 
+Current team-delivery reconciliation: [14 November independent checkpoint](../telos-team-delivery-2026-11-14.md).
+It preserves the bounded evidence below and leaves combined acceptance open.
+
 Contract correction: [shared-reference and measured contrast](contrast-validation.md).
 
 Latest accepted-base refresh: [final offline merge validation](merge-validation.md).
