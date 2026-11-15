@@ -171,6 +171,7 @@ export interface MitzoStoreState {
 
   /** Dedicated first-command delivery intent; never a runtime readiness receipt. */
   localFirstCommandTransportAvailable: boolean;
+  withdrawLocalCommand(commandId: string): Promise<boolean>;
   localCommand: {
     request?: LocalCommandRequest;
     ordinaryPhase?: OrdinaryCommandPhase;
@@ -489,6 +490,28 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           },
           headers: () => ({ 'X-Connection-ID': connection.getConnectionId() ?? '' }),
           notify(event) {
+            if (
+              event.type === '_local_command_withdrawn' &&
+              typeof event.clientMsgId === 'string'
+            ) {
+              const id = event.clientMsgId;
+              pendingOptimisticMessageIds.delete(id);
+              settleDelivery(id, 'failed', 'local', true);
+              if (store.getState().localCommand?.request?.clientMsgId === id) {
+                store.setState((s) => ({
+                  messages: messagesReducer(s.messages, {
+                    type: 'COMMAND_STATE',
+                    messageId: id,
+                    commandState: 'cancelled',
+                  }),
+                  localCommand: null,
+                  sendError: null,
+                  sendStatus: 'Message withdrawn. Review chat settings before sending again.',
+                }));
+                visibleLocalCommandId = undefined;
+              }
+              return;
+            }
             if (event.type === '_local_command_retired') {
               if (typeof event.clientMsgId === 'string') {
                 options.sendHandoff?.finalize?.(event.clientMsgId);
@@ -875,6 +898,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     id: string,
     status: 'accepted' | 'failed' | 'uncertain',
     source: 'ordinary' | 'local' = 'ordinary',
+    preserveMessage = false,
   ) {
     if (isLocalDelivery(id) && source !== 'local') return;
     if (source === 'local' && status === 'accepted') pendingOptimisticMessageIds.delete(id);
@@ -906,7 +930,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             : {}),
         },
       }));
-    if (observer && status === 'failed') {
+    if (observer && status === 'failed' && !preserveMessage) {
       pendingOptimisticMessageIds.delete(id);
       store.setState((s) => ({
         messages: {
@@ -1547,6 +1571,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         !!reviewedAuthenticated &&
         (get().localCommand?.state === 'blocked' || !!connection.getConnectionId()) &&
         !!localOutbox?.retryLocalCommand(get().localCommand?.request?.clientMsgId)
+      );
+    },
+    async withdrawLocalCommand(commandId: string) {
+      const id = get().localCommand?.request?.clientMsgId;
+      return (
+        !!reviewedAuthenticated &&
+        !!connection.getConnectionId() &&
+        !!id &&
+        id === commandId &&
+        !!(await localOutbox?.withdrawLocalCommand(id))
       );
     },
     sendMessage(text: string, opts?: SendMessageOptions) {

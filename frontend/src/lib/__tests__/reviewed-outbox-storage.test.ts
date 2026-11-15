@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createReviewedOutboxStorage } from '../reviewed-outbox-storage';
+import { localFirstCommandFixture } from '../../../../packages/client/src/__tests__/fixtures/local-first-command';
 function memory() {
   const entries = new Map<string, string>();
   return {
@@ -34,6 +35,34 @@ const command = (id: string) => ({
     ],
   },
   scope: 1,
+});
+it('archives withdrawn envelopes outside pending capacity without accepting or clearing their draft', async () => {
+  const disk = memory();
+  const storage = createReviewedOutboxStorage(disk, 'https://one.test/api/chat/send', 'local');
+  for (let index = 0; index < 101; index++) {
+    const id = `withdrawn-${index}`;
+    await storage.archiveWithdrawn!(
+      JSON.stringify({
+        body: { ...localFirstCommandFixture, clientMsgId: id, sessionId: 'old-chat' },
+        scope: 1,
+        uncertain: true,
+        withdrawal: {
+          ok: true,
+          code: 'command_withdrawn',
+          clientMsgId: id,
+          sessionId: 'old-chat',
+          wireFingerprint: 'a'.repeat(64),
+        },
+      }),
+    );
+  }
+  expect(storage.getItem('queue')).toBe('[]');
+  storage.setItem(
+    'queue',
+    JSON.stringify([{ body: localFirstCommandFixture, scope: 2, uncertain: true }]),
+  );
+  expect(JSON.parse(storage.getItem('queue')!)).toHaveLength(1);
+  expect(disk.length).toBe(102);
 });
 it('keeps exact full reviewed commands across WebView recreation without sessionStorage', () => {
   const disk = memory();

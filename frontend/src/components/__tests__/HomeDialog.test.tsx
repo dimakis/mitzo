@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { HomeDialog } from '../HomeDialog';
 import { useState } from 'react';
+import { useLocalCommandRecovery } from '../LocalCommandRecovery';
+import { localFirstCommandFixture } from '../../../../packages/client/src/__tests__/fixtures/local-first-command';
 
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -18,6 +20,108 @@ afterEach(() => {
   vi.unstubAllGlobals();
   delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
 });
+
+it('reviews delivery without sending and preserves the mounted draft through refused withdrawal', async () => {
+  const recover = vi.fn(() => true),
+    withdraw = vi.fn(async () => false),
+    refresh = vi.fn();
+  const command = {
+    state: 'uncertain',
+    request: {
+      ...localFirstCommandFixture,
+      sessionId: 'old-chat',
+      runtime: {
+        ...localFirstCommandFixture.runtime,
+        harness: 'claude-sdk' as const,
+        account: {
+          ...localFirstCommandFixture.runtime.account,
+          provider: 'anthropic-claude' as const,
+        },
+      },
+    },
+  };
+  function Host() {
+    const recovery = useLocalCommandRecovery({
+      command,
+      connected: true,
+      recover,
+      withdraw,
+      refresh,
+      scope: 'old-chat',
+    });
+    return (
+      <>
+        <textarea aria-label="Retained draft" defaultValue="Keep my edits" />
+        <button onClick={recovery.action.onClick}>{recovery.action.label}</button>
+        {recovery.dialog}
+      </>
+    );
+  }
+  render(<Host />);
+  const input = screen.getByRole('textbox');
+  fireEvent.click(screen.getByRole('button', { name: 'Review delivery' }));
+  expect(recover).not.toHaveBeenCalled();
+  expect(withdraw).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Withdraw and review' }));
+  await screen.findByText(
+    'Withdrawal is unconfirmed. Keep this draft and check the original message.',
+  );
+  expect(withdraw).toHaveBeenCalledWith(command.request.clientMsgId);
+  expect(refresh).not.toHaveBeenCalled();
+  expect(screen.getByRole('textbox')).toBe(input);
+  expect((input as HTMLTextAreaElement).value).toBe('Keep my edits');
+});
+
+it.each([true, false])(
+  'fences a departed withdrawal completion (new review=%s)',
+  async (newReview) => {
+    let finish!: (value: boolean) => void;
+    const withdraw = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const refresh = vi.fn();
+    function Host({ id }: { id: string }) {
+      const command = {
+        state: 'uncertain',
+        request: {
+          ...localFirstCommandFixture,
+          clientMsgId: id,
+          sessionId: id,
+          runtime: { ...localFirstCommandFixture.runtime, harness: 'claude-sdk' as const },
+        },
+      };
+      const recovery = useLocalCommandRecovery({
+        command,
+        connected: true,
+        recover: () => true,
+        withdraw,
+        refresh,
+        scope: id,
+      });
+      return (
+        <>
+          <button onClick={recovery.action.onClick}>{recovery.action.label}</button>
+          {recovery.dialog}
+        </>
+      );
+    }
+    const view = render(<Host id="first" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Review delivery' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw and review' }));
+    view.rerender(<Host id="second" />);
+    if (newReview) fireEvent.click(screen.getByRole('button', { name: 'Review delivery' }));
+    await act(async () => finish(newReview));
+    if (!newReview) view.rerender(<Host id="first" />);
+    expect(screen.getByRole('dialog', { name: 'Message delivery' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Withdraw and review' }).hasAttribute('disabled'),
+    ).toBe(false);
+    expect(refresh).not.toHaveBeenCalled();
+  },
+);
 
 it('opens the shared sheet once without replaying on edits or retaining motion after close', () => {
   const cancel = vi.fn();

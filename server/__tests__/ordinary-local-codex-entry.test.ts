@@ -50,6 +50,7 @@ import {
 import {
   createOwnedOrdinaryWorkspaceCommandRouter,
   createOwnedLocalCodexEntryRouter,
+  ordinaryRepositoryRuntimeInventory,
 } from '../ordinary-local-codex-entry.js';
 import { observeLocalCodexPhase } from '../local-codex-observation.js';
 vi.mock('../local-codex-observation.js', { spy: true });
@@ -510,6 +511,63 @@ it('passes a frozen Claude HTTP selection through unchanged model refreshes and 
     'Ordinary command preparation failed',
     expect.objectContaining({ failedCheck: 'capability_revision' }),
   );
+  // Reuse the same authenticated HTTP/capability fixture for the stuck frozen
+  // continuation. Withdrawal must work despite obsolete discovery metadata.
+  const sessionId = 'withdraw-claude-session';
+  const resolved = ordinaryRepositoryRuntimeInventory('local', 'claude-sdk').catalog.resolve(
+    frozen.runtime,
+  );
+  if (resolved.status !== 'compatible') throw Error('Offline Claude route required');
+  store.admitOrdinaryLocalVertexCommand(
+    {
+      sessionId,
+      cwd: '/offline/checkout',
+      repositoryWorkspaceId: workspaceId,
+      accountBinding: fixtures.profiles().resolve(config.id, 'fixture'),
+    },
+    resolved.binding,
+    {
+      clientMsgId: 'original-claude',
+      requestFingerprint: 'original',
+      selection: OrdinaryLocalCommandSelectionSchema.parse(frozen.selection),
+      payload: frozen.payload,
+    },
+  );
+  store.claimOrdinaryLocalVertexCommandDispatch('original-claude');
+  store.completeOrdinaryLocalVertexCommand('original-claude');
+  sessions.register('retained-claude', {
+    transport: conns.get('entry-stream')!.transport,
+    abortController: new AbortController(),
+    sessionId,
+    mode: 'ask',
+    sessionAllowList: new Set(),
+    ownedLocalAuthSessionId: auth.id,
+  });
+  const stuck = { ...frozen, sessionId, clientMsgId: 'stuck-claude' };
+  expect((await invoke('POST', '/continue/withdraw', stuck, 'foreign')).status).toBe(403);
+  sessions.get('retained-claude')!.ownedLocalAuthSessionId = 'foreign-owner';
+  expect((await invoke('POST', '/continue/withdraw', stuck)).status).toBe(403);
+  sessions.get('retained-claude')!.ownedLocalAuthSessionId = auth.id;
+  const withdrawn = await invoke('POST', '/continue/withdraw', stuck);
+  expect(withdrawn).toMatchObject({
+    status: 200,
+    body: { ok: true, code: 'command_withdrawn', clientMsgId: stuck.clientMsgId, sessionId },
+  });
+  expect(await invoke('POST', '/continue/withdraw', stuck)).toEqual(withdrawn);
+  expect(
+    (await invoke('POST', '/continue/withdraw', { ...stuck, payload: { text: 'changed' } })).status,
+  ).toBe(409);
+  expect(() => store.claimClientCommand(stuck.clientMsgId, 'late-original')).toThrow();
+  expect(
+    (
+      await invoke('POST', '/continue/withdraw', {
+        ...stuck,
+        clientMsgId: 'withdraw-paid',
+        payload: { text: '/fuse inspect' },
+      })
+    ).status,
+  ).toBe(200);
+  expect(fixtures.startVertex).toHaveBeenCalledOnce();
 });
 
 it('exposes and dispatches API billing through the actual Local Codex entry', async () => {
@@ -697,6 +755,28 @@ it('does not rewrite command receipts or discard reservations on uncertain failu
   ).toBe('runtime_unavailable');
   expect(fail).not.toHaveBeenCalled();
   expect(fixtures.reserve).toHaveBeenCalledTimes(1);
+});
+it('reports unavailable receipt evidence without claiming the command was not admitted', async () => {
+  let restore: (() => void) | undefined;
+  fixtures.start.mockImplementationOnce(() => {
+    const lookup = vi.spyOn(store, 'getSendCommand').mockImplementation(() => {
+      throw Error('private database failure');
+    });
+    restore = () => lookup.mockRestore();
+    throw Error('private dispatch failure');
+  });
+  try {
+    const response = await send();
+    expect(response.status).toBe(409);
+    OrdinaryRuntimeEntryFailureSchema.parse(response.body);
+    expect(fixtures.warn).toHaveBeenLastCalledWith(
+      'Ordinary command preparation failed',
+      expect.objectContaining({ state: 'unavailable', receiptObservationUnavailable: true }),
+    );
+    expect(JSON.stringify(fixtures.warn.mock.calls)).not.toContain('private');
+  } finally {
+    restore?.();
+  }
 });
 it('logs reviewed startup details while keeping upstream cause text out of the HTTP receipt', async () => {
   const cause = Object.assign(Error('private credential /private/path'), { code: 'ECONNREFUSED' });

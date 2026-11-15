@@ -3061,3 +3061,19 @@ Escape/focus restoration and draft preservation without a backend or model calls
 
 Inspected captures: [mobile completion](assets/compaction-mobile-dark.png) and
 [desktop completion with larger text](assets/compaction-desktop-light.png).
+
+## Retained Claude delivery recovery
+
+Mobile and desktop reuse the same recovery control in the existing composer
+status owner. **Review delivery** opens the shared `HomeDialog`; **Retry original
+message** resends only the frozen request. **Withdraw and review** asks the
+authenticated owner to durably fence an unadmitted command ID. It submits no
+replacement message, keeps the composer mounted and preserves later edits.
+An already admitted command remains under its original receipt/recovery owner.
+Unconfirmed withdrawal retains the draft and recovery control.
+
+The shared sheet uses `home-inline-actions` and `home-secondary`, with existing
+focus restoration, reduced motion, semantic tokens and mobile touch targets.
+Async results belong to their original chat/review scope. Withdrawn envelopes
+remain in a separate per-command archive, outside active outbox capacity; they
+are not accepted-delivery markers and cannot clear the composer.

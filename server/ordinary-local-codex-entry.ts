@@ -526,7 +526,11 @@ function createOwnedCodexEntryRouter(
     }
   });
   const executeCommand =
-    (continuation: boolean, observeOnly = false): import('express').RequestHandler =>
+    (
+      continuation: boolean,
+      observeOnly = false,
+      withdrawOnly = false,
+    ): import('express').RequestHandler =>
     async (req, res) => {
       // Workspace normalization and provider startup consume the same request
       // budget. A second phase must not restart the clock after preparation.
@@ -577,6 +581,12 @@ function createOwnedCodexEntryRouter(
         });
       let input = structuredClone(parsed.data);
       if (
+        withdrawOnly &&
+        (!continuation || input.runOn !== 'local' || input.runtime.harness !== 'claude-sdk')
+      )
+        return res.status(409).json({ ok: false, code: 'withdrawal_unavailable' });
+      if (
+        !withdrawOnly &&
         /^\s*\/(?:deliberate|fuse)(?:\s|$)/.test(input.payload.text) &&
         !ctx.eventStore.getSendCommand(input.clientMsgId)
       )
@@ -1001,6 +1011,36 @@ function createOwnedCodexEntryRouter(
             .status(409)
             .json({ ok: false, code: 'bound_route_unavailable', error: unavailable });
       }
+      if (withdrawOnly) {
+        try {
+          const captured = captureAgentLibraryAuthorization(connectionId);
+          captured.assertCurrent();
+          if (captured.auth.id !== auth.id) throw Error(unavailable);
+          const wireFingerprint = ordinaryWireFingerprint(parsed.data);
+          if (
+            !ctx.eventStore.withdrawUnadmittedOrdinaryCommand({
+              clientMsgId: input.clientMsgId,
+              sessionId,
+              wireFingerprint,
+            })
+          )
+            return res.status(409).json({ ok: false, code: 'withdrawal_unavailable' });
+          return res.status(200).json({
+            ok: true,
+            code: 'command_withdrawn',
+            clientMsgId: input.clientMsgId,
+            sessionId,
+            wireFingerprint,
+          });
+        } catch (cause) {
+          log.warn('Ordinary command withdrawal unavailable', {
+            sessionId,
+            clientMsgId: input.clientMsgId,
+            ...runtimeFailureDiagnostics(annotateAuthorityFailure(cause, 'command_withdrawal')),
+          });
+          return res.status(409).json({ ok: false, code: 'withdrawal_unavailable' });
+        }
+      }
       const controller = new AbortController();
       let authority: ReturnType<typeof retainAgentContextAuthority> | undefined;
       let releaseBinding: (() => void) | undefined;
@@ -1306,6 +1346,7 @@ function createOwnedCodexEntryRouter(
             findSessionRuntimeError(preparationFailure) ? preparationFailure : retainedFailure,
           );
         let state: string | undefined;
+        let receiptObservationUnavailable = false;
         try {
           if (ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId === sessionId)
             state = (
@@ -1314,7 +1355,7 @@ function createOwnedCodexEntryRouter(
                 : ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)
             )?.state;
         } catch {
-          /* Retain original evidence. */
+          receiptObservationUnavailable = true;
         }
         log.warn('Ordinary command preparation failed', {
           sessionId,
@@ -1322,7 +1363,8 @@ function createOwnedCodexEntryRouter(
           ...codexRuntimeErrorTelemetry(error instanceof Error ? error : retainedFailure),
           ...retainedFailure.telemetry(),
           ...runtimeFailureDiagnostics(preparationFailure),
-          state: state ?? 'not_admitted',
+          state: state ?? (receiptObservationUnavailable ? 'unavailable' : 'not_admitted'),
+          ...(receiptObservationUnavailable ? { receiptObservationUnavailable: true } : {}),
         });
         return res.status(409).json({
           ok: false,
@@ -1351,8 +1393,9 @@ function createOwnedCodexEntryRouter(
   const sendCommand = (
     continuation: boolean,
     observeOnly = false,
+    withdrawOnly = false,
   ): import('express').RequestHandler => {
-    const execute = executeCommand(continuation, observeOnly);
+    const execute = executeCommand(continuation, observeOnly, withdrawOnly);
     return async (req, res, next) => {
       const header = req.headers.traceparent;
       const parent = typeof header === 'string' ? contextFromTraceparent(header) : context.active();
@@ -1368,6 +1411,7 @@ function createOwnedCodexEntryRouter(
   };
   router.post(ordinary ? '/first' : '/send', requireSameOriginJson, sendCommand(false));
   router.post('/continue', requireSameOriginJson, sendCommand(true));
+  router.post('/continue/withdraw', requireSameOriginJson, sendCommand(true, false, true));
   router.post(
     ordinary ? '/first/receipt' : '/send/receipt',
     requireSameOriginJson,

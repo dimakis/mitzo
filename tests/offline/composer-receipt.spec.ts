@@ -1,5 +1,5 @@
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Route } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
 const output = build({
@@ -19,11 +19,28 @@ const output = build({
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
   },
 });
+async function serveFixture(route: Route, theme: string) {
+  const files = (await output).outputFiles!;
+  const path = new URL(route.request().url()).pathname;
+  if (path.includes('/messages'))
+    return route.fulfill({ json: { messages: [], current: null, cursor: 0 } });
+  if (path.startsWith('/api/')) return route.fulfill({ json: {} });
+  const asset = files.find((file) => path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'));
+  if (asset)
+    return route.fulfill({
+      contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+      body: asset.text,
+    });
+  if (path !== '/') return route.abort();
+  return route.fulfill({
+    contentType: 'text/html',
+    body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
+  });
+}
 for (const theme of ['dark', 'light']) {
   test(`legacy login recovery keeps the original command and draft across reload (${theme})`, async ({
     page,
   }, info) => {
-    const files = (await output).outputFiles!;
     const sends: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -60,22 +77,7 @@ for (const theme of ['dark', 'light']) {
           },
         });
       }
-      if (path.includes('/messages'))
-        return route.fulfill({ json: { messages: [], current: null, cursor: 0 } });
-      if (path.startsWith('/api/')) return route.fulfill({ json: {} });
-      const asset = files.find((file) =>
-        path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
-      );
-      if (asset)
-        return route.fulfill({
-          contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
-          body: asset.text,
-        });
-      if (path !== '/') return route.abort();
-      return route.fulfill({
-        contentType: 'text/html',
-        body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
-      });
+      return serveFixture(route, theme);
     });
     await page.setViewportSize({
       width: info.project.name.startsWith('mobile') ? 320 : 1280,
@@ -121,7 +123,6 @@ for (const theme of ['dark', 'light']) {
       page.on('pageerror', (error) => errors.push(error.message));
       let consumed = false;
       let sends = 0;
-      const files = (await output).outputFiles!;
       await page.route('**/*', (route) => {
         const path = new URL(route.request().url()).pathname;
         if (path.endsWith('/commands/continue/receipt')) {
@@ -141,22 +142,7 @@ for (const theme of ['dark', 'light']) {
           sends++;
           return route.abort();
         }
-        if (path.includes('/messages'))
-          return route.fulfill({ json: { messages: [], current: null, cursor: 0 } });
-        if (path.startsWith('/api/')) return route.fulfill({ json: {} });
-        const asset = files.find((file) =>
-          path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
-        );
-        if (asset)
-          return route.fulfill({
-            contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
-            body: asset.text,
-          });
-        if (path !== '/') return route.abort();
-        return route.fulfill({
-          contentType: 'text/html',
-          body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
-        });
+        return serveFixture(route, theme);
       });
       await page.setViewportSize({
         width: info.project.name.startsWith('mobile') ? 320 : 1280,
@@ -188,4 +174,77 @@ for (const theme of ['dark', 'light']) {
       });
     });
   }
+}
+
+for (const theme of ['dark', 'light']) {
+  test(`withdraws a rejected Claude send without clearing its edited draft (${theme})`, async ({
+    page,
+  }, info) => {
+    const sends: Array<Record<string, unknown>> = [];
+    const withdrawals: Array<Record<string, unknown>> = [];
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.route('**/*', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path.endsWith('/runtime/continue/withdraw')) {
+        const body = route.request().postDataJSON();
+        withdrawals.push(body);
+        return route.fulfill({
+          json: {
+            ok: true,
+            code: 'command_withdrawn',
+            clientMsgId: body.clientMsgId,
+            sessionId: 'cold-chat',
+            wireFingerprint: 'a'.repeat(64),
+          },
+        });
+      }
+      if (path.endsWith('/runtime/continue/receipt'))
+        return route.fulfill({ status: 409, json: { code: 'receipt_pending' } });
+      if (path.endsWith('/runtime/continue')) {
+        const body = route.request().postDataJSON();
+        sends.push(body);
+        return route.fulfill({
+          status: 409,
+          json: {
+            ok: false,
+            code: 'entry_unavailable',
+            clientMsgId: body.clientMsgId,
+            sessionId: 'cold-chat',
+            error: 'Conversation runtime unavailable',
+            runtimeFailure: {
+              runtimeFailureCode: 'runtime_unavailable',
+              diagnosticId: '00000000-0000-4000-8000-000000000001',
+            },
+          },
+        });
+      }
+      return serveFixture(route, theme);
+    });
+    await page.setViewportSize({
+      width: info.project.name.startsWith('mobile') ? 320 : 1280,
+      height: 844,
+    });
+    await page.goto('/?claude=1');
+    const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await input.fill('Original failed message');
+    await page.getByRole('button', { name: 'Send message', exact: true }).click();
+    await expect(page.getByTestId('receipt-state')).toHaveText('uncertain');
+    await input.fill('Keep my later edits too');
+    await page.getByRole('button', { name: 'Review delivery', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Message delivery' });
+    await expect(dialog).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`withdraw-review-${theme}.png`) });
+    await dialog.getByRole('button', { name: 'Withdraw and review' }).click();
+    await expect(page.getByTestId('receipt-state')).toHaveText('idle');
+    await expect(input).toHaveValue('Keep my later edits too');
+    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
+    expect(withdrawals).toEqual(sends);
+    expect(sends).toHaveLength(1);
+    await page.reload();
+    await expect(page.getByTestId('receipt-state')).toHaveText('idle');
+    await expect(input).toHaveValue('Keep my later edits too');
+    expect(sends).toHaveLength(1);
+    expect(errors).toEqual([]);
+  });
 }
