@@ -64,8 +64,15 @@ export class TelosWorkTeam {
         if (saved) {
           if (saved.fingerprint !== fingerprint)
             conflict('Team command identity reused with different input');
+          const receipt = readPersistedTeam(saved.receipt, TelosTeamReceiptSchema);
+          if (
+            receipt.requestId !== input.requestId ||
+            receipt.actorId !== actorId ||
+            receipt.team.itemId !== input.itemId
+          )
+            throw new Error('Persisted Telos team receipt identity mismatch');
           return {
-            receipt: readPersistedTeam(saved.receipt, TelosTeamReceiptSchema),
+            receipt,
             changed: false,
           };
         }

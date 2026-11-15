@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1201-telos-owner-replacement.3';
+  'v1.0.1201-telos-owner-replacement.4';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c4dd679dd3afcb37697c14bbc8fd86f3065972f01148390e3219cd9ff6d1fa93',
   '../__tests__/telos-work-team.test.ts':
     '1468234a26a05e9ac67bac47c57c5786faf0ce3d7632695f2535ce5247c03d93',
-  '../telos-work-team.ts': '8de567bf271a05130fb73b754382713c279fe6c32aa39961528aedcac5def341',
+  '../telos-work-team.ts': '0b37f5c66959fa4065222727fbcb33aa5c71efcb17bbeae77361292957222c2b',
 
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
@@ -3470,7 +3470,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-sdk-source.test.ts':
     'd4a46546ef2519d8e61d6a0e0ffc219b37a986d94e4f1602c133ef4e8efdc2e2',
   '../__tests__/telos-sdk-tools.test.ts':
-    '6972ccb87be7c3606bb961d9f44ebe2342c6c61dc8ecd7217a28fe689e2be0f7',
+    '2be16f7ad3f711fcde48750d24cd4fa26f64867085afab928d161567d1bf41ba',
   '../__tests__/telos-session-coordination.test.ts':
     '7ed5aebeb6ad541a49b35f1f62d6b8a4db881012e894e562fef47b4f5be6a314',
   '../__tests__/telos-session-launch-adapters.test.ts':
