@@ -50,6 +50,13 @@ function mount(extra = {}) {
     </MemoryRouter>,
   );
 }
+it('keeps participant history inspectable through its exact ordinary session route', () => {
+  mount({ agents: [{ ...agents[0], id: 'participant/one', historySessionId: 'participant/one' }] });
+  fireEvent.click(screen.getByRole('button', { name: 'Agents, Primary agent' }));
+  expect(
+    screen.getByRole('link', { name: 'Open Primary agent history' }).getAttribute('href'),
+  ).toBe('/chat/participant%2Fone');
+});
 it('uses one compact participant header and one Agents view without transcript tabs', () => {
   mount();
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Primary agent' }));

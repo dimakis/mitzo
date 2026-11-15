@@ -19,7 +19,14 @@ export function telosDiagnosticFailure(id: string) {
 export function retainTelosDiagnosticFailure(
   operationCause: unknown,
   diagnosticCause: unknown,
-  context: { stage: string; operation?: string; sessionId?: string; requestHash?: string },
+  context: {
+    stage: string;
+    operation?: string;
+    sessionId?: string;
+    requestHash?: string;
+    itemId?: string;
+    controlId?: string;
+  },
 ) {
   const diagnosticId = randomUUID();
   const failure: DiagnosticFailure = { operationCause, diagnosticCause };

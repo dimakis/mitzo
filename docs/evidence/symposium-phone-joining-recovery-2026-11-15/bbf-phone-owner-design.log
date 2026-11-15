@@ -1,0 +1,543 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/symposium-phone-joining[39m
+
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mfollows approved setup, exact artifact selection, context review, editable brief and confirmation[32m 195[2mms[22m[39m
+[90mstderr[2m | frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22m[2mretains a lost initial review attempt through Close, Agents and Add agent and retries its exact request
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'7f9094b6-c5e8-40cf-b33d-dc8ad295a18f'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mpreserves setup, edited review and operation across policy inspection and closing[32m 89[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mresumes the edited frozen brief after Back and Review with unchanged setup[32m 87[2mms[22m[39m
+[90mstderr[2m | frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22m[2mrestores the original editable setup and exact lost review when the actual dialog remounts
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'c18a33e7-d10f-4d29-878f-5def00d35ef6'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mretains a lost initial review attempt through Close, Agents and Add agent and retries its exact request[32m 62[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22minvalidates the old brief and frozen source only when setup is explicitly changed[32m 82[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mrestores the original editable setup and exact lost review when the actual dialog remounts[32m 65[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mcloses only after linked confirmation and offers the next agent a fresh editable setup[32m 77[2mms[22m[39m
+[90mstderr[2m | frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22m[2mrestores the actual dialog’s original review setup when its owner arrives late
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'ed4467d9-aebc-4ea0-ab4c-66b163b802f8'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mrechecks a restored linked receipt before retiring it for another fresh agent[32m 90[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mrestores the actual dialog’s original review setup when its owner arrives late[32m 58[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mrestores the actual dialog’s original uncertain setup when its owner arrives late[32m 57[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationJoiningReview.test.tsx[2m > [22mrestores the actual dialog’s original linked setup when its owner arrives late[32m 58[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mkeeps the original named agent as the explicit initial recipient[32m 182[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mretains the original context wheel, microphone and resource controls through sharing and responsive qualification[32m 116[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mshows participant names in the ordinary compact header when a reviewer joins[32m 82[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mretains the shared composer and transcript while a resized page requalifies ordinary status[32m 115[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mkeeps the actual ordinary transcript and composer mounted through joining and source activity[32m 35[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mretains ordinary attachments with a precise shared-route limitation and keeps Terminal navigation[32m 41[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mmerges rich original history, source echoes and authorized live/final replies exactly once by identity[32m 41[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mpreserves saved selected empty intent and opens the picker as its recovery action[32m 62[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mpreserves saved default empty intent and opens the picker as its recovery action[32m 58[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx[2m > [22mkeeps explicit routing and retained send/Stop identity when the selected participant leaves[32m 46[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mkeeps the theme and font definitions in one file[33m 701[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline font[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects CSS font shorthand[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects HSL color[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects spacing override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects last declaration without semicolon[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline token override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects radius override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects type override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects page gutter override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects mobile navigation override[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects font literals following a variable: .page { font: var(--text-base) Arial, sans-serif; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects font literals following a variable: .page { font: var(--text-base)/1.4 Arial; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects font literals following a variable: .page { font-family: var(--font-ui), Arial; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects shared token literals in embedded TSX CSS[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects variable-prefixed font shorthand embedded in TSX[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal font families supplied by template interpolation[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows an interpolated static token font family[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline font shorthand stacks: const element = <div style={{ font: '16px Arial, sans-serif' }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline font shorthand stacks: const element = <div style={{ 'font': 'var(--text-base) Arial' }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows token-based React font shorthand[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects interpolated inline font stacks[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects numeric inline overrides of shared tokens[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mexempts only the canonical token file, not feature token files[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects fonts hidden in expression branches: const element = <div style={{ fontFamily: selected ? 'Arial' : 'Georgia' }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects fonts hidden in expression branches: const element = <div style={{ fontFamily: ('Arial' as const) }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects fonts hidden in expression branches: const element = <div style={{ fontFamily: fallback ?? 'Arial' }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects fonts hidden in expression branches: const element = <div style={{ fontFamily: 'Arial,' + fallback }} />;[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows conditional token fonts[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mkeeps shared scales and font roles owned centrally: .page { --space-4: var(--space-1); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mkeeps shared scales and font roles owned centrally: .page { --font-ui: var(--font-mono); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects inline aliases that override shared spacing[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects named colors inside a legacy role color mix[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows the existing token-based legacy role color mix[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrequires direct contextual aliases to reference a registered token[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mhandles CSS whitespace before a declaration colon: .page { --space-4 : 17px; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mhandles CSS whitespace before a declaration colon: .page { font-family : Arial; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mhandles CSS whitespace before a declaration colon: .page { font : var(--text-base) Arial; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrequires font variables to come from the shared font registry: .page { --private-font: Arial; font-family: var(--private-font); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrequires font variables to come from the shared font registry: .page { font: var(--text-base) var(--private-font); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects a spacing token used as a contextual color[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { color: rebeccapurple; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { background: red; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { background: linear-gradient(red, blue); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { color: hsl(-30 90% 70%); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects literal palette values: .page { color: hsl(.5turn 90% 70%); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects named colors in React styles[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mchecks statically concatenated CSS template content[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mkeeps image URL names and inherited colors usable[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects non-color tokens inside a contextual color mix[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mchecks standalone statically concatenated CSS expressions[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mdoes not reject incomplete children of a valid reconstructed CSS expression[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows token-based shorthand size and family[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mrejects CSS font-family literals embedded in TSX[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mdoes not confuse adapter token lookup expressions with CSS declarations[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mdoes not confuse selector modifiers with token declarations[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mthe source guard catches alternate ways to bypass shared tokens[2m > [22mallows semantic aliases, inherited fonts and token-based inline fonts[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --ui-font[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --bg[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --surface[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --color-preview-canvas[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --border[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --text[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --text-dim[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --text-secondary[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --accent[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --accent-hover[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --danger[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --success[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --warning[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --bg-secondary[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --hover[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mrequired CSS variables are defined in :root[2m > [22mdefines --active[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-2xs[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-xxs[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-xs[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-s[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-sm[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-md[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-base[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-lg[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mtype scale variables[2m > [22mdefines --text-xl[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-1[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-1h[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-2[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-3[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-4[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-5[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mspacing scale variables[2m > [22mdefines --space-6[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mno hardcoded colors for themed values[2m > [22mdoes not use hardcoded #e53935 (use var(--danger))[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mdesign tokens[2m > [22mno hardcoded colors for themed values[2m > [22mdoes not use hardcoded #ff9800 (use var(--warning))[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/tokens.test.ts[2m > [22mkeeps session library scale references defined in shared tokens[32m 0[2mms[22m[39m
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mreplays the same review request after a lost response; explicit edits create a distinct request
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'0d058117-60c6-4b18-b7a1-2f947bb340b4'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mreplays the same review request after a lost response; explicit edits create a distinct request
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'8360c6f3-9c3f-4a67-b829-abd3936f8364'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrejects a refreeze that changes the target
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'd585a1a2-9f07-4838-b758-a39cde1e4f6d'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrejects a refreeze that changes the source
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'831b0fca-d91f-4734-8198-2523e006284b'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrejects a refreeze that changes the brief
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'9340f318-75a1-4deb-8ee4-039551698064'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrefuses missing display metadata for included saved content
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'e3fec172-9807-4025-8ce7-a3843e48b090'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrefuses wrong-version display metadata for included saved content
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'043266ee-6c86-4f39-bb40-f28e9a72a1fa'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22m[2mrefuses blank-title display metadata for included saved content
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'c610e806-e0ee-4d87-a7e1-a250d3bc90c0'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mopening a flow performs no read, allocation or confirmation[32m 10[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mresumes the same setup when ordinary picker fields have equivalent key ordering[32m 14[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mreviews and confirms on supported remote HTTP without randomUUID or SubtleCrypto[32m 4[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mreplays the same review request after a lost response; explicit edits create a distinct request[32m 4[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mconfirms only the exact frozen snapshot, ordinary settings and membership revision[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mallows reviewed joining with unavailable capacity without claiming measured readiness[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mkeeps refused capacity unavailable for confirmation[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mkeeps needs_reviewed_summary capacity unavailable for confirmation[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22minvalidates an edited brief immediately and freezes a new object before confirmation[32m 5[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mignores a superseded refreeze response and keeps the latest edit[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mrejects a refreeze that changes the target[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mrejects a refreeze that changes the source[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mrejects a refreeze that changes the brief[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mretries uncertain confirmation with the same operation and never starts a replacement join[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mrechecks a known pending join through its original join ID and fences mismatched receipts[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mrefuses missing display metadata for included saved content[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mrefuses wrong-version display metadata for included saved content[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mrefuses blank-title display metadata for included saved content[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mstarts another fresh intent only after the exact joining receipt becomes linked[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx[2m > [22mretains an uncertain operation when the owner is rerendered and never lends it to another source[32m 2[2mms[22m[39m
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2msaves capture_pending before reading and captured before POST, and retries the exact cloned DTO after reload
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'3eabc7d9-de95-4aba-a344-ef8a8cd82567'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2msaves capture_pending before reading and captured before POST, and retries the exact cloned DTO after reload
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'3eabc7d9-de95-4aba-a344-ef8a8cd82567'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses POST when journal write 2 fails
+[22m[39mSymposium joining failed {
+  code: [32m'joining_capture_failed'[39m,
+  stage: [32m'capture'[39m,
+  requestId: [32m'f8bd91f8-2350-49e6-be4b-bb8e87db47c7'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses captured retry with mismatched group owner
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'74030108-ecf8-4d61-a649-98ddb2fe218a'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses captured retry with mismatched legacy owner
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'4bb2dc7d-cdc3-4804-806f-1b13bbb93cd2'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses captured retry with mismatched source owner
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'05bb8ffe-8e1c-44ba-ac02-6b7c9abfcd55'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses v1 application retries and only explicitly starts fresh while preserving the edited draft
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'783b659f-2498-4483-9664-5e4181cacce2'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mcan repeat a pending observational capture after reload without changing its request ID
+[22m[39mSymposium joining failed {
+  code: [32m'joining_capture_failed'[39m,
+  stage: [32m'capture'[39m,
+  requestId: [32m'9013783d-d0b3-4cc3-a4d8-9d3974b1d959'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mcan repeat a pending observational capture after reload without changing its request ID
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'9013783d-d0b3-4cc3-a4d8-9d3974b1d959'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22m[2mrefuses a capture which changes public setup selectors before any POST
+[22m[39mSymposium joining failed {
+  code: [32m'joining_capture_failed'[39m,
+  stage: [32m'capture'[39m,
+  requestId: [32m'66d29285-b11d-410a-9188-7bb62c1bb8d5'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'ZodError'[39m
+}
+
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mretains the failed review and reports its stage and request reference without leaking the cause[32m 15[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22msaves capture_pending before reading and captured before POST, and retries the exact cloned DTO after reload[32m 11[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mrefuses POST when journal write 1 fails[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mrefuses POST when journal write 2 fails[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mfences capture completion after group changes[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mfences capture completion after legacy changes[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mfences capture completion after source changes[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mfences capture completion after auth changes[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mfences capture completion after base changes[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mrefuses captured retry with mismatched group owner[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mrefuses captured retry with mismatched legacy owner[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mrefuses captured retry with mismatched source owner[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mrefuses v1 application retries and only explicitly starts fresh while preserving the edited draft[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mrequires verified journal adoption before application capture[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mpreserves old-v1 submission and join recovery locks without inventing application intent (join=false)[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mpreserves old-v1 submission and join recovery locks without inventing application intent (join=true)[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mcan repeat a pending observational capture after reload without changing its request ID[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.application.test.tsx[2m > [22mrefuses a capture which changes public setup selectors before any POST[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mhydrates a late owner’s original review journal without network or a fresh request[32m 25[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mhydrates a late owner’s original uncertain journal without network or a fresh request[32m 8[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mhydrates a late owner’s original linked journal without network or a fresh request[32m 4[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22madopts the original review journal once proof arrives after the existing auth event dispatch[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22madopts the original uncertain journal once proof arrives after the existing auth event dispatch[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22madopts the original linked journal once proof arrives after the existing auth event dispatch[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mdoes not clear a corrupt storage block when verified identity or owner availability changes[32m 6[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mnever rebinds an invalidated journal after proof returns for the same login label[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mfails closed on auth storage read errors and does not later clear that block[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mkeeps a competing hook from replacing a newer journal or sending another confirmation[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mwithholds a deferred review result after owner loss/change, then retries the original correlation[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mwithholds a deferred confirm result after owner loss/change, then retries the original correlation[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mwithholds a deferred recover result after owner loss/change, then retries the original correlation[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22maccepts an equivalent same-source owner rerender while a request is pending[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.availability.test.tsx[2m > [22mdoes not retire a linked receipt with a changed linkedFromRevision but accepts allocated-to-linked advancement[32m 2[2mms[22m[39m
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22m[2mreplays a lost review through its original request after remount
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'5bd3b1d5-d4b8-4d02-9144-2be958e899de'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22m[2mrestores an edited brief and exact refreeze request with equivalent setup key ordering
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'7894993c-cda1-4b83-b672-dfd8a3787be9'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22m[2mdoes not restore capacity readiness from a completed retained review
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'46b30370-db2c-43b0-9eba-b92661678b49'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22mpreserves the original confirmation after a lost response and route remount[32m 27[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22mreplays a lost review through its original request after remount[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22mrestores an edited brief and exact refreeze request with equivalent setup key ordering[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22mrecovers the retained join before allowing another confirmation or setup[32m 4[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22mdoes not restore capacity readiness from a completed retained review[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22mcrosses no confirmation boundary when retaining its exact request fails[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22mrequires a fresh server linked receipt before retiring a retained linked join[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22moffers no in-memory joining fallback when an older server supplies no verified session identity[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22mignores a late confirmation receipt after the authenticated login is lost[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.recovery.test.tsx[2m > [22mdoes not recover a known join through a corrupt or replaced retained operation[32m 2[2mms[22m[39m
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22m[2mactual hook refuses changed snapshot receipt after remount while replaying captured input
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'f17d781d-36ed-4e69-b770-6a69764e66a5'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22m[2mactual hook refuses changed source receipt after remount while replaying captured input
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'0b6aa85d-b325-44e2-b2a5-b118423832fc'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+[90mstderr[2m | frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22m[2mactual hook refuses changed settings receipt after remount while replaying captured input
+[22m[39mSymposium joining failed {
+  code: [32m'joining_validation_failed'[39m,
+  stage: [32m'validation'[39m,
+  requestId: [32m'5fe131fd-959b-455e-96bd-29c11ebc2cf9'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mjournal refuses same-request accepted application receipt snapshotId substitution[32m 26[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mjournal refuses same-request accepted application receipt sha256 substitution[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mjournal refuses same-request accepted application receipt source substitution[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mjournal refuses same-request accepted application receipt settings substitution[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mjournal refuses same-request accepted application receipt membership substitution[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mjournal refuses same-request accepted application receipt removed substitution[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mactual hook refuses changed snapshot receipt after remount while replaying captured input[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mactual hook refuses changed source receipt after remount while replaying captured input[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mactual hook refuses changed settings receipt after remount while replaying captured input[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mrefuses pending application POST adoption after group owner change[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mrefuses pending application POST adoption after legacy owner change[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx[2m > [22mrefuses pending application POST adoption after source owner change[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx[2m > [22mprepares the selected repository through the actual picker using its configured claude-sdk account and harness[32m 110[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx[2m > [22mprepares the selected repository through the actual picker using its configured codex account and harness[32m 32[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx[2m > [22mkeeps unsupported responses/local preparation unavailable[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx[2m > [22mkeeps unsupported claude-sdk/openshell preparation unavailable[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx[2m > [22mretains pending repository identity without reporting it as ready for joining[32m 32[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx[2m > [22mretains desktop names and both count rules for 0 participants[32m 60[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx[2m > [22mretains desktop names and both count rules for 1 participants[32m 4[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx[2m > [22mretains desktop names and both count rules for 2 participants[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx[2m > [22mretains desktop names and both count rules for 3 participants[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx[2m > [22mretains desktop names and both count rules for 4 participants[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx[2m > [22mkeeps the second participant and separator in one independently hideable name span[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx[2m > [22mkeeps the wider remaining-participant count beside the displayed names[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx[2m > [22mhides the additional name in the approved 360px conversation container, preserving wider rules[32m 11[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx[2m > [22mretains the original icon-only compact entry with all participants in its accessible name[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-target-intent.test.ts[2m > [22mretains explicit workspace and permission intent before capture and through captured review without inventing proof[32m 14[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-target-intent.test.ts[2m > [22mrefuses captured workspace substitution against explicit retained target intent[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-target-intent.test.ts[2m > [22mrefuses captured permission substitution against explicit retained target intent[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-target-intent.test.ts[2m > [22mkeeps original version1 records without new target intent readable[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-target-intent.test.ts[2m > [22mkeeps original version2 records without new target intent readable[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrequires every production interaction to use shared motion tokens and helpers[33m 538[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: .card { transition: opacity 250ms; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: .card { animation-duration: .2s; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: .card { transition: opacity var(--motion-duration-fast) ease-in-out; }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: element.style.transition = 'opacity 0.2s';[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: const style = { transitionDuration: '250ms' };[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: element.animate([], { duration: 250 });[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mrejects motion outside the shared contract: .card { transition: all var(--motion-duration-fast); }[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/motion-contract.test.ts[2m > [22mmotion contract[2m > [22mallows token-based transitions and sustained status motion[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgents.usability.test.tsx[2m > [22mrepresents unknown sharing as unknown instead of two apparently off checkboxes[32m 88[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgents.usability.test.tsx[2m > [22mexplains missing setup and submits the pinned Default Mitzo after repository preparation[32m 123[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ConversationAgents.usability.test.tsx[2m > [22mkeeps review disabled while repository preparation is pending and exposes permission choices[32m 114[2mms[22m[39m
+[90mstderr[2m | frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22m[2mreplays retained normalized wire through actual hook/journal/client with current connection, no capture reads or invented capacity
+[22m[39mSymposium joining failed {
+  code: [32m'joining_review_failed'[39m,
+  stage: [32m'review'[39m,
+  requestId: [32m'00000000-0000-4000-8000-000000000020'[39m,
+  sourceConversationId: [32m'source-chat'[39m,
+  errorName: [32m'Error'[39m
+}
+
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mcaptures exact public intent using only the typed durable source and current view reads[32m 12[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrequires an existing verified login to construct an owner without performing reads[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mcaptures independent intent before asynchronous read callbacks can mutate the caller draft[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mserializes an independently parsed review clone and performs no capture reads[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mpreserves explicitly supplied brief bytes during capture and review: ""[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mpreserves explicitly supplied brief bytes during capture and review: " \n "[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mreplays the exact old-v2 captured brief "" without reads or replacing its receipt[32m 18[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mreplays the exact old-v2 captured brief " \n " without reads or replacing its receipt[32m 3[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mreviews the pinned built-in Default Mitzo without requiring a saved profile[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses missing repository before any read[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses missing permission before any read[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses missing brief before any read[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses missing account before any read[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses missing agent before any read[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses mismatched source source selection without POST[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses mismatched group source selection without POST[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses mismatched membership source selection without POST[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses mismatched unavailable source selection without POST[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses mismatched selected source selection without POST[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses mismatched duplicate source selection without POST[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mpreserves prior refreeze, object-key equivalence and exact edited strings[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses capture after verified login replacement[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses review after verified login replacement[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses confirm after verified login replacement[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses recover after verified login replacement[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses capture after application base replacement[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses review after application base replacement[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses already-cancelled capture without HTTP effects[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses already-cancelled review without HTTP effects[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses already-cancelled recover without HTTP effects[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrejects stale capture completion after auth despite a transport ignoring the signal[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrejects stale capture completion after base despite a transport ignoring the signal[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrejects stale capture completion after abort despite a transport ignoring the signal[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrejects stale review completion after auth despite a transport ignoring the signal[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrejects stale review completion after base despite a transport ignoring the signal[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrejects stale review completion after abort despite a transport ignoring the signal[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mreplays retained normalized wire through actual hook/journal/client with current connection, no capture reads or invented capacity[32m 4[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mrefuses foreign source and absent current connection before review POST[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mretains exact published custom-profile selection and surfaces actual typed server refusal without tool filtering[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mkeeps the server refusal code and status through the joining hook instead of a generic review failure[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx[2m > [22mdelegates explicit confirmation and recovery to existing typed routes without replacing their unavailable outcome[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/desktop-message-layout.test.ts[2m > [22mlets desktop responses use their pane and wraps long table summaries[32m 51[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-recovery.test.ts[2m > [22mstores public correlation and source fences without retaining reviewed source or native witnesses[32m 15[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-recovery.test.ts[2m > [22mrefuses unknown private metadata instead of persisting a widened replay object[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-recovery.test.ts[2m > [22mrefuses a stale writer after a newer exact review request has been retained[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-recovery.test.ts[2m > [22misolates source conversations and refuses a journal after the verified login changes[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-recovery.test.ts[2m > [22mfails closed on malformed storage without deleting it or permitting a replacement[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-recovery.test.ts[2m > [22misolates the configured application server even for matching session and source IDs[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-recovery.test.ts[2m > [22mrequires a fresh authenticated server check before hydrating retained state after a module reload[32m 19[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/approved-designs.test.ts[2m > [22mretains approved design references, human evidence and runnable regression contracts[32m 16[2mms[22m[39m
+ [2m[90m↓[39m[22m frontend/src/styles/__tests__/approved-designs.test.ts[2m > [22mkeeps earlier approval revisions intact across the PR base
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts[2m > [22mtodo swipe hint occlusion[2m > [22mcovers swipe hints in .todo-card[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts[2m > [22mtodo swipe hint occlusion[2m > [22mcovers swipe hints in .todo-card:hover,
+.todo-card:focus-within[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts[2m > [22mtodo swipe hint occlusion[2m > [22mmatches the desktop Work page background in either theme[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/todo-card.test.ts[2m > [22mtodo swipe hint occlusion[2m > [22mkeeps desktop hover and focus highlights opaque and within the Work palette[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/home-design.test.ts[2m > [22muses shared rhythm and touch-target tokens in the home, quote and nickname patterns[32m 2[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-failure.test.ts[2m > [22mpreserves the safe execution_unavailable refusal without exposing its private exception text[32m 1[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-failure.test.ts[2m > [22mpreserves the safe capacity_refused refusal without exposing its private exception text[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-failure.test.ts[2m > [22mpreserves the safe snapshot_changed refusal without exposing its private exception text[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-failure.test.ts[2m > [22mdoes not expose arbitrary server codes or network exception payloads[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/conversation-joining-failure.test.ts[2m > [22mexplains expired authorization without discarding the original request reference[32m 0[2mms[22m[39m
+ [32m✓[39m frontend/src/styles/__tests__/briefing-dialog.test.ts[2m > [22mcenters the native briefing dialog despite the global reset and stretches long account names[32m 1[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m21 passed[39m[22m[90m (21)[39m
+[2m      Tests [22m [1m[32m280 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (281)[39m
+[2m   Start at [22m 11:46:55
+[2m   Duration [22m 16.19s[2m (transform 1.58s, setup 0ms, import 4.93s, tests 4.00s, environment 5.13s)[22m
+

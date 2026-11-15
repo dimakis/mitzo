@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
@@ -33,6 +34,8 @@ export interface ConversationAgent {
   thinking?: string;
   location?: string;
   state: string;
+  /** Ordinary history destination only; never a runtime/control binding. */
+  historySessionId?: string;
   policy?: { reads: boolean; replies: boolean };
 }
 const defaultAgent = {
@@ -316,6 +319,16 @@ function ConversationAgentsBody({
                         >
                           <UiIcon name="eye" />
                         </button>
+                      )}
+                      {a.historySessionId && (
+                        <Link
+                          className="header-action"
+                          to={`/chat/${encodeURIComponent(a.historySessionId)}`}
+                          aria-label={`Open ${a.name} history`}
+                          onClick={() => setOpen(false)}
+                        >
+                          <UiIcon name="eye" />
+                        </Link>
                       )}
                     </div>
                     <p className="conversation-agent-state">

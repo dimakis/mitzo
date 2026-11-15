@@ -9,6 +9,43 @@ import {
   type CollaborationSourceSetup,
 } from './collaboration-source-setup.js';
 
+/** Retained identity proof only. No availability, membership or authority grant. */
+export function collaborationOrigin(
+  db: Database.Database,
+  group: string,
+  fingerprint: (value: unknown) => string,
+): string | null {
+  const receipt = db
+    .prepare(
+      `SELECT request_id,fingerprint,result FROM collaboration_requests
+    WHERE collaboration_id=? ORDER BY rowid LIMIT 1`,
+    )
+    .get(group) as { request_id: string; fingerprint: string; result: string } | undefined;
+  if (!receipt) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(receipt.result);
+  } catch {
+    return null;
+  }
+  const parsed = SessionCollaborationSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const original = parsed.data;
+  if (
+    original.collaborationId !== group ||
+    original.revision !== 1 ||
+    original.participantSessionIds.length !== 1
+  )
+    return null;
+  const input = CollaborationBeginSchema.safeParse({
+    requestId: receipt.request_id,
+    sessionId: original.participantSessionIds[0],
+  });
+  return input.success && receipt.fingerprint === fingerprint({ kind: 'begin', input: input.data })
+    ? input.data.sessionId
+    : null;
+}
+
 /** Internal composition of the existing relationship/request ledger. No new store.
  * A fresh begin is its first successful request, committed with membership and
  * its exact result in one transaction. Later membership shape is insufficient.
@@ -56,47 +93,21 @@ export function resolveCollaborationSourceSetup(
     const group = rows[0].collaboration_id;
     // The single-column origin index also orders its implicit rowid suffix,
     // bounding this read without scanning every later command/request receipt.
-    const receipt = db
-      .prepare(
-        `SELECT request_id,fingerprint,result FROM collaboration_requests
-      WHERE collaboration_id=? ORDER BY rowid LIMIT 1`,
-      )
-      .get(group) as { request_id: string; fingerprint: string; result: string } | undefined;
-    if (!receipt) return unavailable('origin_unverified');
-    let original: SessionCollaboration;
-    try {
-      original = SessionCollaborationSchema.parse(JSON.parse(receipt.result));
-    } catch {
-      return unavailable('origin_unverified');
-    }
-    if (
-      original.collaborationId !== group ||
-      original.revision !== 1 ||
-      original.participantSessionIds.length !== 1
-    )
-      return unavailable('origin_unverified');
-    const input = CollaborationBeginSchema.safeParse({
-      requestId: receipt.request_id,
-      sessionId: original.participantSessionIds[0],
-    });
-    if (!input.success || receipt.fingerprint !== fingerprint({ kind: 'begin', input: input.data }))
-      return unavailable('origin_unverified');
+    const origin = collaborationOrigin(db, group, fingerprint);
+    if (!origin) return unavailable('origin_unverified');
     const collaboration = owners.membership(group);
     if (
       !collaboration?.participantSessionIds.includes(sourceConversationId) ||
-      !collaboration.participantSessionIds.includes(input.data.sessionId)
+      !collaboration.participantSessionIds.includes(origin)
     )
       return unavailable('origin_unverified');
-    if (input.data.sessionId !== sourceConversationId) {
-      if (
-        !owners.available(input.data.sessionId) ||
-        !owners.linkedHistory(group, sourceConversationId)
-      )
+    if (origin !== sourceConversationId) {
+      if (!owners.available(origin) || !owners.linkedHistory(group, sourceConversationId))
         return unavailable('foreign_origin');
       return CollaborationSourceSetupSchema.parse({
         state: 'participant_history',
         sourceConversationId,
-        originalConversationId: input.data.sessionId,
+        originalConversationId: origin,
         collaboration,
       });
     }
