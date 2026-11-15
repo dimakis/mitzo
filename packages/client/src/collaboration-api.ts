@@ -172,7 +172,7 @@ export class CollaborationApiClient {
       CollaborationSourceSetupSchema.refine(
         (value) =>
           value.sourceConversationId === query.sourceConversationId &&
-          (value.state !== 'selected' ||
+          ((value.state !== 'selected' && value.state !== 'participant_history') ||
             value.collaboration.participantSessionIds.includes(query.sourceConversationId)),
         'Collaboration source setup identity changed',
       ),

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CollaborationApiError,
   applyCollaborationEvents,
-  createCollaborationProjection,
+  refreshCollaborationProjection,
   type CollaborationApiClient,
   type CollaborationProjection,
 } from '@mitzo/client';
@@ -211,7 +211,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
             throw new Error(
               'The conversation refresh does not match its current scope and cursor.',
             );
-          projection = createCollaborationProjection(view);
+          projection = await refreshCollaborationProjection(api, view, starting, abort.signal);
         }
         if (!fresh()) return;
         if (!projection.needsRefresh) reconcile(projection.view);

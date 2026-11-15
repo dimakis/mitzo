@@ -75,6 +75,7 @@ interface Owners {
   beginMembership(id: string, sourceSessionId: string): SessionCollaboration;
   available(sessionId: string): boolean;
   sourceSetupAvailable(sessionId: string): boolean;
+  ordinaryHistoryAvailable(sessionId: string): boolean;
   settings(sessionId: string): CollaborationSettings | undefined;
   /** Existing ordinary preparation/first-command owners supply this proof, never the client. */
   allocation(operationId: string):
@@ -282,7 +283,9 @@ export class CollaborationConversationStore {
       sourceConversationId,
       {
         available: this.owners.sourceSetupAvailable,
+        ordinaryHistory: this.owners.ordinaryHistoryAvailable,
         membership: this.owners.membership,
+        linkedHistory: (group, sessionId) => !!this.getLinkedJoinForSession(group, sessionId),
       },
       sha,
     );

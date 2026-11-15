@@ -53,12 +53,18 @@ export function collaborationOrigin(
 export function resolveCollaborationSourceSetup(
   db: Database.Database,
   rawSource: string,
-  owners: { available(id: string): boolean; membership(id: string): SessionCollaboration | null },
+  owners: {
+    available(id: string): boolean;
+    ordinaryHistory(id: string): boolean;
+    membership(id: string): SessionCollaboration | null;
+    linkedHistory(group: string, sessionId: string): boolean;
+  },
   fingerprint: (value: unknown) => string,
 ): CollaborationSourceSetup {
   const sourceConversationId = CollaborationBeginSchema.shape.sessionId.parse(rawSource);
   return db.transaction(() => {
-    if (!owners.available(sourceConversationId))
+    const ordinaryHistory = owners.ordinaryHistory(sourceConversationId);
+    if (!owners.available(sourceConversationId) && !ordinaryHistory)
       throw new CollaborationContractError('unavailable_recipient');
     const rows = db
       .prepare(
@@ -73,6 +79,14 @@ export function resolveCollaborationSourceSetup(
       reason: 'multiple_associations' | 'origin_unverified' | 'foreign_origin',
     ) =>
       CollaborationSourceSetupSchema.parse({ state: 'unavailable', sourceConversationId, reason });
+    if (ordinaryHistory)
+      return rows.length
+        ? unavailable('origin_unverified')
+        : CollaborationSourceSetupSchema.parse({
+            state: 'ordinary_history',
+            sourceConversationId,
+            reason: 'external_import',
+          });
     if (!rows.length)
       return CollaborationSourceSetupSchema.parse({ state: 'unstarted', sourceConversationId });
     if (rows.length !== 1) return unavailable('multiple_associations');
@@ -81,10 +95,22 @@ export function resolveCollaborationSourceSetup(
     // bounding this read without scanning every later command/request receipt.
     const origin = collaborationOrigin(db, group, fingerprint);
     if (!origin) return unavailable('origin_unverified');
-    if (origin !== sourceConversationId) return unavailable('foreign_origin');
     const collaboration = owners.membership(group);
-    if (!collaboration?.participantSessionIds.includes(sourceConversationId))
+    if (
+      !collaboration?.participantSessionIds.includes(sourceConversationId) ||
+      !collaboration.participantSessionIds.includes(origin)
+    )
       return unavailable('origin_unverified');
+    if (origin !== sourceConversationId) {
+      if (!owners.available(origin) || !owners.linkedHistory(group, sourceConversationId))
+        return unavailable('foreign_origin');
+      return CollaborationSourceSetupSchema.parse({
+        state: 'participant_history',
+        sourceConversationId,
+        originalConversationId: origin,
+        collaboration,
+      });
+    }
     return CollaborationSourceSetupSchema.parse({
       state: 'selected',
       sourceConversationId,

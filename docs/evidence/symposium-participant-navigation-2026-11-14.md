@@ -222,3 +222,43 @@ locally under `v1.0.1182-symposium-provider-fixture-phases`, preserving all 2,48
 registration entries and every other fingerprint. The preceding 769 checks
 remain evidence for the unchanged production source; fresh full CI and a final
 exact-head Centaur integration/fixture follow-up remain mandatory.
+
+## Accepted conversation source composition (15 November)
+
+The coordinator subsequently released #1356 first. Its accepted main commit is
+`4bc83d18f24bb14f24b7c190a32c2a4fa0834963`, with reviewed tree
+`4558e4b25231f58b816e311ed0f777bfc3a372cd`. This supersedes the earlier proposed
+landing order: #1356 is accepted source, #1354 remains the navigation candidate,
+and #1355 must retain only its residual harness/evidence after reconciliation.
+#1347's separate setup/phone scope is still required and is not absorbed here.
+
+Composition retains the accepted transcript/composer and source-name hook. The
+Agents wrapper adds only raw participant activity and original history links.
+The shared `collaborationOrigin` helper preserves earliest-request, revision-one
+singleton and canonical begin-fingerprint proof. Source setup retains its
+transaction, zero-association ordinary-history rule, current source and origin
+membership, origin availability and linked-history qualification. The helper
+grants no access or control authority. Slice 1 reviewed these exact working-file
+resolutions in message `b15f4fa8-6ee2-409c-9d3d-3ebadf9dd8e3` and found no
+blocker in this narrow identity/Agents composition; that is not final-head review.
+
+Own combined validation passes 814 tests in 36 suites, including actual persisted
+navigation/search adapters, canonical/corrupt/legacy/multiple/hidden/unlinked and
+removed-member source cases, ordinary/shared application composition and SDK
+recovery, access controls and skill boundaries. Approved-design guards pass
+109 tests with one existing skip. Protocol/harness/client compilation, focused
+lint, formatting and whitespace checks pass. The registry preserves the exact
+2,503-entry parent union under `v1.0.1184-symposium-source-composition` with
+final-byte fingerprints. No device or live-provider acceptance is claimed.
+
+CI `43659122643` at prior head `43d924ba6277b50b78bbdab7eeb8cb933cba3ca8`
+has a distinct unit-shard failure, job `132645589855`: retained-tail pause at
+line 1709 in Vertex default and personal default/explicit, and first pause at
+line 1299 in Vertex explicit. These waits observed an undefined release function;
+the prior queued line-1583 terminal failure is absent. The shard reports 516
+other files and 7,352 tests passed, seven files and 50 tests skipped. Its artifact
+`14139534455` has SHA256
+`9dd241c027fa0acbe2fb6d9241b8edbb9b1e46ef20e87b08efd07e68a3924820`.
+The exact source/errors were handed to the existing shared-fixture owner for a
+minimal attributable successor; matching locations do not prove hosted cause.
+No duplicate fixture implementation or unchanged-head CI retry was performed.
