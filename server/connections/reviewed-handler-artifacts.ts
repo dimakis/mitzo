@@ -22,12 +22,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/claude-sdk-schema-registration.test.ts':
+    'c408d6258528a76a49b48bb52ce3cee68edcd43fd8d987a982918c17d317301b',
   '../claude-startup-context.ts':
     'a00e298d05ffe14d0332ad1892197a91e70003dbcdaf691c6251dbc22a8fd5e1',
   '../__tests__/claude-startup-context.test.ts':
     'ef9a5ed33d3f8a814bcad92e55d7681c0dbfdeca61eb9df7f5d59960bac5a5f6',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    'b29243ee1027538cab7317f45bd9ab3075fefe9614cf53e96a70e815363138d9',
+    '88e611a851189547d80591dbd38a96efa6f40fa9d2d8a962690586cc5a719832',
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../frontend/src/components/LocalCommandRecovery.tsx':
@@ -2756,7 +2758,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/google-workspace-read.test.ts':
     '8e895932678529f13d8d7f0c7101c33f2f7a2c14f95c9ca9d34c720f5f275786',
   '../__tests__/google-workspace-sdk.test.ts':
-    'ec161b75d71383e94fdf15f7440046eb20f121e7fdf46b6a92c34dd704682fa1',
+    '93b864278b9edc9692c647f9873873a994e0568700a87d99d865296c48066ef0',
   '../__tests__/historical-task-failure-evidence.test.ts':
     '01696f44c26c035cee508719ca0089b346c76063de2e83e9d840b2a74ff16e17',
   '../__tests__/host-codex-custody.test.ts':

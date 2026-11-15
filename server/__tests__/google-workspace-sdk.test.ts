@@ -167,6 +167,62 @@ it('keeps an excluded Google tool unavailable', async () => {
   await expect(f.read()).rejects.toThrow(/Method not found/);
   expect(f.google.exportCredentials).not.toHaveBeenCalled();
 });
+it.each([
+  { operation: 'drive.list', pageSize: '7' },
+  { operation: 'calendar.list', maxResults: 101 },
+  { operation: 'sheets.get', spreadsheetId: 'sheet', ranges: 'A1' },
+])('rejects invalid advertised types/ranges before credential preparation: %j', async (input) => {
+  const f = await fixture();
+  const result = await f.read(input);
+  expect(result.isError).toBe(true);
+  expect(JSON.stringify(result.content)).toContain('validation');
+  expect(f.google.exportCredentials).not.toHaveBeenCalled();
+  expect(f.google.readRequest).not.toHaveBeenCalled();
+});
+
+it.each(['deny', 'expire', 'cancel'] as const)(
+  'distinguishes Google approval %s from argument validation',
+  async (decision) => {
+    const f = await fixture();
+    f.session.mode = 'agent';
+    const cards: Record<string, unknown>[] = [];
+    f.session.transport = {
+      isOpen: () => true,
+      send(event: Record<string, unknown>) {
+        if (event.type !== 'permission_request') return;
+        cards.push(event);
+        queueMicrotask(() => {
+          if (decision === 'cancel') {
+            f.session.abortController.abort();
+            return;
+          }
+          const clock =
+            decision === 'expire'
+              ? vi.spyOn(Date, 'now').mockReturnValue(Number(event.expiresAt) + 1)
+              : undefined;
+          try {
+            resolvePending(String(event.permId), decision === 'deny' ? 'deny' : 'once');
+          } finally {
+            clock?.mockRestore();
+          }
+        });
+      },
+    } as never;
+    const result = await f.read({ operation: 'drive.list', pageSize: 7 });
+    expect(result.isError).toBe(true);
+    const text = JSON.stringify(result.content);
+    expect(text).not.toContain('invalid_input');
+    expect(text).toMatch(
+      decision === 'expire'
+        ? /approval_expired/
+        : decision === 'cancel'
+          ? /cancelled|aborted/
+          : /denied/,
+    );
+    expect(cards).toHaveLength(1);
+    expect(f.google.readRequest).not.toHaveBeenCalled();
+  },
+);
 it.each(['retired', 'cancelled', 'skill', 'invalid'] as const)(
   'prevents Google effects after %s',
   async (reason) => {

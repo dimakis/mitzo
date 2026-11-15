@@ -112,8 +112,10 @@ async function fixture(personal: boolean) {
   });
   const chat = await import('../chat.js');
   const tasks: Promise<void>[] = [];
-  let currentCommand = f.request.clientMsgId;
-  let reopen!: (selection: typeof f.request.selection) => Promise<void>;
+  let currentCommand: string = f.request.clientMsgId;
+  let reopen!: (
+    selection: import('@mitzo/protocol').OrdinaryLocalCommandAdmission['selection'],
+  ) => Promise<void>;
   let push!: (...args: unknown[]) => void;
   const dispatch = async (selected: OrdinaryLocalVertexOwnedDispatch) => {
     currentCommand = selected.commandId;
@@ -280,7 +282,11 @@ it.each([false, true])(
       x.calls[1].canUseTool!(
         'Read',
         { file_path: join(x.f.reserved.directory!, 'task.txt') },
-        { signal: new AbortController().signal, toolUseID: 'revoked-publication' },
+        {
+          signal: new AbortController().signal,
+          toolUseID: 'revoked-publication',
+          requestId: 'revoked-publication',
+        },
       ),
     ).resolves.toMatchObject({ behavior: 'deny' });
     expect(session.abortController.signal.aborted).toBe(true);
