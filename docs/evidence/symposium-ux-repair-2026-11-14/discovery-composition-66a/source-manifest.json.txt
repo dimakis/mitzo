@@ -1,0 +1,185 @@
+{
+  "repository": "dimakis/mitzo",
+  "pullRequest": 1345,
+  "sourceOwner": "1428dc32-6bd9-8974-949a-a60fd1eced22",
+  "recipientOwner": "eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f",
+  "base": "bbf0c17ef917897ef6d7cf236fc08b0b6f7bbd3a",
+  "head": "66a120203ec4dde80adc744afacd11235cdbd8cb",
+  "tree": "33dc85bc68a0d2ebf114fcac87308e79b81dae1f",
+  "sourceCommits": [
+    {
+      "commit": "ce175f4bea3580c4d8089dbc2da7cc5a7993ca4a",
+      "authorName": "Dimitri Saridakis",
+      "authorEmail": "28638411+dimakis@users.noreply.github.com",
+      "authorDate": "2026-11-15T05:32:10Z",
+      "subject": "fix(repository): bound signed discovery across shared query observations"
+    },
+    {
+      "commit": "66a120203ec4dde80adc744afacd11235cdbd8cb",
+      "authorName": "Dimitri Saridakis",
+      "authorEmail": "28638411+dimakis@users.noreply.github.com",
+      "authorDate": "2026-11-15T11:46:24Z",
+      "subject": "fix(tests): type signed repository observation fixtures"
+    }
+  ],
+  "files": [
+    {
+      "path": "server/local-repository-discovery.ts",
+      "preimage": {
+        "blob": "8a80cc451414b8f87e9d044c1111cf16d2a4f37a",
+        "sha256": "c3d0bc7ecc2c1838e11666f72681a4d9f1fb2f3adfa701356af6a06551ca9c43"
+      },
+      "postimage": {
+        "blob": "e3e5a99a2175449ff19c1104a19a685337c8564c",
+        "sha256": "855e7062efb2e50941b00e613f7a8dece9cad8b11dbde0a294cb2437c6b51e35"
+      }
+    },
+    {
+      "path": "server/local-repository-read-access.ts",
+      "preimage": {
+        "blob": "f01a0345f588bc3104ec68b7f2c439f911e51e41",
+        "sha256": "0295d5dc7788572436def51776817d0626b7fc76a19b3b52f576fc4a4f094d56"
+      },
+      "postimage": {
+        "blob": "6aa5fc1785a1a67a2c195ad7512f05158181c434",
+        "sha256": "db5eb23c45d31370641b4270f48e96c730c736fac9c85d85b8c63e422c2780a3"
+      }
+    },
+    {
+      "path": "server/native-repository-observation.ts",
+      "preimage": {
+        "blob": "98a059769e85fe315b25b49f0bed0ed74ad611cb",
+        "sha256": "58ec9d20c3f5170b45fc6deca601a91f29d2083627e570c9fbf80311d392d396"
+      },
+      "postimage": {
+        "blob": "b5f499d7d37ebf50ed0ec83a6ac16c15ed1a66b4",
+        "sha256": "ea1ef213b47231b209431d80fd7f107f203da45ab6e7dff6334376f4b5049f41"
+      }
+    },
+    {
+      "path": "server/local-repository-native-reader.ts",
+      "preimage": {
+        "blob": "beede253e9c4954e1d5e3ae4b31bbe6c0e24b7a5",
+        "sha256": "61c449f72529bf66f5f6e6d24b709af1cfefb20c9beb659ac2849608ecf9889b"
+      },
+      "postimage": {
+        "blob": "f383633630621c69bdbe3ba89f474b3ffe8c4f73",
+        "sha256": "2869b1949df77de0214ef6fcaf69dbcc4479f9906e8970993ace15087183f594"
+      }
+    },
+    {
+      "path": "server/__tests__/local-repository-discovery.test.ts",
+      "preimage": {
+        "blob": "060e754ab7eb70ef7bf9819b0486bbeca79da5cf",
+        "sha256": "823fe1c5b5c9a82be1b492283d136d82b90341d70ceac2c5761805fbf2673d55"
+      },
+      "postimage": {
+        "blob": "6af73eaa1407b5b0eb1667ae7afec6aa04da40a5",
+        "sha256": "34859bb7cade377c99880478feb99c0c3cd45c540ec13a33266d4c99053bd008"
+      }
+    },
+    {
+      "path": "server/__tests__/local-repository-initial-directory-batch.test.ts",
+      "preimage": {
+        "blob": "14fa8d6222ffce00c19dec2d5a13eeb1ad595cbe",
+        "sha256": "0b4359329a52ff0878bef702eb3748cab2288502fbe6f55ed68c2b57040e95e1"
+      },
+      "postimage": {
+        "blob": "7509088a80ac1ebcd75add8e3ed4ea48860b2515",
+        "sha256": "70c9dc6236d54341f33cdf8b5cdc455242ee9684b6f970a8900af596427383ae"
+      }
+    },
+    {
+      "path": "server/__tests__/native-local-repository-read-tools.test.ts",
+      "preimage": {
+        "blob": "6df69023e9b97a76c8900a2b910783594012cede",
+        "sha256": "674d5e59965c02f881dfd04c056db496ed564710b1ead2f001335e03b110e505"
+      },
+      "postimage": {
+        "blob": "88b641efc307b4d0a7de5e835392d0d4c61ba52d",
+        "sha256": "0298f4c3f2b7b8bdfcb706efe71e06f39339b43e3a334f2c04e83147cf175c8d"
+      }
+    },
+    {
+      "path": "server/__tests__/native-repository-observation.test.ts",
+      "preimage": {
+        "blob": "e32bcd5547273270159bd2cfe8c9c16f203a7fb5",
+        "sha256": "39d03298ac2209e3c57d902b65a343d15c1dc78665bd39f9989b76d604a1e8c1"
+      },
+      "postimage": {
+        "blob": "970b36f767826296d10ad78fa54ce53d4a7d59ca",
+        "sha256": "d28941b6c375ee1d4233c3f238d5c5ad17e1d798740a9fb72d38486fd84f43af"
+      }
+    }
+  ],
+  "patches": {
+    "production.patch": {
+      "sha256": "47638638d85223910818584a8a06c64d5b3ea85af706829b7a48322c9cded08c",
+      "bytes": 35513,
+      "files": [
+        "server/local-repository-discovery.ts",
+        "server/local-repository-read-access.ts",
+        "server/native-repository-observation.ts",
+        "server/local-repository-native-reader.ts"
+      ]
+    },
+    "tests.patch": {
+      "sha256": "a0021dcbeef91c56525a32b1572bff844d525822505cc01abb89e6296ec223bc",
+      "bytes": 29007,
+      "files": [
+        "server/__tests__/local-repository-discovery.test.ts",
+        "server/__tests__/local-repository-initial-directory-batch.test.ts",
+        "server/__tests__/native-local-repository-read-tools.test.ts",
+        "server/__tests__/native-repository-observation.test.ts"
+      ]
+    },
+    "combined.patch": {
+      "sha256": "0f0384953c105e1b4b494d066a7688a3c6a89ea283d2dca90b32797593a2ac79",
+      "bytes": 64520,
+      "files": [
+        "server/local-repository-discovery.ts",
+        "server/local-repository-read-access.ts",
+        "server/native-repository-observation.ts",
+        "server/local-repository-native-reader.ts",
+        "server/__tests__/local-repository-discovery.test.ts",
+        "server/__tests__/local-repository-initial-directory-batch.test.ts",
+        "server/__tests__/native-local-repository-read-tools.test.ts",
+        "server/__tests__/native-repository-observation.test.ts"
+      ]
+    }
+  },
+  "evidenceLogs": [
+    {
+      "path": ".pr1345-observation-aggregate-qualified.log",
+      "sha256": "cc01aa5bfa89a4d639106e512039f2d463e1d28c1fa097ec1d65115cf3cca1c4"
+    },
+    {
+      "path": ".pr1345-native-reader-aggregate-final.log",
+      "sha256": "9a0b36df1ab0595374a0f467ff6cb2ee0354c4426af2d351d039e686a0727150"
+    },
+    {
+      "path": ".pr1345-query-budget-consumers.log",
+      "sha256": "5fd27d641c6d682768890187f6d98a21123a3aa737c9c48aeae13e8a390e808b"
+    },
+    {
+      "path": ".pr1345-aggregate-canonical-owners-final.log",
+      "sha256": "2c3d8827e4ac56dbcbbdc4b97e375132e50c177e9c5c184408a6c4b88c1c2119"
+    },
+    {
+      "path": ".pr1345-bbf-native-composed.log",
+      "sha256": "ba7287de2439c1ea6b3c36208028655511abde290b3cf7ca5ded0b6245e6a30f"
+    },
+    {
+      "path": ".pr1345-fixture-typecheck.log",
+      "sha256": "5847a0038035e755444d9f546f9989884c8da766a8f575141d61b6c108a80da9"
+    },
+    {
+      "path": ".pr1345-fixture-type-native.log",
+      "sha256": "07319ae38ec76a4c1e4ba8bce17913271e01a79da338b3bc820d3cd658b96644"
+    },
+    {
+      "path": ".pr1345-fixture-type-discovery.log",
+      "sha256": "34522838bc44f9d122e3b030d302b0b0f4414fe6c63aa0a9a0aedcdda4f3d800"
+    }
+  ]
+}

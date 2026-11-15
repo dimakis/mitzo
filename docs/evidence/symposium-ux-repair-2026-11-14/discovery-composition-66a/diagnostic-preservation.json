@@ -1,0 +1,7 @@
+{
+  "head": "2e9edea965896e42dc23977e0d80e40621aedaf0",
+  "originalDiagnosticPatchSha256": "5cee44eb1766ff7005ace7aaa0eefd797666900f9cd9339fe48710f79d81b45b",
+  "readerSourceDeltaOnly": "9 observation callback/limit lines; reverse restores exact0a375e71",
+  "otherFourDiagnosticFiles": "byte identical to reviewed HEAD",
+  "composedReaderSha256": "b9bb8e2ed0b06722384b35bb987e45712fe8f5cef18113ed25160683f2acb467"
+}

@@ -1,0 +1,51 @@
+{
+  "sourceKeyCount": 2516,
+  "revision": "v1.0.1197-symposium-discovery-composition",
+  "files": [
+    {
+      "path": "server/local-repository-discovery.ts",
+      "pin": "../local-repository-discovery.ts",
+      "sha256": "855e7062efb2e50941b00e613f7a8dece9cad8b11dbde0a294cb2437c6b51e35"
+    },
+    {
+      "path": "server/local-repository-read-access.ts",
+      "pin": "../local-repository-read-access.ts",
+      "sha256": "db5eb23c45d31370641b4270f48e96c730c736fac9c85d85b8c63e422c2780a3"
+    },
+    {
+      "path": "server/native-repository-observation.ts",
+      "pin": "../native-repository-observation.ts",
+      "sha256": "ea1ef213b47231b209431d80fd7f107f203da45ab6e7dff6334376f4b5049f41"
+    },
+    {
+      "path": "server/local-repository-native-reader.ts",
+      "pin": "../local-repository-native-reader.ts",
+      "sha256": "b9bb8e2ed0b06722384b35bb987e45712fe8f5cef18113ed25160683f2acb467"
+    },
+    {
+      "path": "server/__tests__/local-repository-discovery.test.ts",
+      "pin": "../__tests__/local-repository-discovery.test.ts",
+      "sha256": "34859bb7cade377c99880478feb99c0c3cd45c540ec13a33266d4c99053bd008"
+    },
+    {
+      "path": "server/__tests__/local-repository-initial-directory-batch.test.ts",
+      "pin": "../__tests__/local-repository-initial-directory-batch.test.ts",
+      "sha256": "70c9dc6236d54341f33cdf8b5cdc455242ee9684b6f970a8900af596427383ae"
+    },
+    {
+      "path": "server/__tests__/native-local-repository-read-tools.test.ts",
+      "pin": "../__tests__/native-local-repository-read-tools.test.ts",
+      "sha256": "0298f4c3f2b7b8bdfcb706efe71e06f39339b43e3a334f2c04e83147cf175c8d"
+    },
+    {
+      "path": "server/__tests__/native-repository-observation.test.ts",
+      "pin": "../__tests__/native-repository-observation.test.ts",
+      "sha256": "d28941b6c375ee1d4233c3f238d5c5ad17e1d798740a9fb72d38486fd84f43af"
+    },
+    {
+      "path": "tests/integration/claude-multi-device.test.ts",
+      "pin": "../../tests/integration/claude-multi-device.test.ts",
+      "sha256": "c82e6225fb026a70305c377e8fa1db3805091b11531960677d4cf81148ab39d7"
+    }
+  ]
+}

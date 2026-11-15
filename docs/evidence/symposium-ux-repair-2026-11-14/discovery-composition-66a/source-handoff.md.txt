@@ -1,0 +1,82 @@
+# Minimal attributed signed-discovery handoff
+
+Source: existing dimakis/mitzo #1345, owner conversation
+`1428dc32-6bd9-8974-949a-a60fd1eced22`. Recipient remains existing #1355 owner
+`eed1a903-d6f2-8f8d-bfc6-e489e8fecd7f`. Coordinator request `d60a6977` records
+the recipient's read-only comparison `88688cb0`; this packet grants no execution,
+adoption, branch, publication or merge authority.
+
+## Exact source and content
+
+Accepted preimage `bbf0c17ef917897ef6d7cf236fc08b0b6f7bbd3a` to published source
+`66a120203ec4dde80adc744afacd11235cdbd8cb`, tree
+`33dc85bc68a0d2ebf114fcac87308e79b81dae1f`.
+
+`manifest.json` records every full Git blob identity and raw SHA256 before/after,
+patch hashes, original commit author/date/subject and retained evidence-log hashes.
+The four production changes originate in `ce175f4b`; the three test-source type
+corrections originate in `66a12020`. Preserve that attribution when composing.
+
+- `production.patch`: four canonical production owners only; SHA256
+  `47638638d85223910818584a8a06c64d5b3ea85af706829b7a48322c9cded08c`.
+- `tests.patch`: four supporting existing test files, including the required
+  private-budget compatibility and final type corrections; SHA256
+  `a0021dcbeef91c56525a32b1572bff844d525822505cc01abb89e6296ec223bc`.
+- `combined.patch`: the same eight files together; SHA256
+  `0f0384953c105e1b4b494d066a7688a3c6a89ea283d2dca90b32797593a2ac79`.
+
+No Telos overview/peer/permission code, foreign registry, unrelated fixture,
+materializer or object-data correction is included. Regenerate only the
+recipient's actual adopted pins while preserving its complete registry.
+
+## Required composition boundary
+
+The source native-reader preimage is Git blob
+`beede253e9c4954e1d5e3ae4b31bbe6c0e24b7a5`, not the recipient's separately reviewed
+diagnostic blob `0a375e7181164321dae8a06e02c683981fc1d9d8`. Preserve its cause/check
+retention, refusal parsing, sanitized projection and original-operation settlement.
+Our native-reader hunks only forward narrowed observation limits and charge the
+shared query reservation synchronously before native observation retention.
+Compare the recipient's actual current bytes; do not overwrite its whole file.
+
+The complete correction retains original reader/receiver/authority/denials,
+fresh same-owner candidate contexts sharing the query's 64MiB byte-plus-in-flight
+and 100000-entry bounds, the original absolute parent deadline, full-scan
+ambiguity and final verification of every retained context. Native retained
+captures remain charged after later refusal; only joined unretained reservations
+are released. Generic/preload reservations span awaits. Producer/parser limits
+narrow defaults before corresponding allocation/entry retention. No early unique
+selection, refusal fallback, authority cloning or policy expansion is allowed.
+Raw JSON allocation and the original physical helper deadline remain unchanged.
+
+Recipient owns its composition and tests. SAME scoped reviewer `059e312d` must
+assess the exact composed bytes before adoption/publication qualification; this
+handoff is not that assessment or a request for another full review.
+
+## Evidence and limits
+
+Scoped terminal review `dc96df89` resolved DISC-AGG-01; compatibility `743869bc`
+and published binding `549775af` retained the correction. Final test-type review
+`ee0b874b` and published successor binding `987179ac` verify all eight actual file
+pins and the unchanged four production hashes. Those receipts cover #1345's
+published source, not the recipient's composed bytes or hosted acceptance.
+
+Retained logs alongside the packet's parent directory (hashes in the manifest):
+23 observation checks/20.29s, 17 signed-reader checks plus one existing disabled
+diagnostic/35.85s, 11 consumer/fence checks/48.88s, and 63 canonical budget/batch/
+ceiling/cache checks/6.93s. Post-bbf composition: 103 checks/62.75s, one existing
+disabled diagnostic. Final type correction: three-source semantic check PASS,
+40 native checks plus one existing disabled diagnostic/55.84s and six signed
+discovery controls/34.34s with 23 deliberately filtered. Counts overlap; do not
+sum them. The earlier attempted full29 discovery run remains incomplete.
+
+Source CI `43710552574` preflight `132800946503` passed full server/test-source
+TypeScript and source checks. Remaining CI and current-head trusted review were
+still running at handoff; no final acceptance or merge claim is made.
+
+The original hosted discovery cause remains unlogged/unproved; source contract
+relevance does not prove causal equivalence. Separate preparation call
+`0e2cc6b0-8d5b-48d7-92aa-051826a46500`, diagnostic
+`98873846-65c5-47d6-83d0-66eaa4fa2436` remains UNKNOWN and unreplayed. This package
+does not claim to fix that operation or authorize its replay, object-data edits,
+deadline increases, production writes or deployment.

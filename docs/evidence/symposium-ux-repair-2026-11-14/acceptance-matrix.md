@@ -6,6 +6,18 @@ Actual accepted mainbbf0c17ef917897ef6d7cf236fc08b0b6f7bbd3a includes
 standalone #1354/#1356. The residual integration preserves the independent
 harness/evidence and exact reviewed five-file native diagnostics; no frontend
 production delta remains. [Composition and source custody](accepted-main-bbf-integration.md).
+The subsequent [reviewed native discovery composition](discovery-composition-66a/README.md)
+preserves those diagnostic hunks while adding only the existing owner's bounded
+four-file discovery correction and required tests. The separate
+[device diagnostic contribution](device403-diagnostic-handoff.md) changes only
+the failure message of the same queued202 assertion; neither original hosted
+cause nor the materializer unknown operation is declared fixed.
+
+After these two scoped contributions, the complete composed tree again passes
+the same21 ordinary checks in95.39s. [Final local log and exact source proof](discovery-composition-66a/README.md)
+supersede the earlier100.66s integration-only log below for current local source.
+The same native review binds93 aggregate/diagnostic,6 signed positive and8 signed
+negative selections separately; counts are not added to historical totals.
 
 | Current case                                                                                                                                                                                | Observed result                                                 | Exact test/artifact and boundary                                                                                                                                                                                   |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

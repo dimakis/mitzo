@@ -1,0 +1,42 @@
+[
+  {
+    "path": "server/local-repository-discovery.ts",
+    "currentBlob": "8a80cc451414b8f87e9d044c1111cf16d2a4f37a",
+    "matchesPacketPreimage": true
+  },
+  {
+    "path": "server/local-repository-read-access.ts",
+    "currentBlob": "f01a0345f588bc3104ec68b7f2c439f911e51e41",
+    "matchesPacketPreimage": true
+  },
+  {
+    "path": "server/native-repository-observation.ts",
+    "currentBlob": "98a059769e85fe315b25b49f0bed0ed74ad611cb",
+    "matchesPacketPreimage": true
+  },
+  {
+    "path": "server/local-repository-native-reader.ts",
+    "currentBlob": "0a375e7181164321dae8a06e02c683981fc1d9d8",
+    "matchesPacketPreimage": false
+  },
+  {
+    "path": "server/__tests__/local-repository-discovery.test.ts",
+    "currentBlob": "060e754ab7eb70ef7bf9819b0486bbeca79da5cf",
+    "matchesPacketPreimage": true
+  },
+  {
+    "path": "server/__tests__/local-repository-initial-directory-batch.test.ts",
+    "currentBlob": "14fa8d6222ffce00c19dec2d5a13eeb1ad595cbe",
+    "matchesPacketPreimage": true
+  },
+  {
+    "path": "server/__tests__/native-local-repository-read-tools.test.ts",
+    "currentBlob": "6df69023e9b97a76c8900a2b910783594012cede",
+    "matchesPacketPreimage": true
+  },
+  {
+    "path": "server/__tests__/native-repository-observation.test.ts",
+    "currentBlob": "e32bcd5547273270159bd2cfe8c9c16f203a7fb5",
+    "matchesPacketPreimage": true
+  }
+]

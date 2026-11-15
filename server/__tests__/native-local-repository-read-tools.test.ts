@@ -302,6 +302,29 @@ async function signedReadPositive(
       );
     }
     expect(original?.nativeBaseReadScope).toBeDefined();
+    if (pathCase === 'query') {
+      // The name scan must qualify the candidate through the same bounded
+      // physical observation as explicit discovery, without widening scope.
+      const requests = runs.map((run) => {
+        if (!('requestJson' in run) || typeof run.requestJson !== 'string')
+          throw Error('Expected a private repository observation request');
+        return JSON.parse(run.requestJson);
+      });
+      const captures = requests.filter((run) => run.operation === 'CaptureRepositoryObservation');
+      expect(captures).toHaveLength(1);
+      expect(captures[0].repositoryPlan).toMatchObject({
+        mode: 'discovery',
+        sourcePath: source,
+        readableRoots: [source],
+        deniedRoots: original!.nativeBaseReadScope!.deniedRoots,
+      });
+      expect(requests.filter((run) => run.operation === 'VerifyRepositoryObservation')).toEqual([
+        expect.objectContaining({ repositoryPlan: captures[0].repositoryPlan }),
+      ]);
+      expect(runs.every((run) => typeof run.timeoutMs === 'number' && run.timeoutMs <= 15000)).toBe(
+        true,
+      );
+    }
     expect(runs.length).toBeGreaterThan(0);
     for (const scratch of new Set(runs.map((r) => r.cwd)))
       await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });

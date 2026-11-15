@@ -1,0 +1,1527 @@
+diff --git a/server/__tests__/local-repository-discovery.test.ts b/server/__tests__/local-repository-discovery.test.ts
+index 060e754ab..6af73eaa1 100644
+--- a/server/__tests__/local-repository-discovery.test.ts
++++ b/server/__tests__/local-repository-discovery.test.ts
+@@ -1,5 +1,6 @@
+-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+-import { execFileSync } from 'node:child_process';
++import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { execFile, execFileSync } from 'node:child_process';
++import { promisify } from 'node:util';
+ import {
+   mkdtemp,
+   mkdir,
+@@ -8,6 +9,7 @@ import {
+   rename,
+   rm,
+   symlink,
++  stat,
+   writeFile,
+ } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+@@ -21,6 +23,13 @@ import {
+   fixtureReadAnchor,
+   fixtureReadExclusions,
+ } from './fixtures/local-repository-read-owner.js';
++import { localRepositoryNativeToolFixture } from './fixtures/local-repository-native-tools.js';
++import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
++import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
++import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
++import * as sandbox from '../sandboxed-command.js';
++import { EventStore } from '../event-store.js';
++import { setAuthRevocationStore } from '../auth.js';
+ const discoverLocalRepository = (request: Parameters<typeof discoverRepository>[0]) =>
+   discoverRepository({
+     captureReadAnchor: fixtureReadAnchor,
+@@ -38,6 +47,10 @@ const inspectLocalRepository = (request: Parameters<typeof inspectRepository>[0]
+ vi.setConfig({ testTimeout: 30000 });
+ 
+ let root: string;
++const nativeCleanups: Array<() => void | Promise<void>> = [];
++const revocations = new EventStore(':memory:');
++setAuthRevocationStore(revocations);
++afterAll(() => revocations.close());
+ const git = (cwd: string, ...args: string[]) =>
+   execFileSync(
+     'git',
+@@ -66,9 +79,213 @@ beforeEach(async () => {
+   root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-discovery-')));
+ });
+ afterEach(async () => {
++  vi.restoreAllMocks();
++  for (const cleanup of nativeCleanups.splice(0).reverse()) await cleanup();
++  vi.unstubAllEnvs();
+   await rm(root, { recursive: true, force: true });
+ });
+ 
++// Actual signed scope/reader and fixed descriptor helpers, with only the process
++// boundary replaced for disposable offline files. The registered SDK adapter is
++// covered separately by native-local-repository-read-tools.test.ts.
++async function signedNameScan(
++  options: {
++    afterHelper?(request: {
++      operation: string;
++      repositoryPlan?: { sourcePath: string };
++    }): Promise<void>;
++    captureExclusions?(call: number): Promise<void>;
++    afterVerification?(): void;
++    assertCurrent?(): void;
++    limits?: { maxCandidates?: number; timeoutMs?: number };
++  } = {},
++) {
++  resetOfflineUserEnvironment();
++  const runs: Array<Parameters<typeof sandbox.executeSandboxedCommand>[0]> = [];
++  const execute = async (request: Parameters<typeof sandbox.executeSandboxedCommand>[0]) => {
++    runs.push(request);
++    await request.beforeSpawnAsync?.();
++    request.beforeSpawn?.();
++    const result = await promisify(execFile)('/bin/sh', ['-c', request.command], {
++      cwd: request.cwd,
++      env: request.env,
++      signal: request.signal,
++      timeout: request.timeoutMs,
++      maxBuffer: request.maxOutputBytes,
++    });
++    if (!('requestJson' in request) || typeof request.requestJson !== 'string')
++      throw Error('Expected a private repository observation request');
++    await options.afterHelper?.(JSON.parse(request.requestJson));
++    return { content: result.stdout, stdout: result.stdout, stderr: result.stderr, isError: false };
++  };
++  vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(execute);
++  vi.spyOn(sandbox, 'executePrivateRepositoryObservation').mockImplementation(execute);
++  if (options.afterVerification) {
++    const verify = LocalRepositoryReadAccess.prototype.verify;
++    vi.spyOn(LocalRepositoryReadAccess.prototype, 'verify').mockImplementation(async function (
++      this: LocalRepositoryReadAccess,
++    ) {
++      await verify.call(this);
++      options.afterVerification!();
++    });
++  }
++  const fixture = await localRepositoryNativeToolFixture(nativeCleanups, async (context) => {
++    // The reader's longer ceiling deliberately cannot extend the scan's own
++    // 15s cap, including awaited candidate setup and final verification.
++    const reader = await captureNativeLocalRepositoryReader(context, {
++      deadline: Date.now() + 60000,
++    });
++    let exclusions = 0;
++    try {
++      const request = {
++        query: 'service',
++        accessScope: { kind: 'roots' as const, roots: [root] },
++        discoveryRoots: [root],
++        limits: options.limits,
++        signal: context.signal,
++        captureReadExclusions: async () => {
++          await options.captureExclusions?.(++exclusions);
++          return reader.deniedRoots;
++        },
++        captureReadAnchor: (path: string) => reader.captureReadAnchor(path),
++        revalidateReadAccess: async () => {
++          await context.assertCurrent();
++          options.assertCurrent?.();
++        },
++        assertReadAccess: async () => options.assertCurrent?.(),
++      };
++      Object.defineProperty(request, 'nativeReader', { value: reader });
++      return { content: JSON.stringify(await discoverRepository(request)), isError: false };
++    } finally {
++      await reader.dispose();
++    }
++  });
++  const result = await fixture.a.call({ query: 'service' });
++  // Every helper joined the original caller's cleanup before any result escaped.
++  for (const directory of new Set(runs.map((run) => run.cwd)))
++    await expect(stat(directory)).rejects.toMatchObject({ code: 'ENOENT' });
++  return { ...result, runs };
++}
++
++describe.runIf(process.platform === 'darwin')('signed name-scan observation controls', () => {
++  it('retains two equally eligible candidates and never resolves ambiguity from scan order', async () => {
++    const first = await repo(join(root, 'first-service'));
++    const second = await repo(join(root, 'second-service'));
++    const result = await signedNameScan();
++    expect(result.response.success).toBe(true);
++    expect(result.value).toMatchObject({ state: 'ambiguous', truncated: false });
++    expect(
++      result.value.candidates.map((candidate: { path: string }) => candidate.path).sort(),
++    ).toEqual([first, second]);
++  });
++
++  it('withholds an earlier candidate changed while a later candidate is observed', async () => {
++    const first = await repo(join(root, 'first-service'));
++    await repo(join(root, 'second-service'));
++    let captures = 0;
++    const result = await signedNameScan({
++      afterHelper: async (request) => {
++        if (request.operation === 'CaptureRepositoryObservation' && ++captures === 2)
++          await writeFile(join(first, '.git', 'HEAD'), 'ref: refs/heads/changed\n');
++      },
++    });
++    expect(captures).toBe(2);
++    expect(result.value).toMatchObject({ state: 'ambiguous', candidates: [] });
++  });
++
++  it('withholds candidates when the scanned namespace changes after capture', async () => {
++    await repo(join(root, 'service'));
++    const result = await signedNameScan({
++      afterHelper: async (request) => {
++        if (request.operation === 'CaptureRepositoryObservation')
++          await mkdir(join(root, 'new-service'));
++      },
++    });
++    expect(result.value).toMatchObject({ state: 'ambiguous', candidates: [] });
++  });
++
++  it('retains partial-budget ambiguity even for a single observed match', async () => {
++    await repo(join(root, 'first-service'));
++    await repo(join(root, 'second-service'));
++    const result = await signedNameScan({ limits: { maxCandidates: 1 } });
++    expect(result.value).toMatchObject({
++      state: 'ambiguous',
++      truncated: true,
++      limitReasons: ['candidates'],
++    });
++  });
++
++  it('does not fall back to individual metadata reads when compound capture refuses', async () => {
++    await repo(join(root, 'service'));
++    let captures = 0;
++    const result = await signedNameScan({
++      afterHelper: async (request) => {
++        if (request.operation === 'CaptureRepositoryObservation') {
++          captures++;
++          throw Error('Controlled compound capture refusal');
++        }
++      },
++    });
++    expect(captures).toBe(1);
++    expect(result.value).toMatchObject({ state: 'ambiguous', candidates: [] });
++    const operations = result.runs.map((run) => {
++      if (!('requestJson' in run) || typeof run.requestJson !== 'string')
++        throw Error('Expected a private repository observation request');
++      return JSON.parse(run.requestJson).operation;
++    });
++    expect(operations).not.toContain('ReadBytes');
++  });
++
++  it('withholds facts after the existing read-policy owner refuses currentness', async () => {
++    await repo(join(root, 'service'));
++    let refused = false;
++    const result = await signedNameScan({
++      afterHelper: async (request) => {
++        if (request.operation === 'CaptureRepositoryObservation') refused = true;
++      },
++      assertCurrent: () => {
++        if (refused) throw Error('Controlled original policy refusal');
++      },
++    });
++    expect(refused).toBe(true);
++    expect(result.value).toMatchObject({ state: 'access-required', candidates: [] });
++  });
++
++  it.each(['candidate setup', 'final verification'] as const)(
++    'retains the absolute parent deadline through %s',
++    async (phase) => {
++      await repo(join(root, 'service'));
++      const now = Date.now.bind(Date);
++      let offset = 0;
++      let captures = 0;
++      vi.spyOn(Date, 'now').mockImplementation(() => now() + offset);
++      const result = await signedNameScan({
++        captureExclusions: async (call) => {
++          if (phase === 'candidate setup' && call === 2) offset = 16000;
++        },
++        afterHelper: async (request) => {
++          if (request.operation === 'CaptureRepositoryObservation') captures++;
++        },
++        // Cross the parent deadline after the actual original-owner check
++        // returns, rather than injecting an unrelated owner refusal inside it.
++        afterVerification:
++          phase === 'final verification'
++            ? () => {
++                offset = 16000;
++              }
++            : undefined,
++      });
++      expect(captures).toBe(phase === 'candidate setup' ? 0 : 1);
++      expect(result.value).toMatchObject({
++        state: 'ambiguous',
++        candidates: [],
++        truncated: true,
++        needed: ['narrower-search'],
++      });
++    },
++  );
++});
++
+ describe('bounded repository discovery', () => {
+   it('reports unsupported symbolic Git metadata as inspection unavailable instead of an absent repository', async () => {
+     const selected = await repo(join(root, 'linked-storage'));
+diff --git a/server/__tests__/local-repository-initial-directory-batch.test.ts b/server/__tests__/local-repository-initial-directory-batch.test.ts
+index 14fa8d622..7509088a8 100644
+--- a/server/__tests__/local-repository-initial-directory-batch.test.ts
++++ b/server/__tests__/local-repository-initial-directory-batch.test.ts
+@@ -153,7 +153,10 @@ it.each(['malformed', 'limit', 'denied', 'cancelled', 'revoked'] as const)(
+     else await expect(pending).rejects.toThrow();
+     expect(f.access.hasExclusionsWithin()).toBe(false);
+     // Actual cache/budget observations, without clearing or replacing the owner.
+-    expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(8);
++    expect(Object.getOwnPropertyDescriptor(f.access, 'budget')?.value).toMatchObject({
++      totalEntries: 8,
++      inFlightEntries: 0,
++    });
+     expect(
+       (Object.getOwnPropertyDescriptor(f.access, 'directories')?.value as Map<string, unknown>)
+         .size,
+@@ -194,8 +197,11 @@ it.each(['current-reference', 'aggregate-budget', 'aggregate-output'] as const)(
+     const f = fixture();
+     await f.ready();
+     const before = kind === 'aggregate-budget' ? 99999 : 8;
+-    if (kind === 'aggregate-budget')
+-      Object.defineProperty(f.access, 'totalEntries', { value: before, writable: true });
++    const budget = Object.getOwnPropertyDescriptor(f.access, 'budget')!.value as {
++      totalEntries: number;
++      inFlightEntries: number;
++    };
++    if (kind === 'aggregate-budget') budget.totalEntries = before;
+     vi.mocked(f.authority.executeDirectoryVerification!).mockImplementation(async (requests) => {
+       if (kind === 'current-reference')
+         Object.defineProperty(f.authority, 'assertCurrentSync', {
+@@ -219,7 +225,7 @@ it.each(['current-reference', 'aggregate-budget', 'aggregate-output'] as const)(
+       await expect(pending).rejects.toMatchObject({ kind: 'limit', reason: 'snapshot-entries' });
+     else await expect(pending).rejects.toThrow();
+     expect(f.access.hasExclusionsWithin()).toBe(false);
+-    expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(before);
++    expect(budget).toMatchObject({ totalEntries: before, inFlightEntries: 0 });
+     expect(
+       (Object.getOwnPropertyDescriptor(f.access, 'directories')?.value as Map<string, unknown>)
+         .size,
+@@ -249,7 +255,10 @@ it('refuses reentrant cache drift while retaining the unrelated original observa
+     unknown
+   >;
+   expect([...directories.keys()]).toEqual([root, `${root}/c`]);
+-  expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(8);
++  expect(Object.getOwnPropertyDescriptor(f.access, 'budget')?.value).toMatchObject({
++    totalEntries: 8,
++    inFlightEntries: 0,
++  });
+ });
+ 
+ it('uses one pre/post authorization for each already-known target without a redundant stat lookup', async () => {
+diff --git a/server/__tests__/native-local-repository-read-tools.test.ts b/server/__tests__/native-local-repository-read-tools.test.ts
+index 6df69023e..88b641efc 100644
+--- a/server/__tests__/native-local-repository-read-tools.test.ts
++++ b/server/__tests__/native-local-repository-read-tools.test.ts
+@@ -302,6 +302,29 @@ async function signedReadPositive(
+       );
+     }
+     expect(original?.nativeBaseReadScope).toBeDefined();
++    if (pathCase === 'query') {
++      // The name scan must qualify the candidate through the same bounded
++      // physical observation as explicit discovery, without widening scope.
++      const requests = runs.map((run) => {
++        if (!('requestJson' in run) || typeof run.requestJson !== 'string')
++          throw Error('Expected a private repository observation request');
++        return JSON.parse(run.requestJson);
++      });
++      const captures = requests.filter((run) => run.operation === 'CaptureRepositoryObservation');
++      expect(captures).toHaveLength(1);
++      expect(captures[0].repositoryPlan).toMatchObject({
++        mode: 'discovery',
++        sourcePath: source,
++        readableRoots: [source],
++        deniedRoots: original!.nativeBaseReadScope!.deniedRoots,
++      });
++      expect(requests.filter((run) => run.operation === 'VerifyRepositoryObservation')).toEqual([
++        expect.objectContaining({ repositoryPlan: captures[0].repositoryPlan }),
++      ]);
++      expect(runs.every((run) => typeof run.timeoutMs === 'number' && run.timeoutMs <= 15000)).toBe(
++        true,
++      );
++    }
+     expect(runs.length).toBeGreaterThan(0);
+     for (const scratch of new Set(runs.map((r) => r.cwd)))
+       await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
+diff --git a/server/__tests__/native-repository-observation.test.ts b/server/__tests__/native-repository-observation.test.ts
+index e32bcd554..970b36f76 100644
+--- a/server/__tests__/native-repository-observation.test.ts
++++ b/server/__tests__/native-repository-observation.test.ts
+@@ -1,6 +1,7 @@
+-import { afterEach, expect, it } from 'vitest';
++import { afterEach, expect, it, vi } from 'vitest';
+ import { execFile, execFileSync } from 'node:child_process';
+ import { promisify } from 'node:util';
++import { createHash } from 'node:crypto';
+ import type { NativeFileHelperTransport } from '../native-file-operation.js';
+ import {
+   mkdir,
+@@ -19,9 +20,362 @@ import {
+   RepositoryObservationMissingError,
+   RepositoryObservationReadAccessError,
+   verifyRepositoryObservation,
++  freezeRepositoryObservationPlan,
++  type RepositoryObservationCapture,
+ } from '../native-repository-observation.js';
++import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
++import {
++  fixtureReadAnchor,
++  fixtureReadDescriptor,
++} from './fixtures/local-repository-read-owner.js';
++
++// Synthetic retention owner for aggregate accounting only. Real fixed-helper
++// bounds and the signed consumer are qualified in separate controls below.
++function queryBudgetFixture() {
++  let bytes = 0,
++    entries = 1;
++  let beforeRetain: (() => Promise<void>) | undefined;
++  let afterRetain: (() => void) | undefined;
++  const retained = new Set<RepositoryObservationCapture>();
++  const capture = vi.fn(async (input, onRetained) => {
++    await beforeRetain?.();
++    if (bytes > input.limits.maxBytes || entries > input.limits.maxEntries)
++      throw Error('Controlled producer budget refusal before allocation');
++    const entry = {
++      name: 'HEAD',
++      identity: { dev: '1', ino: '1' },
++      kind: 'file' as const,
++      size: bytes,
++      mode: 0,
++      nlink: 1,
++      mtimeNs: '0',
++      ctimeNs: '0',
++    };
++    const value: RepositoryObservationCapture = {
++      plan: freezeRepositoryObservationPlan({
++        ...input,
++        version: 'repository-read-v1',
++        readableRoots: ['/'],
++        deniedRoots: [],
++        excludedNames: [],
++      }),
++      data: {
++        version: 'repository-read-v1',
++        mode: 'discovery',
++        entries: Array.from({ length: entries }, (_, index) => ({
++          path: '/query/' + index,
++          entry,
++        })),
++        directories: [],
++        absent: [],
++        files: bytes
++          ? [{ path: '/query/0', bytes: Buffer.alloc(bytes).toString('base64'), link: false }]
++          : [],
++      },
++      digest: '0'.repeat(64),
++    };
++    onRetained(value);
++    retained.add(value);
++    afterRetain?.();
++    return value;
++  });
++  const execute = vi.fn(fixtureReadDescriptor);
++  const access = new LocalRepositoryReadAccess({
++    deadline: Number.MAX_SAFE_INTEGER,
++    deniedRoots: [],
++    assertReadable: async () => {},
++    captureReadAnchor: fixtureReadAnchor,
++    executeReadOperation: execute,
++    captureRepositoryObservation: capture,
++    verifyRepositoryObservation: async () => {},
++  });
++  const observe = (limits?: { maxBytes?: number; maxEntries?: number }) =>
++    access.forkForRepositoryObservation().captureRepositoryObservation({
++      mode: 'discovery',
++      sourcePath: '/query',
++      ...(limits ? { limits } : {}),
++    });
++  return {
++    access,
++    observe,
++    capture,
++    execute,
++    retained,
++    size: (nextBytes: number, nextEntries = 1) => {
++      bytes = nextBytes;
++      entries = nextEntries;
++    },
++    before: (hook?: () => Promise<void>) => {
++      beforeRetain = hook;
++    },
++    after: (hook?: () => void) => {
++      afterRetain = hook;
++    },
++  };
++}
++
++it('shares retained byte and entry bounds across query forks while independent queries retain their own budget', async () => {
++  const bytes = queryBudgetFixture();
++  bytes.size(32 * 1024 * 1024);
++  await bytes.observe();
++  await bytes.observe();
++  await expect(bytes.observe()).rejects.toMatchObject({ reason: 'snapshot-bytes' });
++  expect(bytes.capture).toHaveBeenCalledTimes(2);
++  const entries = queryBudgetFixture();
++  entries.size(0, 40000);
++  await entries.observe();
++  await entries.observe();
++  await expect(entries.observe()).rejects.toThrow('Controlled producer budget refusal');
++  expect(entries.capture.mock.calls[2][0].limits.maxEntries).toBe(20000);
++  const independent = queryBudgetFixture();
++  await independent.observe();
++});
++
++it('reserves in-flight bytes before producer invocation and releases only unretained failures', async () => {
++  const fixture = queryBudgetFixture();
++  fixture.size(32 * 1024 * 1024);
++  let release!: () => void;
++  const held = new Promise<void>((resolve) => {
++    release = resolve;
++  });
++  fixture.before(() => held);
++  const first = fixture.observe({ maxEntries: 1 });
++  const second = fixture.observe({ maxEntries: 1 });
++  await expect(fixture.observe({ maxEntries: 1 })).rejects.toMatchObject({
++    reason: 'snapshot-bytes',
++  });
++  expect(fixture.capture).toHaveBeenCalledTimes(2);
++  release();
++  await Promise.all([first, second]);
++  const failure = queryBudgetFixture();
++  let settled!: () => void, entered!: () => void;
++  const settlement = new Promise<void>((resolve) => {
++    settled = resolve;
++  });
++  const entry = new Promise<void>((resolve) => {
++    entered = resolve;
++  });
++  failure.before(async () => {
++    entered();
++    await settlement;
++    throw Error('Controlled pre-retention failure');
++  });
++  const failing = failure.observe();
++  await entry;
++  try {
++    await expect(failure.observe()).rejects.toMatchObject({ reason: 'snapshot-entries' });
++  } finally {
++    settled();
++  }
++  await expect(failing).rejects.toThrow('Controlled pre-retention failure');
++  failure.before();
++  failure.size(32 * 1024 * 1024);
++  await failure.observe();
++  await failure.observe();
++});
++
++it.each(['producer', 'consumer'] as const)(
++  'keeps native retention charged after a later %s refusal',
++  async (phase) => {
++    const fixture = queryBudgetFixture();
++    fixture.size(32 * 1024 * 1024);
++    const input = { mode: 'discovery' as const, sourcePath: '/query' };
++    fixture.after(() => {
++      if (phase === 'producer') throw Error('Controlled refusal after native retention');
++      input.sourcePath = '/changed';
++    });
++    await expect(
++      fixture.access.forkForRepositoryObservation().captureRepositoryObservation(input),
++    ).rejects.toThrow();
++    fixture.after();
++    await fixture.observe();
++    await expect(fixture.observe()).rejects.toMatchObject({ reason: 'snapshot-bytes' });
++    expect(fixture.retained.size).toBe(2);
++  },
++);
++
++it('shares entry reservations with generic lists and an awaiting atomic preload', async () => {
++  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-query-budget-')));
++  roots.push(root);
++  await writeFile(join(root, 'entry'), 'fixture');
++  const fixture = queryBudgetFixture();
++  await fixture.access.pinRoot(root);
++  let release!: () => void, started!: () => void;
++  const held = new Promise<void>((resolve) => {
++    release = resolve;
++  });
++  const observed = new Promise<void>((resolve) => {
++    started = resolve;
++  });
++  fixture.execute.mockImplementation(async (...args) => {
++    started();
++    await held;
++    return fixtureReadDescriptor(...args);
++  });
++  const preload = fixture.access.preloadDirectories([root]);
++  await observed;
++  fixture.size(0, 95000);
++  try {
++    await expect(fixture.observe()).rejects.toThrow('Controlled producer budget refusal');
++    expect(fixture.capture.mock.calls[0][0].limits.maxEntries).toBe(90000);
++  } finally {
++    release();
++  }
++  await preload;
++  fixture.before(() => held);
++  fixture.size(0, 1);
++  let finish!: () => void, entered!: () => void;
++  const holding = new Promise<void>((resolve) => {
++    finish = resolve;
++  });
++  const beginning = new Promise<void>((resolve) => {
++    entered = resolve;
++  });
++  fixture.before(async () => {
++    entered();
++    await holding;
++  });
++  const capture = fixture.observe();
++  await beginning;
++  try {
++    await expect(fixture.access.forkForRepositoryObservation().list(root)).rejects.toMatchObject({
++      reason: 'snapshot-entries',
++    });
++    expect(fixture.execute).toHaveBeenCalledTimes(1);
++  } finally {
++    finish();
++  }
++  await capture;
++});
++
++it('enforces narrowed byte and entry ceilings in the actual fixed physical helper', async () => {
++  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-observation-limits-')));
++  roots.push(root);
++  execFileSync('/usr/bin/git', ['init', '--template=', '-q', '-b', 'main', root]);
++  const transport: NativeFileHelperTransport = vi.fn(async (invocation) => {
++    const { stdout } = await promisify(execFile)('/bin/sh', ['-c', invocation.command], {
++      cwd: root,
++      env: { PATH: '/usr/bin:/bin' },
++      signal: invocation.signal,
++      timeout: invocation.timeoutMs,
++      maxBuffer: invocation.maxOutputBytes,
++    });
++    return { stdout, isError: false };
++  });
++  const plan = {
++    version: 'repository-read-v1',
++    mode: 'discovery',
++    sourcePath: root,
++    readableRoots: [root],
++    deniedRoots: [],
++    excludedNames: [],
++  };
++  const signal = new AbortController().signal;
++  await expect(
++    captureRepositoryObservation({ ...plan, limits: { maxBytes: 0 } }, signal, 10000, transport),
++  ).rejects.toThrow();
++  await expect(
++    captureRepositoryObservation({ ...plan, limits: { maxEntries: 1 } }, signal, 10000, transport),
++  ).rejects.toThrow();
++  expect(transport).toHaveBeenCalledTimes(2); // Refusal came from the physical operation, not schema rejection.
++  const captured = await captureRepositoryObservation(
++    { ...plan, limits: { maxBytes: 65536, maxEntries: 100 } },
++    signal,
++    10000,
++    transport,
++  );
++  expect(captured.data.files.some((file) => file.path === join(root, '.git', 'HEAD'))).toBe(true);
++  await verifyRepositoryObservation(captured.plan, captured.digest, signal, 10000, transport);
++  for (const limits of [{ maxBytes: 32 * 1024 * 1024 + 1 }, { maxEntries: 100001 }])
++    await expect(
++      captureRepositoryObservation({ ...plan, limits }, signal, 10000, transport),
++    ).rejects.toThrow();
++  expect(transport).toHaveBeenCalledTimes(4); // A narrowing field cannot raise fixed defaults.
++});
++
++it('rejects forged over-budget capture data before decoded buffers or entry maps are retained', async () => {
++  const buffers = vi.spyOn(Buffer, 'from');
++  const data = {
++    version: 'repository-read-v1',
++    mode: 'discovery',
++    entries: [
++      {
++        path: '/query/HEAD',
++        entry: {
++          name: 'HEAD',
++          identity: { dev: '1', ino: '1' },
++          kind: 'file',
++          size: 2,
++          mode: 0,
++          nlink: 1,
++          mtimeNs: '0',
++          ctimeNs: '0',
++        },
++      },
++    ],
++    files: [{ path: '/query/HEAD', bytes: 'YWI=', link: false }],
++    directories: [],
++    absent: [],
++  };
++  const canonical = (value: unknown): unknown =>
++    Array.isArray(value)
++      ? value.map(canonical)
++      : value && typeof value === 'object'
++        ? Object.fromEntries(
++            Object.entries(value)
++              .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
++              .map(([key, item]) => [key, canonical(item)]),
++          )
++        : value;
++  const digest = createHash('sha256')
++    .update(JSON.stringify(canonical(data)))
++    .digest('hex');
++  const transport: NativeFileHelperTransport = async () => ({
++    stdout: `{"content": ${JSON.stringify(JSON.stringify({ data, digest }))}, "is_error": false}\n`,
++    isError: false,
++  });
++  const plan = {
++    version: 'repository-read-v1',
++    mode: 'discovery',
++    sourcePath: '/query',
++    readableRoots: ['/'],
++    deniedRoots: [],
++    excludedNames: [],
++  };
++  await expect(
++    captureRepositoryObservation(
++      { ...plan, limits: { maxBytes: 1 } },
++      new AbortController().signal,
++      10000,
++      transport,
++    ),
++  ).rejects.toThrow('Repository observation unavailable');
++  await expect(
++    captureRepositoryObservation(
++      { ...plan, limits: { maxEntries: 0 } },
++      new AbortController().signal,
++      10000,
++      transport,
++    ),
++  ).rejects.toThrow('Repository observation unavailable');
++  const bufferCalls: ReadonlyArray<readonly unknown[]> = buffers.mock.calls;
++  expect(
++    bufferCalls.filter(([value, encoding]) => value === 'YWI=' && encoding === 'base64'),
++  ).toHaveLength(0);
++  expect(
++    (
++      await captureRepositoryObservation(
++        { ...plan, limits: { maxBytes: 2, maxEntries: 1 } },
++        new AbortController().signal,
++        10000,
++        transport,
++      )
++    ).digest,
++  ).toBe(digest);
++});
+ const roots: string[] = [];
+ afterEach(async () => {
++  vi.restoreAllMocks();
+   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+ });
+ it('captures one bounded repository observation and detects changed bytes before return', async () => {
+diff --git a/server/local-repository-discovery.ts b/server/local-repository-discovery.ts
+index 8a80cc451..e3e5a99a2 100644
+--- a/server/local-repository-discovery.ts
++++ b/server/local-repository-discovery.ts
+@@ -167,8 +167,16 @@ const integer = (value: number | undefined, fallback: number, ceiling: number) =
+     : fallback;
+ const errorCode = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
+ 
+-async function context(request: ReadRequest) {
++async function context(
++  request: ReadRequest,
++  candidate?: { path: string; deadline: number; readAccess: LocalRepositoryReadAccess },
++) {
+   request.signal?.throwIfAborted();
++  const checkCandidateDeadline = () => {
++    if (candidate && Date.now() >= candidate.deadline)
++      throw new LocalRepositoryGitInspectionError('limit', 'timeout');
++  };
++  checkCandidateDeadline();
+   const captureReadAnchor = request.captureReadAnchor;
+   if (typeof captureReadAnchor !== 'function')
+     throw new LocalRepositoryGitInspectionError('access', 'read-anchor-required');
+@@ -181,6 +189,7 @@ async function context(request: ReadRequest) {
+     request.signal?.throwIfAborted();
+     throw new LocalRepositoryGitInspectionError('access', 'read-exclusions-required');
+   }
++  checkCandidateDeadline();
+   const hostWide = request.accessScope.kind === 'host-wide';
+   const suppliedRoots = request.accessScope.kind === 'roots' ? [...request.accessScope.roots] : [];
+   const suppliedDenials = freezeNativeReadExclusions([
+@@ -215,7 +224,11 @@ async function context(request: ReadRequest) {
+       typeof revalidateReadAccess !== 'function')
+   )
+     throw new LocalRepositoryGitInspectionError('access', 'original-native-reader-required');
+-  const deadline = Math.min(Date.now() + limits.timeoutMs, nativeReader?.deadline ?? Infinity);
++  const deadline = Math.min(
++    Date.now() + limits.timeoutMs,
++    nativeReader?.deadline ?? Infinity,
++    candidate?.deadline ?? Infinity,
++  );
+   const check = () => {
+     request.signal?.throwIfAborted();
+     nativeReader?.signal?.throwIfAborted();
+@@ -308,27 +321,35 @@ async function context(request: ReadRequest) {
+       check();
+     },
+   });
+-  const readAccess = nativeReader
+-    ? new LocalRepositoryReadAccess(nativeReader, ceiling)
+-    : new LocalRepositoryReadAccess({
+-        deniedRoots: suppliedDenials,
+-        assertReadable: async (path) => {
+-          if (!isAbsolute(path) || !allowed(path))
+-            throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+-          await authorize(path);
+-        },
+-        captureReadAnchor: async (path) => {
+-          await canonical(path);
+-          const anchor = await captureReadAnchor(path, request.signal);
+-          await canonical(path);
+-          return anchor;
+-        },
+-        executeReadOperation: request.executeReadOperation,
+-        signal: request.signal,
+-        deadline,
+-      });
++  const readAccess =
++    candidate?.readAccess ??
++    (nativeReader
++      ? new LocalRepositoryReadAccess(nativeReader, ceiling)
++      : new LocalRepositoryReadAccess({
++          deniedRoots: suppliedDenials,
++          assertReadable: async (path) => {
++            if (!isAbsolute(path) || !allowed(path))
++              throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
++            await authorize(path);
++          },
++          captureReadAnchor: async (path) => {
++            await canonical(path);
++            const anchor = await captureReadAnchor(path, request.signal);
++            await canonical(path);
++            return anchor;
++          },
++          executeReadOperation: request.executeReadOperation,
++          signal: request.signal,
++          deadline,
++        }));
++  const canCaptureCandidate = readAccess.canCaptureRepositoryObservation;
+   const requestedSource =
+-    'explicitPath' in request ? request.explicitPath : 'path' in request ? request.path : undefined;
++    candidate?.path ??
++    ('explicitPath' in request
++      ? request.explicitPath
++      : 'path' in request
++        ? request.path
++        : undefined);
+   // Native capture must happen before pinning roots, but inside the explicit
+   // discovery result classifier. Preserve the original reader/owner and join
+   // one initialization; failures never enable an ambient fallback.
+@@ -338,7 +359,7 @@ async function context(request: ReadRequest) {
+       if (nativeReader?.captureRepositoryObservation && typeof requestedSource === 'string') {
+         await canonical(requestedSource);
+         await readAccess.captureRepositoryObservation({
+-          mode: 'explicitPath' in request ? 'discovery' : 'orientation',
++          mode: candidate || 'explicitPath' in request ? 'discovery' : 'orientation',
+           sourcePath: requestedSource,
+           readableRoots: hostWide ? ['/'] : roots,
+           additionalDeniedRoots: suppliedDenials,
+@@ -405,6 +426,7 @@ async function context(request: ReadRequest) {
+     readAccess,
+     initialize,
+     metadata,
++    canCaptureCandidate,
+     deniedContent,
+     authorize,
+   };
+@@ -514,15 +536,31 @@ export async function discoverLocalRepository(
+     result.truncated = true;
+     if (!result.limitReasons.includes(reason)) result.limitReasons.push(reason);
+   };
++  const candidateContexts: Array<Awaited<ReturnType<typeof context>>> = [];
+   const candidate = async (path: string) => {
+-    await ctx.initialize();
+-    await ctx.readAccess.pinRoot(path);
+-    const metadata = await ctx.metadata(path);
++    // A scan already pinned its namespace. Qualify a matching repository in a
++    // fresh access view of the SAME original reader, scope and callbacks; the
++    // existing compound observation refuses capture on an already pinned view.
++    // Retain every view until full-scan verification, including failed captures.
++    const selected =
++      !request.explicitPath && ctx.canCaptureCandidate
++        ? await context(request, {
++            path,
++            deadline: ctx.deadline,
++            readAccess: ctx.readAccess.forkForRepositoryObservation(),
++          })
++        : ctx;
++    if (selected !== ctx) candidateContexts.push(selected);
++    ctx.check();
++    await selected.initialize();
++    await selected.readAccess.pinRoot(path);
++    const metadata = await selected.metadata(path);
+     await readLocalRepositoryGitFacts(metadata, {
+-      readAccess: ctx.readAccess,
++      readAccess: selected.readAccess,
+       signal: request.signal,
+       timeoutMs: Math.max(1, ctx.deadline - Date.now()),
+     });
++    ctx.check();
+     const top = metadata.path;
+     if (!result.candidates.some((entry) => entry.path === top))
+       result.candidates.push({ name: basename(top), path: top });
+@@ -671,7 +709,15 @@ export async function discoverLocalRepository(
+     }
+   }
+   try {
++    // Candidate facts and scan namespace must ALL remain current after the
++    // complete search. Never return an early unique match or restart its clock.
++    for (const selected of candidateContexts) {
++      ctx.check();
++      await selected.readAccess.verify();
++    }
++    ctx.check();
+     await ctx.readAccess.verify();
++    ctx.check();
+   } catch (error) {
+     request.signal?.throwIfAborted();
+     result.candidates = [];
+diff --git a/server/local-repository-native-reader.ts b/server/local-repository-native-reader.ts
+index 0a375e718..04e92b072 100644
+--- a/server/local-repository-native-reader.ts
++++ b/server/local-repository-native-reader.ts
+@@ -329,7 +329,10 @@ export async function captureLocalRepositoryReader(
+       parsePreparationObjectStoreVerificationOutput(result);
+       current();
+     },
+-    captureRepositoryObservation: async (input: RepositoryObservationInput) => {
++    captureRepositoryObservation: async (
++      input: RepositoryObservationInput,
++      onRetained?: (capture: Readonly<RepositoryObservationCapture>) => void,
++    ) => {
+       current();
+       await authorize(input.sourcePath);
+       if (input.taskRoot) await authorize(input.taskRoot);
+@@ -338,6 +341,7 @@ export async function captureLocalRepositoryReader(
+         sourcePath: input.sourcePath,
+         ...(input.taskRoot ? { taskRoot: input.taskRoot } : {}),
+         ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
++        ...(input.limits ? { limits: input.limits } : {}),
+         version: 'repository-read-v1',
+         readableRoots: input.readableRoots ?? ['/'],
+         deniedRoots: [...new Set([...deniedRoots, ...(input.additionalDeniedRoots ?? [])])],
+@@ -350,6 +354,9 @@ export async function captureLocalRepositoryReader(
+         transport(deniedRoots),
+       );
+       current();
++      // Settle the caller's held query reservation BEFORE this owner retains
++      // the capture. A later consumer refusal cannot refund native retention.
++      onRetained?.(captured);
+       repositoryCaptures.add(captured);
+       if (plan.mode === 'base') repositoryBaseCaptures.set(captured, scope!);
+       return captured;
+diff --git a/server/local-repository-read-access.ts b/server/local-repository-read-access.ts
+index f01a0345f..6aa5fc178 100644
+--- a/server/local-repository-read-access.ts
++++ b/server/local-repository-read-access.ts
+@@ -55,6 +55,7 @@ export interface LocalRepositoryReadAuthority {
+   verifyPreparationObjectStore?(capture: Readonly<PreparationObjectStoreCapture>): Promise<void>;
+   captureRepositoryObservation?(
+     input: RepositoryObservationInput,
++    onRetained?: (capture: Readonly<RepositoryObservationCapture>) => void,
+   ): Promise<Readonly<RepositoryObservationCapture>>;
+   verifyRepositoryBaseObservation?(capture: Readonly<RepositoryObservationCapture>): Promise<void>;
+   verifyRepositoryObservation?(capture: Readonly<RepositoryObservationCapture>): Promise<void>;
+@@ -322,13 +323,62 @@ export class LocalRepositoryReadAccess {
+       throw unavailable();
+     await this.authorize(input.sourcePath);
+     if (input.taskRoot) await this.authorize(input.taskRoot);
++    const limits = input.limits;
++    for (const [value, maximum] of [
++      [limits?.maxBytes, 32 * 1024 * 1024],
++      [limits?.maxEntries, 100000],
++    ])
++      if (value !== undefined && (!Number.isSafeInteger(value) || value < 0 || value > maximum!))
++        throw unavailable();
++    const bytes = Math.min(
++      limits?.maxBytes ?? 32 * 1024 * 1024,
++      64 * 1024 * 1024 - this.budget.totalBytes - this.budget.inFlightBytes,
++    );
++    const entries = Math.min(
++      limits?.maxEntries ?? 100000,
++      100000 - this.budget.totalEntries - this.budget.inFlightEntries,
++    );
++    if (bytes <= 0) throw new LocalRepositoryGitInspectionError('limit', 'snapshot-bytes');
++    if (entries <= 0) throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
++    this.budget.inFlightBytes += bytes;
++    this.budget.inFlightEntries += entries;
++    let retained = false;
++    const charge = (capture: Readonly<RepositoryObservationCapture>) => {
++      if (
++        retained ||
++        capture.plan.limits?.maxBytes !== bytes ||
++        capture.plan.limits.maxEntries !== entries
++      )
++        throw unavailable();
++      const actualBytes = capture.data.files.reduce(
++        (sum, file) => sum + Buffer.byteLength(file.bytes, 'base64'),
++        0,
++      );
++      const actualEntries = capture.data.entries.length;
++      if (!Number.isSafeInteger(actualBytes) || actualBytes > bytes || actualEntries > entries)
++        throw unavailable();
++      this.budget.totalBytes += actualBytes;
++      this.budget.totalEntries += actualEntries;
++      this.budget.inFlightBytes -= bytes;
++      this.budget.inFlightEntries -= entries;
++      retained = true;
++    };
+     let captured: Readonly<RepositoryObservationCapture>;
+     try {
+-      captured = await this.authority.captureRepositoryObservation(input);
++      captured = await this.authority.captureRepositoryObservation(
++        { ...input, limits: { maxBytes: bytes, maxEntries: entries } },
++        charge,
++      );
++      if (!retained) throw unavailable();
+     } catch (error) {
+       if (error instanceof RepositoryObservationReadAccessError)
+         throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+       throw error;
++    } finally {
++      if (!retained) {
++        this.budget.inFlightBytes -= bytes;
++        this.budget.inFlightEntries -= entries;
++      }
+     }
+     if (
+       captured.plan.mode !== input.mode ||
+@@ -365,9 +415,48 @@ export class LocalRepositoryReadAccess {
+     this.assertCapturedPath = captureNativeObservationParser(this.authority, captured);
+     this.check();
+   }
+-  private totalBytes = 0;
+-  private inFlightBytes = 0;
+-  private totalEntries = 0;
++  private budget = { totalBytes: 0, inFlightBytes: 0, totalEntries: 0, inFlightEntries: 0 };
++  /** Fresh observation view only: original authority/ceiling and the query's
++   * charged+reserved resource budget remain shared. This grants no new scope. */
++  forkForRepositoryObservation() {
++    this.check();
++    if (
++      this.ceiling &&
++      (this.ceiling.owner.assertReadable !== this.ceiling.assertReadable ||
++        this.ceiling.owner.revalidate !== this.ceiling.revalidate ||
++        Object.getOwnPropertyDescriptor(this.authority, 'assertCurrentSync')?.value !==
++          this.ceiling.originalCurrentSync)
++    )
++      throw unavailable();
++    const fork = new LocalRepositoryReadAccess(this.authority, this.ceiling?.owner);
++    fork.budget = this.budget;
++    return fork;
++  }
++  private reserveEntries(maximum = 10000) {
++    const count = Math.min(
++      maximum,
++      100000 - this.budget.totalEntries - this.budget.inFlightEntries,
++    );
++    if (count <= 0) throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
++    this.budget.inFlightEntries += count;
++    let released = false;
++    const release = () => {
++      if (!released) {
++        this.budget.inFlightEntries -= count;
++        released = true;
++      }
++    };
++    return {
++      count,
++      release,
++      commit: (actual: number) => {
++        if (released || !Number.isSafeInteger(actual) || actual < 0 || actual > count)
++          throw unavailable();
++        this.budget.totalEntries += actual;
++        release();
++      },
++    };
++  }
+   private directoryRevision = 0;
+   private readonly ceiling?: Readonly<{
+     owner: LocalRepositoryReadCeiling;
+@@ -589,25 +678,12 @@ export class LocalRepositoryReadAccess {
+       roots.some((path) => !this.anchors.has(path) || this.directories.has(path))
+     )
+       throw unavailable();
+-    const batch = this.authority.executeDirectoryVerification;
+-    if (!batch) {
+-      const results = await Promise.allSettled(roots.map((path) => this.list(path)));
+-      for (const result of results) if (result.status === 'rejected') throw result.reason;
+-      return;
+-    }
+-    const requests: NativeAnchoredReadRequest[] = [];
+-    for (const path of roots) requests.push(await this.directoryRequest(path));
+-    const results = await batch.call(
+-      this.authority,
+-      requests,
+-      this.authority.signal ?? new AbortController().signal,
+-      Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+-    );
+-    if (!Array.isArray(results) || results.length !== requests.length) throw unavailable();
+-    for (let index = 0; index < requests.length; index++)
+-      await this.directoryEntries(roots[index], requests[index].identity, results[index], false);
++    await this.preloadDirectories(roots);
+   }
+-  private async directoryRequest(path: string): Promise<NativeAnchoredReadRequest> {
++  private async directoryRequest(
++    path: string,
++    maxEntries = 10000,
++  ): Promise<NativeAnchoredReadRequest> {
+     await this.authorize(path);
+     const anchor = this.anchor(path);
+     const target = path === anchor.rootPath ? this.entries.get(path)! : await this.stat(path);
+@@ -625,7 +701,7 @@ export class LocalRepositoryReadAccess {
+       parentIdentity: parent.identity,
+       identity: target.identity,
+       limit: 1,
+-      maxEntries: 10000,
++      maxEntries,
+       maxNameBytes: 1024 * 1024,
+     };
+   }
+@@ -633,19 +709,25 @@ export class LocalRepositoryReadAccess {
+     await this.authorize(path);
+     if (!fresh && this.directories.has(path)) return [...this.directories.get(path)!.values()];
+     if (this.preparationCapture || this.repositoryCapture) throw unavailable();
+-    const request = await this.directoryRequest(path);
+-    const result = await (
+-      this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
+-    )(
+-      request,
+-      this.authority.signal ?? new AbortController().signal,
+-      Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+-    );
+-    return this.directoryEntries(path, request.identity, result, fresh);
++    const reservation = fresh ? undefined : this.reserveEntries();
++    try {
++      const request = await this.directoryRequest(path, reservation?.count);
++      const result = await (
++        this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
++      )(
++        request,
++        this.authority.signal ?? new AbortController().signal,
++        Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
++      );
++      return await this.directoryEntries(path, request.identity, result, fresh, reservation);
++    } finally {
++      reservation?.release();
++    }
+   }
+   private parseDirectoryEntries(
+     identity: NativeReadIdentity,
+     result: { content: string; is_error: boolean },
++    maxEntries = 10000,
+   ) {
+     if (result.is_error && result.content === 'Anchored read limit exceeded')
+       throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
+@@ -664,7 +746,7 @@ export class LocalRepositoryReadAccess {
+       !equalIdentity(value.identity, identity) ||
+       !('entries' in value) ||
+       !Array.isArray(value.entries) ||
+-      value.entries.length > 10000 ||
++      value.entries.length > maxEntries ||
+       !('truncated' in value) ||
+       value.truncated !== false ||
+       !('incomplete' in value) ||
+@@ -705,14 +787,18 @@ export class LocalRepositoryReadAccess {
+     identity: NativeReadIdentity,
+     result: { content: string; is_error: boolean },
+     fresh: boolean,
++    reservation?: ReturnType<LocalRepositoryReadAccess['reserveEntries']>,
+   ): Promise<LocalRepositoryReadEntry[]> {
+     await this.authorize(path);
+-    const { entries, incomplete } = this.parseDirectoryEntries(identity, result);
+-    if (!fresh && this.totalEntries + entries.size > 100000)
+-      throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
++    const { entries, incomplete } = this.parseDirectoryEntries(
++      identity,
++      result,
++      reservation?.count,
++    );
+     if (incomplete) this.excludedDirectories.add(path);
+     if (!fresh) {
+-      this.totalEntries += entries.size;
++      if (!reservation) throw unavailable();
++      reservation.commit(entries.size);
+       this.directories.set(path, entries);
+       for (const entry of entries.values()) this.entries.set(join(path, entry.name), entry);
+     }
+@@ -821,110 +907,119 @@ export class LocalRepositoryReadAccess {
+     };
+     const revision = this.directoryRevision;
+     const pending = captured.filter((path) => !this.directories.has(path));
+-    const requests: NativeAnchoredReadRequest[] = [];
+-    for (const item of known) {
+-      await this.authorize(item.path);
+-      current();
+-      if (item.parentPath !== item.path) {
+-        await this.authorize(item.parentPath);
++    const reservations: Array<ReturnType<LocalRepositoryReadAccess['reserveEntries']>> = [];
++    try {
++      // Hold aggregate capacity across every authorization/transport await. A
++      // candidate fork cannot consume a preload's promised entry capacity.
++      for (let index = 0; index < pending.length; index++) reservations.push(this.reserveEntries());
++      const requests: NativeAnchoredReadRequest[] = [];
++      for (const item of known) {
++        await this.authorize(item.path);
+         current();
+-      }
+-      if (pending.includes(item.path))
+-        requests.push(
+-          Object.freeze({
+-            operation: 'ListDirectory',
+-            deniedRoots: freezeNativeReadExclusions([
+-              ...new Set([
+-                ...this.deniedRoots,
+-                ...localRepositoryReadDirectoryExclusions(item.path),
++        if (item.parentPath !== item.path) {
++          await this.authorize(item.parentPath);
++          current();
++        }
++        if (pending.includes(item.path))
++          requests.push(
++            Object.freeze({
++              operation: 'ListDirectory',
++              deniedRoots: freezeNativeReadExclusions([
++                ...new Set([
++                  ...this.deniedRoots,
++                  ...localRepositoryReadDirectoryExclusions(item.path),
++                ]),
+               ]),
+-            ]),
+-            file_path: item.path,
+-            rootAnchor: item.anchor,
+-            identity: item.targetState.identity,
+-            parentIdentity: item.parentState.identity,
+-            limit: 1,
+-            maxEntries: 10000,
+-            maxNameBytes: 1024 * 1024,
+-          }),
+-        );
+-    }
+-    if (this.directoryRevision !== revision) throw unavailable();
+-    let results: readonly { content: string; is_error: boolean }[] = [];
+-    if (requests.length) {
+-      const batch = this.authority.executeDirectoryVerification;
+-      if (batch !== undefined && typeof batch !== 'function') throw unavailable();
+-      if (batch) {
+-        results = await Reflect.apply(batch, this.authority, [
+-          Object.freeze(requests),
+-          this.authority.signal ?? new AbortController().signal,
+-          Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+-        ]);
+-        current();
+-      } else {
+-        const sequential: Array<{ content: string; is_error: boolean }> = [];
+-        for (const request of requests) {
+-          sequential.push(
+-            await Reflect.apply(
+-              this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation,
+-              this.authority,
+-              [
+-                request,
+-                this.authority.signal ?? new AbortController().signal,
+-                Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+-              ],
+-            ),
++              file_path: item.path,
++              rootAnchor: item.anchor,
++              identity: item.targetState.identity,
++              parentIdentity: item.parentState.identity,
++              limit: 1,
++              maxEntries: reservations[pending.indexOf(item.path)].count,
++              maxNameBytes: 1024 * 1024,
++            }),
+           );
++      }
++      if (this.directoryRevision !== revision) throw unavailable();
++      let results: readonly { content: string; is_error: boolean }[] = [];
++      if (requests.length) {
++        const batch = this.authority.executeDirectoryVerification;
++        if (batch !== undefined && typeof batch !== 'function') throw unavailable();
++        if (batch) {
++          results = await Reflect.apply(batch, this.authority, [
++            Object.freeze(requests),
++            this.authority.signal ?? new AbortController().signal,
++            Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
++          ]);
+           current();
++        } else {
++          const sequential: Array<{ content: string; is_error: boolean }> = [];
++          for (const request of requests) {
++            sequential.push(
++              await Reflect.apply(
++                this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation,
++                this.authority,
++                [
++                  request,
++                  this.authority.signal ?? new AbortController().signal,
++                  Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
++                ],
++              ),
++            );
++            current();
++          }
++          results = sequential;
+         }
+-        results = sequential;
+       }
+-    }
+-    if (!Array.isArray(results) || results.length !== requests.length) throw unavailable();
+-    let outputBytes = 0;
+-    const staged = results.map((result, index) => {
+-      if (!result || typeof result !== 'object' || Array.isArray(result)) throw unavailable();
+-      const content = Object.getOwnPropertyDescriptor(result, 'content');
+-      const error = Object.getOwnPropertyDescriptor(result, 'is_error');
+-      if (
+-        !content ||
+-        !('value' in content) ||
+-        typeof content.value !== 'string' ||
+-        !error ||
+-        !('value' in error) ||
+-        typeof error.value !== 'boolean'
+-      )
+-        throw unavailable();
+-      outputBytes += Buffer.byteLength(content.value);
+-      if (outputBytes > 2 * 1024 * 1024 - 1024) throw unavailable();
+-      return {
+-        path: requests[index].file_path,
+-        ...this.parseDirectoryEntries(requests[index].identity, {
+-          content: content.value,
+-          is_error: error.value,
+-        }),
+-      };
+-    });
+-    const added = staged.reduce((sum, item) => sum + item.entries.size, 0);
+-    if (this.totalEntries + added > 100000)
+-      throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
+-    for (const path of captured) {
+-      await this.authorize(path);
++      if (!Array.isArray(results) || results.length !== requests.length) throw unavailable();
++      let outputBytes = 0;
++      const staged = results.map((result, index) => {
++        if (!result || typeof result !== 'object' || Array.isArray(result)) throw unavailable();
++        const content = Object.getOwnPropertyDescriptor(result, 'content');
++        const error = Object.getOwnPropertyDescriptor(result, 'is_error');
++        if (
++          !content ||
++          !('value' in content) ||
++          typeof content.value !== 'string' ||
++          !error ||
++          !('value' in error) ||
++          typeof error.value !== 'boolean'
++        )
++          throw unavailable();
++        outputBytes += Buffer.byteLength(content.value);
++        if (outputBytes > 2 * 1024 * 1024 - 1024) throw unavailable();
++        return {
++          path: requests[index].file_path,
++          ...this.parseDirectoryEntries(
++            requests[index].identity,
++            {
++              content: content.value,
++              is_error: error.value,
++            },
++            reservations[index].count,
++          ),
++        };
++      });
++      for (const path of captured) {
++        await this.authorize(path);
++        current();
++      }
++      if (this.directoryRevision !== revision) throw unavailable();
+       current();
++      if (this.directoryRevision !== revision) throw unavailable();
++      // No await after the final genuine original-owner fence. Parsing, aggregate
++      // budgets and every target's post-result ceiling all succeeded above.
++      staged.forEach((item, index) => reservations[index].commit(item.entries.size));
++      for (const item of staged) {
++        this.directories.set(item.path, item.entries);
++        for (const entry of item.entries.values())
++          this.entries.set(join(item.path, entry.name), entry);
++        if (item.incomplete) this.excludedDirectories.add(item.path);
++      }
++      if (staged.length) this.directoryRevision++;
++    } finally {
++      for (const reservation of reservations) reservation.release();
+     }
+-    if (this.directoryRevision !== revision) throw unavailable();
+-    current();
+-    if (this.directoryRevision !== revision) throw unavailable();
+-    // No await after the final genuine original-owner fence. Parsing, aggregate
+-    // budgets and every target's post-result ceiling all succeeded above.
+-    for (const item of staged) {
+-      this.directories.set(item.path, item.entries);
+-      for (const entry of item.entries.values())
+-        this.entries.set(join(item.path, entry.name), entry);
+-      if (item.incomplete) this.excludedDirectories.add(item.path);
+-    }
+-    this.totalEntries += added;
+-    if (staged.length) this.directoryRevision++;
+   }
+   /** File-alias text only; this never grants access to the link target. */
+   async readLink(path: string) {
+@@ -1008,9 +1103,9 @@ export class LocalRepositoryReadAccess {
+     // reads may overlap, but their aggregate capture budget never does. Cached
+     // bytes above perform no new physical read and need no new reservation.
+     const reservation = Math.min(entry.size, limit, 16 * 1024 * 1024);
+-    if (this.totalBytes + this.inFlightBytes + reservation > 64 * 1024 * 1024)
++    if (this.budget.totalBytes + this.budget.inFlightBytes + reservation > 64 * 1024 * 1024)
+       throw new LocalRepositoryGitInspectionError('limit', 'snapshot-bytes');
+-    this.inFlightBytes += reservation;
++    this.budget.inFlightBytes += reservation;
+     try {
+       const parent = await this.stat(dirname(path));
+       if (!parent) throw unavailable();
+@@ -1049,12 +1144,12 @@ export class LocalRepositoryReadAccess {
+         (prefix && result.truncated !== bytes.length < entry.size)
+       )
+         throw unavailable();
+-      this.totalBytes += bytes.length;
++      this.budget.totalBytes += bytes.length;
+       if (bytes.length === entry.size) this.capturedBytes.set(path, Buffer.from(bytes));
+       this.consumed.set(path, structuredClone(entry));
+       return bytes;
+     } finally {
+-      this.inFlightBytes -= reservation;
++      this.budget.inFlightBytes -= reservation;
+     }
+   }
+   async verify() {
+diff --git a/server/native-repository-observation.ts b/server/native-repository-observation.ts
+index 98a059769..b5f499d7d 100644
+--- a/server/native-repository-observation.ts
++++ b/server/native-repository-observation.ts
+@@ -24,6 +24,19 @@ const Plan = z
+     taskRoot: path.optional(),
+     workspaceId: z.uuid().optional(),
+     expectedTopology: PreparedTopologySchema.optional(),
++    // Private resource ceilings only; these can narrow, never raise, the fixed
++    // producer limits and carry no read authority.
++    limits: z
++      .strictObject({
++        maxBytes: z
++          .number()
++          .int()
++          .min(0)
++          .max(32 * 1024 * 1024)
++          .default(32 * 1024 * 1024),
++        maxEntries: z.number().int().min(0).max(100000).default(100000),
++      })
++      .optional(),
+     readableRoots: z.array(path).min(1).max(256),
+     deniedRoots: z.array(path).max(256),
+     excludedNames: z
+@@ -58,6 +71,7 @@ export type RepositoryObservationInput = Pick<
+ > & {
+   readableRoots?: readonly string[];
+   additionalDeniedRoots?: readonly string[];
++  limits?: Readonly<{ maxBytes?: number; maxEntries?: number }>;
+ };
+ const Identity = z.strictObject({
+   dev: z.string().regex(/^\d{1,32}$/),
+@@ -127,6 +141,7 @@ export function freezeRepositoryObservationPlan(
+     Object.freeze(value);
+   };
+   if (parsed.expectedTopology) freeze(parsed.expectedTopology);
++  if (parsed.limits) Object.freeze(parsed.limits);
+   return Object.freeze(parsed);
+ }
+ export function projectRepositoryObservationRequest(input: unknown) {
+@@ -186,8 +201,31 @@ export async function captureRepositoryObservation(
+   transport: NativeFileHelperTransport,
+ ): Promise<Readonly<RepositoryObservationCapture>> {
+   const plan = freezeRepositoryObservationPlan(input),
+-    value = await run(plan, undefined, signal, timeoutMs, transport),
+-    data = Data.parse(value.data);
++    value = await run(plan, undefined, signal, timeoutMs, transport);
++  const maxBytes = plan.limits?.maxBytes ?? 32 * 1024 * 1024;
++  const maxEntries = plan.limits?.maxEntries ?? 100000;
++  // The transport's existing output cap still bounds raw JSON. Check narrowed
++  // collections/decoded sizes before schema copies, maps or Buffer allocation.
++  if (
++    !Array.isArray(value.data?.entries) ||
++    value.data.entries.length > maxEntries ||
++    !Array.isArray(value.data?.files)
++  )
++    throw fail();
++  let projectedBytes = 0;
++  for (const file of value.data.files) {
++    if (
++      typeof file?.bytes !== 'string' ||
++      file.bytes.length % 4 ||
++      !/^[A-Za-z0-9+/]*={0,2}$/.test(file.bytes)
++    )
++      throw fail();
++    projectedBytes +=
++      (file.bytes.length / 4) * 3 -
++      (file.bytes.endsWith('==') ? 2 : file.bytes.endsWith('=') ? 1 : 0);
++    if (projectedBytes > maxBytes) throw fail();
++  }
++  const data = Data.parse(value.data);
+   if (
+     data.mode !== plan.mode ||
+     typeof value.digest !== 'string' ||
+@@ -230,7 +268,7 @@ export async function captureRepositoryObservation(
+     if (
+       bytes.toString('base64') !== file.bytes ||
+       bytes.length > entry.size ||
+-      total > 32 * 1024 * 1024 ||
++      total > maxBytes ||
+       (file.link ? entry.kind !== 'unsupported' : entry.kind !== 'file' || entry.nlink !== 1)
+     )
+       throw fail();
+@@ -279,6 +317,8 @@ def repository_observation(request):
+     exclusions, excluded_names, readable = plan['deniedRoots'], set(plan['excludedNames']), plan['readableRoots']
+     entries, directories, files, absent = {}, {}, {}, set()
+     total_bytes = 0
++    max_bytes = plan.get('limits', {}).get('maxBytes', 32 * 1024 * 1024)
++    max_entries = plan.get('limits', {}).get('maxEntries', 100000)
+     def fail(): raise RuntimeError('Repository observation unavailable')
+     def check():
+         if time.monotonic() >= deadline: fail()
+@@ -314,6 +354,7 @@ def repository_observation(request):
+     def entry(path):
+         allowed(path)
+         if any(contains(missing,path) for missing in absent): return None
++        if path not in entries and len(entries) >= max_entries: fail()
+         fd = open_directory(os.path.dirname(path))
+         try:
+             try: info = os.stat(os.path.basename(path), dir_fd=fd, follow_symlinks=False) if path != '/' else os.fstat(fd)
+@@ -322,7 +363,6 @@ def repository_observation(request):
+             value = state(path, info)
+             if path in entries and entries[path] != value: fail()
+             entries[path] = value
+-            if len(entries) > 100000: fail()
+             return value
+         finally: os.close(fd)
+     def bounded_names(fd, maximum=10000):
+@@ -364,6 +404,8 @@ def repository_observation(request):
+         link = stat.S_ISLNK(value['mode'])
+         if value['nlink'] != 1 or (value['kind'] != 'file' and not (instruction and link)): fail()
+         if value['size'] > limit and not instruction: fail()
++        if total_bytes + min(value['size'], limit) > max_bytes: fail()
++        if path not in files and len(files) >= 512: fail()
+         parent_entry = entry(parent)
+         # Hold one no-follow parent descriptor for this observation. Verification
+         # opens the absolute chain afresh; no descriptor survives this process.
+@@ -392,7 +434,7 @@ def repository_observation(request):
+         finally: os.close(fd)
+         encoded = base64.b64encode(data).decode('ascii')
+         total_bytes += len(data)
+-        if total_bytes > 32 * 1024 * 1024: fail()
++        if total_bytes > max_bytes: fail()
+         files[path] = {'path': path, 'bytes': encoded, 'link': link}
+         if len(files) > 512: fail()
+         return data

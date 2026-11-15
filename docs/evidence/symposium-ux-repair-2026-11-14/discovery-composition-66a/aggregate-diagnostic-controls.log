@@ -1,0 +1,118 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mshares retained byte and entry bounds across query forks while independent queries retain their own budget[32m 80[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-An1OkceL' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mreserves in-flight bytes before producer invocation and releases only unretained failures[32m 147[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mkeeps native retention charged after a later producer refusal[32m 49[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mkeeps native retention charged after a later consumer refusal[32m 46[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mshares entry reservations with generic lists and an awaiting atomic preload[32m 3[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-oulN6hxE' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22menforces narrowed byte and entry ceilings in the actual fixed physical helper[33m 2093[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrejects forged over-budget capture data before decoded buffers or entry maps are retained[32m 3[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-RUDOr34Z' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mcaptures one bounded repository observation and detects changed bytes before return[33m 1476[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-TCAWzP9f' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrestricts the physical batch to the projected roots before reading Git indirection[33m 969[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mcaptures an enclosing repository from a nested cwd and tolerates a missing optional objects/info directory[33m 1077[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-qfcRsAOh' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mcaptures the exact published task metadata in one adoption observation[33m 1142[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-1R4hLrVD' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mkeeps HEAD inspection available when an optional worktree registry cannot be read safely[33m 1068[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrolls back merged sibling reference names after a later optional worktree read fails[33m 1063[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-LoQrEYcv' (errno=Operation not permitted)
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-a3c1n6l6' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mpreserves typed source absence without exposing denied paths or storage failures as missing[33m 1777[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-SzVNYiic' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mcaptures shallow boundary bytes in the fixed allocation observation[33m 1578[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-3ITVRLVj' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrefuses changed standalone HEAD after topology capture before verification[33m 1031[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-h5O6Y0Oc' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrefuses changed standalone config after topology capture before verification[33m 1020[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-FCdT4Ma7' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrefuses changed standalone index after topology capture before verification[33m 1051[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-J0to4JN1' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrefuses changed standalone shallow after topology capture before verification[33m 1026[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-AG9vIT6o' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrefuses changed standalone git-root after topology capture before verification[33m 1120[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-lOPeJ9Rp' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrefuses changed standalone task-root after topology capture before verification[33m 920[2mms[22m[39m
+git: error: couldn't create cache file '/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/xcrun_db-8jS0wEKL' (errno=Operation not permitted)
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrefuses standalone ancestor discovery or redirection[33m 656[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-observation.test.ts[2m > [22mrefuses standalone gitfile discovery or redirection[33m 528[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts[2m > [22mregisters and dispatches API Prepare after cold resume by a new login and viewer detach without accepting JSON owners[33m 6659[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts[2m > [22mwithholds private adapter completion after genuine original mode changes during the operation[33m 864[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts[2m > [22mwithholds private adapter completion after genuine original policy changes during the operation[33m 1048[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts[2m > [22mwithholds private adapter completion after genuine original role changes during the operation[33m 862[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mpreloads eight already-observed sibling directories with one existing batch and no later helper lookup[32m 4[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses an unready directory set without an unknown lookup: unknown[32m 1[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses an unready directory set without an unknown lookup: nested-unknown[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses an unready directory set without an unknown lookup: duplicate[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses an unready directory set without an unknown lookup: too-many[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses an unready directory set without an unknown lookup: relative[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mcommits no earlier directory/exclusion/budget witness after a late malformed item[32m 1[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mcommits no earlier directory/exclusion/budget witness after a late limit item[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mcommits no earlier directory/exclusion/budget witness after a late denied item[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mcommits no earlier directory/exclusion/budget witness after a late cancelled item[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mcommits no earlier directory/exclusion/budget witness after a late revoked item[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mkeeps generic no-batch fixture reads sequential and stages them before any cache commit[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22minvokes the original batch port with its authority receiver despite an own call-property replacement[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses a late current-reference change without staging earlier cache effects[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses a late aggregate-budget change without staging earlier cache effects[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses a late aggregate-output change without staging earlier cache effects[32m 3[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses reentrant cache drift while retaining the unrelated original observation[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22muses one pre/post authorization for each already-known target without a redundant stat lookup[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses mutation of the original known target identity during the batch await[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mrefuses a reentrant more-specific anchor while retaining the independently authorized pin[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mretains one remaining 1000ms deadline across ready directory batches and expiry[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mretains one remaining 30000ms deadline across ready directory batches and expiry[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-initial-directory-batch.test.ts[2m > [22mretains one remaining 60000ms deadline across ready directory batches and expiry[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a ceiling without the original own data sync owner port (missing)[32m 2[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a ceiling without the original own data sync owner port (null)[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a ceiling without the original own data sync owner port (inherited)[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a ceiling without the original own data sync owner port (accessor)[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses original source revocation during the last ceiling await (logical)[32m 1[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses original source revocation during the last ceiling await (cached)[32m 1[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses original source revocation during the last ceiling await (final)[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses non-undefined original synchronous owner results after a ceiling wait (false)[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses non-undefined original synchronous owner results after a ceiling wait (Promise{…})[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mretains the original sync callback receiver and runs it after the final awaited ceiling[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mcannot replace the captured original fence through its mutable own call property[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mcannot replace the captured ceiling assertReadable through its mutable own call property[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mcannot replace the captured ceiling revalidate through its mutable own call property[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a present malformed ceiling before any lookup (null)[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a present malformed ceiling before any lookup ({})[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a present malformed ceiling before any lookup (undefined)[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a present malformed ceiling before any lookup ({"assertReadable":false})[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses accessor and inherited ceiling callbacks without invoking getters[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mapplies the additional ceiling before and after the actual owner with the original receiver[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses an additional denial before original-owner lookup or transport[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrechecks the ceiling after an awaited owner validation before capturing identity[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22menforces the additional ceiling on cached stat and verification paths[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22menforces the additional ceiling on cached bytes and verification paths[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22menforces the additional ceiling on cached listing and verification paths[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22menforces the additional ceiling on cached batch and verification paths[32m 1[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrevalidates the ceiling after the full owner on final verification (cached=false)[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrevalidates the ceiling after the full owner on final verification (cached=true)[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a ceiling assertReadable callback resolving a non-undefined value[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mrefuses a ceiling revalidate callback resolving a non-undefined value[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/local-repository-read-ceiling.test.ts[2m > [22mpreserves the existing reader and full-owner verification when no additional ceiling is supplied[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mretains actual native-store refusal through required preparation consumer and none cleanup failure[32m 45[2mms[22m[39m
+ [32m✓[39m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mretains actual native-store refusal through required preparation consumer and verify cleanup failure[32m 33[2mms[22m[39m
+ [32m✓[39m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mretains actual native-store refusal through required preparation consumer and dispose cleanup failure[32m 28[2mms[22m[39m
+ [32m✓[39m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mretains actual native-store refusal through required preparation consumer and both cleanup failure[32m 32[2mms[22m[39m
+ [32m✓[39m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mpreserves the final physical validation guard/join before scratch disposal: cancel[32m 28[2mms[22m[39m
+ [32m✓[39m server/__tests__/preparation-object-store-cause-consumer.test.ts[2m > [22mpreserves the final physical validation guard/join before scratch disposal: pending[32m 55[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-acceptance-diagnostics.test.ts[2m > [22mprojects actual command observations without serializing private receipt/session fields[32m 14[2mms[22m[39m
+ [32m✓[39m tests/integration/symposium-acceptance-diagnostics.test.ts[2m > [22mkeeps independent observations when a getter rejects, without exposing its private cause[32m 9[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-object-store-diagnostics.test.ts[2m > [22mretains only fixed capture refusal labels, including exit zero[32m 3[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-object-store-diagnostics.test.ts[2m > [22mretains only fixed verify refusal labels, including exit zero[32m 0[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-object-store-diagnostics.test.ts[2m > [22mrejects malformed/mixed/oversized capture replies without reflecting payloads[32m 3[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-object-store-diagnostics.test.ts[2m > [22mrejects malformed/mixed/oversized verify replies without reflecting payloads[32m 2[2mms[22m[39m
+ [32m✓[39m server/__tests__/native-repository-object-store-diagnostics.test.ts[2m > [22mretains the primary check and independent cleanup checks without changing cancellation precedence[32m 1[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m7 passed[39m[22m[90m (7)[39m
+[2m      Tests [22m [1m[32m93 passed[39m[22m[90m (93)[39m
+[2m   Start at [22m 12:00:41
+[2m   Duration [22m 35.45s[2m (transform 2.22s, setup 0ms, import 5.10s, tests 29.64s, environment 0ms)[22m
+
