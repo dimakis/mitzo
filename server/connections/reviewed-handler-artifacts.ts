@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1201-lazy-delivery-review';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1202-claude-git-setup';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -74,7 +74,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '3d85bc539d43a5608b1c935c1ced8d01244eee80f4dccc5327782cfeb3437c19',
+    '15e0ef68c0f7de857f8f0afa9258826da27e2a5ba6b953bb70b5574487170f23',
+  '../../scripts/__tests__/ci-claude-repository-setup.test.ts':
+    'e5481381e48defc6a90d488bce712bcb69f59cec2443832484b5affbb63f8f27',
   '../../.github/workflows/pr-landing-reconcile.yml':
     'c4f43fcbd69bc4bbd657f2d89982b307c158bc7363d118f436eb2083a6daf91a',
   '../../.github/workflows/pr-landing-request.yml':
@@ -2586,11 +2588,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/conversation-transcript.test.ts':
     '7e862dc780fe05f7a90458853c270645a19b9b701ffe307b8251618c09ea1eb7',
   '../__tests__/credential-sdk-boundary-spawn.test.ts':
-    'a9a880ad90f654bbaef3853e897863573c4fdd56b39fb5df8fece6208bc4586d',
+    'b149259851f2d689fcb9f5fc3738d3e2a07fff77f2a1e6ad21e424ff57533134',
   '../__tests__/credential-sdk-boundary.test.ts':
     '3bac4bc0290ddc4091f3f1f9054caf2f7afe6f03752952c1cdad07baa1602961',
   '../__tests__/credential-sdk-runtime-authority.test.ts':
-    'fcb41461d1b95801d571f9228873628899e9f6a2fd648079f275c9d8d3a0362c',
+    '7ed21a807240bdfdc0388a85cdee9e7a8c02207cd7f09c67039397fc4db98652',
   '../__tests__/credential-sdk-tools.test.ts':
     'd4d0f34b95cefb8d65c3dd8f04365725a4babaae604292e50c14d2499b81bd85',
   '../__tests__/credential-setup-application.test.ts':
@@ -3214,6 +3216,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5b2c62c920721456b13b4b701e559cffb5a9eed93cc7a6b945b47303b984b3b5',
   '../__tests__/sandbox-zod-security.test.ts':
     'a7db330bc7cc87240d82a4f57b6dfe4d4faaa8332a493765fd2f8beaaefad24a',
+  '../__tests__/sandboxed-command-network.test.ts':
+    '0d999373d102654e6f9319caa98529c71cdc62844d368d4eb900c40bc2dd9d95',
+  '../__tests__/sandboxed-command.test.ts':
+    'de90778c5695bb636d59f0f49704dfa8981fc9ada79bbc0c076449a04ba39d65',
   '../__tests__/sandboxed-command-private-output.test.ts':
     'a2169291ec705b7d15341519df8f5f1309e39d46008cbd5962e59efa1236cc6c',
   '../__tests__/sandboxed-command-worker.test.ts':
@@ -3776,7 +3782,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'cb9c76245fc67059e248a9622ea36192dfac54da98377f66cf5b9112f82601b9',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-boundary.ts':
-    '9a971fd857b76eb996cbb962d89950112a5118e7b6a363712a3cb20439b2e08a',
+    '0a6298eac079e457be0732e5105a247ed4f03842e423daeaa0e1d74492cfb99e',
   '../credential-sdk-tools.ts': '909e0b077d0693ad82db0df66ddd2d9d387965943d10a11fe330e06fd0315d3f',
   '../credential-setup-application.ts':
     '6882cdc7036ec0c019392a5bf398aca9f196579d013c15f209815d0430cebd41',
@@ -4304,7 +4310,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../sandboxed-command-worker.ts':
     '2a573c2e8c11ffdb61a537e9b190f820bebd7ee1479bc65a3b81ba0ba2ab120e',
-  '../sandboxed-command.ts': 'b394b6607b07a8909c5a460eeae475a2db406af48dadaef2c3c1c0a53c0c0b45',
+  '../sandboxed-command.ts': '9746e664ae5983080fa51f5d928869e5d8af9bb51defad496ef6643d83a35043',
   '../sdk-agent-message-runtime.ts':
     'e1b474fc5ae0a91d06b0cb4149298d5837b5d8f01c913dafb8890daa17bff034',
   '../sdk-query-retirement.ts': 'a4f82c8f91373d89da95cf52c7e107914118b0cc755116c9817365b71d9b1bc9',

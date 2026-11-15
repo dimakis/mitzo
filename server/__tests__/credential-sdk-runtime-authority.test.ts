@@ -53,7 +53,7 @@ let enrollment: string;
 let config: string;
 let interpreter: string;
 beforeEach(async () => {
-  const temporaryBase = process.platform === 'darwin' ? '/private/tmp' : tmpdir();
+  const temporaryBase = realpathSync(tmpdir());
   root = realpathSync(mkdtempSync(join(temporaryBase, 'mitzo-sdk-runtime-policy-')));
   mkdirSync(join(root, 'operator'));
   mkdirSync(join(root, 'environment', 'bin'), { recursive: true });
@@ -121,6 +121,85 @@ function policy() {
     allowWrite: string[];
   };
 }
+
+it.each(['0', '1'])(
+  'permits Git setup with an empty template in the SDK boundary (Keychain %s)',
+  (enabled) => {
+    vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', enabled);
+    const payload = sdkPayload({ GIT_TEMPLATE_DIR: '/untrusted/template' });
+    expect(payload.config.filesystem.allowGitConfig).toBe(true);
+    const template = payload.env!.GIT_TEMPLATE_DIR!;
+    expect(template).not.toBe('/untrusted/template');
+    expect(payload.config.filesystem.allowRead).toContain(template);
+    expect(payload.config.filesystem.denyWrite).toContain(dirname(template));
+  },
+);
+
+it('uses the pinned SRT policy to permit repository config while retaining the mandatory hook deny', async () => {
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
+  const payload = sdkPayload();
+  const require = createRequire(import.meta.url);
+  const directory = dirname(require.resolve('@anthropic-ai/sandbox-runtime'));
+  const { macGetMandatoryDenyPatterns } = await import(
+    pathToFileURL(join(directory, 'sandbox', 'macos-sandbox-utils.js')).href
+  );
+  // Prove the old default denies exactly the Git setup file, and the selected
+  // policy removes only that optional deny, keeping the pinned hook policy.
+  expect(macGetMandatoryDenyPatterns()).toContain('**/.git/config');
+  const patterns = macGetMandatoryDenyPatterns(payload.config.filesystem.allowGitConfig);
+  expect(patterns).not.toContain('**/.git/config');
+  expect(patterns).toContain('**/.git/hooks/**');
+  expect(patterns).toContain('**/.gitconfig');
+});
+
+it
+  .runIf(process.platform === 'darwin' && process.env.MITZO_TEST_OS_SANDBOX === '1')
+  .each(['0', '1'])(
+  'clones and develops through the real SDK boundary (Keychain %s)',
+  async (enabled) => {
+    vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', enabled);
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    const previous = vi.mocked(spawn).getMockImplementation()!;
+    vi.mocked(spawn).mockImplementation(actual.spawn as never);
+    try {
+      const run = createProtectedSdkCommandRunner(credentialSdkBoundary('darwin')!);
+      const script = `
+      const fs = require('node:fs'), cp = require('node:child_process');
+      const git = (...args) => cp.execFileSync('/usr/bin/git', args, { encoding: 'utf8' });
+      git('init', '-b', 'main', 'source');
+      fs.writeFileSync('source/file', 'original');
+      git('-C', 'source', 'add', 'file');
+      git('-C', 'source', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-m', 'initial');
+      git('clone', '--no-local', 'source', 'checkout');
+      git('-C', 'checkout', 'switch', '-c', 'fix/test');
+      git('-C', 'checkout', 'remote', 'set-url', 'origin', 'https://example.invalid/repo.git');
+      fs.writeFileSync('checkout/file', 'changed');
+      git('-C', 'checkout', 'add', 'file');
+      git('-C', 'checkout', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-m', 'changed');
+      if(git('-C', 'checkout', 'show', 'HEAD:file') !== 'changed') process.exit(70);
+      if(git('-C', 'source', 'show', 'HEAD:file') !== 'original') process.exit(71);
+      const denied = (fn, code) => { try { fn(); process.exit(code); } catch(error) {
+        if(!['EPERM', 'EACCES'].includes(error.code)) throw error;
+      }};
+      denied(() => fs.mkdirSync('checkout/.git/hooks'), 72);
+      denied(() => fs.readFileSync(${JSON.stringify(config)}), 73);
+      fs.writeFileSync('checkout/result', 'checked');
+      process.stdout.write('git-sdk-ok');
+    `;
+      expect(
+        await run(process.execPath, ['-e', script], {
+          cwd: join(root, 'work'),
+          env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: join(root, 'work') },
+          timeout: 20000,
+        }),
+      ).toEqual({ stdout: 'git-sdk-ok', stderr: expect.any(String) });
+      expect(readFileSync(join(root, 'work', 'checkout', 'result'), 'utf8')).toBe('checked');
+    } finally {
+      vi.mocked(spawn).mockImplementation(previous);
+    }
+  },
+  25000,
+);
 
 it('activates the outer SDK boundary without Keychain and fences enrolled authority before any runtime use', () => {
   expect(credentialSdkBoundary('darwin')!.credentialIsolation).toBe(false);
@@ -343,13 +422,13 @@ it('retains runtime-only project credentials and custom endpoint behavior while 
   };
   const payload = sdkPayload(env);
   expect(payload.filesystemOnly).toBe(true);
-  expect(payload.env).toEqual(env);
+  expect(payload.env).toEqual({ ...env, GIT_TEMPLATE_DIR: expect.any(String) });
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
   expect(() => credentialSdkBoundary('darwin')).toThrow(/hostname provider endpoint/);
   vi.stubEnv('ANTHROPIC_BASE_URL', 'https://synthetic-provider.example');
   const credentialPayload = sdkPayload(env);
   expect(credentialPayload.filesystemOnly).toBeUndefined();
-  expect(credentialPayload.env).toEqual({});
+  expect(credentialPayload.env).toEqual({ GIT_TEMPLATE_DIR: expect.any(String) });
   expect(credentialPayload.config.network.allowedDomains).toContain('synthetic-provider.example');
 });
 
