@@ -11,6 +11,8 @@ import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
+import { OrdinaryLocalVertexCommandOwner } from '../ordinary-local-vertex-command-owner.js';
+import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
 
 /** Lightweight in-memory span for testing OTel instrumentation. */
@@ -124,6 +126,7 @@ function fakeRegistry(
   };
   return {
     get: vi.fn(() => (removed ? null : session)),
+    findBySessionId: vi.fn(() => undefined),
     setSessionId: vi.fn((_, id: string) => {
       session.sessionId = id;
     }),
@@ -912,10 +915,11 @@ describe('runQueryLoop', () => {
       undefined,
       {
         onUserInput: (_clientId, uuid) => received.push(`input:${uuid}`),
-        onResult: (_clientId, result, inputUuid) =>
+        onResult: (_clientId, result, inputUuid) => {
           received.push(
             `result:${result.is_error === true ? 'failed' : 'completed'}:${inputUuid ?? 'none'}`,
-          ),
+          );
+        },
       },
     );
 
@@ -944,10 +948,265 @@ describe('runQueryLoop', () => {
       abortController,
       undefined,
       undefined,
-      { onResult: (_clientId, _result, inputUuid) => resultInputs.push(inputUuid) },
+      {
+        onResult: (_clientId, _result, inputUuid) => {
+          resultInputs.push(inputUuid);
+        },
+      },
     );
 
     expect(resultInputs).toEqual([undefined, undefined]);
+  });
+
+  it.each([
+    { uuid: 'background-notification', isSynthetic: true },
+    { uuid: 'original-input', isReplay: true },
+  ])('keeps the original result correlation after SDK input $uuid', async (extra) => {
+    const onUserInput = vi.fn();
+    const onResult = vi.fn();
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'user',
+          uuid: 'original-input',
+          parent_tool_use_id: null,
+          message: { role: 'user', content: 'do the work' },
+        },
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'reply' } } },
+        {
+          type: 'user',
+          ...extra,
+          parent_tool_use_id: null,
+          message: { role: 'user', content: 'background task finished' },
+        },
+        { type: 'result', session_id: 'sess-1', is_error: false },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onUserInput, onResult },
+    );
+    expect(onUserInput).toHaveBeenCalledExactlyOnceWith(clientId, 'original-input');
+    expect(onResult).toHaveBeenCalledWith(
+      clientId,
+      expect.objectContaining({ is_error: false }),
+      'original-input',
+    );
+  });
+
+  it.each([false, true])(
+    'preserves confirmed completion when successor preparation fails: %s',
+    async (successorFails) => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'personal-claude';
+      const binding = {
+        version: 2 as const,
+        account: {
+          accountId: 'personal',
+          provider: 'anthropic-claude' as const,
+          profileRevision: 'profile',
+        },
+        harness: { implementation: 'claude-sdk' as const },
+        execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'target' },
+      };
+      const meta = {
+        sessionId,
+        repositoryWorkspaceId: 'workspace',
+        cwd: '/fixture',
+        accountBinding: { ...binding.account, accountLabel: 'Personal Claude', model: 'offline' },
+      };
+      const command = (id: string) => ({
+        clientMsgId: id,
+        requestFingerprint: `fingerprint-${id}`,
+        payload: { text: id },
+        selection: {
+          version: 1 as const,
+          agent: { profileId: 'published', revision: 1 },
+          context: { source: 'none' as const, revision: null },
+          permission: { mode: 'ask' as const, revision: 0 },
+          model: 'offline',
+          thinking: null,
+        },
+      });
+      const query = {
+        setModel: vi.fn(async () => {}),
+        setMaxThinkingTokens: vi.fn(async () => {}),
+        push: vi.fn(async (_id: string) => {}),
+        abort: vi.fn(),
+      };
+      const owner = new OrdinaryLocalVertexCommandOwner({
+        store,
+        sessionId,
+        assertCurrent: async () => {},
+        query,
+        settings: () => ({ model: 'offline', thinkingTokens: null }),
+        turnEvidence: new OrdinarySdkTurnEvidence(store, sessionId, sessionId),
+      });
+      try {
+        store.admitOrdinaryLocalVertexCommand(meta, binding, command('first'));
+        store.append(sessionId, 'user_message', { messageId: 'first', text: 'first' });
+        await owner.enqueue('first');
+        store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+        await owner.enqueue('second');
+        if (successorFails)
+          query.setModel.mockRejectedValueOnce(Error('private successor preparation detail'));
+        registry.setSessionId(clientId, sessionId);
+        await runQueryLoop(
+          eventStream([
+            {
+              type: 'user',
+              uuid: 'first-input',
+              parent_tool_use_id: null,
+              message: { role: 'user', content: 'first' },
+            },
+            { type: 'stream_event', event: { type: 'message_start', message: { id: 'reply' } } },
+            {
+              type: 'user',
+              uuid: 'notification',
+              isSynthetic: true,
+              parent_tool_use_id: null,
+              message: { role: 'user', content: 'background task finished' },
+            },
+            {
+              type: 'result',
+              session_id: sessionId,
+              is_error: false,
+              usage: { input_tokens: 7, output_tokens: 3 },
+              total_cost_usd: 0.01,
+            },
+          ]),
+          clientId,
+          registry,
+          abortController,
+          store,
+          undefined,
+          {
+            initialClientMsgId: 'first',
+            onUserInput: (_clientId, id) => owner.inputObserved(id),
+            onResult: (_clientId, result, id) =>
+              owner.resultObserved(id, result.is_error === true, { dispatchSuccessor: false }),
+            onResultDelivered: async () => {
+              try {
+                await owner.dispatchQueued();
+              } catch (cause) {
+                const failure = new SessionRuntimeError('runtime_unavailable', { cause });
+                abortController.abort(failure);
+                throw failure;
+              }
+            },
+          },
+        );
+        expect(query.abort).toHaveBeenCalledTimes(successorFails ? 1 : 0);
+        expect(store.getOrdinaryProviderTurnTerminal(sessionId, 'first')).toBe('completed');
+        expect(store.getOrdinaryProviderTurnTerminal(sessionId, 'second')).toBeUndefined();
+        expect(query.push.mock.calls.map((args) => args[0])).toEqual(
+          successorFails ? ['first'] : ['first', 'second'],
+        );
+        expect(store.getSession(sessionId)).toMatchObject({
+          inputTokens: 7,
+          outputTokens: 3,
+          totalCostUsd: 0.01,
+        });
+        const ends = transport.sent.filter((msg) => msg.type === 'session_end');
+        expect(ends).toHaveLength(1);
+        expect(ends[0]).not.toHaveProperty('terminalReason');
+        expect(ends[0]).toMatchObject({ usage: { inputTokens: 7, outputTokens: 3 } });
+        expect(transport.sent.filter((msg) => msg.type === 'error')).toHaveLength(
+          successorFails ? 1 : 0,
+        );
+        if (successorFails) {
+          expect(store.getLatestEvent(sessionId, 'error')?.payload).toHaveProperty(
+            'runtimeFailure',
+          );
+          expect(JSON.stringify(transport.sent)).not.toContain(
+            'private successor preparation detail',
+          );
+        }
+      } finally {
+        store.close();
+      }
+    },
+  );
+
+  it('awaits result settlement before publishing completion', async () => {
+    let release!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = vi.fn();
+    const running = runQueryLoop(
+      eventStream([{ type: 'result', session_id: 'sess-1' }]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      {
+        onResult: async () => {
+          started();
+          await settled;
+        },
+      },
+    );
+    try {
+      await vi.waitFor(() => expect(started).toHaveBeenCalledOnce());
+      expect(transport.sent.filter((msg) => msg.type === 'session_end')).toEqual([]);
+    } finally {
+      release();
+      await running;
+    }
+    expect(transport.sent.filter((msg) => msg.type === 'session_end')).toHaveLength(1);
+  });
+
+  it('reports result settlement failure even when its owner aborts the query', async () => {
+    const store = new EventStore(':memory:');
+    registry.setSessionId(clientId, 'sess-1');
+    store.upsertSession({ sessionId: 'sess-1', cwd: '/fixture' });
+    store.append('sess-1', 'user_message', { messageId: 'original-command', text: 'do the work' });
+    const failure = new SessionRuntimeError('runtime_unavailable', {
+      cause: new Error('private result identity detail'),
+    });
+    try {
+      await runQueryLoop(
+        eventStream([{ type: 'result', session_id: 'sess-1' }]),
+        clientId,
+        registry,
+        abortController,
+        store,
+        undefined,
+        {
+          initialClientMsgId: 'original-command',
+          onResult: () => {
+            abortController.abort(failure);
+            throw failure;
+          },
+        },
+      );
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({
+          type: 'error',
+          error: failure.publicMessage(),
+        }),
+      );
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({
+          type: 'session_end',
+          terminalReason: 'failed',
+        }),
+      );
+      expect(JSON.stringify(transport.sent)).not.toContain('private result identity detail');
+      expect(store.getLatestEvent('sess-1', 'error')?.payload).toMatchObject({
+        error: failure.publicMessage(),
+        runtimeFailure: failure.telemetry(),
+      });
+      expect(store.getLatestEvent('sess-1', 'session_end')?.payload).toMatchObject({
+        terminalReason: 'failed',
+      });
+    } finally {
+      store.close();
+    }
   });
 
   it('emits block_start+block_delta+block_end for thinking blocks', async () => {

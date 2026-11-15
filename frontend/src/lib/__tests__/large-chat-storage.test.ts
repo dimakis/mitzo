@@ -181,6 +181,141 @@ it.each(['index', 'legacy payload'] as const)(
   },
 );
 
+it.each(['before write', 'commit acknowledgement', 'foreign replacement'] as const)(
+  'recovers a stalled IndexedDB write at %s without sending uncommitted intent',
+  async (stage) => {
+    vi.useFakeTimers();
+    const records = new Map<string, unknown>();
+    let stalled = true;
+    const pending: {
+      oncomplete?: () => void;
+      read: { onsuccess?: () => void };
+      abort: ReturnType<typeof vi.fn>;
+    }[] = [];
+    const handles: { close: ReturnType<typeof vi.fn> }[] = [];
+    const put = vi.fn((value: unknown, key: string) => records.set(key, structuredClone(value)));
+    const open = vi.fn(() => {
+      const stale = handles.length === 0;
+      const db = {
+        close: vi.fn(() => {
+          if (stale && stage === 'foreign replacement') {
+            for (const [key, value] of records) {
+              const record = value as { value: string };
+              records.set(key, { ...record, value: 'Foreign snapshot' });
+            }
+          }
+        }),
+        transaction: vi.fn((_store: string, mode: string) => {
+          const read: { result?: unknown; onsuccess?: () => void } = {};
+          const tx: {
+            oncomplete?: () => void;
+            onabort?: () => void;
+            objectStore?: () => object;
+            abort: ReturnType<typeof vi.fn>;
+          } = {
+            abort: vi.fn(() => tx.onabort?.()),
+          };
+          tx.objectStore = () => ({
+            getAll: () => {
+              queueMicrotask(() => tx.oncomplete?.());
+              return { result: [...records.values()] };
+            },
+            get: (key: string) => {
+              read.result = records.get(key);
+              if (!(stale && stalled && stage === 'before write'))
+                queueMicrotask(() => {
+                  read.onsuccess?.();
+                  if (!stale || !stalled) tx.oncomplete?.();
+                });
+              return read;
+            },
+            put,
+          });
+          // Capture the actual handler installed after transaction creation.
+          if (mode === 'readwrite') pending.push(Object.assign(tx, { read }));
+          return tx;
+        }),
+      };
+      handles.push(db);
+      const request: { result: object; onsuccess?: () => void } = { result: db };
+      queueMicrotask(() => request.onsuccess?.());
+      return request;
+    });
+    vi.stubGlobal('window', new EventTarget());
+    vi.stubGlobal('localStorage', fixture().storage);
+    vi.stubGlobal('indexedDB', { open });
+    vi.stubGlobal('IDBKeyRange', { bound: () => ({}) });
+    vi.stubGlobal('BroadcastChannel', undefined);
+    vi.resetModules();
+    let outbox: SendOutbox | undefined;
+    try {
+      const { initializeChatStorage, chatStorage } = await import('../large-chat-storage');
+      await initializeChatStorage();
+      const body = (
+        await import('../../../../packages/client/src/__tests__/fixtures/local-first-command')
+      ).localFirstCommandFixture;
+      const fetch = vi.fn(async (_url: string, _init?: RequestInit) =>
+        Response.json(
+          {
+            ok: true,
+            dispatched: true,
+            sessionId: 'saved-session',
+            clientMsgId: body.clientMsgId,
+            state: 'consumed',
+          },
+          { status: 202 },
+        ),
+      );
+      const notify = vi.fn();
+      outbox = new SendOutbox({
+        url: '/local/send',
+        fetch,
+        notify,
+        localFirstCommand: true,
+        storage: createReviewedOutboxStorage(chatStorage, '/local/send', 'local'),
+      });
+      outbox.start();
+      expect(outbox.enqueue(body, 1, 'original-draft')).toBe(true);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(pending[0].abort).toHaveBeenCalledOnce();
+      expect(handles[0].close).toHaveBeenCalledOnce();
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          state: 'uncertain',
+          deliveryDiagnostic: expect.objectContaining({ code: 'storage_failed' }),
+        }),
+      );
+      const lateRead = pending[0].read.onsuccess!;
+      const lateComplete = pending[0].oncomplete!;
+      const puts = put.mock.calls.length;
+      lateRead();
+      lateComplete();
+      expect(put).toHaveBeenCalledTimes(puts);
+      stalled = false;
+      expect(outbox.retryLocalCommand(body.clientMsgId)).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+      if (stage === 'foreign replacement') {
+        expect(fetch).not.toHaveBeenCalled();
+        expect(chatStorage.failed).toBe(true);
+        expect([...records.values()]).toContainEqual(
+          expect.objectContaining({ value: 'Foreign snapshot' }),
+        );
+        return;
+      }
+      expect(fetch).toHaveBeenCalledExactlyOnceWith('/local/send', expect.any(Object));
+      expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual(body);
+      expect(open).toHaveBeenCalledTimes(2);
+      expect(notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'consumed' }));
+      expect(chatStorage.failed).toBe(false);
+    } finally {
+      outbox?.stop();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  },
+);
+
 function fixture() {
   const disk = new Map<string, string>();
   const blobs = new Map<string, string>();
@@ -272,7 +407,7 @@ it.each(['local', 'openshell'] as const)(
       expect(storage.getItem('draft')).toBe(draft);
       release();
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-      expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(body);
+      expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual(body);
       expect(f.disk.get('draft')).toBe(draftReference);
       const cold = new LargeChatStorage(f.storage, f.backend);
       await cold.ready();

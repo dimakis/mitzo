@@ -1,5 +1,6 @@
 import { createBrowserId } from './browser-crypto';
 import { readChatStorage } from './chat-storage-read';
+import { ChatStorageWriteTimeout, writeChatStorage } from './chat-storage-write';
 
 type LegacyDisk = Pick<Storage, 'length' | 'key' | 'getItem'>;
 export interface ChatDiskRecord {
@@ -141,7 +142,16 @@ export class IndexedChatDisk {
         failed.record.value !== null &&
         value !== null
       ) {
-        failed.record = { ...failed.record, value, revision: createBrowserId() };
+        if (failed.record.value !== value) {
+          const error = this.errors.get(key);
+          if (error instanceof ChatStorageWriteTimeout) {
+            // Reconcile the exact possibly committed snapshot before accepting
+            // another revision against its original comparison baseline.
+            this.schedule();
+            throw error;
+          }
+          failed.record = { ...failed.record, value, revision: createBrowserId() };
+        }
         if (authority) failed.authority = true;
         this.writes.set(key, failed);
         this.keyCache = undefined;
@@ -251,6 +261,7 @@ export function createIndexedChatDisk(
   open: () => Promise<IDBDatabase>,
   committed: () => void,
   changed: () => void,
+  retire: (db: IDBDatabase) => void = (db) => db.close(),
 ) {
   return new IndexedChatDisk(
     legacy,
@@ -266,33 +277,39 @@ export function createIndexedChatDisk(
       },
       async write(record, expected, legacyUnchanged) {
         const db = await open();
-        await new Promise<void>((resolve, reject) => {
-          const tx = db.transaction('payloads', 'readwrite');
-          const store = tx.objectStore('payloads');
-          const read = store.get(recordKey(record.key));
-          let error: unknown;
-          read.onsuccess = () => {
-            const current: unknown = read.result;
-            if (
-              (current !== undefined && !validRecord(current)) ||
-              ((current as ChatDiskRecord | undefined)?.revision ?? null) !== expected ||
-              !legacyUnchanged()
-            ) {
-              error = conflict();
-              tx.abort();
-            } else {
-              try {
-                store.put(record, recordKey(record.key));
-              } catch (cause) {
-                error = cause;
-                tx.abort();
+        await writeChatStorage(
+          db,
+          (store, currentWrite, rejectWrite) => {
+            const read = store.get(recordKey(record.key));
+            read.onsuccess = () => {
+              if (!currentWrite()) return;
+              const current: unknown = read.result;
+              const exactRetry =
+                validRecord(current) &&
+                current.key === record.key &&
+                current.revision === record.revision &&
+                current.value === record.value &&
+                current.legacy === record.legacy;
+              if (
+                (current !== undefined && !validRecord(current)) ||
+                (!exactRetry &&
+                  ((current as ChatDiskRecord | undefined)?.revision ?? null) !== expected) ||
+                !legacyUnchanged()
+              ) {
+                // Preserve the comparison failure before abort's generic error event.
+                rejectWrite(conflict());
+              } else {
+                try {
+                  if (!exactRetry) store.put(record, recordKey(record.key));
+                } catch (cause) {
+                  rejectWrite(cause);
+                }
               }
-            }
-          };
-          tx.oncomplete = () => resolve();
-          tx.onerror = tx.onabort = () =>
-            reject(error ?? tx.error ?? Error('Chat storage write failed'));
-        });
+            };
+            return read;
+          },
+          retire,
+        );
         // Notifications do not change the outcome of a committed transaction.
         try {
           committed();

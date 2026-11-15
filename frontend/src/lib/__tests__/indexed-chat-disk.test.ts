@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { IndexedChatDisk, type ChatDiskRecord } from '../indexed-chat-disk';
+import { ChatStorageWriteTimeout } from '../chat-storage-write';
 import { LargeChatStorage, chatStorage } from '../large-chat-storage';
 import { replaceComposerDraftRevision, composerDraftRevisionKey } from '../composer-draft-proof';
 import { SendOutbox } from '../../../../packages/client/src/send-outbox';
@@ -108,6 +109,34 @@ function fixture() {
   };
   return { legacy, records, disk, backend, open: () => new IndexedChatDisk(disk, backend) };
 }
+
+it('keeps the exact revision of a timed-out write until its commit is reconciled', async () => {
+  const f = fixture();
+  const disk = f.open();
+  await disk.ready();
+  f.backend.write.mockRejectedValueOnce(new ChatStorageWriteTimeout());
+  disk.setItem('draft', 'Original');
+  await expect(disk.flush()).rejects.toThrow(/timed out/);
+  const original = structuredClone(f.backend.write.mock.calls[0][0]);
+  expect(() => disk.setItem('draft', 'Later edit')).toThrow(/timed out/);
+  await disk.flush();
+  expect(f.records.get('draft')).toEqual(original);
+  disk.setItem('draft', 'Later edit');
+  await disk.flush();
+  expect(f.records.get('draft')?.value).toBe('Later edit');
+});
+it('does not assign a new revision when explicitly retrying the same failed snapshot', async () => {
+  const f = fixture();
+  const disk = f.open();
+  await disk.ready();
+  f.backend.write.mockRejectedValueOnce(new ChatStorageWriteTimeout());
+  disk.setItem('draft', 'Original');
+  await expect(disk.flush()).rejects.toThrow(/timed out/);
+  const original = structuredClone(f.backend.write.mock.calls[0][0]);
+  disk.setItem('draft', 'Original');
+  await disk.flush();
+  expect(f.records.get('draft')).toEqual(original);
+});
 
 it('saves and cold-recovers a screenshot and outgoing copy with zero Web Storage headroom', async () => {
   const f = fixture();
