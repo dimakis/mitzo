@@ -69,6 +69,8 @@ export interface ChatAreaProps {
   messages: FinishedMessage[];
   current: StreamingMessage | null;
   currentByMessage?: Record<string, StreamingMessage>;
+  /** Caller has composed independent durable sources; their cursors are incomparable. */
+  preserveMessageOrder?: boolean;
   contextItems?: SymposiumContextItem[];
   /** Presentation-only metadata keyed by the displayed message identity. */
   renderMessageAttribution?(messageId: string): ReactNode;
@@ -208,6 +210,7 @@ export function ChatArea({
   messages,
   current,
   currentByMessage = {},
+  preserveMessageOrder = false,
   contextItems = [],
   beforeMessages,
   afterMessages,
@@ -551,13 +554,14 @@ export function ChatArea({
         index: messages.length + Object.keys(currentByMessage).length + (current ? 1 : 0) + index,
       })),
     ];
+    if (preserveMessageOrder) return turns;
     // Keep unsequenced optimistic rows in place while sorting durable turns.
     const sequenced = turns
       .filter((turn) => turn.startedSeq !== undefined)
       .sort((a, b) => a.startedSeq! - b.startedSeq! || a.index - b.index);
     let nextSequenced = 0;
     return turns.map((turn) => (turn.startedSeq === undefined ? turn : sequenced[nextSequenced++]));
-  }, [messages, current, currentByMessage, contextItems]);
+  }, [messages, current, currentByMessage, contextItems, preserveMessageOrder]);
 
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 

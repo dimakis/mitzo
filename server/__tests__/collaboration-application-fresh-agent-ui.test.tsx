@@ -58,14 +58,26 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
           <SharedConversationBody
             sourceConversationId="existing-chat"
             chat={{
-              messages: [],
+              messages: [
+                {
+                  messageId: 'ordinary-history',
+                  role: 'user',
+                  blocks: [
+                    {
+                      blockId: 'text',
+                      blockType: 'text',
+                      content: 'Original discussion remains available.',
+                    },
+                  ],
+                },
+              ],
               current: null,
               running: false,
               permission: null,
               onPermissionRespond: () => {},
             }}
           >
-            <p>Original discussion remains available.</p>
+            {null}
           </SharedConversationBody>
         </SharedConversationHost>
       </MemoryRouter>
@@ -152,6 +164,8 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       });
     fireEvent.keyDown(before, { key: 'Escape' });
     fireEvent.click(await screen.findByRole('button', { name: 'Choose who replies' }));
+    // This source is observational; the real reviewer owns this explicit turn.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Current agent', exact: true }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'FreshReviewer' }));
     fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
@@ -344,8 +358,13 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Both reviewers: answer independently using Defaults.' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh conversation', exact: true }));
-    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    // Defaults is initially empty in the retained projection. Its primary
+    // recovery opens the picker; the normal observer adopts the server's new
+    // default policies without asking any agent to infer.
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false), {
+      timeout: 10000,
+    });
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
     fireEvent.click(send());
     let fanout!: Awaited<ReturnType<typeof h.api.view>>['messages'][number];
     await waitFor(
