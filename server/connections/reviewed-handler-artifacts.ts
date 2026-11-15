@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1192-symposium-integrated-acceptance';
+  'v1.0.1194-symposium-integrated-acceptance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1875,12 +1875,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '360841b6c6de8609e275732c226740d986a4a3b69ccbde961b8bdb1e53fecf18',
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
     '6131e244eeb63a813e90f11e81ccc542eefbd66ae3f25df6472ca4218b252c35',
+  '../../tests/integration/symposium-acceptance-diagnostics.test.ts':
+    '76042dad710dcc15e0836e51645c5054414903e6a6f093ff03c83479898a096e',
   '../../tests/integration/symposium-application-review-recovery.test.tsx':
     '25489f287500e19ebaa054e00011fc030cba261820f65028e3f9a38e3b584985',
   '../../tests/integration/symposium-composer-transfer.test.tsx':
     'c9bc99ceb3e17211bd03de2d1a771cb714ed78f2ad6608834300876ecb3f9cdc',
   '../../tests/integration/symposium-ordinary-acceptance.test.tsx':
-    'f059e98471c4f9bac5ceef1aab5633fbadaa7f0a33dd837d25dc4c27b320b965',
+    'dac763944ed487f167727dd4400964d71ec3ba68bee28c03e96b8b8f1efa3fb0',
   '../../tests/integration/symposium-required-owners.test.ts':
     'dfb7f311eab054c9f27e5401610819a5e743516ac2e22461fae1596e6b79aa01',
   '../../tests/integration/symposium-sdk-responsive-recovery.test.tsx':
@@ -2339,6 +2341,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a0d19a04b0ce54d0c79271793658cde1f7cc0cff4a396c607939aeb374345630',
   '../../tests/support/service-health-navigation.ts':
     'c07e156aa49f6b8bb8bf890923fbeb0a92f92c810859004733806a7f627177b2',
+  '../../tests/support/symposium-acceptance-diagnostics.ts':
+    'fa4e36c09b30026d6795791b23308f5fdf2e4e3524766460c2dee3dca9250d8e',
   '../../tsconfig.build.json': 'c83304ab66e7691fcf1af562f226581eddfec5765deb9cac309bc9c8c33cfba4',
   '../../tsconfig.json': '2b7603a43a235aed2cc210c66994d96aa356aaa64232fcb896b5338f206d3c43',
   '../../vendor/security/README.md':

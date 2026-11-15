@@ -8,6 +8,10 @@ import { recordApplicationMessagingRuntime } from '../../server/__tests__/fixtur
 import { installDialogStub } from '../../frontend/src/components/__tests__/dialog-stub';
 import { applicationEventSource } from '../support/application-event-source';
 import { mountResponsiveOrdinary } from '../support/ordinary-responsive-composition';
+import {
+  observeAcceptance,
+  observeAcceptanceCommand,
+} from '../support/symposium-acceptance-diagnostics';
 import { mkdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -209,13 +213,43 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
   let stage = 'ordinary_source_bootstrap';
   let diagnosticGroup = '';
   onTestFailed(async () => {
+    // These reads must never replace the original assertion failure. A queued
+    // claim alone cannot distinguish pending admission from a failed dispatcher.
+    const messages = diagnosticGroup
+      ? await h.api.view(diagnosticGroup).catch(() => {
+          console.error(
+            'OFFLINE_OBSERVATION_UNAVAILABLE',
+            JSON.stringify({
+              code: 'acceptance_observation_unavailable',
+              observation: 'collaboration_view',
+            }),
+          );
+          return undefined;
+        })
+      : undefined;
+    console.error(
+      'OFFLINE_ADMISSION_DIAGNOSTIC',
+      JSON.stringify({
+        stage,
+        collaborationId: diagnosticGroup,
+        viewAvailable: !!messages,
+        nativeMethods: runtime.requests.map(({ method }) => method),
+        commands: messages?.messages.flatMap((message) =>
+          message.deliveries.flatMap((delivery) =>
+            delivery.commandId
+              ? [observeAcceptanceCommand(h.events, delivery.sessionId, delivery.commandId)]
+              : [],
+          ),
+        ),
+      }),
+    );
     console.error(
       'OFFLINE_ACCEPTANCE_STAGE',
       JSON.stringify({
         stage,
         nativeTurns: runtime.requests.filter((r) => r.method === 'turn/start').length,
-        deliveries: diagnosticGroup
-          ? (await h.api.view(diagnosticGroup)).messages
+        deliveries: messages
+          ? messages.messages
               .filter((m) => m.author === 'operator')
               .map((m) => ({ text: m.text, deliveries: m.deliveries }))
           : [],
@@ -229,12 +263,30 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
         sourceEvents: transport.receipts.slice(-30),
       }),
     );
-    const lines = (await readFile(journey.state.root! + '/app.log', 'utf8'))
+    const raw = await readFile(journey.state.root! + '/app.log', 'utf8').catch(() => {
+      console.error(
+        'OFFLINE_OBSERVATION_UNAVAILABLE',
+        JSON.stringify({
+          code: 'acceptance_observation_unavailable',
+          observation: 'application_log',
+        }),
+      );
+      return '';
+    });
+    const lines = raw
       .split('\n')
       .filter(Boolean)
-      .map((line) => JSON.parse(line));
+      .flatMap((line) => {
+        const result = observeAcceptance('application_log_record', () => JSON.parse(line));
+        if (result.status === 'observed') return [result.value];
+        console.error('OFFLINE_OBSERVATION_UNAVAILABLE', JSON.stringify(result));
+        return [];
+      });
     for (const row of lines.filter(
-      (row) => row.code === 'collaboration_recipient_readiness_failed',
+      (row) =>
+        row.code === 'collaboration_recipient_readiness_failed' ||
+        (row.code === 'collaboration_delivery_uncertain' &&
+          row.collaborationId === diagnosticGroup),
     ))
       console.error(
         'OFFLINE_READINESS_DIAGNOSTIC',
@@ -243,7 +295,7 @@ it('retains the ordinary unsent draft while real fresh setup/review silently joi
           stage: row.stage,
           collaborationId: row.collaborationId,
           sessionId: row.sessionId,
-          error: row.err,
+          commandId: row.commandId,
         }),
       );
   });
