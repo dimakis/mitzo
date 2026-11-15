@@ -11,7 +11,7 @@ Additive merge `baf2011626db3942f2760945880ee0a7226fd6ad` composes accepted
 main `4bc83d18f24bb14f24b7c190a32c2a4fa0834963` (#1356), which retains accepted
 #1342/#1362. The sole conflict was registry metadata. All 2,489 accepted keys
 and this PR's overview entry remain; fingerprints use actual composed bytes.
-Final runtime revision is `v1.0.1187-telos-guard-fixture-setup`.
+Final runtime revision is `v1.0.1188-telos-fixture-lifetime`.
 Accepted runtime/UI, privacy, recovery, Stop and permission guards are retained.
 
 ## Initial shared fixture handoff
@@ -99,3 +99,41 @@ and whitespace checks pass. No other #1359 source is imported.
 Preserve prior automatic review job `7567` for `d96dda36` alongside the earlier
 ledger. Current successor service receipt, exact-head public final review and
 normal combined CI remain required; no duplicate or forced review is requested.
+
+## SDK initialization lifetime follow-up
+
+Target `a5682c24` run `43665382990`, Unit 2 job `132665099895`, again fails only
+the actual guarded-detach control at the default 5,000ms whole-test timeout.
+Other unit shards pass. The precise hosted phase remains unproved; a matching
+failure name does not prove a common timing cause or qualify another test.
+
+The applicable SDK-only incremental source is published #1359
+`900ef419c4e3ac823b9e185a4e224ea05da021de`, reviewed against its exact bytes.
+The required preimage is prior blob `6fe3d2b5` / SHA256 `b7ad0de8`. Result:
+blob `11a28dc3fa3d632692f876f21e91f92a7593eb3b`, SHA256
+`360841b6c6de8609e275732c226740d986a4a3b69ccbde961b8bdb1e53fecf18`.
+The one-file patch SHA256 is
+`0b561d71384b4d1bac4765961e8463d8d7d4682b6350f5b889aaf660b96186e9`.
+No native test, device fix, Telos helper or source registry is imported.
+
+Cleanup is registered before asynchronous acquisition. Abort/closing checks
+prevent late registration, retirement joins initialization, and following fixture
+environment changes wait for retirement. Original failures and unconfirmed
+resource retention remain explicit. The added delayed-loader control checks the
+original cause, held/restored environment, refused following admission, empty
+actual registry, null connection, closed store, removed root and absence of late
+SDK input. Existing active-owner and cause/store assertions remain.
+
+Setup now uses the normal 10s hook plus the default 5s control body: total
+setup/control allowance increases. Lifecycle 10s and scenario 60s remain. This
+is an explicit fixture observation change, not an unchanged-budget or hosted-fix
+claim. The source's rejected superseded hook variant is excluded.
+
+All six affected SDK controls/following journeys pass on the target in 51.72s,
+one worker/1GiB. These are four cleanup/lifetime controls and both following
+default account transfers. Prior evidence overlaps and is not added as unique
+coverage. All 2,490 target registry keys remain; exact source pins, scoped lint,
+format and whitespace checks pass. Earlier actual failures remain recorded.
+Current-head CI, trusted final review and the global sequential turn remain
+required; preserve prior automatic job `7576` and its finding ledger without
+requesting a forced duplicate.
