@@ -43,6 +43,16 @@ function renderBar(props: Partial<Parameters<typeof SessionSearchBar>[0]> = {}) 
 }
 
 describe('SessionSearchBar', () => {
+  it('opens the exact participant match from one source conversation result', async () => {
+    const onSelectSession = vi.fn();
+    renderBar({
+      active: true,
+      results: [{ ...mockResults[0], matchedSessionId: 'exact-participant' }],
+      onSelectSession,
+    });
+    await userEvent.setup().click(screen.getByText('Fix auth bug'));
+    expect(onSelectSession).toHaveBeenCalledWith('exact-participant');
+  });
   it('renders search toggle button', () => {
     renderBar();
     expect(screen.getByTitle('Search sessions')).toBeTruthy();

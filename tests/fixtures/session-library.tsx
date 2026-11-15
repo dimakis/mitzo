@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { SessionList } from '../../frontend/src/pages/SessionList';
 import { eventBus } from '../../frontend/src/lib/event-bus-singleton';
 import { SessionPanel } from '../../frontend/src/components/SessionPanel';
@@ -19,9 +19,17 @@ import '../../frontend/src/styles/mobile-workspace.css';
 import '../../frontend/src/styles/appearance.css';
 import '../../frontend/src/styles/session-library.css';
 eventBus.connect('/api/events');
+function OpenedConversation() {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  return (
+    <button data-session-id={id} onClick={() => navigate('/sessions')}>
+      Opened conversation
+    </button>
+  );
+}
 function Surface() {
   const desktop = useIsDesktop();
-  const navigate = useNavigate();
   return (
     <MobileShell>
       <Routes>
@@ -59,10 +67,7 @@ function Surface() {
           path="/settings"
           element={desktop ? <DesktopShell center={<SettingsView />} /> : <SettingsView />}
         />
-        <Route
-          path="/chat/:id"
-          element={<button onClick={() => navigate('/sessions')}>Opened conversation</button>}
-        />
+        <Route path="/chat/:id" element={<OpenedConversation />} />
       </Routes>
     </MobileShell>
   );
