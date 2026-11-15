@@ -61,6 +61,7 @@ import { readCompactionHistory } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
   readOwnedVertexQueueOverview,
+  readOwnedVertexRecovery,
   cancelOwnedVertexQueuedCommand,
   retryOwnedVertexFailedTurn,
 } from './ordinary-local-vertex-queue.js';
@@ -4412,6 +4413,8 @@ mountObservedRouter(
   '/api/sessions',
   createCodexQueueRouter({
     authorizeMutation: assertQueueOperator,
+    recovery: (id, _binding, authorization) =>
+      readOwnedVertexRecovery(eventStore, id, authorization),
     steer: async (id, _binding, input, authorization) => {
       const authorize = () => {
         assertQueueOperator(id, authorization);
