@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   mkdtemp,
   mkdir,
@@ -8,6 +9,7 @@ import {
   rename,
   rm,
   symlink,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -21,6 +23,13 @@ import {
   fixtureReadAnchor,
   fixtureReadExclusions,
 } from './fixtures/local-repository-read-owner.js';
+import { localRepositoryNativeToolFixture } from './fixtures/local-repository-native-tools.js';
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
+import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
+import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
+import * as sandbox from '../sandboxed-command.js';
+import { EventStore } from '../event-store.js';
+import { setAuthRevocationStore } from '../auth.js';
 const discoverLocalRepository = (request: Parameters<typeof discoverRepository>[0]) =>
   discoverRepository({
     captureReadAnchor: fixtureReadAnchor,
@@ -38,6 +47,10 @@ const inspectLocalRepository = (request: Parameters<typeof inspectRepository>[0]
 vi.setConfig({ testTimeout: 30000 });
 
 let root: string;
+const nativeCleanups: Array<() => void | Promise<void>> = [];
+const revocations = new EventStore(':memory:');
+setAuthRevocationStore(revocations);
+afterAll(() => revocations.close());
 const git = (cwd: string, ...args: string[]) =>
   execFileSync(
     'git',
@@ -66,7 +79,203 @@ beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-discovery-')));
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const cleanup of nativeCleanups.splice(0).reverse()) await cleanup();
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
+});
+
+// Actual signed scope/reader and fixed descriptor helpers, with only the process
+// boundary replaced for disposable offline files. The registered SDK adapter is
+// covered separately by native-local-repository-read-tools.test.ts.
+async function signedNameScan(
+  options: {
+    afterHelper?(request: {
+      operation: string;
+      repositoryPlan?: { sourcePath: string };
+    }): Promise<void>;
+    captureExclusions?(call: number): Promise<void>;
+    afterVerification?(): void;
+    assertCurrent?(): void;
+    limits?: { maxCandidates?: number; timeoutMs?: number };
+  } = {},
+) {
+  resetOfflineUserEnvironment();
+  const runs: Array<Parameters<typeof sandbox.executeSandboxedCommand>[0]> = [];
+  const execute = async (request: Parameters<typeof sandbox.executeSandboxedCommand>[0]) => {
+    runs.push(request);
+    await request.beforeSpawnAsync?.();
+    request.beforeSpawn?.();
+    const result = await promisify(execFile)('/bin/sh', ['-c', request.command], {
+      cwd: request.cwd,
+      env: request.env,
+      signal: request.signal,
+      timeout: request.timeoutMs,
+      maxBuffer: request.maxOutputBytes,
+    });
+    await options.afterHelper?.(JSON.parse(request.requestJson));
+    return { content: result.stdout, stdout: result.stdout, stderr: result.stderr, isError: false };
+  };
+  vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(execute);
+  vi.spyOn(sandbox, 'executePrivateRepositoryObservation').mockImplementation(execute);
+  if (options.afterVerification) {
+    const verify = LocalRepositoryReadAccess.prototype.verify;
+    vi.spyOn(LocalRepositoryReadAccess.prototype, 'verify').mockImplementation(async function () {
+      await verify.call(this);
+      options.afterVerification!();
+    });
+  }
+  const fixture = await localRepositoryNativeToolFixture(nativeCleanups, async (context) => {
+    // The reader's longer ceiling deliberately cannot extend the scan's own
+    // 15s cap, including awaited candidate setup and final verification.
+    const reader = await captureNativeLocalRepositoryReader(context, {
+      deadline: Date.now() + 60000,
+    });
+    let exclusions = 0;
+    try {
+      const request = {
+        query: 'service',
+        accessScope: { kind: 'roots' as const, roots: [root] },
+        discoveryRoots: [root],
+        limits: options.limits,
+        signal: context.signal,
+        captureReadExclusions: async () => {
+          await options.captureExclusions?.(++exclusions);
+          return reader.deniedRoots;
+        },
+        captureReadAnchor: (path: string) => reader.captureReadAnchor(path),
+        revalidateReadAccess: async () => {
+          await context.assertCurrent();
+          options.assertCurrent?.();
+        },
+        assertReadAccess: async () => options.assertCurrent?.(),
+      };
+      Object.defineProperty(request, 'nativeReader', { value: reader });
+      return { content: JSON.stringify(await discoverRepository(request)), isError: false };
+    } finally {
+      await reader.dispose();
+    }
+  });
+  const result = await fixture.a.call({ query: 'service' });
+  // Every helper joined the original caller's cleanup before any result escaped.
+  for (const directory of new Set(runs.map((run) => run.cwd)))
+    await expect(stat(directory)).rejects.toMatchObject({ code: 'ENOENT' });
+  return { ...result, runs };
+}
+
+describe.runIf(process.platform === 'darwin')('signed name-scan observation controls', () => {
+  it('retains two equally eligible candidates and never resolves ambiguity from scan order', async () => {
+    const first = await repo(join(root, 'first-service'));
+    const second = await repo(join(root, 'second-service'));
+    const result = await signedNameScan();
+    expect(result.response.success).toBe(true);
+    expect(result.value).toMatchObject({ state: 'ambiguous', truncated: false });
+    expect(
+      result.value.candidates.map((candidate: { path: string }) => candidate.path).sort(),
+    ).toEqual([first, second]);
+  });
+
+  it('withholds an earlier candidate changed while a later candidate is observed', async () => {
+    const first = await repo(join(root, 'first-service'));
+    await repo(join(root, 'second-service'));
+    let captures = 0;
+    const result = await signedNameScan({
+      afterHelper: async (request) => {
+        if (request.operation === 'CaptureRepositoryObservation' && ++captures === 2)
+          await writeFile(join(first, '.git', 'HEAD'), 'ref: refs/heads/changed\n');
+      },
+    });
+    expect(captures).toBe(2);
+    expect(result.value).toMatchObject({ state: 'ambiguous', candidates: [] });
+  });
+
+  it('withholds candidates when the scanned namespace changes after capture', async () => {
+    await repo(join(root, 'service'));
+    const result = await signedNameScan({
+      afterHelper: async (request) => {
+        if (request.operation === 'CaptureRepositoryObservation')
+          await mkdir(join(root, 'new-service'));
+      },
+    });
+    expect(result.value).toMatchObject({ state: 'ambiguous', candidates: [] });
+  });
+
+  it('retains partial-budget ambiguity even for a single observed match', async () => {
+    await repo(join(root, 'first-service'));
+    await repo(join(root, 'second-service'));
+    const result = await signedNameScan({ limits: { maxCandidates: 1 } });
+    expect(result.value).toMatchObject({
+      state: 'ambiguous',
+      truncated: true,
+      limitReasons: ['candidates'],
+    });
+  });
+
+  it('does not fall back to individual metadata reads when compound capture refuses', async () => {
+    await repo(join(root, 'service'));
+    let captures = 0;
+    const result = await signedNameScan({
+      afterHelper: async (request) => {
+        if (request.operation === 'CaptureRepositoryObservation') {
+          captures++;
+          throw Error('Controlled compound capture refusal');
+        }
+      },
+    });
+    expect(captures).toBe(1);
+    expect(result.value).toMatchObject({ state: 'ambiguous', candidates: [] });
+    const operations = result.runs.map((run) => JSON.parse(run.requestJson).operation);
+    expect(operations).not.toContain('ReadBytes');
+  });
+
+  it('withholds facts after the existing read-policy owner refuses currentness', async () => {
+    await repo(join(root, 'service'));
+    let refused = false;
+    const result = await signedNameScan({
+      afterHelper: async (request) => {
+        if (request.operation === 'CaptureRepositoryObservation') refused = true;
+      },
+      assertCurrent: () => {
+        if (refused) throw Error('Controlled original policy refusal');
+      },
+    });
+    expect(refused).toBe(true);
+    expect(result.value).toMatchObject({ state: 'access-required', candidates: [] });
+  });
+
+  it.each(['candidate setup', 'final verification'] as const)(
+    'retains the absolute parent deadline through %s',
+    async (phase) => {
+      await repo(join(root, 'service'));
+      const now = Date.now.bind(Date);
+      let offset = 0;
+      let captures = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => now() + offset);
+      const result = await signedNameScan({
+        captureExclusions: async (call) => {
+          if (phase === 'candidate setup' && call === 2) offset = 16000;
+        },
+        afterHelper: async (request) => {
+          if (request.operation === 'CaptureRepositoryObservation') captures++;
+        },
+        // Cross the parent deadline after the actual original-owner check
+        // returns, rather than injecting an unrelated owner refusal inside it.
+        afterVerification:
+          phase === 'final verification'
+            ? () => {
+                offset = 16000;
+              }
+            : undefined,
+      });
+      expect(captures).toBe(phase === 'candidate setup' ? 0 : 1);
+      expect(result.value).toMatchObject({
+        state: 'ambiguous',
+        candidates: [],
+        truncated: true,
+        needed: ['narrower-search'],
+      });
+    },
+  );
 });
 
 describe('bounded repository discovery', () => {

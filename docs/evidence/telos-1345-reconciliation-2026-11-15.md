@@ -174,3 +174,75 @@ Fresh composed-head CI and exact-head final approval remain required. The
 approved prior head is not approval for this additive composition. No actual
 ready/merge turn, deployment or staging action is claimed; independently ready
 PRs retain their separate owners and queue eligibility.
+
+## Signed discovery and query-wide observation bounds
+
+Actual composed-head CI `43674349267`, native job `132692502936`, failed two
+distinct signed native controls. Uncatalogued-name discovery exhausted its 15s
+budget with 11 successful helper returns; its caught error hash remains
+unclassified. A second preparation returned uncertain execution at
+`object-data-capture`, command
+`prepared-repository-b1ea9ff864dc56671c97d6ff563a91f6d2fde6fe76e5b8dc456f4e3a60016cf7`,
+call `0e2cc6b0-8d5b-48d7-92aa-051826a46500`, diagnostic
+`98873846-65c5-47d6-83d0-66eaa4fa2436`. Its original cause/effects remain unknown;
+the first preparation/adoption and 29 custody checks passed. Neither operation
+was replayed. Retained artifact `14146638225` and the local assessment preserve
+the separate failures. A wrapper hash alone does not establish diagnostic loss.
+
+Root explicitly placed the signed-discovery correction with this sole writer,
+then the minimal aggregate dependency in the existing read-access, observation
+and native-reader owners. Own grant `76c4ebff` and admitted filesystem scope were
+verified. Immediate local/remote head checks matched `317f10fc`; root's bounded
+roster knew no competing writer. eed's fresh non-writer acknowledgment `72adff8b`
+retains its separate five-file `5cee44eb` diagnostic contribution. Its published
+native-reader blob `0a375e71` was compared read-only with this candidate's accepted
+`beede253` preimage: its object-store refusal hunks remain separate from this
+observation change. No whole #1355 or object-data source was imported.
+
+Name scans now qualify matching candidates through the same original native
+reader's bounded compound discovery observation used by explicit paths. Each
+fresh access view retains the exact original authority/ceiling/receiver and
+shares the query's 64MiB byte-plus-in-flight and 100,000-entry budget. Optional
+private plan limits only narrow fixed defaults. The existing producer charges
+retention synchronously before retaining a capture; later refusal cannot refund
+it. Generic lists/preloads reserve entries across awaits and commit held counts
+under their original identity/currentness/revision fences. Physical reads and
+parser materialization honor the narrowed limits before corresponding byte or
+entry allocation. Existing raw JSON/output caps remain; no claim of zero raw
+JSON allocation is made. All candidate and namespace contexts are verified after
+the complete scan under the original absolute parent deadline. No early unique
+selection, ambient fallback, policy expansion or deadline increase was added.
+
+Same scoped reviewer `059e312d` first blocked `DISC-AGG-01`, then verified it
+resolved on exact patch SHA256
+`36d2a58519b9cb46d320748092f054c6461c4c78ab058b73998082bb8f2464bf`
+in terminal receipt `dc96df89-ee51-4935-b263-3ace70d5eeef`. The reviewed production
+hashes are discovery `855e7062`, read-access `db5eb23c`, observation `ea1ef213`,
+and native-reader `2869b194`. This scoped source review is distinct from current
+head CI and trusted final Centaur approval.
+
+Qualification: observation suite 23 pass/20.29s; signed-reader suite 17 pass with
+one existing disabled source diagnostic/35.85s; query plus prior fence controls
+11 pass/48.88s; existing budget/batch/ceiling/cached-stat owners 63 pass/6.93s.
+These runs overlap. Synthetic aggregate accounting is distinguished from actual
+fixed-helper/parser and signed-consumer checks. The unchanged signed query used
+13 helpers/9.201s locally before composition and five/3.637s afterward; these are
+limited local measurements, not hosted-cause reconciliation. Its RED proved
+missing composition, not an old over-budget reproduction. A malformed-envelope
+test fixture and a misplaced clock injection were corrected without weakening
+their expected outcomes. Existing batch tests now observe the shared private
+budget instead of removed private fields, retaining exact 8/99,999 expectations
+and additionally requiring zero reserved entries after failure. Original failed
+logs are retained. Same-reviewer focused compatibility receipt
+`743869bc-b051-408e-89f2-2919ef9746ab` found no blocker and independently
+confirmed the four production hashes remain unchanged.
+
+The attempted full 29-case discovery run exceeded the executor's 120s limit,
+reported uncertain, and has no final result; its recorded worker was verified
+absent before subsequent bounded runs. It is not passing evidence. Earlier
+358-test composition, original 149-test provenance, prior trusted approval and
+all historical failure distinctions remain baseline evidence. Source fingerprints
+retain all 2,490 entries at runtime revision `v1.0.1190-telos-query-budget`.
+Fresh published-head CI/trusted final approval and the global sequential turn
+remain required. The uncertain preparation and independent feature acceptance
+remain open; no production write, model call, merge or deployment is claimed.
