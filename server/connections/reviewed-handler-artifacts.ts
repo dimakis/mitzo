@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1198-command-withdrawal';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1199-withdrawal-visual-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2214,7 +2214,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/claude-account-connect.spec.ts':
     '1304c8b72af386e38ed303ce589d85fb78a7e17afdf8ff53f0f3987869d5035c',
   '../../tests/offline/composer-receipt.spec.ts':
-    'b344e9ad1e39bb7c801c235eab6344540f37ac4405fe12cd271064ee47a48f72',
+    'ead7e8106a8b7ff0a9bcec66f222e055dc1546cd467f4b95dd0b62d266a3e56b',
   '../../tests/offline/device-continuity.spec.ts':
     '91155593b79e0d7962e54031f5daa8f87be8ad1ab5b73c65810ebf49303bb5ef',
   '../../tests/offline/discard-chat-draft.spec.ts':

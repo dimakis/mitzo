@@ -234,7 +234,10 @@ for (const theme of ['dark', 'light']) {
     await page.getByRole('button', { name: 'Review delivery', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Message delivery' });
     await expect(dialog).toBeVisible();
-    await page.screenshot({ path: info.outputPath(`withdraw-review-${theme}.png`) });
+    await page.screenshot({
+      path: info.outputPath(`withdraw-review-${theme}.png`),
+      animations: 'disabled',
+    });
     await dialog.getByRole('button', { name: 'Withdraw and review' }).click();
     await expect(page.getByTestId('receipt-state')).toHaveText('idle');
     await expect(input).toHaveValue('Keep my later edits too');
