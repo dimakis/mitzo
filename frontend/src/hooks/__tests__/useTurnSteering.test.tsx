@@ -5,6 +5,31 @@ import { useTurnSteering } from '../useTurnSteering';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 
+it('shows a sanitized server reference while retaining an unconfirmed correction for the same-identity check', async () => {
+  const diagnosticId = '84b57f38-264c-4d56-aed1-cb5a9c381e92';
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    Response.json(
+      {
+        code: 'turn_steering_unconfirmed',
+        diagnosticId,
+        error: 'private upstream error',
+      },
+      { status: 409 },
+    ),
+  );
+  const delivery = vi.fn();
+  const hook = renderHook(() => useTurnSteering('diagnostic-chat', 'original', true));
+  await act(async () => hook.result.current.submit('Keep the draft', delivery));
+  expect(hook.result.current.error).toContain(diagnosticId);
+  expect(hook.result.current.error).not.toContain('private upstream error');
+  expect(delivery).toHaveBeenLastCalledWith('uncertain');
+  const original = vi.mocked(apiFetch).mock.calls.at(-1)![1]!.body;
+  vi.mocked(apiFetch).mockRejectedValueOnce(Error('lost'));
+  await act(async () => hook.result.current.retry!());
+  expect(vi.mocked(apiFetch).mock.calls.at(-1)![1]!.body).toBe(original);
+  expect(localStorage.getItem('mitzo-turn-steering:diagnostic-chat')).toContain('Keep the draft');
+});
+
 it('refuses invalid screenshot data without dispatching or losing the draft receipt', async () => {
   const delivery = vi.fn();
   const hook = renderHook(() => useTurnSteering('invalid-image', 'first', true));
