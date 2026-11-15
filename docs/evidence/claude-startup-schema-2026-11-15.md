@@ -71,6 +71,27 @@ legitimately parameterless tools); Google numeric `pageSize`/`maxResults`, list
 cancellation, retired-owner and uncertain callback outcomes. Configured Tool Library
 schemas retain their existing exact JSON-schema passthrough adapter and tests.
 
+## Accepted naming integration
+
+Integrated accepted main `5d81903c4d6a9511d517304be84b81769b4e23e1` (PR1365)
+after GitHub reported a real merge conflict. The accepted naming/diagnostic delta
+preserves public request echoing, duplicate suppression, account naming and
+transcript failure boundaries. Its `chat.ts` edits compose with startup context
+and replacement preparation without changing their ownership or ordering.
+
+The only manual conflict resolution selects a combined runtime revision and the
+hash of the composed `chat.ts`. Every manifest entry is retained; both parents'
+changed fingerprints are preserved except that shared composed hash. The source
+artifact verifier passes at `v1.0.1205-claude-startup-naming`.
+
+Combined-tree qualification: 171 checks pass across 11 focused startup, query,
+account, naming, conversation-list and transcript-failure files, with one worker
+and a 1 GiB heap. Review archives accidentally matched additional Vitest filters;
+their passing results are excluded from this combined-tree count. Formatting and
+whitespace checks pass. Hosted CI and trusted review of this integration delta
+remain required. The completed independent full-source review of `b30c3196`
+reported zero concrete blockers; its unchanged coverage remains the baseline.
+
 ## Acceptance still open
 
 Source, landing, activation and live acceptance are distinct. This change does

@@ -20,6 +20,33 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it('projects old personal Claude workspace names on Chats without rewriting history or ordering', () => {
+  const summary = 'Mitzo repository workspace : local/primary';
+  store.upsertSession({
+    sessionId: 'claude',
+    conversationSource: 'mitzo',
+    summary,
+    numTurns: 1,
+    updatedAt: 2000,
+  });
+  store.append('claude', 'user_message', {
+    messageId: 'first',
+    text: 'Repair Claude session names',
+  });
+  const before = store.getSession('claude')!;
+  const events = store.getSessionEvents('claude');
+  const page = sessionConversationPage(store);
+  expect(page.sessions).toContainEqual(
+    expect.objectContaining({
+      id: 'claude',
+      summary: 'Repair Claude session names',
+      lastModified: before.updatedAt,
+    }),
+  );
+  expect(store.getSession('claude')).toEqual(before);
+  expect(store.getSessionEvents('claude')).toEqual(events);
+});
+
 it('lists one source after silent joins/first reply/restart and groups before pagination', () => {
   const group = begin(store);
   for (let i = 0; i < 4; i++) {
