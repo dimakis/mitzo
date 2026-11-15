@@ -252,8 +252,15 @@ export interface QueryLoopOptions {
   onTurnEnd?: (clientId: string) => void;
   /** Called when the SDK echoes a parent user input with its transport UUID. */
   onUserInput?: (clientId: string, inputUuid: string) => void;
-  /** Called after the SDK emits a terminal result, paired with its echoed parent input UUID. */
-  onResult?: (clientId: string, result: { is_error?: boolean }, inputUuid?: string) => void;
+  /** Settle the echoed parent input before publishing terminal success. */
+  onResult?: (
+    clientId: string,
+    result: { is_error?: boolean },
+    inputUuid?: string,
+  ) => void | Promise<void>;
+  /** Prepare queued work after the settled result's usage and completion are published.
+   * Failure belongs to that successor and cannot erase the confirmed result. */
+  onResultDelivered?: () => Promise<void>;
   /** Historical completed use; a model is included only when observed from the provider. */
   onSuccessfulAccountUse?: (binding: AccountUseBinding) => void;
 }
@@ -1020,10 +1027,16 @@ async function _runQueryLoopInner(
           forceFlushPendingMessage(currentSession);
           completedReplySnippet = '';
           closeUnconfirmedCompaction();
-          doneSent = true;
-
           // Extract usage data from SDK result event
           const result = msg as SdkResultEvent;
+          await options?.onResult?.(
+            clientId,
+            result,
+            parentInputCorrelationAmbiguous ? undefined : pendingParentInputUuid,
+          );
+          pendingParentInputUuid = undefined;
+          parentInputCorrelationAmbiguous = false;
+          parentTurnActive = false;
           if (tokenModel && result.modelUsage && Object.hasOwn(result.modelUsage, tokenModel)) {
             const usage = result.modelUsage[tokenModel];
             const reported = runtimeTokenLimits(
@@ -1175,6 +1188,7 @@ async function _runQueryLoopInner(
           span.setAttribute('session.total_tokens', currentSession.cumulativeSessionTokens);
           span.setAttribute('session.duration_ms', usageData.durationMs);
           span.setAttribute('session.cost_usd', usageData.totalCostUsd);
+          doneSent = true;
           const completionSeq = emit(
             v2('session_end', {
               sessionId: msg.session_id,
@@ -1232,14 +1246,7 @@ async function _runQueryLoopInner(
             }
           }
           options?.onTurnEnd?.(clientId);
-          options?.onResult?.(
-            clientId,
-            result,
-            parentInputCorrelationAmbiguous ? undefined : pendingParentInputUuid,
-          );
-          pendingParentInputUuid = undefined;
-          parentInputCorrelationAmbiguous = false;
-          parentTurnActive = false;
+          await options?.onResultDelivered?.();
         } else if (msg.type === 'stream_event') {
           const evt = msg.event as Record<string, unknown> | undefined;
           log.debug('stream event', { clientId, evtType: evt?.type });
@@ -1958,6 +1965,7 @@ async function _runQueryLoopInner(
           if (parentToolUseId && !activeSubagents.has(parentToolUseId)) continue;
           if (
             (parentToolUseId === null || parentToolUseId === undefined) &&
+            msg.isSynthetic !== true &&
             typeof msg.uuid === 'string' &&
             (typeof content === 'string' ||
               (Array.isArray(content) &&
@@ -1969,11 +1977,15 @@ async function _runQueryLoopInner(
                     ['text', 'image'].includes((block as { type?: string }).type ?? ''),
                 )))
           ) {
-            if (parentTurnActive || pendingParentInputUuid !== undefined) {
-              parentInputCorrelationAmbiguous = true;
-            } else {
-              pendingParentInputUuid = msg.uuid;
-              options?.onUserInput?.(clientId, msg.uuid);
+            // Replayed acknowledgements of the same input are idempotent.
+            // SDK-generated background messages are not new operator input.
+            if (pendingParentInputUuid !== msg.uuid) {
+              if (parentTurnActive || pendingParentInputUuid !== undefined) {
+                parentInputCorrelationAmbiguous = true;
+              } else {
+                pendingParentInputUuid = msg.uuid;
+                options?.onUserInput?.(clientId, msg.uuid);
+              }
             }
           }
           const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
@@ -2117,7 +2129,7 @@ async function _runQueryLoopInner(
           const message = `Agent did not respond within ${seconds}s — the selected model may be unavailable on this provider.`;
           log.warn('query loop timed out waiting for first event', { clientId, seconds });
           sendFailure(message);
-        } else if (!abortController.signal.aborted) {
+        } else if (!abortController.signal.aborted || findSessionRuntimeError(err)) {
           const runtimeFailure = findSessionRuntimeError(err);
           const message =
             runtimeFailure?.publicMessage() ??
@@ -2206,7 +2218,10 @@ async function _runQueryLoopInner(
           // Use sendOrBuffer to persist to EventStore (not just send) so that
           // reconnect replay includes session_end and clears stale running state.
           const sid = finalSession.sessionId ?? resolvedSessionId;
-          const endMsg = v2('session_end', { sessionId: sid });
+          const endMsg = v2('session_end', {
+            sessionId: sid,
+            ...(caughtError ? { terminalReason: 'failed' } : {}),
+          });
           cleanup('session_end', () =>
             sendOrBuffer(endMsg, clientId, registry, store, sid, connRegistry),
           );

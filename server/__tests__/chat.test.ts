@@ -715,7 +715,7 @@ describe('closeout prompts echo to frontend', () => {
     expect(fallback).toContain('inputObserved');
     expect(fallback).toContain('markFallbackCloseoutInputObserved');
     expect(queryOptions).toContain('onUserInput: (cId, inputUuid)');
-    expect(queryOptions).toContain('onResult: (cId, result, inputUuid)');
+    expect(queryOptions).toContain('onResult: async (cId, result, inputUuid)');
     expect(queryOptions).toContain("result.is_error === true ? 'failed' : 'completed',");
     expect(fallback).toContain('inputUuid !== tracked.inputUuid');
     const onTurnEnd = queryOptions.slice(

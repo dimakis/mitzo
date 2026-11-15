@@ -130,6 +130,18 @@ it('binds an immutable ceiling to the released input and never lends it to a que
   f.owner.assertInputCurrent('second');
   expect(authorities[1].checkTool('Write')).toBe('allow');
 });
+it('holds concurrently enqueued work until the preceding completion is delivered', async () => {
+  const f = setup(undefined, true);
+  await f.owner.enqueue('first');
+  f.owner.inputObserved('first-input');
+  await f.owner.resultObserved('first-input', false, { dispatchSuccessor: false });
+  expect(f.store.getOrdinaryProviderTurnTerminal('session', 'first')).toBe('completed');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+  await f.owner.enqueue('second');
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+  await f.owner.dispatchQueued();
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'second']);
+});
 it('refuses a restricted input before execution admission if its query cannot bind the ceiling', async () => {
   const f = setup();
   f.store.admitWithOrdinarySkillContext(
