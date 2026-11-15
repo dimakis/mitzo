@@ -8,6 +8,7 @@ import { OrdinaryLocalVertexCommandOwner } from '../ordinary-local-vertex-comman
 import {
   OrdinarySdkTurnEvidence,
   observedOrdinarySdkOutcome,
+  readOrdinarySdkTurnDiagnostic,
 } from '../ordinary-sdk-turn-evidence.js';
 import { OrdinaryCollaborationReplies } from '../collaboration-ordinary-replies.js';
 
@@ -101,6 +102,29 @@ function fixture(
     },
   };
 }
+it('retains exact validated SDK identities across an uncertain turn, terminal result and cold reopen', async () => {
+  const f = fixture();
+  await f.queue.enqueue('original-command');
+  expect(readOrdinarySdkTurnDiagnostic(f.store, 'chat', 'original-command')).toMatchObject({
+    inputAcknowledged: false,
+    sdkOutcome: undefined,
+  });
+  f.queue.inputObserved('private-sdk-input');
+  expect(readOrdinarySdkTurnDiagnostic(f.store, 'chat', 'original-command')).toEqual({
+    inputAcknowledged: true,
+    providerThreadId: 'private-sdk-thread',
+    providerTurnId: 'private-sdk-input',
+    sdkOutcome: 'uncertain',
+  });
+  await f.queue.resultObserved('private-sdk-input');
+  f.restart();
+  expect(readOrdinarySdkTurnDiagnostic(f.store, 'chat', 'original-command')).toEqual({
+    inputAcknowledged: true,
+    providerThreadId: 'private-sdk-thread',
+    providerTurnId: 'private-sdk-input',
+    sdkOutcome: 'completed',
+  });
+});
 it('does not let an old accepted input stop a different execution generation in the same session', async () => {
   const f = fixture();
   await f.queue.enqueue('original-command');
