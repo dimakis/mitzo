@@ -18,9 +18,11 @@ import {
 import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
 import { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
 import { OrdinarySdkTurnEvidence } from './ordinary-sdk-turn-evidence.js';
+import type { OrdinarySdkCommandToolAuthority } from './ordinary-local-vertex-sdk-query.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { OrdinaryLocalVertexCommandRequestSchema } from './ordinary-local-codex-admission.js';
 import { assertOwnedVertexQueueControl } from './ordinary-local-vertex-queue.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import type { AuthSession } from './auth.js';
 const unavailable = () => Error('Owned Local Claude runtime unavailable');
 export async function continueOwnedLocalVertexQueue(
@@ -35,8 +37,8 @@ export async function continueOwnedLocalVertexQueue(
   const owner = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
   if (
     !owner?.sdkTurns ||
-    owner.authSessionId !== authorization?.id ||
-    captured.auth.id !== authorization.id
+    !ordinaryOperatorOwnsConversation(owner.authSessionId, authorization?.id) ||
+    captured.auth.id !== authorization?.id
   )
     throw unavailable();
   await owner.sdkTurns.resumeQueue();
@@ -78,7 +80,7 @@ export function canResumeOwnedLocalVertexDriver(sessionId: string, authSessionId
     return (
       !!meta &&
       !!custody &&
-      custody.authSessionId === authSessionId &&
+      ordinaryOperatorOwnsConversation(custody.authSessionId, authSessionId) &&
       !eventStore.hasUncertainOrdinaryCommand(sessionId) &&
       (!meta.executionPhase || meta.executionPhase === 'TERMINAL')
     );
@@ -100,7 +102,7 @@ export async function sendOwnedLocalVertexCommand(input: {
   const owner = registry.findBySessionId(input.sessionId)?.session.ordinaryRuntimeOwner;
   if (
     !owner ||
-    owner.authSessionId !== captured.auth.id ||
+    !ordinaryOperatorOwnsConversation(owner.authSessionId, captured.auth.id) ||
     eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation !== 'claude-sdk'
   )
     throw unavailable();
@@ -141,8 +143,8 @@ export async function startOwnedLocalVertexCommand(
     const captured = captureAgentLibraryAuthorization(options.operatorConnectionId);
     captured.assertCurrent();
     if (
-      live.authSessionId !== captured.auth.id ||
-      live.authSessionId !== options.ownerAuthSessionId ||
+      !ordinaryOperatorOwnsConversation(live.authSessionId, captured.auth.id) ||
+      captured.auth.id !== options.ownerAuthSessionId ||
       live.initialCommandId !== command.clientMsgId ||
       options.resume ||
       eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation !== 'claude-sdk'
@@ -178,7 +180,7 @@ export async function startOwnedLocalVertexCommand(
     const custody = eventStore.getOrdinaryLocalVertexCustody(sessionId);
     if (
       !custody ||
-      custody.authSessionId !== options.ownerAuthSessionId ||
+      !ordinaryOperatorOwnsConversation(custody.authSessionId, options.ownerAuthSessionId) ||
       !isDeepStrictEqual(custody.binding, selected.expected.binding)
     )
       throw unavailable();
@@ -250,6 +252,12 @@ export async function startOwnedLocalVertexCommand(
             settings: (selection) => ({ model: selection.model, thinkingTokens: null }),
             query: {
               applySettings: reopen,
+              ...(control.bindCommandToolAuthority
+                ? {
+                    bindCommandToolAuthority: (authority: OrdinarySdkCommandToolAuthority) =>
+                      control.bindCommandToolAuthority!(authority),
+                  }
+                : {}),
               captureInterruptTarget: () => control.captureInterruptTarget(),
               interruptIfCurrent: (target) => control.interruptIfCurrent(target),
               setModel: (model) => nativeQuery.setModel(model),

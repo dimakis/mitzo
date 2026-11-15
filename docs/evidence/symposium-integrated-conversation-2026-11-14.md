@@ -403,3 +403,49 @@ Focused lint and formatting pass. Local process fixtures exit before readiness
 unqualified locally; those original outputs are retained. Fresh hosted native CI
 and final exact-head Centaur verification remain required. No launch restriction
 was bypassed and no provider/model execution was introduced.
+
+### Accepted Claude parity integration — 15 November
+
+The retained qualifying baseline is `54437d9e8e8c3dc7fbe0454c0df87c6d4ae4c971`:
+full CI43621649458 passed, including all four protected native sign-in checks;
+Centaur job7524/public review5906259199 returned LGTM, recommendation merge and
+zero new/unresolved blockers. The four historical threads were resolved against
+their retained f39c509 fixes and public verification. These receipts apply to that
+baseline and do not approve the integration successor.
+
+Accepted main `8676db5788f24e818f2c997da2011029ae11c68d` includes #1353,
+#1342 and #1362 after the previous416faccb base. Production modules merged without
+text conflicts. Inspection preserves immutable skill context/tool ceilings,
+same-operator cross-login ownership, both execution/cancellation identity helpers,
+and exact shared pre-input Stop/Check. The SDK Stop test conflict is resolved by
+retaining the accepted two-login matrix and all owner/session/binding/cancellation
+negative controls, adding the existing pre-input and yielded-without-echo cases
+to both login modes. Both Stop-path assertions remain required.
+
+Generated registrations retain the union of both parents: 2,489 keys, including
+16 own-only and24 main-only entries, under runtime revision
+`v1.0.1183-symposium-parity-integration`. Package builds and source checks pass.
+The focused EventStore, source-setup, SDK command/skill/evidence and combined
+session-prompt suites pass251 checks across7 files. Four ordinary/shared/SDK
+application checks pass, including the production-composer pre-input Stop/Check
+journey. Accepted cross-device public transport/admission checks pass for all four
+deterministic account routes. Operator identity and design checks also pass: the
+complete local integration selection totals371 passing checks across19 files,
+with one existing design skip. Lint, formatting and package builds pass.
+
+A broader batch including the long ordinary-local-vertex-chat suite reached the
+TaskExecution120-second limit before a suite summary. Its original partial output
+is retained in `slice1-validation/main8676-parity-design.log`; it is not counted
+as passing. The smaller cross-device/design selection completed separately in
+27 seconds. Hosted required CI retains the full long SDK suite. No launch fence
+or timeout was bypassed. Successor hosted CI and exact-head Centaur integration
+review remain required. No new provider/model calls, UI design changes,
+deployment or actual landing were made.
+
+The source-preserving landing plan remains #1354, then #1356, then #1355 reduced
+to residual independent acceptance/evidence against accepted source ancestors.
+Each owner retains its own branch and review. #1347's permission choices,
+repository-blocked admission, joining-failure details/stages and phone dialog
+bounds remain separate and absent from this source; its independent owner/setup
+scope must not be claimed as included here. Actual landing still requires the
+global coordinator's serialized turn and current-head gates.

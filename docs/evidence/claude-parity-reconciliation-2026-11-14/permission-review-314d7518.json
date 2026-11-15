@@ -1,0 +1,194 @@
+{
+  "candidate": "314d751899ef93c149285eea84e395e9af029ca6",
+  "candidateTree": "d91976617d209b210e1b2e2e16abf0e139b0d567",
+  "acceptedBase": "27345bb50c698646f5a7c2128ab6573b488f624c",
+  "reviewerConversationId": "eed63efb-da6e-8843-8796-e75eba8c7269",
+  "reviewerModel": "gpt-6.1-sol",
+  "decision": "no_blocking_findings_in_complete_reviewed_permission_delta",
+  "scope": "complete changed production source relative to accepted base; focused independent full permission assessment of bundle",
+  "productionFiles": [
+    "server/app.ts",
+    "server/chat-rest-handler.ts",
+    "server/chat.ts",
+    "server/ordinary-codex-continuation-status.ts",
+    "server/ordinary-command-historical-ack.ts",
+    "server/ordinary-local-codex-entry.ts",
+    "server/ordinary-local-codex-selection-owner.ts",
+    "server/ordinary-local-vertex-entry.ts",
+    "server/ordinary-local-vertex-owned-runtime.ts",
+    "server/ordinary-local-vertex-sdk-authority.ts",
+    "server/ordinary-local-vertex-sdk-query.ts",
+    "server/ordinary-local-workspace-owner.ts",
+    "server/owned-codex-queue-control.ts",
+    "server/owned-local-codex-control.ts",
+    "server/query-loop.ts",
+    "server/runtime-failure-diagnostics.ts",
+    "server/session-prompt-dispatch.ts",
+    "server/tracing.ts",
+    "server/ws-handler-v2.ts"
+  ],
+  "generatedManifestAdditional": true,
+  "sourcePins": "v1.0.1170-claude-parity-controls",
+  "distinctPassingTests": 548,
+  "distinctSuites": 14,
+  "executions": [
+    {
+      "label": "controls",
+      "rawReport": "/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-25c7ee2c-8272-4637-81b3-010cc2df91a4/mitzo-1362-audit/test-results/parity-audit/permission-314d-controls.json",
+      "sha256": "7d753cc6485d5b51a215df8b6237bc27f8194c9e9ff5e39003bb890654e8cedc",
+      "passed": 490,
+      "failed": 10,
+      "skipped": 0,
+      "suites": [
+        {
+          "file": "tests/integration/claude-multi-device.test.ts",
+          "passed": 4,
+          "failed": 0,
+          "durationSeconds": 24.06540185546875
+        },
+        {
+          "file": "server/__tests__/ordinary-codex-continuation-status.test.ts",
+          "passed": 0,
+          "failed": 10,
+          "durationSeconds": 0.005217041015625
+        },
+        {
+          "file": "server/__tests__/ordinary-local-codex-selection-owner.test.ts",
+          "passed": 29,
+          "failed": 0,
+          "durationSeconds": 4.909715576171875
+        },
+        {
+          "file": "server/__tests__/ordinary-local-vertex-owned-runtime.test.ts",
+          "passed": 8,
+          "failed": 0,
+          "durationSeconds": 7.555739501953125
+        },
+        {
+          "file": "server/__tests__/ordinary-local-vertex-sdk-query.test.ts",
+          "passed": 26,
+          "failed": 0,
+          "durationSeconds": 0.279653076171875
+        },
+        {
+          "file": "server/__tests__/ordinary-operator-identity.test.ts",
+          "passed": 3,
+          "failed": 0,
+          "durationSeconds": 0.0023798828125
+        },
+        {
+          "file": "server/__tests__/owned-local-codex-legacy-controls.test.ts",
+          "passed": 31,
+          "failed": 0,
+          "durationSeconds": 0.22453759765625
+        },
+        {
+          "file": "server/__tests__/permission-device-continuity.test.ts",
+          "passed": 1,
+          "failed": 0,
+          "durationSeconds": 0.742010986328125
+        },
+        {
+          "file": "server/__tests__/query-loop.test.ts",
+          "passed": 96,
+          "failed": 0,
+          "durationSeconds": 0.315189208984375
+        },
+        {
+          "file": "server/__tests__/runtime-failure-diagnostics.test.ts",
+          "passed": 4,
+          "failed": 0,
+          "durationSeconds": 0.002593017578125
+        },
+        {
+          "file": "server/__tests__/session-prompt-dispatch.test.ts",
+          "passed": 50,
+          "failed": 0,
+          "durationSeconds": 0.026499755859375
+        },
+        {
+          "file": "server/__tests__/tracing.test.ts",
+          "passed": 2,
+          "failed": 0,
+          "durationSeconds": 0.0432431640625
+        },
+        {
+          "file": "server/__tests__/ws-handler-v2.test.ts",
+          "passed": 236,
+          "failed": 0,
+          "durationSeconds": 0.31320849609375
+        }
+      ]
+    },
+    {
+      "label": "continuation-offline",
+      "rawReport": "/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-25c7ee2c-8272-4637-81b3-010cc2df91a4/mitzo-1362-audit/test-results/parity-audit/permission-314d-continuation-offline.json",
+      "sha256": "8facf877e8aab32062331c6d3d696247ecf06c6be64b6f9bef13252097ba4b3d",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "suites": [
+        {
+          "file": "server/__tests__/ordinary-codex-continuation-status.test.ts",
+          "passed": 10,
+          "failed": 0,
+          "durationSeconds": 0.015337890625
+        }
+      ]
+    },
+    {
+      "label": "sdk",
+      "rawReport": "/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-25c7ee2c-8272-4637-81b3-010cc2df91a4/mitzo-1362-audit/test-results/parity-audit/permission-314d-sdk.json",
+      "sha256": "f9f3760988fe7317657de6cb39ff502f88364180db7f5dbcbe2d265c450cd912",
+      "passed": 48,
+      "failed": 0,
+      "skipped": 0,
+      "suites": [
+        {
+          "file": "tests/integration/ordinary-local-vertex-chat.test.ts",
+          "passed": 48,
+          "failed": 0,
+          "durationSeconds": 172.32510205078125
+        }
+      ]
+    }
+  ],
+  "retainedSetupFailures": {
+    "count": 10,
+    "suite": "server/__tests__/ordinary-codex-continuation-status.test.ts",
+    "stage": "AccountProfiles construction, before assertions",
+    "error": "EPERM canonicalizing denied host-private default directory",
+    "correction": "existing MITZO_CODEX_PRIVATE_DIR setting -> /private/tmp/mitzo-parity-1362-synthetic-private",
+    "sourceOrAssertionChanges": false,
+    "sameCasesRerunPassed": 10,
+    "originalBatchGreen": false
+  },
+  "maxWorkers": 1,
+  "nodeHeapMiB": 1024,
+  "loggerLevel": "info",
+  "sourceDependencies": "reused node_modules; Vitest aliases resolve workspace packages to candidate source",
+  "remoteRefsReconfirmed": true,
+  "separateUnmerged1342": "09e9eed2530ea9fab3d30c1998a7e953b53050b6",
+  "combined1342Assessment": false,
+  "reportingImplemented": false,
+  "liveModels": false,
+  "physicalDevices": false,
+  "productionServiceEffects": false,
+  "fullProcessRestart": false,
+  "mergeAuthorization": false,
+  "fullParity": false,
+  "nextActions": [
+    {
+      "owner": "f0325706-afeb-8067-baca-1aece1c090b9",
+      "action": "retain baseline; compose actual accepted1342 and reporting changes; qualify focused conflict/runtime deltas and exact-head gates"
+    },
+    {
+      "owner": "4acd5b81-1ff1-8b53-8900-37c15d071038",
+      "action": "existing reporting S01/S02/S06/S09 remains unimplemented at candidate"
+    },
+    {
+      "owner": "1428dc32-6bd9-8974-949a-a60fd1eced22",
+      "action": "separate1345 correlated cross-login replies remains outside bundle; refresh actual custody before writes"
+    }
+  ]
+}

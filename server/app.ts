@@ -4,6 +4,7 @@ import {
   continueOwnedLocalVertexQueue,
   canResumeOwnedLocalVertexDriver,
 } from './ordinary-local-vertex-entry.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
@@ -3477,11 +3478,7 @@ app.get('/api/skills', (req, res) => {
     return;
   }
   const skillRegistry = buildSkillRegistry(cwd);
-  res.json(
-    req.query.runtime === 'ordinary'
-      ? ordinarySkillEntries(skillRegistry)
-      : skillRegistry.listPublic(),
-  );
+  res.json(ordinarySkillEntries(skillRegistry));
 });
 
 app.get('/api/commands', (_req, res) => {
@@ -4024,7 +4021,7 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
         owner?.sdkTurns &&
         auth &&
         auth.expiresAt > Date.now() &&
-        owner.authSessionId === auth.id,
+        ordinaryOperatorOwnsConversation(owner.authSessionId, auth.id),
       ),
     };
   }
