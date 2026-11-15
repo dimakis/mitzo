@@ -4,6 +4,7 @@ import { CollaborationApiClient, CollaborationApiError } from '../collaboration-
 import {
   createCollaborationProjection,
   applyCollaborationEvents,
+  refreshCollaborationProjection,
 } from '../collaboration-projection.js';
 import { COLLABORATION_EXECUTION_DISABLED, CollaborationViewSchema } from '@mitzo/protocol';
 import type { CollaborationEvent, CollaborationMessage, CollaborationJoin } from '@mitzo/protocol';
@@ -90,6 +91,109 @@ const message: CollaborationMessage = {
     reason: null,
   })),
 };
+
+it('rehydrates exact old deliveries on reopen and reads only new event deltas on refresh', async () => {
+  const messages = Array.from({ length: 61 }, (_, index) => ({
+    ...message,
+    messageId: uuid(200 + index),
+    projectionId: uuid(400 + index),
+    sequence: index + 1,
+    text: 'Retained operator ' + index,
+    deliveries: message.deliveries.map((delivery, seat) => ({
+      ...delivery,
+      deliveryId: uuid(600 + index * 2 + seat),
+      commandId: 'source-command-' + index + '-' + seat,
+    })),
+  }));
+  const events = messages.map((message) => event(message.sequence, { kind: 'message', message }));
+  const latest = () => ({
+    ...view(),
+    messages: messages.slice(-50),
+    cursor: events.length,
+    hasEarlierMessages: true,
+  });
+  const read = vi.fn(async (_id: string, after: number) => {
+    const rows = events.slice(after, after + 50);
+    return {
+      events: rows,
+      cursor: rows.at(-1)!.sequence,
+      highWatermark: events.length,
+      hasMore: after + rows.length < events.length,
+    };
+  });
+  const restored = await refreshCollaborationProjection({ events: read }, latest(), null);
+  expect(restored.earlierMessages).toHaveLength(11);
+  expect(restored.earlierMessages![0].deliveries[0].commandId).toBe('source-command-0-0');
+  expect(read.mock.calls.map((call) => call[1])).toEqual([0, 50]);
+  await refreshCollaborationProjection({ events: read }, latest(), restored);
+  expect(read).toHaveBeenCalledTimes(2);
+  const next = {
+    ...messages.at(-1)!,
+    messageId: uuid(900),
+    projectionId: uuid(901),
+    sequence: 62,
+    text: 'After reopening',
+  };
+  messages.push(next);
+  events.push(event(62, { kind: 'message', message: next }));
+  const updated = await refreshCollaborationProjection({ events: read }, latest(), restored);
+  expect(read.mock.calls.map((call) => call[1])).toEqual([0, 50, 61]);
+  expect(updated.earlierMessages).toHaveLength(12);
+  expect(restored.earlierMessages).toHaveLength(11);
+  const delivery = { ...messages[0].deliveries[0], status: 'delivered' as const, revision: 1 };
+  events.push(event(63, { kind: 'delivery', messageId: messages[0].messageId, delivery }));
+  const settled = await refreshCollaborationProjection({ events: read }, latest(), updated);
+  expect(read.mock.calls.map((call) => call[1])).toEqual([0, 50, 61, 62]);
+  expect(settled.earlierMessages![0].deliveries[0]).toEqual(delivery);
+  expect(updated.earlierMessages![0].deliveries[0].status).toBe('pending');
+});
+
+it('cancels retained history loading without publishing a partial reconstruction', async () => {
+  const abort = new AbortController();
+  const current = { ...view(), cursor: 3, hasEarlierMessages: true };
+  const starting = createCollaborationProjection(current);
+  const read = vi.fn(async (_id: string, _after: number, signal?: AbortSignal) => {
+    expect(signal).toBe(abort.signal);
+    abort.abort();
+    return {
+      events: [event(1, { kind: 'message', message })],
+      cursor: 1,
+      highWatermark: 3,
+      hasMore: true,
+    };
+  });
+  await expect(
+    refreshCollaborationProjection({ events: read }, current, starting, abort.signal),
+  ).rejects.toMatchObject({ name: 'AbortError' });
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(starting.view.messages).toEqual([]);
+  expect(starting.earlierMessages).toEqual([]);
+});
+
+it('refuses incomplete or foreign retained history without changing the displayed projection', async () => {
+  const current = { ...view(), messages: [], cursor: 3, hasEarlierMessages: true };
+  const starting = createCollaborationProjection(current);
+  for (const rows of [
+    [],
+    [event(2, { kind: 'message', message })],
+    [{ ...event(1, { kind: 'message', message }), collaborationId: uuid(99) }],
+    [event(1, { kind: 'message', message: { ...message, sequence: 2 } })],
+  ]) {
+    const api = {
+      events: vi.fn(async () => ({
+        events: rows,
+        cursor: rows.at(-1)?.sequence ?? 0,
+        highWatermark: 3,
+        hasMore: true,
+      })),
+    };
+    await expect(refreshCollaborationProjection(api, current, starting)).rejects.toThrow(
+      'Conversation history identity changed',
+    );
+    expect(starting.earlierMessages).toEqual([]);
+    expect(starting.view.cursor).toBe(3);
+  }
+});
 const join: CollaborationJoin = {
   version: 1,
   joinId: uuid(8),
