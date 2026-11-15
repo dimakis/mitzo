@@ -326,7 +326,10 @@ export async function captureLocalRepositoryReader(
       if (value.verified !== true || Object.keys(value).length !== 1) throw unavailable();
       current();
     },
-    captureRepositoryObservation: async (input: RepositoryObservationInput) => {
+    captureRepositoryObservation: async (
+      input: RepositoryObservationInput,
+      onRetained?: (capture: Readonly<RepositoryObservationCapture>) => void,
+    ) => {
       current();
       await authorize(input.sourcePath);
       if (input.taskRoot) await authorize(input.taskRoot);
@@ -335,6 +338,7 @@ export async function captureLocalRepositoryReader(
         sourcePath: input.sourcePath,
         ...(input.taskRoot ? { taskRoot: input.taskRoot } : {}),
         ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        ...(input.limits ? { limits: input.limits } : {}),
         version: 'repository-read-v1',
         readableRoots: input.readableRoots ?? ['/'],
         deniedRoots: [...new Set([...deniedRoots, ...(input.additionalDeniedRoots ?? [])])],
@@ -347,6 +351,9 @@ export async function captureLocalRepositoryReader(
         transport(deniedRoots),
       );
       current();
+      // Settle the caller's held query reservation BEFORE this owner retains
+      // the capture. A later consumer refusal cannot refund native retention.
+      onRetained?.(captured);
       repositoryCaptures.add(captured);
       if (plan.mode === 'base') repositoryBaseCaptures.set(captured, scope!);
       return captured;

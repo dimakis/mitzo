@@ -1,6 +1,7 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
 import type { NativeFileHelperTransport } from '../native-file-operation.js';
 import {
   mkdir,
@@ -19,9 +20,362 @@ import {
   RepositoryObservationMissingError,
   RepositoryObservationReadAccessError,
   verifyRepositoryObservation,
+  freezeRepositoryObservationPlan,
+  type RepositoryObservationCapture,
 } from '../native-repository-observation.js';
+import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
+import {
+  fixtureReadAnchor,
+  fixtureReadDescriptor,
+} from './fixtures/local-repository-read-owner.js';
+
+// Synthetic retention owner for aggregate accounting only. Real fixed-helper
+// bounds and the signed consumer are qualified in separate controls below.
+function queryBudgetFixture() {
+  let bytes = 0,
+    entries = 1;
+  let beforeRetain: (() => Promise<void>) | undefined;
+  let afterRetain: (() => void) | undefined;
+  const retained = new Set<RepositoryObservationCapture>();
+  const capture = vi.fn(async (input, onRetained) => {
+    await beforeRetain?.();
+    if (bytes > input.limits.maxBytes || entries > input.limits.maxEntries)
+      throw Error('Controlled producer budget refusal before allocation');
+    const entry = {
+      name: 'HEAD',
+      identity: { dev: '1', ino: '1' },
+      kind: 'file' as const,
+      size: bytes,
+      mode: 0,
+      nlink: 1,
+      mtimeNs: '0',
+      ctimeNs: '0',
+    };
+    const value: RepositoryObservationCapture = {
+      plan: freezeRepositoryObservationPlan({
+        ...input,
+        version: 'repository-read-v1',
+        readableRoots: ['/'],
+        deniedRoots: [],
+        excludedNames: [],
+      }),
+      data: {
+        version: 'repository-read-v1',
+        mode: 'discovery',
+        entries: Array.from({ length: entries }, (_, index) => ({
+          path: '/query/' + index,
+          entry,
+        })),
+        directories: [],
+        absent: [],
+        files: bytes
+          ? [{ path: '/query/0', bytes: Buffer.alloc(bytes).toString('base64'), link: false }]
+          : [],
+      },
+      digest: '0'.repeat(64),
+    };
+    onRetained(value);
+    retained.add(value);
+    afterRetain?.();
+    return value;
+  });
+  const execute = vi.fn(fixtureReadDescriptor);
+  const access = new LocalRepositoryReadAccess({
+    deadline: Number.MAX_SAFE_INTEGER,
+    deniedRoots: [],
+    assertReadable: async () => {},
+    captureReadAnchor: fixtureReadAnchor,
+    executeReadOperation: execute,
+    captureRepositoryObservation: capture,
+    verifyRepositoryObservation: async () => {},
+  });
+  const observe = (limits?: { maxBytes?: number; maxEntries?: number }) =>
+    access.forkForRepositoryObservation().captureRepositoryObservation({
+      mode: 'discovery',
+      sourcePath: '/query',
+      ...(limits ? { limits } : {}),
+    });
+  return {
+    access,
+    observe,
+    capture,
+    execute,
+    retained,
+    size: (nextBytes: number, nextEntries = 1) => {
+      bytes = nextBytes;
+      entries = nextEntries;
+    },
+    before: (hook?: () => Promise<void>) => {
+      beforeRetain = hook;
+    },
+    after: (hook?: () => void) => {
+      afterRetain = hook;
+    },
+  };
+}
+
+it('shares retained byte and entry bounds across query forks while independent queries retain their own budget', async () => {
+  const bytes = queryBudgetFixture();
+  bytes.size(32 * 1024 * 1024);
+  await bytes.observe();
+  await bytes.observe();
+  await expect(bytes.observe()).rejects.toMatchObject({ reason: 'snapshot-bytes' });
+  expect(bytes.capture).toHaveBeenCalledTimes(2);
+  const entries = queryBudgetFixture();
+  entries.size(0, 40000);
+  await entries.observe();
+  await entries.observe();
+  await expect(entries.observe()).rejects.toThrow('Controlled producer budget refusal');
+  expect(entries.capture.mock.calls[2][0].limits.maxEntries).toBe(20000);
+  const independent = queryBudgetFixture();
+  await independent.observe();
+});
+
+it('reserves in-flight bytes before producer invocation and releases only unretained failures', async () => {
+  const fixture = queryBudgetFixture();
+  fixture.size(32 * 1024 * 1024);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  fixture.before(() => held);
+  const first = fixture.observe({ maxEntries: 1 });
+  const second = fixture.observe({ maxEntries: 1 });
+  await expect(fixture.observe({ maxEntries: 1 })).rejects.toMatchObject({
+    reason: 'snapshot-bytes',
+  });
+  expect(fixture.capture).toHaveBeenCalledTimes(2);
+  release();
+  await Promise.all([first, second]);
+  const failure = queryBudgetFixture();
+  let settled!: () => void, entered!: () => void;
+  const settlement = new Promise<void>((resolve) => {
+    settled = resolve;
+  });
+  const entry = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  failure.before(async () => {
+    entered();
+    await settlement;
+    throw Error('Controlled pre-retention failure');
+  });
+  const failing = failure.observe();
+  await entry;
+  try {
+    await expect(failure.observe()).rejects.toMatchObject({ reason: 'snapshot-entries' });
+  } finally {
+    settled();
+  }
+  await expect(failing).rejects.toThrow('Controlled pre-retention failure');
+  failure.before();
+  failure.size(32 * 1024 * 1024);
+  await failure.observe();
+  await failure.observe();
+});
+
+it.each(['producer', 'consumer'] as const)(
+  'keeps native retention charged after a later %s refusal',
+  async (phase) => {
+    const fixture = queryBudgetFixture();
+    fixture.size(32 * 1024 * 1024);
+    const input = { mode: 'discovery' as const, sourcePath: '/query' };
+    fixture.after(() => {
+      if (phase === 'producer') throw Error('Controlled refusal after native retention');
+      input.sourcePath = '/changed';
+    });
+    await expect(
+      fixture.access.forkForRepositoryObservation().captureRepositoryObservation(input),
+    ).rejects.toThrow();
+    fixture.after();
+    await fixture.observe();
+    await expect(fixture.observe()).rejects.toMatchObject({ reason: 'snapshot-bytes' });
+    expect(fixture.retained.size).toBe(2);
+  },
+);
+
+it('shares entry reservations with generic lists and an awaiting atomic preload', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-query-budget-')));
+  roots.push(root);
+  await writeFile(join(root, 'entry'), 'fixture');
+  const fixture = queryBudgetFixture();
+  await fixture.access.pinRoot(root);
+  let release!: () => void, started!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const observed = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  fixture.execute.mockImplementation(async (...args) => {
+    started();
+    await held;
+    return fixtureReadDescriptor(...args);
+  });
+  const preload = fixture.access.preloadDirectories([root]);
+  await observed;
+  fixture.size(0, 95000);
+  try {
+    await expect(fixture.observe()).rejects.toThrow('Controlled producer budget refusal');
+    expect(fixture.capture.mock.calls[0][0].limits.maxEntries).toBe(90000);
+  } finally {
+    release();
+  }
+  await preload;
+  fixture.before(() => held);
+  fixture.size(0, 1);
+  let finish!: () => void, entered!: () => void;
+  const holding = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const beginning = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  fixture.before(async () => {
+    entered();
+    await holding;
+  });
+  const capture = fixture.observe();
+  await beginning;
+  try {
+    await expect(fixture.access.forkForRepositoryObservation().list(root)).rejects.toMatchObject({
+      reason: 'snapshot-entries',
+    });
+    expect(fixture.execute).toHaveBeenCalledTimes(1);
+  } finally {
+    finish();
+  }
+  await capture;
+});
+
+it('enforces narrowed byte and entry ceilings in the actual fixed physical helper', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-observation-limits-')));
+  roots.push(root);
+  execFileSync('/usr/bin/git', ['init', '--template=', '-q', '-b', 'main', root]);
+  const transport: NativeFileHelperTransport = vi.fn(async (invocation) => {
+    const { stdout } = await promisify(execFile)('/bin/sh', ['-c', invocation.command], {
+      cwd: root,
+      env: { PATH: '/usr/bin:/bin' },
+      signal: invocation.signal,
+      timeout: invocation.timeoutMs,
+      maxBuffer: invocation.maxOutputBytes,
+    });
+    return { stdout, isError: false };
+  });
+  const plan = {
+    version: 'repository-read-v1',
+    mode: 'discovery',
+    sourcePath: root,
+    readableRoots: [root],
+    deniedRoots: [],
+    excludedNames: [],
+  };
+  const signal = new AbortController().signal;
+  await expect(
+    captureRepositoryObservation({ ...plan, limits: { maxBytes: 0 } }, signal, 10000, transport),
+  ).rejects.toThrow();
+  await expect(
+    captureRepositoryObservation({ ...plan, limits: { maxEntries: 1 } }, signal, 10000, transport),
+  ).rejects.toThrow();
+  expect(transport).toHaveBeenCalledTimes(2); // Refusal came from the physical operation, not schema rejection.
+  const captured = await captureRepositoryObservation(
+    { ...plan, limits: { maxBytes: 65536, maxEntries: 100 } },
+    signal,
+    10000,
+    transport,
+  );
+  expect(captured.data.files.some((file) => file.path === join(root, '.git', 'HEAD'))).toBe(true);
+  await verifyRepositoryObservation(captured.plan, captured.digest, signal, 10000, transport);
+  for (const limits of [{ maxBytes: 32 * 1024 * 1024 + 1 }, { maxEntries: 100001 }])
+    await expect(
+      captureRepositoryObservation({ ...plan, limits }, signal, 10000, transport),
+    ).rejects.toThrow();
+  expect(transport).toHaveBeenCalledTimes(4); // A narrowing field cannot raise fixed defaults.
+});
+
+it('rejects forged over-budget capture data before decoded buffers or entry maps are retained', async () => {
+  const buffers = vi.spyOn(Buffer, 'from');
+  const data = {
+    version: 'repository-read-v1',
+    mode: 'discovery',
+    entries: [
+      {
+        path: '/query/HEAD',
+        entry: {
+          name: 'HEAD',
+          identity: { dev: '1', ino: '1' },
+          kind: 'file',
+          size: 2,
+          mode: 0,
+          nlink: 1,
+          mtimeNs: '0',
+          ctimeNs: '0',
+        },
+      },
+    ],
+    files: [{ path: '/query/HEAD', bytes: 'YWI=', link: false }],
+    directories: [],
+    absent: [],
+  };
+  const canonical = (value: unknown): unknown =>
+    Array.isArray(value)
+      ? value.map(canonical)
+      : value && typeof value === 'object'
+        ? Object.fromEntries(
+            Object.entries(value)
+              .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+              .map(([key, item]) => [key, canonical(item)]),
+          )
+        : value;
+  const digest = createHash('sha256')
+    .update(JSON.stringify(canonical(data)))
+    .digest('hex');
+  const transport: NativeFileHelperTransport = async () => ({
+    stdout: `{"content": ${JSON.stringify(JSON.stringify({ data, digest }))}, "is_error": false}\n`,
+    isError: false,
+  });
+  const plan = {
+    version: 'repository-read-v1',
+    mode: 'discovery',
+    sourcePath: '/query',
+    readableRoots: ['/'],
+    deniedRoots: [],
+    excludedNames: [],
+  };
+  await expect(
+    captureRepositoryObservation(
+      { ...plan, limits: { maxBytes: 1 } },
+      new AbortController().signal,
+      10000,
+      transport,
+    ),
+  ).rejects.toThrow('Repository observation unavailable');
+  await expect(
+    captureRepositoryObservation(
+      { ...plan, limits: { maxEntries: 0 } },
+      new AbortController().signal,
+      10000,
+      transport,
+    ),
+  ).rejects.toThrow('Repository observation unavailable');
+  const bufferCalls: ReadonlyArray<readonly unknown[]> = buffers.mock.calls;
+  expect(
+    bufferCalls.filter(([value, encoding]) => value === 'YWI=' && encoding === 'base64'),
+  ).toHaveLength(0);
+  expect(
+    (
+      await captureRepositoryObservation(
+        { ...plan, limits: { maxBytes: 2, maxEntries: 1 } },
+        new AbortController().signal,
+        10000,
+        transport,
+      )
+    ).digest,
+  ).toBe(digest);
+});
 const roots: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 it('captures one bounded repository observation and detects changed bytes before return', async () => {

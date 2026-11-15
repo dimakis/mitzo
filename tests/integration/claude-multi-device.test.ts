@@ -400,7 +400,17 @@ it.each([
       }),
     ).toMatchObject({ status: 409 });
     const queued = prepared.request!;
-    expect(await mobile.post('/api/chat/runtime/continue', queued)).toMatchObject({ status: 202 });
+    const queuedAdmission = await mobile.post('/api/chat/runtime/continue', queued);
+    expect(
+      queuedAdmission,
+      JSON.stringify({
+        stage: 'queued_admission',
+        commandId: queued.clientMsgId,
+        status: queuedAdmission.status,
+        code: queuedAdmission.body.code,
+        runtimeFailure: queuedAdmission.body.runtimeFailure,
+      }),
+    ).toMatchObject({ status: 202 });
     const raced = {
       ...queued,
       clientMsgId: `race-${id}`,
