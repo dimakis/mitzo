@@ -78,6 +78,47 @@ original phone chat/request/client build/operation identifiers remain missing.
 No complete device root cause, live provider qualification, runtime adoption or
 production completion is claimed. No staging, deployment or model call ran.
 
+## Accepted Symposium source integration
+
+Local merge `22748edf73a4a7d20be8bc99778dfe3c2fc85b09` incorporates actual
+accepted main `4bc83d18f24bb14f24b7c190a32c2a4fa0834963` (#1356). All original
+authored commits and 14 repair anchors remain; the approved HTML hash is unchanged.
+Accepted transcript/composer/Stop and parity source is preserved. The explicit
+merge conflict was the source registry: 2475 prior +2489 accepted keys form a
+2491-entry union with no lost keys. The final fixture bytes require a subsequent
+fingerprint update; the published candidate's exact revision is recorded by its
+source check.
+
+Original 8f CI `43658990043`, Unit2 job `132645473257`, failed four
+default/explicit × Vertex/personal repository-transfer cases at line1583:
+RUNNING instead of TERMINAL after the existing ten-second wait. Native, browser
+and source checks passed separately. This does not establish the hosted cause or
+qualify the complete run.
+
+Only the reviewed SDK fixture contribution from #1359
+`0b93b77f6f5f8f43b02f611b66684c97fd3cd2f3` was adopted after exact preimage
+`2898fb8c1c372a7efc57de9114dd1b0c66e2a7cd`. Final blob is
+`47610a58827f5d700c3a5f023ac7d7549be23f84`; incremental patch SHA256 is
+`719292f134b6c56265757f406f6e5a62c4463ec297478faa12359f7809bf7b37`.
+The superseded cause-masking cleanup patch was not adopted. Actual guarded detach
+and retirement failures are retained together, reset continues, and active stores
+are never forcibly disposed. This contribution changes the later active-input
+readiness allowance from one to ten seconds; lifecycle ten seconds and scenario
+sixty seconds remain unchanged. Complete hosted causes remain unproved.
+
+Own current checkout checks: 13 joining/application/artifact checks, 109 design
+checks (one existing skip), protocol/harness/client builds and all14 anchors pass.
+Four selected SDK checks also pass: the actual active-owner guard and two cleanup
+controls, plus personal/explicit repository transfer. The other transfer variants
+require current hosted qualification. Logs, original failed job, final source
+identity and registry union are retained under `accepted-4bc/`. These branch-local
+results do not qualify #1355's separate unknown native capture operation.
+
+Normal current-head CI and final Centaur integration review remain required.
+Original review5900149863 remains the thorough source baseline, not approval of
+this successor. No actual merge turn, phone/device acceptance or deployment is
+claimed.
+
 Preserve standalone1354/1356 custody and then reconcile1355 to residual acceptance
 after accepted source landings.1347 is a distinct required repair; it must not be
 silently omitted or duplicated by the combined verification branch. Every later
