@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1198-symposium-phone-accepted-discovery';
+  'v1.0.1201-symposium-phone-queue-observation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1866,7 +1866,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/tool-results.tsx':
     'eb7865e4b52ff45456117c2ef0d9264da366434ae606fb0592f3a90cd8578ecb',
   '../../tests/integration/claude-multi-device.test.ts':
-    '1b3788eaf2d816ffb02f1f3c3890b93996ddade6175caaa06cb289f304dddf35',
+    '9b9d66255a11358fd1643a238b076d6fa6ed4f64614161e2f324136ba44c892b',
   '../../tests/integration/claude-subagent-failures.test.tsx':
     'a61cd2455304ae14aaa360f782db9f6bab9c2e700a47bbdb3aa13d33d650be0c',
   '../../tests/integration/native-subagent-visibility.test.tsx':

@@ -1,0 +1,30 @@
+# Failure-only device queue observation — bounded review packet
+
+Root placement682c43a6-a85d-40e8-baca-ee9dadaa765a authorizes preparation in existing #1347, sole publisher eed1a903. Actual recipient e79c8f30-41b5-444d-b2d1-7bc1b682c6f0 and root d9a42033-75ea-4365-a268-8c6a9c3040d5 verify device53477 unchanged/no pending edits, recipient OWNfa208 active; no repeated placement/collision question needed unless source changes. Canonical source custody remains2208b5d4; no target checkout edited.
+
+Review ONLY the new delta/privacy/control relationship. Reuse prior377e1f44 current public schema/telemetry baseline where relevant; this new snapshot reads actual EventStore owner observations, not response bodies. No full PR review, runtime implementation, model run, CI retry or behavior-fix claim.
+
+## Exact proposal
+
+- Sole file: `tests/integration/claude-multi-device.test.ts`.
+- Base Git blob53477c90a5b3c2abdbe924b349b78967271e68e6, SHA2561b3788eaf2d816ffb02f1f3c3890b93996ddade6175caaa06cb289f304dddf35.
+- Proposal `.mitzo-devtools/fixture-diagnostics/claude-queue455-proposal.test.ts`, Git blob19d7983e78df0c27ee94cdb15624e0849421086a, SHA256288122d752acc60b3de799e2fcdc82aea92be9ddb5204f0a7e01001671f06c9a.
+- Minimal patch `.mitzo-devtools/device455-command-observation-proposal.patch`, SHA256bff0acfffa9f32d6fc5c8e383035a3da25c72da483ecc4582e7ebcc039042741.
+
+Only the existing three-input vi.waitFor at original455 is wrapped. On failure, read actual current command/phase and each original/queued/raced command's admission state plus SDK event TYPES. Explicit null preserves missing facts. Append finite diagnostic JSON to the SAME Error message and rethrow the SAME object, preserving original message prefix, name, stack, expected/actual and cause. No request, ID, command ordering, retries, assertion, permission/Stop/queue/cold guard or1s/30s allowance changes. No new observation on the passing path.
+
+Optional observation-read failure has a deliberate bounded privacy policy: expose fixed `command_observation_unavailable`, preserve/rethrow the original assertion object, do not serialize the private observation exception. This is visible unavailable evidence, not a successful capture. No original assertion cause is discarded. Non-Error thrown values are rethrown unchanged; the actual assertion-failure controls exercise the real Error path. Fields are stage/code, command IDs, execution phase, admission enum and event type enums only; no payload/prompt/tool args, auth, headers, raw event/error/cause/stack or private path is added by this JSON.
+
+## Final exact-source controls
+
+One worker/1GiB, offline SDK/account/process mocks. Own active grant71b35fe1. No real model/provider or service writes.
+
+- Exact proposal managed-positive run885d68e6-7103-4193-85a4-2fd500301b5b:1PASS/3filtered,9.77s total,8.69s case. Log `.mitzo-devtools/device455-proposal-reviewed-positive.log`, SHA25681633ee0f46080a46c4e89983903530a43d69e97a22d9b255a039460ebc05288. ESLint and Prettier both pass on the same proposed source.
+- Final controls run008dd161-6154-4ee0-9c98-8dd5f759ec79 uses SEPARATE ignored copies with injected history hold and outer identity observer, never the proposal. Held-history negative remains RED at the original three-input assertion, exposes raced RUNNING/consumed/no provider events while original and queued acceptance+settlement are retained. `.mitzo-devtools/device455-final-held-history-negative.log`, SHA25694aa292feac9289f3765ee6cd00dcbf6bf1bc84d23125e294ccc05e2b16c4412.
+- Same negative plus an injected observation-read exception remains RED at the SAME original assertion object and displays fixed unavailable code without serializing `OFFLINE_OBSERVATION_PROBE`: `.mitzo-devtools/device455-final-observation-unavailable-negative.log`, SHA256b7f23c628163cc750f31d814ab9796c509a651096246cd76b4da7fa08f28ca17.
+- Both negative logs explicitly prove `{sameReference:true,assertion:true,originalMessageRetained:true}`. They retain post-failure teardown logs; no clean-teardown or original-hosted-cause reproduction claim. Probe hold released by the separate control's outer catch before teardown.
+- Proposal is verified absent holdRacedHistory/OFFLINE_OBSERVATION_PROBE/offline-original-assertion-identity/releaseHistory. Tracked tree remains clean. Earlier proposal revisions/controls are superseded for publication; counts overlap and are not cumulative.
+
+## Original evidence and limits
+
+See `.mitzo-devtools/device455-managed-comparison.md`: exact a935/run43714641542/Unit1job132814048747, original log SHA2ac78823, command26db and158f diagnostics, source53477. Passing control also emits raced preparation/recovery code pair, so neither identifies an unexpected HTTP attempt or explains missing input by itself. Held-history negative proves an alternative admitted pre-input state, not the hosted cause. Original failure remains blocking; this is diagnostics only. Frozen578/c82 queued-admission403 observation and #1355 remain separate. Target owner must qualify its exact composition, derive its own pins and retain normal current-head CI/final gates. No source publication until terminal bounded review and attributable recipient handoff; no merged1359 branch change.

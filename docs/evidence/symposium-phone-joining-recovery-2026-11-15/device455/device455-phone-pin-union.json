@@ -1,0 +1,11 @@
+{
+  "parent": "a9353f0c505d3f56303a1b771359c9d08d5f0579",
+  "base": "30308c49d319d0f5c66d0235a4e069ceedd792fc",
+  "keys": 2506,
+  "changedPins": [
+    "../../tests/integration/claude-multi-device.test.ts"
+  ],
+  "revision": "v1.0.1201-symposium-phone-queue-observation",
+  "all14AnchorsRetained": true,
+  "testSha256": "9b9d66255a11358fd1643a238b076d6fa6ed4f64614161e2f324136ba44c892b"
+}

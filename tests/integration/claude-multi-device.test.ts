@@ -451,9 +451,38 @@ it.each([
     expect(await mobile.post(`/api/sessions/${id}/codex-queue/continue`, {})).toMatchObject({
       status: 200,
     });
-    await vi.waitFor(() =>
-      expect(inputs).toEqual([wire.clientMsgId, queued.clientMsgId, raced.clientMsgId]),
-    );
+    try {
+      await vi.waitFor(() =>
+        expect(inputs).toEqual([wire.clientMsgId, queued.clientMsgId, raced.clientMsgId]),
+      );
+    } catch (cause) {
+      let observation: unknown;
+      try {
+        observation = {
+          stage: 'queued_input_observation',
+          code: 'queued_input_missing',
+          currentCommandId: chat.eventStore.getCurrentExecutionCommandId(id) ?? null,
+          phase: chat.eventStore.getSession(id)?.executionPhase ?? null,
+          commands: [wire.clientMsgId, queued.clientMsgId, raced.clientMsgId].map((commandId) => ({
+            commandId,
+            admission:
+              chat.eventStore.getOrdinaryLocalVertexCommandAdmission(commandId)?.state ?? null,
+            providerEvents: chat.eventStore
+              .getOrdinarySdkTurnEvents(id, commandId)
+              .map((event) => event.type),
+          })),
+        };
+      } catch {
+        observation = {
+          stage: 'queued_input_observation',
+          code: 'command_observation_unavailable',
+        };
+      }
+      if (cause instanceof Error) {
+        cause.message += `\nQueued command observation: ${JSON.stringify(observation)}`;
+      }
+      throw cause;
+    }
     await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
     expect(chat.eventStore.getOrdinaryLocalVertexCustody(id)).toEqual(custody);
     expect(chat.eventStore.getSession(id)).toMatchObject({
