@@ -12,6 +12,7 @@ import {
   LocalCodexFirstCommandReceiptSchema,
   OrdinaryCodexRetainedCommandObservationSchema,
   OrdinaryRuntimeEntryFailureSchema,
+  OrdinaryCommandWithdrawalReceiptSchema,
   RuntimeFailureSchema,
   type RuntimeFailure,
 } from '@mitzo/protocol';
@@ -26,6 +27,8 @@ export type SendOutboxStorage = Pick<Storage, 'getItem' | 'setItem'> & {
   /** Reopen/hydrate device storage only; never dispatch or replace saved intent. */
   recover?: () => Promise<void>;
   subscribe?: (listener: () => void) => () => void;
+  /** Retain non-delivery history durably outside active queue capacity. */
+  archiveWithdrawn?: (envelope: string) => void;
 };
 interface Entry {
   body: Record<string, unknown>;
@@ -37,6 +40,7 @@ interface Entry {
   composerDraft?: ComposerDraftReceipt;
   runtimeFailure?: RuntimeFailure;
   deliveryDiagnostic?: CommandDeliveryDiagnostic;
+  withdrawal?: ReturnType<typeof OrdinaryCommandWithdrawalReceiptSchema.parse>;
 }
 interface Config {
   url: string;
@@ -76,6 +80,8 @@ export class SendOutbox {
   }
 
   private entries: Entry[] = [];
+  private withdrawing?: Entry;
+  private retiringWithdrawals = new Set<Entry>();
   private active = false;
   private busyGeneration: number | null = null;
   private timer?: ReturnType<typeof setTimeout>;
@@ -126,6 +132,7 @@ export class SendOutbox {
                   'localDraftId',
                   'ordinaryDelivery',
                   'composerDraft',
+                  'withdrawal',
                 ].includes(key),
             )
           )
@@ -140,6 +147,16 @@ export class SendOutbox {
               ? undefined
               : OrdinaryCommandDeliverySchema.parse(entry.ordinaryDelivery);
           const body = parseLocalCommandDelivery(entry.body, ordinaryDelivery);
+          if (entry.withdrawal !== undefined) {
+            entry.withdrawal = OrdinaryCommandWithdrawalReceiptSchema.parse(entry.withdrawal);
+            if (
+              entry.withdrawal.clientMsgId !== body.clientMsgId ||
+              !('sessionId' in body) ||
+              entry.withdrawal.sessionId !== body.sessionId ||
+              entry.localReceipt
+            )
+              throw Error('Invalid withdrawal receipt');
+          }
           entry.deliveryDiagnostic = CommandDeliveryDiagnosticSchema.safeParse(
             entry.deliveryDiagnostic,
           ).data;
@@ -224,6 +241,7 @@ export class SendOutbox {
       if (
         this.active &&
         entry &&
+        !this.withdrawalOwns(entry) &&
         this.activeLocalEntry !== entry &&
         !this.localReady.includes(entry)
       )
@@ -263,6 +281,10 @@ export class SendOutbox {
               ? entry.localDraftId === scope.draftId
               : this.localSession(entry) === scope.sessionId,
           );
+  }
+
+  private withdrawalOwns(entry: Entry): boolean {
+    return this.withdrawing === entry || entry.withdrawal !== undefined;
   }
 
   /** Change the visible owner without discarding or dispatching another intent. */
@@ -350,7 +372,13 @@ export class SendOutbox {
     const entry = commandId
       ? this.entries.find((entry) => entry.body.clientMsgId === commandId)
       : this.selectedLocalEntry();
-    if (!entry || this.activeLocalEntry === entry || this.localReady.includes(entry)) return false;
+    if (
+      !entry ||
+      this.withdrawalOwns(entry) ||
+      this.activeLocalEntry === entry ||
+      this.localReady.includes(entry)
+    )
+      return false;
     if (entry.localReceipt?.state === 'consumed' && entry.uncertain === false) {
       // Admission is already proven. Retry only the retained source assignment.
       this.retireLocal(entry);
@@ -359,6 +387,118 @@ export class SendOutbox {
     this.localReady.push(entry);
     void this.pump();
     return true;
+  }
+
+  /** Explicit non-delivery recovery. The original wire is never edited or
+   * acknowledged; its tombstone and full draft envelope remain in storage. */
+  async withdrawLocalCommand(commandId: string): Promise<boolean> {
+    const entry = this.entries.find((entry) => entry.body.clientMsgId === commandId);
+    const runtime = entry?.body.runtime as { harness?: string } | undefined;
+    if (
+      !this.config.localFirstCommand ||
+      !this.config.storage?.archiveWithdrawn ||
+      !this.active ||
+      !entry ||
+      this.withdrawing ||
+      this.activeLocalEntry === entry ||
+      this.localReady.includes(entry) ||
+      entry.body.runOn !== 'local' ||
+      runtime?.harness !== 'claude-sdk' ||
+      typeof entry.body.sessionId !== 'string' ||
+      entry.ordinaryDelivery?.phase === 'first' ||
+      entry.localReceipt
+    )
+      return false;
+    const generation = this.generation;
+    this.withdrawing = entry;
+    this.receiptReads.get(entry)?.abort();
+    let observeAfter = false;
+    const abort = new AbortController();
+    const timeout = setTimeout(
+      () => abort.abort(),
+      this.config.timeoutMs ?? ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS,
+    );
+    const attempt: DeliveryAttempt = {
+      operation: 'withdraw',
+      stage: 'request',
+      startedAt: Date.now(),
+    };
+    try {
+      if (!entry.withdrawal) {
+        const { response, raw } = await Promise.race([
+          this.config
+            .fetch(this.localUrl(entry) + '/withdraw', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
+              body: JSON.stringify(entry.body),
+              signal: abort.signal,
+            })
+            .then(async (response) => ({ response, raw: await response.json() })),
+          new Promise<never>((_, reject) =>
+            abort.signal.addEventListener(
+              'abort',
+              () => reject(Error('Withdrawal confirmation timed out')),
+              { once: true },
+            ),
+          ),
+        ]);
+        attempt.httpStatus = response.status;
+        attempt.stage = 'response';
+        const receipt = OrdinaryCommandWithdrawalReceiptSchema.safeParse(raw);
+        if (generation !== this.generation || !this.active || !this.entries.includes(entry))
+          return false;
+        if (
+          !response.ok ||
+          !receipt.success ||
+          receipt.data.clientMsgId !== commandId ||
+          receipt.data.sessionId !== entry.body.sessionId
+        ) {
+          this.deliveryFailure(entry, attempt, 'http_rejected');
+          this.notifyLocal(entry, 'uncertain');
+          // A consumed admission may have won the race. Observe it normally;
+          // never turn a refusal to withdraw into a replacement send.
+          observeAfter = true;
+          return false;
+        }
+        entry.withdrawal = receipt.data;
+      }
+      attempt.stage = 'storage';
+      this.config.storage.archiveWithdrawn(JSON.stringify(entry));
+      if (this.config.storage.flush) await this.flushLocal(attempt);
+      if (generation !== this.generation || !this.active || !this.entries.includes(entry))
+        return false;
+      // Every concurrent queue writer must respect this retirement, including
+      // an unrelated chat's explicit enqueue. The archive is durable first.
+      this.retiringWithdrawals.add(entry);
+      if (!this.persist())
+        throw Error('Withdrawal retirement could not be retained', {
+          cause: this.persistenceCause,
+        });
+      if (this.config.storage?.flush) await this.flushLocal(attempt);
+      if (generation !== this.generation || !this.active || !this.entries.includes(entry))
+        return false;
+      this.entries.splice(this.entries.indexOf(entry), 1);
+      this.config.notify({
+        type: '_local_command_withdrawn',
+        clientMsgId: commandId,
+        sessionId: entry.body.sessionId,
+        request: structuredClone(entry.body),
+      });
+      return true;
+    } catch (cause) {
+      this.retiringWithdrawals.delete(entry);
+      if (generation === this.generation && this.active && this.entries.includes(entry)) {
+        this.deliveryFailure(entry, attempt, undefined, cause);
+        this.notifyLocal(entry, 'uncertain');
+      }
+      return false;
+    } finally {
+      clearTimeout(timeout);
+      this.retiringWithdrawals.delete(entry);
+      if (this.withdrawing === entry) this.withdrawing = undefined;
+      if (observeAfter && generation === this.generation && this.active)
+        void this.reconcileLocalCommand(commandId);
+    }
   }
 
   stop(): void {
@@ -612,7 +752,8 @@ export class SendOutbox {
    */
   async reconcileLocalCommand(commandId: string): Promise<void> {
     const entry = this.entries.find((item) => item.body.clientMsgId === commandId);
-    if (!this.active || !this.config.localFirstCommand || !entry) return;
+    if (!this.active || !this.config.localFirstCommand || !entry || this.withdrawalOwns(entry))
+      return;
     if (this.receiptReads.has(entry)) {
       // Later output may prove that an earlier pending observation is stale.
       // Coalesce hints into one follow-up read instead of dropping the final hint.
@@ -658,6 +799,7 @@ export class SendOutbox {
       if (timer) clearTimeout(timer);
       timer = undefined;
       if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
+      if (this.withdrawalOwns(entry)) return;
       const receipt = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
       if (
         response.status !== 202 ||
@@ -699,7 +841,12 @@ export class SendOutbox {
     } catch (cause) {
       // Read failures preserve the prior UI state. Once acceptance is proven,
       // completion storage failures must not restore an obsolete login reason.
-      if (generation === this.generation && this.active && this.entries.includes(entry)) {
+      if (
+        generation === this.generation &&
+        this.active &&
+        this.entries.includes(entry) &&
+        !this.withdrawalOwns(entry)
+      ) {
         this.deliveryFailure(
           entry,
           attempt,
@@ -719,6 +866,7 @@ export class SendOutbox {
         const recheck = this.receiptRechecks.delete(entry);
         if (
           recheck &&
+          !this.withdrawalOwns(entry) &&
           generation === this.generation &&
           this.active &&
           this.entries.includes(entry)
@@ -949,9 +1097,10 @@ export class SendOutbox {
   private persist(): boolean {
     try {
       if (!this.config.storage || this.invalidLocalRecovery) return false;
-      const retained = [...this.entries];
+      const retained = this.entries.filter((entry) => !this.retiringWithdrawals.has(entry));
       for (const [entry, index] of this.completingLocal)
-        if (!retained.includes(entry)) retained.splice(Math.min(index, retained.length), 0, entry);
+        if (!this.retiringWithdrawals.has(entry) && !retained.includes(entry))
+          retained.splice(Math.min(index, retained.length), 0, entry);
       this.config.storage.setItem(this.key, JSON.stringify(retained));
       return true;
     } catch (cause) {

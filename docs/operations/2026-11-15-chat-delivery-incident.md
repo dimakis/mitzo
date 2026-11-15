@@ -83,3 +83,68 @@ subprocess, persistent database or model journey. Browser behavior on the affect
 phone and full combined CI remain unverified locally; the repairs require the
 normal current-head review/CI gates and separately authorized production/iOS
 activation. Preserve the phone's drafts and storage while that work is pending.
+
+## Continuation rejected after the production redeploy
+
+The accepted `bb9b6218c051` release was activated at approximately 17:30 UTC.
+A subsequent personal Claude send at 18:32:30–18:32:47 reached the server five
+times and received HTTP 409 / `runtime_unavailable` before admission. No send
+ledger row or provider input exists for that message. Its frontend traces show
+`http_rejected` followed by receipt observation, rather than a storage timeout.
+The currently selected account, model and thinking level remain available.
+
+A model-discovery refresh completed at 18:32:28. Offline reproduction confirms
+that the Claude and Gemini capability digests included discovery timestamps and
+cache-source metadata: refreshing identical support invalidated frozen commands.
+The rejected request body was not retained, and existing logs omitted the inner
+check, so this is a proven admission defect consistent with the timing, not a
+proven reconstruction of that phone request. Admission now records fixed safe
+check names in correlated logs/traces. Unavailable receipt lookup is reported as
+unavailable evidence, never as proof of non-admission.
+
+The support projection excludes display/freshness metadata and canonicalizes
+model/effort ordering and absent/empty effort lists. Account/profile/target,
+stale discovery, actual model support, context, permissions, custody and current
+operator authority still qualify each command at their existing boundaries.
+
+### Recovering a frozen unadmitted message
+
+A stable future digest cannot rewrite an old frozen outbox body. Claude
+continuations therefore have an explicit **Review delivery** action. Withdrawal
+atomically races admission through a durable global command claim; if admission
+won, withdrawal cannot erase or replace it. A withdrawn command ID cannot enter
+ordinary admission, legacy send storage or direct execution. Repeating the exact
+withdrawal is idempotent. It creates no provider input or consumed receipt.
+
+The client preserves its exact envelope in a separate archive and flushes that
+archive before retiring/flushing its active entry. Failures keep recovery visible;
+old acknowledgements cannot alter another chat or a newer review. The composer
+and later edits remain mounted. Reviewing current settings and sending a new
+command are separate explicit actions. Old uncertain provider turns remain
+unreconciled; this change neither replays nor marks them complete.
+
+### Focused cleanup and validation
+
+Both chat layouts use one shared recovery implementation. Withdrawal persistence
+is a focused store rather than more lifecycle logic in EventStore. Existing
+claim lookup also checks withdrawal without a second database round trip;
+mutation/dispatch boundaries retain their necessary fences. The browser fixture
+shares asset routing and command construction; retained history is never copied
+into each future active-queue write.
+
+Tests extend existing catalog, HTTP, EventStore, outbox, storage and dialog fixtures.
+The held-flush, lost-response, archive/removal failure and authentication-change
+cases use in-memory storage. The existing persistent-database lifetime also proves
+withdrawal across stores/reopen, without a new database journey. A 101-record
+in-memory archive case checks the existing 100-entry pending limit explicitly.
+The added offline browser cases are justified by the real store/composer/modal
+boundary and edited-draft survival across a full document reload; API traffic is
+intercepted and no backend or model is contacted.
+
+The affected unit/design run passed 411 tests (one existing skip) in 18.30 seconds
+locally before the final receipt-observation test was added. Initial recovery UI
+cases passed on mobile WebKit and desktop Chromium in light/dark themes and
+representative alternate accent/font settings. Final source checks, affected CI
+and exact-head review remain required. These are execution times; CI queue/cost
+and physical-phone verification are not measured here. Production and iOS
+activation remain separate from publishing this repair.

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /** Display/telemetry evidence only. Never a receipt or permission to dispatch. */
 export const CommandDeliveryDiagnosticSchema = z.strictObject({
-  operation: z.enum(['submit', 'receipt']),
+  operation: z.enum(['submit', 'receipt', 'withdraw']),
   stage: z.enum(['storage', 'request', 'response', 'handoff', 'cleanup']),
   code: z.enum([
     'storage_failed',

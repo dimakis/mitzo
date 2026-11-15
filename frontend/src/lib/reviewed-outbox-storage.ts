@@ -1,4 +1,9 @@
-import { CHAT_MAX_COMMAND_BYTES, RuntimeFailureSchema, type RuntimeFailure } from '@mitzo/protocol';
+import {
+  CHAT_MAX_COMMAND_BYTES,
+  RuntimeFailureSchema,
+  OrdinaryCommandWithdrawalReceiptSchema,
+  type RuntimeFailure,
+} from '@mitzo/protocol';
 import { V2SendMessage } from '@mitzo/protocol';
 import {
   parseLocalCommandDelivery,
@@ -27,6 +32,7 @@ type Entry = {
   localReceipt?: { state?: unknown };
   runtimeFailure?: unknown;
   deliveryDiagnostic?: unknown;
+  withdrawal?: unknown;
 };
 const MAX_ENTRY_BYTES = CHAT_MAX_COMMAND_BYTES + 64 * 1024;
 const MAX_TOTAL_BYTES = 2 * MAX_ENTRY_BYTES;
@@ -41,6 +47,7 @@ export function createReviewedOutboxStorage(
   flush?: () => Promise<void>;
   recover?: () => Promise<void>;
   subscribe?: (listener: () => void) => () => void;
+  archiveWithdrawn?: (envelope: string) => void;
 } {
   const prefix = `mitzo-${route === 'local' ? 'local-first-command' : 'reviewed-send'}-outbox:${encodeURIComponent(backendSendUrl)}:`;
   let owned = new Set<string>();
@@ -135,6 +142,41 @@ export function createReviewedOutboxStorage(
     return result;
   }
   return {
+    ...(route === 'local'
+      ? {
+          archiveWithdrawn(raw: string) {
+            const entry = decode(raw);
+            const body = parseLocalCommandDelivery(entry.body, entry.ordinaryDelivery);
+            const withdrawal = OrdinaryCommandWithdrawalReceiptSchema.parse(entry.withdrawal);
+            if (
+              !('sessionId' in body) ||
+              withdrawal.sessionId !== body.sessionId ||
+              withdrawal.clientMsgId !== body.clientMsgId ||
+              entry.localReceipt
+            )
+              throw Error('Original withdrawn command required');
+            const archiveKey = `mitzo-withdrawn-command:${encodeURIComponent(backendSendUrl)}:${encodeURIComponent(body.clientMsgId)}`;
+            const existing = disk.getItem(archiveKey);
+            if (existing) {
+              const previous = decode(existing);
+              const previousBody = parseLocalCommandDelivery(
+                previous.body,
+                previous.ordinaryDelivery,
+              );
+              if (
+                JSON.stringify(previousBody) !== JSON.stringify(body) ||
+                JSON.stringify(
+                  OrdinaryCommandWithdrawalReceiptSchema.parse(previous.withdrawal),
+                ) !== JSON.stringify(withdrawal)
+              )
+                throw Error('Withdrawn command identity changed');
+              // A visible matching value can still be a failed/uncommitted write.
+              // Reassert its original bytes so the disk retries that exact snapshot.
+              disk.setItem(archiveKey, existing);
+            } else disk.setItem(archiveKey, JSON.stringify({ ...entry, body, withdrawal }));
+          },
+        }
+      : {}),
     ...(disk.flush ? { flush: () => disk.flush!() } : {}),
     ...(disk.recover ? { recover: () => disk.recover!() } : {}),
     ...(disk.subscribe ? { subscribe: (listener: () => void) => disk.subscribe!(listener) } : {}),
