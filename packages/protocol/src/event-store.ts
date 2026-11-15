@@ -1,3 +1,4 @@
+import { OrdinaryCommandWithdrawals } from './ordinary-command-withdrawals.js';
 export { DeploymentStore } from './deployment-store.js';
 export {
   maintenanceFingerprint,
@@ -388,6 +389,12 @@ const SCHEMA = `
     request_fingerprint TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS ordinary_command_withdrawals (
+    client_msg_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    wire_fingerprint TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS auth_revocations (
     auth_session_id TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL
@@ -621,6 +628,7 @@ export class EventStore {
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
   private readonly sessionLearning: SessionLearningStore;
+  private readonly commandWithdrawals: OrdinaryCommandWithdrawals;
   private readonly ordinaryWorkspaceSessions: OrdinaryWorkspaceSessionStore;
   private readonly sessionLifecycle: SessionLifecycleStore;
   private readonly executionLedger: ExecutionLedger<SessionRow>;
@@ -706,6 +714,7 @@ export class EventStore {
   ): void {
     this.assertConversationIdentity(sessionId);
     this.db!.transaction(() => {
+      this.assertClientCommandNotWithdrawn(clientMsgId);
       this.removals.assertAdmissible(sessionId);
       this.deployment.assertAdmission(sessionId, clientMsgId);
       if (this.userSteering.hasRequest(clientMsgId))
@@ -2823,18 +2832,30 @@ export class EventStore {
           'Identity belongs to a user correction',
         );
       const existing = this.db!.prepare(
-        'SELECT request_fingerprint FROM client_command_claims WHERE client_msg_id = ?',
-      ).get(clientMsgId) as { request_fingerprint: string } | undefined;
-      if (existing && existing.request_fingerprint !== requestFingerprint)
+        'SELECT (SELECT request_fingerprint FROM client_command_claims WHERE client_msg_id=?) AS request_fingerprint, EXISTS(SELECT 1 FROM ordinary_command_withdrawals WHERE client_msg_id=?) AS withdrawn',
+      ).get(clientMsgId, clientMsgId) as { request_fingerprint: string | null; withdrawn: number };
+      if (existing.withdrawn) throw Error('Command was withdrawn before admission');
+      if (
+        existing.request_fingerprint !== null &&
+        existing.request_fingerprint !== requestFingerprint
+      )
         throw new ExecutionAdmissionError(
           'fingerprint_conflict',
           'Command ID already admitted for a different request',
         );
-      if (!existing)
+      if (existing.request_fingerprint === null)
         this.db!.prepare(
           'INSERT INTO client_command_claims (client_msg_id, request_fingerprint) VALUES (?, ?)',
         ).run(clientMsgId, requestFingerprint);
     }).immediate();
+  }
+
+  private assertClientCommandNotWithdrawn(clientMsgId: string) {
+    this.commandWithdrawals.assertOpen(clientMsgId);
+  }
+
+  withdrawUnadmittedOrdinaryCommand(input: Parameters<OrdinaryCommandWithdrawals['withdraw']>[0]) {
+    return this.commandWithdrawals.withdraw(input);
   }
 
   recoverPendingSendCommands(options: { excludeSymposium?: boolean } = {}): void {
@@ -2936,6 +2957,12 @@ export class EventStore {
       db.pragma('journal_mode = WAL');
       db.pragma('foreign_keys = ON');
       db.exec(SCHEMA);
+      this.commandWithdrawals = new OrdinaryCommandWithdrawals({
+        database: () => this.db!,
+        hasConversation: (id) => !!this.getSession(id),
+        hasSendCommand: (id) => !!this.getSendCommand(id),
+        claimCommand: (id, fingerprint) => this.claimClientCommand(id, fingerprint),
+      });
       this.removals = new SessionRemovalStore(db);
       this.deployment = new DeploymentStore(db);
       this.contextTransitions = new OrdinaryContextTransitionStore(db);
@@ -3212,6 +3239,7 @@ export class EventStore {
         statements: this.stmts,
         assertConversationIdentity: (id) => this.assertConversationIdentity(id),
         assertExecutionAdmission: (id, commandId) => {
+          if (commandId) this.assertClientCommandNotWithdrawn(commandId);
           this.removals.assertAdmissible(id);
           this.contextTransitions.assertAdmission(id, this.preparedContextEpoch(id));
           if (commandId && this.getSendCommand(commandId))

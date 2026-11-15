@@ -15,6 +15,7 @@ import {
   reviewedLegacyLocalApiTargetRevisions,
 } from './local-api-chat-continuity.js';
 import type { AccountProfiles } from './account-profiles.js';
+import { modelAdmissionCapabilities } from './model-catalog.js';
 import { readPrivateRuntimeSettings } from './ordinary-local-codex-host-runtime.js';
 import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
 import {
@@ -141,9 +142,9 @@ export function localVertexCapabilities(
     authority: 'configuration-only' as const,
     defaultLocation: 'openshell' as const,
     capabilityRevision: digest([
-      'ordinary-local-vertex-capabilities-v1',
+      'ordinary-local-vertex-capabilities-v2',
       catalog,
-      accounts,
+      accounts.map((entry) => [entry.account, modelAdmissionCapabilities(entry)]),
       accounts.map(({ account }) => eligibility(account.provider)),
     ]),
     accounts,

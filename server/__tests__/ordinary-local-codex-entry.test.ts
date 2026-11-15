@@ -17,7 +17,7 @@ import { RetainedLocalCodexRecovery } from '../retained-local-codex-recovery.js'
 import { getCodexConversationStore } from '../codex-chat-session.js';
 import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
@@ -34,7 +34,10 @@ import {
 } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
+import { trace, type Span } from '@opentelemetry/api';
 import { AccountProfiles } from '../account-profiles.js';
+import { refreshModels } from '../model-catalog.js';
+import { ordinaryLocalVertexContractRevision } from '../ordinary-local-vertex-capabilities.js';
 import {
   ordinaryOpenShellCodexTarget,
   projectOrdinaryOpenShellCodexCapabilities,
@@ -47,6 +50,7 @@ import {
 import {
   createOwnedOrdinaryWorkspaceCommandRouter,
   createOwnedLocalCodexEntryRouter,
+  ordinaryRepositoryRuntimeInventory,
 } from '../ordinary-local-codex-entry.js';
 import { observeLocalCodexPhase } from '../local-codex-observation.js';
 vi.mock('../local-codex-observation.js', { spy: true });
@@ -89,6 +93,20 @@ const fixtures = vi.hoisted(() => ({
   queuedRecovery: false,
   nativeCwd: '/offline/checkout',
   nativeBootstrapFingerprint: undefined as string | undefined,
+  vertexTarget: undefined as Record<string, unknown> | undefined,
+  startVertex: vi.fn(),
+}));
+vi.mock('../ordinary-local-codex-host-runtime.js', async (original) => {
+  const actual = await original<typeof import('../ordinary-local-codex-host-runtime.js')>();
+  return {
+    ...actual,
+    readPrivateRuntimeSettings: (...args: Parameters<typeof actual.readPrivateRuntimeSettings>) =>
+      fixtures.vertexTarget ?? actual.readPrivateRuntimeSettings(...args),
+  };
+});
+vi.mock('../ordinary-local-vertex-entry.js', async (original) => ({
+  ...(await original<object>()),
+  startOwnedLocalVertexCommand: fixtures.startVertex,
 }));
 vi.mock('../logger.js', async (original) => {
   const actual = await original<typeof import('../logger.js')>();
@@ -300,6 +318,7 @@ beforeEach(() => {
   fixtures.queuedRecovery = false;
   fixtures.nativeCwd = '/offline/checkout';
   fixtures.nativeBootstrapFingerprint = undefined;
+  fixtures.vertexTarget = undefined;
   fixtures.shellCustody.mockReturnValue(null);
   fixtures.shellArtifact.mockReturnValue(null);
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
@@ -414,6 +433,142 @@ const invoke = (
 
 const send = (body: unknown = input(), login: string | null = auth.id) =>
   invoke('POST', '/send', body, login);
+
+it('passes a frozen Claude HTTP selection through unchanged model refreshes and refuses changed support', async () => {
+  const config = {
+    id: 'refresh-personal-claude',
+    label: 'Offline Claude',
+    provider: 'anthropic-vertex',
+    projectId: 'project',
+    region: 'region',
+    credentialRef: '/offline/claude-adc',
+    models: [{ id: 'fixture', label: 'Offline', reasoningEfforts: ['high'] }],
+  };
+  fixtures.profiles.mockReturnValue(new AccountProfiles([config]));
+  fixtures.library.mockReturnValue({
+    version: () => publishedProfile,
+    list: () => ({ versions: [publishedProfile] }),
+  });
+  fixtures.vertexTarget = {
+    version: 1,
+    targetId: 'claude-host',
+    label: 'Offline host',
+    hostId: hostname(),
+    runtimeContractRevision: ordinaryLocalVertexContractRevision(),
+  };
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_VERTEX_ENABLED', '1');
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_VERTEX_TARGET_FILE', '/offline/claude-target.json');
+  router = createOwnedLocalCodexEntryRouter(
+    streams,
+    { connRegistry: conns, sessionRegistry: sessions, eventStore: store },
+    true,
+  );
+  const discovered = await invoke('GET', '/capabilities', undefined);
+  expect(discovered.status).toBe(200);
+  const inventory = discovered.body as {
+    routes: Array<{
+      harness: string;
+      account: unknown;
+      targetId: string;
+      capabilityRevision: string;
+    }>;
+  };
+  const route = inventory.routes.find((entry) => entry.harness === 'claude-sdk')!;
+  expect(route).toBeDefined();
+  const frozen = {
+    ...input(),
+    capabilityRevision: route.capabilityRevision,
+    runtime: {
+      account: route.account,
+      harness: route.harness,
+      targetId: route.targetId,
+      mode: 'ask',
+    },
+    selection: { ...input().selection, thinking: 'high' },
+  };
+  // End the offline consumer at the provider dispatch boundary. This checks the
+  // actual HTTP catalog qualification, without creating a provider/query fixture.
+  fixtures.startVertex.mockRejectedValue(new SessionRuntimeError('auth_revoked'));
+  await refreshModels(JSON.stringify(config), async () => config.models, true);
+  const response = await send(frozen);
+  expect(response.status).toBe(409);
+  expect(
+    OrdinaryRuntimeEntryFailureSchema.parse(response.body).runtimeFailure.runtimeFailureCode,
+  ).toBe('auth_revoked');
+  expect(fixtures.startVertex).toHaveBeenCalledOnce();
+  expect(fixtures.warn).toHaveBeenLastCalledWith(
+    'Ordinary command preparation failed',
+    expect.objectContaining({ failedCheck: 'command_dispatch' }),
+  );
+  await refreshModels(
+    JSON.stringify(config),
+    async () => [{ ...config.models[0], reasoningEfforts: [] }],
+    true,
+  );
+  expect((await send(frozen)).status).toBe(409);
+  expect(fixtures.startVertex).toHaveBeenCalledOnce();
+  expect(fixtures.warn).toHaveBeenLastCalledWith(
+    'Ordinary command preparation failed',
+    expect.objectContaining({ failedCheck: 'capability_revision' }),
+  );
+  // Reuse the same authenticated HTTP/capability fixture for the stuck frozen
+  // continuation. Withdrawal must work despite obsolete discovery metadata.
+  const sessionId = 'withdraw-claude-session';
+  const resolved = ordinaryRepositoryRuntimeInventory('local', 'claude-sdk').catalog.resolve(
+    frozen.runtime,
+  );
+  if (resolved.status !== 'compatible') throw Error('Offline Claude route required');
+  store.admitOrdinaryLocalVertexCommand(
+    {
+      sessionId,
+      cwd: '/offline/checkout',
+      repositoryWorkspaceId: workspaceId,
+      accountBinding: fixtures.profiles().resolve(config.id, 'fixture'),
+    },
+    resolved.binding,
+    {
+      clientMsgId: 'original-claude',
+      requestFingerprint: 'original',
+      selection: OrdinaryLocalCommandSelectionSchema.parse(frozen.selection),
+      payload: frozen.payload,
+    },
+  );
+  store.claimOrdinaryLocalVertexCommandDispatch('original-claude');
+  store.completeOrdinaryLocalVertexCommand('original-claude');
+  sessions.register('retained-claude', {
+    transport: conns.get('entry-stream')!.transport,
+    abortController: new AbortController(),
+    sessionId,
+    mode: 'ask',
+    sessionAllowList: new Set(),
+    ownedLocalAuthSessionId: auth.id,
+  });
+  const stuck = { ...frozen, sessionId, clientMsgId: 'stuck-claude' };
+  expect((await invoke('POST', '/continue/withdraw', stuck, 'foreign')).status).toBe(403);
+  sessions.get('retained-claude')!.ownedLocalAuthSessionId = 'foreign-owner';
+  expect((await invoke('POST', '/continue/withdraw', stuck)).status).toBe(403);
+  sessions.get('retained-claude')!.ownedLocalAuthSessionId = auth.id;
+  const withdrawn = await invoke('POST', '/continue/withdraw', stuck);
+  expect(withdrawn).toMatchObject({
+    status: 200,
+    body: { ok: true, code: 'command_withdrawn', clientMsgId: stuck.clientMsgId, sessionId },
+  });
+  expect(await invoke('POST', '/continue/withdraw', stuck)).toEqual(withdrawn);
+  expect(
+    (await invoke('POST', '/continue/withdraw', { ...stuck, payload: { text: 'changed' } })).status,
+  ).toBe(409);
+  expect(() => store.claimClientCommand(stuck.clientMsgId, 'late-original')).toThrow();
+  expect(
+    (
+      await invoke('POST', '/continue/withdraw', {
+        ...stuck,
+        clientMsgId: 'withdraw-paid',
+        payload: { text: '/fuse inspect' },
+      })
+    ).status,
+  ).toBe(200);
+  expect(fixtures.startVertex).toHaveBeenCalledOnce();
+});
 
 it('exposes and dispatches API billing through the actual Local Codex entry', async () => {
   const api = new AccountProfiles(
@@ -548,9 +703,46 @@ it.each([
 });
 it('refuses stale capabilities and unsupported published context before reservation', async () => {
   expect((await send({ ...input(), capabilityRevision: 'stale' })).status).toBe(409);
+  expect(fixtures.warn).toHaveBeenLastCalledWith(
+    'Ordinary command preparation failed',
+    expect.objectContaining({ failedCheck: 'capability_revision', state: 'not_admitted' }),
+  );
   fixtures.library.mockReturnValue({ version: () => ({ definition: { contextRecipe: {} } }) });
   expect((await send()).status).toBe(409);
   expect(fixtures.reserve).not.toHaveBeenCalled();
+});
+it('correlates a rejected model selection with a sanitized log and failed HTTP span', async () => {
+  const span = { setAttributes: vi.fn(), addEvent: vi.fn(), setStatus: vi.fn() };
+  const active = vi.spyOn(trace, 'getActiveSpan').mockReturnValue(span as unknown as Span);
+  try {
+    const response = await send({
+      ...input(),
+      selection: { ...input().selection, model: 'private-caller-model' },
+    });
+    const receipt = OrdinaryRuntimeEntryFailureSchema.parse(response.body);
+    expect(response.status).toBe(409);
+    expect(fixtures.warn).toHaveBeenLastCalledWith(
+      'Ordinary command preparation failed',
+      expect.objectContaining({
+        failedCheck: 'model_selection',
+        diagnosticId: receipt.runtimeFailure.diagnosticId,
+        state: 'not_admitted',
+      }),
+    );
+    expect(span.setAttributes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        'runtime.failed_check': 'model_selection',
+        'runtime.diagnostic_id': receipt.runtimeFailure.diagnosticId,
+      }),
+    );
+    expect(span.setStatus).toHaveBeenCalledWith({ code: 2, message: 'runtime_unavailable' });
+    expect(
+      JSON.stringify([response.body, fixtures.warn.mock.calls, span.setAttributes.mock.calls]),
+    ).not.toContain('private-caller-model');
+    expect(fixtures.reserve).not.toHaveBeenCalled();
+  } finally {
+    active.mockRestore();
+  }
 });
 it('does not rewrite command receipts or discard reservations on uncertain failure', async () => {
   fixtures.start.mockRejectedValue(Error('private native configuration'));
@@ -563,6 +755,28 @@ it('does not rewrite command receipts or discard reservations on uncertain failu
   ).toBe('runtime_unavailable');
   expect(fail).not.toHaveBeenCalled();
   expect(fixtures.reserve).toHaveBeenCalledTimes(1);
+});
+it('reports unavailable receipt evidence without claiming the command was not admitted', async () => {
+  let restore: (() => void) | undefined;
+  fixtures.start.mockImplementationOnce(() => {
+    const lookup = vi.spyOn(store, 'getSendCommand').mockImplementation(() => {
+      throw Error('private database failure');
+    });
+    restore = () => lookup.mockRestore();
+    throw Error('private dispatch failure');
+  });
+  try {
+    const response = await send();
+    expect(response.status).toBe(409);
+    OrdinaryRuntimeEntryFailureSchema.parse(response.body);
+    expect(fixtures.warn).toHaveBeenLastCalledWith(
+      'Ordinary command preparation failed',
+      expect.objectContaining({ state: 'unavailable', receiptObservationUnavailable: true }),
+    );
+    expect(JSON.stringify(fixtures.warn.mock.calls)).not.toContain('private');
+  } finally {
+    restore?.();
+  }
 });
 it('logs reviewed startup details while keeping upstream cause text out of the HTTP receipt', async () => {
   const cause = Object.assign(Error('private credential /private/path'), { code: 'ECONNREFUSED' });

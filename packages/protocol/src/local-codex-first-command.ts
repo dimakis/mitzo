@@ -216,7 +216,8 @@ export const OrdinaryCodexRetainedCommandObservationSchema =
     }),
   );
 
-/** Failure before command admission establishes no receipt or delivery state. */
+/** Failure without a verified admission receipt establishes no delivery state.
+ * This response never proves non-admission or grants replacement/replay. */
 export const OrdinaryRuntimeEntryFailureSchema = z.strictObject({
   ok: z.literal(false),
   code: z.literal('entry_unavailable'),
@@ -224,4 +225,13 @@ export const OrdinaryRuntimeEntryFailureSchema = z.strictObject({
   clientMsgId: reference,
   sessionId: reference,
   runtimeFailure: RuntimeFailureSchema,
+});
+
+/** Withdrawal is a non-delivery receipt. The old command ID can never execute. */
+export const OrdinaryCommandWithdrawalReceiptSchema = z.strictObject({
+  ok: z.literal(true),
+  code: z.literal('command_withdrawn'),
+  clientMsgId: reference,
+  sessionId: reference,
+  wireFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
 });
