@@ -262,3 +262,46 @@ other files and 7,352 tests passed, seven files and 50 tests skipped. Its artifa
 The exact source/errors were handed to the existing shared-fixture owner for a
 minimal attributable successor; matching locations do not prove hosted cause.
 No duplicate fixture implementation or unchanged-head CI retry was performed.
+
+## Reviewed shared-fixture successor
+
+The sole fixture owner published the corrected contribution in
+`0b93b77f6f5f8f43b02f611b66684c97fd3cd2f3`, tree
+`b2aad32acd127abf2e5b7c12b7d0fafe96006544`. Its independent published-byte
+review resolves the superseded unconditional-cleanup blocker. Our current
+preimage is exactly `2898fb8c1c372a7efc57de9114dd1b0c66e2a7cd`; only the
+SDK fixture delta is adopted, producing exact published blob
+`47610a58827f5d700c3a5f023ac7d7549be23f84`. The owner supplied incremental
+patch SHA256 `719292f134b6c56265757f406f6e5a62c4463ec297478faa12359f7809bf7b37`.
+The accepted-main-to-published patch was separately checked against SHA256
+`98c09a893d56b92bbd6917d1ba2d43720e77b614eae343fdadb22393672dd8a4` and
+reconstructed to the same postimage before applying the equivalent current-file
+delta. No composer fixture, Telos source or foreign registry is imported.
+
+Information/repository phase observation now covers first, queued, retained-tail
+and cold commands before their pause or terminal assertions. Each phase and
+lifecycle wait remains 10s and each scenario remains 60s; total observation
+allowance increases. A later active-input readiness wait explicitly changes
+from the implicit 1s to 10s. These are deterministic fixture timing changes,
+not permission, runtime or lifecycle deadline changes.
+
+Cleanup attempts all registered callbacks and resets SDK fixture state before
+rethrowing original errors. Retirement and guarded detach retain both original
+causes in an AggregateError when both fail, and close the store only after both
+succeed. The real active-owner guard remains intact. The actual-path guard and
+two cleanup-isolation controls are retained in the adopted test. The earlier
+unconditional-finally proposal was not adopted. Published-owner qualification
+and independent review support this narrow reuse; they do not establish our
+hosted cause, our CI success or exact-head final approval.
+
+Own successor qualification passes all nine selected checks: three actual-guard
+and cleanup controls plus six transfer variants, using one worker/1 GiB in three
+bounded runs. The default-profile pair plus cleanup controls pass in 52.61s;
+explicit-profile and excluded-profile pairs pass in 56.70s and 36.95s. Other
+scenarios are explicitly unselected, so this is not a complete-file pass or an
+additive claim about the owner's earlier overlapping runs. The unchanged
+production composition retains its preceding 814-check qualification. Only the
+adopted fixture fingerprint changes under
+`v1.0.1185-symposium-provider-fixture-recovery`; all 2,503 entries and every other
+fingerprint are preserved. Normal successor CI and exact-head trusted Centaur
+follow-up remain required before readiness.
