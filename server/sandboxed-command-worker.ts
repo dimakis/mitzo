@@ -11,7 +11,7 @@ import {
   SandboxRuntimeConfigSchema,
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
-import { AuthoritySnapshot, type SerializedAuthority } from './sandbox-authority.js';
+import { AuthoritySnapshot, validatePath, type SerializedAuthority } from './sandbox-authority.js';
 import {
   privateNativeFileHelperCommand,
   privateNativeFileProgramCommand,
@@ -28,12 +28,40 @@ export interface SandboxWorkerPayload {
   env?: NodeJS.ProcessEnv;
   /** Trusted SDK runtime-only enrollment fences files without changing network policy. */
   filesystemOnly?: boolean;
+  /** Controller-selected SDK launch workspace; never supplied by provider tools. */
+  sdkGitWorkRoot?: string;
   /** Trusted parent has approved this command's general network effects. */
   networkAccess?: 'approved-command' | 'loopback';
   /** Fixed private helper only, never arbitrary Bash's authority bypass. */
   privateNativeFileRequestJson?: string;
   privateNativeFileProgram?: { programPath: string; requestPath: string };
   privateRepositoryCheckoutJson?: string;
+}
+
+/** Add a deny-only outer Seatbelt policy. SRT's allowGitConfig is global; the
+ * SDK must only gain config writes for repositories created below its workspace.
+ * Applying this before SRT retains its complete network/private/hook policy and
+ * avoids parsing or rewriting a third-party shell command or generated profile.
+ */
+export function wrapSdkGitMetadata(command: string, root: string): string {
+  validatePath(root);
+  const string = (value: string) => JSON.stringify(value);
+  const profile = [
+    '(version 1)',
+    '(allow default)',
+    `(deny file-write* (require-all (regex ${string('.*/\\.git(/.*)?$')}) (require-not (subpath ${string(root)}))))`,
+    `(deny file-write* (subpath ${string(join(root, '.git'))}))`,
+    // Pin the selected workspace and its ancestors against replacement.
+    ...(() => {
+      const paths = [];
+      for (let path = root; path !== '/'; path = dirname(path)) paths.push(path);
+      return paths.map(
+        (path) => `(deny file-write-unlink file-write-create (literal ${string(path)}))`,
+      );
+    })(),
+  ].join('\n');
+  const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
+  return ['/usr/bin/sandbox-exec', '-p', profile, '/bin/sh', '-c', command].map(quote).join(' ');
 }
 
 interface WorkerDependencies {
@@ -120,6 +148,15 @@ export async function runSandboxedWorker(
   dependencies: WorkerDependencies = { manager: SandboxManager, spawn },
 ): Promise<number> {
   const { manager, spawn: spawnCommand } = dependencies;
+  if (payload.sdkGitWorkRoot !== undefined) {
+    validatePath(payload.sdkGitWorkRoot);
+    if (
+      payload.sdkGitWorkRoot !== payload.cwd ||
+      (dependencies.platform ?? process.platform) !== 'darwin' ||
+      !payload.authority.some((entry) => entry.path === payload.sdkGitWorkRoot)
+    )
+      throw Error('Invalid SDK Git workspace authority');
+  }
   if (
     payload.networkAccess !== undefined &&
     !['approved-command', 'loopback'].includes(payload.networkAccess)
@@ -246,13 +283,16 @@ export async function runSandboxedWorker(
     const command = payload.env
       ? [process.execPath, '-e', launcher].map(quote).join(' ')
       : payload.command;
-    const wrapped = payload.filesystemOnly
+    const inner = payload.filesystemOnly
       ? await (dependencies.wrapFilesystem ?? wrapFilesystemOnly)(command, config)
       : directPrivateFile
         ? await (dependencies.wrapPrivateFile ?? wrapPrivateFile)(command, config)
         : await manager.wrapWithSandbox(command, undefined, undefined, undefined, {
             commandId: randomUUID(),
           });
+    const wrapped = payload.sdkGitWorkRoot
+      ? wrapSdkGitMetadata(inner, payload.sdkGitWorkRoot)
+      : inner;
     // Wrapping initializes network/mount policy asynchronously. Recheck only
     // after it completes, with no await before the actual sandboxed command spawn.
     authority.verify();

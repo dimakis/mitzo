@@ -128,6 +128,8 @@ it.each(['0', '1'])(
     vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', enabled);
     const payload = sdkPayload({ GIT_TEMPLATE_DIR: '/untrusted/template' });
     expect(payload.config.filesystem.allowGitConfig).toBe(true);
+    expect(payload.sdkGitWorkRoot).toBe(join(root, 'work'));
+    expect(payload.authority).toContainEqual(expect.objectContaining({ path: join(root, 'work') }));
     const template = payload.env!.GIT_TEMPLATE_DIR!;
     expect(template).not.toBe('/untrusted/template');
     expect(payload.config.filesystem.allowRead).toContain(template);
@@ -162,10 +164,22 @@ it
     const previous = vi.mocked(spawn).getMockImplementation()!;
     vi.mocked(spawn).mockImplementation(actual.spawn as never);
     try {
+      // Bypass Apple's /usr/bin/git shim: its xcrun cache writes are outside
+      // the fixture's sandbox and otherwise pollute command output.
+      const gitPath = actual
+        .execFileSync('/usr/bin/xcrun', ['--find', 'git'], { encoding: 'utf8' })
+        .trim();
+      for (const directory of [root, join(root, 'work'), join(root, 'sibling')]) {
+        actual.execFileSync(gitPath, ['init', '--template=', '-b', 'main', directory]);
+      }
+      const protectedConfigs = [root, join(root, 'work'), join(root, 'sibling')].map((directory) =>
+        join(directory, '.git', 'config'),
+      );
+      const before = protectedConfigs.map((path) => readFileSync(path, 'utf8'));
       const run = createProtectedSdkCommandRunner(credentialSdkBoundary('darwin')!);
       const script = `
       const fs = require('node:fs'), cp = require('node:child_process');
-      const git = (...args) => cp.execFileSync('/usr/bin/git', args, { encoding: 'utf8' });
+      const git = (...args) => cp.execFileSync(${JSON.stringify(gitPath)}, args, { encoding: 'utf8' });
       git('init', '-b', 'main', 'source');
       fs.writeFileSync('source/file', 'original');
       git('-C', 'source', 'add', 'file');
@@ -183,6 +197,12 @@ it
       }};
       denied(() => fs.mkdirSync('checkout/.git/hooks'), 72);
       denied(() => fs.readFileSync(${JSON.stringify(config)}), 73);
+      for(const repository of ['.', '..', '../sibling']) {
+        try { git('-C', repository, 'config', 'remote.origin.url', 'https://example.invalid/denied.git'); throw Error('out-of-task git config permitted: ' + repository); }
+        catch(error) { if(error.status !== 255 && error.status !== 128) throw error; }
+        denied(() => fs.writeFileSync(repository + '/.git/config', 'denied'), 74);
+        denied(() => fs.renameSync(repository + '/.git/config', repository + '/.git/config.moved'), 75);
+      }
       fs.writeFileSync('checkout/result', 'checked');
       process.stdout.write('git-sdk-ok');
     `;
@@ -191,8 +211,14 @@ it
           cwd: join(root, 'work'),
           env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: join(root, 'work') },
           timeout: 20000,
+        }).catch((cause: Error & { stderr?: string; code?: unknown }) => {
+          throw new Error(
+            `Synthetic Git SDK fixture failed (${String(cause.code)}): ${cause.stderr ?? cause.message}`,
+            { cause },
+          );
         }),
       ).toEqual({ stdout: 'git-sdk-ok', stderr: expect.any(String) });
+      expect(protectedConfigs.map((path) => readFileSync(path, 'utf8'))).toEqual(before);
       expect(readFileSync(join(root, 'work', 'checkout', 'result'), 'utf8')).toBe('checked');
     } finally {
       vi.mocked(spawn).mockImplementation(previous);

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1202-claude-git-setup';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1202-claude-git-setup.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2592,7 +2592,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-boundary.test.ts':
     '3bac4bc0290ddc4091f3f1f9054caf2f7afe6f03752952c1cdad07baa1602961',
   '../__tests__/credential-sdk-runtime-authority.test.ts':
-    '7ed21a807240bdfdc0388a85cdee9e7a8c02207cd7f09c67039397fc4db98652',
+    '2c2dfa3aee0755786927d84f011659c0e8a2bdd2bbfac99193e22344b6d7d51a',
   '../__tests__/credential-sdk-tools.test.ts':
     'd4d0f34b95cefb8d65c3dd8f04365725a4babaae604292e50c14d2499b81bd85',
   '../__tests__/credential-setup-application.test.ts':
@@ -3219,11 +3219,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sandboxed-command-network.test.ts':
     '0d999373d102654e6f9319caa98529c71cdc62844d368d4eb900c40bc2dd9d95',
   '../__tests__/sandboxed-command.test.ts':
-    'de90778c5695bb636d59f0f49704dfa8981fc9ada79bbc0c076449a04ba39d65',
+    'ea59e88f2aed0510039cbecb786a16e5932d5e21ffc875440753204f22929897',
   '../__tests__/sandboxed-command-private-output.test.ts':
     'a2169291ec705b7d15341519df8f5f1309e39d46008cbd5962e59efa1236cc6c',
   '../__tests__/sandboxed-command-worker.test.ts':
-    '51f19786488bc5e04bd53451fb8ced16ccd1e0e9926dbfbe20ac526d32e32c25',
+    'e4162f6bbb6d010b2a385f761b90897a3b3afcdc0f217ed645fb9a1b2a5685e5',
   '../__tests__/sdk-agent-message-runtime.test.ts':
     '34d056276865a714113fb07a2ed361607ea1b971c20fdfe04792cab98fc62629',
   '../__tests__/sdk-child-environment.test.ts':
@@ -3782,7 +3782,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'cb9c76245fc67059e248a9622ea36192dfac54da98377f66cf5b9112f82601b9',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-boundary.ts':
-    '0a6298eac079e457be0732e5105a247ed4f03842e423daeaa0e1d74492cfb99e',
+    'b4c6206be0661728f81c967873b54447c27fae79370589349524233b72018243',
   '../credential-sdk-tools.ts': '909e0b077d0693ad82db0df66ddd2d9d387965943d10a11fe330e06fd0315d3f',
   '../credential-setup-application.ts':
     '6882cdc7036ec0c019392a5bf398aca9f196579d013c15f209815d0430cebd41',
@@ -4309,7 +4309,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../sandboxed-command-worker.ts':
-    '2a573c2e8c11ffdb61a537e9b190f820bebd7ee1479bc65a3b81ba0ba2ab120e',
+    '9c7b71448dd2b6782e711fa9964f444cc94244fff0fad33123eda886467428d7',
   '../sandboxed-command.ts': '9746e664ae5983080fa51f5d928869e5d8af9bb51defad496ef6643d83a35043',
   '../sdk-agent-message-runtime.ts':
     'e1b474fc5ae0a91d06b0cb4149298d5837b5d8f01c913dafb8890daa17bff034',

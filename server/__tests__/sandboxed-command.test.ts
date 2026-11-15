@@ -66,24 +66,29 @@ it('fails closed when a sandbox dependency would degrade isolation', async () =>
 describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('OS sandbox', () => {
   it('creates and develops a nested repository without granting its parent Git metadata', async () => {
     const { execFileSync } = await import('node:child_process');
-    execFileSync('/usr/bin/git', ['init', '--template=', '-b', 'main', cwd]);
+    const gitPath =
+      process.platform === 'darwin'
+        ? execFileSync('/usr/bin/xcrun', ['--find', 'git'], { encoding: 'utf8' }).trim()
+        : 'git';
+    const git = "'" + gitPath.replaceAll("'", "'\\''") + "'";
+    execFileSync(gitPath, ['init', '--template=', '-b', 'main', cwd]);
     const parentConfig = await readFile(join(cwd, '.git', 'config'), 'utf8');
-    const setup = await run('git init -b main source');
+    const setup = await run(`${git} init -b main source`);
     expect(setup.isError, setup.content).toBe(false);
     const develop = await run(`
       printf original > source/file &&
-      git -C source add file &&
-      git -C source -c user.name=Test -c user.email=test@example.com -c commit.gpgsign=false commit -m initial &&
-      git clone --no-local source checkout &&
-      git -C checkout switch -c fix/test &&
-      git -C checkout remote set-url origin https://example.invalid/repo.git &&
+      ${git} -C source add file &&
+      ${git} -C source -c user.name=Test -c user.email=test@example.com -c commit.gpgsign=false commit -m initial &&
+      ${git} clone --no-local source checkout &&
+      ${git} -C checkout switch -c fix/test &&
+      ${git} -C checkout remote set-url origin https://example.invalid/repo.git &&
       printf changed > checkout/file &&
-      git -C checkout add file &&
-      git -C checkout -c user.name=Test -c user.email=test@example.com -c commit.gpgsign=false commit -m changed
+      ${git} -C checkout add file &&
+      ${git} -C checkout -c user.name=Test -c user.email=test@example.com -c commit.gpgsign=false commit -m changed
     `);
     expect(develop.isError, develop.content).toBe(false);
-    expect((await run('git -C checkout show HEAD:file')).content).toBe('changed');
-    expect((await run('git -C source show HEAD:file')).content).toBe('original');
+    expect((await run(`${git} -C checkout show HEAD:file`)).content).toBe('changed');
+    expect((await run(`${git} -C source show HEAD:file`)).content).toBe('original');
     expect((await run('mkdir checkout/.git/hooks')).isError).toBe(true);
     expect((await run('git config local.test denied')).isError).toBe(true);
     expect(await readFile(join(cwd, '.git', 'config'), 'utf8')).toBe(parentConfig);

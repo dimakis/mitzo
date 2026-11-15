@@ -170,6 +170,9 @@ function createSdkBoundary(
       const runtime = runtimeFilesystemProtection();
       const launchDeniedRoots = [...new Set([...deniedRoots, ...runtime.privateFiles])];
       const authority = new AuthoritySnapshot();
+      const gitWorkRoot = canonical(options.cwd ?? process.cwd());
+      validatePath(gitWorkRoot);
+      authority.capture(gitWorkRoot);
       launchDeniedRoots.forEach((root) =>
         authority.capture(root, runtime.privateFiles.includes(root)),
       );
@@ -230,6 +233,7 @@ function createSdkBoundary(
         cwd: options.cwd ?? process.cwd(),
         command: [options.command, ...options.args].map(quote).join(' '),
         authority: authority.serialize(),
+        sdkGitWorkRoot: gitWorkRoot,
         ...(credentialIsolation ? {} : { filesystemOnly: true }),
         env: targetEnv,
         config: {
@@ -237,8 +241,8 @@ function createSdkBoundary(
             denyRead: [...launchDeniedRoots, ...privateEnvironmentPatterns, temporary],
             allowRead: [gitTemplate],
             allowWrite: ['/'],
-            // The shared SDK/worktree permissions still own destination access.
-            // Permit Git setup/config without relaxing SRT's hook protection.
+            // The worker adds an immutable OS fence around Git metadata:
+            // only new repositories below this launch's workspace may change.
             allowGitConfig: true,
             denyWrite: [
               ...launchDeniedRoots,

@@ -2,14 +2,18 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { SpawnOptions } from 'node:child_process';
 import { spawn as realSpawn } from 'node:child_process';
 import type { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { PassThrough } from 'node:stream';
 import { AuthoritySnapshot } from '../sandbox-authority.js';
-import { runSandboxedWorker, type SandboxWorkerPayload } from '../sandboxed-command-worker.js';
+import {
+  runSandboxedWorker,
+  wrapSdkGitMetadata,
+  type SandboxWorkerPayload,
+} from '../sandboxed-command-worker.js';
 
 let root: string;
 beforeEach(async () => {
@@ -49,6 +53,53 @@ function fixture() {
   });
   return { payload, manager, spawn };
 }
+
+it.each([true, false])(
+  'physically fences SDK Git metadata around both filesystemOnly modes (%s)',
+  async (filesystemOnly) => {
+    const { payload, manager, spawn } = fixture();
+    payload.filesystemOnly = filesystemOnly;
+    payload.sdkGitWorkRoot = root;
+    const inner = 'retained SRT private/network/hook policy';
+    manager.wrapWithSandbox.mockResolvedValue(inner);
+    await expect(
+      runSandboxedWorker(payload, {
+        manager,
+        spawn: spawn as never,
+        platform: 'darwin',
+        wrapFilesystem: async () => inner,
+      }),
+    ).resolves.toBe(0);
+    expect(spawn.mock.calls[0][1]).toEqual(['-c', wrapSdkGitMetadata(inner, root)]);
+    const wrapped = spawn.mock.calls[0][1][1];
+    expect(wrapped).toContain('(require-not (subpath ' + JSON.stringify(root) + '))');
+    expect(wrapped).toContain(
+      '(deny file-write* (subpath ' + JSON.stringify(join(root, '.git')) + '))',
+    );
+    expect(wrapped).toContain(
+      '(deny file-write-unlink file-write-create (literal ' + JSON.stringify(root) + '))',
+    );
+  },
+);
+
+it.each(['different-cwd', 'uncaptured', 'noncanonical', 'unsupported-platform'])(
+  'rejects invalid SDK Git authority before any spawn (%s)',
+  async (kind) => {
+    const { payload, manager, spawn } = fixture();
+    payload.sdkGitWorkRoot = kind === 'noncanonical' ? root + '/..' : root;
+    if (kind === 'different-cwd') payload.cwd = dirname(root);
+    if (kind === 'uncaptured') payload.authority = [];
+    await expect(
+      runSandboxedWorker(payload, {
+        manager,
+        spawn: spawn as never,
+        platform: kind === 'unsupported-platform' ? 'linux' : 'darwin',
+      }),
+    ).rejects.toThrow(/SDK Git workspace authority|Sandbox roots/);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(manager.initialize).not.toHaveBeenCalled();
+  },
+);
 
 async function privateFileFixture() {
   const f = fixture();
