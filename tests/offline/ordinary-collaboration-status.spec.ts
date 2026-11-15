@@ -36,7 +36,7 @@ for (const theme of ['dark', 'light'])
       const errors: string[] = [],
         mutations: string[] = [],
         unexpectedCollaborationReads: string[] = [];
-      const reads = { setup: 0, view: 0, progress: 0 };
+      const reads = { setup: 0, view: 0, progress: 0, readiness: 0 };
       const base = sharedConversationView();
       const view = {
         ...base,
@@ -88,6 +88,22 @@ for (const theme of ['dark', 'light'])
           return route.fulfill({ json: view });
         }
         if (path.startsWith('/api/session-collaborations/')) {
+          // Initial explicit original-agent selection consults the existing
+          // server readiness boundary. Do not count it as dispatch or permit
+          // unknown participant/control endpoints in this fixture.
+          if (path === `/api/session-collaborations/${view.collaborationId}/recipients/architect`) {
+            reads.readiness++;
+            return route.fulfill({
+              json: {
+                collaborationId: view.collaborationId,
+                sessionId: 'architect',
+                membershipRevision: view.membershipRevision,
+                policySequence: view.policySequence,
+                ready: true,
+                reason: null,
+              },
+            });
+          }
           if (path === `/api/session-collaborations/${view.collaborationId}/progress`) {
             reads.progress++;
             return route.fulfill({
@@ -174,6 +190,8 @@ for (const theme of ['dark', 'light'])
         .toBe(stage === 'fresh' ? 0 : stage === 'view' ? 2 : 1);
       if (stage === 'fresh') expect(reads.progress).toBe(0);
       else expect(reads.progress).toBeGreaterThan(0);
+      if (stage === 'fresh') expect(reads.readiness).toBe(0);
+      else expect(reads.readiness).toBeGreaterThan(0);
       expect(mutations).toEqual([]);
       expect(unexpectedCollaborationReads).toEqual([]);
       expect(errors).toEqual([]);

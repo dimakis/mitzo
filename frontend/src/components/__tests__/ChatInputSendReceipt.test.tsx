@@ -13,6 +13,7 @@ import { createMitzoStore } from '../../../../packages/client/src/store';
 import { useState } from 'react';
 import { chatModelSettings } from '../../lib/chat-model-settings';
 import { ChatInput } from '../ChatInput';
+import { ChatInputHost } from '../ChatInputHost';
 
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../MicButton', () => ({ MicButton: () => null }));
@@ -180,23 +181,25 @@ async function fixture(initialSession: string | null = 'child') {
     const messages = useStore(store, (state) => state.messages);
     const composerGeneration = useStore(store, (state) => state.chatDraftRevision);
     return (
-      <ChatInput
-        sessionId={sessionId}
-        composerGeneration={composerGeneration}
-        running={messages.running}
-        onSend={onSend}
-        onStop={() => {}}
-        onInterrupt={(text, images, contextBlocks, onDelivery) => {
-          store.getState().interruptMessage(text, {
-            images,
-            contextBlocks,
-            onDelivery: (status) => {
-              delivery(status);
-              onDelivery?.(status);
-            },
-          });
-        }}
-      />
+      <ChatInputHost sessionId={sessionId}>
+        <ChatInput
+          sessionId={sessionId}
+          composerGeneration={composerGeneration}
+          running={messages.running}
+          onSend={onSend}
+          onStop={() => {}}
+          onInterrupt={(text, images, contextBlocks, onDelivery) => {
+            store.getState().interruptMessage(text, {
+              images,
+              contextBlocks,
+              onDelivery: (status) => {
+                delivery(status);
+                onDelivery?.(status);
+              },
+            });
+          }}
+        />
+      </ChatInputHost>
     );
   }
   const view = render(<Harness />);

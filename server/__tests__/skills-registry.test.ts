@@ -192,7 +192,7 @@ describe('SkillRegistry', () => {
       expect(registry.list()).toEqual([]);
     });
 
-    it('skips SKILL.md with invalid YAML frontmatter', () => {
+    it('retains invalid YAML as unavailable instead of silently falling through', () => {
       const dir = createTempDir();
       const skillsDir = join(dir, 'skills');
       const skillDir = join(skillsDir, 'broken');
@@ -203,7 +203,9 @@ describe('SkillRegistry', () => {
         bundledDir: skillsDir,
       });
 
-      expect(registry.list()).toEqual([]);
+      expect(registry.list()).toEqual([
+        expect.objectContaining({ name: 'broken', policyError: expect.any(String) }),
+      ]);
     });
 
     it('skips SKILL.md with no frontmatter', () => {

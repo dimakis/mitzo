@@ -290,6 +290,48 @@ it.each(['anthropic-claude', 'anthropic-vertex', 'anthropic-api'] as const)(
     expect(JSON.stringify(wire)).toContain('Exact Claude visible reply');
   },
 );
+it('observes proven pre-input Stop through the exact SDK owner and restart without inventing provider execution', async () => {
+  const f = fixture();
+  await f.queue.enqueue('original-command');
+  await f.queue.stop('pre-input-stop');
+  expect(f.queue.assertInputCurrent('original-command')).toBe(false);
+  expect(f.store.getSendCommand('original-command')?.error).toBe('Cancelled before SDK dispatch');
+  expect(f.store.getOrdinarySdkTurnEvents('chat', 'original-command')).toEqual([]);
+  expect(f.store.getOrdinaryProviderTurnTerminal('chat', 'original-command')).toBeUndefined();
+  expect(observedOrdinarySdkOutcome(f.store, 'chat', 'original-command')).toBe('interrupted');
+  expect(observedOrdinarySdkOutcome(f.store, 'another-chat', 'original-command')).toBeUndefined();
+  f.restart();
+  expect(observedOrdinarySdkOutcome(f.store, 'chat', 'original-command')).toBe('interrupted');
+  expect(f.control.interruptIfCurrent).not.toHaveBeenCalled();
+  expect(f.lifecycle.accepted).not.toHaveBeenCalled();
+  expect(f.lifecycle.terminal).not.toHaveBeenCalled();
+});
+it('refuses a pre-input Stop for another command, yielded input, or revoked owner', async () => {
+  const f = fixture();
+  await f.queue.enqueue('original-command');
+  expect(await f.queue.stopBeforeInput('another-command', 'foreign-stop')).toBe(false);
+  expect(f.store.getSession('chat')?.executionPhase).toBe('RUNNING');
+  f.assertCurrentSync.mockImplementationOnce(() => {
+    throw Error('Synthetic revoked SDK owner');
+  });
+  await expect(f.queue.stopBeforeInput('original-command', 'revoked-stop')).rejects.toThrow(
+    'revoked SDK owner',
+  );
+  expect(f.store.getSession('chat')?.executionPhase).toBe('RUNNING');
+  f.queue.assertInputCurrent('original-command');
+  expect(await f.queue.stopBeforeInput('original-command', 'yielded-stop')).toBe(false);
+  expect(f.store.getSession('chat')?.executionPhase).toBe('RUNNING');
+  expect(f.control.interruptIfCurrent).not.toHaveBeenCalled();
+});
+it('does not interpret an error label or generic terminal cleanup as pre-input Stop proof', async () => {
+  const f = fixture();
+  await f.queue.enqueue('original-command');
+  f.store.failSendCommand('original-command', 'Cancelled before SDK dispatch');
+  expect(observedOrdinarySdkOutcome(f.store, 'chat', 'original-command')).toBeUndefined();
+  const execution = f.store.getExecutionAdmission('chat', 'original-command')!.token;
+  f.store.transitionExecution(execution, 'TERMINAL', 'completed');
+  expect(observedOrdinarySdkOutcome(f.store, 'chat', 'original-command')).toBeUndefined();
+});
 it('does not turn generic cleanup, final text or an unmatched SDK result into settled proof', async () => {
   const f = fixture();
   await f.queue.enqueue('original-command');

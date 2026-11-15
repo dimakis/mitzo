@@ -14,9 +14,10 @@ interface Props {
   tokenState: TokenState;
   userTurns?: number;
   alwaysVisible?: boolean;
+  ownerName?: string;
 }
 
-export function TokenBar({ tokenState, userTurns, alwaysVisible = false }: Props) {
+export function TokenBar({ tokenState, userTurns, alwaysVisible = false, ownerName }: Props) {
   const [, refreshExpiry] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const summaryId = useId();
@@ -85,7 +86,7 @@ export function TokenBar({ tokenState, userTurns, alwaysVisible = false }: Props
         aria-label="Token usage"
         aria-expanded={expanded}
         aria-describedby={summaryId}
-        title="Token usage — press for details"
+        title={ownerName ? `Token usage — ${ownerName}` : 'Token usage — press for details'}
       >
         <svg className="token-wheel" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
           <circle
@@ -119,12 +120,19 @@ export function TokenBar({ tokenState, userTurns, alwaysVisible = false }: Props
           )}
         </svg>
         <span id={summaryId} className="sr-only">
+          {ownerName ? `${ownerName}: ` : ''}
           {summary}
           {sessionTotal > 0 ? `; Cumulative usage ${formatTokens(sessionTotal)}` : ''}
         </span>
       </button>
       <MotionPresence open={expanded} kind="popover" appear={false}>
         <div className="token-bar-detail">
+          {ownerName && (
+            <div className="token-bar-detail-row">
+              <span>Agent</span>
+              <span>{ownerName}</span>
+            </div>
+          )}
           <section className="token-bar-metric">
             <div className="token-bar-detail-row">
               <span>{nativeUsage ? 'Latest request' : 'Current context'}</span>

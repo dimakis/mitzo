@@ -1,0 +1,5 @@
+/* Slot and portal transport introduce no layout or competing scroll owner. */
+.chat-input-mount,
+.chat-input-host {
+  display: contents;
+}

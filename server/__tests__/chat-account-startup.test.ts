@@ -187,7 +187,7 @@ it('delivers the exact dated briefing snapshot to the mocked Codex provider and 
 });
 
 it.each([false, true])(
-  'pins Library guidance and skill limits before offline SDK dispatch (resume=%s)',
+  'pins Library guidance and executor skill checks before offline SDK dispatch (resume=%s)',
   async (resume) => {
     vi.resetModules();
     const root = await mkdtemp(join(tmpdir(), 'mitzo-library-startup-'));
@@ -222,6 +222,7 @@ it.each([false, true])(
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     let dispatched = false;
     let permissionCheck: Promise<unknown> | undefined;
+    let hookCheck: Promise<unknown> | undefined;
     vi.mocked(query).mockImplementation((args) => {
       expect(args.options?.systemPrompt).toMatchObject({
         append: expect.stringContaining('Bob · The architect'),
@@ -232,6 +233,24 @@ it.each([false, true])(
       expect(
         chat.eventStore.getSession(args.options!.resume ?? args.options!.sessionId!)?.agentProfile,
       ).toEqual(snapshot);
+      // Internal enforcement remains qualified independently of user-command admission.
+      const { registry } = chat;
+      registry.get('library-startup')!.activeSkillPolicy = new Set(['Read']);
+      hookCheck = Promise.resolve(
+        args.options!.hooks!.PreToolUse![0].hooks[0](
+          {
+            hook_event_name: 'PreToolUse',
+            tool_name: 'Write',
+            tool_input: {},
+            tool_use_id: 'write',
+            session_id: existingId,
+            transcript_path: '',
+            cwd: root,
+          },
+          'write',
+          { signal: new AbortController().signal },
+        ),
+      );
       permissionCheck = Promise.resolve(
         args.options!.canUseTool!(
           'Bash',
@@ -252,7 +271,6 @@ it.each([false, true])(
         isolation: false,
         model: 'luna',
         mode: 'auto',
-        skillAllowedTools: ['Read'],
         ...(resume ? { resume: existingId } : { agentProfile: { profileId: 'bob', revision: 3 } }),
         operatorConnectionId: 'verified-transport',
       });
@@ -261,6 +279,46 @@ it.each([false, true])(
         expect(read).toHaveBeenCalledWith({ profileId: 'bob', revision: 3 }, 'verified-transport');
       else expect(read).not.toHaveBeenCalled();
       await expect(permissionCheck).resolves.toMatchObject({ behavior: 'deny' });
+      await expect(hookCheck).resolves.toMatchObject({
+        hookSpecificOutput: { permissionDecision: 'deny' },
+      });
+    } finally {
+      read.mockRestore();
+      chat.eventStore.close();
+      chat.registry.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+it.each([{ tools: [] }, { tools: ['Read'] }])(
+  'refuses unqualified startup ceilings $tools before provider or Library effects',
+  async ({ tools }) => {
+    vi.resetModules();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-restricted-startup-'));
+    stubWorkspace(root);
+    const chat = await import('../chat.js');
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(query).mockClear();
+    const library = await import('../agent-library-transport.js');
+    const read = vi.spyOn(library, 'readAgentLibraryProfile');
+    try {
+      await expect(
+        chat.startChat(
+          { send: () => {}, isOpen: () => true },
+          'restricted-startup',
+          '/restricted',
+          {
+            cwd: root,
+            isolation: false,
+            mode: 'auto',
+            skillAllowedTools: tools,
+            agentProfile: { profileId: 'unread', revision: 1 },
+          },
+        ),
+      ).rejects.toThrow(/tool restrictions/);
+      expect(query).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+      expect(chat.registry.get('restricted-startup')).toBeUndefined();
     } finally {
       read.mockRestore();
       chat.eventStore.close();

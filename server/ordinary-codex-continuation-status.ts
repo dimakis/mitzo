@@ -188,7 +188,7 @@ export function ordinaryCodexContinuationStatus(
     if (!authSessionId)
       return blocked('Sign in with the original login to resume this conversation.');
     if (live)
-      return (binding.harness.implementation === 'codex'
+      return (['codex', 'claude-sdk'].includes(binding.harness.implementation)
         ? ordinaryOperatorOwnsConversation(live.ordinaryRuntimeOwner?.authSessionId, authSessionId)
         : live.ordinaryRuntimeOwner?.authSessionId === authSessionId) &&
         live.ordinaryRuntimeOwner?.location === location
