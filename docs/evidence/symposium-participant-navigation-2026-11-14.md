@@ -151,3 +151,38 @@ Accepted main `0ad803cda` was integrated without changing either branch's source
 owners. The registration conflict retains all entries from both parents and renews
 fingerprints under `v1.0.1160-symposium-search-review`. Exact-head Centaur follow-up,
 hosted CI and combined slice 3 verification remain separate delivery gates.
+
+## Accepted parity main integration (15 November)
+
+The retained baseline is `7bdb364c0711746d0c9e3eec21c870b44111a772`, with
+full CI `43607355855` successful and Centaur final review `5905334732` reporting
+LGTM, recommendation `merge`, zero blockers and both earlier findings verified
+resolved. Both corresponding review threads were closed with the exact fix,
+regression and review evidence. This baseline does not approve a successor SHA.
+
+Accepted main `8676db5788f24e818f2c997da2011029ae11c68d` is integrated in the
+same isolated branch. Only protocol exports and source registrations conflicted.
+Both `conversationActivities` and parity's `OrdinarySkillContext` export are
+retained. The registration is the exact union of both parents (2,487 entries),
+with final-byte fingerprints under `v1.0.1181-symposium-parity-integration`.
+No additional production behavior or permission policy was changed during
+resolution. The automatically merged EventStore, application and chat owners
+retain the accepted parity skill parsing, execution identity, targeted controls,
+SDK retry proof, service helpers and sanitized failure reporting alongside the
+existing navigation projection. The diff against main remains slice 2's scoped
+navigation behavior; transcript/composer changes remain with slice 1.
+
+Combined local validation passes: 769 tests across 29 files using one worker and
+a 1 GiB Node heap, including all 24 retained navigation suites plus session access,
+control support, frozen SDK skill boundaries, restricted-skill enforcement and
+failure diagnostics. Protocol/harness/client compilation, approved-design guards,
+focused lint, source-only registration and whitespace checks pass. Full server,
+browser/layout and native validation remain hosted CI work for the successor.
+
+The agreed source order is navigation #1354, transcript/composer #1356, then the
+remaining independent harness/evidence in #1355 after accepted-source diff and
+final-tree reconciliation. #1347's setup/phone joining scope remains separate.
+No source is intentionally landed twice. Actual landing turns remain serialized
+by the global coordinator; this integration commit and publication do not merge
+or deploy anything. Reuse the baseline review and verify this integration delta
+before any exact-head final qualification.

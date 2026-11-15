@@ -109,3 +109,34 @@ Evidence and limits:
 PR #1342 was inspected as draft/open/conflicting at `b2675af8` on 14 November;
 its TaskExecution/helper registration and integration work remain separate.
 PR #1346's Bash/Grep/Glob repair and authorized sandbox deferral are preserved.
+
+## Same-chat configured repository worktrees (#1342)
+
+Ordinary personal Claude and Vertex chats reuse the existing on-demand worktree
+mechanism for secondary repositories listed in MGMT's `.mitzo.json`. The first
+write to a configured source prepares its isolated worktree and returns that
+path in the existing refusal. Claude retries in the worktree and continues there
+in the same conversation, including queued inputs and cold history recovery.
+The original primary workspace and account identity remain intact.
+
+Preparation retains the current account, workspace, profile and cancellation
+checks. Excluded native tools cannot create worktrees. Source branches and dirty
+files are preserved; cold queries reopen the same conversation-owned branches.
+The admitted primary mapping is never replaced by on-demand preparation, including
+configured aliases of its source. Reuse requires the existing conversation's
+completed `worktree_opened` event. Interrupted or uncertain preparation without
+that event remains refused for inspection; an existing directory alone is not
+completion evidence. Completed worktrees retain their later edits and commits.
+If a completed checkout has since been removed, its historical event permits no
+recreation. The existing safe materializer refuses the missing checkout before
+Git allocation; preserve the retained history and inspect the missing worktree.
+This restores the legacy Vertex mechanism for both account routes. It does not
+expose the newer managed repository tools or change the primary SDK cwd.
+
+Six offline public-client SDK journeys cover personal/Vertex default, explicit
+native selection and Write-excluded profiles. Positive cases actually prepare,
+edit, check and commit in two independent disposable target repositories across
+successive inputs and cold recovery. SDK/provider execution is simulated, and
+live account/browser/device qualification remains pending. See the
+[reconciliation evidence](../evidence/claude-parity-1342-reconciliation-2026-11-14.md)
+for the reproduced failure and retained limits.

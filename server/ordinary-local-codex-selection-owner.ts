@@ -22,12 +22,14 @@ import type {
 } from './repository-workspaces.js';
 import { permissionRevision } from './session-permission-revision.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 import {
   ordinaryLocalCodexBootstrapId,
   type OrdinaryLocalCodexAdmissionExpectation,
 } from './ordinary-local-codex-admission.js';
 
-const unavailable = () => new Error('Ordinary local Codex selection unavailable');
+const unavailable = (cause?: unknown) =>
+  new Error('Ordinary local Codex selection unavailable', { cause });
 
 interface PreparedPrimaryDelegation {
   childCommandId: string;
@@ -276,18 +278,23 @@ export class OrdinaryLocalCodexSelectionOwner {
     this.#permission = permissionRevision(owners.events, this.#reservation.conversationId);
   }
   assertCurrentSync(input: Readonly<OrdinaryLocalCodexAdmissionExpectation>): void {
+    let check = 'selection.signal';
     try {
       this.owners.signal.throwIfAborted();
+      check = 'selection.cold_primary';
       if (
         this.owners.qualifiedColdPrimary?.commandId !== this.#coldPrimary ||
         (this.#coldPrimary && this.owners.qualifiedColdPrimary?.workspace !== this.#workspace)
       )
         throw unavailable();
+      check = 'selection.operator';
       this.owners.operator.assertCurrent();
+      check = 'selection.snapshot';
       const expected = structuredClone(input),
         reservation = this.#reservation;
       const identity = { ...expected, agentContext: undefined };
       if (this.#snapshot && !isDeepStrictEqual(identity, this.#snapshot)) throw unavailable();
+      check = 'selection.tool_route';
       assertAgentToolRoute(
         expected.agentProfile?.definition,
         this.owners.responses
@@ -296,6 +303,7 @@ export class OrdinaryLocalCodexSelectionOwner {
             ? 'claude-sdk'
             : 'codex-owned-local',
       );
+      check = 'selection.context';
       assertOrdinaryCodexContextIdentity(
         expected.agentProfile,
         expected.selection,
@@ -307,9 +315,14 @@ export class OrdinaryLocalCodexSelectionOwner {
         !isDeepStrictEqual(expected.agentContext, this.#context)
       )
         throw unavailable();
+      check = 'selection.permission_revision';
       if (
         expected.selection.permission.revision !== 0 ||
-        permissionRevision(this.owners.events, reservation.conversationId) !== this.#permission ||
+        permissionRevision(this.owners.events, reservation.conversationId) !== this.#permission
+      )
+        throw unavailable();
+      check = 'selection.reservation_binding';
+      if (
         expected.workspace.workspaceId !== reservation.id ||
         expected.binding.account.accountId !== reservation.binding.accountId ||
         expected.binding.account.provider !== reservation.binding.provider ||
@@ -317,19 +330,24 @@ export class OrdinaryLocalCodexSelectionOwner {
         (!this.owners.continuation && expected.selection.model !== reservation.binding.model)
       )
         throw unavailable();
+      check = 'selection.published_profile';
       const published = readOrdinaryCodexAgentProfile(
         this.owners.library,
         expected.selection.agent,
       );
       if (!published || !isDeepStrictEqual(published, expected.agentProfile)) throw unavailable();
+      check = 'selection.prepared_primary';
       const primary = this.preparedPrimary();
       if (primary) {
         this.assertPreparedPrimary(expected, primary);
         return;
       }
+      check = 'selection.workspace';
       this.#workspace.assertCurrentSync(expected.workspace.cwd);
+      check = 'selection.session_read';
       const session = this.owners.events.getSession(reservation.conversationId);
       if (session) {
+        check = 'selection.admission_read';
         const admission = this.owners.vertex
           ? this.owners.events.getOrdinaryLocalVertexCommandAdmission(this.owners.commandId)
           : this.owners.responses
@@ -337,6 +355,7 @@ export class OrdinaryLocalCodexSelectionOwner {
             : this.owners.events.getOrdinaryLocalCommandExecutionAdmission(this.owners.commandId);
         let prepared = false;
         if (!admission && this.owners.preparationOperationId) {
+          check = 'selection.prepared_receipt';
           const receipt = (
             this.owners.workspaceKind === 'ordinary'
               ? this.owners.events.assertPreparedOrdinaryWorkspaceSession.bind(this.owners.events)
@@ -363,25 +382,38 @@ export class OrdinaryLocalCodexSelectionOwner {
             receipt.firstCommandId === null &&
             receipt.preparationFingerprint === reservation.commandFingerprint;
         }
+        check = 'selection.admission_state';
         if (
           (!admission && !this.owners.continuation && !prepared) ||
-          admission?.state === 'reserved' ||
-          (admission &&
-            (!isDeepStrictEqual(admission.binding, expected.binding) ||
-              !isDeepStrictEqual(admission.selection, expected.selection) ||
-              !isDeepStrictEqual(admission.workspace, expected.workspace) ||
-              (!this.owners.responses &&
-                !this.owners.vertex &&
-                expected.bootstrapId !==
-                  ordinaryLocalCodexBootstrapId(
-                    reservation.conversationId,
-                    admission.requestFingerprint,
-                  )))) ||
-          session.mode !== expected.selection.permission.mode ||
-          !isDeepStrictEqual(session.accountBinding, reservation.binding) ||
-          !isDeepStrictEqual(session.agentProfile, expected.agentProfile)
+          admission?.state === 'reserved'
         )
           throw unavailable();
+        check = 'selection.admission_binding';
+        if (admission) {
+          if (!isDeepStrictEqual(admission.binding, expected.binding)) throw unavailable();
+          check = 'selection.admission_selection';
+          if (!isDeepStrictEqual(admission.selection, expected.selection)) throw unavailable();
+          check = 'selection.admission_workspace';
+          if (!isDeepStrictEqual(admission.workspace, expected.workspace)) throw unavailable();
+          check = 'selection.admission_bootstrap';
+          if (
+            !this.owners.responses &&
+            !this.owners.vertex &&
+            expected.bootstrapId !==
+              ordinaryLocalCodexBootstrapId(
+                reservation.conversationId,
+                admission.requestFingerprint,
+              )
+          )
+            throw unavailable();
+        }
+        check = 'selection.session_mode';
+        if (session.mode !== expected.selection.permission.mode) throw unavailable();
+        check = 'selection.session_account';
+        if (!isDeepStrictEqual(session.accountBinding, reservation.binding)) throw unavailable();
+        check = 'selection.session_profile';
+        if (!isDeepStrictEqual(session.agentProfile, expected.agentProfile)) throw unavailable();
+        check = 'selection.session_context';
         // An exact first-command retry keeps its original unprepared fingerprint.
         // Adopt only the saved compiler snapshot under the already verified
         // original receipt, profile, operator and claimed workspace authority.
@@ -409,7 +441,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       }
       this.#snapshot ??= identity;
     } catch (error) {
-      throw findSessionRuntimeError(error) ?? unavailable();
+      throw annotateAuthorityFailure(findSessionRuntimeError(error) ?? unavailable(error), check);
     }
   }
   /** Only after the original checkout is claimed, under the uncertain command's lease. */
@@ -446,7 +478,10 @@ export class OrdinaryLocalCodexSelectionOwner {
       await (this.preparedPrimary()?.workspace ?? this.#workspace).revalidate(this.owners.signal);
       this.assertCurrentSync(expected);
     } catch (error) {
-      throw findSessionRuntimeError(error) ?? unavailable();
+      throw annotateAuthorityFailure(
+        findSessionRuntimeError(error) ?? unavailable(error),
+        'selection.workspace_revalidation',
+      );
     }
   }
   async assertToolCurrent(

@@ -97,7 +97,7 @@ it('keeps legacy behavior but blocks explicit selections on unsupported routes a
   ).not.toThrow();
   expect(() =>
     assertAgentToolRoute(
-      { tools: [{ id: 'mitzo:ConnectionRequest', version: 1 }] } as never,
+      { tools: [{ id: 'mitzo:ApplySecretRelay', version: 1 }] } as never,
       'claude-sdk',
     ),
   ).toThrow(/unavailable/i);
@@ -139,6 +139,30 @@ it('keeps required structured questions available to explicit Claude SDK profile
     ),
   ).not.toThrow();
 });
+
+it.each(['Bash', 'Read', 'Write', 'Edit'])(
+  'admits the selected existing Claude SDK builtin %s without selecting other native tools',
+  (name) => {
+    const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
+    expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+    const selected = {};
+    bindAgentToolSelection(selected, definition, 'claude-sdk');
+    expect(agentToolAllowed(selected, name)).toBe(true);
+    for (const other of ['Bash', 'Read', 'Write', 'Edit'].filter((tool) => tool !== name))
+      expect(agentToolAllowed(selected, other)).toBe(false);
+    for (const other of ['GitCommit', 'GitHubRead', `mcp__other__${name}`])
+      expect(agentToolAllowed(selected, other)).toBe(false);
+    const excluded = {};
+    bindAgentToolSelection(excluded, { tools: [] } as never, 'claude-sdk');
+    expect(agentToolAllowed(excluded, name)).toBe(false);
+    const legacy = {};
+    bindAgentToolSelection(legacy, undefined, 'claude-sdk');
+    expect(agentToolAllowed(legacy, name)).toBe(true);
+    expect(() =>
+      assertAgentToolRoute({ tools: [{ id: `mitzo:${name}`, version: 2 }] } as never, 'claude-sdk'),
+    ).toThrow(/unavailable/i);
+  },
+);
 
 it('refuses missing connection dependencies before exposing an unusable selected operation', async () => {
   const { assertAgentToolAvailability } = await import('../agent-tool-selection.js');

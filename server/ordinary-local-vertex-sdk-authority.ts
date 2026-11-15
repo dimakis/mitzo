@@ -7,6 +7,7 @@ import {
   reopenClaudeSdkCredentials,
 } from './claude-sdk-credentials.js';
 import { AnthropicApiCustody } from './anthropic-api-custody.js';
+import { annotateAuthorityFailure } from './runtime-failure-diagnostics.js';
 
 /** Trusted backend owner only. A JSON request cannot construct this startup authority. */
 export class OrdinaryLocalVertexSdkAuthority {
@@ -91,19 +92,34 @@ export class OrdinaryLocalVertexSdkAuthority {
     this.#credential.assertCurrent(env);
   }
   assertCurrentSync(signal: AbortSignal) {
-    signal.throwIfAborted();
-    this.owners.assertCurrentSync(signal);
-    this.assertStartup(this.#custody.sessionId, this.owners.commandId);
-    this.#credential.assertCurrent(this.owners.environment());
+    let check = 'authority.signal';
+    try {
+      signal.throwIfAborted();
+      check = 'authority.owner';
+      this.owners.assertCurrentSync(signal);
+      check = 'authority.startup_receipt';
+      this.assertStartup(this.#custody.sessionId, this.owners.commandId);
+      check = 'authority.credentials';
+      this.#credential.assertCurrent(this.owners.environment());
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
+    }
   }
   async assertCurrent(signal: AbortSignal) {
-    signal.throwIfAborted();
-    await this.owners.assertCurrent(signal);
-    if (this.#credential instanceof AnthropicApiCustody)
-      await this.#credential.verify(this.owners.environment(), signal);
-    // Admission verifies native sign-in; the running query checks accountInfo
-    // before releasing each prompt. Tool callbacks retain the physical account,
-    // operator and workspace fences without spawning another CLI status process.
-    this.assertCurrentSync(signal);
+    let check = 'authority.signal';
+    try {
+      signal.throwIfAborted();
+      check = 'authority.owner';
+      await this.owners.assertCurrent(signal);
+      check = 'authority.api_credentials';
+      if (this.#credential instanceof AnthropicApiCustody)
+        await this.#credential.verify(this.owners.environment(), signal);
+      // Admission verifies native sign-in; the running query checks accountInfo
+      // before releasing each prompt. Tool callbacks retain the physical account,
+      // operator and workspace fences without spawning another CLI status process.
+      this.assertCurrentSync(signal);
+    } catch (error) {
+      throw annotateAuthorityFailure(error, check);
+    }
   }
 }

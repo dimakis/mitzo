@@ -1,0 +1,317 @@
+{
+  "asOf": "2026-11-13T17:55:41.354Z",
+  "pr": 1322,
+  "head": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+  "ciRun": 43471256412,
+  "returnedCheckCount": 33,
+  "totalCheckCount": 33,
+  "checks": [
+    {
+      "id": 132053980627,
+      "name": "Connections browser regression",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132053980627"
+    },
+    {
+      "id": 132053973254,
+      "name": "unit-validation",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132053973254"
+    },
+    {
+      "id": 132052224005,
+      "name": "Complete prepared consumer coverage",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132052224005"
+    },
+    {
+      "id": 132045557330,
+      "name": "Offline layouts (desktop-chromium 3/3)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557330"
+    },
+    {
+      "id": 132045557211,
+      "name": "Offline layouts (mobile-chromium 3/3)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557211"
+    },
+    {
+      "id": 132045557150,
+      "name": "Offline layouts (mobile-webkit 1/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557150"
+    },
+    {
+      "id": 132045557141,
+      "name": "Offline layouts (desktop-chromium 2/3)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557141"
+    },
+    {
+      "id": 132045557131,
+      "name": "Offline layouts (mobile-webkit 2/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557131"
+    },
+    {
+      "id": 132045557129,
+      "name": "Offline layouts (mobile-chromium 1/3)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557129"
+    },
+    {
+      "id": 132045557100,
+      "name": "Offline layouts (mobile-webkit 3/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557100"
+    },
+    {
+      "id": 132045557091,
+      "name": "Offline layouts (mobile-chromium 2/3)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557091"
+    },
+    {
+      "id": 132045557080,
+      "name": "Offline layouts (mobile-webkit 4/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557080"
+    },
+    {
+      "id": 132045557034,
+      "name": "Offline layouts (desktop-chromium 1/3)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045557034"
+    },
+    {
+      "id": 132045556881,
+      "name": "Unit tests (2/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556881"
+    },
+    {
+      "id": 132045556738,
+      "name": "Unit tests (4/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556738"
+    },
+    {
+      "id": 132045556648,
+      "name": "Composed prepared repository consumers (Linux publication)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556648"
+    },
+    {
+      "id": 132045556608,
+      "name": "Unit tests (1/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556608"
+    },
+    {
+      "id": 132045556589,
+      "name": "Unit tests (3/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556589"
+    },
+    {
+      "id": 132045556564,
+      "name": "Composed prepared repository consumers (Linux delivery)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556564"
+    },
+    {
+      "id": 132045556537,
+      "name": "Telos supplemental owner journeys (Linux 1/2)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556537"
+    },
+    {
+      "id": 132045556509,
+      "name": "Core checks",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556509"
+    },
+    {
+      "id": 132045556493,
+      "name": "Telos joined acceptance (macOS 1/3)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556493"
+    },
+    {
+      "id": 132045556463,
+      "name": "Native repository and authorization workflows",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556463"
+    },
+    {
+      "id": 132045556452,
+      "name": "Telos joined acceptance (macOS 2/3)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556452"
+    },
+    {
+      "id": 132045556431,
+      "name": "Native Swift tests and builds",
+      "status": "in_progress",
+      "conclusion": null,
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556431"
+    },
+    {
+      "id": 132045556405,
+      "name": "Telos supplemental owner journeys (Linux 2/2)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556405"
+    },
+    {
+      "id": 132045556364,
+      "name": "Telos joined acceptance (macOS 3/3)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556364"
+    },
+    {
+      "id": 132045556275,
+      "name": "Browser interaction tests",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132045556275"
+    },
+    {
+      "id": 132043608955,
+      "name": "Build shared frontend assets",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132043608955"
+    },
+    {
+      "id": 132043468895,
+      "name": "Compile and source preflight",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132043468895"
+    },
+    {
+      "id": 132043468158,
+      "name": "Select CI jobs",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256412/job/132043468158"
+    },
+    {
+      "id": 132043447738,
+      "name": "Compile staging operator authentication helper",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471256169/job/132043447738"
+    },
+    {
+      "id": 132043407768,
+      "name": "centaur",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6d8a4f2b45e626ab2c69ea5c16e5bca26610b62a",
+      "html_url": "https://github.com/dimakis/mitzo/actions/runs/43471242694/job/132043407768"
+    }
+  ],
+  "statuses": [
+    {
+      "id": 58860678658,
+      "state": "pending",
+      "context": "Centaur final LGTM",
+      "description": "Waiting for final Centaur review of this commit"
+    }
+  ],
+  "reviews": [
+    {
+      "id": 5879747523,
+      "commit_id": "b6c6bc68c661d8e2b43996ce213ce9a51b52b7d0",
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-12T18:18:41Z",
+      "body": "<!-- centaur:sha:b6c6bc68c661d8e2b43996ce213ce9a51b52b7d0 -->\n## Centaur Review\n\nFound **2** issue(s) (2 warning).\n\n### Convergence\n**Recommendation:** `fix` — All blocking findings are new and marked fixable.\n\n- New blocking findings: 2\n- Unresolved blocking findings: 0\n- Non-blocking follow-ups: 0\n- Repeated/deferred findings: 0\n- Verified resolved findings: 0\n\n\n### `server/agent-tool-selection.ts`\n_Two correctness gaps remain in skill restriction projection and nested observation validation._\n\n- 🟡 **bugs** (L128) `CEN-960117BA3EF5`: Claude's AskUserQuestion is a native SDK tool, so its skill-policy key is `AskUserQuestion`, not `mcp__mitzo-connections__AskUserQuestion`. With a skill ceiling containing `AskUserQuestion`, this projection incorrectly reports the tool as restricted although the permission handler allows it. Resolve policy names using the actual registration for each helper and cover this case. `[fixable]` `[blocking]`\n\n\n### `frontend/src/components/SessionAccess.tsx`\n_Two correctness gaps remain in skill restriction projection and nested observation validation._\n\n- 🟡 **unsafe_assumptions** (L72) `CEN-51993782E611`: The receipt check validates only the outer readiness session ID. RuntimeReadinessSchema validates shape but does not correlate `capabilities.evidence.scope` with that ID, the observed account/model, or the configured binding. A payload with matching outer IDs and another session's nested observation passes and renders `Succeeded`. Validate these internal relationships before replacing retained evidence, and add a mounted-consumer regression for a mismatched nested scope. `[fixable]` `[blocking]`\n\n\n<!-- centaur:job:dimakis/mitzo:1322:b6c6bc68c661d8e2b43996ce213ce9a51b52b7d0:0 -->",
+      "html_url": "https://github.com/dimakis/mitzo/pull/1322#pullrequestreview-5879747523"
+    },
+    {
+      "id": 5880578793,
+      "commit_id": "2ff466da05a66cdff9ed94cf005df4c0d2b7ff9e",
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-12T19:16:02Z",
+      "body": "",
+      "html_url": "https://github.com/dimakis/mitzo/pull/1322#pullrequestreview-5880578793"
+    },
+    {
+      "id": 5880579441,
+      "commit_id": "2ff466da05a66cdff9ed94cf005df4c0d2b7ff9e",
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-12T19:16:04Z",
+      "body": "",
+      "html_url": "https://github.com/dimakis/mitzo/pull/1322#pullrequestreview-5880579441"
+    },
+    {
+      "id": 5882047065,
+      "commit_id": "e8bc5a8bb5ece51f45f09ffaf4bc811b2399c0e9",
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-12T21:08:50Z",
+      "body": "<!-- centaur:sha:e8bc5a8bb5ece51f45f09ffaf4bc811b2399c0e9 -->\n## Centaur Review\n\nLGTM — no issues found.\n\n### Convergence\n**Recommendation:** `merge` — No blocking in-scope findings remain.\n\n- New blocking findings: 0\n- Unresolved blocking findings: 0\n- Non-blocking follow-ups: 0\n- Repeated/deferred findings: 0\n- Verified resolved findings: 2\n\n\n<!-- centaur:job:dimakis/mitzo:1322:e8bc5a8bb5ece51f45f09ffaf4bc811b2399c0e9:0 -->",
+      "html_url": "https://github.com/dimakis/mitzo/pull/1322#pullrequestreview-5882047065"
+    }
+  ],
+  "limits": "Snapshot only; not merge authorization, reviewer App validation, deployment, or live provider/device qualification."
+}

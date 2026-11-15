@@ -1,0 +1,229 @@
+{
+  "asOf": "2026-11-13",
+  "conversationId": "51c948ea-707d-8684-ae5a-b123209c63ad",
+  "engine": "Codex",
+  "target": "Local Mac",
+  "sourceCommit": "9e47c4ab81d836673bacb461d2b03d46d8de390f",
+  "toolCatalogRevision": "9a7023b9732d8e5b2e0fc7e86141796e9a412e434ca79a13420c9e82793f9244",
+  "scope": "Nested executable tool metadata selected for this turn; excludes outer transport, UI-only controls and collaboration namespace. This is evidence, not a runtime registry.",
+  "exposedCount": 51,
+  "tools": [
+    {
+      "name": "AgentCommunication",
+      "state": "invoked"
+    },
+    {
+      "name": "AgentProposeTask",
+      "state": "exposed_only"
+    },
+    {
+      "name": "AgentReadTasks",
+      "state": "exposed_only"
+    },
+    {
+      "name": "AskUserQuestion",
+      "state": "exposed_only"
+    },
+    {
+      "name": "CaptureMemoryCandidate",
+      "state": "exposed_only"
+    },
+    {
+      "name": "ConnectionRequest",
+      "state": "exposed_only"
+    },
+    {
+      "name": "ConnectionWebSocket",
+      "state": "exposed_only"
+    },
+    {
+      "name": "DescribeIntegrationTool",
+      "state": "invoked"
+    },
+    {
+      "name": "DiscoverLocalRepository",
+      "state": "invoked"
+    },
+    {
+      "name": "GetConnectionGuide",
+      "state": "exposed_only"
+    },
+    {
+      "name": "GetConnectionSetup",
+      "state": "exposed_only"
+    },
+    {
+      "name": "GitCommit",
+      "state": "exposed_only"
+    },
+    {
+      "name": "GitHubRead",
+      "state": "invoked"
+    },
+    {
+      "name": "GoogleWorkspaceRead",
+      "state": "exposed_only"
+    },
+    {
+      "name": "HomeAssistantDashboard",
+      "state": "exposed_only"
+    },
+    {
+      "name": "InspectLocalRepository",
+      "state": "invoked"
+    },
+    {
+      "name": "InvokeIntegrationTool",
+      "state": "exposed_only"
+    },
+    {
+      "name": "ListConnections",
+      "state": "exposed_only"
+    },
+    {
+      "name": "ListIntegrationTools",
+      "state": "exposed_only"
+    },
+    {
+      "name": "PrepareConnectionSetup",
+      "state": "exposed_only"
+    },
+    {
+      "name": "PrepareLocalRepository",
+      "state": "exposed_only"
+    },
+    {
+      "name": "ReadKnowledge",
+      "state": "exposed_only"
+    },
+    {
+      "name": "ReadPastSession",
+      "state": "invoked"
+    },
+    {
+      "name": "ReadToolOutput",
+      "state": "exposed_only"
+    },
+    {
+      "name": "RequestConnectionAccess",
+      "state": "exposed_only"
+    },
+    {
+      "name": "RequestGithubPublish",
+      "state": "exposed_only"
+    },
+    {
+      "name": "RequestWebAccess",
+      "state": "exposed_only"
+    },
+    {
+      "name": "SaveKnowledgeDraft",
+      "state": "exposed_only"
+    },
+    {
+      "name": "SchedulePrompt",
+      "state": "exposed_only"
+    },
+    {
+      "name": "SearchPastSessions",
+      "state": "exposed_only"
+    },
+    {
+      "name": "SearchSkills",
+      "state": "exposed_only"
+    },
+    {
+      "name": "SendSessionMessage",
+      "state": "exposed_only"
+    },
+    {
+      "name": "SessionTimers",
+      "state": "exposed_only"
+    },
+    {
+      "name": "StartSession",
+      "state": "exposed_only"
+    },
+    {
+      "name": "SymposiumProposeProfile",
+      "state": "exposed_only"
+    },
+    {
+      "name": "SymposiumReadProfiles",
+      "state": "exposed_only"
+    },
+    {
+      "name": "TaskExecution",
+      "state": "invoked"
+    },
+    {
+      "name": "TelosAdoptSource",
+      "state": "exposed_only"
+    },
+    {
+      "name": "TelosCreateChild",
+      "state": "exposed_only"
+    },
+    {
+      "name": "TelosCreateFeature",
+      "state": "exposed_only"
+    },
+    {
+      "name": "TelosCreateOutcome",
+      "state": "exposed_only"
+    },
+    {
+      "name": "TelosCreateSession",
+      "state": "exposed_only"
+    },
+    {
+      "name": "TelosListItems",
+      "state": "exposed_only"
+    },
+    {
+      "name": "TelosManageItem",
+      "state": "invoked"
+    },
+    {
+      "name": "TelosSearchItems",
+      "state": "exposed_only"
+    },
+    {
+      "name": "TelosWorkControl",
+      "state": "exposed_only"
+    },
+    {
+      "name": "apply_patch",
+      "state": "exposed_only"
+    },
+    {
+      "name": "clock__curr_time",
+      "state": "exposed_only"
+    },
+    {
+      "name": "exec_command",
+      "state": "invoked"
+    },
+    {
+      "name": "request_permissions",
+      "state": "exposed_only"
+    },
+    {
+      "name": "write_stdin",
+      "state": "invoked"
+    }
+  ],
+  "invocationLimits": {
+    "DiscoverLocalRepository": "Explicit empty workspace inspection unavailable; query mitzo selected source.",
+    "InspectLocalRepository": "Empty-workspace inspection cancelled; source inspection returned instructions with incomplete dirty/worktree facts.",
+    "AgentCommunication": "Two stop handoffs acknowledged; visibility owner recipient_unavailable.",
+    "TaskExecution": "status, authorize, run and github_read exercised; commit not yet exercised at snapshot time.",
+    "TelosManageItem": "read and evidence update exercised; no completion.",
+    "GitHubRead": "Public PR read only."
+  },
+  "absent": ["TelosSaveArtifact", "TelosReadArtifact", "TelosFindArtifacts", "TelosStartSlice"],
+  "corrections": [
+    "TelosWorkControl IS exposed in this chat; prior chats reported it absent. No hold or acknowledgement was exercised here."
+  ],
+  "liveQualification": "No provider/model call, service action or physical-device push performed."
+}

@@ -173,6 +173,8 @@ export interface CreateWorktreeOptions {
   safeLocalBeforeEffect?: () => Promise<void>;
   /** An initial pending owner must never reuse an unowned directory or branch. */
   safeLocalRequireNew?: boolean;
+  /** A retained completion permits reopening its checkout, never allocating another. */
+  safeLocalRequireExisting?: boolean;
   abortSignal?: AbortSignal;
 }
 
@@ -408,6 +410,9 @@ export async function createWorktreeAsync(
     log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
     return worktreePath;
   }
+
+  if (safeGit && opts?.safeLocalRequireExisting)
+    throw Error('Completed worktree is missing; preserve its original completion history');
 
   const startPoint = opts?.startPoint ?? (await fetchWorktreeBase(baseRepo, opts?.abortSignal));
   const checkout = safeGit ? ['--no-checkout'] : [];

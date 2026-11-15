@@ -2,7 +2,56 @@ import { describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createWebAccessSdkServer, webAccessSdkPermission } from '../web-access-sdk.js';
+import { createSdkCallbackState } from '../ordinary-local-vertex-sdk-query.js';
 describe('Claude SDK web access surface', () => {
+  it.each(
+    [[], ['RequestWebAccess'], ['mcp__mitzo-web-access__RequestWebAccess']].map((ceiling) => ({
+      ceiling,
+    })),
+  )(
+    'checks the immutable original wire name before a web effect ($ceiling)',
+    async ({ ceiling }) => {
+      const state = createSdkCallbackState();
+      state.bindCommandToolAuthority({
+        commandId: 'original',
+        checkTool: (name) => (ceiling.includes(name) ? 'allow' : 'deny'),
+      });
+      const execute = vi.fn().mockResolvedValue({ content: 'answer', isError: false });
+      const server = createWebAccessSdkServer(
+        execute,
+        new AbortController().signal,
+        undefined,
+        state.runCallback,
+        (name) => state.checkTool(name),
+      );
+      const client = new Client({ name: 'ceiling', version: '1' });
+      const [a, b] = InMemoryTransport.createLinkedPair();
+      await server.instance.connect(a);
+      await client.connect(b);
+      try {
+        const allowed = ceiling.includes('mcp__mitzo-web-access__RequestWebAccess');
+        const result = await client.callTool({
+          name: 'RequestWebAccess',
+          arguments: { operation: 'search', query: 'offline', reason: 'fixture' },
+        });
+        expect(!!result.isError).toBe(!allowed);
+        expect(execute).toHaveBeenCalledTimes(allowed ? 1 : 0);
+        state.retired = true;
+        expect(
+          (
+            await client.callTool({
+              name: 'RequestWebAccess',
+              arguments: { operation: 'search', query: 'offline', reason: 'fixture' },
+            })
+          ).isError,
+        ).toBe(true);
+        expect(execute).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      } finally {
+        await client.close();
+        await server.instance.close();
+      }
+    },
+  );
   it('advertises and executes the same request schema through an SDK MCP server', async () => {
     const execute = vi.fn().mockResolvedValue({ content: 'answer', isError: false });
     const server = createWebAccessSdkServer(execute, new AbortController().signal);

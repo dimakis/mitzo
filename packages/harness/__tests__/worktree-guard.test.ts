@@ -235,6 +235,74 @@ describe('checkWorktreePolicy', () => {
   });
 
   describe('on-demand worktree creation', () => {
+    it.each(['Write', 'Bash'])(
+      'never replaces an admitted mapping after a late %s preparation',
+      async (toolName) => {
+        const current = makeSession({ primary: '/mgmt/.claude/worktrees/admitted' });
+        const create: OnDemandCreateFn = vi.fn(async () => ({
+          repoName: 'primary',
+          worktreePath: '/mgmt/.claude/worktrees/replacement',
+        }));
+        const result = await checkWorktreePolicy(
+          current as ManagedSession,
+          toolName,
+          toolName === 'Write'
+            ? { file_path: '/mgmt/app.txt' }
+            : { command: 'cd /mgmt && touch app.txt' },
+          { onDemandCreate: create },
+        );
+        expect(result).not.toBeNull();
+        expect(current.worktreePaths.get('primary')?.path).toBe('/mgmt/.claude/worktrees/admitted');
+      },
+    );
+
+    it.each(['Write', 'Bash'])(
+      'refuses cancelled %s preparation before acquisition',
+      async (toolName) => {
+        const current = makeSession({ primary: '/mgmt/.claude/worktrees/original' });
+        const controller = new AbortController();
+        controller.abort(Error('Original invocation cancelled'));
+        const create = vi.fn();
+        await expect(
+          checkWorktreePolicy(
+            current as ManagedSession,
+            toolName,
+            toolName === 'Write'
+              ? { file_path: '/target/app.txt' }
+              : { command: 'cd /target && touch app.txt' },
+            { onDemandCreate: create, signal: controller.signal },
+          ),
+        ).rejects.toThrow('Original invocation cancelled');
+        expect(create).not.toHaveBeenCalled();
+        expect([...current.worktreePaths.keys()]).toEqual(['primary']);
+      },
+    );
+
+    it.each(['Write', 'Bash'])(
+      'does not adopt a late %s preparation after cancellation',
+      async (toolName) => {
+        const current = makeSession({ primary: '/mgmt/.claude/worktrees/original' });
+        const controller = new AbortController();
+        const create: OnDemandCreateFn = vi.fn(async (_path, signal) => {
+          expect(signal).toBe(controller.signal);
+          controller.abort(Error('Original invocation cancelled'));
+          return { repoName: 'target', worktreePath: '/target/.claude/worktrees/original' };
+        });
+        await expect(
+          checkWorktreePolicy(
+            current as ManagedSession,
+            toolName,
+            toolName === 'Write'
+              ? { file_path: '/target/app.txt' }
+              : { command: 'cd /target && touch app.txt' },
+            { onDemandCreate: create, signal: controller.signal },
+          ),
+        ).rejects.toThrow('Original invocation cancelled');
+        expect(create).toHaveBeenCalledTimes(1);
+        expect([...current.worktreePaths.keys()]).toEqual(['primary']);
+      },
+    );
+
     it('triggers creation for write to configured repo without worktree', async () => {
       const sessionWithPrimaryOnly = makeSession({
         primary: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123',
