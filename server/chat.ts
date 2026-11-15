@@ -27,6 +27,7 @@ import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callb
 import { createSdkTurnQuery } from './sdk-turn-query.js';
 import { reportClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { claudePersonalToolPermission } from './claude-personal-policy.js';
+import { createClaudeStartupContext } from './claude-startup-context.js';
 import { readClaudeAccountHistory } from './claude-account-history.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
@@ -2529,7 +2530,7 @@ async function _startChatInner(
               : undefined,
           )
         : undefined) ??
-      (options.adviserScope || options.ordinarySdkAuthority
+      (options.adviserScope
         ? { ...FALLBACK_BOOT_CONTEXT, fullMarkdown: '' }
         : openShellSelected
           ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
@@ -2537,9 +2538,19 @@ async function _startChatInner(
               agentName,
               undefined,
               undefined,
-              !sdkCredentialIsolation,
+              !sdkCredentialIsolation && !options.ordinarySdkAuthority,
               projectCommandRunner,
             ));
+    const sdkStartupContext =
+      options.ordinarySdkAuthority && !options.adviserScope
+        ? createClaudeStartupContext({
+            session,
+            cwd,
+            preserveProfile: agentContext?.source === 'packs',
+            assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
+          })
+        : undefined;
+    let sdkStartupContextPrepared = false;
     const bootContextAppend = bootContextMsg.fullMarkdown
       ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
       : '';
@@ -2637,6 +2648,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             ),
           ) +
           bootContextAppend +
+          (sdkStartupContext?.text() ?? '') +
           (codexProfile
             ? ''
             : sessionLearningGuidance(
@@ -2993,6 +3005,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           await prepareAgentContext?.(joined);
           check = 'sdk.authority';
           await options.ordinarySdkAuthority?.assertCurrent(joined);
+          if (sdkStartupContextPrepared) {
+            check = 'sdk.published_context';
+            sdkStartupContext?.assertCurrent();
+          }
           check = 'sdk.signal';
           joined.throwIfAborted();
         } catch (error) {
@@ -3183,6 +3199,13 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       };
       const webAccess = createSdkWebAccess();
       await authorizeSdkContext(abortController.signal);
+      const prepareSdkStartupContext = async (signal: AbortSignal) => {
+        sdkStartupContextPrepared = false;
+        await sdkStartupContext?.prepare(signal);
+        sdkStartupContextPrepared = !!sdkStartupContext;
+      };
+      await prepareSdkStartupContext(abortController.signal);
+      await authorizeSdkContext(abortController.signal);
       const sdkOptions: NonNullable<Parameters<typeof query>[0]['options']> = {
         cwd,
         env: sessionEnv,
@@ -3302,6 +3325,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             }),
           authorize: authorizeSdkContext,
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
+          prepareContext: prepareSdkStartupContext,
           beforeInput: (commandId) => {
             if (!liveOrdinarySdkOwner) throw Error('Original SDK command owner unavailable');
             return liveOrdinarySdkOwner.assertInputCurrent(commandId);
@@ -3563,8 +3587,34 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     const queryEvents = q as unknown as AsyncIterable<Record<string, unknown>>;
     const sdkContextEvents = async function* () {
       let acknowledged = false;
+      const publishedAcknowledged = new Set<string>();
       for await (const message of queryEvents) {
         options.adviserScope?.assertCurrent();
+        if (sdkStartupContext && message.type === 'stream_event') {
+          const event = message.event as { type?: string; message?: { id?: string } } | undefined;
+          const commandId = liveOrdinarySdkOwner?.activeCommandId();
+          const providerSessionId = session.sessionId;
+          if (
+            event?.type === 'message_start' &&
+            event.message?.id &&
+            commandId &&
+            providerSessionId &&
+            !publishedAcknowledged.has(commandId)
+          ) {
+            options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal);
+            const receipt = sdkStartupContext.receipt();
+            if (receipt)
+              eventStore.append(providerSessionId, 'published_knowledge_adopted', {
+                runtime: 'local-mac',
+                adapter: 'claude-sdk',
+                commandId,
+                threadId: providerSessionId,
+                turnId: event.message.id,
+                ...receipt,
+              });
+            publishedAcknowledged.add(commandId);
+          }
+        }
         if (
           !acknowledged &&
           agentContext &&
