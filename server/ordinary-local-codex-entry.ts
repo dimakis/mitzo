@@ -1,6 +1,11 @@
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import {
+  annotateAuthorityFailure,
+  runtimeFailureDiagnostics,
+  recordRuntimeFailure,
+} from './runtime-failure-diagnostics.js';
+import {
   capturePostAdoptionWire,
   observePostAdoptionWire,
   ordinaryWireFingerprint,
@@ -1001,6 +1006,7 @@ function createOwnedCodexEntryRouter(
       let releaseBinding: (() => void) | undefined;
       let releaseStartup: (() => void) | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let preparationCheck = 'operator_authority';
       try {
         const captured = captureAgentLibraryAuthorization(connectionId);
         captured.assertCurrent();
@@ -1013,15 +1019,21 @@ function createOwnedCodexEntryRouter(
         releaseStartup = reserveRepositoryStartup(sessionId);
         timer = abortAtStartupDeadline(controller);
         authority.assertCurrent();
+        preparationCheck = 'runtime_inventory';
         const { profiles, catalog, result, agentContextPresets } = inventory(
           input.runOn,
           input.runtime.harness,
           continuation ? retainedRuntimeBinding : undefined,
         );
+        preparationCheck = 'capability_revision';
         if (
-          (!recoverRetained &&
-            result.capabilityRevision !== input.capabilityRevision &&
-            !historicalCapabilityQualified) ||
+          !recoverRetained &&
+          result.capabilityRevision !== input.capabilityRevision &&
+          !historicalCapabilityQualified
+        )
+          throw Error(unavailable);
+        preparationCheck = 'runtime_route';
+        if (
           !result.routes.some(
             (route) =>
               isDeepStrictEqual(route.account, input.runtime.account) &&
@@ -1031,6 +1043,7 @@ function createOwnedCodexEntryRouter(
           catalog.resolve(input.runtime).status !== 'compatible'
         )
           throw Error(unavailable);
+        preparationCheck = 'model_selection';
         const account = result.accounts.find((entry) =>
           isDeepStrictEqual(entry.account, input.runtime.account),
         );
@@ -1044,6 +1057,7 @@ function createOwnedCodexEntryRouter(
             : !model.reasoningEfforts?.includes(input.selection.thinking))
         )
           throw Error(unavailable);
+        preparationCheck = 'account_binding';
         const binding: AccountBinding = profiles.resolve(
           input.runtime.account.accountId,
           input.selection.model,
@@ -1056,10 +1070,13 @@ function createOwnedCodexEntryRouter(
           if (selected.nativeAuth !== undefined || selected.workspaceId !== undefined)
             throw Error(unavailable);
         }
+        preparationCheck = 'agent_profile';
         const profile = readOrdinaryCodexAgentProfile(getAgentLibrary(), input.selection.agent);
         if (!profile || profile.definition.contextRecipe?.source === 'packs')
           throw Error(unavailable);
+        preparationCheck = 'agent_context';
         assertOrdinaryCodexContextIdentity(profile, input.selection, undefined, binding.provider);
+        preparationCheck = 'agent_profile_route';
         if (
           ordinaryCodexAgentProfileRouteProjection(
             [profile],
@@ -1081,6 +1098,7 @@ function createOwnedCodexEntryRouter(
           ).agentProfileRejections.length
         )
           throw Error(unavailable);
+        preparationCheck = 'workspace_selection';
         if (!ordinaryInput && (!BASE_REPO || !isAbsolute(BASE_REPO))) throw Error(unavailable);
         if (automaticLocalRepository) {
           authority.assertCurrent();
@@ -1102,6 +1120,7 @@ function createOwnedCodexEntryRouter(
           );
           authority.assertCurrent();
         }
+        preparationCheck = 'workspace_identity';
         const preparedRepository =
           !ordinaryInput && !continuation
             ? ctx.eventStore.getOrdinarySessionPreparationForConversation(sessionId)
@@ -1169,6 +1188,7 @@ function createOwnedCodexEntryRouter(
             return resolved.binding;
           })(),
         };
+        preparationCheck = 'workspace_reservation';
         authority.assertCurrent();
         if (!ordinaryInput && !continuation && input.runOn === 'local')
           await observeLocalCodexPhase('repository_reservation', () =>
@@ -1183,6 +1203,7 @@ function createOwnedCodexEntryRouter(
             signal: controller.signal,
           });
         authority.assertCurrent();
+        preparationCheck = 'live_owner';
         const live = ctx.sessionRegistry.findBySessionId(sessionId);
         if (
           live &&
@@ -1227,6 +1248,7 @@ function createOwnedCodexEntryRouter(
               ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()!.config.workdir }
               : {}),
           });
+        preparationCheck = 'command_dispatch';
         const resultCommand = originalLocalWire
           ? await ctx.eventStore.withOrdinaryCommandWireAdmission(
               {
@@ -1257,6 +1279,7 @@ function createOwnedCodexEntryRouter(
               dispatchCurrentCommand,
             )
           : await dispatchCurrentCommand();
+        preparationCheck = 'command_receipt';
         authority.assertCurrent();
         const receipt =
           input.runOn === 'local' && input.runtime.harness === 'codex'
@@ -1272,9 +1295,16 @@ function createOwnedCodexEntryRouter(
           state: receipt.state,
         });
       } catch (error) {
+        const preparationFailure = annotateAuthorityFailure(error, preparationCheck);
         const retainedFailure =
-          findSessionRuntimeError(error) ??
-          new SessionRuntimeError('runtime_unavailable', { cause: error });
+          findSessionRuntimeError(preparationFailure) ??
+          new SessionRuntimeError('runtime_unavailable', { cause: preparationFailure });
+        const span = trace.getActiveSpan();
+        if (span)
+          recordRuntimeFailure(
+            span,
+            findSessionRuntimeError(preparationFailure) ? preparationFailure : retainedFailure,
+          );
         let state: string | undefined;
         try {
           if (ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId === sessionId)
@@ -1291,6 +1321,7 @@ function createOwnedCodexEntryRouter(
           clientMsgId: input.clientMsgId,
           ...codexRuntimeErrorTelemetry(error instanceof Error ? error : retainedFailure),
           ...retainedFailure.telemetry(),
+          ...runtimeFailureDiagnostics(preparationFailure),
           state: state ?? 'not_admitted',
         });
         return res.status(409).json({

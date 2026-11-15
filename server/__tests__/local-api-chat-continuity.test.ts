@@ -12,6 +12,7 @@ import {
   localResponsesCapabilities,
 } from '../ordinary-local-responses-capabilities.js';
 import { AccountProfiles } from '../account-profiles.js';
+import { cachedModels, refreshModels } from '../model-catalog.js';
 const f = vi.hoisted(() => ({
   settings: {} as Record<string, unknown>,
   artifacts: { 'offline.ts': 'release-a' },
@@ -49,6 +50,72 @@ const profiles = new AccountProfiles([
     models: [{ id: 'offline', label: 'Offline' }],
   },
 ]);
+it.each(['claude-sdk', 'gemini'] as const)(
+  'keeps %s admission stable across identical model refreshes but rejects changed support',
+  async (engine) => {
+    const config = {
+      id: `refresh-${engine}`,
+      label: 'Offline refresh',
+      provider: engine === 'claude-sdk' ? 'anthropic-vertex' : 'google-vertex',
+      projectId: 'project',
+      region: 'region',
+      credentialRef: '/offline/refresh-adc',
+      models: [
+        { id: 'offline', label: 'Offline', reasoningEfforts: ['high', 'low'] },
+        { id: 'plain', label: 'Plain' },
+      ],
+    };
+    const accounts = new AccountProfiles([config]);
+    const target = configured(engine);
+    const inventory = () =>
+      (engine === 'claude-sdk'
+        ? localVertexCapabilities(accounts, target as OrdinaryLocalVertexTarget)
+        : localResponsesCapabilities(accounts, target as OrdinaryLocalResponsesTarget)
+      ).inventory();
+    const initial = inventory();
+    const key = JSON.stringify(config);
+    await refreshModels(key, async () => config.models, true);
+    const refreshed = inventory();
+    expect(refreshed.accounts[0].modelDiscovery.source).toBe('cached');
+    expect(refreshed.capabilityRevision).toBe(initial.capabilityRevision);
+    cachedModels(key)!.updatedAt! += 1000;
+    expect(inventory().capabilityRevision).toBe(initial.capabilityRevision);
+    await refreshModels(
+      key,
+      async () => config.models.map((model) => ({ ...model, label: 'Renamed' })),
+      true,
+    );
+    expect(inventory().capabilityRevision).toBe(initial.capabilityRevision);
+    await refreshModels(
+      key,
+      async () =>
+        config.models
+          .map((model) => ({
+            ...model,
+            reasoningEfforts: [...(model.reasoningEfforts ?? [])].reverse(),
+          }))
+          .reverse(),
+      true,
+    );
+    expect(inventory().capabilityRevision).toBe(initial.capabilityRevision);
+    await refreshModels(
+      key,
+      async () => config.models.map((model) => ({ ...model, reasoningEfforts: [] })),
+      true,
+    );
+    expect(inventory().capabilityRevision).not.toBe(initial.capabilityRevision);
+    await refreshModels(key, async () => config.models, true);
+    await refreshModels(
+      key,
+      async () => {
+        throw Error('offline discovery failure');
+      },
+      true,
+    );
+    expect(inventory().accounts[0].modelDiscovery.stale).toBe(true);
+    expect(inventory().capabilityRevision).not.toBe(initial.capabilityRevision);
+  },
+);
 function configured(engine: 'claude-sdk' | 'gemini', label = 'Host Mac') {
   f.settings = {
     version: 1,

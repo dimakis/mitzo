@@ -9,6 +9,7 @@ import {
   reviewedLegacyLocalApiTargetRevisions,
 } from './local-api-chat-continuity.js';
 import type { AccountProfiles } from './account-profiles.js';
+import { modelAdmissionCapabilities } from './model-catalog.js';
 import { readPrivateRuntimeSettings } from './ordinary-local-codex-host-runtime.js';
 import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
 import {
@@ -123,7 +124,11 @@ function responsesCapabilities(
     version: 1 as const,
     authority: 'configuration-only' as const,
     defaultLocation: 'openshell' as const,
-    capabilityRevision: digest(['ordinary-local-responses-capabilities-v1', catalog, accounts]),
+    capabilityRevision: digest([
+      'ordinary-local-responses-capabilities-v2',
+      catalog,
+      accounts.map((entry) => [entry.account, modelAdmissionCapabilities(entry)]),
+    ]),
     accounts,
     targets,
     routes: accounts.map(({ account }) => ({

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1196-chat-storage-fixture-type';
+  'v1.0.1197-stable-model-admission';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2771,7 +2771,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-agent-efficiency.test.ts':
     'ac1b3f8c3cc53eb2f837a69a4f8792049a92211616c8d9998051a3b263e117dd',
   '../__tests__/local-api-chat-continuity.test.ts':
-    '8a60dc33c5f0a5cb6dc3bf29dd54dd5ac422812fa6b5f59b17c27b9abf89d3bd',
+    '6787a2cfde8a660694fb0e0eff211deef00e91f263f7951a13f2270a319de28b',
   '../__tests__/local-codex-observation.test.ts':
     'e69c01306f3569d6d359444e7d508746e70e5cc48376b0f062483f497e6c9bae',
   '../__tests__/local-codex-queue-recovery-routing.test.ts':
@@ -2967,7 +2967,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-codex-admission.test.ts':
     'c83c03d97edc7d0ad05937090b1fb86498aec6fbe09da6e238fb203d93fa3f94',
   '../__tests__/ordinary-local-codex-entry.test.ts':
-    'b551f07a25dbde93fb3a8ec7d940ccfb9124f36731fb23562468ee2ee3a1dd20',
+    '5949700f4c092ecbe558f826a6477bc8cf446f2f735c6c1fc83f2c240485477d',
   '../__tests__/ordinary-local-codex-host-runtime.test.ts':
     '1917bb20ca336f8cecbe2c309d7e6cf705a251fa5613b5345e8be620727baaed',
   '../__tests__/ordinary-local-codex-owned-runtime.test.ts':
@@ -3973,7 +3973,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '97ac57133ca19edc39bc8b6ccf58bb4fdfab261ca71483d1c7ab937ffd03742a',
   '../message-reply-context.ts': 'b0319cb63f8dc1c45a2d78c54d18cd1a63d07d7c76bf26bfa6b4b41c859e17dd',
   '../message-stream-state.ts': '0a2c176c2aba044406bc9d2230f29632afa0f8948ed5b030c3c06e3a755b616a',
-  '../model-catalog.ts': 'bd56560df5dcba95446f3f26cbcdc1754600b8ecd55a7fefe3e39286a35e14d8',
+  '../model-catalog.ts': '76fd95bf06c261abbf38238602f8faec71f9feb03693ab947db71dfac9641e72',
   '../model-token-limits.ts': '19ab59f66a2a3436427f405e415ff016a78a81049174dba6b6122c2e028a581a',
   '../native-base-read-scope.ts':
     'e5b5f843e1defc7cf2a80d10cf3837541c9a7867669963cfc77857b19ec73718',
@@ -4104,7 +4104,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-capabilities.ts':
     '6aa1d7edd2466719bd8766209dd6a6786b37436fc381c672ad4b42e260ad0d03',
   '../ordinary-local-codex-entry.ts':
-    'f5e286d8fdf007357b18852ae2b7b60fa2aa5ab90243bbd3e1a4ff20072baac9',
+    '135eeb94f2f6d8722a352bb7ac38a3a93f5d69ffaaa7b3cabcb1b8e9a4c8b54f',
   '../ordinary-local-codex-host-runtime.ts':
     '27c89f96f4e59663b4322b013acd6ef528bdb981b55b6b37d5029658b0014a26',
   '../ordinary-local-codex-metadata.ts':
@@ -4114,13 +4114,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-selection-owner.ts':
     'f0130527f4c66eb275602c58d700d97eb1a5e84e7fc71e42987f6ebe0c2e1081',
   '../ordinary-local-responses-capabilities.ts':
-    '3bf23043c15e04236413087d28aa3787cbf1406c9d0650bbb79da157cff79985',
+    '66564f2b0ee670f0808880fa5635287b9735020be6894726ba57f9242fa9cd22',
   '../ordinary-local-responses-owned-runtime.ts':
     '93fddfaa59043cb84db79cac14aadc5623f816b38ac86d93c9e2bcde2ad6681f',
   '../ordinary-local-responses-queue.ts':
     'd2c8999d608bc7ff76eb9ea113094df3a55c9bf861e6c5ad9f876531fda36fd4',
   '../ordinary-local-vertex-capabilities.ts':
-    'f1b3716a985362d937a421f92b4bbed8e58ce5d54b7e047bccca283f833a0cc1',
+    'b52640a77edea3e89f3e131a8b60d70dd2d037749b91c0622bc6405d05e8ce82',
   '../ordinary-local-vertex-command-owner.ts':
     '8ca2717150a22760764fe7f63595bbafbd402edcd76a67db55d3c80f6465f771',
   '../ordinary-local-vertex-custody.ts':
