@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1201-lazy-delivery-review';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1202-claude-session-naming';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -54,7 +54,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/collaboration-navigation.ts':
     '19d914517e7159d27acc8328d283990764bcdbd4bf99b21bb521652765121cd0',
   '../__tests__/session-conversation-list.test.ts':
-    'a5c6ce8f7cee033ba116e796019e9fe0f7469d6f82eaea476abf67f478c36862',
+    '2a020bc11316ceca8095adf7fee5119a242ca3d448fde45caff32d3344050103',
   '../session-conversation-list.ts':
     '2b55c6b61337ae96bda8688c9f41c70d6e598eec4bc2b59be03335df0044f6f9',
   '../../.github/actions/ci-canonical-browser/action.yml':
@@ -1365,7 +1365,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/approval-outcome.ts':
     'e0774155bd53c12ff378d2351b284588db60e382daadf94dd727100dd0c5e13f',
   '../../packages/harness/src/auto-rename.ts':
-    '96f24a9b4e06c37b99a11eb38c185986ccbb6269a91fc5b96a96f00e1966262f',
+    '899ecaffbd9fee1d4b2047611fbe39d4caf79aee8e420a46913c2d6ff135db6b',
   '../../packages/harness/src/connection-registry.ts':
     'c12650cb5912de809c99070c109c43cfda8dbf9e495c4c35d164ca057d33393d',
   '../../packages/harness/src/github-command-consent.ts':
@@ -3626,7 +3626,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': 'a42d37a34059bf55eac9f354df5b0fdc21ac9c3755533812d3b49949b40c16cc',
+  '../chat.ts': '3a09b49f3fe45e362496b699f34f1a993bd1f6d173d218d4d7fe162520494e8d',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
@@ -4382,7 +4382,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-model-settings.ts':
     'ef8a8577e9bcbf0dff548a1530c8d498970f8c52db8d6331f3c9a88166f6c573',
   '../session-naming-context.ts':
-    '3334ed19fe8a8d8a8870cb3143d89c65d968542509d33e93f8201490d28237c2',
+    '6186e9107d8403ddbc7d08118e255b2856bb715fd7710f01e330a76c87272677',
   '../session-output-references.ts':
     'f3cc6ec16ec1c2dc907566658c3f12b1776ee35f1bde662a77e97b9a08946841',
   '../session-output-routes.ts': '2e08e938b4914797006231d1044b2c6c28693aa7fe1813a37d6ba1c9697649b2',
