@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1193-claude-result-correlation';
+  'v1.0.1194-claude-result-delivery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2983,7 +2983,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-responses-preparation.test.ts':
     '8f9c5d3b3ba18d05a4319769d731ece393fb2485035b7feac239f876c4c2695e',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
-    'c970a0f1131487b36aac95d007a6bf63df6fe969927ff1c94a74b57335e812a2',
+    '81fc381280fff9490fc61fa2da6d7bc621295c1e526ddc60f344a3b79f05b66d',
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     'f54b300c69668515af4ee5a8c2d43834f4f8e40341be9a078e97ab9b1c7f9e45',
   '../__tests__/ordinary-local-vertex-sdk-effects.test.ts':
@@ -3147,7 +3147,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-standalone-repository-observation.test.ts':
     'de3c7ae943e87a97165186f5ca8a6e099548a9c341a9fddf31f6b0ca5f8b1855',
   '../__tests__/query-loop.test.ts':
-    '943c54b3214b120b0e60412b009d0e705e1b7db1ccf0d41660021c158ce41872',
+    '3f520f0760746fa2d8738020a78ef005f262bd974bc6899f6a22768bf112602b',
   '../__tests__/read-only-git.test.ts':
     'f25212a013ea287948f5651a75d2a3aacfe5593ba668cf26ae1f83e6a8e326d2',
   '../__tests__/reconnect-delivery.integration.test.ts':
@@ -3621,7 +3621,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '1d56c0a8ab499421baa51008cb2cc4d05eb9a21414d2f9c940437eb5c2c78676',
+  '../chat.ts': 'a42d37a34059bf55eac9f354df5b0fdc21ac9c3755533812d3b49949b40c16cc',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
@@ -4120,7 +4120,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-capabilities.ts':
     'f1b3716a985362d937a421f92b4bbed8e58ce5d54b7e047bccca283f833a0cc1',
   '../ordinary-local-vertex-command-owner.ts':
-    '3be1dea5b96bed7e048d03063d23b917eac8988a882c021948eaba7f9802de3c',
+    '84d0d08bd7be15ef7a67b30874a0747e323f5732d6ff1d975d56250e97b72c2d',
   '../ordinary-local-vertex-custody.ts':
     '7f1ce782be5190881004a63aacf58d8df69acb0fe46d9bfe952c436cf6c2aed9',
   '../ordinary-local-vertex-entry.ts':
@@ -4239,7 +4239,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': '1493335e30386c7dc606e1c51cd3057f2f099020e64fad31a33a28b45f540f89',
+  '../query-loop.ts': 'f81b17aae2f822db5420e500d298f77ae185d768f7bf5335a5fc72065f196338',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',

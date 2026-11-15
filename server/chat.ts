@@ -3657,7 +3657,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             );
           if (liveOrdinarySdkOwner) {
             try {
-              await liveOrdinarySdkOwner.resultObserved(inputUuid, result.is_error === true);
+              await liveOrdinarySdkOwner.resultObserved(inputUuid, result.is_error === true, {
+                dispatchSuccessor: false,
+              });
             } catch (err) {
               log.error('Original SDK result authority unavailable', {
                 err,
@@ -3672,6 +3674,24 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           }
           options.adviserScope?.assertCurrent();
           options.onTurnResult?.(result, inputUuid);
+        },
+        onResultDelivered: async () => {
+          if (!liveOrdinarySdkOwner) return;
+          try {
+            await liveOrdinarySdkOwner.dispatchQueued();
+          } catch (cause) {
+            const failure = new SessionRuntimeError('runtime_unavailable', { cause });
+            log.error('Queued SDK command preparation failed', {
+              err: cause,
+              sessionId: session.sessionId,
+              commandId: liveOrdinarySdkOwner.activeCommandId(),
+              code: 'ordinary_sdk_successor_unavailable',
+              stage: 'successor_preparation',
+              ...failure.telemetry(),
+            });
+            abortController.abort(failure);
+            throw failure;
+          }
         },
         onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
       },

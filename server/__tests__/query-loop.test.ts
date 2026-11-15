@@ -996,94 +996,139 @@ describe('runQueryLoop', () => {
     );
   });
 
-  it('settles the durable Claude command and releases its successor after a synthetic notification', async () => {
-    const store = new EventStore(':memory:');
-    const sessionId = 'personal-claude';
-    const binding = {
-      version: 2 as const,
-      account: {
-        accountId: 'personal',
-        provider: 'anthropic-claude' as const,
-        profileRevision: 'profile',
-      },
-      harness: { implementation: 'claude-sdk' as const },
-      execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'target' },
-    };
-    const meta = {
-      sessionId,
-      repositoryWorkspaceId: 'workspace',
-      cwd: '/fixture',
-      accountBinding: { ...binding.account, accountLabel: 'Personal Claude', model: 'offline' },
-    };
-    const command = (id: string) => ({
-      clientMsgId: id,
-      requestFingerprint: `fingerprint-${id}`,
-      payload: { text: id },
-      selection: {
-        version: 1 as const,
-        agent: { profileId: 'published', revision: 1 },
-        context: { source: 'none' as const, revision: null },
-        permission: { mode: 'ask' as const, revision: 0 },
-        model: 'offline',
-        thinking: null,
-      },
-    });
-    const query = {
-      setModel: vi.fn(async () => {}),
-      setMaxThinkingTokens: vi.fn(async () => {}),
-      push: vi.fn(async (_id: string) => {}),
-      abort: vi.fn(),
-    };
-    const owner = new OrdinaryLocalVertexCommandOwner({
-      store,
-      sessionId,
-      assertCurrent: async () => {},
-      query,
-      settings: () => ({ model: 'offline', thinkingTokens: null }),
-      turnEvidence: new OrdinarySdkTurnEvidence(store, sessionId, sessionId),
-    });
-    try {
-      store.admitOrdinaryLocalVertexCommand(meta, binding, command('first'));
-      await owner.enqueue('first');
-      store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
-      await owner.enqueue('second');
-      registry.setSessionId(clientId, sessionId);
-      await runQueryLoop(
-        eventStream([
-          {
-            type: 'user',
-            uuid: 'first-input',
-            parent_tool_use_id: null,
-            message: { role: 'user', content: 'first' },
-          },
-          { type: 'stream_event', event: { type: 'message_start', message: { id: 'reply' } } },
-          {
-            type: 'user',
-            uuid: 'notification',
-            isSynthetic: true,
-            parent_tool_use_id: null,
-            message: { role: 'user', content: 'background task finished' },
-          },
-          { type: 'result', session_id: sessionId, is_error: false },
-        ]),
-        clientId,
-        registry,
-        abortController,
-        store,
-        undefined,
-        {
-          onUserInput: (_clientId, id) => owner.inputObserved(id),
-          onResult: (_clientId, result, id) => owner.resultObserved(id, result.is_error === true),
+  it.each([false, true])(
+    'preserves confirmed completion when successor preparation fails: %s',
+    async (successorFails) => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'personal-claude';
+      const binding = {
+        version: 2 as const,
+        account: {
+          accountId: 'personal',
+          provider: 'anthropic-claude' as const,
+          profileRevision: 'profile',
         },
-      );
-      expect(query.abort).not.toHaveBeenCalled();
-      expect(store.getOrdinaryProviderTurnTerminal(sessionId, 'first')).toBe('completed');
-      expect(query.push.mock.calls.map((args) => args[0])).toEqual(['first', 'second']);
-      expect(transport.sent.filter((msg) => msg.type === 'error')).toEqual([]);
-    } finally {
-      store.close();
-    }
-  });
+        harness: { implementation: 'claude-sdk' as const },
+        execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'target' },
+      };
+      const meta = {
+        sessionId,
+        repositoryWorkspaceId: 'workspace',
+        cwd: '/fixture',
+        accountBinding: { ...binding.account, accountLabel: 'Personal Claude', model: 'offline' },
+      };
+      const command = (id: string) => ({
+        clientMsgId: id,
+        requestFingerprint: `fingerprint-${id}`,
+        payload: { text: id },
+        selection: {
+          version: 1 as const,
+          agent: { profileId: 'published', revision: 1 },
+          context: { source: 'none' as const, revision: null },
+          permission: { mode: 'ask' as const, revision: 0 },
+          model: 'offline',
+          thinking: null,
+        },
+      });
+      const query = {
+        setModel: vi.fn(async () => {}),
+        setMaxThinkingTokens: vi.fn(async () => {}),
+        push: vi.fn(async (_id: string) => {}),
+        abort: vi.fn(),
+      };
+      const owner = new OrdinaryLocalVertexCommandOwner({
+        store,
+        sessionId,
+        assertCurrent: async () => {},
+        query,
+        settings: () => ({ model: 'offline', thinkingTokens: null }),
+        turnEvidence: new OrdinarySdkTurnEvidence(store, sessionId, sessionId),
+      });
+      try {
+        store.admitOrdinaryLocalVertexCommand(meta, binding, command('first'));
+        store.append(sessionId, 'user_message', { messageId: 'first', text: 'first' });
+        await owner.enqueue('first');
+        store.admitOrdinaryLocalVertexContinuation(meta, binding, command('second'));
+        await owner.enqueue('second');
+        if (successorFails)
+          query.setModel.mockRejectedValueOnce(Error('private successor preparation detail'));
+        registry.setSessionId(clientId, sessionId);
+        await runQueryLoop(
+          eventStream([
+            {
+              type: 'user',
+              uuid: 'first-input',
+              parent_tool_use_id: null,
+              message: { role: 'user', content: 'first' },
+            },
+            { type: 'stream_event', event: { type: 'message_start', message: { id: 'reply' } } },
+            {
+              type: 'user',
+              uuid: 'notification',
+              isSynthetic: true,
+              parent_tool_use_id: null,
+              message: { role: 'user', content: 'background task finished' },
+            },
+            {
+              type: 'result',
+              session_id: sessionId,
+              is_error: false,
+              usage: { input_tokens: 7, output_tokens: 3 },
+              total_cost_usd: 0.01,
+            },
+          ]),
+          clientId,
+          registry,
+          abortController,
+          store,
+          undefined,
+          {
+            initialClientMsgId: 'first',
+            onUserInput: (_clientId, id) => owner.inputObserved(id),
+            onResult: (_clientId, result, id) =>
+              owner.resultObserved(id, result.is_error === true, { dispatchSuccessor: false }),
+            onResultDelivered: async () => {
+              try {
+                await owner.dispatchQueued();
+              } catch (cause) {
+                const failure = new SessionRuntimeError('runtime_unavailable', { cause });
+                abortController.abort(failure);
+                throw failure;
+              }
+            },
+          },
+        );
+        expect(query.abort).toHaveBeenCalledTimes(successorFails ? 1 : 0);
+        expect(store.getOrdinaryProviderTurnTerminal(sessionId, 'first')).toBe('completed');
+        expect(store.getOrdinaryProviderTurnTerminal(sessionId, 'second')).toBeUndefined();
+        expect(query.push.mock.calls.map((args) => args[0])).toEqual(
+          successorFails ? ['first'] : ['first', 'second'],
+        );
+        expect(store.getSession(sessionId)).toMatchObject({
+          inputTokens: 7,
+          outputTokens: 3,
+          totalCostUsd: 0.01,
+        });
+        const ends = transport.sent.filter((msg) => msg.type === 'session_end');
+        expect(ends).toHaveLength(1);
+        expect(ends[0]).not.toHaveProperty('terminalReason');
+        expect(ends[0]).toMatchObject({ usage: { inputTokens: 7, outputTokens: 3 } });
+        expect(transport.sent.filter((msg) => msg.type === 'error')).toHaveLength(
+          successorFails ? 1 : 0,
+        );
+        if (successorFails) {
+          expect(store.getLatestEvent(sessionId, 'error')?.payload).toHaveProperty(
+            'runtimeFailure',
+          );
+          expect(JSON.stringify(transport.sent)).not.toContain(
+            'private successor preparation detail',
+          );
+        }
+      } finally {
+        store.close();
+      }
+    },
+  );
 
   it('awaits result settlement before publishing completion', async () => {
     let release!: () => void;

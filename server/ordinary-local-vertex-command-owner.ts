@@ -41,6 +41,7 @@ export class OrdinaryLocalVertexCommandOwner {
   #paused = false;
   #inputYielded = false;
   #resultObserved = false;
+  #resultDeliveryPending = false;
   #deferredStop?: { requestId: string; resolve(): void; reject(error: unknown): void };
   #interruptTargets = new WeakMap<object, { active: ActiveSdkCommand; native: object }>();
   constructor(
@@ -326,7 +327,12 @@ export class OrdinaryLocalVertexCommandOwner {
       commandId,
     );
   }
-  complete(commandId: string, failed = false, inputUuid?: string): Promise<void> {
+  complete(
+    commandId: string,
+    failed = false,
+    inputUuid?: string,
+    { dispatchSuccessor = true } = {},
+  ): Promise<void> {
     return this.#serialize(async () => {
       await this.#fence();
       if (this.#active?.commandId !== commandId)
@@ -354,7 +360,16 @@ export class OrdinaryLocalVertexCommandOwner {
       this.#inputDispatched = undefined;
       this.#inputYielded = false;
       this.#resultObserved = false;
+      this.#resultDeliveryPending = !dispatchSuccessor;
       this.owners.onTerminal?.(commandId);
+      if (dispatchSuccessor) await this.#dispatch();
+    });
+  }
+  /** Advance only after the preceding result's usage and completion are delivered. */
+  dispatchQueued(): Promise<void> {
+    return this.#serialize(async () => {
+      await this.#fence();
+      this.#resultDeliveryPending = false;
       await this.#dispatch();
     });
   }
@@ -384,7 +399,11 @@ export class OrdinaryLocalVertexCommandOwner {
       throw Error('Original SDK reply input acknowledgment unavailable');
     this.owners.turnEvidence.message(this.#active.commandId, messageId);
   }
-  resultObserved(inputUuid: string | undefined, failed = false): Promise<void> {
+  resultObserved(
+    inputUuid: string | undefined,
+    failed = false,
+    options?: { dispatchSuccessor?: boolean },
+  ): Promise<void> {
     if (!this.#active || !inputUuid || this.#inputUuid !== inputUuid) {
       this.#failed = true;
       this.owners.query.abort();
@@ -393,7 +412,7 @@ export class OrdinaryLocalVertexCommandOwner {
     const commandId = this.#active.commandId;
     this.#resultObserved = true;
     this.#inputUuid = undefined;
-    return this.complete(commandId, failed, inputUuid);
+    return this.complete(commandId, failed, inputUuid, options);
   }
   async #fence() {
     if (this.#failed) throw Error('Original SDK owner unavailable');
@@ -454,7 +473,8 @@ export class OrdinaryLocalVertexCommandOwner {
     if (!this.owners.store.deployment.canDispatch(this.owners.sessionId)) return;
     while (this.#pending.length && this.owners.store.getSendCommand(this.#pending[0]!)?.error)
       this.#pending.shift();
-    if (this.#active || this.#paused || !this.#pending.length) return;
+    if (this.#active || this.#paused || this.#resultDeliveryPending || !this.#pending.length)
+      return;
     const commandId = this.#pending[0]!;
     const assertPreparation = () => {
       if (commandId === admittingCommandId) preparationSignal?.throwIfAborted();

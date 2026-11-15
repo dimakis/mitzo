@@ -258,6 +258,9 @@ export interface QueryLoopOptions {
     result: { is_error?: boolean },
     inputUuid?: string,
   ) => void | Promise<void>;
+  /** Prepare queued work after the settled result's usage and completion are published.
+   * Failure belongs to that successor and cannot erase the confirmed result. */
+  onResultDelivered?: () => Promise<void>;
   /** Historical completed use; a model is included only when observed from the provider. */
   onSuccessfulAccountUse?: (binding: AccountUseBinding) => void;
 }
@@ -1243,6 +1246,7 @@ async function _runQueryLoopInner(
             }
           }
           options?.onTurnEnd?.(clientId);
+          await options?.onResultDelivered?.();
         } else if (msg.type === 'stream_event') {
           const evt = msg.event as Record<string, unknown> | undefined;
           log.debug('stream event', { clientId, evtType: evt?.type });
