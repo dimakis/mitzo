@@ -342,3 +342,69 @@ is not added to it as a new total. All unrelated source and fingerprints remain
 unchanged; the 2,503-entry union is preserved under
 `v1.0.1186-symposium-guard-fixture-setup`, with only the adopted test pin renewed.
 Hosted timeout resolution and exact-head final qualification remain pending.
+
+The actual successor CI `43665321683` at
+`518059076bf4eda2d8db9a3f5784582499731850` is blocked by two failed unit
+shards. Unit 2 job `132664992091` again reports only the real guarded-detach
+control at line 225:1 exceeding default 5,000ms, with the corrected exact blob
+`6fe3d2b5f93dcfe00783b38fe792f7b996365eee`. The final tail reports no lifecycle
+assertion failure; 517 files and 7,359 tests pass. Artifact `14142523183` has
+SHA256 `9e700fa3b9e8fcb8e584f8356a944aa56352e2913875dc25996961c8fa12171e`.
+Thus the local five-check pass and source review did not establish hosted timeout
+resolution. Its specific asynchronous phase remains unproved.
+
+Unit 1 job `132664992067` reports one different failure in
+`claude-multi-device.test.ts`: the Anthropic Messages API signed-client case,
+line 449:22, observes two inputs instead of the expected original, queued and
+raced three inputs after queue continue in an implicit `vi.waitFor`. Its unchanged
+fixture blob is `ee158d5f099a1037044cd70ba2c5cea84f1fc101`; no device/composer
+patch has been adopted. The shard reports 517 other files and 6,879 tests passed.
+Artifact `14142901432` has SHA256
+`a759bffe5b50a9e7b717afcd99d275f681405ce8be2ad59d884d3a1f05ecd9bc`.
+No cause equivalence is inferred from earlier device-fixture failures.
+
+Both exact errors, current preimages and artifacts were handed to the existing
+sole shared-fixture owner. The bounded observation timer is paused after six of
+twelve checks on this concrete source blocker. There is no unexplained rerun,
+competing correction, deadline increase, final-review claim or merge readiness.
+
+## Published SDK fixture lifetime correction
+
+The existing fixture owner provided only the SDK delta from published
+`900ef419c4e3ac823b9e185a4e224ea05da021de`, tree
+`64791304f975b609ab8cc2f539bcb287f42babec`, parent `d43ea9ba`, with independent
+published-byte review `8fb5fa96`. Our actual repeated guard timeout and current
+SHA256 `b7ad0de82642a4117572af3c2bc49e174ddb2f57a3cfcb213897273f8f94881b`
+match its required error/preimage. The one-file incremental patch is verified
+against SHA256
+`0b561d71384b4d1bac4765961e8463d8d7d4682b6350f5b889aaf660b96186e9`.
+No native tests, Telos source or foreign registry is imported.
+
+Guard initialization moves into a normal setup hook with an explicit fixture
+lifetime. One synchronous cleanup registration owns asynchronous acquisitions;
+abort/closing fences reject late publication, teardown joins pending acquisition
+before resetting its private environment, and later environment reset waits for
+that retirement. Original causes, the actual active-owner guard, store/root
+retention and all runtime assertions remain. A real delayed-import/abort control
+checks original cause identity, retained/restored environment, rejected following
+admission, empty real registry, detached connection, closed store, removed root
+and no late cleanup/SDK input. The superseded unpublished late-import variant
+was not adopted.
+
+The timing change is explicit: the normal setup hook allows 10s before the
+unchanged 5s control body, increasing total setup/control allowance. Lifecycle
+10s and scenario 60s limits remain. It is not an unchanged whole-test budget or
+proof of the original hosted asynchronous timeout cause. The separate Messages
+API device line-449 failure is not addressed by this SDK-only contribution.
+
+Own local qualification passes six selected SDK checks in 51.01s, one worker/
+1 GiB: actual guard, delayed-import/abort lifetime, both cleanup-cause controls
+and both following default-transfer variants. The other 52 scenarios are
+deliberately unselected. The final file SHA256 exactly matches the reviewed
+published result
+`360841b6c6de8609e275732c226740d986a4a3b69ccbde961b8bdb1e53fecf18`.
+No native qualification is claimed from the owner's combined 18-check run, and
+prior overlapping local runs are not added to this count. Source registration
+`v1.0.1187-symposium-sdk-fixture-lifetime` preserves all 2,503 entries and renews
+only this test's hash. Fresh CI and exact-head final review are still required;
+the device queue-continuation failure remains independently open.
