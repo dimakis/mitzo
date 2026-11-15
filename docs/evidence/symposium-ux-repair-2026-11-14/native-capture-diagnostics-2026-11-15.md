@@ -82,3 +82,50 @@ production files remain unchanged. Original compile output SHA256
 and corrected-control output are retained as `f4d-compile-original.log` and
 `native-type-correction-controls.log`. Hosted compilation and current-head final
 review still require fresh results; a local transpiled test pass is not a typecheck.
+
+## Existing-test contract follow-up after current hosted CI
+
+Exact2248449e1 completed hosted compile/source preflight132661241472 and Core
+checks successfully. Its focused43664654566 passed14 authenticated application
+checks, five client/portal controls and62 browser tests. The raw artifacts and
+exact build/viewports remain under `current-2248449e1/`; these passes do not
+qualify its failing full CI43664654595.
+
+Unit4 job132662861847 failed three existing assertions requiring generic
+`Preparation objects unavailable` text after the reviewed producer now retains
+original errors. The test-only update requires original Git code128 with no
+published view or alternate-target read, exact non-abort first-error identity,
+and original cancellation reference after all started wave reads join. Existing
+cancellation-before-object-results precedence and no-next-wave assertions remain.
+The first local test candidate incorrectly expected synchronous `status` rather
+than asynchronous `code`, and a read error despite that cancellation precedence;
+its red output is preserved, not attributed to production. The corrected three
+native controls and two targeted-sharing controls pass in12.23s. The latter
+fixture now fulfills only the exact GET source-recipient readiness response;
+all unexpected requests and non-GET requests still fail. No UI production change.
+
+The same head's Unit2 job132662861862 failed only the canonical guarded-detach
+control225 at the unchanged default5000ms budget (518 other files/7368 tests
+passed). After this actual match and exact47610a preimage, only the existing
+owner's independently reviewed d43ea9ba setup patch was adopted. Its incremental
+SHA256 is `274936e58b186f0fe4a55dfc08be946ba477dc16e2d4f15695fa11e48e33886a`,
+result Git blob `6fe3d2b5f93dcfe00783b38fe792f7b996365eee`.
+It removes unrelated Git/account fixture setup while retaining the actual
+EventStore, registry, active-owner setter and all cause/guard/store assertions.
+Default5s, lifecycle10s and scenario60s limits are unchanged. Five own affected
+controls pass52.92s: guard3.46s, both cleanup controls and default-profile
+Vertex/personal transfers. This is separate from the53.62s PR1347 receipt.
+
+Original Unit4 log SHA256
+`f57cfc3a205ef10b463b663a5f9bbb07189cb1951a88b8e24f73573831fd544a`,
+artifact14142093381 SHA256
+`dd2b4bdc51cd4e2f4cdc2f220c1421f0c68bfc6f41dc6f26ca19e18cee40895c`;
+Unit2 log SHA256
+`4389df6527bbb1178a53720cc8198bbb8223044995a2461ff4b95647f516d4fb`,
+artifact14142174013 SHA256
+`808443717d5c4548a043b299991f939dc2572315f6907e707fca34111821264d`.
+Original logs, local candidate red, focused green and SDK controls are retained
+under `current-2248449e1/`. The independently reviewed five production files
+remain unchanged; source pins retain2514 keys at revision1191. Fresh successor
+combined CI and final exact-head review remain required. Neither failure proves
+the original hosted capture cause or the original device incident.

@@ -183,6 +183,15 @@ it.each([false, true])(
           replies: [],
           refusals: [],
         });
+      if (url === `/api/session-collaborations/${view.collaborationId}/recipients/architect`)
+        return Response.json({
+          collaborationId: view.collaborationId,
+          sessionId: 'architect',
+          membershipRevision: view.membershipRevision,
+          policySequence: view.policySequence,
+          ready: true,
+          reason: null,
+        });
       if (url.endsWith('?transcript=durable'))
         return Response.json({
           sourceConversationId: 'architect',

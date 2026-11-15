@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1189-symposium-integrated-acceptance';
+  'v1.0.1191-symposium-integrated-acceptance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -682,7 +682,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ShareButton.test.tsx':
     '3b849a970077e021d448ba319494d6171a411be1fe586fa7b18e4a49394c7e70',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
-    '9610c8c937572c77d3a32be6c781bff79c7a1d8fdbaa031c92d6affb7f8bc6da',
+    '3f22736bf97ce189550445ea02f37a20a0419dbbbed67b1c711810c32fd94c9f',
   '../../frontend/src/components/__tests__/SharedConversationStatus.test.tsx':
     '51fd8c6b5fdd91b1b2c06528912aa6ecc7aa8aae28bb7b41fb379c87a2ec1f64',
   '../../frontend/src/components/__tests__/SlashPicker.test.ts':
@@ -1872,7 +1872,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/native-subagent-visibility.test.tsx':
     '75cf48bc38aa942998df4e0ae0a409cf991a205c8bc7c7d60d8d9df5bbde6bdd',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '721c4cdf15e7354e1d9ef26f27cb9e1ae79a46079b2af164a176f55dd2cd1bfd',
+    'b7ad0de82642a4117572af3c2bc49e174ddb2f57a3cfcb213897273f8f94881b',
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
     '6131e244eeb63a813e90f11e81ccc542eefbd66ae3f25df6472ca4218b252c35',
   '../../tests/integration/symposium-application-review-recovery.test.tsx':
@@ -2820,7 +2820,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-object-data.test.ts':
     'c9ed895d2fb41ce94d172c6dcc286f2b35af3ee33997910241d24260dad4aad1',
   '../__tests__/local-repository-preparation-objects.test.ts':
-    '13847bcfbcf58e47def15a1c607e1773bd3b99ebb6c99bc375673c3e5f29d2c5',
+    '5128322500517f5875c7524f261f7f45bdaf701863edfe209cc09cfacd2ff05a',
   '../__tests__/local-repository-preparation-operation-native.test.ts':
     'c2e053f558803d3b2814519483cef924a7c050c3b2e66a75e187adf9889264e9',
   '../__tests__/local-repository-preparation-operation.test.ts':

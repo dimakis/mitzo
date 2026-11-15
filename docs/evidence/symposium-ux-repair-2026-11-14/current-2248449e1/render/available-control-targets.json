@@ -1,0 +1,1735 @@
+{
+  "runId": 43664654566,
+  "prHead": "2248449e146b9c6292c001f3bc845d2cc18fa213",
+  "mergeHead": "fbca15250d0100bf45d7a4e0a74121a0ebcfbef3",
+  "route": "/",
+  "reportPath": "playwright-report/offline/index.html",
+  "reportSha256": "86e1c9955c7349892d4f9e790e657db8739a82e84bae44f67bf4fc7ade564ae8",
+  "boundary": "Narrow production composition with deterministic voice/token props. Passed tests include trial clicks without callback/audio. Distinct from authenticated application and actual ResponsiveChatView render. Duplicate report.json summary excluded.",
+  "observationCount": 42,
+  "controlCheckCount": 84,
+  "records": [
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-1f9aef8ddb75130aeba4",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-320",
+      "bodySha256": "4afd5b576876504b6321c4ca3e3ce34fd9e8e1a3b41ce007c538924e5b901fac",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 663,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 663,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-1f9aef8ddb75130aeba4",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-320",
+      "bodySha256": "fd4d56d8f8feee1a200970f0a2268a96bba3b8d442afdaa6d31a4d0ec67993f2",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 515,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 515,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-1f9aef8ddb75130aeba4",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-1280",
+      "bodySha256": "a2fbfa0c4b4cd151725c26397900f98c88596a2d4418b7101276932f9b473a1b",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1093,
+              "y": 743,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1143,
+              "y": 743,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-1f9aef8ddb75130aeba4",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-1280",
+      "bodySha256": "ce46f5f6b73a22dd4e058ade2096bc776525c6dc991628cd474ed3926da4a9eb",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1061,
+              "y": 694.75,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1111,
+              "y": 694.75,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-1f9aef8ddb75130aeba4",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-390",
+      "bodySha256": "9cec61d03c1f7698ee868d90eed1b62a4808a6e1b0cc80ae28cbe7cfb17f4eaa",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 697,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 697,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-1f9aef8ddb75130aeba4",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-390",
+      "bodySha256": "d716d510fbc840cd138f5e4761b810f31524b7f3a987d2885fc2cdbd0e513bda",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 590.75,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 590.75,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-1f9aef8ddb75130aeba4",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-source-busy",
+      "bodySha256": "9cec61d03c1f7698ee868d90eed1b62a4808a6e1b0cc80ae28cbe7cfb17f4eaa",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 697,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 697,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-302156ae11d2babebf77",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-320",
+      "bodySha256": "dc2cc32f4e7358d845a52d10047c150ce3f12069b74d5933a3e53c906251db34",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-302156ae11d2babebf77",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-320",
+      "bodySha256": "37e00cb997bba200c60f1862e0316e943b0d7311431cc61689575edff27b0244",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 571,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 571,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-302156ae11d2babebf77",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-1280",
+      "bodySha256": "42b6f42a832c9431ae24a8555f69a8972f1ea4ad95c8ea3b7235f017cb6c96c0",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1093,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1143,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-302156ae11d2babebf77",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-1280",
+      "bodySha256": "ee91ae1b1aba8b683f4f744f40bc269d0af8671f4223a72aea8400780c2df70f",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1061,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1111,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-302156ae11d2babebf77",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-390",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-302156ae11d2babebf77",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-390",
+      "bodySha256": "bdb9e3fd1a810b29c5ba76f2a5a040af38c128b92f27429d04918a1c47840294",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-302156ae11d2babebf77",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-webkit",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-source-busy",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-4a353143b9ebc6f0b77a",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-320",
+      "bodySha256": "dc2cc32f4e7358d845a52d10047c150ce3f12069b74d5933a3e53c906251db34",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-4a353143b9ebc6f0b77a",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-320",
+      "bodySha256": "3b22eb2c11f9dbb98291072b1c13ee062f6d9bff0718d87c2af342980517178f",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 539,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 539,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-4a353143b9ebc6f0b77a",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-1280",
+      "bodySha256": "42b6f42a832c9431ae24a8555f69a8972f1ea4ad95c8ea3b7235f017cb6c96c0",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1093,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1143,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-4a353143b9ebc6f0b77a",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-1280",
+      "bodySha256": "ee91ae1b1aba8b683f4f744f40bc269d0af8671f4223a72aea8400780c2df70f",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1061,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1111,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-4a353143b9ebc6f0b77a",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-390",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-4a353143b9ebc6f0b77a",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-390",
+      "bodySha256": "bdb9e3fd1a810b29c5ba76f2a5a040af38c128b92f27429d04918a1c47840294",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-4a353143b9ebc6f0b77a",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-source-busy",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-30c3f7dfc5029f3b169b",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-320",
+      "bodySha256": "dc2cc32f4e7358d845a52d10047c150ce3f12069b74d5933a3e53c906251db34",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-30c3f7dfc5029f3b169b",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-320",
+      "bodySha256": "37e00cb997bba200c60f1862e0316e943b0d7311431cc61689575edff27b0244",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 571,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 571,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-30c3f7dfc5029f3b169b",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-1280",
+      "bodySha256": "42b6f42a832c9431ae24a8555f69a8972f1ea4ad95c8ea3b7235f017cb6c96c0",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1093,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1143,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-30c3f7dfc5029f3b169b",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-1280",
+      "bodySha256": "ee91ae1b1aba8b683f4f744f40bc269d0af8671f4223a72aea8400780c2df70f",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1061,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1111,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-30c3f7dfc5029f3b169b",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-390",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-30c3f7dfc5029f3b169b",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-390",
+      "bodySha256": "bdb9e3fd1a810b29c5ba76f2a5a040af38c128b92f27429d04918a1c47840294",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-30c3f7dfc5029f3b169b",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "mobile-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-source-busy",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-ef1d75a4c474f2156519",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-320",
+      "bodySha256": "dc2cc32f4e7358d845a52d10047c150ce3f12069b74d5933a3e53c906251db34",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-ef1d75a4c474f2156519",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-320",
+      "bodySha256": "3b22eb2c11f9dbb98291072b1c13ee062f6d9bff0718d87c2af342980517178f",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 539,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 539,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-ef1d75a4c474f2156519",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-1280",
+      "bodySha256": "42b6f42a832c9431ae24a8555f69a8972f1ea4ad95c8ea3b7235f017cb6c96c0",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1093,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1143,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-ef1d75a4c474f2156519",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-1280",
+      "bodySha256": "ee91ae1b1aba8b683f4f744f40bc269d0af8671f4223a72aea8400780c2df70f",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1061,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1111,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-ef1d75a4c474f2156519",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-390",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-ef1d75a4c474f2156519",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-390",
+      "bodySha256": "bdb9e3fd1a810b29c5ba76f2a5a040af38c128b92f27429d04918a1c47840294",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-ef1d75a4c474f2156519",
+      "title": "ordinary shared surface keeps one history and composer (dark)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-source-busy",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-496b8b8835f0fa1bf300",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-320",
+      "bodySha256": "dc2cc32f4e7358d845a52d10047c150ce3f12069b74d5933a3e53c906251db34",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 667,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-496b8b8835f0fa1bf300",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-320",
+      "bodySha256": "37e00cb997bba200c60f1862e0316e943b0d7311431cc61689575edff27b0244",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 320,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 167,
+              "y": 571,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 215,
+              "y": 571,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-496b8b8835f0fa1bf300",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-1280",
+      "bodySha256": "42b6f42a832c9431ae24a8555f69a8972f1ea4ad95c8ea3b7235f017cb6c96c0",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1093,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1143,
+              "y": 745,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-496b8b8835f0fa1bf300",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-1280",
+      "bodySha256": "ee91ae1b1aba8b683f4f744f40bc269d0af8671f4223a72aea8400780c2df70f",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 1280,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 1061,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 1111,
+              "y": 701,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-496b8b8835f0fa1bf300",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-normal-390",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-496b8b8835f0fa1bf300",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-large-390",
+      "bodySha256": "bdb9e3fd1a810b29c5ba76f2a5a040af38c128b92f27429d04918a1c47840294",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "32px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 603,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "reportEntry": "2430e3ec43d7ae4dc973.json",
+      "testId": "2430e3ec43d7ae4dc973-496b8b8835f0fa1bf300",
+      "title": "ordinary shared surface keeps one history and composer (light)",
+      "project": "desktop-chromium",
+      "outcome": "expected",
+      "resultIndex": 0,
+      "attachmentName": "available-control-targets-source-busy",
+      "bodySha256": "2733f5db6bb88869ac4dc4c43a02093dabb1f01af97d6bc87368a7b535871a19",
+      "observation": {
+        "route": "/",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "textScale": "16px",
+        "boundary": "Narrow production composition with deterministic token/voice props; no audio",
+        "controls": [
+          {
+            "label": "Token usage",
+            "bounds": {
+              "x": 237,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          },
+          {
+            "label": "Record voice message",
+            "bounds": {
+              "x": 285,
+              "y": 699,
+              "width": 44,
+              "height": 44
+            },
+            "enabled": true
+          }
+        ]
+      }
+    }
+  ]
+}

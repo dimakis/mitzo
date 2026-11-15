@@ -120,11 +120,11 @@ it('refuses a required commit supplied only by an omitted alternate without prob
   await mkdir(alternate);
   await writeFile(join(alternate, 'secret'), saved);
   await writeFile(join(source, '.git', 'objects', 'info', 'alternates'), alternate + '\n');
+  const publish = vi.fn(async () => {});
   await expect(
-    withLocalRepositoryPreparationObjects(f.metadata, f.options, async () => {
-      throw Error('must not publish');
-    }),
-  ).rejects.toThrow('Preparation objects unavailable');
+    withLocalRepositoryPreparationObjects(f.metadata, f.options, publish),
+  ).rejects.toMatchObject({ code: 128 });
+  expect(publish).not.toHaveBeenCalled();
   expect(f.reads.some((path) => path.startsWith(alternate))).toBe(false);
 }, 30000);
 it.for(['symlink', 'hardlink'] as const)(
@@ -323,13 +323,15 @@ it.each(['failure', 'abort'] as const)(
       release = resolve;
     });
     const controller = new AbortController();
+    const firstFailure = Error('synthetic first object refusal');
+    const cancellation = Error('Preparation objects unavailable');
     let started = 0,
       settled = false;
     vi.spyOn(f.access, 'read').mockImplementation(async () => {
       const index = started++;
       if (index === 0) {
-        if (kind === 'abort') controller.abort(Error('Preparation objects unavailable'));
-        throw Error('synthetic first object refusal');
+        if (kind === 'abort') controller.abort(cancellation);
+        throw firstFailure;
       }
       await held;
       throw Error('synthetic joined second object refusal');
@@ -343,7 +345,27 @@ it.each(['failure', 'abort'] as const)(
     ).finally(() => {
       settled = true;
     });
-    const outcome = expect(pending).rejects.toThrow('Preparation objects unavailable');
+    const outcome = pending.then(
+      () => {
+        throw Error('must refuse the object wave');
+      },
+      (error: unknown) => {
+        if (kind === 'failure') expect(error).toBe(firstFailure);
+        else {
+          const retained = new Set<unknown>();
+          const visit = (failure: unknown) => {
+            if (retained.has(failure)) return;
+            retained.add(failure);
+            if (failure instanceof Error && 'cause' in failure) visit(failure.cause);
+            if (failure instanceof AggregateError) failure.errors.forEach(visit);
+          };
+          visit(error);
+          // The original cancellation fence takes precedence after the entire
+          // wave joins; rejected object reads cannot bypass that authority check.
+          expect(retained.has(cancellation)).toBe(true);
+        }
+      },
+    );
     try {
       for (let i = 0; i < 1000 && started < 2 && !settled; i++)
         await new Promise((resolve) => setTimeout(resolve, 10));

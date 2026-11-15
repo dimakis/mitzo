@@ -1,0 +1,178 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90m/Users/dsaridak/.local/share/mitzo/ordinary-tasks/ordinary-2edddbe4-d718-44ee-bf3d-bfb82abac2b1/mitzo[39m
+
+ [31m❯[39m server/__tests__/local-repository-preparation-objects.test.ts [2m([22m[2m19 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[33m 101541[2mms[22m[39m
+   [33m[2m✓[22m[39m qualifies required commit/tree/blobs from private bytes without mutating dirty source [33m 6310[2mms[22m[39m
+   [33m[2m✓[22m[39m never reads omitted object info, alternate targets or executable source config [33m 6249[2mms[22m[39m
+[31m   [31m×[31m refuses a required commit supplied only by an omitted alternate without probing its target[39m[33m 3584[2mms[22m[39m
+   [33m[2m✓[22m[39m refuses consumed symlink storage without following or changing it [33m 2772[2mms[22m[39m
+   [33m[2m✓[22m[39m refuses consumed hardlink storage without following or changing it [33m 2608[2mms[22m[39m
+   [33m[2m✓[22m[39m supports fixed private packed storage without reading source object info [33m 3935[2mms[22m[39m
+   [33m[2m✓[22m[39m prepares a packed checkout while omitting maintenance sidecar multi-pack-index [33m 3713[2mms[22m[39m
+   [33m[2m✓[22m[39m prepares a packed checkout while omitting maintenance sidecar pack-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.mtimes [33m 3801[2mms[22m[39m
+   [33m[2m✓[22m[39m refuses a blob whose valid compression/header conceals content not matching its object name [33m 3853[2mms[22m[39m
+   [33m[2m✓[22m[39m rechecks consumed storage after the action and preserves changed source bytes on refusal [33m 6130[2mms[22m[39m
+   [33m[2m✓[22m[39m qualifies a shallow base without requiring unconsumed parent history [33m 8784[2mms[22m[39m
+   [33m[2m✓[22m[39m preserves a superproject gitlink without requiring or fetching the external commit [33m 8257[2mms[22m[39m
+   [33m[2m✓[22m[39m refuses compressed object headers declaring oversized expansion before publishing a view [33m 5523[2mms[22m[39m
+   [33m[2m✓[22m[39m retains a foreign replacement when failed actor cleanup sees changed private scratch custody [33m 6422[2mms[22m[39m
+   [33m[2m✓[22m[39m observes object parents before joining at most two independent byte reads per wave [33m 6684[2mms[22m[39m
+   [33m[2m✓[22m[39m joins a failure object wave before refusing and never launches the next wave [33m 3215[2mms[22m[39m
+[31m   [31m×[31m joins a abort object wave before refusing and never launches the next wave[39m[33m 1950[2mms[22m[39m
+   [33m[2m✓[22m[39m preserves ordinary listing coverage for numerous optional pack accelerators [33m 7181[2mms[22m[39m
+   [33m[2m✓[22m[39m bounds expanded checkout content independently of unrelated historical blobs [33m 10569[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/SharedConversation.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 4941[2mms[22m[39m
+   [33m[2m✓[22m[39m observes remote rejoining and its reply after the last other participant leaves, without a local send or refresh [33m 4567[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m server/__tests__/local-repository-preparation-objects.test.ts[2m > [22mrefuses a required commit supplied only by an omitted alternate without probing its target
+[31m[1mAssertionError[22m: expected Error: Command failed: /usr/bin/git --git… { …(6) } to match object { status: 128 }
+(87 matching properties omitted from actual)[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- {[39m
+[32m-   "status": 128,[39m
+[31m+ Error {[39m
+[31m+   "message": "Command failed: /usr/bin/git --git-dir /private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-shell-L8TwHe/tmp/mitzo-preparation-objects-mp2TLo/git-admin cat-file -e 70c504c79167468c9baf57870038efcae45cb8a6^{commit}[39m
+[31m+ fatal: Not a valid object name 70c504c79167468c9baf57870038efcae45cb8a6^{commit}[39m
+[31m+ ",[39m
+[31m+   "code": 128,[39m
+[31m+   "killed": false,[39m
+[31m+   "signal": null,[39m
+[31m+   "cmd": "/usr/bin/git --git-dir /private/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/mitzo-shell-L8TwHe/tmp/mitzo-preparation-objects-mp2TLo/git-admin cat-file -e 70c504c79167468c9baf57870038efcae45cb8a6^{commit}",[39m
+[31m+   "stdout": {[39m
+[31m+     "data": [],[39m
+[31m+     "type": "Buffer",[39m
+[31m+   },[39m
+[31m+   "stderr": {[39m
+[31m+     "data": [[39m
+[31m+       102,[39m
+[31m+       97,[39m
+[31m+       116,[39m
+[31m+       97,[39m
+[31m+       108,[39m
+[31m+       58,[39m
+[31m+       32,[39m
+[31m+       78,[39m
+[31m+       111,[39m
+[31m+       116,[39m
+[31m+       32,[39m
+[31m+       97,[39m
+[31m+       32,[39m
+[31m+       118,[39m
+[31m+       97,[39m
+[31m+       108,[39m
+[31m+       105,[39m
+[31m+       100,[39m
+[31m+       32,[39m
+[31m+       111,[39m
+[31m+       98,[39m
+[31m+       106,[39m
+[31m+       101,[39m
+[31m+       99,[39m
+[31m+       116,[39m
+[31m+       32,[39m
+[31m+       110,[39m
+[31m+       97,[39m
+[31m+       109,[39m
+[31m+       101,[39m
+[31m+       32,[39m
+[31m+       55,[39m
+[31m+       48,[39m
+[31m+       99,[39m
+[31m+       53,[39m
+[31m+       48,[39m
+[31m+       52,[39m
+[31m+       99,[39m
+[31m+       55,[39m
+[31m+       57,[39m
+[31m+       49,[39m
+[31m+       54,[39m
+[31m+       55,[39m
+[31m+       52,[39m
+[31m+       54,[39m
+[31m+       56,[39m
+[31m+       99,[39m
+[31m+       57,[39m
+[31m+       98,[39m
+[31m+       97,[39m
+[31m+       102,[39m
+[31m+       53,[39m
+[31m+       55,[39m
+[31m+       56,[39m
+[31m+       55,[39m
+[31m+       48,[39m
+[31m+       48,[39m
+[31m+       51,[39m
+[31m+       56,[39m
+[31m+       101,[39m
+[31m+       102,[39m
+[31m+       99,[39m
+[31m+       97,[39m
+[31m+       101,[39m
+[31m+       52,[39m
+[31m+       53,[39m
+[31m+       99,[39m
+[31m+       98,[39m
+[31m+       56,[39m
+[31m+       97,[39m
+[31m+       54,[39m
+[31m+       94,[39m
+[31m+       123,[39m
+[31m+       99,[39m
+[31m+       111,[39m
+[31m+       109,[39m
+[31m+       109,[39m
+[31m+       105,[39m
+[31m+       116,[39m
+[31m+       125,[39m
+[31m+       10,[39m
+[31m+     ],[39m
+[31m+     "type": "Buffer",[39m
+[31m+   },[39m
+[2m  }[22m
+
+[36m [2m❯[22m server/__tests__/local-repository-preparation-objects.test.ts:[2m126:3[22m[39m
+    [90m124|[39m   [35mawait[39m [34mexpect[39m(
+    [90m125|[39m     withLocalRepositoryPreparationObjects(f.metadata, f.options, publi…
+    [90m126|[39m   )[33m.[39mrejects[33m.[39m[34mtoMatchObject[39m({ status[33m:[39m [34m128[39m })[33m;[39m
+    [90m   |[39m   [31m^[39m
+    [90m127|[39m   [34mexpect[39m(publish)[33m.[39mnot[33m.[39m[34mtoHaveBeenCalled[39m()[33m;[39m
+    [90m128|[39m   expect(f.reads.some((path) => path.startsWith(alternate))).toBe(fals…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m server/__tests__/local-repository-preparation-objects.test.ts[2m > [22mjoins a abort object wave before refusing and never launches the next wave
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m server/__tests__/local-repository-preparation-objects.test.ts:[2m363:46[22m[39m
+    [90m361|[39m           }[33m;[39m
+    [90m362|[39m           [34mvisit[39m(error)[33m;[39m
+    [90m363|[39m           [34mexpect[39m(retained[33m.[39m[34mhas[39m(firstFailure))[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   |[39m                                              [31m^[39m
+    [90m364|[39m           [34mexpect[39m(retained[33m.[39m[34mhas[39m(cancellation))[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m365|[39m         }
+[90m [2m❯[22m server/__tests__/local-repository-preparation-objects.test.ts:[2m375:7[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m27 passed[39m[22m[90m (29)[39m
+[2m   Start at [22m 02:08:21
+[2m   Duration [22m 109.62s[2m (transform 1.41s, setup 0ms, import 2.38s, tests 106.48s, environment 557ms)[22m
+
+npm notice
+npm notice New minor version of npm available! 11.6.0 -> 11.21.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.21.2
+npm notice To update run: npm install -g npm@11.21.2
+npm notice
