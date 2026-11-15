@@ -26,6 +26,14 @@ missing history and generic cleanup cannot manufacture original result evidence.
 Malformed or mismatched thread provenance fails visibly. No reset or reconciliation
 mutation is exposed by this endpoint.
 
+Unexpected recovery or steering failures retain the original exception under the
+returned diagnostic ID in the process-local runtime diagnostic owner. Internal
+`retainedRuntimeFailure(id)` inspection preserves exception identity and any
+secondary logging failure. The buffer retains the latest 32 failures and expires
+on process restart; it is not a durable recovery receipt. Raw causes are never
+included in HTTP responses or logs, and a failed logger does not replace the safe
+failure response. This adds no public exception-inspection endpoint.
+
 ## Qualification and remaining acceptance
 
 PR #1348 was accepted as `19aa8a19b274ae1fee416f0f187c772111251366`; its

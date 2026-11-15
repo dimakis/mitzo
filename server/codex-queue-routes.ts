@@ -10,7 +10,7 @@ import type { AccountBinding } from '@mitzo/protocol';
 import type { CodexConversationStore } from './codex-conversation-store.js';
 import { randomUUID } from 'node:crypto';
 import { createLogger } from './logger.js';
-import { runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
+import { retainRuntimeFailure, runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
 
 const log = createLogger('codex-queue-routes');
 
@@ -113,12 +113,14 @@ export function createCodexQueueRouter(deps: Dependencies) {
         code: 'sdk_recovery_inspection_unavailable',
         diagnosticId: randomUUID(),
       };
-      log.warn('SDK recovery inspection unavailable', {
-        ...diagnostic,
-        stage: 'recovery_inspection',
-        sessionId: req.params.id,
-        ...runtimeFailureDiagnostics(cause),
-      });
+      retainRuntimeFailure(diagnostic.diagnosticId, cause, () =>
+        log.warn('SDK recovery inspection unavailable', {
+          ...diagnostic,
+          stage: 'recovery_inspection',
+          sessionId: req.params.id,
+          ...runtimeFailureDiagnostics(cause),
+        }),
+      );
       res.status(503).json({
         ...diagnostic,
         error: `Original SDK evidence is unavailable. Preserve this conversation and inspect its original owner. Reference: ${diagnostic.diagnosticId}`,
@@ -193,14 +195,16 @@ export function createCodexQueueRouter(deps: Dependencies) {
         .json({ requestId: input.data.requestId, status: result.status });
     } catch (cause) {
       const diagnostic = { code: 'turn_steering_unconfirmed', diagnosticId: randomUUID() };
-      log.warn('Turn correction could not be confirmed', {
-        ...diagnostic,
-        stage: 'steering_dispatch',
-        sessionId: req.params.id,
-        requestId: input.data.requestId,
-        targetCommandId: input.data.targetCommandId,
-        ...runtimeFailureDiagnostics(cause),
-      });
+      retainRuntimeFailure(diagnostic.diagnosticId, cause, () =>
+        log.warn('Turn correction could not be confirmed', {
+          ...diagnostic,
+          stage: 'steering_dispatch',
+          sessionId: req.params.id,
+          requestId: input.data.requestId,
+          targetCommandId: input.data.targetCommandId,
+          ...runtimeFailureDiagnostics(cause),
+        }),
+      );
       res.status(409).json({
         ...diagnostic,
         error: `The correction could not be confirmed. Keep the text and check the active turn. Reference: ${diagnostic.diagnosticId}`,
