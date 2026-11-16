@@ -11,7 +11,7 @@ import {
   SandboxRuntimeConfigSchema,
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
-import { AuthoritySnapshot, type SerializedAuthority } from './sandbox-authority.js';
+import { AuthoritySnapshot, validatePath, type SerializedAuthority } from './sandbox-authority.js';
 import {
   privateNativeFileHelperCommand,
   privateNativeFileProgramCommand,
@@ -28,12 +28,93 @@ export interface SandboxWorkerPayload {
   env?: NodeJS.ProcessEnv;
   /** Trusted SDK runtime-only enrollment fences files without changing network policy. */
   filesystemOnly?: boolean;
+  /** Controller-selected SDK launch workspace; never supplied by provider tools. */
+  sdkGitWorkRoot?: string;
   /** Trusted parent has approved this command's general network effects. */
   networkAccess?: 'approved-command' | 'loopback';
   /** Fixed private helper only, never arbitrary Bash's authority bypass. */
   privateNativeFileRequestJson?: string;
   privateNativeFileProgram?: { programPath: string; requestPath: string };
   privateRepositoryCheckoutJson?: string;
+}
+
+/** Add deny-only rules to the pinned SRT Seatbelt policy. Its allowGitConfig is global; the
+ * SDK must only gain config writes for repositories created below its workspace.
+ * macOS cannot apply a second sandbox_init after entering the first sandbox.
+ * Decode only SRT's literal single-quote encoding, never execute a shell parser,
+ * and fail closed if its invocation contract changes. Retain every argv value
+ * and append restrictions to its original profile; do not reconstruct its policy.
+ */
+export function wrapSdkGitMetadata(command: string, root: string): string {
+  validatePath(root);
+  const argv: string[] = [];
+  let offset = 0;
+  while (offset < command.length) {
+    if (/\s/.test(command[offset]!)) {
+      offset++;
+      continue;
+    }
+    let value = '';
+    while (offset < command.length && !/\s/.test(command[offset]!)) {
+      if (command[offset] === "'") {
+        const end = command.indexOf("'", offset + 1);
+        if (end < 0) throw Error('Unsupported SRT SDK sandbox invocation');
+        value += command.slice(offset + 1, end);
+        offset = end + 1;
+      } else if (command.startsWith('"\'"', offset)) {
+        value += "'";
+        offset += 3;
+      } else {
+        const literal = /^[A-Za-z0-9_./:=@+,-]+/.exec(command.slice(offset));
+        if (!literal) throw Error('Unsupported SRT SDK sandbox invocation');
+        value += literal[0];
+        offset += literal[0].length;
+      }
+    }
+    argv.push(value);
+  }
+  const sandbox = argv.indexOf('/usr/bin/sandbox-exec');
+  let prefix = 1;
+  while (prefix < sandbox && argv[prefix] === '-u') {
+    if (prefix + 1 >= sandbox || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(argv[prefix + 1]!))
+      throw Error('Unsupported SRT SDK sandbox invocation');
+    prefix += 2;
+  }
+  for (; prefix < sandbox; prefix++) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[prefix]!))
+      throw Error('Unsupported SRT SDK sandbox invocation');
+  }
+  if (
+    argv[0] !== 'env' ||
+    sandbox < 1 ||
+    argv.lastIndexOf('/usr/bin/sandbox-exec') !== sandbox ||
+    argv.length !== sandbox + 6 ||
+    argv[sandbox + 1] !== '-p' ||
+    argv[sandbox + 4] !== '-c' ||
+    !['/bin/sh', '/bin/bash', '/bin/zsh'].includes(argv[sandbox + 3]!) ||
+    !argv[sandbox + 2]!.startsWith('(version 1)\n') ||
+    !/\n\(deny default[ )]/.test(argv[sandbox + 2]!)
+  )
+    throw Error('Unsupported SRT SDK sandbox invocation');
+  const string = (value: string) => JSON.stringify(value);
+  const restrictions = [
+    // SRT explicitly allows unlink/create beneath write roots. Seatbelt's
+    // specific-operation allows beat a file-write* deny, so re-deny moves and
+    // deletion explicitly as well as content/metadata writes.
+    `(deny file-write* file-write-unlink file-write-create (require-all (regex ${string('.*/\\.git(/.*)?$')}) (require-not (subpath ${string(root)}))))`,
+    `(deny file-write* file-write-unlink file-write-create (subpath ${string(join(root, '.git'))}))`,
+    // Pin the selected workspace and its ancestors against replacement.
+    ...(() => {
+      const paths = [];
+      for (let path = root; path !== '/'; path = dirname(path)) paths.push(path);
+      return paths.map(
+        (path) => `(deny file-write-unlink file-write-create (literal ${string(path)}))`,
+      );
+    })(),
+  ].join('\n');
+  argv[sandbox + 2] = argv[sandbox + 2]! + '\n' + restrictions;
+  const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
+  return argv.map(quote).join(' ');
 }
 
 interface WorkerDependencies {
@@ -120,6 +201,15 @@ export async function runSandboxedWorker(
   dependencies: WorkerDependencies = { manager: SandboxManager, spawn },
 ): Promise<number> {
   const { manager, spawn: spawnCommand } = dependencies;
+  if (payload.sdkGitWorkRoot !== undefined) {
+    validatePath(payload.sdkGitWorkRoot);
+    if (
+      payload.sdkGitWorkRoot !== payload.cwd ||
+      (dependencies.platform ?? process.platform) !== 'darwin' ||
+      !payload.authority.some((entry) => entry.path === payload.sdkGitWorkRoot)
+    )
+      throw Error('Invalid SDK Git workspace authority');
+  }
   if (
     payload.networkAccess !== undefined &&
     !['approved-command', 'loopback'].includes(payload.networkAccess)
@@ -246,13 +336,16 @@ export async function runSandboxedWorker(
     const command = payload.env
       ? [process.execPath, '-e', launcher].map(quote).join(' ')
       : payload.command;
-    const wrapped = payload.filesystemOnly
+    const inner = payload.filesystemOnly
       ? await (dependencies.wrapFilesystem ?? wrapFilesystemOnly)(command, config)
       : directPrivateFile
         ? await (dependencies.wrapPrivateFile ?? wrapPrivateFile)(command, config)
         : await manager.wrapWithSandbox(command, undefined, undefined, undefined, {
             commandId: randomUUID(),
           });
+    const wrapped = payload.sdkGitWorkRoot
+      ? wrapSdkGitMetadata(inner, payload.sdkGitWorkRoot)
+      : inner;
     // Wrapping initializes network/mount policy asynchronously. Recheck only
     // after it completes, with no await before the actual sandboxed command spawn.
     authority.verify();

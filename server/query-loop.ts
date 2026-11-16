@@ -489,9 +489,15 @@ async function _runQueryLoopInner(
     stage: 'native_query_retirement' | 'query_close',
     publish: (action: () => void) => void = (action) => action(),
   ) {
+    // A resumed task replaces its cancellation mapping, but an older observed
+    // run still needs an uncertainty outcome if its receipt never arrives.
+    const unfinishedRuns = new Map<string, string>();
+    for (const [taskId, runs] of observedTaskRuns)
+      for (const run of runs.values()) if (!run.completed) unfinishedRuns.set(run.toolId, taskId);
     const pendingChildren = new Set([
       ...activeSubagents.keys(),
       ...(session.activeTaskIds?.values() ?? []),
+      ...unfinishedRuns.keys(),
     ]);
     for (const toolId of pendingChildren) {
       if (
@@ -512,7 +518,7 @@ async function _runQueryLoopInner(
         ...diagnostic,
       });
       publish(() => {
-        finishTaskChild(toolId, 'unavailable', undefined, diagnostic);
+        finishTaskChild(toolId, 'unavailable', unfinishedRuns.get(toolId), diagnostic);
         unavailableSubagents.add(toolId);
       });
     }

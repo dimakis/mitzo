@@ -571,6 +571,28 @@ jobs:
             throw new Error('All four native Claude login sandbox checks must execute and pass');
           }
           NODE
+      - name: Verify Claude and task-runner Git setup through real OS boundaries
+        if: ${{ !cancelled() }}
+        env:
+          MITZO_TEST_OS_SANDBOX: '1'
+          MITZO_SANDBOX_INTEGRATION: '1'
+        run: |
+          npx vitest run server/__tests__/credential-sdk-runtime-authority.test.ts server/__tests__/sandboxed-command.test.ts --maxWorkers=1 -t 'clones and develops|creates and develops' --reporter=default --reporter=json --outputFile=test-results/claude-repository-setup.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync('test-results/claude-repository-setup.json', 'utf8'));
+          const required = [
+            'clones and develops through the real SDK boundary (Keychain 0)',
+            'clones and develops through the real SDK boundary (Keychain 1)',
+            'OS sandbox creates and develops a nested repository without granting its parent Git metadata',
+          ];
+          const checks = result.testResults.flatMap(suite => suite.assertionResults)
+            .filter(test => /clones and develops|creates and develops/.test(test.fullName));
+          if (!result.success || checks.length !== 3 ||
+              required.some(name => !checks.some(test => test.fullName === name && test.status === 'passed'))) {
+            throw new Error('Both SDK modes and the task runner must develop a repository through the real OS sandbox; skips are not qualification');
+          }
+          NODE
       - name: Verify complete native repository workflows on both owned account routes
         if: ${{ !cancelled() }}
         env:
@@ -598,6 +620,7 @@ jobs:
         with:
           name: native-repository-workflows-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            test-results/claude-repository-setup.json
             test-results/standalone-task-proofs.json
             test-results/native-repository-workflows-processes/
             test-results/native-repository-workflows/

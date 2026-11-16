@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { mkdtemp, mkdir, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -77,6 +77,8 @@ it.each([undefined, 'loopback', 'approved-command'] as const)(
     await mkdir(cwd);
     let payload: SandboxWorkerPayload | undefined;
     let childEnvironment: NodeJS.ProcessEnv | undefined;
+    let templateEntries: string[] | undefined;
+    let templateMode: number | undefined;
     vi.spyOn(SandboxManager, 'checkDependencies').mockReturnValue({ errors: [], warnings: [] });
     vi.mocked(spawn).mockImplementation((_command, args, options) => {
       const child = Object.assign(new EventEmitter(), {
@@ -84,10 +86,17 @@ it.each([undefined, 'loopback', 'approved-command'] as const)(
         stderr: new PassThrough(),
       });
       childEnvironment = options?.env;
-      void readFile(args![args!.length - 1], 'utf8').then((bytes) => {
-        payload = JSON.parse(bytes);
-        child.emit('close', 0, null);
-      });
+      void readFile(args![args!.length - 1], 'utf8')
+        .then(async (bytes) => {
+          payload = JSON.parse(bytes);
+          const template = childEnvironment!.GIT_TEMPLATE_DIR!;
+          templateEntries = await readdir(template);
+          templateMode = (await stat(template)).mode & 0o777;
+          child.emit('close', 0, null);
+        })
+        .catch((cause) => {
+          child.emit('error', cause);
+        });
       return child as unknown as ReturnType<typeof spawn>;
     });
     try {
@@ -110,6 +119,12 @@ it.each([undefined, 'loopback', 'approved-command'] as const)(
       expect(payload?.config.network.allowAllUnixSockets).toBe(false);
       expect(payload?.config.network.allowLocalBinding).toBe(networkAccess !== undefined);
       expect(payload?.config.filesystem.allowWrite).toContain(cwd);
+      expect(payload?.config.filesystem.allowGitConfig).toBe(true);
+      expect(templateEntries).toEqual([]);
+      expect(templateMode).toBe(0o500);
+      expect(payload?.config.filesystem.allowWrite).not.toContain(
+        childEnvironment?.GIT_TEMPLATE_DIR,
+      );
       expect(payload?.filesystemOnly).toBeUndefined();
       expect(childEnvironment?.OPENAI_API_KEY).toBeUndefined();
       expect(JSON.stringify(payload)).not.toContain('synthetic-secret');

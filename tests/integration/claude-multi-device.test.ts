@@ -436,6 +436,19 @@ it.each([
     expect(await mobile.post(`/api/sessions/${id}/codex-queue/continue`, {})).toMatchObject({
       status: 409,
     });
+    const assertEffect = OrdinaryLocalVertexOwnedRuntime.prototype.assertEffect;
+    let delayedPreparation = false;
+    vi.spyOn(OrdinaryLocalVertexOwnedRuntime.prototype, 'assertEffect').mockImplementation(
+      async function (this: InstanceType<typeof OrdinaryLocalVertexOwnedRuntime>, commandId) {
+        // Real authority I/O may exceed Vitest's default one-second poll window.
+        // Delay one successor check while preserving every original fence.
+        if (commandId === raced.clientMsgId && !delayedPreparation) {
+          delayedPreparation = true;
+          await new Promise<void>((resolve) => setTimeout(resolve, 1_200));
+        }
+        await assertEffect.call(this, commandId);
+      },
+    );
     hold = false;
     finish!();
     await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
@@ -451,9 +464,11 @@ it.each([
     expect(await mobile.post(`/api/sessions/${id}/codex-queue/continue`, {})).toMatchObject({
       status: 200,
     });
-    await vi.waitFor(() =>
-      expect(inputs).toEqual([wire.clientMsgId, queued.clientMsgId, raced.clientMsgId]),
+    await vi.waitFor(
+      () => expect(inputs).toEqual([wire.clientMsgId, queued.clientMsgId, raced.clientMsgId]),
+      { timeout: 10_000 },
     );
+    expect(delayedPreparation).toBe(true);
     await vi.waitFor(() => expect(chat.eventStore.getSession(id)?.executionPhase).toBe('TERMINAL'));
     expect(chat.eventStore.getOrdinaryLocalVertexCustody(id)).toEqual(custody);
     expect(chat.eventStore.getSession(id)).toMatchObject({
