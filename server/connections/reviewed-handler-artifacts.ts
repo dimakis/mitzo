@@ -3639,7 +3639,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/tool-builder-responses.test.ts':
     '31a03a7f6b588bc8b106227cb37344650428d2245286c28512814a7776b6e70f',
   '../__tests__/tool-failure-reporting.test.ts':
-    '10c5752076ec412d75e6dbf0b6b5125d974280124d3fef8d5dde374007063916',
+    'e161b451d56da740317fe1b2ebe5b94c00f4f3e02f3fec2a1a20e337b5371824',
   '../__tests__/tool-library-sdk.test.ts':
     'b95effe09a93d35ec9c8c139c8bbd151b81d652caa2e5296bbde9e100b6e267f',
   '../__tests__/tool-validation-consumer.test.ts':
@@ -4067,7 +4067,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-native-read.ts':
     '1f56d47bcbca795a66882128ae7402fbfb7f10848b5a798e55dc625ce1074c51',
   '../local-repository-native-reader.ts':
-    '4049be365f088d37f1ff2ff45cf472542f3d1aaa8608d0b725353f5775ec3097',
+    '57921fdaffec8db96ed9751a275182208e63c1b285e9c69234c306751c26210a',
   '../local-repository-preparation-authorization.ts':
     'c176c1ce5dcffa53a5de8242238e1e91f8d0db784dcdee9e4bf871b45db83cd0',
   '../local-repository-preparation-input.ts':
@@ -4370,7 +4370,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': 'ff6aeb8fa52a2dd825e934871a3e0d184f92d7dcd7eb66c6594e1c00b2fcb975',
+  '../query-loop.ts': '6daad2f6f847378bd018fd07c26d0af7df4f270731399c401be2628aa67a880d',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',
@@ -4804,7 +4804,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../tool-failure-continuation.ts':
     '7e3756c1f9ddbb4893e53571cf28ed7e1105dbbc3a2c216a7c1e62a1ed10ca6e',
   '../tool-failure-reporting.ts':
-    '8b0b91a178939a58aa6a0ab4d461d6520346763b128770be857e6eb85d4de601',
+    '470fb7393967549a0d70125fa0c9bdd6dfaba07b112a0c9ca17c37db4ae8955b',
   '../tool-input-error.ts': '84137699ec55ee4ff47c1516e567f3ea605b1f76a51e9d1600b6a56ddb41eb5b',
   '../tool-library-sdk.ts': '70892ff54af3d956807d6c6b3ee5e74eef3d0060de7510fe29cdb050c9f96c63',
   '../tool-output-projection.ts':
