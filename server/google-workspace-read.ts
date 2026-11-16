@@ -36,6 +36,8 @@ export const GoogleWorkspaceReadSchema = z.discriminatedUnion('operation', [
     timeMax: z.iso.datetime({ offset: true }).optional(),
     maxResults: z.number().int().min(1).max(100).default(20),
     pageToken,
+    fields,
+    singleEvents: z.boolean().default(true),
   }),
 ]);
 /** MCP SDK registration requires an object shape. Derive the advertised fields
@@ -146,6 +148,9 @@ export function googleWorkspaceReadTarget(input: unknown) {
     case 'calendar.list':
       path = `/calendar/v3/calendars/${encodeURIComponent(request.calendarId)}/events`;
       query.set('maxResults', String(request.maxResults));
+      query.set('singleEvents', String(request.singleEvents));
+      if (request.singleEvents) query.set('orderBy', 'startTime');
+      if (request.fields) query.set('fields', request.fields);
       for (const key of ['timeMin', 'timeMax', 'pageToken'] as const)
         if (request[key]) query.set(key, request[key]);
       break;
