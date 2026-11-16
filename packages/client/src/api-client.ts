@@ -9,6 +9,8 @@ import {
   CollaborationDurableTranscriptSchema,
   COLLABORATION_DURABLE_TRANSCRIPT_MAX_WIRE_BYTES,
   SymposiumProvenanceSchema,
+  MessageRetractionSchema,
+  type MessageRetraction,
 } from '@mitzo/protocol';
 import { CollaborationApiClient } from './collaboration-api.js';
 import type { FinishedBlock, FinishedMessage, Session, SymposiumProvenance } from '@mitzo/protocol';
@@ -43,6 +45,8 @@ export interface GitInfo {
 
 export interface ReconnectTranscript {
   cursor?: number;
+  /** Verified ordinary projection receipts from this exact durable prefix. */
+  retractions?: MessageRetraction[];
   messages: FinishedMessage[];
   current: {
     messageId: string;
@@ -304,7 +308,27 @@ export class MitzoApiClient {
       (!Number.isSafeInteger(transcript.cursor) || transcript.cursor < 0)
     )
       throw new Error('Invalid transcript cursor');
-    return { ...transcript, currents };
+    const retractions = transcript.retractions;
+    if (retractions !== undefined && !Array.isArray(retractions))
+      throw new Error('Invalid transcript retractions');
+    return {
+      ...transcript,
+      currents,
+      ...(retractions
+        ? {
+            retractions: retractions.map((target) => {
+              if (
+                !target ||
+                typeof target !== 'object' ||
+                'seatId' in target ||
+                'symposiumProvenance' in target
+              )
+                throw new Error('Invalid ordinary transcript retraction');
+              return MessageRetractionSchema.parse(target);
+            }),
+          }
+        : {}),
+    };
   }
 
   async getSessionMeta(sessionId: string): Promise<SessionMetaResponse | null> {

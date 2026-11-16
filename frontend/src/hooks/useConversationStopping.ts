@@ -118,8 +118,10 @@ export function useConversationStopping(options: {
       record.authScope === latest.current.authScope &&
       latest.current.memberIds.includes(record.input.targets[0].sessionId);
     try {
+      // Freeze every selected target before the first network effect. A reload
+      // must recover the later targets with their original request identities.
+      for (const record of records) await persist(record);
       for (const record of records) {
-        await persist(record);
         if (!fresh(record)) return;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 15000);

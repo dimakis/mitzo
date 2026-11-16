@@ -13,6 +13,7 @@ import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-dra
 import {
   sharedConversationView,
   sharedReply,
+  uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 import { installDialogStub } from './dialog-stub';
 import type { UseVoiceReturn } from '../../hooks/useVoice';
@@ -62,6 +63,7 @@ function fixture(
   originalName?: string,
 ) {
   const view = sharedConversationView();
+  const history: typeof view.messages = [];
   view.messages = [];
   view.policies.forEach((p) => {
     p.readsFutureDiscussion = false;
@@ -91,6 +93,23 @@ function fixture(
   const agentStops: { targets: { sessionId: string; deliveryId: string; commandId: string }[] }[] =
     [];
   const transport = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes('/events') && history.length) {
+      const after = Number(new URL(url, 'http://offline').searchParams.get('after'));
+      const page = history.filter((message) => message.sequence > after).slice(0, 50);
+      const cursor = page.at(-1)?.sequence ?? after;
+      return Response.json({
+        events: page.map((message) => ({
+          version: 1,
+          collaborationId: view.collaborationId,
+          eventId: uuid(900 + message.sequence),
+          sequence: message.sequence,
+          change: { kind: 'message', message },
+        })),
+        cursor,
+        highWatermark: view.cursor,
+        hasMore: cursor < view.cursor,
+      });
+    }
     if (url.endsWith('/codex-queue/steer')) {
       const input = JSON.parse(init!.body as string);
       steers.push({ sessionId: url.split('/')[3], input });
@@ -254,6 +273,7 @@ function fixture(
   );
   return {
     view,
+    history,
     tree,
     sends,
     stops,
@@ -355,54 +375,73 @@ it('keeps the original named agent as the explicit initial recipient', async () 
   expect(f.sends).toHaveLength(0);
 });
 
-it('uses one targeted Stop and Steer for multiple running agents while keeping inline selection and the same composer', async () => {
-  const f = fixture(false, undefined, 'Architect');
-  f.view.messages = [structuredClone(sharedConversationView().messages[0])];
-  f.view.messages[0].deliveries
-    .filter((delivery) => delivery.purpose === 'reply')
-    .forEach((delivery) => {
-      delivery.status = 'delivered';
-      delivery.reason = null;
-    });
-  const source = {
-    ...chat,
-    running: true,
-    messages: [
-      ...chat.messages,
-      {
-        messageId: 'ordinary-architect',
-        role: 'user' as const,
-        commandState: 'running' as const,
-        blocks: [
-          { blockId: 'active', blockType: 'text' as const, content: 'Original active request' },
-        ],
-      },
-    ],
-  };
-  render(f.tree(source));
-  await screen.findByRole('group', { name: 'Reply recipients' });
-  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
-  const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
-  fireEvent.change(input, { target: { value: 'Check the UI before continuing' } });
-  fireEvent.click(await screen.findByRole('button', { name: 'Steer Architect, Reviewer' }));
-  await waitFor(() => expect(f.steers).toHaveLength(2));
-  expect(f.steers.map((request) => request.sessionId)).toEqual(['architect', 'reviewer']);
-  expect(new Set(f.steers.map((request) => request.input.targetCommandId)).size).toBe(2);
-  expect(screen.queryByRole('button', { name: 'Stop original agent' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Stop generation' })).toBeNull();
-  expect(screen.queryByRole('button', { name: /^Send to / })).toBeNull();
-  expect(screen.getByRole('button', { name: 'Steer Architect, Reviewer' }).textContent).toBe('');
-  expect(screen.getByRole('button', { name: 'Stop Architect, Reviewer' }).textContent).toBe('');
-  fireEvent.click(screen.getByRole('button', { name: 'Stop Architect, Reviewer' }));
-  await waitFor(() => expect(f.agentStops).toHaveLength(2));
-  expect(
-    f.agentStops.flatMap((request) => request.targets.map((target) => target.sessionId)),
-  ).toEqual(['architect', 'reviewer']);
-  expect(f.ordinaryStop).not.toHaveBeenCalled();
-  expect(f.sends).toHaveLength(0);
-  expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
-});
+it.each([false, true])(
+  'uses targeted Stop and Steer after reopening with paged history: %s',
+  async (paged) => {
+    const f = fixture(false, undefined, 'Architect');
+    f.view.messages = [structuredClone(sharedConversationView().messages[0])];
+    f.view.messages[0].deliveries
+      .filter((delivery) => delivery.purpose === 'reply')
+      .forEach((delivery) => {
+        delivery.status = 'delivered';
+        delivery.reason = null;
+      });
+    if (paged) {
+      f.history.push(
+        f.view.messages[0],
+        ...Array.from({ length: 50 }, (_, index) => ({
+          ...structuredClone(sharedReply),
+          messageId: uuid(100 + index),
+          projectionId: uuid(200 + index),
+          sequence: index + 2,
+          text: `Later reply ${index}`,
+          deliveries: [],
+        })),
+      );
+      f.view.messages = f.history.slice(-50);
+      f.view.hasEarlierMessages = true;
+      f.view.cursor = 51;
+    }
+    const source = {
+      ...chat,
+      running: true,
+      messages: [
+        ...chat.messages,
+        {
+          messageId: 'ordinary-architect',
+          role: 'user' as const,
+          commandState: 'running' as const,
+          blocks: [
+            { blockId: 'active', blockType: 'text' as const, content: 'Original active request' },
+          ],
+        },
+      ],
+    };
+    render(f.tree(source));
+    await screen.findByRole('group', { name: 'Reply recipients' });
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    fireEvent.change(input, { target: { value: 'Check the UI before continuing' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Steer Architect, Reviewer' }));
+    await waitFor(() => expect(f.steers).toHaveLength(2));
+    expect(f.steers.map((request) => request.sessionId)).toEqual(['architect', 'reviewer']);
+    expect(new Set(f.steers.map((request) => request.input.targetCommandId)).size).toBe(2);
+    expect(screen.queryByRole('button', { name: 'Stop original agent' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Stop generation' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Send to / })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Steer Architect, Reviewer' }).textContent).toBe('');
+    expect(screen.getByRole('button', { name: 'Stop Architect, Reviewer' }).textContent).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Architect, Reviewer' }));
+    await waitFor(() => expect(f.agentStops).toHaveLength(2));
+    expect(
+      f.agentStops.flatMap((request) => request.targets.map((target) => target.sessionId)),
+    ).toEqual(['architect', 'reviewer']);
+    expect(f.ordinaryStop).not.toHaveBeenCalled();
+    expect(f.sends).toHaveLength(0);
+    expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
+  },
+);
 
 it('retains the original context wheel, microphone and resource controls through sharing and responsive qualification', async () => {
   const f = fixture(true, undefined, 'Architect');

@@ -10,7 +10,14 @@ export interface ConversationSteeringTarget {
   name: string;
   commandId: string;
 }
-const outcome = z.enum(['pending', 'accepted', 'rejected', 'stale_target', 'uncertain']);
+const outcome = z.enum([
+  'pending',
+  'accepted',
+  'rejected',
+  'stale_target',
+  'uncertain',
+  'unavailable',
+]);
 const batch = z.strictObject({
   version: z.literal(1),
   requestId: z.string(),
@@ -32,7 +39,8 @@ type Batch = z.infer<typeof batch>;
 const savedBatches = z
   .union([batch, z.array(batch).max(100)])
   .transform((value) => (Array.isArray(value) ? value : [value]));
-const terminal = (status: string) => ['accepted', 'rejected', 'stale_target'].includes(status);
+const terminal = (status: string) =>
+  ['accepted', 'rejected', 'stale_target', 'unavailable'].includes(status);
 const key = (group: string) => `mitzo-conversation-steering:${group}`;
 
 /** Explicit exact-command corrections. Uncertainty keeps every original per-agent ID. */
@@ -133,14 +141,21 @@ export function useConversationSteering(options: {
       current.generation === generation &&
       authorized() &&
       original.authScope === latest.current.authScope &&
-      original.group === latest.current.group &&
-      original.targets.every((target) => latest.current.memberIds.includes(target.sessionId));
+      original.group === latest.current.group;
     try {
       await save(original);
       if (!fresh()) return false;
       for (const target of original.targets) {
         if (terminal(target.status)) continue;
         if (!fresh()) return false;
+        // A removed recipient cannot receive input, but must not strand another
+        // recipient's retained correction or erase an already accepted outcome.
+        if (!latest.current.memberIds.includes(target.sessionId)) {
+          target.status = 'unavailable';
+          await save(original);
+          if (!fresh()) return false;
+          continue;
+        }
         let status: z.infer<typeof outcome> = 'uncertain';
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 15000);

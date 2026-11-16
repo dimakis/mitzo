@@ -35,7 +35,10 @@ export function createCollaborationContextSource(deps: {
     assertVisible(sessionId);
   }
   function exactOutput(pin: Parameters<AuthorizedCollaborationContext['authorizeArtifact']>[0]) {
-    if (!openedSession) throw new CollaborationContractError('snapshot_changed');
+    if (!openedSession || !openedSource) throw new CollaborationContractError('snapshot_changed');
+    // Output registration preserves original bytes. Current context eligibility
+    // belongs to the opened immutable prefix, including explicit artifact pins.
+    openedSource.assertArtifactVisible(pin);
     const output = deps.store.getSessionOutput(openedSession, pin.artifactId);
     if (
       !output ||

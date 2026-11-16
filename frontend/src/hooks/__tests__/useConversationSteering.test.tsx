@@ -115,3 +115,50 @@ it('allows steering another agent while retaining an uncertain original correcti
   expect(requests[2]).toEqual(original);
   expect(h.result.current.pending).toBe(false);
 });
+
+it.each(['accepted', 'uncertain'])(
+  'recovers other targets when a removed agent previously had a %s correction',
+  async (removedStatus) => {
+    let recover = false;
+    const requests: { url: string; body: { requestId: string } }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        const body = JSON.parse(init.body as string);
+        requests.push({ url, body });
+        if (!recover && (url.includes('/bob/') || removedStatus === 'uncertain'))
+          throw Error('Lost acknowledgement');
+        return Response.json({ requestId: body.requestId, status: 'accepted' });
+      }),
+    );
+    const common = {
+      group: 'group',
+      authScope: 'login',
+      getVerifiedAuthScope: () => 'login',
+      targets: [
+        { sessionId: 'lead', name: 'Lead', commandId: 'lead-command' },
+        { sessionId: 'bob', name: 'Bob', commandId: 'bob-command' },
+      ],
+    };
+    const first = renderHook(() =>
+      useConversationSteering({ ...common, memberIds: ['lead', 'bob'] }),
+    );
+    await act(async () => {
+      await first.result.current.steer('Original correction');
+    });
+    const original = requests[1];
+    first.unmount();
+    recover = true;
+    const second = renderHook(() => useConversationSteering({ ...common, memberIds: ['bob'] }));
+    await act(async () => {
+      await second.result.current.check();
+    });
+    expect(requests).toHaveLength(3);
+    expect(requests[2]).toEqual(original);
+    expect(second.result.current.pending).toBe(false);
+    expect(second.result.current.outcomes.map((target) => target.status)).toEqual([
+      removedStatus === 'accepted' ? 'accepted' : 'unavailable',
+      'accepted',
+    ]);
+  },
+);

@@ -11,6 +11,7 @@ import {
   CollaborationSnapshotSelectionSchema,
   CollaborationSnapshotMessageSchema,
   SymposiumProvenanceSchema,
+  MessageRetractionSchema,
   type StoredEvent,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
@@ -92,6 +93,7 @@ export function createTelosConversationSource(options: {
             startedSequence: number;
             blockIds: Set<string>;
             blocks: Map<string, { content: string; closed: boolean }>;
+            retracted?: boolean;
           }
         >();
         const nativeTurns = new Map<
@@ -273,6 +275,32 @@ export function createTelosConversationSource(options: {
                 id === selection.boundary.messageId;
               finished = true;
             }
+            if (event.type === 'message_retracted') {
+              // This source contains visible text only, never tool results.
+              // Preserve native/host authors and frozen prefixes before this
+              // receipt; do not reinterpret it as an execution/effect outcome.
+              if (event.seatId !== undefined || event.symposiumProvenance !== undefined) continue;
+              const target = MessageRetractionSchema.parse(event.payload);
+              if (event.payload.sessionId !== sessionId) refuse();
+              if (target.toolId) continue;
+              const key = identity(event);
+              const pending = active.get(key);
+              const index = completed.findIndex(
+                (message) =>
+                  message.messageId === target.messageId &&
+                  message.author !== 'operator' &&
+                  attributions[message.messageId]?.seatId === null &&
+                  attributions[message.messageId]?.provenance === null,
+              );
+              if (pending) pending.retracted = true;
+              if (index >= 0) {
+                const [removed] = completed.splice(index, 1);
+                references.delete(removed.sequence);
+                delete attributions[removed.messageId];
+                displayedStarts.delete(removed.messageId);
+              }
+              continue;
+            }
             if (typeof id !== 'string' || !keep(event)) continue;
             const key = identity(event);
             if (event.type === 'user_message') {
@@ -377,7 +405,7 @@ export function createTelosConversationSource(options: {
                   if (inspection) unavailable[id] = reason;
                   else throw new TelosWorkError('invalid', reason);
                 }
-                if (blocks.length)
+                if (blocks.length && !message.retracted)
                   add(
                     event,
                     {
@@ -390,6 +418,10 @@ export function createTelosConversationSource(options: {
                     },
                     message.startedSequence,
                   );
+                if (message.retracted) {
+                  if (seen.has(id)) refuse();
+                  seen.add(id);
+                }
                 active.delete(key);
               }
             }

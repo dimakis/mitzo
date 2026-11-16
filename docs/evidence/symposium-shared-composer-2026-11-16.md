@@ -141,3 +141,33 @@ browser rendering remains unverified because the retained macOS process-registra
 denial was not retried. There are no new screenshots. Full frontend typecheck and
 broad builds remain for CI after the previously recorded 1 GiB limit. No staging,
 production activation, live model calls, additional review agents or merge occurred.
+
+## Landing repairs — 16 November 2026
+
+The landing session integrated accepted main `57a3df15c875`, preserving both
+source sets in the reviewed-artifact registry without duplicate registrations.
+Centaur's four blocking findings from review `6b8f7cd834ec` were reproduced
+before changing their implementations:
+
+- `CEN-119F4D489AB1`: shared send, observation and original-request Stop now use
+  the authenticated large-command parser. Tests exceed the old 10 MiB boundary
+  and retain ordinary 401, internal-caller 403 and revoked-session behavior.
+- `CEN-B86E386F8CFF`: Stop and Steer include retained earlier message deliveries.
+  The production wrapper regression reopens with 51 messages and no local send
+  journal, then targets both original commands through the same composer.
+- `CEN-668B595C5FCF`: steering fences membership per unresolved target. Removed
+  targets retain an unavailable outcome; accepted targets stay accepted and
+  other uncertain targets recover with their original request identities.
+- `CEN-09874C45287E`: all selected Stop records are durably saved before the first
+  network request. Remount recovery preserves both targets and their request IDs.
+
+The four focused files pass 38 tests with one worker and a 1 GiB heap. Design
+guards pass 109 tests with one existing skip; replay/application coverage passes
+17 tests. Changed-source lint, formatting, shared-package compilation and source
+fingerprint validation pass. A missing local native SQLite addon initially
+blocked application tests; after preparing the matching existing build in this
+isolated clone, both application files pass. Toolchain setup timed out before
+reporting readiness; these checks use copied installed dependencies in the task
+clone and do not claim a fresh setup receipt. Full combined-head CI and trusted
+Centaur follow-up remain required. No new rendered layout or live model test is
+claimed, and production activation remains separate.

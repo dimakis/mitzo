@@ -4660,8 +4660,15 @@ export class EventStore {
     messageId: string,
     beforeSeq: number,
     limit: number,
+    throughSeq = beforeSeq,
   ): StoredEvent[] {
-    return this.conversationReplay.getHistoryMessagePrefix(sessionId, messageId, beforeSeq, limit);
+    return this.conversationReplay.getHistoryMessagePrefix(
+      sessionId,
+      messageId,
+      beforeSeq,
+      limit,
+      throughSeq,
+    );
   }
 
   getSessionNamingEvents(

@@ -512,7 +512,10 @@ function SharedConversationBodyContent({
   const selectedIds = host?.presentation.resolvedResponderIds ?? [];
   const stopTargets = new Map<string, ConversationStopTarget>();
   const commands = new Map<string, string>();
-  for (const message of view?.messages ?? [])
+  for (const message of [
+    ...(host?.presentation.projection?.earlierMessages ?? []),
+    ...(view?.messages ?? []),
+  ])
     for (const delivery of message.deliveries) {
       if (
         delivery.purpose === 'reply' &&

@@ -84,6 +84,57 @@ function fixture() {
 }
 
 describe('Telos adapter for the existing authorized context compiler', () => {
+  it('does not resurrect text when its receipt precedes message completion', async () => {
+    const f = fixture();
+    f.append('message_start', { messageId: 'withdrawn' });
+    f.append('block_start', { messageId: 'withdrawn', blockId: 'text', blockType: 'text' });
+    f.append('block_delta', { messageId: 'withdrawn', blockId: 'text', delta: 'WITHDRAWN' });
+    f.append('message_retracted', { sessionId: 'origin', messageId: 'withdrawn' });
+    f.append('block_end', { messageId: 'withdrawn', blockId: 'text' });
+    f.append('message_end', { messageId: 'withdrawn' });
+    const sequence = f.append('user_message', { messageId: 'next', text: 'Continue.' });
+    const current = await f.source.openConversation({
+      ...f.selection,
+      boundary: { sequence, messageId: 'next' },
+      mode: 'conversation_so_far',
+      messageIds: [],
+    });
+    expect(current.publicMessages.map((m) => m.messageId)).toEqual(['question', 'answer', 'next']);
+    expect(JSON.stringify(current.publicMessages)).not.toContain('WITHDRAWN');
+  });
+
+  it('omits retracted text from current context but preserves earlier immutable selections', async () => {
+    const f = fixture();
+    const earlier = await f.source.openConversation(f.selection);
+    f.append('message_retracted', { sessionId: 'origin', messageId: 'answer' });
+    const sequence = f.append('user_message', { messageId: 'next', text: 'Continue safely.' });
+    const boundary = { sequence, messageId: 'next' };
+    const current = await f.source.openConversation({
+      ...f.selection,
+      boundary,
+      mode: 'conversation_so_far',
+      messageIds: [],
+    });
+    expect((await current.readPage(0, 50)).messages.map((m) => m.messageId)).toEqual([
+      'question',
+      'next',
+    ]);
+    expect(JSON.stringify(current.publicMessages)).not.toContain('Approved public plan.');
+    const selected = await f.source.openConversation({
+      ...f.selection,
+      boundary,
+      messageIds: ['answer'],
+    });
+    await expect(selected.readSelected(['answer'])).rejects.toThrow(/unavailable or changed/);
+    expect((await earlier.readSelected(['answer']))[0].blocks[0].content).toBe(
+      'Approved public plan.',
+    );
+    await earlier.assertCurrent();
+    expect(
+      f.events.getSessionEvents('origin').some((e) => e.payload.delta === 'Approved public plan.'),
+    ).toBe(true);
+  });
+
   it('refuses captured saved source snapshots while allowing unrelated text at the same boundary', async () => {
     const f = fixture();
     const content = 'The exact saved morning briefing.';
