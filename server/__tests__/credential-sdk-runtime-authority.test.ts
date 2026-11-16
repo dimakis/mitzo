@@ -122,6 +122,57 @@ function policy() {
   };
 }
 
+// Git versions use different exit codes for a refused config lock/chmod.
+// A nonzero result alone cannot distinguish sandbox denial from a broken test.
+function gitConfigPermissionDenied(
+  error: { status?: unknown; signal?: unknown; stderr?: unknown },
+  configPath: string,
+) {
+  return (
+    typeof error.status === 'number' &&
+    Number.isInteger(error.status) &&
+    error.status > 0 &&
+    error.signal == null &&
+    typeof error.stderr === 'string' &&
+    (error.stderr.includes(configPath) ||
+      /(?:^|[\s'"])\.git\/config(?:\.lock)?(?=[:\s'"]|$)/m.test(error.stderr)) &&
+    /Operation not permitted|Permission denied/i.test(error.stderr)
+  );
+}
+
+it('requires a config permission cause across Git exit versions in the real child fixture', () => {
+  const target = '/synthetic/work/.git/config';
+  const denied = `error: chmod on ${target}.lock failed: Operation not permitted`;
+  const cases = [
+    [{ status: 4, stderr: denied }, true],
+    [
+      { status: 255, stderr: 'error: could not lock config file .git/config: Permission denied' },
+      true,
+    ],
+    [{ status: 128, stderr: `fatal: Unable to create '${target}.lock': Permission denied` }, true],
+    [{ status: 0, stderr: denied }, false],
+    [{ status: 4, signal: 'SIGTERM', stderr: denied }, false],
+    [{ status: '4', stderr: denied }, false],
+    [
+      { status: 4, stderr: 'error: chmod on /other/.git/config.lock: Operation not permitted' },
+      false,
+    ],
+    [{ status: 4, stderr: `error: could not lock config file ${target}: File exists` }, false],
+    [{ status: 4, stderr: `error: invalid config value in ${target}` }, false],
+    [{}, false],
+  ] as const;
+  const output = execFileSync(
+    process.execPath,
+    [
+      '-e',
+      `const denied = ${gitConfigPermissionDenied.toString()};
+       process.stdout.write(JSON.stringify(${JSON.stringify(cases)}.map(([error]) => denied(error, ${JSON.stringify(target)}))));`,
+    ],
+    { encoding: 'utf8' },
+  );
+  expect(JSON.parse(output)).toEqual(cases.map(([, expected]) => expected));
+});
+
 it.each(['0', '1'])(
   'permits Git setup with an empty template in the SDK boundary (Keychain %s)',
   (enabled) => {
@@ -219,9 +270,12 @@ it
         fs.writeFileSync('checkout/.git/hooks/pre-commit', 'synthetic hook');
       }, 72);
       denied(() => fs.readFileSync(${JSON.stringify(config)}), 73);
+      const gitConfigPermissionDenied = ${gitConfigPermissionDenied.toString()};
       for(const repository of ['.', '..', '../sibling']) {
         try { git('-C', repository, 'config', 'remote.origin.url', 'https://example.invalid/denied.git'); throw Error('out-of-task git config permitted: ' + repository); }
-        catch(error) { if(error.status !== 255 && error.status !== 128) throw error; }
+        catch(error) {
+          if(!gitConfigPermissionDenied(error, require('node:path').resolve(repository, '.git/config'))) throw error;
+        }
         denied(() => fs.writeFileSync(repository + '/.git/config', 'denied'), 74);
         denied(() => fs.renameSync(repository + '/.git/config', repository + '/.git/config.moved'), 75);
       }
