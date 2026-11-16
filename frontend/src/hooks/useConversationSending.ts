@@ -335,6 +335,17 @@ export function useConversationSending(options: {
       preparing.current = preparation;
       const generation = authGeneration.current;
       const fresh = () => valid() && authGeneration.current === generation;
+      // Selection changes replace readiness ownership, but the original caller
+      // still owns its submitted composer revision and exact durable receipt.
+      const receiptCurrent = () =>
+        mounted.current &&
+        authGeneration.current === generation &&
+        current.current.api === api &&
+        current.current.group === group &&
+        current.current.draftId === draftId &&
+        current.current.authScope === authScope &&
+        latest.current.getVerifiedAuthScope() === authScope;
+      const acceptOriginal = acceptedCallback.current;
       try {
         if (addressedRecipients) {
           const readiness = await Promise.all(
@@ -392,7 +403,7 @@ export function useConversationSending(options: {
         }
         preparing.current = undefined;
         const receipt = await api.send(group, original.input);
-        if (!valid()) return false;
+        if (!receiptCurrent()) return false;
         if (
           receipt.text !== text ||
           receipt.replyToMessageId !== original.input.replyToMessageId ||
@@ -409,11 +420,11 @@ export function useConversationSending(options: {
         )
           throw Error('The receipt does not match the original request. Check its outcome.');
         await refresh();
-        if (!valid()) return false;
+        if (!receiptCurrent()) return false;
         // Only the validated exact receipt consumes one-prompt attachments.
         // The original send journal retains its snapshot for outcome recovery.
-        acceptedCallback.current?.(original.input);
-        await retain({ ...original, acknowledged: true });
+        acceptOriginal?.(original.input);
+        await retain({ ...original, acknowledged: true }, receiptCurrent);
         // A verified durable prompt is accepted even while native delivery is
         // pending or uncertain. Keep its independent journal for recovery;
         // restoring its text would invite a duplicate send. A wholly refused
@@ -423,18 +434,22 @@ export function useConversationSending(options: {
         );
       } catch (cause) {
         if (valid()) {
+          let cleanupFailed = false;
           if (cause instanceof CollaborationApiError && cause.dispatchNotStarted) {
             try {
               await retain();
             } catch {
-              /* The storage owner reports cleanup failure; preserve the original dispatch error. */
+              // The storage owner retains the structured cause. Keep both
+              // failures visible while preserving the original dispatch error.
+              cleanupFailed = true;
             }
           }
           publish({
             error:
-              cause instanceof Error
+              (cause instanceof Error
                 ? cause.message
-                : 'Delivery is uncertain. Check the original request.',
+                : 'Delivery is uncertain. Check the original request.') +
+              (cleanupFailed ? ' Recovery cleanup also failed. Keep this window open.' : ''),
           });
         }
         return false;

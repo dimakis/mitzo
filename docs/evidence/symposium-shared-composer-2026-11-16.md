@@ -171,3 +171,24 @@ reporting readiness; these checks use copied installed dependencies in the task
 clone and do not claim a fresh setup receipt. Full combined-head CI and trusted
 Centaur follow-up remain required. No new rendered layout or live model test is
 claimed, and production activation remains separate.
+
+### Current-head review follow-up
+
+Centaur full review `5921102128` on `95204127` verified all four original fixes
+and reported three additional blockers. Regression tests reproduced all three:
+recipient changes lost composer acceptance, a removed Stop target stranded later
+targets, and quoted reply bytes were charged only after durable acceptance.
+Receipt settlement now retains its original callback and draft revision while
+fencing login, conversation and mount ownership. Stop handles removed targets
+independently. The store's shared canonical quote resolver feeds both preflight
+and acceptance, so an overfull reply cannot create an unclaimable pending message.
+
+CI unit job `133339492807` also exposed the forwarding application's obsolete
+checkbox selectors. The fixture now selects the same audience with the approved
+inline toggle buttons and asserts their pressed states. Its original forwarding,
+lost-confirmation recovery, exact content, no-extra-turn and privacy assertions
+remain intact and pass locally. The focused six-file suite contains 131 tests;
+the receipt-security cases additionally fence login loss, conversation changes
+and unmount after recipient changes. Shared-package compilation, changed-source
+lint and formatting pass. This is a correction delta for review; fresh combined
+CI and trusted current-head verification remain mandatory.

@@ -533,6 +533,10 @@ export class ApplicationCollaborationMessaging {
     // Renew the pending discussion after compilation awaits, before any message
     // or command mutation. Refuse an overfull packet without retaining a send.
     const pending = this.store.collaborationConversation.view(group);
+    const reply = this.store.collaborationConversation.resolveMessageReply(
+      group,
+      input.replyToMessageId,
+    );
     for (const sessionId of responders) {
       const history = this.pendingHistory(
         group,
@@ -547,6 +551,7 @@ export class ApplicationCollaborationMessaging {
           images: input.images,
           source: null,
           snapshot: input.snapshot,
+          ...reply,
         },
         snapshots,
       );

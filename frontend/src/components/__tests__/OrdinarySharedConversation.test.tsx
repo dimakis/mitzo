@@ -357,6 +357,39 @@ it.each(['delivered', 'queued', 'pending', 'uncertain'] as const)(
   },
 );
 
+it.each([false, true])(
+  'accepts the original composer revision after recipients change, with newer draft: %s',
+  async (edited) => {
+    const draft = { ...createChatDraft(), text: 'Original shared prompt' };
+    saveChatDraft(draft);
+    const f = fixture(false, draft, 'Architect');
+    const release = f.delaySend('pending');
+    render(f.tree());
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose who replies' }));
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    fireEvent.change(input, { target: { value: 'Send this prompt' } });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(f.sends).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Architect' }));
+    if (edited) fireEvent.change(input, { target: { value: 'Keep this newer draft' } });
+    await act(async () => release());
+    await waitFor(() =>
+      expect(
+        getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend?.acknowledged,
+      ).toBe(true),
+    );
+    expect(input).toHaveProperty('value', edited ? 'Keep this newer draft' : '');
+    expect(getChatDraft(draft.id)?.text ?? '').toBe(edited ? 'Keep this newer draft' : '');
+    expect(f.sends).toHaveLength(1);
+  },
+);
+
 it('keeps the original named agent as the explicit initial recipient', async () => {
   const f = fixture(false, undefined, 'Original architect');
   render(f.tree());

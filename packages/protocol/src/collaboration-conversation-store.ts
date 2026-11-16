@@ -53,6 +53,7 @@ import {
   type CollaborationJoin,
   type CollaborationEvent,
   type CollaborationMessageSource,
+  type CollaborationMessage,
 } from './collaboration-conversation.js';
 
 /** Stable key ordering makes exact semantic retries independent of JSON object key order. */
@@ -527,6 +528,25 @@ export class CollaborationConversationStore {
       CollaborationMessageSchema.parse(JSON.parse(row.result)).messageId,
     );
   }
+  /** Resolve the same canonical quote for capacity preflight and durable acceptance. */
+  resolveMessageReply(
+    group: string,
+    messageId?: string,
+  ): Pick<CollaborationMessage, 'replyToMessageId' | 'inReplyTo'> {
+    if (!messageId) return {};
+    const original = this.getMessage(group, messageId);
+    if (!original || !original.text.trim()) throw new ContractError('snapshot_changed');
+    return {
+      replyToMessageId: original.messageId,
+      inReplyTo: {
+        messageId: original.projectionId,
+        role: original.author === 'operator' ? 'user' : 'assistant',
+        text: original.text,
+        ...(original.recordedAt !== undefined ? { timestamp: original.recordedAt } : {}),
+      },
+    };
+  }
+
   acceptMessage(group: string, raw: unknown) {
     const input = CollaborationMessageInputSchema.parse(raw);
     if (input.responders.kind === 'selected') input.responders.sessionIds.sort();
@@ -586,11 +606,6 @@ export class CollaborationConversationStore {
             !review?.promptAudience,
           );
         }
-        const originalReply = input.replyToMessageId
-          ? this.getMessage(group, input.replyToMessageId)
-          : undefined;
-        if (input.replyToMessageId && (!originalReply || !originalReply.text.trim()))
-          throw new ContractError('snapshot_changed');
         const message = CollaborationMessageSchema.parse({
           version: 1,
           messageId: randomUUID(),
@@ -600,19 +615,7 @@ export class CollaborationConversationStore {
           source: null,
           replyToDeliveryId: null,
           text: input.text,
-          ...(originalReply
-            ? {
-                replyToMessageId: originalReply.messageId,
-                inReplyTo: {
-                  messageId: originalReply.projectionId,
-                  role: originalReply.author === 'operator' ? 'user' : 'assistant',
-                  text: originalReply.text,
-                  ...(originalReply.recordedAt !== undefined
-                    ? { timestamp: originalReply.recordedAt }
-                    : {}),
-                },
-              }
-            : {}),
+          ...this.resolveMessageReply(group, input.replyToMessageId),
           ...(input.images?.length ? { images: input.images } : {}),
           recordedAt: Date.now(),
           membershipRevision: current.revision,

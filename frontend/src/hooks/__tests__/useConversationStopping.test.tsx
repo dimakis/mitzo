@@ -103,3 +103,46 @@ it('stops selected agents independently and recovers the original control after 
   expect(stop.mock.calls[1][1]).toEqual(original);
   expect(second.result.current.pending).toBe(false);
 });
+
+it('keeps a removed Stop target unavailable without stranding the other original target', async () => {
+  const api = new CollaborationApiClient(vi.fn());
+  let recover = false;
+  const stop = vi.spyOn(api, 'stopAgents').mockImplementation(async (_group, input) => {
+    if (!recover) throw Error('Lost acknowledgement');
+    return {
+      requestId: input.requestId,
+      recipients: input.targets.map((target) => ({ ...target, status: 'settled' as const })),
+    };
+  });
+  const common = {
+    api,
+    group: 'removed-group',
+    authScope: 'login',
+    getVerifiedAuthScope: () => 'login',
+    membershipRevision: 1,
+    targets: ['one', 'two'].map((sessionId, index) => ({
+      sessionId,
+      name: sessionId,
+      messageId: '00000000-0000-4000-8000-000000000001',
+      deliveryId: `00000000-0000-4000-8000-00000000000${index + 2}`,
+      commandId: sessionId + '-command',
+    })),
+  };
+  const first = renderHook(() => useConversationStopping({ ...common, memberIds: ['one', 'two'] }));
+  await act(async () => {
+    await first.result.current.stop();
+  });
+  const original = stop.mock.calls[1][1];
+  first.unmount();
+  recover = true;
+  const second = renderHook(() =>
+    useConversationStopping({ ...common, memberIds: ['two'], targets: [] }),
+  );
+  await act(async () => {
+    await second.result.current.check();
+  });
+  expect(stop).toHaveBeenCalledTimes(3);
+  expect(stop.mock.calls[2][1]).toEqual(original);
+  expect(second.result.current.outcomes).toMatchObject([{ name: 'one', status: 'unavailable' }]);
+  expect(second.result.current.message).toContain('could not be confirmed');
+});

@@ -115,14 +115,19 @@ export function useConversationStopping(options: {
       current.generation === generation &&
       authorized() &&
       record.group === latest.current.group &&
-      record.authScope === latest.current.authScope &&
-      latest.current.memberIds.includes(record.input.targets[0].sessionId);
+      record.authScope === latest.current.authScope;
     try {
       // Freeze every selected target before the first network effect. A reload
       // must recover the later targets with their original request identities.
       for (const record of records) await persist(record);
       for (const record of records) {
         if (!fresh(record)) return;
+        if (record.status === 'unavailable') continue;
+        if (!latest.current.memberIds.includes(record.input.targets[0].sessionId)) {
+          if (record.status !== 'settled') record.status = 'unavailable';
+          await persist(record);
+          continue;
+        }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 15000);
         try {

@@ -278,6 +278,29 @@ it.each(['hidden', 'outside_audience', 'settings_changed', 'source_rejoined', 'p
   },
 );
 
+it('includes the canonical quoted reply in capacity validation before accepting or claiming a request', async () => {
+  acknowledgeRecordedPrompts();
+  const quoted = store.collaborationConversation.acceptMessage(
+    group,
+    input('one', '\u0000'.repeat(70000)),
+  );
+  const before = store.collaborationConversation.view(group);
+  const request = { ...input('two', 'y'.repeat(100000)), replyToMessageId: quoted.messageId };
+  await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toThrow(
+    'capacity_refused',
+  );
+  expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+  expect(store.collaborationConversation.view(group).cursor).toBe(before.cursor);
+  expect(prompts).toHaveLength(0);
+  await owner.send(
+    auth,
+    group,
+    input('two', 'A smaller independent request'),
+    new AbortController().signal,
+  );
+  expect(prompts).toHaveLength(1);
+});
+
 it('charges all retained per-message context bytes before acceptance or delivery claims', async () => {
   shareWithReader();
   acknowledgeRecordedPrompts();
