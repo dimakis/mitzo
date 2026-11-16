@@ -432,4 +432,6 @@ export * from './session-prompts.js';
 export * from './native-subagents.js';
 export * from './session-access.js';
 export * from './session-learning.js';
+export * from './telos-work-team.js';
 export * from './session-control-support.js';
+export * from './message-retraction.js';

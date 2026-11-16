@@ -400,8 +400,10 @@ export class SessionLaunchStore {
         parsed.input.itemId !== r.telos.itemId ||
         parsed.input.role !== r.telos.role ||
         parsed.input.expectedRevision !== r.telos.expectedRevision ||
-        parsed.input.createOnly !== true ||
-        parsed.input.expectedAssignmentRevision !== 0 ||
+        parsed.input.createOnly !== (r.telos.replacement ? undefined : true) ||
+        parsed.input.expectedAssignmentRevision !==
+          (r.telos.replacement?.assignmentRevision ?? 0) ||
+        !isDeepStrictEqual(parsed.input.replacement, r.telos.replacement) ||
         !isDeepStrictEqual(
           parsed.input.adoption,
           r.telos.adoption

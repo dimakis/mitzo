@@ -15,16 +15,32 @@ export const TelosExistingChatAdoptionSchema = z.strictObject({
   expectedEpoch: z.number().int().nonnegative().safe(),
   custodyHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
+/** Exact former responsibility, bound to the operator's immutable review. */
+export const TelosOwnerReplacementSchema = z.strictObject({
+  conversationId: TelosWorkIdSchema,
+  assignmentRevision: z.number().int().positive().safe(),
+});
 export const TelosOrdinaryWorkRoleSetupInputSchema = z
   .strictObject({
     ...TelosWorkRoleSetupInputSchema.shape,
     version: z.literal(2),
     settings: OrdinaryWorkspaceSettingsSchema,
     adoption: TelosExistingChatAdoptionSchema.optional(),
+    replacement: TelosOwnerReplacementSchema.optional(),
   })
   .refine(
-    (value) => !value.adoption || value.createOnly === true,
-    'Existing-chat adoption requires an unassigned role reservation',
+    (value) => !value.adoption || value.createOnly === true || Boolean(value.replacement),
+    'Existing-chat adoption requires an unassigned role or explicit owner replacement',
+  )
+  .refine(
+    (value) =>
+      !value.replacement ||
+      (Boolean(value.adoption) &&
+        !value.createOnly &&
+        ['lead', 'worker'].includes(value.role) &&
+        value.expectedAssignmentRevision === value.replacement.assignmentRevision &&
+        value.adoption?.conversationId !== value.replacement.conversationId),
+    'Owner replacement requires an exact current assignment and a different existing chat',
   )
   .refine(
     (value) => ['lead', 'worker'].includes(value.role) || value.expectedAssignmentRevision === null,

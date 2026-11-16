@@ -7404,9 +7404,10 @@ it.each([
     const connectionId = 'openshell-connection';
     const f = await openOwnedOpenShellEfficiencyFixture(
       (opts) => {
+        opts.eventStore = canonical.events;
         initializeTelosMainPublicationRuntime({
           registry: opts.registry,
-          events: opts.eventStore,
+          events: canonical.events,
           databasePath: () => canonical.dbPath,
         });
       },
@@ -7626,6 +7627,41 @@ it.each([
           approvalScope: 'request',
         }),
       );
+      canonical.events.upsertSession({
+        sessionId: 'investigator',
+        conversationSource: 'mitzo',
+        summary: 'Independent investigation',
+      });
+      const team = JSON.parse(
+        (await run('TelosManageTeam', { operation: 'read', itemId: 'studio' })).content,
+      ).team;
+      const membership = {
+        operation: 'link',
+        itemId: 'studio',
+        requestId: 'native-contributor',
+        expectedRevision: team.revision,
+        conversationId: 'investigator',
+        displayName: 'Independent investigation',
+        role: 'investigator',
+        responsibility: 'Investigate the studio plan',
+        reportsToMembershipId: null,
+      };
+      const linked = await run('TelosManageTeam', membership);
+      expect(linked.isError, linked.content).toBe(false);
+      expect(JSON.parse(linked.content).team.members).toMatchObject([
+        { conversationId: 'investigator', role: 'investigator' },
+      ]);
+      expect(mocks.permissionHandler).toHaveBeenCalledWith(
+        'TelosManageTeam',
+        membership,
+        expect.objectContaining({
+          forcePrompt: true,
+          allowSessionGrant: false,
+          approvalScope: 'request',
+        }),
+      );
+      expect(canonical.work.read('studio', canonical.actor).assignments).toEqual([]);
+      expect(await run('TelosManageTeam', membership)).toEqual(linked);
       release();
       await expect(run('TelosListItems', {})).rejects.toThrow(
         /authentication|permission|authorization/i,

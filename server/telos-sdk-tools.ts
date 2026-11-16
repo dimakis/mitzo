@@ -204,7 +204,8 @@ export function createTelosSdkServer(owners: {
                   name !== 'TelosCreateChild' &&
                   name !== 'TelosCreateFeature' &&
                   name !== 'TelosUpdateItem' &&
-                  (name !== 'TelosManageItem' || input.operation === 'read');
+                  (name !== 'TelosManageItem' || input.operation === 'read') &&
+                  (name !== 'TelosManageTeam' || input.operation === 'read');
                 if (readOnly) assertDelivery = current;
                 const context = {
                   operatorId: authorization.auth.id,

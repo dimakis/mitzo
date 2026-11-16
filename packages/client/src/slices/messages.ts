@@ -23,6 +23,11 @@ import type {
 import { messageIdentity } from '../message-identity.js';
 import { agentMessageTranscriptRow } from '@mitzo/protocol';
 import {
+  projectMessageRetractions,
+  retractToolResult,
+  type MessageRetraction,
+} from '@mitzo/protocol';
+import {
   interruptUnansweredToolBlocks,
   splitContextPrompt,
   type ContextInjection,
@@ -102,6 +107,7 @@ export interface BootContextMeta {
 }
 
 export interface MessagesState {
+  messageRetractions?: MessageRetraction[];
   replySources?: Record<string, string>;
   userReplies?: Record<string, import('@mitzo/protocol').MessageReplyContext>;
   nativeCommands?: boolean;
@@ -142,6 +148,7 @@ export const INITIAL_MESSAGES_STATE: MessagesState = {
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
 type MessagesCoreAction =
+  | ({ type: 'MESSAGE_RETRACTED' } & MessageRetraction)
   | { type: 'REPLY_SOURCE'; messageId: string; replyToMessageId: string }
   | {
       type: 'COMMAND_STATE';
@@ -655,6 +662,52 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
 }
 
 export function messagesReducer(state: MessagesState, action: MessagesAction): MessagesState {
+  if (action.type === 'MESSAGE_RETRACTED') {
+    if (action.symposiumProvenance) return refuseAttributedEvent(state);
+    const previous = state.messageRetractions ?? [];
+    if (previous.some((r) => r.messageId === action.messageId && r.toolId === action.toolId))
+      return state;
+    // Keep receipts with this conversation's message identities, including across
+    // a stale REST restore. CLEAR drops both; a restore cannot resurrect output.
+    state = {
+      ...state,
+      messageRetractions: [
+        ...previous,
+        { messageId: action.messageId, ...(action.toolId ? { toolId: action.toolId } : {}) },
+      ],
+    };
+  }
+  const next = reduceMessages(state, action);
+  const retractions = next.messageRetractions;
+  if (!retractions?.length) return next;
+  let current = next.current;
+  if (current && !current.symposiumProvenance) {
+    const targets = retractions.filter((r) => r.messageId === current!.messageId);
+    if (targets.some((r) => !r.toolId)) {
+      const blocks = new Map(
+        [...current.blocks].filter(([, block]) => block.blockType === 'tool_use'),
+      );
+      current = blocks.size
+        ? { ...current, blocks, blockOrder: current.blockOrder.filter((id) => blocks.has(id)) }
+        : null;
+    }
+    if (current && targets.length) {
+      const tools = new Set(targets.map((r) => r.toolId));
+      current = {
+        ...current,
+        blocks: new Map(
+          [...current.blocks].map(([id, block]) => [
+            id,
+            block.toolId && tools.has(block.toolId) ? retractToolResult(block) : block,
+          ]),
+        ),
+      };
+    }
+  }
+  return { ...next, current, messages: projectMessageRetractions(next.messages, retractions) };
+}
+
+function reduceMessages(state: MessagesState, action: MessagesAction): MessagesState {
   if (
     action.symposiumProvenance &&
     (action.type === 'MESSAGE_START' ||

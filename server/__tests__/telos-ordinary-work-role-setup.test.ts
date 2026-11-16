@@ -12,6 +12,7 @@ import { createTelosSessionLaunchHost } from '../telos-session-launch-host.js';
 import { createTelosWorkRoleHost } from '../telos-work-role-host.js';
 import { SessionLaunchStore } from '../session-launch-store.js';
 import { SessionLaunchService } from '../session-launch-service.js';
+import { sessionLaunchFailureCause } from '../session-launch-diagnostics.js';
 import {
   isAvailableTelosWorkConversation,
   isAvailableTelosSourceConversation,
@@ -62,6 +63,330 @@ afterAll(() => {
 
 const fixture = (role?: 'advisor' | 'lead' | 'worker') =>
   createTelosOrdinaryWorkFixture(cleanup, role);
+
+it.each([
+  ['outcome', 'success'],
+  ['coordinator', 'success'],
+  ['work_item', 'success'],
+  ['outcome', 'lost response'],
+  ['outcome', 'partial context'],
+  ['outcome', 'concurrent'],
+  ['outcome', 'competing owner'],
+  ['outcome', 'revoked'],
+  ['outcome', 'cancelled'],
+  ['outcome', 'busy'],
+  ['outcome', 'release'],
+] as const)(
+  'reviews replacement of a current %s owner from an unassigned ordinary chat (%s)',
+  async (kind, scenario) => {
+    const f = await fixture();
+    const old = await f.owner.setup(f.actor, f.input, f.native.signal.signal);
+    let previous = old.work.assignments[0];
+    const target = f.native.first.receipt.sessionId;
+    const items = new TelosItemStore(f.canonical.dbPath);
+    cleanup.push(() => items.close());
+    let itemId = 'studio';
+    if (kind === 'coordinator')
+      f.work.execute(
+        {
+          operation: 'classify',
+          itemId: 'studio',
+          kind,
+          requestId: 'replacement-kind',
+          expectedRevision: f.work.read('studio', f.actor).revision,
+        },
+        f.actor,
+      );
+    if (kind === 'work_item') {
+      itemId = items.createChildGuarded(
+        {
+          parentId: 'studio',
+          expectedParentRevision: items.read('studio').revision,
+          requestId: randomUUID(),
+          summary: 'Existing slice',
+          intent: 'Complete the slice',
+          rationale: 'Qualify owner replacement',
+          acceptanceCriteria: ['Owner replacement works'],
+          note: 'Offline fixture',
+        },
+        previous.conversation.conversationId,
+        () => {},
+        () => {},
+      ).item.id;
+      const contextSelection = reviewTelosWorkRoleContext({
+        work: f.work,
+        artifacts: f.canonical.artifacts,
+        actor: f.actor,
+        itemId,
+        role: 'worker',
+        selectedSourceSnapshotIds: [],
+        selectedArtifactRefs: [],
+      });
+      const workerInput = {
+        ...f.input,
+        itemId,
+        requestId: randomUUID(),
+        role: 'worker' as const,
+        contextSelection,
+        expectedRevision: contextSelection.brief.revision,
+      };
+      const worker = await f
+        .createOwner(workerInput)
+        .setup(f.actor, workerInput, f.native.signal.signal);
+      previous = worker.work.assignments.find((a) => a.role === 'worker')!;
+    }
+    const role = kind === 'work_item' ? 'worker' : 'lead';
+    const assignment = f.work.read(itemId, f.actor).assignments.find((a) => a.role === role)!;
+    const store = new SessionLaunchStore(':memory:');
+    cleanup.push(() => store.close());
+    const settings = f.input.settings;
+    const available = (id: string) =>
+      isAvailableTelosWorkConversation(f.native.events.getSession(id));
+    const sourceConversation = (id: string) =>
+      isAvailableTelosSourceConversation(f.native.events.getSession(id));
+    let authorized = true;
+    const assertCurrent = () => {
+      if (!authorized) throw Error('Revoked synthetic operator');
+    };
+    let finishRetirement!: () => void;
+    const retirement = new Promise<void>((resolve) => {
+      finishRetirement = resolve;
+    });
+    const retire = vi.fn(async () => {
+      if (scenario === 'concurrent') await retirement;
+      if (scenario === 'revoked') authorized = false;
+      if (scenario === 'cancelled') f.native.signal.abort();
+      if (scenario === 'release') throw Error('Retirement response lost');
+    });
+    const roleHost = createTelosWorkRoleHost({
+      dbPath: () => f.canonical.dbPath,
+      events: f.native.events,
+      ordinaryConversation: available,
+      sourceConversation,
+      workspaces: () => f.native.workspaces,
+      resolvePreparation: async () => {
+        throw Error('No repository allocation');
+      },
+      authorizeSettings: async () => {
+        throw Error('No repository settings');
+      },
+      ordinary: {
+        adoption: {
+          assertQuiescent: () => {
+            if (scenario === 'busy') throw Error('Busy native owner');
+          },
+          retire,
+        },
+        resolveSelection: async () => ({
+          binding: f.native.binding,
+          agentProfile: f.native.library.version(
+            'user',
+            settings.selection.agent.profileId,
+            settings.selection.agent.revision,
+          )!,
+          taskRoot: f.native.taskRoot,
+        }),
+        authorizeSettings: async () => {},
+      },
+    });
+    const configuration: SessionLaunchConfig = {
+      version: 1,
+      runtime: {
+        version: 1,
+        account: {
+          accountId: settings.binding.account.accountId,
+          model: settings.selection.model,
+          reasoningEffort: settings.selection.thinking,
+        },
+        accountReference: settings.binding.account,
+        agentProfile: settings.selection.agent,
+        execution: { location: 'local', targetId: settings.binding.execution.targetId },
+      },
+      mode: settings.selection.permission.mode,
+      isolation: true,
+      repositoryWorkspaceId: null,
+      contextBlocks: [],
+      extraTools: [],
+    };
+    let loseResponse = scenario === 'lost response';
+    const host = createTelosSessionLaunchHost({
+      store,
+      events: f.native.events,
+      workspaces: () => f.native.workspaces,
+      dbPath: () => f.canonical.dbPath,
+      ordinaryConversation: available,
+      sourceConversation,
+      roleHost: () => ({
+        ...roleHost,
+        setupReviewedOrdinary: async (request) => {
+          const receipt = await roleHost.setupReviewedOrdinary(request);
+          if (loseResponse) {
+            loseResponse = false;
+            throw Error('Synthetic response loss');
+          }
+          return receipt;
+        },
+      }),
+      qualify: async () => {},
+      prepareSettings: async () => {
+        throw Error('No new settings');
+      },
+    });
+    const authority = {
+      operatorConnectionId: 'reviewing-operator',
+      authSessionId: f.actor.id,
+      signal: f.native.signal.signal,
+      assertCurrent,
+    };
+    const input = {
+      requestId: randomUUID(),
+      itemId,
+      expectedRevision: items.read(itemId).revision,
+      title: 'Replace current owner',
+      prompt: 'Review the owner change.',
+      replaceOwner: true,
+      existingConversationId: target,
+      sourceSnapshotIds: [],
+      artifactRefs: [],
+    };
+    const reserve = vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace');
+    const history = f.native.events.getSessionEvents(previous.conversation.conversationId);
+    const proposal = await host.propose(target, input, authority);
+    expect(proposal.telos).toMatchObject({
+      role,
+      replacement: {
+        conversationId: assignment.conversation.conversationId,
+        assignmentRevision: assignment.revision,
+      },
+    });
+    expect(f.work.read(itemId, f.actor).assignments.find((a) => a.role === role)).toEqual(
+      assignment,
+    );
+    const edits = { title: input.title, prompt: input.prompt, configuration };
+    const record = store.propose({
+      ...edits,
+      ...proposal,
+      sourceSessionId: target,
+      requestId: input.requestId,
+      operatorId: 'user',
+      originalInput: input,
+    });
+    const ordinary = { validate: vi.fn(), start: vi.fn(), inspect: vi.fn() };
+    const service = new SessionLaunchService(store, ordinary, host);
+    if (scenario === 'competing owner') {
+      f.work.execute(
+        {
+          operation: 'assign',
+          itemId,
+          role,
+          conversationId: assignment.conversation.conversationId,
+          expectedAssignmentRevision: assignment.revision,
+          expectedRevision: f.work.read(itemId, f.actor).revision,
+          requestId: randomUUID(),
+        },
+        f.actor,
+      );
+      await expect(
+        service.approve(record.proposalId, 'user', edits, record.revision, authority),
+      ).rejects.toMatchObject({ effectStatus: 'not_started' });
+      expect(retire).not.toHaveBeenCalled();
+      expect(store.get(record.proposalId, 'user').state).toBe('pending');
+      return;
+    }
+    if (scenario === 'partial context') {
+      const append = f.native.events.append.bind(f.native.events);
+      vi.spyOn(f.native.events, 'append').mockImplementationOnce((sessionId, type, payload) => {
+        if (type === 'telos_work_role_context') throw Error('Synthetic context storage failure');
+        return append(sessionId, type, payload);
+      });
+    }
+    const approval = service.approve(record.proposalId, 'user', edits, record.revision, authority);
+    if (scenario === 'concurrent') {
+      try {
+        await vi.waitFor(() => expect(retire).toHaveBeenCalledOnce());
+        const duplicate = await service.approve(
+          record.proposalId,
+          'user',
+          edits,
+          record.revision,
+          authority,
+        );
+        expect(duplicate.state).toBe('starting');
+        expect(f.work.read(itemId, f.actor).assignments.find((a) => a.role === role)).toEqual(
+          assignment,
+        );
+      } finally {
+        finishRetirement();
+      }
+    }
+    let result = await approval;
+    if (['busy', 'revoked', 'cancelled', 'release'].includes(scenario)) {
+      expect(result.state).toBe('uncertain');
+      expect(sessionLaunchFailureCause(record.proposalId)?.cause).toBeInstanceOf(Error);
+      expect(result.error).not.toMatch(/Synthetic|Revoked|Busy|Retirement response/);
+      expect(f.work.read(itemId, f.actor).assignments.find((a) => a.role === role)).toEqual(
+        assignment,
+      );
+      expect(ordinary.start).not.toHaveBeenCalled();
+      if (scenario === 'release') {
+        // Missing retirement proof cannot be guessed from a lost response.
+        await expect(
+          service.release(record.proposalId, 'user', result.revision, authority),
+        ).rejects.toThrow();
+        expect(store.get(record.proposalId, 'user').state).toBe('uncertain');
+      }
+      return;
+    }
+    if (scenario === 'lost response' || scenario === 'partial context') {
+      expect(result.state).toBe('uncertain');
+      f.restart();
+      result = await new SessionLaunchService(store, ordinary, host).refresh(
+        record.proposalId,
+        'user',
+        authority,
+      );
+    }
+    if (result.state !== 'assigned')
+      throw sessionLaunchFailureCause(record.proposalId) ?? Error(result.error);
+    expect(result).toMatchObject({ state: 'assigned', childSessionId: target, commandId: null });
+    expect(f.work.read(itemId, f.actor).assignments.find((a) => a.role === role)).toMatchObject({
+      revision: assignment.revision + 1,
+      conversation: { conversationId: target },
+    });
+    expect(f.work.assignmentHistory(itemId, f.actor)).toEqual(expect.arrayContaining([assignment]));
+    expect(f.native.events.getSessionEvents(previous.conversation.conversationId)).toEqual(history);
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(reserve).not.toHaveBeenCalled();
+    expect(ordinary.start).not.toHaveBeenCalled();
+    expect(await service.refresh(record.proposalId, 'user', authority)).toMatchObject({
+      state: 'assigned',
+      childSessionId: target,
+    });
+    if (role === 'lead') {
+      const child = items.createChildGuarded(
+        {
+          parentId: itemId,
+          expectedParentRevision: items.read(itemId).revision,
+          requestId: randomUUID(),
+          summary: 'Next child',
+          intent: 'Continue after replacement',
+          rationale: 'Verify current authority',
+          acceptanceCriteria: ['Current owner can create its child'],
+          note: 'Offline replacement fence',
+        },
+        target,
+        () => {},
+        () => {},
+      ).item.id;
+      expect(f.work.sessionCreationScope(target, child).parentAssignmentRevision).toBe(
+        assignment.revision + 1,
+      );
+      expect(() =>
+        f.work.sessionCreationScope(assignment.conversation.conversationId, child),
+      ).toThrow(/current assigned ordinary lead/i);
+    }
+  },
+);
 
 it('releases only a proved absent create allocation and permanently fences its original allocator', async () => {
   const f = await fixture();
@@ -172,6 +497,7 @@ it.each([
   'recovery',
   'sdk-default',
   'sdk-explicit',
+  'sdk-owner-replacement',
   'existing adoption',
   'changed thinking adoption',
   'lost completed adoption',
@@ -212,7 +538,7 @@ it.each([
       f.input.expectedRevision = f.input.contextSelection.brief.revision;
     }
     const lead = await f.owner.setup(f.actor, f.input, f.native.signal.signal);
-    const sourceSessionId = lead.work.assignments.find((a) => a.role === 'lead')!.conversation
+    let sourceSessionId = lead.work.assignments.find((a) => a.role === 'lead')!.conversation
       .conversationId;
     const items = new TelosItemStore(f.canonical.dbPath);
     cleanup.push(() => items.close());
@@ -232,6 +558,7 @@ it.each([
       () => {},
     );
     const targetId = f.native.first.receipt.sessionId;
+    if (scenario === 'sdk-owner-replacement') sourceSessionId = targetId;
     if (scenario === 'changed thinking adoption') {
       const profilesPath = join(f.native.root, 'profiles.json');
       const profiles = JSON.parse(readFileSync(profilesPath, 'utf8'));
@@ -459,6 +786,14 @@ it.each([
       expectedRevision: items.read(child.item.id).revision,
       sourceSnapshotIds: [],
       artifactRefs: [],
+      ...(scenario === 'sdk-owner-replacement'
+        ? {
+            itemId: 'studio',
+            expectedRevision: items.read('studio').revision,
+            replaceOwner: true as const,
+            existingConversationId: targetId,
+          }
+        : {}),
     };
     await expect(
       host.propose(sourceSessionId, { ...input, expectedRevision: '0'.repeat(64) }, authority),
@@ -525,7 +860,7 @@ it.each([
           expect(receipt).toMatchObject({
             state: 'pending',
             childSessionId: null,
-            telos: { itemId: child.item.id },
+            telos: { itemId: input.itemId },
           });
           expect(store.forRequest(sourceSessionId, 'user', sdkInput.requestId)?.proposalId).toBe(
             receipt.proposalId,
@@ -573,6 +908,17 @@ it.each([
     }
     const uncertain = await service.approve(record.proposalId, 'user', edits, 1, authority);
     expect(uncertain.state).toBe('uncertain');
+    if (scenario === 'sdk-owner-replacement') {
+      expect(f.native.events.listSessions()).toHaveLength(before);
+      expect(await service.refresh(record.proposalId, 'user', authority)).toMatchObject({
+        state: 'assigned',
+        childSessionId: targetId,
+      });
+      expect(f.work.sessionCreationScope(targetId, child.item.id).parentAssignmentRevision).toBe(2);
+      expect(ordinary.start).not.toHaveBeenCalled();
+      expect(f.native.first.launch).not.toHaveBeenCalled();
+      return;
+    }
     if (scenario === 'lost completed adoption')
       f.native.events.upsertSession({
         sessionId: f.native.first.receipt.sessionId,

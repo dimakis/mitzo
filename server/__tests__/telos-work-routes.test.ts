@@ -13,6 +13,9 @@ import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { createTelosWorkFixtures } from './fixtures/telos-work-fixtures.js';
 import { TelosWorkError, TelosWorkStore } from '../telos-work-store.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
+import { TelosWorkApiClient } from '@mitzo/client';
+import * as telosFailure from '../telos-operation-failure.js';
+import { z } from 'zod';
 
 const diagnostics = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('../logger.js', async (original) => {
@@ -67,13 +70,193 @@ async function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>
   );
   const server = await listenOnLoopback(app);
   servers.push(server);
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Expected loopback address');
+  const api = new TelosWorkApiClient((path, init) => {
+    const headers = new Headers(init?.headers);
+    headers.set('x-operator', 'authenticated');
+    return fetch(`http://127.0.0.1:${address.port}${path}`, { ...init, headers });
+  });
   const read = () =>
     request(server).get('/api/telos/work/items/item').set('x-operator', 'authenticated');
   const command = (input: object) =>
     request(server).post('/api/telos/work/commands').set('x-operator', 'authenticated').send(input);
-  return { app: server, read, command, dbPath };
+  return { app: server, read, command, dbPath, api };
 }
 describe('authorized Telos work API', () => {
+  it('delivers explicit membership through the actual client/router and replays an exact lost reply', async () => {
+    const f = await setup();
+    const { api } = f;
+    expect((await request(f.app).get('/api/telos/work/items/item/team')).status).toBe(403);
+    const empty = await api.readTeam('item');
+    expect(empty.members).toEqual([]);
+    const input = {
+      itemId: 'item',
+      requestId: 'team-exact',
+      expectedRevision: empty.revision,
+      operation: 'link' as const,
+      conversationId: 'chat',
+      displayName: 'Fixture owner',
+      role: 'slice_owner' as const,
+      responsibility: 'Deliver this slice',
+      reportsToMembershipId: null,
+    };
+    const linked = await api.teamCommand(input);
+    expect(linked.team.members[0].displayName).toBe('Fixture owner');
+    await expect(api.teamCommand({ ...input, requestId: 'competing' })).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
+    const replaced = await api.teamCommand({
+      ...input,
+      operation: 'replace',
+      requestId: 'replacement',
+      expectedRevision: linked.team.revision,
+      membershipId: linked.team.members[0].membershipId,
+      conversationId: 'unrelated',
+      displayName: 'Fixture successor',
+    });
+    expect(replaced.team.members.map((member) => member.state)).toEqual(['former', 'current']);
+    expect(await api.teamCommand(input)).toEqual(linked);
+    const unlinked = await api.teamCommand({
+      operation: 'unlink',
+      itemId: 'item',
+      requestId: 'unlink',
+      expectedRevision: replaced.team.revision,
+      membershipId: replaced.team.members[1].membershipId,
+    });
+    expect(unlinked.team.members.every((member) => member.state === 'former')).toBe(true);
+    expect((await f.read()).body.assignments).toEqual([]);
+    expect(
+      (
+        await request(f.app)
+          .post('/api/telos/work/team/commands')
+          .set('x-operator', 'authenticated')
+          .send({ ...input, actor: { kind: 'operator', id: 'forged' } })
+      ).status,
+    ).toBe(400);
+  });
+
+  it.each([
+    ['membership', 'schema'],
+    ['membership', 'json'],
+    ['receipt', 'schema'],
+    ['receipt', 'json'],
+  ] as const)(
+    'reports persisted %s %s corruption through HTTP without changing retained operations',
+    async (record, corruption) => {
+      const f = await setup();
+      const empty = await f.api.readTeam('item');
+      const input = {
+        itemId: 'item',
+        requestId: 'retained-team-operation',
+        expectedRevision: empty.revision,
+        operation: 'link' as const,
+        conversationId: 'chat',
+        displayName: 'Fixture owner',
+        role: 'slice_owner' as const,
+        responsibility: 'Deliver this slice',
+        reportsToMembershipId: null,
+      };
+      const linked = await f.api.teamCommand(input);
+      const db = new Database(f.dbPath());
+      try {
+        const table =
+          record === 'membership' ? 'telos_work_team_memberships' : 'telos_work_team_commands';
+        const column = record === 'membership' ? 'data' : 'receipt';
+        // Deliberately corrupt this disposable canonical fixture. Normal writers
+        // must retain immutable receipts; reopening restores the schema trigger.
+        if (record === 'receipt') db.exec('DROP TRIGGER telos_work_team_commands_no_update');
+        db.prepare(`UPDATE ${table} SET ${column}=?`).run(
+          corruption === 'schema' ? '{"privatePayload":"retained-secret"}' : '{retained-secret',
+        );
+        const snapshot = () => ({
+          members: db.prepare('SELECT * FROM telos_work_team_memberships').all(),
+          commands: db.prepare('SELECT * FROM telos_work_team_commands').all(),
+        });
+        const before = snapshot();
+        const describe = vi.spyOn(telosFailure, 'describeTelosOperationFailure');
+        await expect(
+          record === 'membership' ? f.api.readTeam('item') : f.api.teamCommand(input),
+        ).rejects.toMatchObject({
+          status: 503,
+          code: 'unavailable',
+          message: 'Telos work service unavailable',
+        });
+        expect(describe).toHaveBeenCalledOnce();
+        expect(describe.mock.calls[0][0]).toBeInstanceOf(Error);
+        expect(describe.mock.calls[0][0]).toHaveProperty(
+          'cause',
+          expect.any(corruption === 'schema' ? z.ZodError : SyntaxError),
+        );
+        expect(diagnostics.warn).toHaveBeenCalledWith(
+          'Telos work operation failed',
+          expect.objectContaining({
+            code: 'telos_work_unavailable',
+            phase: 'execute_operation',
+            operation: record === 'membership' ? 'team_read' : 'team_link',
+            reason: corruption === 'schema' ? 'invalid_schema' : 'invalid_json',
+            requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          }),
+        );
+        expect(JSON.stringify(diagnostics.warn.mock.calls)).not.toMatch(
+          /retained-secret|privatePayload|verified-operator|retained-team-operation/,
+        );
+        expect(snapshot()).toEqual(before);
+        expect(linked.commandId).toEqual(linked.team.members[0].operationId);
+
+        diagnostics.warn.mockClear();
+        const invalid = await request(f.app)
+          .post('/api/telos/work/team/commands')
+          .set('x-operator', 'authenticated')
+          .send({ ...input, operation: 'invalid' });
+        expect(invalid.status).toBe(400);
+        expect(invalid.body).toEqual({ code: 'invalid', error: 'Invalid team command' });
+        expect(diagnostics.warn).not.toHaveBeenCalled();
+      } finally {
+        db.close();
+      }
+    },
+  );
+
+  it('keeps team storage failures visible through HTTP/client and retains diagnostic sink failures', async () => {
+    const f = await setup();
+    const { api } = f;
+    const failure = Object.assign(new Error('private SQL and storage path'), {
+      code: 'SQLITE_BUSY',
+    });
+    vi.spyOn(TelosWorkStore.prototype, 'readTeam').mockImplementation(() => {
+      throw failure;
+    });
+    await expect(api.readTeam('item')).rejects.toMatchObject({
+      status: 503,
+      code: 'unavailable',
+      message: 'Telos work service unavailable',
+    });
+    expect(diagnostics.warn).toHaveBeenCalledWith(
+      'Telos work operation failed',
+      expect.objectContaining({
+        operation: 'team_read',
+        phase: 'execute_operation',
+        reason: 'sqlite_busy',
+        errorCode: 'SQLITE_BUSY',
+        requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    );
+    const diagnosticCause = new Error('diagnostic sink failed');
+    const retained = vi
+      .spyOn(telosFailure, 'retainTelosDiagnosticFailure')
+      .mockImplementation(() => {});
+    diagnostics.warn.mockImplementationOnce(() => {
+      throw diagnosticCause;
+    });
+    await expect(api.readTeam('item')).rejects.toMatchObject({ status: 503, code: 'unavailable' });
+    expect(retained).toHaveBeenCalledWith(
+      failure,
+      diagnosticCause,
+      expect.objectContaining({ stage: 'execute_operation', operation: 'team_read' }),
+    );
+  });
   it.each([false, true])(
     'preserves the operation response when closing fails (operation failed: %s)',
     async (failOperation) => {
@@ -334,6 +517,69 @@ describe('authorized Telos work API', () => {
       canonical.close();
     }
   }, 15000);
+
+  it('reads the committed team while another canonical writer holds uncommitted work', async () => {
+    const canonical = createTelosCanonicalData();
+    const writer = new Database(canonical.dbPath);
+    try {
+      const expected = canonical.work.readTeam('studio', canonical.actor);
+      const f = await setup({ dbPath: () => canonical.dbPath });
+      writer.exec('BEGIN IMMEDIATE');
+      writer.prepare("UPDATE items SET summary='Uncommitted writer value' WHERE id='studio'").run();
+      const response = await request(f.app)
+        .get('/api/telos/work/items/studio/team')
+        .set('x-operator', 'authenticated');
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(expected);
+      expect(writer.inTransaction).toBe(true);
+    } finally {
+      if (writer.inTransaction) writer.exec('ROLLBACK');
+      writer.close();
+      canonical.close();
+    }
+  }, 15000);
+
+  it('preserves a failed team reader cause when cleanup also fails and never escalates it to a writer', async () => {
+    const f = await setup();
+    await f.read();
+    const db = new Database(f.dbPath());
+    db.exec('DROP TABLE telos_work_team_memberships');
+    const cleanupCause = new Error('private cleanup failure');
+    const close = TelosWorkStore.prototype.close;
+    const retained = vi
+      .spyOn(telosFailure, 'retainTelosDiagnosticFailure')
+      .mockImplementation(() => {});
+    vi.spyOn(TelosWorkStore.prototype, 'close').mockImplementationOnce(function (
+      this: TelosWorkStore,
+    ) {
+      close.call(this);
+      throw cleanupCause;
+    });
+    try {
+      const response = await request(f.app)
+        .get('/api/telos/work/items/item/team')
+        .set('x-operator', 'authenticated');
+      expect(response.status).toBe(503);
+      expect(retained).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'SQLITE_ERROR' }),
+        cleanupCause,
+        expect.objectContaining({ stage: 'close_team_reader', operation: 'team_read' }),
+      );
+      expect(diagnostics.warn).toHaveBeenCalledWith(
+        'Telos work operation failed',
+        expect.objectContaining({
+          errorCode: 'SQLITE_ERROR',
+          reason: 'sqlite_unavailable',
+          operation: 'team_read',
+        }),
+      );
+      expect(
+        db.prepare("SELECT name FROM sqlite_master WHERE name='telos_work_team_memberships'").get(),
+      ).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
 
   it('preserves full extension initialization for a cold record read', async () => {
     const f = await setup();

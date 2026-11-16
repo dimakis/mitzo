@@ -242,6 +242,7 @@ public enum ServerMessage: Codable, Sendable {
     case blockDelta(BlockDeltaParams)
     case blockEnd(BlockEndParams)
     case messageEnd(MessageEndParams)
+    case messageRetracted(MessageRetractionParams)
     case tokenUpdate(TokenUpdateParams)
     case permissionRequest(PermissionRequestParams)
     case permissionResolved(PermissionLifecycleParams)
@@ -320,6 +321,16 @@ public enum ServerMessage: Codable, Sendable {
         case "message_end":
             let params = try MessageEndParams(from: decoder)
             self = .messageEnd(params)
+
+        case "message_retracted":
+            // Presence, even JSON null, is attribution and cannot authorize an
+            // ordinary provider projection change across the phone relay.
+            guard !container.contains(AnyCodingKey("seatId")),
+                  !container.contains(AnyCodingKey("symposiumProvenance")) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                    debugDescription: "Attributed provider retraction is unavailable"))
+            }
+            self = .messageRetracted(try MessageRetractionParams(from: decoder))
 
         case "token_update":
             let params = try TokenUpdateParams(from: decoder)
@@ -430,6 +441,10 @@ public enum ServerMessage: Codable, Sendable {
 
         case .messageEnd(let params):
             try container.encode("message_end", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .messageRetracted(let params):
+            try container.encode("message_retracted", forKey: AnyCodingKey("type"))
             try params.encode(to: encoder)
 
         case .tokenUpdate(let params):
@@ -604,6 +619,25 @@ public struct MessageEndParams: Codable, Sendable {
     public let sessionId: String
     public let seq: Int
     public let ts: Int
+}
+
+public struct MessageRetractionParams: Codable, Sendable {
+    public let messageId: String
+    public let sessionId: String
+    public let toolId: String?
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: AnyCodingKey.self)
+        messageId = try values.decode(String.self, forKey: AnyCodingKey("messageId"))
+        sessionId = try values.decode(String.self, forKey: AnyCodingKey("sessionId"))
+        toolId = try values.decodeIfPresent(String.self, forKey: AnyCodingKey("toolId"))
+        guard !messageId.isEmpty, messageId.count <= 2000, !sessionId.isEmpty,
+              toolId == nil || (!toolId!.isEmpty && toolId!.count <= 1000),
+              !values.contains(AnyCodingKey("toolId")) || toolId != nil else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                debugDescription: "Invalid provider retraction identity"))
+        }
+    }
 }
 
 public struct TokenUpdateParams: Codable, Sendable {

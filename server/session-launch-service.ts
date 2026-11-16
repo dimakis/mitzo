@@ -89,7 +89,10 @@ export class SessionLaunchService {
       receipt.itemId !== record.telos.itemId ||
       receipt.role !== record.telos.role ||
       !receipt.childSessionId ||
-      receipt.childSessionId === record.sourceSessionId ||
+      (receipt.childSessionId === record.sourceSessionId && !record.telos.replacement) ||
+      (record.telos.adoption && receipt.childSessionId !== record.telos.adoption.conversationId) ||
+      (record.telos.replacement &&
+        receipt.assignmentRevision !== record.telos.replacement.assignmentRevision + 1) ||
       !receipt.preparationId ||
       receipt.creationExecution !== 'not_started' ||
       !Number.isSafeInteger(receipt.assignmentRevision) ||

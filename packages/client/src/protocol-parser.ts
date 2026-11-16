@@ -1,5 +1,6 @@
 import { AgentMessageProjectionSchema, MessageReplyContextSchema } from '@mitzo/protocol';
 import { AgentContextReceiptSchema, SourceSnapshotsSchema } from '@mitzo/protocol';
+import { MessageRetractionSchema } from '@mitzo/protocol';
 /**
  * Protocol parser — maps ServerMessage → store actions.
  *
@@ -432,6 +433,19 @@ export function parseServerMessage(
           commandState: msg.status as 'completed' | 'interrupted' | 'failed',
         });
       break;
+    case 'message_retracted': {
+      const target = MessageRetractionSchema.safeParse(msg);
+      if (
+        !target.success ||
+        typeof msg.sessionId !== 'string' ||
+        msg.sessionId !== state.currentSessionId ||
+        'seatId' in msg ||
+        'symposiumProvenance' in msg
+      )
+        return { messagesActions: [], resyncRequired: true };
+      result.messagesActions.push({ type: 'MESSAGE_RETRACTED', ...target.data });
+      break;
+    }
     case 'message_start':
       result.messagesActions.push({
         type: 'MESSAGE_START',

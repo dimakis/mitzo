@@ -88,6 +88,17 @@ const PREPARATION_TERMINAL_STATES = new Set([
   'failed',
   'cancelled',
 ]);
+const STREAMING_OUTPUT_ACTIONS = new Set<MessagesAction['type']>([
+  'MESSAGE_START',
+  'MESSAGE_SNAPSHOT',
+  'MESSAGE_END',
+  'BLOCK_START',
+  'BLOCK_DELTA',
+  'BLOCK_END',
+  'TOOL_RESULT',
+  'SESSION_END',
+  'ERROR',
+]);
 
 export interface SendMessageOptions {
   /** Stable local queue identity; normal edits still create a fresh command. */
@@ -988,7 +999,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessionId: string;
         throughSeq: number;
         confirmedMessageIds: Set<string>;
-        liveActions: Array<{ seq: number; action: MessagesAction }>;
+        liveActions: Array<{ seq: number; action: MessagesAction; changedCurrentOwner?: string }>;
+        unsequencedCurrentChanged: boolean;
       }
     | undefined;
   let openingHistory:
@@ -1025,7 +1037,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       sessionId,
       throughSeq: throughSeq ?? 0,
       confirmedMessageIds: new Set<string>(),
-      liveActions: [] as Array<{ seq: number; action: MessagesAction }>,
+      liveActions: [] as Array<{
+        seq: number;
+        action: MessagesAction;
+        changedCurrentOwner?: string;
+      }>,
+      unsequencedCurrentChanged: false,
     };
     boundedRestore = currentBoundedRestore;
     if (throughSeq !== undefined) {
@@ -1045,12 +1062,59 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         ? api.getSessionTranscript(sessionId)
         : api.getReconnectTranscript(sessionId, throughSeq));
     transcript
-      .then(({ messages: msgs, current, currents = [], cursor }) => {
+      .then(({ messages: msgs, current, currents = [], cursor, retractions = [] }) => {
         if (Array.isArray(msgs)) confirmPersistedDelivery(sessionId, msgs);
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           const appliedCursor = cursor ?? throughSeq;
           store.setState((s) => {
+            const liveSuffix = currentBoundedRestore.liveActions.filter(
+              (item) => appliedCursor === undefined || item.seq > appliedCursor,
+            );
+            const liveActions = liveSuffix.map((item) => item.action);
+            const currentOwner = s.messages.current
+              ? messageIdentity(
+                  s.messages.current.messageId,
+                  s.messages.current.symposiumProvenance,
+                )
+              : undefined;
+            // Activity on an earlier reply cannot rebuild the actual newer
+            // streaming owner, whose unsequenced output is absent from replay.
+            const sequencedCurrentChanged =
+              currentOwner !== undefined &&
+              liveSuffix.some((item) => item.changedCurrentOwner === currentOwner);
+            // A projection receipt edits an observed turn; it does not rebuild
+            // that turn's tool activity or create a newer streaming owner.
+            const structuralActions = liveActions.filter(
+              (action) => action.type !== 'MESSAGE_RETRACTED',
+            );
+            // A completed canonical row seeds later incremental events even
+            // when the view still has an older streaming copy of that owner.
+            const hasCanonicalCurrent =
+              !!s.messages.current &&
+              msgs.some(
+                (message) =>
+                  messageIdentity(message.messageId, message.symposiumProvenance) ===
+                  messageIdentity(
+                    s.messages.current!.messageId,
+                    s.messages.current!.symposiumProvenance,
+                  ),
+              );
+            const liveCurrentChanged =
+              !hasCanonicalCurrent &&
+              s.messages.current !== initialCurrent &&
+              (liveActions.length === 0 ||
+                sequencedCurrentChanged ||
+                currentBoundedRestore.unsequencedCurrentChanged);
+            // A live receipt may have been missed. Apply only explicit verified
+            // tombstones from this request's canonical prefix before merging;
+            // an empty legacy history is not authority to erase local output.
+            for (const target of retractions)
+              s = {
+                ...s,
+                messages: messagesReducer(s.messages, { type: 'MESSAGE_RETRACTED', ...target }),
+              };
+            const mergeInitialCurrent = liveCurrentChanged ? initialCurrent : s.messages.current;
             const restoredContent = replace
               ? {
                   ...s.messages,
@@ -1076,7 +1140,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                       ...msgs
                         .filter(
                           (m) =>
-                            s.messages.current === initialCurrent ||
+                            !liveCurrentChanged ||
                             !s.messages.current ||
                             messageIdentity(m.messageId, m.symposiumProvenance) !==
                               messageIdentity(
@@ -1095,10 +1159,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                       ),
                     ];
                   })(),
-                  current: s.messages.current !== initialCurrent ? s.messages.current : null,
+                  current: liveCurrentChanged ? s.messages.current : null,
                 }
               : msgs.length > 0
-                ? mergeHistory(s.messages, msgs, initialCurrent)
+                ? mergeHistory(s.messages, msgs, mergeInitialCurrent)
                 : s.messages;
             const restored = replace
               ? messagesReducer(
@@ -1106,18 +1170,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                   { type: 'RESTORE', messages: restoredContent.messages },
                 )
               : restoredContent;
-            const liveActions = currentBoundedRestore.liveActions
-              .filter((item) => appliedCursor === undefined || item.seq > appliedCursor)
-              .map((item) => item.action);
             if (appliedCursor === undefined) return { messages: restored };
-            const preserveLiveCurrent =
-              s.messages.current !== initialCurrent && liveActions.length === 0;
-            // Rebuild live completed turns from the captured suffix so their
-            // order and blocks are applied once after the durable prefix.
+            const preserveLiveCurrent = liveCurrentChanged && !sequencedCurrentChanged;
+            // Only a full-row constructor can replace its canonical seed.
+            // Tool/block/end deltas must update the known row, never erase it
+            // before an incremental action that cannot reconstruct its parent.
             const replayedIds = new Set(
-              liveActions.flatMap((action) => {
+              structuralActions.flatMap((action) => {
                 if (
-                  !['COMMAND_STATE', 'REPLY_SOURCE', 'MESSAGE_REPLY'].includes(action.type) &&
+                  ['MESSAGE_START', 'MESSAGE_SNAPSHOT', 'USER_MESSAGE_RECEIVED'].includes(
+                    action.type,
+                  ) &&
                   'messageId' in action &&
                   typeof action.messageId === 'string'
                 )
@@ -1186,11 +1249,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (typeof console !== 'undefined') {
           console.warn('[mitzo] message recovery fetch failed', err);
         }
-        if (
-          (replace || throughSeq !== undefined || onApplied) &&
-          request === historyRequest &&
-          store.getState().sessions.active === sessionId
-        ) {
+        if (request === historyRequest && store.getState().sessions.active === sessionId) {
           store.setState({ historyError: 'Could not restore this conversation. Please retry.' });
           // A receipt may select the chat after its background snapshot ACK was
           // sent. Recover an authoritative prefix if that receipt's history fails.
@@ -2840,12 +2899,40 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         typeof msg.seq === 'number' &&
         Number.isSafeInteger(msg.seq) &&
         msg.seq > boundedRestore.throughSeq;
+      const previousMessages = store.getState().messages;
+      const nextMessages = messagesReducer(previousMessages, action);
+      // A receipt or metadata edit cannot establish a newer output owner.
+      // Observe actual reducer content changes, including unsequenced legacy
+      // streams, instead of inferring ownership from an unrelated suffix event.
+      const outputAction =
+        action.symposiumProvenance === undefined &&
+        (STREAMING_OUTPUT_ACTIONS.has(action.type) || action.type.startsWith('SUBAGENT_'));
+      const changesCurrent =
+        outputAction &&
+        (nextMessages.current?.messageId !== previousMessages.current?.messageId ||
+          nextMessages.current?.blocks !== previousMessages.current?.blocks ||
+          nextMessages.current?.blockOrder !== previousMessages.current?.blockOrder);
       if (isPostCursorAction) {
-        boundedRestore!.liveActions.push({ seq: msg.seq as number, action });
+        const changedCurrent = changesCurrent
+          ? (nextMessages.current ?? previousMessages.current)
+          : undefined;
+        boundedRestore!.liveActions.push({
+          seq: msg.seq as number,
+          action,
+          changedCurrentOwner: changedCurrent
+            ? messageIdentity(changedCurrent.messageId, changedCurrent.symposiumProvenance)
+            : undefined,
+        });
         if (action.type === 'USER_MESSAGE_RECEIVED')
           boundedRestore!.confirmedMessageIds.add(action.messageId);
+      } else if (
+        boundedRestore &&
+        boundedRestore.sessionId === eventSessionId &&
+        (typeof msg.seq !== 'number' || !Number.isSafeInteger(msg.seq)) &&
+        changesCurrent
+      ) {
+        boundedRestore.unsequencedCurrentChanged = true;
       }
-      const nextMessages = messagesReducer(store.getState().messages, action);
       if (nextMessages.resyncRequired) {
         store.setState({ messages: nextMessages });
         return false;
