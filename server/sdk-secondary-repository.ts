@@ -3,7 +3,7 @@ import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EventStore } from './event-store.js';
 import { AuthoritySnapshot } from './sandbox-authority.js';
-import { captureLocalRepository } from './local-repository-worktree.js';
+import { captureLocalRepository, type LocalRepositorySource } from './local-repository-worktree.js';
 import { createWorktreeAsync } from './worktree.js';
 import {
   snapshotRepositoryTaskCheckout,
@@ -51,7 +51,91 @@ export async function currentSdkSecondaryRepositoryTask(
   return validateRepositoryTaskCheckout(directory, task);
 }
 
-type Events = Pick<EventStore, 'getSessionWorktreeRecords' | 'append'>;
+type Events = Pick<EventStore, 'getSessionWorktreeRecords' | 'append' | 'getEventsOfType'>;
+
+/** Durable intent written before the first Git effect. Its own event type keeps
+ * pending paths out of the completed worktree_opened ledger and client views. */
+const ALLOCATION = 'sdk_secondary_allocation';
+interface AllocationIntent {
+  repoName: string;
+  path: string;
+  branch: string;
+  sourcePath: string;
+  baseOid: string;
+  localSource: LocalRepositorySource;
+  /** 'materialized' is appended only after Git reported a complete checkout. */
+  stage: 'allocating' | 'materialized';
+}
+function recordAllocation(
+  events: Events,
+  conversationId: string,
+  intent: AllocationIntent,
+): AllocationIntent {
+  events.append(conversationId, ALLOCATION, {
+    v: 1,
+    type: ALLOCATION,
+    ts: Date.now(),
+    sessionId: conversationId,
+    ...intent,
+  });
+  return intent;
+}
+/** Latest intent per task that has no completed ownership record yet. */
+function incompleteAllocations(events: Events, conversationId: string) {
+  const completed = new Set(
+    events.getSessionWorktreeRecords(conversationId).map((record) => record.repoName),
+  );
+  const latest = new Map<string, AllocationIntent>();
+  for (const { payload } of events.getEventsOfType(conversationId, ALLOCATION)) {
+    const intent = payload as unknown as AllocationIntent;
+    if (typeof intent.repoName !== 'string' || completed.has(intent.repoName)) continue;
+    if (!latest.has(intent.repoName)) latest.set(intent.repoName, intent);
+  }
+  return latest;
+}
+function recordCompletion(
+  events: Events,
+  conversationId: string,
+  repoName: string,
+  task: RepositoryTaskCheckout,
+) {
+  events.append(conversationId, 'worktree_opened', {
+    v: 2,
+    type: 'worktree_opened',
+    ts: Date.now(),
+    sessionId: conversationId,
+    repoName,
+    path: task.directory,
+    sourcePath: task.localSource!.path,
+    sdkSecondary: true,
+    task,
+  });
+}
+/** Finish an interrupted allocation without ever discarding retained work.
+ * Returns undefined only when no checkout exists, so a fresh allocation is safe;
+ * Git's own require-new checks still refuse a leftover branch or administration. */
+async function reconcileAllocation(
+  events: Events,
+  conversationId: string,
+  intent: AllocationIntent,
+  current: () => Promise<void>,
+): Promise<RepositoryTaskCheckout | undefined> {
+  const preserved = () =>
+    `An interrupted Claude repository preparation was preserved at ${intent.path} on branch ${intent.branch}; it was not reopened because it cannot be verified as complete. ` +
+    `Inspect it, and only if it holds no needed work, run git -C ${intent.sourcePath} worktree remove ${intent.path} and git -C ${intent.sourcePath} branch -D ${intent.branch} before retrying.`;
+  const existing = await lstat(intent.path).catch(unlessMissing);
+  if (!existing && intent.stage === 'allocating') return undefined;
+  if (intent.stage !== 'materialized') throw Error(preserved());
+  let task: RepositoryTaskCheckout;
+  try {
+    task = await snapshotRepositoryTaskCheckout(intent.path, intent.branch, intent.localSource);
+  } catch (cause) {
+    throw Error(preserved(), { cause });
+  }
+  await current();
+  recordCompletion(events, conversationId, intent.repoName, task);
+  return task;
+}
 
 const TASK_ROOT = ['.claude', 'repository-tasks'] as const;
 const unlessMissing = (error: NodeJS.ErrnoException) => {
@@ -155,6 +239,13 @@ export async function prepareSdkSecondaryRepository(options: {
   const branch = `mitzo/${name}`;
   const taskRoot = join(options.workspaceDirectory, ...TASK_ROOT);
   const directory = join(taskRoot, name);
+  const active = {
+    state: 'active' as const,
+    repoName: name,
+    directory,
+    branch,
+    primaryUnchanged: true,
+  };
   const record = options.events
     .getSessionWorktreeRecords(options.conversationId)
     .find((record) => record.repoName === name);
@@ -163,7 +254,19 @@ export async function prepareSdkSecondaryRepository(options: {
       throw Error('Original Claude repository task changed');
     await validateRepositoryTaskCheckout(directory, retained(record));
     await current();
-    return { state: 'active' as const, repoName: name, directory, branch, primaryUnchanged: true };
+    return active;
+  }
+  const pending = incompleteAllocations(options.events, options.conversationId).get(name);
+  if (pending) {
+    if (
+      pending.path !== directory ||
+      pending.branch !== branch ||
+      pending.sourcePath !== options.sourcePath
+    )
+      throw Error('Original Claude repository allocation changed');
+    await current();
+    if (await reconcileAllocation(options.events, options.conversationId, pending, current))
+      return active;
   }
   const { localSource, baseOid } = await captureLocalRepository(
     name,
@@ -172,6 +275,16 @@ export async function prepareSdkSecondaryRepository(options: {
     options.base.kind === 'ref' ? options.base.ref : undefined,
   );
   await current();
+  // Persist ownership before the first filesystem or Git effect.
+  const intent = recordAllocation(options.events, options.conversationId, {
+    repoName: name,
+    path: directory,
+    branch,
+    sourcePath: options.sourcePath,
+    baseOid,
+    localSource,
+    stage: 'allocating',
+  });
   const physical = await pinPhysicalTaskRoot(options.workspaceDirectory, directory);
   await current();
   await physical();
@@ -188,30 +301,34 @@ export async function prepareSdkSecondaryRepository(options: {
       await physical();
     },
   });
+  // Record the completed checkout fact before any further cancellable check.
+  recordAllocation(options.events, options.conversationId, { ...intent, stage: 'materialized' });
   await current();
   const task = await snapshotRepositoryTaskCheckout(directory, branch, localSource);
   await current();
-  options.events.append(options.conversationId, 'worktree_opened', {
-    v: 2,
-    type: 'worktree_opened',
-    ts: Date.now(),
-    sessionId: options.conversationId,
-    repoName: name,
-    path: directory,
-    sourcePath: options.sourcePath,
-    sdkSecondary: true,
-    task,
-  });
-  return { state: 'active' as const, repoName: name, directory, branch, primaryUnchanged: true };
+  recordCompletion(options.events, options.conversationId, name, task);
+  return active;
 }
 
 export async function restoreSdkSecondaryRepositories(
-  events: Pick<Events, 'getSessionWorktreeRecords'>,
+  events: Events,
   conversationId: string,
   signal: AbortSignal,
   assertCurrent: () => Promise<void>,
 ) {
   const result = new Map<string, { path: string; wtId: string }>();
+  // A materialized allocation interrupted before its ownership record is
+  // completed here; one never verified as complete waits for an explicit retry,
+  // which reports where it was preserved instead of blocking this startup.
+  for (const intent of incompleteAllocations(events, conversationId).values()) {
+    signal.throwIfAborted();
+    if (intent.stage !== 'materialized') continue;
+    await assertCurrent();
+    await reconcileAllocation(events, conversationId, intent, async () => {
+      await assertCurrent();
+      signal.throwIfAborted();
+    });
+  }
   for (const record of events.getSessionWorktreeRecords(conversationId)) {
     signal.throwIfAborted();
     const task = retained(record);

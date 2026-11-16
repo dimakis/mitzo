@@ -201,6 +201,61 @@ it.each(['.claude', 'repository-tasks', 'swapped before Git'] as const)(
     expect(git(f.source, 'worktree', 'list', '--porcelain')).not.toContain('claude-');
   },
 );
+const restore = (f: Awaited<ReturnType<typeof fixture>>) =>
+  restoreSdkSecondaryRepositories(f.store, 'conversation', f.signal, async () => {});
+it.each(['retry', 'restore'] as const)(
+  'completes a materialized allocation interrupted before its ownership record on %s',
+  async (recovery) => {
+    const f = await fixture();
+    let interrupted = false;
+    await expect(
+      prepareSdkSecondaryRepository({
+        ...f.options,
+        assertCurrent: async () => {
+          const materialized = f.store
+            .getEventsOfType('conversation', 'sdk_secondary_allocation')
+            .some((event) => event.payload.stage === 'materialized');
+          if (!materialized || interrupted) return;
+          interrupted = true;
+          throw Error('cancelled after allocation');
+        },
+      }),
+    ).rejects.toThrow('cancelled after allocation');
+    expect(f.store.getSessionWorktreeRecords('conversation')).toEqual([]);
+    const reopened =
+      recovery === 'retry' ? await prepareSdkSecondaryRepository(f.options) : undefined;
+    const restored = await restore(f);
+    const [entry] = [...restored.values()];
+    expect(entry.path).toMatch(/\.claude\/repository-tasks\/claude-/);
+    if (reopened) expect(reopened.directory).toBe(entry.path);
+    expect(git(entry.path, 'rev-parse', 'HEAD')).toBe(git(f.source, 'rev-parse', 'HEAD'));
+    expect(await sdkSecondaryRepositoryTask(f.store, 'conversation', entry.path)).toBeDefined();
+    expect(await prepareSdkSecondaryRepository(f.options)).toMatchObject({ directory: entry.path });
+  },
+);
+it('preserves a partially materialized allocation and reports it precisely on retry', async () => {
+  const f = await fixture();
+  const tasks = join(f.options.workspaceDirectory, '.claude', 'repository-tasks');
+  let interrupted = false;
+  await expect(
+    prepareSdkSecondaryRepository({
+      ...f.options,
+      assertCurrent: async () => {
+        // Git created the worktree but checkout has not completed.
+        if (interrupted || !existsSync(tasks) || (await readdir(tasks)).length === 0) return;
+        interrupted = true;
+        throw Error('cancelled during materialization');
+      },
+    }),
+  ).rejects.toThrow('cancelled during materialization');
+  const [name] = await readdir(tasks);
+  await expect(prepareSdkSecondaryRepository(f.options)).rejects.toThrow(
+    new RegExp(`preserved at ${join(tasks, name)}.*mitzo/${name}`),
+  );
+  expect(existsSync(join(tasks, name, '.git'))).toBe(true);
+  expect(git(f.source, 'branch', '--list', `mitzo/${name}`)).toContain(name);
+  expect(await restore(f)).toEqual(new Map());
+});
 it('requires a fresh approval for every source repository even after an Always answer', async () => {
   const registry = new SessionRegistry();
   cleanups.push(() => registry.dispose());
