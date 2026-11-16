@@ -23,6 +23,7 @@ import {
   runtimeFailureDiagnostics,
 } from './runtime-failure-diagnostics.js';
 import { sdkQueryRetiredEvent } from './sdk-query-retirement.js';
+import { sdkPersistenceDiagnostic } from './sdk-persistence-diagnostics.js';
 const log = createLogger('owned-sdk-query');
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
@@ -406,7 +407,9 @@ export function createOrdinaryLocalVertexSdkQuery<
   let native = create();
   const firstQuery = native;
   runs.push(native);
+  let closed = false;
   const close = () => {
+    closed = true;
     states.get(native)!.retired = true;
     states.get(native)!.callbacks.seal();
     input.close();
@@ -423,6 +426,19 @@ export function createOrdinaryLocalVertexSdkQuery<
           // The consumer correlates input echoes and message starts with its
           // current FIFO command. A terminal/retired query cannot contribute
           // provenance to that successor, even while its stream drains.
+          if (closed || owners.controller.signal.aborted) continue;
+          // Successor preparation retires the previous native query before its
+          // clean-exit diagnostics drain. That retirement seals effect callbacks;
+          // it does not relinquish this joined owner's same-session diagnostics.
+          if (
+            terminal &&
+            sdkPersistenceDiagnostic(event, owners.sdkSessionId) &&
+            (event.subtype !== 'mirror_error' || owners.options.sessionStore)
+          ) {
+            await owners.authorize(owners.controller.signal);
+            if (!closed && !owners.controller.signal.aborted) yield event;
+            continue;
+          }
           if (state.retired || state.completing || terminal) continue;
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw Error('Original SDK thread identity changed');

@@ -82,6 +82,117 @@ it.each(['allowed', 'revoked', 'cancelled'] as const)(
     }
   },
 );
+// Continues the prior reporting owner's unrun regression draft without changing its checkout.
+it.each(['session_writes_lost', 'mirror_error'])(
+  'delivers %s after the terminal result without admitting late parent output',
+  async (subtype) => {
+    const events = new AsyncQueue<Record<string, unknown>>();
+    vi.mocked(query).mockReturnValue({
+      close: vi.fn(),
+      [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+    } as never);
+    const controller = new AbortController();
+    const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+      options: {
+        sessionId: 'original',
+        ...(subtype === 'mirror_error'
+          ? { sessionStore: { append: async () => {}, load: async () => null } as never }
+          : {}),
+      },
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      onUnsent: vi.fn(),
+    });
+    const iterator = owner.query[Symbol.asyncIterator]();
+    const loss = {
+      type: 'system',
+      subtype,
+      session_id: 'original',
+      uuid: 'e6bd8754-8fc1-42e3-a580-ad9027af6066',
+      ...(subtype === 'mirror_error'
+        ? { key: { projectKey: 'private-project', sessionId: 'original' }, error: 'private-error' }
+        : { error_code: 'ENOSPC', lost: ['transcript'] }),
+    };
+    events.push({ type: 'result', session_id: 'original' });
+    events.push({ type: 'assistant', session_id: 'original', uuid: 'late-output' });
+    events.push(loss);
+    events.close();
+    try {
+      expect((await iterator.next()).value).toMatchObject({ type: 'result' });
+      expect((await iterator.next()).value).toEqual(loss);
+      expect((await iterator.next()).value).toMatchObject({ type: 'sdk_query_retired' });
+    } finally {
+      controller.abort();
+      await iterator.return?.();
+    }
+  },
+);
+it.each([
+  'foreign',
+  'child',
+  'unconfigured_mirror',
+  'revoked',
+  'aborted',
+  'closed',
+  'closed_during_authorize',
+])('does not deliver a late persistence notice after %s', async (scenario) => {
+  const events = new AsyncQueue<Record<string, unknown>>();
+  vi.mocked(query).mockReturnValue({
+    close: vi.fn(),
+    [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+  } as never);
+  const controller = new AbortController();
+  let checks = 0;
+  const closeOwner = vi.fn();
+  const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+    options: { sessionId: 'original' },
+    input: new AsyncQueue(),
+    lifetime: new SdkHookLifetime(),
+    sdkSessionId: 'original',
+    cwd: '/task',
+    controller,
+    authorize: async () => {
+      if (++checks > 1) {
+        if (scenario === 'revoked') throw Error('authority revoked');
+        if (scenario === 'closed_during_authorize') closeOwner();
+      }
+    },
+    authorizeSync: () => {},
+    adapt: (native) => native as never,
+    settings: () => ({}),
+    inputChanged: () => {},
+    onUnsent: vi.fn(),
+  });
+  closeOwner.mockImplementation(() => (owner.query as unknown as { close(): void }).close());
+  const iterator = owner.query[Symbol.asyncIterator]();
+  events.push({ type: 'result', session_id: 'original' });
+  expect((await iterator.next()).value).toMatchObject({ type: 'result' });
+  if (scenario === 'aborted') controller.abort();
+  if (scenario === 'closed') (owner.query as unknown as { close(): void }).close();
+  events.push({
+    type: 'system',
+    subtype: scenario === 'unconfigured_mirror' ? 'mirror_error' : 'session_writes_lost',
+    session_id: scenario === 'foreign' ? 'foreign' : 'original',
+    parent_tool_use_id: scenario === 'child' ? 'child-tool' : null,
+    key: { sessionId: 'original' },
+    uuid: 'e6bd8754-8fc1-42e3-a580-ad9027af6066',
+  });
+  events.close();
+  try {
+    expect((await iterator.next()).value).toMatchObject({ type: 'sdk_query_retired' });
+  } finally {
+    controller.abort();
+    await iterator.return?.();
+  }
+});
 it('preserves the input authority cause when reporting also fails', async () => {
   let prompt!: AsyncIterable<unknown>;
   vi.mocked(query).mockImplementation((request) => {
@@ -312,12 +423,23 @@ it.each(['completed', 'retired'])(
       session_id: 'original',
     });
     streams[0].push({ type: 'result', session_id: 'original' });
+    if (phase === 'retired')
+      streams[0].push({
+        type: 'system',
+        subtype: 'session_writes_lost',
+        session_id: 'original',
+        uuid: 'e6bd8754-8fc1-42e3-a580-ad9027af6066',
+        lost: ['transcript'],
+      });
     streams[0].close();
     if (phase === 'completed') {
       await owner.apply({ model: 'second' } as never);
     }
     streams[1].push({ type: 'assistant', session_id: 'original', uuid: 'successor-output' });
-    expect((await next).value).toMatchObject({ type: 'sdk_query_retired' });
+    if (phase === 'retired') {
+      expect((await next).value).toMatchObject({ type: 'system', subtype: 'session_writes_lost' });
+      expect((await iterator.next()).value).toMatchObject({ type: 'sdk_query_retired' });
+    } else expect((await next).value).toMatchObject({ type: 'sdk_query_retired' });
     expect((await iterator.next()).value).toMatchObject({
       type: 'assistant',
       uuid: 'successor-output',
