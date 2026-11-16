@@ -53,7 +53,7 @@ let enrollment: string;
 let config: string;
 let interpreter: string;
 beforeEach(async () => {
-  const temporaryBase = process.platform === 'darwin' ? '/private/tmp' : tmpdir();
+  const temporaryBase = realpathSync(tmpdir());
   root = realpathSync(mkdtempSync(join(temporaryBase, 'mitzo-sdk-runtime-policy-')));
   mkdirSync(join(root, 'operator'));
   mkdirSync(join(root, 'environment', 'bin'), { recursive: true });
@@ -97,13 +97,13 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function sdkPayload(env: NodeJS.ProcessEnv = {}) {
+function sdkPayload(env: NodeJS.ProcessEnv = {}, cwd = join(root, 'work')) {
   const boundary = credentialSdkBoundary('darwin');
   expect(boundary).toBeDefined();
   boundary!.spawnClaudeCodeProcess({
     command: process.execPath,
     args: ['-e', "throw new Error('fixture must never execute')"],
-    cwd: join(root, 'work'),
+    cwd,
     env,
     signal: new AbortController().signal,
   });
@@ -121,6 +121,190 @@ function policy() {
     allowWrite: string[];
   };
 }
+
+// Git versions use different exit codes for a refused config lock/chmod.
+// A nonzero result alone cannot distinguish sandbox denial from a broken test.
+function gitConfigPermissionDenied(
+  error: { status?: unknown; signal?: unknown; stderr?: unknown },
+  configPath: string,
+) {
+  return (
+    typeof error.status === 'number' &&
+    Number.isInteger(error.status) &&
+    error.status > 0 &&
+    error.signal == null &&
+    typeof error.stderr === 'string' &&
+    (error.stderr.includes(configPath) ||
+      /(?:^|[\s'"])\.git\/config(?:\.lock)?(?=[:\s'"]|$)/m.test(error.stderr)) &&
+    /Operation not permitted|Permission denied/i.test(error.stderr)
+  );
+}
+
+it('requires a config permission cause across Git exit versions in the real child fixture', () => {
+  const target = '/synthetic/work/.git/config';
+  const denied = `error: chmod on ${target}.lock failed: Operation not permitted`;
+  const cases = [
+    [{ status: 4, stderr: denied }, true],
+    [
+      { status: 255, stderr: 'error: could not lock config file .git/config: Permission denied' },
+      true,
+    ],
+    [{ status: 128, stderr: `fatal: Unable to create '${target}.lock': Permission denied` }, true],
+    [{ status: 0, stderr: denied }, false],
+    [{ status: 4, signal: 'SIGTERM', stderr: denied }, false],
+    [{ status: '4', stderr: denied }, false],
+    [
+      { status: 4, stderr: 'error: chmod on /other/.git/config.lock: Operation not permitted' },
+      false,
+    ],
+    [{ status: 4, stderr: `error: could not lock config file ${target}: File exists` }, false],
+    [{ status: 4, stderr: `error: invalid config value in ${target}` }, false],
+    [{}, false],
+  ] as const;
+  const output = execFileSync(
+    process.execPath,
+    [
+      '-e',
+      `const denied = ${gitConfigPermissionDenied.toString()};
+       process.stdout.write(JSON.stringify(${JSON.stringify(cases)}.map(([error]) => denied(error, ${JSON.stringify(target)}))));`,
+    ],
+    { encoding: 'utf8' },
+  );
+  expect(JSON.parse(output)).toEqual(cases.map(([, expected]) => expected));
+});
+
+it.each(['0', '1'])(
+  'permits Git setup with an empty template in the SDK boundary (Keychain %s)',
+  (enabled) => {
+    vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', enabled);
+    const payload = sdkPayload({ GIT_TEMPLATE_DIR: '/untrusted/template' });
+    expect(payload.config.filesystem.allowGitConfig).toBe(true);
+    expect(payload.sdkGitWorkRoot).toBe(join(root, 'work'));
+    expect(payload.authority).toContainEqual(expect.objectContaining({ path: join(root, 'work') }));
+    const template = payload.env!.GIT_TEMPLATE_DIR!;
+    expect(template).not.toBe('/untrusted/template');
+    expect(payload.config.filesystem.allowRead).toContain(template);
+    expect(payload.config.filesystem.denyWrite).toContain(dirname(template));
+  },
+);
+
+it.each(['0', '1'])(
+  'canonicalizes an actual symlink cwd for both worker handoffs (Keychain %s)',
+  (enabled) => {
+    vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', enabled);
+    const alias = join(root, 'work-link');
+    symlinkSync(join(root, 'work'), alias);
+    const payload = sdkPayload({}, alias);
+    const captured = realpathSync(alias);
+    expect(payload.cwd).toBe(captured);
+    expect(payload.sdkGitWorkRoot).toBe(captured);
+    expect(payload.authority).toContainEqual(expect.objectContaining({ path: captured }));
+    expect(vi.mocked(spawn).mock.calls.at(-1)![2]?.cwd).toBe(captured);
+  },
+);
+
+it('uses the pinned SRT policy to permit repository config while retaining the mandatory hook deny', async () => {
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
+  const payload = sdkPayload();
+  const require = createRequire(import.meta.url);
+  const directory = dirname(require.resolve('@anthropic-ai/sandbox-runtime'));
+  const { macGetMandatoryDenyPatterns } = await import(
+    pathToFileURL(join(directory, 'sandbox', 'macos-sandbox-utils.js')).href
+  );
+  // Prove the old default denies exactly the Git setup file, and the selected
+  // policy removes only that optional deny, keeping the pinned hook policy.
+  expect(macGetMandatoryDenyPatterns()).toContain('**/.git/config');
+  const patterns = macGetMandatoryDenyPatterns(payload.config.filesystem.allowGitConfig);
+  expect(patterns).not.toContain('**/.git/config');
+  expect(patterns).toContain('**/.git/hooks/**');
+  expect(patterns).toContain('**/.gitconfig');
+});
+
+it
+  .runIf(process.platform === 'darwin' && process.env.MITZO_TEST_OS_SANDBOX === '1')
+  .each(['0', '1'])(
+  'clones and develops through the real SDK boundary (Keychain %s)',
+  async (enabled) => {
+    vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', enabled);
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    const previous = vi.mocked(spawn).getMockImplementation()!;
+    vi.mocked(spawn).mockImplementation(actual.spawn as never);
+    try {
+      // Bypass Apple's /usr/bin/git shim: its xcrun cache writes are outside
+      // the fixture's sandbox and otherwise pollute command output.
+      const gitPath = actual
+        .execFileSync('/usr/bin/xcrun', ['--find', 'git'], { encoding: 'utf8' })
+        .trim();
+      for (const directory of [root, join(root, 'work'), join(root, 'sibling')]) {
+        actual.execFileSync(gitPath, ['init', '--template=', '-b', 'main', directory]);
+      }
+      const protectedConfigs = [root, join(root, 'work'), join(root, 'sibling')].map((directory) =>
+        join(directory, '.git', 'config'),
+      );
+      const before = protectedConfigs.map((path) => readFileSync(path, 'utf8'));
+      const launchAlias = join(root, 'work-link');
+      symlinkSync(join(root, 'work'), launchAlias);
+      const run = createProtectedSdkCommandRunner(credentialSdkBoundary('darwin')!);
+      const script = `
+      const fs = require('node:fs'), cp = require('node:child_process');
+      const git = (...args) => cp.execFileSync(${JSON.stringify(gitPath)}, args, { encoding: 'utf8' });
+      git('init', '-b', 'main', 'source');
+      fs.writeFileSync('source/file', 'original');
+      git('-C', 'source', 'add', 'file');
+      git('-C', 'source', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-m', 'initial');
+      git('clone', '--no-local', 'source', 'checkout');
+      git('-C', 'checkout', 'switch', '-c', 'fix/test');
+      git('-C', 'checkout', 'remote', 'set-url', 'origin', 'https://example.invalid/repo.git');
+      fs.writeFileSync('checkout/file', 'changed');
+      git('-C', 'checkout', 'add', 'file');
+      git('-C', 'checkout', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-m', 'changed');
+      if(git('-C', 'checkout', 'show', 'HEAD:file') !== 'changed') process.exit(70);
+      if(git('-C', 'source', 'show', 'HEAD:file') !== 'original') process.exit(71);
+      const denied = (fn, code) => { try { fn(); process.exit(code); } catch(error) {
+        if(!['EPERM', 'EACCES'].includes(error.code)) throw error;
+      }};
+      // SRT may allow an empty hooks directory; its mandatory deny protects
+      // actual hook files. Require the directory/create+write attempt to fail.
+      denied(() => {
+        fs.mkdirSync('checkout/.git/hooks', { recursive: true });
+        fs.writeFileSync('checkout/.git/hooks/pre-commit', 'synthetic hook');
+      }, 72);
+      denied(() => fs.readFileSync(${JSON.stringify(config)}), 73);
+      const gitConfigPermissionDenied = ${gitConfigPermissionDenied.toString()};
+      for(const repository of ['.', '..', '../sibling']) {
+        try { git('-C', repository, 'config', 'remote.origin.url', 'https://example.invalid/denied.git'); throw Error('out-of-task git config permitted: ' + repository); }
+        catch(error) {
+          if(!gitConfigPermissionDenied(error, require('node:path').resolve(repository, '.git/config'))) throw error;
+        }
+        denied(() => fs.writeFileSync(repository + '/.git/config', 'denied'), 74);
+        denied(() => fs.renameSync(repository + '/.git/config', repository + '/.git/config.moved'), 75);
+        denied(() => fs.renameSync(repository + '/.git', repository + '/.git.moved'), 76);
+        denied(() => fs.unlinkSync(repository + '/.git/config'), 77);
+      }
+      fs.writeFileSync('checkout/result', 'checked');
+      process.stdout.write('git-sdk-ok');
+    `;
+      expect(
+        await run(process.execPath, ['-e', script], {
+          cwd: launchAlias,
+          env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: join(root, 'work') },
+          timeout: 20000,
+        }).catch((cause: Error & { stderr?: string; code?: unknown }) => {
+          throw new Error(
+            `Synthetic Git SDK fixture failed (${String(cause.code)}): ${cause.stderr ?? cause.message}`,
+            { cause },
+          );
+        }),
+      ).toEqual({ stdout: 'git-sdk-ok', stderr: expect.any(String) });
+      expect(protectedConfigs.map((path) => readFileSync(path, 'utf8'))).toEqual(before);
+      expect(existsSync(join(root, 'work', 'checkout', '.git', 'hooks', 'pre-commit'))).toBe(false);
+      expect(readFileSync(join(root, 'work', 'checkout', 'result'), 'utf8')).toBe('checked');
+    } finally {
+      vi.mocked(spawn).mockImplementation(previous);
+    }
+  },
+  25000,
+);
 
 it('activates the outer SDK boundary without Keychain and fences enrolled authority before any runtime use', () => {
   expect(credentialSdkBoundary('darwin')!.credentialIsolation).toBe(false);
@@ -343,13 +527,13 @@ it('retains runtime-only project credentials and custom endpoint behavior while 
   };
   const payload = sdkPayload(env);
   expect(payload.filesystemOnly).toBe(true);
-  expect(payload.env).toEqual(env);
+  expect(payload.env).toEqual({ ...env, GIT_TEMPLATE_DIR: expect.any(String) });
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
   expect(() => credentialSdkBoundary('darwin')).toThrow(/hostname provider endpoint/);
   vi.stubEnv('ANTHROPIC_BASE_URL', 'https://synthetic-provider.example');
   const credentialPayload = sdkPayload(env);
   expect(credentialPayload.filesystemOnly).toBeUndefined();
-  expect(credentialPayload.env).toEqual({});
+  expect(credentialPayload.env).toEqual({ GIT_TEMPLATE_DIR: expect.any(String) });
   expect(credentialPayload.config.network.allowedDomains).toContain('synthetic-provider.example');
 });
 

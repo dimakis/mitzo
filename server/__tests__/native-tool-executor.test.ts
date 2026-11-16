@@ -767,6 +767,86 @@ describe('native tool execution through session permissions', () => {
       undefined,
     );
   });
+  it.each([true, false])(
+    'honors task commit cwd without staging its parent repository (target custody: %s)',
+    async (targetOwned) => {
+      const session = registry.get('client')!;
+      const parent = await realpath(session.cwd!);
+      session.cwd = parent;
+      const nested = join(parent, 'nested');
+      const git = (directory: string, ...args: string[]) =>
+        execFileSync('git', ['-C', directory, ...args], { encoding: 'utf8' }).trim();
+      for (const directory of [parent, nested]) {
+        execFileSync('git', ['init', '--template=', '-b', 'mitzo/task', directory]);
+        git(directory, 'config', 'user.name', 'Offline fixture');
+        git(directory, 'config', 'user.email', 'offline@example.invalid');
+        await writeFile(join(directory, 'change.txt'), 'original');
+        git(directory, 'add', 'change.txt');
+        git(directory, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'initial');
+      }
+      const parentHead = git(parent, 'rev-parse', 'HEAD');
+      const nestedHead = git(nested, 'rev-parse', 'HEAD');
+      const parentTask = await snapshotRepositoryTaskCheckout(parent, 'mitzo/task');
+      const nestedTask = await snapshotRepositoryTaskCheckout(nested, 'mitzo/task');
+      await writeFile(join(parent, 'change.txt'), 'parent must stay uncommitted');
+      await writeFile(join(nested, 'change.txt'), 'selected nested change');
+      repositoryTasks.read.mockReturnValue({ id: 'controller-claim' });
+      repositoryTasks.validate.mockImplementation(async (_conversation, directory) => {
+        if (directory === parent) return parentTask;
+        if (directory === nested && targetOwned) return nestedTask;
+        throw Error('Selected repository custody is unavailable');
+      });
+      const actual = await vi.importActual<typeof import('../trusted-native-operation.js')>(
+        '../trusted-native-operation.js',
+      );
+      vi.mocked(executeTrustedGitCommit).mockImplementation(actual.executeTrustedGitCommit);
+      const store = new TaskExecutionStore(join(root, 'commit-cwd.db'));
+      try {
+        const grant = store.approve('operator', session.sessionId!, 'authorization', {
+          title: 'Commit the selected nested repository',
+          network: 'none',
+          repositories: [],
+          expiresAt: Date.now() + 60000,
+          members: [{ sessionId: session.sessionId!, fingerprint: 'scope', roots: [parent] }],
+        });
+        const result = await executeTaskOperation({
+          input: {
+            operation: 'commit',
+            requestId: 'nested-commit',
+            grantId: grant.id,
+            cwd: nested,
+            files: ['change.txt'],
+            message: 'Commit selected nested change',
+          },
+          grant,
+          sessionId: session.sessionId!,
+          session,
+          registry,
+          clientId: 'client',
+          call: { turnId: 'turn', callId: 'commit-call' },
+          store,
+          signal: abort.signal,
+          assertGrant: () => grant,
+          assertRuntimeCurrent: async () => {},
+        });
+        expect(result.isError, result.content).toBe(!targetOwned);
+        expect(repositoryTasks.validate).toHaveBeenCalledWith(session.sessionId!, nested);
+        expect(git(parent, 'rev-parse', 'HEAD')).toBe(parentHead);
+        expect(git(parent, 'diff', '--cached', '--name-only')).toBe('');
+        expect(git(parent, 'diff', '--', 'change.txt')).toContain('parent must stay uncommitted');
+        if (targetOwned) {
+          expect(git(nested, 'show', 'HEAD:change.txt')).toBe('selected nested change');
+          expect(git(nested, 'rev-parse', 'HEAD')).not.toBe(nestedHead);
+        } else {
+          expect(git(nested, 'rev-parse', 'HEAD')).toBe(nestedHead);
+          expect(git(nested, 'diff', '--cached', '--name-only')).toBe('');
+        }
+      } finally {
+        store.close();
+        vi.mocked(executeTrustedGitCommit).mockResolvedValue('[branch abc] approved');
+      }
+    },
+  );
   it('pins the approved file identity across the approval wait', async () => {
     const file = join(root, 'worktree/change.txt');
     await writeFile(file, 'approved');

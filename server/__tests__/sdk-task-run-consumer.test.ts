@@ -18,12 +18,14 @@ import {
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
 
 it.each([
-  ['completed predecessor', true, true],
-  ['late predecessor', false, true],
-  ['legacy distinct tasks', true, false],
+  ['completed predecessor', true, true, true, true],
+  ['late predecessor', false, true, true, true],
+  ['legacy distinct tasks', true, false, true, true],
+  ['missing predecessor receipt', false, true, false, true],
+  ['both receipts missing at native retirement', false, true, false, false],
 ] as const)(
   'keeps native task runs distinct through live/cold consumers: %s',
-  async (_scenario, firstCompleted, hasRunIds) => {
+  async (_scenario, firstCompleted, hasRunIds, firstReceiptArrives, secondReceiptArrives) => {
     const events = new AsyncQueue<Record<string, unknown>>();
     vi.mocked(query).mockReturnValue({
       close: vi.fn(),
@@ -125,7 +127,7 @@ it.each([
       description: 'Resumed run',
     });
     // A delayed prior-run notification must never complete the resumed run.
-    push(firstResult);
+    if (firstReceiptArrives) push(firstResult);
     push(firstStart);
     if (hasRunIds) {
       // Neither an unobserved run nor an ambiguous/mismatched receipt can settle it.
@@ -142,7 +144,12 @@ it.each([
           ...receipt,
         });
     }
-    const secondStatus = firstCompleted ? 'completed' : 'failed';
+    const firstStatus = firstReceiptArrives ? 'completed' : 'unavailable';
+    const secondStatus = !secondReceiptArrives
+      ? 'unavailable'
+      : firstCompleted
+        ? 'completed'
+        : 'failed';
     const secondResult = {
       type: 'system',
       subtype: 'task_notification',
@@ -152,28 +159,48 @@ it.each([
       status: secondStatus,
       summary: 'Second result',
     };
-    push(secondResult);
-    push(secondResult);
+    if (secondReceiptArrives) {
+      push(secondResult);
+      push(secondResult);
+    }
     push({ type: 'result', is_error: false });
     events.close();
     try {
       await runQueryLoop(sdk.query, 'client', registry, controller, store, undefined, {
-        onResultDelivered: async () => (sdk.query as unknown as { close(): void }).close(),
+        onResultDelivered: async () => {
+          if (secondReceiptArrives) (sdk.query as unknown as { close(): void }).close();
+        },
         onEvent: (event) => {
           if (
             !firstCompleted &&
+            firstReceiptArrives &&
             event.type === 'subagent_end' &&
             event.parentToolId === 'spawn-first'
           )
             expect(session.activeTaskIds.get('same-task')).toBe('resume-second');
+          if (!secondReceiptArrives && event.type === 'subagent_end') {
+            // Native stream retirement must publish uncertainty while the
+            // joined owner remains open and keeps the current cancellation map.
+            expect(event.status).toBe('unavailable');
+            expect(session.activeTaskIds.get(secondTask)).toBe('resume-second');
+            (sdk.query as unknown as { close(): void }).close();
+          }
         },
       });
       const children = sent.filter((event) => event.type === 'subagent_end');
       expect(children.filter((event) => event.parentToolId === 'spawn-first')).toEqual([
-        expect.objectContaining({ parentToolId: 'spawn-first', status: 'completed' }),
+        expect.objectContaining({
+          parentToolId: 'spawn-first',
+          taskId: 'same-task',
+          status: firstStatus,
+        }),
       ]);
       expect(children.filter((event) => event.parentToolId === 'resume-second')).toEqual([
-        expect.objectContaining({ parentToolId: 'resume-second', status: secondStatus }),
+        expect.objectContaining({
+          parentToolId: 'resume-second',
+          taskId: secondTask,
+          status: secondStatus,
+        }),
       ]);
       const restored = replayEventsToMessages(store.getEventsAfter('task-session', 0));
       const second = restored
@@ -200,8 +227,20 @@ it.each([
       const liveFirst = live.messages
         .flatMap((message) => message.blocks)
         .find((block) => block.toolId === 'spawn-first');
-      expect(first?.subagent?.status).toBe('completed');
-      expect(liveFirst?.subagent?.status).toBe('completed');
+      expect(first?.subagent?.status).toBe(firstStatus);
+      expect(liveFirst?.subagent?.status).toBe(firstStatus);
+      if (!firstReceiptArrives) {
+        expect(first?.subagent?.diagnostic?.code).toBe('claude_child_outcome_unavailable');
+        expect(liveFirst?.subagent?.diagnostic).toEqual(first?.subagent?.diagnostic);
+      }
+      if (!secondReceiptArrives) {
+        expect(second?.subagent?.diagnostic?.code).toBe('claude_child_outcome_unavailable');
+        expect(liveSecond?.subagent?.diagnostic).toEqual(second?.subagent?.diagnostic);
+        expect(session.activeTaskIds.get(secondTask)).toBe('resume-second');
+      }
+      expect(first?.subagent?.messageId).toBe(
+        hasRunIds ? 'task-same-task-run-001' : 'task-same-task',
+      );
       expect(first?.subagent?.messageId).not.toBe(second?.subagent?.messageId);
     } finally {
       controller.abort();
