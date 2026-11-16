@@ -4,9 +4,29 @@ import {
   annotateAuthorityFailure,
   recordRuntimeFailure,
   runtimeFailureDiagnostics,
+  retainedRuntimeFailure,
+  retainRuntimeFailure,
 } from '../runtime-failure-diagnostics.js';
 import type { Span } from '@opentelemetry/api';
 import * as logging from '../logger.js';
+
+it('bounds internal retention while keeping non-Error causes and sink failures under the original reference', () => {
+  const cause = { private: 'original non-Error payload' };
+  const diagnosticCause = new Error('private sink failure');
+  retainRuntimeFailure('evicted-reference', cause, () => {});
+  for (let index = 0; index < 32; index++) {
+    retainRuntimeFailure(`retention-${index}`, cause, () => {
+      throw diagnosticCause;
+    });
+  }
+  expect(retainedRuntimeFailure('evicted-reference')).toBeUndefined();
+  expect(retainedRuntimeFailure('retention-0')?.cause).toBe(cause);
+  expect(retainedRuntimeFailure('retention-31')?.diagnosticCause).toBe(diagnosticCause);
+  const replacement = new Error('replacement');
+  retainRuntimeFailure('retention-0', replacement, () => {});
+  expect(retainedRuntimeFailure('retention-0')).toEqual({ cause: replacement });
+  expect(retainedRuntimeFailure('retention-1')?.cause).toBe(cause);
+});
 
 it('preserves the original cause and emits only allowlisted diagnostics through wrappers', () => {
   const secret = Object.assign(new Error('token=synthetic-secret /private/account'), {

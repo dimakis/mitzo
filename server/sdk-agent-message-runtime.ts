@@ -70,6 +70,8 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
       operator: owners.operatorAuthSessionId,
       assertCurrent: () => this.assertCurrent(owners.operatorAuthSessionId),
       activeCommandId: () => (this.state() === 'busy' ? owners.activeCommandId() : undefined),
+      ordinaryCommandId: () =>
+        owners.ordinaryCommandId ? owners.ordinaryCommandId() : owners.activeCommandId(),
       push: (input) => owners.push(input),
     });
   }

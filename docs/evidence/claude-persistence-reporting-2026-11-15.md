@@ -69,6 +69,22 @@ accepted source hashes are retained alongside the reporting hashes.
 No provider/model call, live account operation, physical device test, production
 activation or actual stuck-session reconciliation was performed.
 
+On 16 November, the actual accepted lifecycle commit
+`f7bab377d071e8cf15ac4eaf4e7e59fa687ec087` was merged to resolve GitHub's
+confirmed conflicting manifest label. Accepted recovery/diagnostic source and
+pins remain intact; the only manual integration resolution is the runtime label.
+The composition's successor, canonical diagnostic and sharing checks pass
+(17 checks across three files).
+
+The prior hosted shard failed only the targeted-sharing UI test. Its retained
+DOM showed an unexpected `/recipients/architect` read, which the fixture omitted;
+the focused file's normal fast run had passed. Explicitly qualifying that real
+read through the API client reproduced both cases before fixing the fixture.
+The bounded fixture now returns matching observational readiness for the two
+known recipients, including the running original agent's unavailable reason.
+All ten UI cases pass and continue asserting GET-only behavior. No sharing or
+reporting production behavior was changed for this fixture correction.
+
 ## Remaining reporting work
 
 Retry/rate-limit/refusal reporting, context-usage detail, background task progress
