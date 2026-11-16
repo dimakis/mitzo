@@ -16,7 +16,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 import { SessionRegistry, buildPermissionHandler, resolvePending } from '@mitzo/harness';
-import { sdkRepositoryPreparationApproval } from '../sdk-local-repository-tools.js';
+import {
+  SDK_REPOSITORY_INSTRUCTIONS,
+  sdkRepositoryPreparationApproval,
+} from '../sdk-local-repository-tools.js';
+import { REPOSITORY_TASK_CLONE_HINT } from '../sdk-worktree-routing.js';
 import { executeTaskOperation } from '../task-execution-operation.js';
 import { TaskExecutionStore } from '../task-execution-store.js';
 import {
@@ -295,4 +299,13 @@ it('requires a fresh approval for every source repository even after an Always a
     { path: '/offline/repository-b' },
   ]);
   expect(registry.get('approvals')!.sessionAllowList.size).toBe(0);
+});
+
+it('guides Claude to native GitHub work in a workspace clone and keeps linked storage on the trusted commit route', () => {
+  const clone = 'gh repo clone OWNER/REPO .claude/repository-tasks/<name>';
+  expect(SDK_REPOSITORY_INSTRUCTIONS).toContain(clone);
+  expect(REPOSITORY_TASK_CLONE_HINT).toContain(clone);
+  expect(SDK_REPOSITORY_INSTRUCTIONS).toContain('TaskExecution operation commit');
+  expect(SDK_REPOSITORY_INSTRUCTIONS).toContain('command approval is not publication consent');
+  expect(SDK_REPOSITORY_INSTRUCTIONS).not.toContain('accepts existing local sources');
 });
