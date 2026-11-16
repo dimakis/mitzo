@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { isIP } from 'node:net';
@@ -170,6 +170,9 @@ function createSdkBoundary(
       const runtime = runtimeFilesystemProtection();
       const launchDeniedRoots = [...new Set([...deniedRoots, ...runtime.privateFiles])];
       const authority = new AuthoritySnapshot();
+      const gitWorkRoot = canonical(options.cwd ?? process.cwd());
+      validatePath(gitWorkRoot);
+      authority.capture(gitWorkRoot);
       launchDeniedRoots.forEach((root) =>
         authority.capture(root, runtime.privateFiles.includes(root)),
       );
@@ -177,6 +180,10 @@ function createSdkBoundary(
       selectedWriteRoots.forEach((root) => authority.capture(root));
       runtime.selectors.forEach((entry) => authority.capture(dirname(entry)));
       const temporary = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-sdk-sandbox-')));
+      // SRT keeps hooks read-only. Git's stock template copies sample hooks on
+      // init/clone, so give setup an empty, immutable template instead.
+      const gitTemplate = join(temporary, 'git-template');
+      mkdirSync(gitTemplate, { mode: 0o500 });
       const policy = join(temporary, 'policy.json');
       const bootstrapConfig = join(temporary, 'tsconfig.json');
       writeFileSync(bootstrapConfig, '{}', { mode: 0o600 });
@@ -207,7 +214,7 @@ function createSdkBoundary(
         ? ['--import', require.resolve('tsx/esm'), worker]
         : [worker];
       const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
-      const targetEnv = { ...options.env };
+      const targetEnv: NodeJS.ProcessEnv = { ...options.env, GIT_TEMPLATE_DIR: gitTemplate };
       // Source-import authority belongs to the controller in every SDK mode.
       delete targetEnv.MITZO_TELOS_IMPORT_TOKEN;
       if (credentialIsolation || selectedWriteRoots.length > 0) {
@@ -223,16 +230,20 @@ function createSdkBoundary(
           if (/^MITZO_.*(?:TOKEN|SECRET|CAPABILITY|PASSPHRASE)$/.test(name)) delete targetEnv[name];
       }
       const payload: SandboxWorkerPayload = {
-        cwd: options.cwd ?? process.cwd(),
+        cwd: gitWorkRoot,
         command: [options.command, ...options.args].map(quote).join(' '),
         authority: authority.serialize(),
+        sdkGitWorkRoot: gitWorkRoot,
         ...(credentialIsolation ? {} : { filesystemOnly: true }),
         env: targetEnv,
         config: {
           filesystem: {
             denyRead: [...launchDeniedRoots, ...privateEnvironmentPatterns, temporary],
-            allowRead: [],
+            allowRead: [gitTemplate],
             allowWrite: ['/'],
+            // The worker adds an immutable OS fence around Git metadata:
+            // only new repositories below this launch's workspace may change.
+            allowGitConfig: true,
             denyWrite: [
               ...launchDeniedRoots,
               ...privateEnvironmentPatterns,
@@ -288,7 +299,7 @@ function createSdkBoundary(
       try {
         authority.verify();
         child = spawn(process.execPath, [...workerArgs, policy], {
-          cwd: options.cwd,
+          cwd: gitWorkRoot,
           env: {
             PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
             HOME: homedir(),

@@ -2,14 +2,20 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { SpawnOptions } from 'node:child_process';
-import { spawn as realSpawn } from 'node:child_process';
+import { execFileSync, spawn as realSpawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import type { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { PassThrough } from 'node:stream';
 import { AuthoritySnapshot } from '../sandbox-authority.js';
-import { runSandboxedWorker, type SandboxWorkerPayload } from '../sandboxed-command-worker.js';
+import {
+  runSandboxedWorker,
+  wrapSdkGitMetadata,
+  type SandboxWorkerPayload,
+} from '../sandboxed-command-worker.js';
 
 let root: string;
 beforeEach(async () => {
@@ -49,6 +55,137 @@ function fixture() {
   });
   return { payload, manager, spawn };
 }
+
+async function sdkWrapper(command = 'retained target') {
+  const directory = dirname(
+    createRequire(import.meta.url).resolve('@anthropic-ai/sandbox-runtime'),
+  );
+  const { wrapCommandWithSandboxMacOS } = await import(
+    pathToFileURL(join(directory, 'sandbox/macos-sandbox-utils.js')).href
+  );
+  return wrapCommandWithSandboxMacOS({
+    command,
+    commandId: 'synthetic-sdk-git',
+    binShell: '/bin/sh',
+    needsNetworkRestriction: true,
+    unsetEnvVars: ['SDK_REMOVE'],
+    setEnvVars: { SDK_TEST_VALUE: "a'b ! \\ $()" },
+    allowGitConfig: true,
+    readConfig: { denyOnly: [join(root, 'private')], allowWithinDeny: [] },
+    writeConfig: { allowOnly: ['/'], denyWithinAllow: [join(root, 'private')] },
+  });
+}
+
+it.each([true, false])(
+  'physically fences SDK Git metadata around both filesystemOnly modes (%s)',
+  async (filesystemOnly) => {
+    const { payload, manager, spawn } = fixture();
+    payload.filesystemOnly = filesystemOnly;
+    payload.sdkGitWorkRoot = root;
+    const inner = await sdkWrapper();
+    manager.wrapWithSandbox.mockResolvedValue(inner);
+    await expect(
+      runSandboxedWorker(payload, {
+        manager,
+        spawn: spawn as never,
+        platform: 'darwin',
+        wrapFilesystem: async () => inner,
+      }),
+    ).resolves.toBe(0);
+    expect(spawn.mock.calls[0][1]).toEqual(['-c', wrapSdkGitMetadata(inner, root)]);
+    const wrapped = spawn.mock.calls[0][1][1];
+    expect(wrapped).toContain(
+      '(deny file-write* file-write-unlink file-write-create (require-all (regex ',
+    );
+    expect(wrapped).toContain('(require-not (subpath ' + JSON.stringify(root) + '))');
+    expect(wrapped).toContain(
+      '(deny file-write* file-write-unlink file-write-create (subpath ' +
+        JSON.stringify(join(root, '.git')) +
+        '))',
+    );
+    expect(wrapped).toContain(
+      '(deny file-write-unlink file-write-create (literal ' + JSON.stringify(root) + '))',
+    );
+  },
+);
+
+it('retains every SRT argument and original policy using one sandbox application', async () => {
+  const target = `printf '%s' "a'b ! \\ $()"\ntrue`;
+  const original = await sdkWrapper(target);
+  const restricted = wrapSdkGitMetadata(original, root);
+  expect(restricted).toContain("'env' '-u' 'SDK_REMOVE' 'SDK_TEST_VALUE=");
+  // Replace only the fixed executable with a harmless argv recorder. The shell
+  // consumer verifies literal transfer without applying any kernel sandbox.
+  const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
+  const recorder = [
+    process.execPath,
+    '-e',
+    'process.stdout.write(JSON.stringify(process.argv.slice(1)))',
+    '--',
+  ]
+    .map(quote)
+    .join(' ');
+  const argv = (command: string): string[] =>
+    JSON.parse(
+      execFileSync(
+        '/bin/sh',
+        [
+          '-c',
+          command.replace(/(?:'\/usr\/bin\/sandbox-exec'|\/usr\/bin\/sandbox-exec)/, recorder),
+        ],
+        { encoding: 'utf8' },
+      ),
+    );
+  const before = argv(original),
+    after = argv(restricted);
+  expect(after.slice(0, 1)).toEqual(before.slice(0, 1));
+  expect(after.slice(2)).toEqual(before.slice(2));
+  expect(after[1]!.startsWith(before[1]! + '\n')).toBe(true);
+  expect(after[1]).not.toContain('(allow default)');
+  expect(after.at(-1)).toBe(target);
+  expect(restricted.match(/\/usr\/bin\/sandbox-exec/g)).toHaveLength(1);
+});
+
+it.each([
+  'unwrapped command',
+  'env /usr/bin/sandbox-exec -p "$(touch injected)" /bin/sh -c true',
+  "env /usr/bin/sandbox-exec -p '(version 1)\n(allow default)' /bin/sh -c true",
+  "env /usr/bin/sandbox-exec -p '(version 1)\n(deny default)' /bin/sh -c true; touch injected",
+  "env /usr/bin/sandbox-exec -p '(version 1)\n(deny default)' /bin/sh -c 'unterminated",
+  ...[
+    'env /bin/echo RECORDER_ONLY',
+    'env --split-string=echo',
+    'env -i',
+    'env -u SDK_REMOVE NAME=VALUE /bin/echo RECORDER_ONLY',
+    'env NAME=VALUE -u SDK_REMOVE',
+    'env -u INVALID-NAME',
+    'env -u',
+  ].map(
+    (prefix) => `${prefix} /usr/bin/sandbox-exec -p '(version 1)\n(deny default)' /bin/sh -c true`,
+  ),
+  "env /usr/bin/sandbox-exec -p '(version 1)\n(deny default)' /bin/echo -c true",
+])('fails closed for an unsupported SRT invocation: %s', (command) => {
+  expect(() => wrapSdkGitMetadata(command, root)).toThrow('Unsupported SRT SDK sandbox invocation');
+});
+
+it.each(['different-cwd', 'uncaptured', 'noncanonical', 'unsupported-platform'])(
+  'rejects invalid SDK Git authority before any spawn (%s)',
+  async (kind) => {
+    const { payload, manager, spawn } = fixture();
+    payload.sdkGitWorkRoot = kind === 'noncanonical' ? root + '/..' : root;
+    if (kind === 'different-cwd') payload.cwd = dirname(root);
+    if (kind === 'uncaptured') payload.authority = [];
+    await expect(
+      runSandboxedWorker(payload, {
+        manager,
+        spawn: spawn as never,
+        platform: kind === 'unsupported-platform' ? 'linux' : 'darwin',
+      }),
+    ).rejects.toThrow(/SDK Git workspace authority|Sandbox roots/);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(manager.initialize).not.toHaveBeenCalled();
+  },
+);
 
 async function privateFileFixture() {
   const f = fixture();

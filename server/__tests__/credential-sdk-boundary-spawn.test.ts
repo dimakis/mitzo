@@ -99,7 +99,7 @@ it('keeps injected SDK environment out of trusted bootstrap, quotes argv and fre
   expect(payload.env).not.toHaveProperty('AUTH_PASSPHRASE');
   expect(payload.env).not.toHaveProperty('MITZO_INTERNAL_TOKEN');
   expect(payload.command).toBe("'/usr/bin/printf' 'a'\\''b' '$(cat /private/controller.json)'");
-  expect(payload.config.filesystem.allowRead).toEqual([]);
+  expect(payload.config.filesystem.allowRead).toEqual([payload.env!.GIT_TEMPLATE_DIR]);
   expect(payload.config.filesystem.denyRead).toEqual(expect.arrayContaining(boundary.deniedRoots));
   expect(payload.config.filesystem.denyWrite).toEqual(expect.arrayContaining(boundary.deniedRoots));
   expect(payload.config.filesystem.denyWrite.some((path) => path.endsWith('/node_modules'))).toBe(
