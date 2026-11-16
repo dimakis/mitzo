@@ -6,6 +6,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import {
   existsSync,
+  mkdirSync,
   readFileSync,
   mkdtempSync,
   realpathSync,
@@ -16,6 +17,7 @@ import type { SandboxWorkerPayload } from '../sandboxed-command-worker.js';
 import { HOST_GITHUB_TOKEN_TRANSFER } from '../host-github-credential.js';
 import { canonical } from '../sandbox-authority.js';
 import { claudeLoginSdkBoundary, credentialSdkBoundary } from '../credential-sdk-boundary.js';
+import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
 const mocked = vi.hoisted(() => ({ spawn: vi.fn(), dependencies: vi.fn() }));
 vi.mock('node:child_process', async (original) => ({
   ...(await original<object>()),
@@ -62,8 +64,45 @@ it('limits ordinary SDK writes to its launch workspace, selected account and pri
   expect(payload.config.filesystem.allowWrite).toContain(payload.cwd);
   expect(payload.env?.TMPDIR).toBeDefined();
   expect(payload.config.filesystem.allowWrite).toContain(payload.env?.TMPDIR);
+  // Claude Code's native Bash creates its claude-<uid> directory under
+  // CLAUDE_CODE_TMPDIR, not TMPDIR; without it Bash falls back to /tmp and fails.
+  expect(payload.env?.CLAUDE_CODE_TMPDIR).toBe(payload.env?.TMPDIR);
   expect(payload.config.filesystem.allowWrite).toContain(canonical(join(homedir(), '.claude')));
   handle.emit('close', 0, null);
+});
+it('denies a private runtime directory without making its workspace parent read-only', () => {
+  const workspaceParent = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-private-dir-parent-')));
+  try {
+    const privateDirectory = join(workspaceParent, '.mitzo');
+    const worktree = join(workspaceParent, '.claude', 'worktrees', 'session');
+    mkdirSync(privateDirectory);
+    mkdirSync(worktree, { recursive: true });
+    registerWorkspaceRuntimeAuthorityPaths([privateDirectory], [privateDirectory]);
+    const handle = child();
+    mocked.spawn.mockReturnValue(handle);
+    vi.spyOn(process, 'kill').mockReturnValue(true);
+    credentialSdkBoundary('darwin')!.spawnClaudeCodeProcess({
+      command: '/usr/bin/true',
+      args: [],
+      cwd: worktree,
+      env: {},
+      signal: new AbortController().signal,
+    });
+    const payload = JSON.parse(
+      readFileSync(mocked.spawn.mock.calls[0][1].at(-1), 'utf8'),
+    ) as SandboxWorkerPayload;
+    const { allowWrite, denyWrite, denyRead } = payload.config.filesystem;
+    expect(allowWrite).toContain(worktree);
+    expect(denyWrite).toContain(privateDirectory);
+    expect(denyRead).toContain(privateDirectory);
+    expect(denyWrite).not.toContain(workspaceParent);
+    expect(denyWrite.some((root) => worktree === root || worktree.startsWith(root + '/'))).toBe(
+      false,
+    );
+    handle.emit('close', 0, null);
+  } finally {
+    rmSync(workspaceParent, { recursive: true, force: true });
+  }
 });
 it('captures the complete actual SDK read projection only after its owned launch, including private patterns', () => {
   const handle = child();
