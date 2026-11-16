@@ -13,7 +13,31 @@ import { EventStore } from '../event-store.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
 import { OrdinaryLocalVertexCommandOwner } from '../ordinary-local-vertex-command-owner.js';
 import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
+import { sdkPersistenceFailure } from '../sdk-persistence-diagnostics.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
+
+const persistenceWarning = vi.hoisted(() => ({ cause: undefined as Error | undefined }));
+vi.mock('../logger.js', async (original) => {
+  const module = await original<typeof import('../logger.js')>();
+  return {
+    ...module,
+    createLogger(name: string) {
+      const logger = module.createLogger(name);
+      return {
+        ...logger,
+        warn(message: string, context?: Record<string, unknown>) {
+          if (
+            name === 'query-loop' &&
+            message === 'Claude native persistence was not confirmed' &&
+            persistenceWarning.cause
+          )
+            throw persistenceWarning.cause;
+          logger.warn(message, context);
+        },
+      };
+    },
+  };
+});
 
 /** Lightweight in-memory span for testing OTel instrumentation. */
 interface RecordedEvent {
@@ -155,6 +179,101 @@ async function* eventStream(events: Record<string, unknown>[]) {
 function v2msg(type: string, rest: Record<string, unknown> = {}) {
   return expect.objectContaining({ v: 2, type, ...rest });
 }
+
+it.each([
+  ['session_writes_lost', false],
+  ['mirror_error', false],
+  ['session_writes_lost', true],
+] as const)(
+  'retains sanitized %s feedback through live/cold clients when logging fails=%s',
+  async (subtype, failLogging) => {
+    const { parseServerMessage } = await import('../../packages/client/src/protocol-parser.js');
+    const { messagesReducer, INITIAL_MESSAGES_STATE } =
+      await import('../../packages/client/src/slices/messages.js');
+    const { replayEventsToMessages } = await import('../conversation-transcript.js');
+    const transport = fakeTransport();
+    const registry = fakeRegistry(transport);
+    const sessionId = 'native-persistence';
+    registry.setSessionId('client', sessionId);
+    const store = new EventStore(':memory:');
+    store.upsertSession({ sessionId, cwd: '/offline' });
+    store.append(sessionId, 'user_message', {
+      v: 2,
+      type: 'user_message',
+      sessionId,
+      messageId: 'retained-input',
+      text: 'Retained request',
+    });
+    const event = {
+      type: 'system',
+      subtype,
+      session_id: sessionId,
+      uuid: 'e6bd8754-8fc1-42e3-a580-ad9027af6066',
+      error_code: 'ENOSPC',
+      lost: ['transcript'],
+      transcript_session_ids: [sessionId],
+      error: 'PRIVATE_PROVIDER_PAYLOAD',
+      key: { projectKey: 'PRIVATE_PROJECT', sessionId },
+    };
+    persistenceWarning.cause = failLogging ? new Error('PRIVATE_LOGGING_CAUSE') : undefined;
+    try {
+      await runQueryLoop(
+        eventStream([{ type: 'result', session_id: sessionId, is_error: false }, event, event]),
+        'client',
+        registry,
+        new AbortController(),
+        store,
+      );
+      const notices = transport.sent.filter((event) => event.code === `claude_${subtype}`);
+      expect(notices).toHaveLength(1);
+      const notice = notices[0];
+      expect(notice).toMatchObject({
+        type: 'error',
+        nonfatal: true,
+        sessionId,
+        correlationId: 'e6bd8754-8fc1-42e3-a580-ad9027af6066',
+      });
+      expect(notice?.error).toMatch(
+        subtype === 'mirror_error' ? /transcript mirror/i : /native transcript/i,
+      );
+      expect(notice?.error).toMatch(/not.*verified|unverified/i);
+      expect(JSON.stringify(notice)).not.toContain('PRIVATE_PROVIDER_PAYLOAD');
+      const retained = sdkPersistenceFailure(String(notice.correlationId), sessionId);
+      expect(retained?.event).toBe(event);
+      expect(retained?.reportingCause).toBe(persistenceWarning.cause);
+      expect(sdkPersistenceFailure(String(notice.correlationId), 'foreign')).toBeUndefined();
+      const setRunning = vi.fn();
+      const parsed = parseServerMessage(
+        notice as never,
+        { currentSessionId: sessionId },
+        {
+          onSessionAssigned: vi.fn(),
+          onSessionExpired: vi.fn(),
+          setWsRunning: setRunning,
+        },
+        'client',
+      );
+      const state = parsed.messagesActions.reduce(messagesReducer, {
+        ...INITIAL_MESSAGES_STATE,
+        running: true,
+        current: { messageId: 'queued-successor-output', blocks: new Map(), blockOrder: [] },
+      });
+      expect(setRunning).not.toHaveBeenCalled();
+      expect(state.running).toBe(true);
+      expect(state.current?.messageId).toBe('queued-successor-output');
+      expect(state.messages.at(-1)?.blocks[0].content).toContain(String(notice?.error));
+      const restored = replayEventsToMessages(store.getEventsAfter(sessionId, 0));
+      expect(restored.some((message) => message.messageId === 'retained-input')).toBe(true);
+      expect(
+        restored.some((message) => message.messageId === state.messages.at(-1)?.messageId),
+      ).toBe(true);
+      expect(JSON.stringify(restored)).not.toContain('PRIVATE_PROVIDER_PAYLOAD');
+    } finally {
+      persistenceWarning.cause = undefined;
+      store.close();
+    }
+  },
+);
 
 it('retains exact finalization after registry removal and refuses unknown owners', async () => {
   const registry = fakeRegistry(fakeTransport());

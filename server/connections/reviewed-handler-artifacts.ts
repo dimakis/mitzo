@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1212-gws-shell-broker';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1213-gws-shell-broker';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../sdk-persistence-diagnostics.ts':
+    'a55a64d3ecdce52ca6664cbfae1f874d41a99c5f6c19646d76b03e27d92b95d9',
+  '../__tests__/sdk-persistence-diagnostics.test.ts':
+    'd1119548395b58dbf1a3861b8267a73f45ceb1057ab42da5ca76fcb0ffefb86a',
+  '../__tests__/sdk-persistence-successor.test.ts':
+    'a8a6fb195a0cba2d2a805a7cbda48a9d6c7533e3f79d5397dffca7d343eee10f',
   '../__tests__/claude-sdk-schema-registration.test.ts':
     'c408d6258528a76a49b48bb52ce3cee68edcd43fd8d987a982918c17d317301b',
   '../claude-startup-context.ts':
@@ -716,7 +722,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ShareButton.test.tsx':
     '3b849a970077e021d448ba319494d6171a411be1fe586fa7b18e4a49394c7e70',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
-    '9610c8c937572c77d3a32be6c781bff79c7a1d8fdbaa031c92d6affb7f8bc6da',
+    'ef78ed209bc2476587723f32106fd16d28339a02241a0bc2fc366fcff626b100',
   '../../frontend/src/components/__tests__/SharedConversationStatus.test.tsx':
     '51fd8c6b5fdd91b1b2c06528912aa6ecc7aa8aae28bb7b41fb379c87a2ec1f64',
   '../../frontend/src/components/__tests__/SlashPicker.test.ts':
@@ -3008,7 +3014,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-sdk-effects.test.ts':
     '0e3db17e1c9485d1dd45fd641ecf836692417121ab69da025778c06b960f9249',
   '../__tests__/ordinary-local-vertex-sdk-query.test.ts':
-    '59e8f30b39a704b5f8ec75ff50a6618862e20fe54145b28e6ab48f3e95588bf1',
+    '4d4efb7adc6cea0e0621a5c5d160e311af1ccb86c9841a9b406dc67e5ddf809b',
   '../__tests__/ordinary-openshell-codex-entry-role.test.ts':
     'a5e568b62845cfb70c25995e7c0bbbc1815c61aa63c7fe069e6dcea719e96235',
   '../__tests__/ordinary-openshell-codex-owned-runtime.test.ts':
@@ -3166,7 +3172,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-standalone-repository-observation.test.ts':
     'de3c7ae943e87a97165186f5ca8a6e099548a9c341a9fddf31f6b0ca5f8b1855',
   '../__tests__/query-loop.test.ts':
-    '3f520f0760746fa2d8738020a78ef005f262bd974bc6899f6a22768bf112602b',
+    '0637684aa2c2eb6392408ceb65c5ab8ea3cb7f1fe028363b980ae060db5b6419',
   '../__tests__/read-only-git.test.ts':
     'f25212a013ea287948f5651a75d2a3aacfe5593ba668cf26ae1f83e6a8e326d2',
   '../__tests__/reconnect-delivery.integration.test.ts':
@@ -4159,7 +4165,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-process.ts':
     'fb9323a7fe3a55d6998dd70e0b6e16ff5f008ecb763bc8da9777b7f24514a30e',
   '../ordinary-local-vertex-sdk-query.ts':
-    'e06f4ee67ab62857f71739306fe0cf570b5ad163f7a199f1f46e6893bc7de4e4',
+    'f1226d52529770630feae064d01b15155ba28c793f27938f3f3ec6644787c005',
   '../ordinary-local-workspace-owner.ts':
     '877d3056b325d2770f1565cd82cd15650d34ad99e641a28d4bfa00c5fdc56fe4',
   '../ordinary-openshell-codex-entry-owner.ts':
@@ -4260,7 +4266,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': 'eeef3393bfb139835611f2efb68e571d482b366f066464310708a3d38b4ea227',
+  '../query-loop.ts': '85190b64b4736e1d810575ed1a0cc2479481946d5cec133503b2c69f50e4f976',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',
