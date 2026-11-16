@@ -98,8 +98,11 @@ export function wrapSdkGitMetadata(command: string, root: string): string {
     throw Error('Unsupported SRT SDK sandbox invocation');
   const string = (value: string) => JSON.stringify(value);
   const restrictions = [
-    `(deny file-write* (require-all (regex ${string('.*/\\.git(/.*)?$')}) (require-not (subpath ${string(root)}))))`,
-    `(deny file-write* (subpath ${string(join(root, '.git'))}))`,
+    // SRT explicitly allows unlink/create beneath write roots. Seatbelt's
+    // specific-operation allows beat a file-write* deny, so re-deny moves and
+    // deletion explicitly as well as content/metadata writes.
+    `(deny file-write* file-write-unlink file-write-create (require-all (regex ${string('.*/\\.git(/.*)?$')}) (require-not (subpath ${string(root)}))))`,
+    `(deny file-write* file-write-unlink file-write-create (subpath ${string(join(root, '.git'))}))`,
     // Pin the selected workspace and its ancestors against replacement.
     ...(() => {
       const paths = [];

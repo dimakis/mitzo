@@ -94,9 +94,14 @@ it.each([true, false])(
     ).resolves.toBe(0);
     expect(spawn.mock.calls[0][1]).toEqual(['-c', wrapSdkGitMetadata(inner, root)]);
     const wrapped = spawn.mock.calls[0][1][1];
+    expect(wrapped).toContain(
+      '(deny file-write* file-write-unlink file-write-create (require-all (regex ',
+    );
     expect(wrapped).toContain('(require-not (subpath ' + JSON.stringify(root) + '))');
     expect(wrapped).toContain(
-      '(deny file-write* (subpath ' + JSON.stringify(join(root, '.git')) + '))',
+      '(deny file-write* file-write-unlink file-write-create (subpath ' +
+        JSON.stringify(join(root, '.git')) +
+        '))',
     );
     expect(wrapped).toContain(
       '(deny file-write-unlink file-write-create (literal ' + JSON.stringify(root) + '))',

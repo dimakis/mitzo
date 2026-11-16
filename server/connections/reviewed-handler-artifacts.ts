@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1211-claude-git-task-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1212-claude-git-moves';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2595,7 +2594,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-boundary.test.ts':
     '3bac4bc0290ddc4091f3f1f9054caf2f7afe6f03752952c1cdad07baa1602961',
   '../__tests__/credential-sdk-runtime-authority.test.ts':
-    '13380aeeffbb2daabc43f02c462d1b078bf06985737d00278e704613930c321e',
+    'fdabf26905f8d9fb4a116b44815e86af9689af21e291d57581381ea79fd902a6',
   '../__tests__/credential-sdk-tools.test.ts':
     'd4d0f34b95cefb8d65c3dd8f04365725a4babaae604292e50c14d2499b81bd85',
   '../__tests__/credential-setup-application.test.ts':
@@ -3226,7 +3225,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sandboxed-command-private-output.test.ts':
     'a2169291ec705b7d15341519df8f5f1309e39d46008cbd5962e59efa1236cc6c',
   '../__tests__/sandboxed-command-worker.test.ts':
-    'd918ee11f320b3a4f86d4618bc8e0bd73121fbc61dfd59aaec7fe8aa4cbb2038',
+    '4977dc983f065c8f7fa9d66ce164017ce3a1bd4811296c986c116c99b49d761e',
   '../__tests__/sdk-agent-message-runtime.test.ts':
     'e1a57d28e4ccaefc04ae0c637ab32b9de7487b807c6565833eabf158ffd68c1f',
   '../__tests__/sdk-child-environment.test.ts':
@@ -4314,7 +4313,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../sandboxed-command-worker.ts':
-    '68d1c84f8ec94ab993c994451d92077578a046e49ec77725b2e27ad75b10490e',
+    '3997cfe7af76894ea9d73684096d627808d5315146d2095545c0e8296794bede',
   '../sandboxed-command.ts': '9746e664ae5983080fa51f5d928869e5d8af9bb51defad496ef6643d83a35043',
   '../sdk-agent-message-runtime.ts':
     '6838964a993463471387f0e0e45b593ae3330449503ae907c520d53734fe7ea7',

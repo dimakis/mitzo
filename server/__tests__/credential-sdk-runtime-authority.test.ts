@@ -278,6 +278,8 @@ it
         }
         denied(() => fs.writeFileSync(repository + '/.git/config', 'denied'), 74);
         denied(() => fs.renameSync(repository + '/.git/config', repository + '/.git/config.moved'), 75);
+        denied(() => fs.renameSync(repository + '/.git', repository + '/.git.moved'), 76);
+        denied(() => fs.unlinkSync(repository + '/.git/config'), 77);
       }
       fs.writeFileSync('checkout/result', 'checked');
       process.stdout.write('git-sdk-ok');
