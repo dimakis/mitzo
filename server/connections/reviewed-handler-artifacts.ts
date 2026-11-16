@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1233-claude-native-github-closure';
+  'v1.0.1234-claude-publication-settlement';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2852,7 +2852,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/github-publication-preflight.test.ts':
     'b1419cb2f49a2b21840338cc91603222113737daa802ee207030769028b8c390',
   '../__tests__/github-publishing-tool.test.ts':
-    '12ff0d908f45a9f204bcf2efb38fd8fb5ccf6b14304824ec9259cabe79808648',
+    '5996b134abcefa73e6ca9e5a65678a244b6fde06270d8b6e472df1503c942a5e',
   '../__tests__/google-read-consent.test.ts':
     'feaf2bad21675aee45531d319e667d1c65a369a136603f8b627dd7cc1f0f176b',
   '../__tests__/google-workspace-read.test.ts':
@@ -3955,7 +3955,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-publishing-source.ts':
     '1e4354284f9c1bf8e75d46ad71d6a6bcd84cc5eb9fefe3ea78588acada9e45f1',
   '../github-publishing-tool.ts':
-    '9617c48ed19e3eaacbd7db2457db5ceba0f53cf53be139ad501f4a2e6cb4d222',
+    '003e16bb79c2ce53e9085e5cc3bc63d1dfc9ef0aae0fc7d9b48034973e14e6da',
   '../github-read-approval.ts': '8c8acaae340e7dec7dcf801e429ee0a9733ddd7ff43807784feb08885aa06a1d',
   '../github-read-summary.ts': 'acdcb1802b529f2468e566635bf1aa736a0610893447b84b7e71fe51fcb7a0b5',
   '../github-repository-connections.ts':

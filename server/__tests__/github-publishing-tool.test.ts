@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createWebAccessSdkServer } from '../web-access-sdk.js';
+import { createSdkCallbackState } from '../ordinary-local-vertex-sdk-query.js';
 const mocks = vi.hoisted(() => ({
   runtime: null as unknown,
   approve: vi.fn(),
@@ -47,6 +51,49 @@ const input = {
   body: 'Change',
   draft: true,
 };
+it.each(['missing connection', 'denied approval', 'dispatched failure', 'cancelled'] as const)(
+  'preserves publication settlement through the owned SDK callback (%s)',
+  async (outcome) => {
+    const f = fixture('anthropic-vertex');
+    const runtime = mocks.runtime as {
+      store: { list(): unknown[] };
+      capabilityStore: { hasGithubRepositoryAccess: ReturnType<typeof vi.fn> };
+    };
+    const abort = new AbortController();
+    if (outcome === 'missing connection') runtime.store.list = () => [];
+    if (outcome === 'denied approval') {
+      runtime.capabilityStore.hasGithubRepositoryAccess.mockReturnValue(false);
+      mocks.approve.mockResolvedValue({ behavior: 'deny', message: 'Declined' });
+    }
+    if (outcome === 'dispatched failure') f.invoke.mockResolvedValue({ status: 'failed' });
+    if (outcome === 'cancelled') {
+      runtime.store.list = () => {
+        abort.abort();
+        return [];
+      };
+    }
+    const state = createSdkCallbackState();
+    const server = createWebAccessSdkServer(vi.fn(), abort.signal, f.execute, state.runCallback);
+    const client = new Client({ name: 'publication-settlement', version: '1' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.instance.connect(a);
+    await client.connect(b);
+    try {
+      expect(
+        (await client.callTool({ name: 'RequestGithubPublish', arguments: input })).isError,
+      ).toBe(true);
+      const settling = state.callbacks.settle(new AbortController().signal);
+      if (outcome === 'missing connection' || outcome === 'denied approval') {
+        await expect(settling).resolves.toBeUndefined();
+        expect(f.invoke).not.toHaveBeenCalled();
+      } else await expect(settling).rejects.toMatchObject({ code: 'callbacks_failed' });
+    } finally {
+      await client.close();
+      await server.instance.close();
+      f.execute.close();
+    }
+  },
+);
 it('reports owner capture failures with a diagnostic ID without asserting revoked access', async () => {
   const f = fixture('openai-codex');
   mocks.captureAuthorization.mockImplementation(() => {

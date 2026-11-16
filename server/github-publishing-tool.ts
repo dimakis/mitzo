@@ -1,4 +1,5 @@
 import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { isAuthSessionCurrent } from './auth.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from './github-publication-approval.js';
@@ -293,6 +294,7 @@ export function createGithubPublishingTool(
     signal: AbortSignal,
     call: PublicationCall,
     assertCurrent: () => Promise<void>,
+    effects: { mayHaveDispatched: boolean },
   ) => {
     let stage = 'admission';
     const requestId = randomUUID();
@@ -524,6 +526,9 @@ export function createGithubPublishingTool(
         gatewayProviderId: connection.gatewayProviderId,
       });
       stage = 'operation_recovery';
+      // Recovery can reconcile an earlier remote effect. From this point onward
+      // a failed result must retain uncertainty rather than permit continuation.
+      effects.mayHaveDispatched = true;
       const recovered = await runtime.capabilities.recoverPendingForConversation(
         identity.accountId,
         conversationId,
@@ -634,14 +639,20 @@ export function createGithubPublishingTool(
     }
   };
   const execute = async (input: unknown, signal: AbortSignal, call: PublicationCall) => {
+    const effects = { mayHaveDispatched: false };
+    const retainOutcome = <T extends { content: string; isError: boolean }>(result: T) =>
+      retainCallbackOutcome(
+        result,
+        signal.aborted || (effects.mayHaveDispatched && result.isError) ? 'unknown' : 'settled',
+      );
     const requestId = randomUUID();
     const conversationId = typeof conversation === 'function' ? conversation() : conversation;
     if (publishingAdmissions.has(conversationId))
-      return {
+      return retainOutcome({
         content:
           'A publishing request is already in progress for this conversation. Wait for its result before retrying.',
         isError: true,
-      };
+      });
     publishingAdmissions.add(conversationId);
     registration.activeInvocation = call;
     try {
@@ -652,7 +663,7 @@ export function createGithubPublishingTool(
       )
         throw new PublicationOwnerError('native_call_required');
       const owner = captureGithubPublicationOwner(runtimeOwnerId, conversationId, call.turnId);
-      return await run(input, signal, call, owner.assertCurrent);
+      return retainOutcome(await run(input, signal, call, owner.assertCurrent, effects));
     } catch (error) {
       const reason = error instanceof PublicationOwnerError ? error.reason : 'owner_capture_failed';
       publicationLog.warn('GitHub publication owner capture failed', {
@@ -661,7 +672,7 @@ export function createGithubPublishingTool(
         reason,
         code: 'GITHUB_PUBLICATION_FAILED',
       });
-      return {
+      return retainOutcome({
         content: JSON.stringify({
           code: 'GITHUB_PUBLICATION_FAILED',
           requestId,
@@ -672,7 +683,7 @@ export function createGithubPublishingTool(
           operationRecorded: false,
         }),
         isError: true,
-      };
+      });
     } finally {
       registration.activeInvocation = undefined;
       publishingAdmissions.delete(conversationId);
