@@ -74,6 +74,10 @@ function fixture(
     view.policies = view.policies.slice(0, 1);
   }
   let failRead = false;
+  let acceptSends = false;
+  let deliveryStatus: 'delivered' | 'queued' | 'pending' | 'uncertain' = 'delivered';
+  let releaseSend: (() => void) | undefined;
+  let sendBarrier: Promise<void> | undefined;
   let delayedStatus: Promise<Response> | undefined;
   let progress: CollaborationProgress = {
     collaborationId: view.collaborationId,
@@ -140,7 +144,34 @@ function fixture(
       return Response.json({ requestId: input.requestId, recipients: [] });
     }
     if (url.endsWith('/messages')) {
-      sends.push(JSON.parse(init!.body as string));
+      const input = JSON.parse(init!.body as string) as CollaborationMessageInput;
+      sends.push(input);
+      if (acceptSends) {
+        await sendBarrier;
+        const ids =
+          input.responders.kind === 'selected' ? input.responders.sessionIds : ['architect'];
+        const receipt = {
+          ...sharedConversationView().messages[0],
+          messageId: input.requestId,
+          projectionId: input.requestId,
+          text: input.text,
+          images: input.images,
+          snapshot: input.snapshot,
+          responders: ids,
+          readers: ids,
+          policySequence: input.expectedPolicySequence,
+          settings: Object.fromEntries(
+            ids.map((id) => [id, sharedConversationView().messages[0].settings[id]]),
+          ),
+          policyRevisions: Object.fromEntries(ids.map((id) => [id, 0])),
+          membershipRevision: input.expectedMembershipRevision,
+          deliveries: sharedConversationView()
+            .messages[0].deliveries.filter((d) => ids.includes(d.sessionId))
+            .map((d) => ({ ...d, status: deliveryStatus, reason: null })),
+        };
+        view.messages.push(receipt);
+        return Response.json(receipt);
+      }
       throw Error('Original send acknowledgement lost');
     }
     throw Error('Unexpected request: ' + url);
@@ -232,6 +263,14 @@ function fixture(
     ordinarySend,
     ordinaryStop,
     voice,
+    delaySend: (status: typeof deliveryStatus = 'delivered') => {
+      acceptSends = true;
+      deliveryStatus = status;
+      sendBarrier = new Promise<void>((resolve) => {
+        releaseSend = resolve;
+      });
+      return () => releaseSend?.();
+    },
     delayStatus: () => {
       let release!: (value: Response) => void;
       delayedStatus = new Promise<Response>((resolve) => {
@@ -261,6 +300,42 @@ function fixture(
     },
   };
 }
+
+it.each(['delivered', 'queued', 'pending', 'uncertain'] as const)(
+  'clears an accepted shared prompt with %s delivery and retains a newer draft',
+  async (status) => {
+    for (const edited of [false, true]) {
+      const draft = { ...createChatDraft(), text: 'Original shared prompt' };
+      saveChatDraft(draft);
+      const f = fixture(false, draft, 'Architect');
+      const release = f.delaySend(status);
+      const rendered = render(f.tree());
+      await screen.findByRole('button', { name: 'Choose who replies' });
+      const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+      fireEvent.change(input, { target: { value: 'Send this prompt' } });
+      await waitFor(() =>
+        expect(
+          (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+        ).toBe(false),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+      await waitFor(() => expect(f.sends).toHaveLength(1));
+      expect(input).toHaveProperty('value', '');
+      if (edited) fireEvent.change(input, { target: { value: 'Keep this newer draft' } });
+      await act(async () => release());
+      await waitFor(() =>
+        expect(
+          getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend?.acknowledged,
+        ).toBe(true),
+      );
+      expect(input).toHaveProperty('value', edited ? 'Keep this newer draft' : '');
+      expect(getChatDraft(draft.id)?.text ?? '').toBe(edited ? 'Keep this newer draft' : '');
+      rendered.unmount();
+      localStorage.clear();
+      sessionStorage.clear();
+    }
+  },
+);
 
 it('keeps the original named agent as the explicit initial recipient', async () => {
   const f = fixture(false, undefined, 'Original architect');
@@ -345,13 +420,15 @@ it('retains the original context wheel, microphone and resource controls through
   const release = f.delayStatus();
   h.rerender(f.tree({ ...chat, running: true }, 'desktop', false));
   expect(screen.getByRole('textbox')).toBe(input);
-  expect(screen.getByRole('button', { name: 'Token usage' })).toBe(wheel);
+  const sharedWheel = screen.getByRole('button', { name: 'Token usage' });
+  expect(sharedWheel.classList.contains('conversation-context-wheel')).toBe(true);
+  expect(sharedWheel).not.toBe(wheel);
   expect(screen.getByRole('button', { name: 'Record voice message' })).toBe(mic);
-  fireEvent.click(wheel);
-  expect(screen.getByText('Current context')).toBeTruthy();
-  expect(within(wheel.closest('.token-wheel-control')!).getByText('Architect')).toBeTruthy();
-  expect(wheel.title).toContain('Architect');
-  fireEvent.keyDown(document, { key: 'Escape' });
+  fireEvent.click(sharedWheel);
+  const contextDialog = screen.getByRole('dialog', { name: 'Context by agent' });
+  expect(within(contextDialog).getByText('Architect')).toBeTruthy();
+  expect(within(contextDialog).getByText('Reviewer')).toBeTruthy();
+  fireEvent.click(within(contextDialog).getByRole('button', { name: 'Close' }));
   fireEvent.click(mic);
   expect(f.voice.startRecording).toHaveBeenCalledOnce();
   expect(screen.getByRole('link', { name: 'Terminal' })).toBeTruthy();

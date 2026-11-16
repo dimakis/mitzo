@@ -7,6 +7,7 @@ import { SessionRuntimeBindingV2Schema } from './session-runtime-binding.js';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
 import { AgentProfileSelectionSchema } from './agent-library.js';
 import { ChatImagesSchema } from './chat-input-limits.js';
+import { MessageReplyContextSchema } from './message-reply.js';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 const sequence = z
@@ -159,6 +160,7 @@ export const CollaborationMessageInputSchema = z.strictObject({
   expectedPolicySequence: sequence,
   text: z.string().min(1).max(100_000),
   images: ChatImagesSchema.optional(),
+  replyToMessageId: z.uuid().optional(),
   responders: z.discriminatedUnion('kind', [
     z.strictObject({ kind: z.literal('default') }),
     z.strictObject({ kind: z.literal('all') }),
@@ -249,6 +251,8 @@ export const CollaborationMessageSchema = z
     images: ChatImagesSchema.optional(),
     /** Time recorded by the shared store; absent on older retained records. */
     recordedAt: sequence.optional(),
+    inReplyTo: MessageReplyContextSchema.optional(),
+    replyToMessageId: z.uuid().optional(),
     forward: CollaborationForwardReferenceSchema.optional(),
     // Replies must originate in an explicitly mapped ordinary command, never all session activity.
     source: CollaborationMessageSourceSchema.nullable(),
@@ -302,6 +306,7 @@ export const CollaborationSnapshotMessageSchema = z.strictObject({
   messageId: id,
   sequence,
   author,
+  recordedAt: sequence.optional(),
   source: CollaborationMessageSourceSchema.nullable(),
   blocks: z.array(block).min(1).max(100),
 });

@@ -83,11 +83,13 @@ export function ComposerStatusRail({
   scope,
   awaitingApproval = false,
   sessionId,
+  recipients,
 }: {
   running?: boolean;
   scope?: number;
   awaitingApproval?: boolean;
   sessionId?: string;
+  recipients?: string;
 }) {
   const { activities, connected, lastKnownActivities = [] } = useSessionOverview();
   const activity = (connected ? activities : lastKnownActivities).find(
@@ -174,6 +176,11 @@ export function ComposerStatusRail({
         </span>
         {running && live && tone === 'normal' && activity?.turnStartedAt !== undefined && (
           <SessionTurnElapsed startedAt={activity.turnStartedAt} />
+        )}
+        {recipients && (
+          <span className="composer-status-recipients" title={recipients}>
+            {recipients}
+          </span>
         )}
         {queued > 0 && (
           <button

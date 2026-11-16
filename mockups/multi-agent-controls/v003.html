@@ -1,0 +1,2609 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-accent="mint">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mitzo · Multi-agent controls</title>
+    <style>
+      /* Shared Mitzo tokens are embedded below for this standalone preview. */
+      /* Mitzo's single theme source. Change these semantic values once for web and mobile.
+   Component styles and inline React styles reference variables, never palette literals. */
+      :root {
+        color-scheme: dark;
+        --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace;
+
+        --color-bg: #131416;
+        --color-surface: #19191f;
+        --color-text: #f2f2f5;
+        --color-muted: #aaaab4;
+        --color-border: #33343d;
+        --accent-lavender: #b5a1ff;
+        --accent-teal: #78d9bf;
+        --accent-rose: #f3a6bf;
+        --accent-amber: #eac080;
+        --accent-blue: #91bfff;
+        --accent-mint: #b2dea1;
+        --accent-coral: #f6ad94;
+        --accent-plum: #d6a6eb;
+        --color-accent: var(--accent-lavender);
+        --color-on-accent: #171320;
+        --color-panel: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg));
+        --color-success: #4ade80;
+        --color-warning: #fbbf24;
+        --color-danger: #ff8585;
+        --color-info: #7dd3fc;
+        --color-on-status: #171320;
+        --color-overlay: rgb(0 0 0 / 55%);
+        --color-shadow: rgb(0 0 0 / 25%);
+        --color-code-bg: #101114;
+        --color-brand-claude: #df9b82;
+        /* Artifact HTML keeps its own styling on a neutral light canvas. */
+        --color-preview-canvas: #ffffff;
+
+        /* Stable identity colors are separate from the app's action accent. */
+        --seat-color-1: #347fb5;
+        --seat-color-2: #9a65b8;
+        --seat-color-3: #b36d30;
+        --seat-color-4: #328977;
+        --seat-color-5: #b75c69;
+        --seat-color-6: #6d7cb6;
+        --seat-color-7: #927e35;
+        --seat-color-8: #537f91;
+        --seat-color-default: #665599;
+
+        --radius-control: 10px;
+        --radius-panel: 12px;
+        --radius-feature: 16px;
+        --control-height: 44px;
+        --page-gutter: 20px;
+        --mobile-masthead-height: 64px;
+        --mobile-tabs-height: 64px;
+
+        /* Motion roles shared by CSS and Web Animations. */
+        --motion-duration-fast: 150ms;
+        --motion-duration-standard: 200ms;
+        --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+        --motion-distance-popover: 4px;
+        --motion-distance-sheet: 12px;
+        --motion-duration-spin: 800ms;
+        --motion-duration-status: 1200ms;
+        /* Optional decorative wordmark splash; input never waits for these timings. */
+        --motion-duration-liquid: 1600ms;
+        --motion-duration-quote: 2200ms;
+        --motion-duration-handoff: 450ms;
+        --motion-duration-waterfall: 3200ms;
+        --motion-duration-waterfall-pause: 2200ms;
+        --motion-duration-waterfall-return: 1900ms;
+
+        /* Compatibility names resolve to the same semantic theme. Keep these aliases
+     while existing chat, workspace and task components migrate incrementally. */
+        --ui-font: var(--font-ui);
+        --code-font: var(--font-mono);
+        --font-mono-code: var(--font-mono);
+        --bg: var(--color-bg);
+        --bg-primary: var(--color-bg);
+        --surface: var(--color-surface);
+        --bg-secondary: var(--color-surface);
+        --border: var(--color-border);
+        --border-color: var(--color-border);
+        --text: var(--color-text);
+        --text-primary: var(--color-text);
+        --text-dim: var(--color-muted);
+        --text-muted: var(--color-muted);
+        --text-secondary: var(--color-muted);
+        --accent: var(--color-accent);
+        --accent-hover: color-mix(in srgb, var(--color-accent) 85%, var(--color-text));
+        --danger: var(--color-danger);
+        --error: var(--color-danger);
+        --success: var(--color-success);
+        --warning: var(--color-warning);
+        --status-ok: var(--color-success);
+        --status-warn: var(--color-warning);
+        --shadow: var(--color-shadow);
+        --code-bg: var(--color-code-bg);
+        --hover: color-mix(in srgb, var(--color-accent) 10%, transparent);
+        --active: color-mix(in srgb, var(--color-accent) 20%, transparent);
+        --task-pending: var(--color-muted);
+        --task-active: var(--color-accent);
+        --task-done: var(--color-success);
+        --task-review: var(--color-warning);
+        --task-blocked: var(--color-danger);
+        --task-failed: var(--color-danger);
+        --task-skipped: var(--color-muted);
+        --workspace-bg: var(--color-bg);
+        --workspace-text: var(--color-text);
+        --workspace-muted: var(--color-muted);
+        --workspace-line: var(--color-border);
+        --workspace-panel: var(--color-panel);
+        --workspace-accent: var(--color-accent);
+        --workspace-radius: var(--radius-feature);
+        /* Type scale */
+        --text-2xs: 0.65rem;
+        --text-xxs: 0.7rem;
+        --text-xs: 0.75rem;
+        --text-s: 0.8rem;
+        --text-sm: 0.85rem;
+        --text-md: 0.9rem;
+        --text-base: 1rem;
+        --text-lg: 1.25rem;
+        --text-xl: 1.5rem;
+        --text-page-title: 1.75rem;
+        /* Semantic roles: collections, focused panes, sections and disclosure rows. */
+        --text-collection-title: clamp(var(--text-page-title), 3.2vw, 2rem);
+        --text-pane-title: var(--text-lg);
+        --text-section-title: 1.0625rem;
+        --text-section-label: var(--text-sm);
+        --icon-inline-size: 16px;
+        --icon-action-size: 20px;
+
+        /* Spacing scale */
+        --space-1: 0.25rem;
+        --space-1h: 0.375rem;
+        --space-2: 0.5rem;
+        --space-3: 0.75rem;
+        --space-4: 1rem;
+        --space-5: 1.5rem;
+        --space-6: 2rem;
+      }
+
+      [data-theme='light'] {
+        --color-brand-claude: #ae5c45;
+        color-scheme: light;
+        --color-bg: #faf9f6;
+        --color-surface: #ffffff;
+        --color-text: #202127;
+        --color-muted: #62636b;
+        --color-border: #dedee3;
+        --accent-lavender: #5e42b8;
+        --accent-teal: #166b58;
+        --accent-rose: #a43c65;
+        --accent-amber: #805600;
+        --accent-blue: #245db8;
+        --accent-mint: #386629;
+        --accent-coral: #a3422d;
+        --accent-plum: #80469b;
+        --color-on-accent: #ffffff;
+        --color-success: #187744;
+        --color-warning: #805600;
+        --color-danger: #b42332;
+        --color-info: #246383;
+        --color-on-status: #ffffff;
+        --color-shadow: rgb(0 0 0 / 12%);
+        --color-code-bg: #f0f0f2;
+      }
+
+      [data-accent='lavender'] {
+        --color-accent: var(--accent-lavender);
+      }
+      [data-accent='teal'] {
+        --color-accent: var(--accent-teal);
+      }
+      [data-accent='rose'] {
+        --color-accent: var(--accent-rose);
+      }
+      [data-accent='amber'] {
+        --color-accent: var(--accent-amber);
+      }
+      [data-accent='blue'] {
+        --color-accent: var(--accent-blue);
+      }
+      [data-accent='mint'] {
+        --color-accent: var(--accent-mint);
+      }
+      [data-accent='coral'] {
+        --color-accent: var(--accent-coral);
+      }
+      [data-accent='plum'] {
+        --color-accent: var(--accent-plum);
+      }
+      [data-font='arial'] {
+        --font-ui: Arial, Helvetica, sans-serif;
+      }
+      [data-font='georgia'] {
+        --font-ui: Georgia, 'Times New Roman', serif;
+      }
+
+      [data-font='verdana'] {
+        --font-ui: Verdana, Geneva, sans-serif;
+      }
+      [data-font='trebuchet'] {
+        --font-ui: 'Trebuchet MS', 'Segoe UI', sans-serif;
+      }
+      [data-font='palatino'] {
+        --font-ui: Palatino, 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+      }
+      [data-font='courier'] {
+        --font-ui: 'Courier New', Courier, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--color-bg);
+        color: var(--color-text);
+        font-family: var(--font-ui);
+        font-size: var(--text-base);
+        line-height: 1.5;
+      }
+      button,
+      textarea,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button,
+      select {
+        min-height: var(--control-height);
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button:focus-visible,
+      textarea:focus-visible,
+      select:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+      }
+      button {
+        border: 0;
+        background: transparent;
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-control);
+      }
+      button:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+      }
+      select {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-control);
+        padding: var(--space-2);
+      }
+      textarea {
+        resize: vertical;
+        width: 100%;
+        border: 0;
+        background: transparent;
+        min-height: 5.5rem;
+        padding: var(--space-3);
+        line-height: 1.5;
+      }
+      textarea::placeholder {
+        color: var(--color-muted);
+      }
+      svg {
+        width: 20px;
+        height: 20px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+      p,
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+      }
+      h1 {
+        font-size: var(--text-xl);
+        font-weight: 600;
+      }
+      h2 {
+        font-size: var(--text-lg);
+      }
+      small,
+      .muted {
+        color: var(--color-muted);
+      }
+      small {
+        font-size: var(--text-sm);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .lab {
+        max-width: 1200px;
+        margin: auto;
+        padding: var(--space-5) var(--page-gutter);
+      }
+      .lab-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        gap: var(--space-4);
+        margin-bottom: var(--space-4);
+      }
+      .eyebrow {
+        font-size: var(--text-xs);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--color-accent);
+        margin-bottom: var(--space-1);
+      }
+      .lab-controls {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+        border-block: 1px solid var(--color-border);
+        padding: var(--space-2) 0;
+        margin-bottom: var(--space-5);
+      }
+      .lab-controls label {
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+        font-size: var(--text-sm);
+      }
+      .segmented {
+        display: flex;
+        gap: var(--space-1);
+      }
+      .segmented button {
+        font-size: var(--text-sm);
+        color: var(--color-muted);
+      }
+      .segmented button[aria-pressed='true'] {
+        color: var(--color-text);
+        background: var(--color-surface);
+      }
+      .lab-controls .spacer {
+        flex: 1;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 15rem;
+        gap: var(--space-5);
+        align-items: start;
+      }
+      .explanation {
+        font-size: var(--text-sm);
+        color: var(--color-muted);
+        padding-top: var(--space-3);
+      }
+      .explanation h2 {
+        color: var(--color-text);
+        font-size: var(--text-base);
+        margin-bottom: var(--space-3);
+      }
+      .explanation p {
+        margin-bottom: var(--space-4);
+      }
+      .explanation strong {
+        color: var(--color-text);
+        font-weight: 500;
+      }
+      .app {
+        height: 790px;
+        max-height: calc(100dvh - 11rem);
+        min-height: 580px;
+        display: flex;
+        flex-direction: column;
+        background: var(--color-bg);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-panel);
+        overflow: hidden;
+        min-width: 0;
+      }
+      .app.phone {
+        width: min(390px, 100%);
+        justify-self: center;
+      }
+      .app-header {
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+        flex: none;
+        border-bottom: 1px solid var(--color-border);
+        padding: var(--space-2) var(--space-3);
+      }
+      .app-title {
+        flex: 1;
+        min-width: 0;
+      }
+      .app-title strong {
+        display: block;
+        font-size: var(--text-base);
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .app-title small {
+        font-size: var(--text-xs);
+      }
+      .icon-button {
+        width: var(--control-height);
+        height: var(--control-height);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-2);
+        flex: none;
+      }
+      .app-header .icon-button {
+        color: var(--color-accent);
+      }
+      .transcript {
+        flex: 1;
+        overflow: auto;
+        padding: var(--space-4);
+        min-height: 0;
+        scroll-behavior: auto;
+      }
+      .date {
+        text-align: center;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+        margin-bottom: var(--space-4);
+      }
+      .message {
+        margin-bottom: var(--space-4);
+        max-width: 100%;
+      }
+      .user {
+        margin-inline-start: var(--space-6);
+        padding: var(--space-3) var(--space-4);
+        background: var(--color-surface);
+        border-radius: var(--radius-panel);
+      }
+      .message-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-2);
+        font-size: var(--text-sm);
+      }
+      .message-meta time {
+        margin-left: auto;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+        font-variant-numeric: tabular-nums;
+      }
+      .assistant {
+        border-left: 2px solid var(--agent-color);
+        border-radius: var(--radius-control);
+        padding: var(--space-3) var(--space-4);
+        background: color-mix(in srgb, var(--agent-color) 7%, var(--color-surface));
+      }
+      .identity {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-weight: 600;
+      }
+      .identity .dot {
+        background: var(--agent-color);
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--color-success);
+      }
+      .message p {
+        font-size: var(--text-md);
+      }
+      .message .quote {
+        display: block;
+        text-decoration: none;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+        border-left: 2px solid var(--color-border);
+        padding-left: var(--space-2);
+        margin-bottom: var(--space-2);
+      }
+      .working-copy {
+        margin-top: var(--space-2);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+      }
+      .activity-mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        height: 12px;
+        color: var(--color-accent);
+      }
+      .activity-mark i {
+        width: 2px;
+        background: currentColor;
+        height: 8px;
+      }
+      .activity-mark i:nth-child(2) {
+        height: 12px;
+      }
+      .control-event {
+        margin: var(--space-3) 0 var(--space-4);
+        padding: var(--space-3) 0;
+        border-block: 1px solid var(--color-border);
+        font-size: var(--text-sm);
+      }
+      .control-event .event-title {
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .control-event time {
+        color: var(--color-muted);
+        margin-left: auto;
+        font-size: var(--text-xs);
+      }
+      .event-body {
+        color: var(--color-muted);
+        margin-top: var(--space-2);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .receipts {
+        display: flex;
+        gap: var(--space-2) var(--space-3);
+        flex-wrap: wrap;
+        margin-top: var(--space-2);
+        font-size: var(--text-xs);
+      }
+      .receipt {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+      }
+      .receipt .dot {
+        background: var(--color-success);
+        width: 5px;
+        height: 5px;
+      }
+      .receipt[data-state='uncertain'] {
+        color: var(--color-warning);
+      }
+      .receipt[data-state='uncertain'] .dot {
+        background: var(--color-warning);
+      }
+      .recover {
+        display: block;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        color: var(--color-warning);
+        padding: 0;
+        margin-top: var(--space-2);
+        font-size: var(--text-sm);
+      }
+      .composer-zone {
+        flex: none;
+        border-top: 1px solid var(--color-border);
+        padding: var(--space-2) var(--space-3) var(--space-3);
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        min-height: var(--control-height);
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+      }
+      .status [data-summary] {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .status .icon-button {
+        width: var(--control-height);
+      }
+      .status.warning {
+        color: var(--color-warning);
+      }
+      .selection-heading {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+        min-height: var(--control-height);
+      }
+      .selection-heading span {
+        flex: 1;
+      }
+      .selection-heading button {
+        font-size: var(--text-xs);
+        padding: var(--space-2);
+      }
+      .selection-heading .mention {
+        font-size: var(--text-lg);
+        color: var(--color-accent);
+        padding: var(--space-2);
+        width: var(--control-height);
+      }
+      .recipients {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-1);
+        margin-bottom: var(--space-2);
+      }
+      .recipient {
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+        text-align: left;
+        padding: var(--space-2);
+        min-width: 0;
+        min-height: var(--control-height);
+      }
+      .recipient[aria-pressed='true'] {
+        border-bottom-color: var(--agent-color);
+        background: color-mix(in srgb, var(--agent-color) 7%, transparent);
+      }
+      .recipient .check {
+        width: 15px;
+        height: 15px;
+        border: 1px solid var(--color-border);
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+      }
+      .recipient .check svg {
+        width: 12px;
+        height: 12px;
+      }
+      .recipient[aria-pressed='true'] .check {
+        border-color: var(--agent-color);
+        color: var(--color-text);
+      }
+      .recipient .name {
+        display: flex;
+        align-items: center;
+        gap: var(--space-1);
+        font-size: var(--text-sm);
+        font-weight: 500;
+      }
+      .recipient .detail {
+        display: block;
+        font-size: var(--text-xxs);
+        color: var(--color-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .recipient .copy {
+        min-width: 0;
+      }
+      .recipient[data-state='uncertain'] .detail,
+      .recipient[data-state='waiting'] .detail {
+        color: var(--color-warning);
+      }
+      .draft {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-panel);
+        background: var(--color-surface);
+        overflow: hidden;
+      }
+      .draft:focus-within {
+        border-color: var(--color-accent);
+      }
+      .draft-footer {
+        display: flex;
+        gap: var(--space-1);
+        align-items: center;
+        flex-wrap: wrap;
+        padding: var(--space-1) var(--space-2) var(--space-2);
+      }
+      .utilities {
+        display: flex;
+        gap: var(--space-1);
+        margin-right: auto;
+        color: var(--color-muted);
+      }
+      .wheel {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border: 3px solid var(--color-border);
+        border-top-color: var(--color-accent);
+        font-size: var(--text-xxs);
+      }
+      .draft-footer .action {
+        font-size: var(--text-sm);
+        min-height: var(--control-height);
+        padding: var(--space-2) var(--space-3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        border: 1px solid var(--color-border);
+      }
+      .draft-footer .send {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        border-color: var(--color-accent);
+      }
+      .draft-footer .send:hover:not(:disabled) {
+        background: var(--accent-hover);
+      }
+      .draft-footer .stop {
+        color: var(--color-text);
+      }
+      .draft-footer .action svg {
+        width: 16px;
+        height: 16px;
+      }
+      .intent {
+        font-size: var(--text-xxs);
+        color: var(--color-muted);
+        padding: var(--space-2) var(--space-1) 0;
+        min-height: 2.6em;
+      }
+      .sheet {
+        position: absolute;
+        inset: 0;
+        background: var(--color-overlay);
+        align-items: flex-end;
+        justify-content: center;
+        z-index: 5;
+        display: flex;
+      }
+      .app {
+        position: relative;
+      }
+      .sheet-panel {
+        width: 100%;
+        max-height: 90%;
+        overflow: auto;
+        background: var(--color-surface);
+        border-top: 1px solid var(--color-border);
+        border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+        padding: var(--space-4);
+      }
+      .sheet-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+        margin-bottom: var(--space-3);
+      }
+      .sheet-heading h2 {
+        font-size: var(--text-lg);
+      }
+      .sheet-row {
+        display: flex;
+        align-items: start;
+        gap: var(--space-3);
+        padding: var(--space-3) 0;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .sheet-row input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--color-accent);
+        margin: var(--space-2) 0;
+      }
+      .sheet-row label {
+        flex: 1;
+        cursor: pointer;
+      }
+      .sheet-row .identity {
+        font-size: var(--text-base);
+      }
+      .sheet-row small {
+        display: block;
+        margin-top: var(--space-1);
+      }
+      .sheet-row time {
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+        font-variant-numeric: tabular-nums;
+        padding-top: var(--space-1);
+      }
+      .sheet-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-3);
+        margin-top: var(--space-4);
+      }
+      .sheet-footer button {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+      }
+      .app.phone .recipients {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .app.phone .draft-footer .utilities {
+        width: 100%;
+        justify-content: flex-start;
+        margin-bottom: var(--space-1);
+      }
+      .app.phone .action {
+        flex: 1;
+      }
+      .app.phone .app-header {
+        padding-inline: var(--space-2);
+      }
+      .app.phone .transcript {
+        padding: var(--space-3);
+      }
+      .app.phone textarea {
+        min-height: 4.5rem;
+      }
+      .app.phone .composer-zone {
+        padding-inline: var(--space-2);
+      }
+      .app.phone .intent {
+        font-size: var(--text-xxs);
+      }
+      .app.phone .draft-footer {
+        gap: var(--space-2);
+      }
+      .app.phone .draft-footer .action {
+        padding-inline: var(--space-2);
+      }
+      .app.phone .draft-footer .action svg {
+        display: none;
+      }
+      @media (max-width: 760px) {
+        .lab {
+          padding: var(--space-3) var(--space-2);
+        }
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .explanation {
+          display: none;
+        }
+        .lab-heading h1 {
+          font-size: var(--text-lg);
+        }
+        .lab-heading {
+          margin-bottom: var(--space-3);
+        }
+        .lab-heading small {
+          font-size: var(--text-xs);
+        }
+        .app {
+          width: 100%;
+          min-height: 620px;
+          max-height: none;
+          height: calc(100dvh - 11rem);
+          border-radius: var(--radius-control);
+        }
+        .lab-controls {
+          margin-bottom: var(--space-3);
+          gap: var(--space-1);
+        }
+        .lab-controls label span {
+          display: none;
+        }
+        .recipients {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .draft-footer .utilities {
+          width: 100%;
+          justify-content: flex-start;
+        }
+        .draft-footer .action {
+          flex: 1;
+          padding-inline: var(--space-2);
+        }
+        .draft-footer .action svg {
+          display: none;
+        }
+        .segmented button {
+          padding-inline: var(--space-2);
+        }
+        .lab-controls select {
+          max-width: 10rem;
+          font-size: var(--text-xs);
+        }
+        .lab-controls .spacer {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          scroll-behavior: auto !important;
+        }
+      }
+
+      /* Revision 2: ordinary icon controls; optional second line, never a permanent roster. */
+      .app.phone .draft-footer,
+      .draft-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-1);
+        padding: var(--space-1);
+        flex-wrap: wrap;
+      }
+      .draft-footer > .icon-button {
+        flex: 0 0 var(--control-height);
+        width: var(--control-height);
+        height: var(--control-height);
+        padding: var(--space-2);
+        margin: 0;
+      }
+      .draft-footer .icon-button svg {
+        display: block;
+        width: 20px;
+        height: 20px;
+      }
+      #mention {
+        position: relative;
+        font-size: var(--text-lg);
+        color: var(--color-accent);
+      }
+      #target-dots {
+        position: absolute;
+        display: flex;
+        gap: 2px;
+        justify-content: center;
+        inset-inline: var(--space-2);
+        bottom: var(--space-1);
+      }
+      #target-dots i {
+        width: var(--space-1);
+        height: var(--space-1);
+        border-radius: 50%;
+        background: var(--agent-color);
+      }
+      #stop,
+      #steer {
+        color: var(--color-accent);
+      }
+      #send {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+      }
+      .target-strip,
+      .app.phone .target-strip {
+        display: flex;
+        flex: 1 1 100%;
+        order: 2;
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        gap: var(--space-1);
+        margin: 0;
+        padding-top: var(--space-1);
+        border-top: 1px solid var(--color-border);
+      }
+      .target-strip .recipient {
+        flex: none;
+        min-height: var(--control-height);
+        padding: var(--space-2);
+      }
+      .target-strip .recipient .dot {
+        width: 6px;
+        height: 6px;
+      }
+      .target-strip[hidden],
+      #extra-tools[hidden],
+      .status[hidden] {
+        display: none !important;
+      }
+      #extra-tools {
+        display: flex;
+        order: 2;
+        flex: 1 1 100%;
+        gap: var(--space-1);
+        overflow-x: auto;
+        padding-top: var(--space-1);
+        border-top: 1px solid var(--color-border);
+      }
+      #context {
+        position: relative;
+      }
+      #context::after {
+        content: attr(data-count);
+        position: absolute;
+        font-size: var(--text-xxs);
+        inset: 0;
+        display: grid;
+        place-content: center;
+      }
+      #context svg {
+        color: var(--color-accent);
+        width: 24px;
+        height: 24px;
+      }
+      #queue {
+        display: none;
+      }
+      .intent {
+        min-height: 0;
+        padding-top: var(--space-1);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .agent-record {
+        padding: var(--space-3) 0;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .agent-heading {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+      .agent-heading .identity {
+        flex: 1;
+      }
+      .agent-state {
+        font-size: var(--text-sm);
+        margin-block: var(--space-1);
+        color: var(--color-muted);
+      }
+      .agent-policies {
+        display: grid;
+        gap: var(--space-1);
+        margin-top: var(--space-3);
+      }
+      .agent-policies label {
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+        min-height: var(--control-height);
+        font-size: var(--text-sm);
+      }
+      .agent-policies input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--color-accent);
+      }
+      .agent-detail {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        text-align: left;
+        padding-inline: 0;
+      }
+      .agent-detail svg {
+        width: 16px;
+        height: 16px;
+      }
+      .mock-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-3);
+        min-height: var(--control-height);
+        border-bottom: 1px solid var(--color-border);
+        font-size: var(--text-sm);
+      }
+      .mock-row span:last-child {
+        color: var(--color-muted);
+      }
+      .mock-form label {
+        display: block;
+        margin-bottom: var(--space-3);
+      }
+      .mock-form input,
+      .mock-form textarea {
+        display: block;
+        width: 100%;
+        padding: var(--space-3);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-control);
+        background: var(--color-bg);
+        color: var(--color-text);
+        font: inherit;
+        margin-top: var(--space-2);
+      }
+      .mock-note {
+        margin-top: var(--space-3);
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+      }
+      .sheet-footer .quiet {
+        background: transparent;
+        color: var(--color-text);
+      }
+      .app:not(.phone) .target-strip {
+        flex: 0 1 auto;
+        order: 0;
+        width: auto;
+        max-width: 22rem;
+        padding: 0;
+        border-top: 0;
+      }
+      .app:not(.phone) #queue {
+        display: inline-flex;
+      }
+      .app:not(.phone) #queue-extra {
+        display: none;
+      }
+      @media (max-width: 760px) {
+        .app:not(.phone) .target-strip {
+          flex: 1 1 100%;
+          order: 2;
+          width: 100%;
+          max-width: 100%;
+          border-top: 1px solid var(--color-border);
+        }
+        .app:not(.phone) #queue {
+          display: none;
+        }
+        .app:not(.phone) #queue-extra {
+          display: inline-flex;
+        }
+      }
+
+      /* Revision 3 reuses the above-composer status rail, transcript actions and shared sheet. */
+      .status {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+      }
+      .status #summary,
+      .status .intent {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+      .status .intent {
+        padding: 0 0 0 var(--space-2);
+        border-left: 1px solid var(--color-border);
+        text-align: right;
+      }
+      #context::before {
+        content: '';
+        position: absolute;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: conic-gradient(
+          var(--seat-color-1),
+          var(--seat-color-2),
+          var(--seat-color-3),
+          var(--seat-color-4),
+          var(--seat-color-5),
+          var(--seat-color-6),
+          var(--seat-color-7),
+          var(--seat-color-8),
+          var(--seat-color-1)
+        );
+        mask: radial-gradient(transparent 51%, black 54%);
+      }
+      #context[data-count='1']::before {
+        background: var(--color-accent);
+      }
+      #context svg {
+        visibility: hidden;
+      }
+      .message-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-1);
+        margin-top: var(--space-2);
+        color: var(--color-muted);
+        flex-wrap: wrap;
+      }
+      .message-actions .icon-button {
+        color: var(--color-muted);
+      }
+      .message-actions .icon-button[aria-pressed='true'] {
+        color: var(--color-accent);
+        background: var(--color-panel);
+      }
+      .message-feedback {
+        flex-basis: 100%;
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+      }
+      .message-feedback:empty {
+        display: none;
+      }
+      .reply-context {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin: var(--space-2) var(--space-3);
+        padding-left: var(--space-2);
+        border-left: 2px solid var(--color-accent);
+      }
+      .reply-context[hidden] {
+        display: none;
+      }
+      .reply-context a {
+        flex: 1;
+        min-width: 0;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+        text-decoration: none;
+      }
+      .reply-context strong,
+      .reply-context q {
+        display: block;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .context-record {
+        padding-block: var(--space-3);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .context-record .agent-heading small {
+        margin-left: auto;
+        color: var(--color-muted);
+      }
+      .context-record progress {
+        display: block;
+        width: 100%;
+        height: var(--space-2);
+        margin-block: var(--space-2);
+        accent-color: var(--agent-color);
+      }
+      .context-record p {
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+      }
+      .source-quote {
+        border-left: 2px solid var(--color-border);
+        padding-left: var(--space-3);
+        margin-block: var(--space-3);
+      }
+      .source-quote a {
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+        text-decoration: none;
+      }
+      .source-quote p {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        margin-top: var(--space-2);
+      }
+      .forward-target {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        min-height: var(--control-height);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .forward-target input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--color-accent);
+      }
+      .forward-target .dot {
+        background: var(--agent-color);
+      }
+      .forward-target small {
+        margin-left: auto;
+        color: var(--color-muted);
+      }
+      .message-meta time {
+        white-space: nowrap;
+      }
+      .sheet-panel {
+        overflow-wrap: anywhere;
+      }
+      @media (max-width: 380px) {
+        .message-meta {
+          flex-wrap: wrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="lab">
+      <header class="lab-heading">
+        <div>
+          <p class="eyebrow">Mitzo · Interactive proposal</p>
+          <h1>Existing controls. Clear agent targets.</h1>
+          <small>Simulated controls and activity · no agents are started</small>
+        </div>
+        <button id="reset" type="button">Reset</button>
+      </header>
+      <div class="lab-controls" aria-label="Preview controls">
+        <div class="segmented" aria-label="Preview width">
+          <button id="phone" type="button" aria-pressed="true">Phone</button
+          ><button id="desktop" type="button" aria-pressed="false">Desktop</button>
+        </div>
+        <label
+          ><span>Scenario</span
+          ><select id="scenario" aria-label="Scenario">
+            <option value="working">Four working</option>
+            <option value="mixed">Three working · one needs approval</option>
+            <option value="uncertain">Three working · one uncertain</option>
+            <option value="lost-stop">Stop · one receipt lost</option>
+          </select></label
+        >
+        <span class="spacer"></span>
+        <label
+          ><span>Theme</span
+          ><select id="theme" aria-label="Theme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select></label
+        >
+        <label
+          ><span>Accent</span
+          ><select id="accent" aria-label="Accent">
+            <option value="mint">Mint</option>
+            <option value="teal">Teal</option>
+            <option value="lavender">Lavender</option>
+          </select></label
+        >
+        <label
+          ><span>Font</span
+          ><select id="font" aria-label="Font">
+            <option value="system">System</option>
+            <option value="georgia">Georgia</option>
+          </select></label
+        >
+      </div>
+      <div class="layout">
+        <section class="app phone" id="app" aria-label="Shared conversation preview">
+          <header class="app-header">
+            <button
+              class="icon-button"
+              type="button"
+              aria-label="Conversation navigation"
+              data-open-details
+            >
+              <svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></svg>
+            </button>
+            <div class="app-title">
+              <strong>Shared chat repair</strong><small>Mitzo, Bob, Ada + Quinn</small>
+            </div>
+            <button
+              class="icon-button"
+              type="button"
+              aria-label="Agents and activity"
+              data-open-details
+            >
+              <svg viewBox="0 0 24 24">
+                <rect x="4" y="7" width="16" height="13" rx="2" />
+                <path d="M12 3v4M9 12v3m6-3v3M1 12v4m22-4v4" />
+              </svg></button
+            ><button
+              class="icon-button"
+              type="button"
+              aria-label="Preview appearance settings"
+              id="appearance"
+            >
+              <svg viewBox="0 0 24 24">
+                <path d="M4 7h16M4 17h16" />
+                <circle cx="9" cy="7" r="2" />
+                <circle cx="15" cy="17" r="2" />
+              </svg>
+            </button>
+          </header>
+          <div class="transcript" id="transcript" role="log" aria-label="Conversation messages">
+            <p class="date">Monday, 16 November 2026</p>
+            <article class="message user" id="original">
+              <div class="message-meta"><strong>You</strong><time>09:41</time></div>
+              <p>
+                Keep the default repo work. Make selecting, steering and stopping several agents
+                clear while they’re running.
+              </p>
+            </article>
+            <article class="message assistant" data-speaker="mitzo">
+              <div class="message-meta">
+                <span class="identity"><span class="dot"></span>Mitzo</span><time>09:42</time>
+              </div>
+              <a class="quote" href="#original">You · 09:41 · “Keep the default repo work…”</a>
+              <p>
+                I’m keeping this as one change and checking how the controls behave while all four
+                of us work.
+              </p>
+              <div class="working-copy">
+                <span class="activity-mark" aria-hidden="true"><i></i><i></i><i></i></span
+                ><span>Reviewing shared-chat behavior</span>
+              </div>
+            </article>
+            <article class="message assistant" data-speaker="bob">
+              <div class="message-meta">
+                <span class="identity"><span class="dot"></span>Bob</span><time>09:42</time>
+              </div>
+              <p>I’m checking that Stop and Steer act on exactly the agents you select.</p>
+            </article>
+            <article class="message assistant" data-speaker="ada">
+              <div class="message-meta">
+                <span class="identity"><span class="dot"></span>Ada</span><time>09:43</time>
+              </div>
+              <p>
+                The default-repository work is preserved. I’m checking the phone composer and image
+                previews.
+              </p>
+            </article>
+          </div>
+
+          <section class="composer-zone" aria-label="Shared composer">
+            <div class="status" id="status">
+              <span class="dot"></span><span id="summary" role="status" aria-live="polite"></span
+              ><span class="intent" id="intent"></span
+              ><button
+                type="button"
+                class="icon-button"
+                aria-label="Conversation status details"
+                data-open-details
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 11v6m0-10h.01" />
+                </svg>
+              </button>
+            </div>
+            <div class="draft">
+              <div id="reply-context" class="reply-context" hidden></div>
+              <label class="sr-only" for="draft">Message or correction</label
+              ><textarea id="draft" placeholder="Message… @ to choose agents">
+Focus on the iPhone layout. Keep the existing icons and make agent selection collapsible.</textarea>
+              <div class="draft-footer" aria-label="Composer controls">
+                <button
+                  type="button"
+                  class="icon-button"
+                  id="mention"
+                  aria-label="Choose who replies"
+                  aria-expanded="false"
+                  aria-controls="recipients"
+                >
+                  <span aria-hidden="true">@</span><span id="target-dots" aria-hidden="true"></span>
+                </button>
+                <div
+                  id="recipients"
+                  class="recipients target-strip"
+                  role="group"
+                  aria-label="Reply recipients"
+                  hidden
+                ></div>
+                <button
+                  type="button"
+                  class="icon-button"
+                  id="more"
+                  aria-label="More composer actions"
+                  title="More composer actions"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="icon-button"
+                  id="context"
+                  aria-label="Context usage for Mitzo"
+                  title="Context usage for Mitzo"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="icon-button"
+                  id="voice"
+                  aria-label="Record voice message"
+                  title="Record voice message"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0ZM5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"
+                    />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="icon-button"
+                  id="queue"
+                  aria-label="Queue message"
+                  title="Queue message"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 5h16M4 10h16M4 15h7m5-1 5 4-5 4m-4-4h9" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="icon-button"
+                  id="steer"
+                  aria-label="Steer selected agents"
+                  title="Steer selected agents"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m13 2-8 12h7l-1 8 8-12h-7Z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="icon-button"
+                  id="stop"
+                  aria-label="Stop selected agents"
+                  title="Stop selected agents"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7Z" /></svg>
+                </button>
+                <button
+                  type="button"
+                  class="icon-button"
+                  id="send"
+                  aria-label="Send message"
+                  title="Send message"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m12 3 8 17-8-4-8 4Zm0 0v13" />
+                  </svg>
+                </button>
+                <div id="extra-tools" hidden>
+                  <button
+                    type="button"
+                    class="icon-button"
+                    id="commands"
+                    aria-label="Commands"
+                    title="Commands"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18" />
+                    </svg></button
+                  ><button
+                    type="button"
+                    class="icon-button"
+                    id="attach"
+                    aria-label="Attach screenshot"
+                    title="Attach screenshot"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 3h18v18H3ZM3 16l5-5 4 4 4-4 5 5M8 7h.01" />
+                    </svg></button
+                  ><button
+                    type="button"
+                    class="icon-button"
+                    id="resources"
+                    aria-label="Resources"
+                    title="Resources"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 6h7l2 3h9v11H3Z" />
+                    </svg></button
+                  ><button
+                    type="button"
+                    class="icon-button"
+                    id="terminal"
+                    aria-label="Terminal"
+                    title="Terminal"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 4h18v16H3Zm4 4 4 4-4 4m6 0h4" />
+                    </svg></button
+                  ><button
+                    type="button"
+                    class="icon-button"
+                    id="expand"
+                    aria-label="Expand composer"
+                    title="Expand composer"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M9 3H3v6m12-6h6v6M3 15v6h6m6 0h6v-6" />
+                    </svg></button
+                  ><button
+                    type="button"
+                    class="icon-button"
+                    id="queue-extra"
+                    aria-label="Queue message"
+                    title="Queue message"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 5h16M4 10h16M4 15h7m5-1 5 4-5 4m-4-4h9" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+          <div class="sheet" id="sheet" hidden>
+            <section
+              class="sheet-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="sheet-title"
+              tabindex="-1"
+            >
+              <div class="sheet-heading">
+                <h2 id="sheet-title">Agents &amp; activity</h2>
+                <button
+                  class="icon-button"
+                  id="close-sheet"
+                  type="button"
+                  aria-label="Close agent activity"
+                >
+                  <svg viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6" /></svg>
+                </button>
+              </div>
+              <p class="muted" id="sheet-summary"></p>
+              <div id="activity-rows"></div>
+              <div class="sheet-footer">
+                <small>Selection applies to Send, Steer and Stop.</small
+                ><button type="button" id="use-selection">Use selection</button>
+              </div>
+            </section>
+          </div>
+        </section>
+        <aside class="explanation">
+          <h2>Revision 3 · for approval</h2>
+          <p>
+            <strong>Agents stay at the top.</strong> Open the bot button for activity, reply
+            defaults, conversation preview, Details, Chat settings and Add agent. Agents read when
+            addressed.
+          </p>
+          <p>
+            <strong>The composer keeps its icons.</strong> Send becomes Stop while the selection is
+            working. Lightning steers; Queue keeps its separate follow-up action.
+          </p>
+          <p>
+            <strong>@ expands and collapses recipients inline.</strong> Color dots show the
+            selection when collapsed. Names fit inline on desktop; on phone they use one collapsible
+            second line.
+          </p>
+          <p>
+            <strong>More keeps the other tools.</strong> Commands, screenshot, Resources, Terminal
+            and expand retain their icons. Tools and recipients share the optional second line.
+          </p>
+          <p>
+            <strong>Context for each agent.</strong> The rainbow wheel opens individual usage, not
+            an averaged percentage. Usage values in this proposal are sample data.
+          </p>
+          <p>
+            <strong>Keep every message useful.</strong> Date/time, Copy, Read aloud, Reply and
+            Forward stay on both your messages and agent replies. Try forwarding an earlier message
+            to one or more agents.
+          </p>
+          <p>
+            <strong>One information line above the composer.</strong> Status and selected recipients
+            share the existing position. Nothing is added below the composer. Typing preserves the
+            transcript position.
+          </p>
+        </aside>
+      </div>
+    </main>
+    <script>
+      (() => {
+        'use strict';
+        const $ = (id) => document.getElementById(id),
+          paths = {
+            info: 'M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 11v6m0-10h.01',
+            more: 'M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z',
+            circle: 'M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20',
+            mic: 'M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0ZM5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8',
+            queue: 'M4 5h16M4 10h16M4 15h7m5-1 5 4-5 4m-4-4h9',
+            interrupt: 'm13 2-8 12h7l-1 8 8-12h-7Z',
+            stop: 'M7 7h10v10H7Z',
+            sendPrompt: 'm12 3 8 17-8-4-8 4Zm0 0v13',
+            command: 'm8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18',
+            image: 'M3 3h18v18H3ZM3 16l5-5 4 4 4-4 5 5M8 7h.01',
+            files: 'M3 6h7l2 3h9v11H3Z',
+            terminal: 'M3 4h18v16H3Zm4 4 4 4-4 4m6 0h4',
+            fullscreen: 'M9 3H3v6m12-6h6v6M3 15v6h6m6 0h6v-6',
+            right: 'M4 12h16m-6-6 6 6-6 6',
+            copy: 'M9 9h12v12H9ZM15 9V3H3v12h6',
+            volume: 'M11 5 6 9H3v6h3l5 4ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14',
+            back: 'm15 6-6 6 6 6',
+            share: 'M12 16V3m-5 5 5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6',
+            close: 'm6 6 12 12M6 18 18 6',
+            eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6a3 3 0 1 0 0-6',
+          };
+        const esc = (s) =>
+          String(s).replace(
+            /[&<>"']/g,
+            (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+          );
+        const icon = (n) =>
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + paths[n] + '"/></svg>';
+        const color = (id) => {
+          let h = 2166136261;
+          for (const c of id) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+          return 'var(--seat-color-' + (((h >>> 0) % 8) + 1) + ')';
+        };
+        const seeds = [
+          { id: 'mitzo', name: 'Mitzo', task: 'Reviewing shared-chat behavior', seconds: 138 },
+          { id: 'bob', name: 'Bob', task: 'Checking Stop and Steer targeting', seconds: 112 },
+          {
+            id: 'ada',
+            name: 'Ada',
+            task: 'Checking phone layout and screenshot previews',
+            seconds: 86,
+          },
+          { id: 'quinn', name: 'Quinn', task: 'Running focused offline regressions', seconds: 65 },
+        ];
+        const transcript = $('transcript'),
+          initial = transcript.innerHTML;
+        let agents = [],
+          selected = new Set(),
+          expanded = false,
+          tools = false,
+          epoch = 0,
+          elapsed = 0,
+          hint = '',
+          returnFocus = null,
+          mode = 'agents',
+          previewId = null,
+          setup = { name: '', purpose: '' },
+          replySource = null,
+          forwardSource = null,
+          forwardTargets = new Set(),
+          askReply = false,
+          readingId = null;
+        const active = (a) => ['working', 'waiting', 'stopping'].includes(a.state),
+          chosen = () => agents.filter((a) => selected.has(a.id)),
+          names = (list) => list.map((a) => a.name).join(', ');
+        const label = (a) =>
+          ({
+            working: 'Working',
+            waiting: 'Needs approval',
+            stopping: 'Stopping',
+            stopped: 'Stopped',
+            ready: 'Ready',
+            uncertain: 'Needs check',
+          })[a.state];
+        const clock = (a) => {
+          const n = a.seconds + (active(a) ? elapsed : 0);
+          return Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
+        };
+
+        function sourceFor(bubble) {
+          return {
+            id: bubble.id,
+            author: bubble.classList.contains('user')
+              ? 'You'
+              : bubble.querySelector('.identity').textContent.trim(),
+            speaker: bubble.dataset.speaker,
+            time: bubble.querySelector('time').textContent,
+            text: [...bubble.querySelectorAll(':scope > p')]
+              .map((p) => p.textContent.trim().replace(/\s+/g, ' '))
+              .join('\n'),
+          };
+        }
+        function decorateMessages() {
+          for (const [index, bubble] of [...transcript.querySelectorAll('.message')].entries()) {
+            if (bubble.querySelector('.message-actions')) continue;
+            bubble.id ||= 'message-' + index;
+            const stamp = bubble.querySelector('time');
+            stamp.dateTime = '2026-11-16T' + stamp.textContent + ':00Z';
+            stamp.title = 'Monday, 16 November 2026 · ' + stamp.textContent + ' UTC';
+            stamp.textContent = '16 Nov · ' + stamp.textContent;
+            const actions = document.createElement('div');
+            actions.className = 'message-actions';
+            actions.setAttribute('aria-label', 'Message actions');
+            actions.innerHTML =
+              [
+                ['copy', 'Copy text', 'copy'],
+                ['read', 'Read aloud', 'volume'],
+                ['reply', 'Reply', 'back'],
+                ['forward', 'Forward to agents', 'share'],
+              ]
+                .map(
+                  ([action, label, glyph]) =>
+                    '<button type="button" class="icon-button" data-message-action="' +
+                    action +
+                    '" aria-label="' +
+                    label +
+                    '" title="' +
+                    label +
+                    '"' +
+                    (action === 'read' ? ' aria-pressed="false"' : '') +
+                    '>' +
+                    icon(glyph) +
+                    '</button>',
+                )
+                .join('') +
+              '<span class="message-feedback" role="status" aria-live="polite"></span>';
+            bubble.appendChild(actions);
+          }
+        }
+        function renderReply() {
+          const box = $('reply-context');
+          box.hidden = !replySource;
+          box.innerHTML = replySource
+            ? '<a href="#' +
+              replySource.id +
+              '"><strong>Replying to ' +
+              esc(replySource.author) +
+              ' · ' +
+              esc(replySource.time) +
+              '</strong><q>' +
+              esc(replySource.text) +
+              '</q></a><button type="button" class="icon-button" aria-label="Cancel reply" data-cancel-reply>' +
+              icon('close') +
+              '</button>'
+            : '';
+        }
+        function showMode(next) {
+          openSheet();
+          mode = next;
+          renderSheet();
+        }
+        function quoteMarkup(source) {
+          return (
+            '<blockquote class="source-quote"><a href="#' +
+            source.id +
+            '" data-source-link>' +
+            esc(source.author) +
+            ' · ' +
+            esc(source.time) +
+            '</a><p>' +
+            esc(source.text) +
+            '</p></blockquote>'
+          );
+        }
+        function render() {
+          decorateMessages();
+          renderReply();
+          $('context').dataset.count = String(agents.length);
+          $('context').setAttribute('aria-label', 'Context usage · ' + agents.length + ' agents');
+          $('context').title = 'Context usage for each agent';
+
+          const focused = document.activeElement?.dataset.agent,
+            targets = chosen();
+          const summary =
+            ['working', 'waiting', 'uncertain', 'stopping', 'stopped']
+              .flatMap((s) => {
+                const n = agents.filter((a) => a.state === s).length;
+                return n
+                  ? [
+                      n +
+                        ' ' +
+                        {
+                          working: 'working',
+                          waiting: 'needs approval',
+                          uncertain: 'needs check',
+                          stopping: 'stopping',
+                          stopped: 'stopped',
+                        }[s],
+                    ]
+                  : [];
+              })
+              .join(' · ') || 'All agents ready';
+          const uncertain = targets.find((a) => a.state === 'uncertain'),
+            busy = targets.some((a) => a.state === 'stopping'),
+            running = targets.some(active) || !!uncertain,
+            body = $('draft').value.trim();
+          const query =
+            /(?:^|\s)@([\p{L}\p{N}_-]*)$/u.exec($('draft').value)?.[1]?.toLowerCase() || '';
+          $('mention').setAttribute('aria-expanded', String(expanded));
+          $('mention').title = 'Recipients: ' + (names(targets) || 'none');
+          $('more').setAttribute('aria-expanded', String(tools));
+          $('recipients').hidden = !expanded;
+          $('extra-tools').hidden = !tools;
+          $('target-dots').innerHTML = targets
+            .slice(0, 4)
+            .map((a) => '<i style="--agent-color:' + color(a.id) + '"></i>')
+            .join('');
+          $('recipients').innerHTML =
+            '<button type="button" class="recipient" data-all aria-pressed="' +
+            (selected.size === agents.length) +
+            '">All</button>' +
+            agents
+              .filter((a) => !query || a.name.toLowerCase().includes(query))
+              .map(
+                (a) =>
+                  '<button type="button" class="recipient" data-agent="' +
+                  a.id +
+                  '" aria-label="' +
+                  esc(a.name) +
+                  '" aria-pressed="' +
+                  selected.has(a.id) +
+                  '" style="--agent-color:' +
+                  color(a.id) +
+                  '"><span class="name"><span class="dot" style="background:' +
+                  color(a.id) +
+                  '"></span>' +
+                  esc(a.name) +
+                  '</span></button>',
+              )
+              .join('');
+          $('stop').hidden = !running;
+          $('send').hidden = running;
+          $('steer').hidden = !running;
+          $('queue').hidden = !running;
+          $('queue-extra').hidden = !running;
+          $('stop').disabled = !targets.some(active) || !!uncertain || busy;
+          $('steer').disabled =
+            !body || !targets.length || targets.some((a) => a.state !== 'working');
+          $('send').disabled =
+            $('queue').disabled =
+            $('queue-extra').disabled =
+              !body || !targets.length || !!uncertain || busy;
+          for (const id of ['stop', 'send', 'steer', 'queue', 'queue-extra']) {
+            const text =
+              (id === 'queue-extra' ? 'Queue' : id[0].toUpperCase() + id.slice(1)) +
+              ' ' +
+              (names(targets) || 'selected agents');
+            $(id).setAttribute('aria-label', text);
+            $(id).title = uncertain
+              ? 'Check ' + uncertain.name + '’s original request or deselect them.'
+              : text;
+          }
+          $('intent').textContent = uncertain
+            ? 'Check ' + uncertain.name + '’s original request or deselect them.'
+            : 'To ' +
+              (names(targets) || 'no agents') +
+              (targets.length < agents.length ? ' · others continue' : '');
+          $('intent').title = $('intent').textContent;
+          $('summary').textContent = hint || summary;
+          $('summary').title = $('summary').textContent;
+          $('status').hidden = false;
+          $('status').classList.toggle(
+            'warning',
+            agents.some((a) => ['uncertain', 'waiting'].includes(a.state)),
+          );
+          document.querySelector('.app-title small').textContent =
+            agents
+              .slice(0, 2)
+              .map((a) => a.name)
+              .join(', ') + (agents.length > 2 ? ' +' + (agents.length - 2) : '');
+          for (const bubble of transcript.querySelectorAll('[data-speaker]')) {
+            bubble.style.setProperty('--agent-color', color(bubble.dataset.speaker));
+            const live = bubble.querySelector('.working-copy');
+            if (live)
+              live.hidden =
+                agents.find((a) => a.id === bubble.dataset.speaker)?.state !== 'working';
+          }
+          if (!$('sheet').hidden && mode === 'agents') renderSheet();
+          if (focused)
+            $('recipients')
+              .querySelector('[data-agent="' + focused + '"]')
+              ?.focus({ preventScroll: true });
+        }
+        function entry(title, body, targets) {
+          const node = document.createElement('article');
+          node.className = 'control-event';
+          node.innerHTML =
+            '<div class="event-title"><strong>' +
+            esc(title) +
+            '</strong><time>09:44</time></div>' +
+            (body ? '<p class="event-body">' + esc(body) + '</p>' : '') +
+            '<div class="receipts">' +
+            targets
+              .map(
+                (a) =>
+                  '<span class="receipt" data-receipt="' +
+                  a.id +
+                  '"><span class="dot"></span><span>' +
+                  esc(a.name) +
+                  ' · Requested</span></span>',
+              )
+              .join('') +
+            '</div>';
+          transcript.appendChild(node);
+          transcript.scrollTop = transcript.scrollHeight;
+          return node;
+        }
+        function receipt(node, a, text, state = 'accepted') {
+          const n = node.querySelector('[data-receipt="' + a.id + '"]');
+          n.dataset.state = state;
+          n.lastElementChild.textContent = a.name + ' · ' + text;
+        }
+        function recover(node, a, kind) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'recover';
+          b.textContent = 'Check ' + a.name + '’s original ' + kind.toLowerCase();
+          b.onclick = () => {
+            b.disabled = true;
+            b.textContent = 'Checking original receipt…';
+            const op = epoch;
+            setTimeout(() => {
+              if (op !== epoch) return;
+              a.state = kind === 'Stop' ? 'stopped' : 'working';
+              a.task =
+                kind === 'Stop' ? 'Original command stopped' : 'Original correction accepted';
+              receipt(node, a, kind === 'Stop' ? 'Stopped' : 'Accepted');
+              b.remove();
+              render();
+            }, 500);
+          };
+          node.appendChild(b);
+        }
+        function reset() {
+          epoch++;
+          elapsed = 0;
+          hint = '';
+          expanded = false;
+          tools = false;
+          agents = seeds.map((a) => ({
+            ...a,
+            state: 'working',
+            reads: false,
+            replies: false,
+            queued: 0,
+          }));
+          selected = new Set(['mitzo', 'bob', 'ada']);
+          transcript.innerHTML = initial;
+          replySource = null;
+          forwardSource = null;
+          readingId = null;
+          $('draft').value =
+            'Focus on the iPhone layout. Keep the existing icons and make agent selection collapsible.';
+          if ($('scenario').value === 'mixed') {
+            agents[3].state = 'waiting';
+            agents[3].task = 'Waiting for your test-listener permission';
+          }
+          if ($('scenario').value === 'uncertain') {
+            const a = agents[1];
+            a.state = 'uncertain';
+            a.task = 'Correction unconfirmed; work may still be running';
+            const n = entry('You steered Bob', 'Focus on the running-agent controls.', [a]);
+            receipt(n, a, 'Unconfirmed', 'uncertain');
+            recover(n, a, 'Steer');
+          }
+          render();
+          transcript.scrollTop = transcript.scrollHeight;
+        }
+        function toggle(id) {
+          selected.has(id) ? selected.delete(id) : selected.add(id);
+          hint = '';
+          if (/(?:^|\s)@[\p{L}\p{N}_-]*$/u.test($('draft').value))
+            $('draft').value = $('draft').value.slice(0, $('draft').value.lastIndexOf('@'));
+          render();
+        }
+        function queue() {
+          const targets = chosen();
+          if (
+            !$('draft').value.trim() ||
+            !targets.length ||
+            targets.some((a) => a.state === 'uncertain')
+          )
+            return;
+          const n = entry('You sent a follow-up to ' + names(targets), $('draft').value, targets);
+          if (replySource) n.insertAdjacentHTML('afterbegin', quoteMarkup(replySource));
+          replySource = null;
+          for (const a of targets) {
+            if (active(a)) {
+              a.queued++;
+              receipt(n, a, 'Queued');
+            } else {
+              a.state = 'working';
+              a.task = 'Working on your new message';
+              receipt(n, a, 'Started');
+            }
+          }
+          $('draft').value = '';
+          hint = '';
+          render();
+        }
+        $('stop').onclick = () => {
+          if ($('stop').disabled) return;
+          const targets = chosen().filter(active),
+            op = epoch,
+            n = entry(
+              'You requested Stop for ' + names(targets),
+              'Unselected agents continue.',
+              targets,
+            );
+          for (const a of targets) {
+            a.state = 'stopping';
+            a.task = 'Stop requested; waiting for acknowledgement';
+            receipt(n, a, 'Stop requested');
+          }
+          render();
+          setTimeout(() => {
+            if (op !== epoch) return;
+            for (const a of targets) {
+              if ($('scenario').value === 'lost-stop' && a.id === 'bob') {
+                a.state = 'uncertain';
+                a.task = 'Stop unconfirmed; command may still be running';
+                receipt(n, a, 'Stop unconfirmed', 'uncertain');
+                recover(n, a, 'Stop');
+              } else {
+                a.state = 'stopped';
+                a.task = 'Current command stopped';
+                receipt(n, a, 'Stopped');
+              }
+            }
+            render();
+          }, 700);
+        };
+        $('steer').onclick = () => {
+          if ($('steer').disabled) return;
+          const targets = chosen(),
+            op = epoch,
+            n = entry('You steered ' + names(targets), $('draft').value, targets);
+          $('draft').value = '';
+          for (const a of targets) {
+            a.task = 'Applying your correction';
+            receipt(n, a, 'Applying');
+          }
+          render();
+          setTimeout(() => {
+            if (op !== epoch) return;
+            for (const a of targets) {
+              a.task = 'Working with your latest correction';
+              receipt(n, a, 'Accepted');
+            }
+            render();
+          }, 500);
+        };
+        for (const id of ['send', 'queue', 'queue-extra']) $(id).onclick = queue;
+        $('mention').onclick = () => {
+          expanded = !expanded;
+          tools = false;
+          $('draft').focus({ preventScroll: true });
+          render();
+        };
+        $('more').onclick = () => {
+          tools = !tools;
+          expanded = false;
+          render();
+        };
+        $('recipients').onclick = (e) => {
+          const b = e.target.closest('[data-agent]');
+          if (b) toggle(b.dataset.agent);
+          if (e.target.closest('[data-all]')) {
+            selected = new Set(agents.map((a) => a.id));
+            hint = '';
+            render();
+          }
+        };
+        $('draft').oninput = () => {
+          hint = '';
+          if (/(?:^|\s)@[\p{L}\p{N}_-]*$/u.test($('draft').value)) {
+            expanded = true;
+            tools = false;
+          }
+          render();
+        };
+        $('draft').onkeydown = (e) => {
+          if (e.key === 'Escape') {
+            expanded = false;
+            tools = false;
+            render();
+          }
+        };
+        const rows = (list) =>
+          list
+            .map(
+              (r) =>
+                '<div class="mock-row"><span>' +
+                esc(r[0]) +
+                '</span><span>' +
+                esc(r[1]) +
+                '</span></div>',
+            )
+            .join('');
+        function renderSheet() {
+          const title = $('sheet-title'),
+            summary = $('sheet-summary'),
+            content = $('activity-rows'),
+            footer = document.querySelector('.sheet-footer');
+
+          if (mode === 'context') {
+            title.textContent = 'Context by agent';
+            summary.textContent =
+              'Each agent has its own context. Sample values for this mockup; no shared average.';
+            content.innerHTML =
+              agents
+                .map((a, i) => {
+                  const pct = [38, 62, 27, 45][i] ?? 0;
+                  return (
+                    '<section class="context-record" style="--agent-color:' +
+                    color(a.id) +
+                    '"><div class="agent-heading"><span class="identity"><span class="dot"></span>' +
+                    esc(a.name) +
+                    '</span><small>' +
+                    pct +
+                    '%</small></div><progress max="100" value="' +
+                    pct +
+                    '" aria-label="' +
+                    esc(a.name) +
+                    ' context usage">' +
+                    pct +
+                    '%</progress><p>' +
+                    (pct ? pct * 2 + 'k of 200k tokens · sample' : 'No usage reported yet') +
+                    '</p></section>'
+                  );
+                })
+                .join('') +
+              '<p class="mock-note">The rainbow indicates multiple agents. The number in the wheel is the agent count. Addressing an agent supplies the relevant discussion for that request.</p>';
+            footer.innerHTML = '<button type="button" class="quiet" data-done>Done</button>';
+          } else if (mode === 'forward') {
+            title.textContent = 'Forward message';
+            summary.textContent =
+              'Choose who receives this exact message. Working agents queue it without being interrupted.';
+            content.innerHTML =
+              quoteMarkup(forwardSource) +
+              agents
+                .filter((a) => a.id !== forwardSource.speaker)
+                .map(
+                  (a) =>
+                    '<label class="forward-target" style="--agent-color:' +
+                    color(a.id) +
+                    '"><input type="checkbox" data-forward-target="' +
+                    a.id +
+                    '" ' +
+                    (forwardTargets.has(a.id) ? 'checked' : '') +
+                    (a.state === 'uncertain' ? ' disabled' : '') +
+                    '><span class="dot"></span>' +
+                    esc(a.name) +
+                    '<small>' +
+                    label(a) +
+                    '</small></label>',
+                )
+                .join('') +
+              '<label class="forward-target"><input id="ask-reply" type="checkbox" ' +
+              (askReply ? 'checked' : '') +
+              '>Ask for a reply</label><p class="mock-note">Only the chosen agents are addressed. With “Ask for a reply” off, the message is supplied as context for their next addressed request. Forwarding is simulated.</p>';
+            footer.innerHTML =
+              '<button type="button" class="quiet" data-done>Cancel</button><button type="button" data-confirm-forward ' +
+              (!forwardTargets.size ? 'disabled' : '') +
+              '>Forward</button>';
+          } else if (mode === 'agents') {
+            title.textContent = 'Agents';
+            summary.textContent =
+              'Agents read when you address them. @ chooses recipients for a message; forwarding can address them with an earlier message. No automatic reading of future replies.';
+            content.innerHTML =
+              agents
+                .map(
+                  (a) =>
+                    '<article class="agent-record" style="--agent-color:' +
+                    color(a.id) +
+                    '"><div class="agent-heading"><span class="identity"><span class="dot"></span>' +
+                    esc(a.name) +
+                    '</span><button type="button" class="icon-button" data-preview="' +
+                    a.id +
+                    '" aria-label="Preview ' +
+                    esc(a.name) +
+                    ' conversation">' +
+                    icon('eye') +
+                    '</button></div><small>Personal ChatGPT · GPT-6.1-Sol · high</small><p class="agent-state">Mac host · ' +
+                    label(a) +
+                    ' · <span data-clock="' +
+                    a.id +
+                    '">' +
+                    clock(a) +
+                    '</span></p><p class="agent-state">' +
+                    esc(a.task) +
+                    '</p><div class="agent-policies"><p class="mock-note">Reads when addressed</p><label><input type="checkbox" data-policy="replies" data-id="' +
+                    a.id +
+                    '" ' +
+                    (a.replies ? 'checked' : '') +
+                    '>Included in default replies</label></div><button type="button" class="agent-detail" data-details="' +
+                    a.id +
+                    '">Details' +
+                    icon('right') +
+                    '</button></article>',
+                )
+                .join('') +
+              '<details><summary>About addressing agents</summary><p class="mock-note">Only agents selected for a request are prompted. Their context includes the relevant earlier discussion. Default replies preselect recipients for a new message; @ can change them. No agent runs just to read future discussion.</p></details><button type="button" class="agent-detail" data-chat-settings>Chat settings' +
+              icon('right') +
+              '</button>';
+            footer.innerHTML =
+              '<button type="button" class="quiet" data-done>Done</button><button type="button" data-add>Add agent</button>';
+          } else if (mode === 'add') {
+            title.textContent = 'Add agent';
+            summary.textContent = '';
+            content.innerHTML =
+              '<div class="mock-form"><label>Name in this chat<input id="agent-name" value="' +
+              esc(setup.name) +
+              '"></label><label>Purpose<textarea id="agent-purpose">' +
+              esc(setup.purpose) +
+              '</textarea></label></div>' +
+              rows([
+                ['Agent', 'Default Mitzo'],
+                ['Account', 'Personal ChatGPT'],
+                ['Model', 'GPT-6.1-Sol'],
+                ['Thinking', 'high'],
+                ['Where it runs', 'Mac host · Default repository'],
+                ['Starting context', 'Conversation so far'],
+              ]) +
+              '<p class="mock-note">Fresh session · starts with a prompt. Setup and joining are simulated in this preview.</p>';
+            footer.innerHTML =
+              '<button type="button" class="quiet" data-back>Cancel</button><button type="button" data-review>Review joining brief</button>';
+          } else if (mode === 'review') {
+            title.textContent = 'Before joining';
+            summary.textContent = 'Review ' + setup.name + '’s joining brief.';
+            content.innerHTML =
+              '<p>' +
+              esc(setup.purpose) +
+              '</p>' +
+              rows([
+                ['Starting context', 'Conversation so far'],
+                ['Where it runs', 'Mac host · Default repository'],
+              ]) +
+              '<p class="mock-note">This creates a simulated ready agent. No model or live session starts.</p>';
+            footer.innerHTML =
+              '<button type="button" class="quiet" data-edit>Back</button><button type="button" data-join>Join conversation</button>';
+          } else {
+            const a = agents.find((a) => a.id === previewId);
+            summary.textContent = '';
+            title.textContent =
+              mode === 'settings'
+                ? 'Chat settings'
+                : mode === 'preview'
+                  ? a.name + ' conversation'
+                  : 'Details for ' + a.name;
+            content.innerHTML =
+              mode === 'settings'
+                ? '<p class="mock-note">Existing Chat settings destination preserved. Preview theme and font controls are above this mockup.</p>'
+                : mode === 'preview'
+                  ? '<article class="message assistant" style="--agent-color:' +
+                    color(a.id) +
+                    '"><strong>' +
+                    esc(a.name) +
+                    '</strong><p>' +
+                    esc(a.task) +
+                    '</p><small>' +
+                    label(a) +
+                    '</small></article>'
+                  : rows([
+                      ['Account', 'Personal ChatGPT'],
+                      ['Model', 'GPT-6.1-Sol'],
+                      ['Thinking', 'high'],
+                      ['Run on', 'Mac host'],
+                      ['State', label(a)],
+                    ]) +
+                    '<button type="button" data-profile>Draft reusable profile from this agent</button>';
+            footer.innerHTML =
+              '<button type="button" class="quiet" data-back>Back to Agents</button>';
+          }
+        }
+        function openSheet() {
+          mode = 'agents';
+          returnFocus = document.activeElement;
+          renderSheet();
+          $('sheet').hidden = false;
+          for (const s of ['.composer-zone', '.app-header', '#transcript'])
+            document.querySelector(s).inert = true;
+          $('close-sheet').focus({ preventScroll: true });
+        }
+        function closeSheet() {
+          $('sheet').hidden = true;
+          for (const s of ['.composer-zone', '.app-header', '#transcript'])
+            document.querySelector(s).inert = false;
+          returnFocus?.focus({ preventScroll: true });
+        }
+        document.querySelectorAll('[data-open-details]').forEach((b) => (b.onclick = openSheet));
+        $('close-sheet').onclick = closeSheet;
+        $('sheet').onclick = (e) => {
+          if (e.target === $('sheet')) return closeSheet();
+          const b = e.target.closest('button');
+          if (!b) return;
+
+          if (b.hasAttribute('data-confirm-forward')) {
+            const targets = agents.filter(
+              (a) => forwardTargets.has(a.id) && a.state !== 'uncertain',
+            );
+            if (!targets.length) return;
+            const n = entry(
+              'You forwarded ' + forwardSource.author + '’s message to ' + names(targets),
+              askReply
+                ? 'Reply requested · simulated delivery.'
+                : 'Context for the next addressed request · no reply requested.',
+              targets,
+            );
+            n.insertAdjacentHTML('afterbegin', quoteMarkup(forwardSource));
+            for (const a of targets)
+              receipt(
+                n,
+                a,
+                askReply
+                  ? active(a)
+                    ? 'Queued · reply requested'
+                    : 'Reply requested'
+                  : 'Context retained',
+              );
+            closeSheet();
+            hint = '';
+            render();
+            return;
+          }
+          if (b.hasAttribute('data-done')) return closeSheet();
+          if (b.hasAttribute('data-add')) {
+            mode = 'add';
+            renderSheet();
+            $('agent-name').focus({ preventScroll: true });
+          }
+          if (b.hasAttribute('data-back')) {
+            mode = 'agents';
+            renderSheet();
+          }
+          if (b.hasAttribute('data-edit')) {
+            mode = 'add';
+            renderSheet();
+          }
+          if (b.hasAttribute('data-details') || b.hasAttribute('data-preview')) {
+            previewId = b.dataset.details || b.dataset.preview;
+            mode = b.hasAttribute('data-details') ? 'details' : 'preview';
+            renderSheet();
+          }
+          if (b.hasAttribute('data-chat-settings')) {
+            mode = 'settings';
+            renderSheet();
+          }
+          if (b.hasAttribute('data-profile')) {
+            hint = 'Profile drafting stays in the agent’s existing details flow.';
+            closeSheet();
+            render();
+          }
+          if (b.hasAttribute('data-review')) {
+            setup = {
+              name: $('agent-name').value.trim(),
+              purpose: $('agent-purpose').value.trim(),
+            };
+            if (!setup.name || !setup.purpose) {
+              $('sheet-summary').textContent = 'Enter a name and purpose.';
+              return;
+            }
+            if (agents.some((a) => a.name.toLowerCase() === setup.name.toLowerCase())) {
+              $('sheet-summary').textContent = 'Choose a unique name.';
+              return;
+            }
+            mode = 'review';
+            renderSheet();
+          }
+          if (b.hasAttribute('data-join')) {
+            agents.push({
+              id: 'new-' + agents.length,
+              name: setup.name,
+              task: 'Joined · waiting for an explicit prompt',
+              seconds: 0,
+              state: 'ready',
+              reads: false,
+              replies: false,
+              queued: 0,
+            });
+            entry(setup.name + ' joined', 'Ready for an explicit prompt. No command started.', []);
+            setup = { name: '', purpose: '' };
+            mode = 'agents';
+            render();
+            renderSheet();
+          }
+        };
+        $('sheet').onchange = (e) => {
+          const n = e.target;
+          if (n.dataset.forwardTarget) {
+            n.checked
+              ? forwardTargets.add(n.dataset.forwardTarget)
+              : forwardTargets.delete(n.dataset.forwardTarget);
+            $('sheet').querySelector('[data-confirm-forward]').disabled = !forwardTargets.size;
+          }
+          if (n.id === 'ask-reply') askReply = n.checked;
+          if (n.dataset.policy) {
+            const a = agents.find((a) => a.id === n.dataset.id);
+            if (a) a[n.dataset.policy] = n.checked;
+          }
+        };
+        $('sheet').onkeydown = (e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            closeSheet();
+          }
+          if (e.key === 'Tab') {
+            const list = [
+                ...$('sheet').querySelectorAll('a[href],button,input,textarea,select,summary'),
+              ].filter((n) => !n.disabled),
+              first = list[0],
+              last = list.at(-1);
+            if (e.shiftKey && document.activeElement === first) {
+              last.focus();
+              e.preventDefault();
+            }
+            if (!e.shiftKey && document.activeElement === last) {
+              first.focus();
+              e.preventDefault();
+            }
+          }
+        };
+        for (const id of ['voice', 'commands', 'attach', 'resources', 'terminal', 'expand'])
+          $(id).onclick = () => {
+            hint = {
+              context: 'Context usage belongs to Mitzo; each agent keeps its own context.',
+              voice: 'Voice control preserved; no microphone is activated in this preview.',
+              commands: 'Existing Commands icon preserved.',
+              attach: 'Existing screenshot icon preserved.',
+              resources: 'Existing Resources icon preserved.',
+              terminal: 'Existing Terminal icon preserved.',
+              expand: 'Existing expand-composer icon preserved.',
+            }[id];
+            render();
+          };
+
+        $('context').onclick = () => showMode('context');
+        $('reply-context').onclick = (e) => {
+          if (e.target.closest('[data-cancel-reply]')) {
+            replySource = null;
+            renderReply();
+            $('draft').focus({ preventScroll: true });
+          }
+        };
+        transcript.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-message-action]');
+          if (!b) return;
+          const bubble = b.closest('.message'),
+            source = sourceFor(bubble),
+            feedback = bubble.querySelector('.message-feedback');
+          if (b.dataset.messageAction === 'reply') {
+            replySource = source;
+            renderReply();
+            if (source.speaker) {
+              selected = new Set([source.speaker]);
+              render();
+            }
+            $('draft').focus({ preventScroll: true });
+          } else if (b.dataset.messageAction === 'forward') {
+            forwardSource = source;
+            forwardTargets = new Set(
+              chosen()
+                .filter((a) => a.id !== source.speaker && a.state !== 'uncertain')
+                .map((a) => a.id),
+            );
+            askReply = false;
+            showMode('forward');
+          } else if (b.dataset.messageAction === 'copy') {
+            feedback.textContent = 'Copy text preserved · simulated clipboard action.';
+          } else {
+            const stopping = readingId === source.id;
+            for (const other of transcript.querySelectorAll('[data-message-action="read"]')) {
+              other.setAttribute('aria-pressed', 'false');
+              other.setAttribute('aria-label', 'Read aloud');
+              other.title = 'Read aloud';
+              other.closest('.message').querySelector('.message-feedback').textContent = '';
+            }
+            readingId = stopping ? null : source.id;
+            b.setAttribute('aria-pressed', String(!stopping));
+            b.setAttribute('aria-label', stopping ? 'Read aloud' : 'Stop reading');
+            b.title = stopping ? 'Read aloud' : 'Stop reading';
+            feedback.textContent = stopping
+              ? 'Reading stopped · simulation.'
+              : 'Read aloud preview · simulated playback; no audio starts.';
+          }
+        });
+        $('sheet').addEventListener('click', (e) => {
+          if (e.target.closest('[data-source-link]')) closeSheet();
+        });
+        $('appearance').onclick = () => $('theme').focus();
+        $('scenario').onchange = reset;
+        $('reset').onclick = reset;
+        $('theme').onchange = () => (document.documentElement.dataset.theme = $('theme').value);
+        $('accent').onchange = () => (document.documentElement.dataset.accent = $('accent').value);
+        $('font').onchange = () =>
+          document.documentElement.style.setProperty(
+            '--font-ui',
+            $('font').value === 'georgia'
+              ? "Georgia, 'Times New Roman', serif"
+              : "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          );
+        for (const n of ['phone', 'desktop'])
+          $(n).onclick = () => {
+            $('app').classList.toggle('phone', n === 'phone');
+            $('phone').setAttribute('aria-pressed', String(n === 'phone'));
+            $('desktop').setAttribute('aria-pressed', String(n === 'desktop'));
+          };
+        setInterval(() => {
+          elapsed++;
+          for (const n of document.querySelectorAll('[data-clock]')) {
+            const a = agents.find((a) => a.id === n.dataset.clock);
+            if (a) n.textContent = clock(a);
+          }
+        }, 1000);
+        reset();
+      })();
+    </script>
+  </body>
+</html>

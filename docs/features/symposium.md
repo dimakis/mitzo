@@ -17,10 +17,20 @@ Screenshot attachments use ordinary previews and the native image delivery path.
 Replies identify their agent inside the bubble with its stable accent and recorded
 timestamp. Status notices update in place in the existing composer status rail.
 
-This is source implementation, not production activation. The context inspector
-feature `05f51bcee39031b1` and UI slice `5e5b6f6cbc37df2e` remain unfinished;
-this repair preserves the existing context wheel and its explicit original-agent
-usage owner. It does not invent usage measurements for other agents. See
+Revision 3 was explicitly approved on 16 November. Status and recipients share
+the existing information line above the composer. The rainbow context wheel opens
+each ordinary agent's recorded usage, with unavailable measurements and retry
+visible. Recorded message dates, Copy, Read aloud, Reply and reviewed Forward stay
+available. Canonical shared messages use their exact public discussion source,
+without reading another agent's private provider history. Forwarding alone starts
+no model; the unchecked Ask for a reply choice sends a separate journaled prompt.
+Accepted durable sends clear only the submitted draft revision, including pending
+or uncertain delivery; newer edits and original recovery remain intact.
+
+This is source implementation, not production activation. The earlier context
+inspector items `05f51bcee39031b1` and `5e5b6f6cbc37df2e` still need delivery and
+runtime acceptance reconciliation; this change supplies the approved scoped UI.
+No unreported measurements or combined context percentage are invented. See
 [the validation record](../evidence/symposium-shared-composer-2026-11-16.md).
 
 ## Configured default repository — 16 November 2026

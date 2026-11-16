@@ -8,6 +8,7 @@ import {
   TelosWorkApiClient,
 } from '@mitzo/client';
 import { CollaborationTranscript } from '../CollaborationTranscript';
+import { ReplyQuote } from '../ReplyQuote';
 import type { ChatAreaProps } from '../ChatArea';
 import type { FinishedMessage, StreamingMessage } from '@mitzo/protocol';
 import {
@@ -63,6 +64,34 @@ const sourceStream = (commandId: string): StreamingMessage => ({
     ['text', { blockId: 'text', blockType: 'text', content: 'Same visible body', done: false }],
   ]),
   blockOrder: ['text'],
+});
+it('navigates a shared quote to the exact retained rich source through projection aliases', () => {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(sharedConversationView())}
+        names={names}
+        ordinary={sourceChat([
+          {
+            messageId: 'final-answer',
+            role: 'assistant',
+            blocks: [{ blockId: 'text', blockType: 'text', content: 'Exact rich source' }],
+          },
+        ])}
+      />
+      <ReplyQuote
+        sessionId="architect"
+        reply={{
+          messageId: sharedReply.projectionId,
+          role: 'assistant',
+          text: 'Exact rich source',
+        }}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Replying to: Exact rich source' }));
+  expect(document.activeElement?.getAttribute('data-reply-source')).toBe('final-answer');
 });
 
 it('suppresses a native delivery packet while retaining each operator body and projection identity', () => {

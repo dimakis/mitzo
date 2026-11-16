@@ -17,6 +17,52 @@ afterEach(() => {
   localStorage.clear();
   sessionStorage.clear();
 });
+it('qualifies an explicitly forwarded audience independently and retains its own uncertain request', async () => {
+  const view = sharedConversationView(),
+    draft = createChatDraft();
+  saveChatDraft({ ...draft, text: 'Keep ordinary draft' });
+  const api = new CollaborationApiClient(vi.fn());
+  const readiness = vi
+    .spyOn(api, 'recipientReadiness')
+    .mockImplementation(async (_group, sessionId) => ({
+      collaborationId: view.collaborationId,
+      sessionId,
+      membershipRevision: view.membershipRevision,
+      policySequence: view.policySequence,
+      ready: true,
+      reason: null,
+    }));
+  vi.spyOn(api, 'observeSend').mockResolvedValue({ message: null, terminal: false });
+  const send = vi.spyOn(api, 'send').mockRejectedValue(Error('Acknowledgement lost'));
+  const options = {
+    api,
+    view,
+    draftId: draft.id,
+    authScope: 'login',
+    getVerifiedAuthScope: () => 'login',
+    responders: { kind: 'selected' as const, sessionIds: ['architect'] },
+    refresh: async () => view,
+  };
+  const h = renderHook(() => useConversationSending(options));
+  await waitFor(() => expect(h.result.current.disabledReason).toBeUndefined());
+  await act(async () => {
+    expect(
+      await h.result.current.send('Reply to this forwarded message', undefined, undefined, [
+        'reviewer',
+      ]),
+    ).toBe(false);
+  });
+  expect(readiness).toHaveBeenCalledWith(view.collaborationId, 'reviewer');
+  expect(send.mock.calls[0][1].responders).toEqual({ kind: 'selected', sessionIds: ['reviewer'] });
+  expect(getChatDraft(draft.id)?.collaborationSend?.recipientSessionIds).toEqual(['reviewer']);
+  expect(getChatDraft(draft.id)?.text).toBe('Keep ordinary draft');
+  await act(async () => {
+    expect(await h.result.current.send('Invalid target', undefined, undefined, ['outsider'])).toBe(
+      false,
+    );
+  });
+  expect(send).toHaveBeenCalledOnce();
+});
 
 it('retains an uncertain request while allowing a disjoint recipient to receive a new explicit prompt', async () => {
   const view = sharedConversationView(),

@@ -32,7 +32,10 @@ import { retainRuntimeFailure, runtimeFailureDiagnostics } from './runtime-failu
 
 const log = createLogger('collaboration-messaging');
 const promptByteLimit = 512 * 1024;
-type DiscussionMessage = Pick<CollaborationMessage, 'sequence' | 'author' | 'text' | 'source'> &
+type DiscussionMessage = Pick<
+  CollaborationMessage,
+  'sequence' | 'author' | 'text' | 'source' | 'inReplyTo'
+> &
   Partial<Pick<CollaborationMessage, 'snapshot' | 'forward' | 'images'>>;
 type MessageContextReference =
   | {
@@ -95,6 +98,7 @@ function discussionMaterial(
     sequence: message.sequence,
     author: message.author,
     text: message.text,
+    ...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
     ...(message.images?.length
       ? {
           attachments: message.images.map((image) => ({

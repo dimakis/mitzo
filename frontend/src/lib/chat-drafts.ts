@@ -65,6 +65,7 @@ export const ChatDraftSchema = z.object({
       reviewInput: CollaborationPromptReviewInputSchema.optional(),
       confirmation: CollaborationForwardConfirmInputSchema.optional(),
       confirmationAttempted: z.boolean(),
+      requestReply: z.boolean().optional(),
     })
     .optional(),
   collaborationContext: z
@@ -78,6 +79,8 @@ export const ChatDraftSchema = z.object({
         messageIds: z.array(z.string().min(1)).max(500),
         // Explicit context-only recipients; automatic reader policies do not widen this audience.
         shareRecipientIds: z.array(z.string().min(1)).max(16).optional(),
+        sourceConversationId: z.string().min(1).optional(),
+        requestReply: z.boolean().optional(),
         artifacts: CollaborationPromptReviewInputSchema.shape.selection.shape.artifacts.optional(),
       }),
       input: CollaborationPromptReviewInputSchema.optional(),

@@ -5,26 +5,35 @@ import { useMotionPresence } from '../hooks/useMotionPresence';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import { ReviewedArtifactContents } from './ReviewedArtifactContents';
+import { ReplyQuote, REPLY_NAVIGATION_EVENT } from './ReplyQuote';
 import './ConversationAgents.css';
 
 function ReviewedContextContents({
   reviewed,
   names,
+  onNavigate,
 }: {
   reviewed: CollaborationPromptReviewResult;
   names: Readonly<Record<string, string>>;
+  onNavigate?(id: string, opener: HTMLButtonElement): void;
 }) {
   return (
     <>
       <p>{reviewed.snapshot.joiningBrief}</p>
       {reviewed.snapshot.messages.map((message) => (
         <div className="conversation-joining-message" key={message.messageId}>
-          <small>
-            {message.author === 'operator' ? 'You' : (names[message.author.sessionId] ?? 'Agent')}
-          </small>
-          {message.blocks.map((block) => (
-            <p key={block.blockId}>{block.content}</p>
-          ))}
+          <ReplyQuote
+            reply={{
+              messageId: message.messageId,
+              role: message.author === 'operator' ? 'user' : 'assistant',
+              text: message.blocks.map((b) => b.content).join('\n\n'),
+              timestamp: message.recordedAt,
+            }}
+            author={
+              message.author === 'operator' ? 'You' : (names[message.author.sessionId] ?? 'Agent')
+            }
+            onNavigate={onNavigate}
+          />
         </div>
       ))}
       {reviewed.snapshot.artifacts.map((artifact) => (
@@ -100,6 +109,18 @@ export function ConversationPromptContext({
   const selectedArtifacts = flow.form.artifacts ?? [];
   const matches = (a: (typeof selectedArtifacts)[number], b: (typeof selectedArtifacts)[number]) =>
     a.artifactId === b.artifactId && a.revision === b.revision && a.sha256 === b.sha256;
+  const navigate = (id: string, opener: HTMLButtonElement) => {
+    flow.close();
+    window.dispatchEvent(
+      new CustomEvent(REPLY_NAVIGATION_EVENT, {
+        detail: {
+          sessionId: flow.navigationSessionId,
+          messageId: flow.sourceMessageAnchor(id),
+          opener,
+        },
+      }),
+    );
+  };
   const artifacts = [
     ...(flow.artifacts ?? []),
     ...selectedArtifacts
@@ -126,7 +147,8 @@ export function ConversationPromptContext({
             {sharing ? (
               <>
                 <p className="conversation-agents-explanation">
-                  Choose who receives these messages. Sending context does not ask for a reply.
+                  Choose who receives these messages. Forwarding supplies context; “Ask for a reply”
+                  also sends a separate prompt to those agents.
                 </p>
                 <fieldset
                   className="conversation-context-selection"
@@ -156,6 +178,16 @@ export function ConversationPromptContext({
                       </span>
                     </label>
                   ))}
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={!!flow.form.requestReply}
+                      onChange={(event) =>
+                        flow.edit({ ...flow.form, requestReply: event.target.checked })
+                      }
+                    />
+                    <span>Ask for a reply</span>
+                  </label>
                 </fieldset>
               </>
             ) : (
@@ -308,7 +340,11 @@ export function ConversationPromptContext({
                   <summary>
                     Review included context <UiIcon name="down" />
                   </summary>
-                  <ReviewedContextContents reviewed={reviewed} names={names} />
+                  <ReviewedContextContents
+                    reviewed={reviewed}
+                    names={names}
+                    onNavigate={navigate}
+                  />
                 </details>
                 <p className="conversation-agents-explanation">
                   {snapshot.capacity.status === 'unverified'
@@ -357,7 +393,11 @@ export function ConversationPromptContext({
                       {forwarding.originalRecipients.map((id) => names[id] ?? id).join(', ')}
                     </strong>
                     <p>{forwarding.originalReview.snapshot.purpose}</p>
-                    <ReviewedContextContents reviewed={forwarding.originalReview} names={names} />
+                    <ReviewedContextContents
+                      reviewed={forwarding.originalReview}
+                      names={names}
+                      onNavigate={navigate}
+                    />
                     {!forwarding.canConfirm &&
                       !forwarding.busy &&
                       forwarding.observation?.state !== 'confirmed' && (

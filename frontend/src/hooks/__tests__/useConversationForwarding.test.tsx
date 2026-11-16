@@ -143,6 +143,25 @@ function fixture() {
   };
   return { api, options, mount, ready, draft, prepare, observe, read, confirm, send };
 }
+it('requests a separate reply only after explicit selection and confirmed forwarding, never on recovery', async () => {
+  const f = fixture();
+  const requestReplyTo = vi.fn(async () => true);
+  const h = renderHook(() =>
+    useConversationForwarding({ ...f.options, requestReply: true, requestReplyTo }),
+  );
+  act(() => h.result.current.prepare());
+  await waitFor(() => expect(h.result.current.canConfirm).toBe(true));
+  expect(requestReplyTo).not.toHaveBeenCalled();
+  act(() => h.result.current.confirm());
+  await waitFor(() =>
+    expect(requestReplyTo).toHaveBeenCalledWith(['reviewer'], 'A deliberate note'),
+  );
+  await waitFor(() => expect(h.result.current.busy).toBe(false));
+  act(() => h.result.current.check());
+  await waitFor(() => expect(h.result.current.busy).toBe(false));
+  expect(requestReplyTo).toHaveBeenCalledOnce();
+  expect(f.confirm.mock.calls[0][2].requestReply).toBe(false);
+});
 
 for (const phase of ['prepare', 'confirm'] as const)
   it.each(['commit', 'reject', 'auth loss', 'unmount', 'policy change'] as const)(

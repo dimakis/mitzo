@@ -586,6 +586,11 @@ export class CollaborationConversationStore {
             !review?.promptAudience,
           );
         }
+        const originalReply = input.replyToMessageId
+          ? this.getMessage(group, input.replyToMessageId)
+          : undefined;
+        if (input.replyToMessageId && (!originalReply || !originalReply.text.trim()))
+          throw new ContractError('snapshot_changed');
         const message = CollaborationMessageSchema.parse({
           version: 1,
           messageId: randomUUID(),
@@ -595,6 +600,19 @@ export class CollaborationConversationStore {
           source: null,
           replyToDeliveryId: null,
           text: input.text,
+          ...(originalReply
+            ? {
+                replyToMessageId: originalReply.messageId,
+                inReplyTo: {
+                  messageId: originalReply.projectionId,
+                  role: originalReply.author === 'operator' ? 'user' : 'assistant',
+                  text: originalReply.text,
+                  ...(originalReply.recordedAt !== undefined
+                    ? { timestamp: originalReply.recordedAt }
+                    : {}),
+                },
+              }
+            : {}),
           ...(input.images?.length ? { images: input.images } : {}),
           recordedAt: Date.now(),
           membershipRevision: current.revision,
@@ -1174,7 +1192,15 @@ export class CollaborationConversationStore {
       ReviewCompilation,
       () => {
         const membership = this.membership(group, input.selection.expectedMembershipRevision);
-        if (!membership.participantSessionIds.includes(input.selection.sourceConversationId))
+        if (
+          !membership.participantSessionIds.includes(input.selection.sourceConversationId) &&
+          !(
+            input.promptAudience &&
+            input.selection.sourceConversationId === group &&
+            input.selection.mode === 'selected' &&
+            !input.selection.artifacts.length
+          )
+        )
           throw new ContractError('unknown_recipient');
         const record = ReviewCompilation.parse({
           ...input,
@@ -1678,6 +1704,14 @@ export class CollaborationConversationStore {
   assertCurrentSnapshotSource(group: string, snapshotId: string) {
     const membership = this.group(group);
     const record = this.getReviewCompilationForSnapshot(group, snapshotId);
+    if (
+      record?.promptAudience &&
+      record.selection.sourceConversationId === group &&
+      record.selection.mode === 'selected' &&
+      !record.selection.artifacts.length &&
+      membership.revision === record.selection.expectedMembershipRevision
+    )
+      return;
     if (
       !record ||
       !this.continuousMember(

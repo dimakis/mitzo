@@ -65,6 +65,7 @@ export function ConversationAgents(props: {
   compact?: boolean;
   /** Shared ordinary discussions keep names in their existing header action. */
   showParticipantNames?: boolean;
+  addressedReadingOnly?: boolean;
   leading?: ReactNode;
   actions?: ReactNode;
   settings?: ReactNode;
@@ -98,6 +99,7 @@ function ConversationAgentsBody({
   repository,
   compact,
   showParticipantNames,
+  addressedReadingOnly,
   leading,
   actions,
   settings,
@@ -277,8 +279,9 @@ function ConversationAgentsBody({
             {view === 'agents' && (
               <>
                 <p className="conversation-agents-explanation">
-                  Choose who reads future discussion and who replies by default. @ changes who
-                  replies to one prompt.
+                  {addressedReadingOnly
+                    ? 'Agents read when addressed. @ chooses who replies to a message; Forward shares an earlier message with selected agents.'
+                    : 'Choose who reads future discussion and who replies by default. @ changes who replies to one prompt.'}
                 </p>
                 {policyFeedback && (
                   <div className="conversation-policy-feedback">{policyFeedback}</div>
@@ -328,22 +331,46 @@ function ConversationAgentsBody({
                     </p>
                     <fieldset className="conversation-agent-policy">
                       <legend className="sr-only">Sharing for {a.name}</legend>
-                      <label>
-                        <input
-                          type="checkbox"
-                          ref={(input) => {
-                            if (input) input.indeterminate = !a.policy;
-                          }}
-                          aria-checked={!a.policy ? 'mixed' : undefined}
-                          checked={a.policy?.reads ?? false}
-                          disabled={!a.policy || !onPolicyChange}
-                          onChange={(e) =>
-                            a.policy &&
-                            onPolicyChange?.(a.id, { ...a.policy, reads: e.target.checked })
-                          }
-                        />
-                        <span>Reads future discussion</span>
-                      </label>
+                      {addressedReadingOnly ? (
+                        <>
+                          <p>
+                            {a.policy?.reads
+                              ? 'Automatic discussion sharing is enabled.'
+                              : a.policy
+                                ? 'Reads when addressed'
+                                : 'Reading policy has not been checked.'}
+                          </p>
+                          {a.policy?.reads && (
+                            <button
+                              type="button"
+                              className="home-secondary"
+                              disabled={!onPolicyChange}
+                              onClick={() =>
+                                onPolicyChange?.(a.id, { reads: false, replies: a.policy!.replies })
+                              }
+                            >
+                              Read only when addressed
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <label>
+                          <input
+                            type="checkbox"
+                            ref={(input) => {
+                              if (input) input.indeterminate = !a.policy;
+                            }}
+                            aria-checked={!a.policy ? 'mixed' : undefined}
+                            checked={a.policy?.reads ?? false}
+                            disabled={!a.policy || !onPolicyChange}
+                            onChange={(e) =>
+                              a.policy &&
+                              onPolicyChange?.(a.id, { ...a.policy, reads: e.target.checked })
+                            }
+                          />
+                          <span>Reads future discussion</span>
+                        </label>
+                      )}
                       <label>
                         <input
                           type="checkbox"

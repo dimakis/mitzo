@@ -18,6 +18,7 @@ import {
   ChatImagesSchema,
   SessionCollaborationIdSchema,
   type CollaborationMessage,
+  type MessageReplyContext,
 } from '@mitzo/protocol';
 import {
   apiFetch,
@@ -294,6 +295,12 @@ function useSharedConversation({
   const promptContext = useConversationPromptContext({
     api,
     sourceConversationId,
+    sharedMessages: presentation.projection
+      ? [
+          ...(presentation.projection.earlierMessages ?? []),
+          ...presentation.projection.view.messages,
+        ]
+      : undefined,
     clientId,
     view,
     responders: presentation.responderIntent,
@@ -310,6 +317,9 @@ function useSharedConversation({
     view,
     review: promptContext.review,
     reviewCurrent: promptContext.canAttach,
+    requestReply: promptContext.form.requestReply,
+    requestReplyTo: (ids, note) =>
+      sending.send('Please respond to the forwarded message: ' + note, undefined, undefined, ids),
     refresh: presentation.refresh,
   });
   const sending = useConversationSending({
@@ -359,14 +369,25 @@ function useSharedConversation({
     shareMessage: (messageId: string) => {
       if (promptContext.busy || promptContext.attached || forwarding.retained || sending.pending)
         return;
+      const shared = [
+        ...(presentation.projection?.earlierMessages ?? []),
+        ...(view?.messages ?? []),
+      ].find(
+        (m) =>
+          m.messageId === messageId ||
+          m.projectionId === messageId ||
+          (m.source?.conversationId === sourceConversationId && m.source.messageId === messageId),
+      );
       promptContext.edit({
         ...promptContext.form,
         mode: 'selected',
         purpose: promptContext.form.purpose || 'Send selected messages',
-        messageIds: [...new Set([...promptContext.form.messageIds, messageId])],
+        sourceConversationId: shared ? view!.collaborationId : sourceConversationId,
+        messageIds: [shared?.messageId ?? messageId],
+        requestReply: false,
         shareRecipientIds: promptContext.form.shareRecipientIds ?? [],
       });
-      promptContext.show();
+      promptContext.showSource(shared ? view!.collaborationId : sourceConversationId);
     },
     joiningOwner,
     names,
@@ -429,6 +450,7 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
       {...props}
       agents={agents}
       showParticipantNames={host.active || props.showParticipantNames}
+      addressedReadingOnly={host.active}
       joiningOwner={host.joiningOwner}
       unavailableReason={
         host.error ?? (host.historySource ? 'Reply in the shared conversation.' : undefined)
@@ -481,6 +503,7 @@ function SharedConversationBodyContent({
 }: SharedConversationBodyProps) {
   const host = useContext(Context);
   const [sendFailure, setSendFailure] = useState<string>();
+  const [reply, setReply] = useState<{ source: string; value: MessageReplyContext | null }>();
   const view = host?.presentation.projection?.view;
   const originalHistory =
     isValidElement<ChatAreaProps>(ordinaryHistory) && ordinaryHistory.type === ChatArea
@@ -570,7 +593,10 @@ function SharedConversationBodyContent({
             host.active && projection ? host.shareMessage : ordinaryHistory.props.onShareMessage,
           canShareMessage: (message: ChatAreaProps['messages'][number]) =>
             canShare &&
-            ordinaryHistory.props.messages.some((m) => m.messageId === message.messageId),
+            (ordinaryHistory.props.messages.some((m) => m.messageId === message.messageId) ||
+              [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].some(
+                (m) => m.projectionId === message.messageId,
+              )),
           shareInActions: true,
         }
       : {
@@ -582,11 +608,32 @@ function SharedConversationBodyContent({
             </>
           ),
         };
+  if (host.active) history.onReply = (value) => setReply({ source: sourceConversationId, value });
+  const replySourceAuthor = reply?.value
+    ? [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].find(
+        (m) => m.projectionId === reply.value?.messageId,
+      )?.author
+    : undefined;
   const composer: ComponentProps<typeof ChatInput> = {
+    ...(reply?.source === sourceConversationId
+      ? {
+          replyTarget: reply.value ?? undefined,
+          replyAuthor:
+            replySourceAuthor && replySourceAuthor !== 'operator'
+              ? names[replySourceAuthor.sessionId]
+              : undefined,
+          onClearReply: () => setReply({ source: sourceConversationId, value: null }),
+        }
+      : {}),
     savedChatDraft: draft ?? undefined,
     sessionId: draft?.id,
     textOnly: false,
     tokenOwnerName: names[sourceConversationId] ?? 'Original agent',
+    tokenParticipants: view?.participantSessionIds.map((id) => ({
+      id,
+      name: names[id] ?? 'Agent',
+      unavailable: view.unavailableParticipantSessionIds.includes(id),
+    })),
     boundedFirstCommand: true,
     guardedConversation: false,
     recipientRecovery: !sending.pending && !presentation.error,
@@ -650,7 +697,7 @@ function SharedConversationBodyContent({
         }
       },
     },
-    onSend: (text, images, context, delivered) => {
+    onSend: (text, images, context, delivered, _assigned, _draft, replyTo) => {
       if (context?.length || sending.disabledReason) return false;
       const attachments = ChatImagesSchema.safeParse(
         images?.map(({ data, mediaType }) => ({ data, mediaType })) ?? [],
@@ -663,17 +710,33 @@ function SharedConversationBodyContent({
         return false;
       }
       setSendFailure(undefined);
-      void sending.send(text, attachments.data.length ? attachments.data : undefined).then(
-        (ok) => delivered?.(ok ? 'accepted' : 'failed'),
-        (cause) => {
-          setSendFailure(
-            cause instanceof Error
-              ? cause.message
-              : 'Could not send this prompt. Your draft is retained.',
-          );
-          delivered?.('failed');
-        },
-      );
+      const replySource = replyTo
+        ? [...(projection?.earlierMessages ?? []), ...(view?.messages ?? [])].find(
+            (m) =>
+              m.projectionId === replyTo.messageId ||
+              (m.source?.conversationId === sourceConversationId &&
+                m.source.messageId === replyTo.messageId),
+          )
+        : undefined;
+      if (replyTo && !replySource) {
+        setSendFailure(
+          'The original reply source is unavailable. Refresh the discussion or remove the reply quote.',
+        );
+        return false;
+      }
+      void sending
+        .send(text, attachments.data.length ? attachments.data : undefined, replySource?.messageId)
+        .then(
+          (ok) => delivered?.(ok ? 'accepted' : 'failed'),
+          (cause) => {
+            setSendFailure(
+              cause instanceof Error
+                ? cause.message
+                : 'Could not send this prompt. Your draft is retained.',
+            );
+            delivered?.('failed');
+          },
+        );
       return true;
     },
   };

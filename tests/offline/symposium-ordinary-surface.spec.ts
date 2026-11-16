@@ -77,6 +77,22 @@ for (const theme of ['dark', 'light'])
           },
         });
       if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+      if (path.endsWith('/context'))
+        return route.fulfill({
+          json: {
+            sessionId: decodeURIComponent(path.split('/').at(-2)!),
+            contextUsage: {
+              used: 5000,
+              measuredAt: 1794821400000,
+              limits: {
+                model: 'offline-fixture',
+                source: 'runtime',
+                contextWindow: 200000,
+                stale: false,
+              },
+            },
+          },
+        });
       if (path.endsWith('/progress'))
         return route.fulfill({
           json: {
@@ -152,13 +168,12 @@ for (const theme of ['dark', 'light'])
     await expect(recipients.getByRole('button', { name: 'Reviewer', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Choose who replies' }).click();
     await input.fill('Draft retained through joining and resizing');
-    await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
+    await expect(wheel).toHaveAttribute('title', 'Context usage for each agent');
     await wheel.click();
-    await expect(
-      page
-        .locator('.token-bar-detail-row')
-        .filter({ has: page.getByText('Agent', { exact: true }) }),
-    ).toHaveText('AgentArchitect');
+    const contexts = page.getByRole('dialog', { name: 'Context by agent' });
+    await expect(contexts.getByText('Architect', { exact: true })).toBeVisible();
+    await expect(contexts.getByText('Reviewer', { exact: true })).toBeVisible();
+    await expect(contexts.getByRole('meter')).toHaveCount(2);
     await page.keyboard.press('Escape');
     await expect(input).toHaveAttribute('data-retained', 'original');
     await expect(page.locator('.chat-messages')).toHaveCount(1);

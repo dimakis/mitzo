@@ -96,3 +96,48 @@ actual usage owner; it does not establish that the prior redesign landed.
 Local Mac Codex and Claude retain their existing configured account/runtime
 qualification. OpenShell shared delivery remains unqualified; this repair does not
 establish universal account or engine support.
+
+## Approved revision 3 and composer receipt fix
+
+Dimitri approved `mockups/multi-agent-controls/v003.html` on 16 November and asked
+for the sent shared prompt to clear. The appended design-ledger approval preserves
+all earlier revisions and references. Source now keeps status and recipients in
+the existing above-composer rail, uses the existing Agents view and addressed-read
+policy, and opens individual recorded usage from the multicolor context wheel.
+Unknown, stale and failed usage remains visible through the ordinary context owner.
+
+Recorded timestamps, Copy, Read aloud and Reply remain in message actions. Forward
+is in the same menu for both user and agent messages, including canonical shared
+projections. The selected public discussion text is re-read by the host under the
+existing actor, membership, recipient and final material fences; this does not read
+another participant's private provider history. Reviews retain source author/time
+and a navigable exact quote. Source/projection aliases resolve to an existing rich
+message when ordinary history owns its rendered identity.
+
+Forwarding stays context-only by default. The unchecked Ask for a reply option
+starts a separate ordinary prompt only after confirmed forwarding. That prompt has
+its own durable send journal and exact qualified recipients. Forward recovery never
+starts or replays it, and an unaccepted follow-up is reported honestly. Stop during
+preparation only cancels an overlapping selected audience.
+
+A matching durable prompt receipt is accepted even when native delivery is pending
+or uncertain. The composer consumes only that submitted revision while retaining
+the original request for recovery; a newer edit survives. A wholly refused audience
+still keeps its draft. Tests cover delivered, queued, pending and uncertain receipts,
+each with and without a newer ordinary saved draft.
+
+Validation: 139 focused tests passed across 16 files with one worker and the required
+1 GiB heap. This includes the real authenticated application forwarding/native-input
+consumer, context failure/retry UI, canonical reply capture, projection navigation,
+Stop and send durability, optional reply recovery, and typing-scroll regressions.
+The shared design suite passed 109 tests with one existing skip. Protocol, harness
+and client compilation passed. Changed source lint and formatting were checked.
+The earlier worker OOM was isolated to a newly added test recreating its hook callbacks;
+the fixture was corrected and the complete focused run then passed within 1 GiB.
+
+The offline browser fixture includes the per-agent popup and recorded usage in both
+themes across the configured phone and desktop projects; `--list` succeeds. Actual
+browser rendering remains unverified because the retained macOS process-registration
+denial was not retried. There are no new screenshots. Full frontend typecheck and
+broad builds remain for CI after the previously recorded 1 GiB limit. No staging,
+production activation, live model calls, additional review agents or merge occurred.

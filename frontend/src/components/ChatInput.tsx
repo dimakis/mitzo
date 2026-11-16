@@ -48,6 +48,7 @@ import { useComposerStatusSink } from '../lib/composer-status-context';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
+import { ConversationContextUsage } from './ConversationContextUsage';
 import { insertComposerCommand } from '../lib/composer-command';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
@@ -83,6 +84,7 @@ interface Props {
   composerCapabilities?: ChatComposerCapabilities;
   steeringTargetCommandId?: string;
   replyTarget?: MessageReplyContext;
+  replyAuthor?: string;
   onClearReply?: () => void;
   responders?: ComposerResponderSelection;
   /** This route can resolve its supplied refusal by changing recipients. */
@@ -151,6 +153,7 @@ interface Props {
   tokenState?: TokenState;
   /** Display label for this wheel's existing source usage, independent of reply recipients. */
   tokenOwnerName?: string;
+  tokenParticipants?: { id: string; name: string; unavailable?: boolean }[];
   collaboration?: ReactNode;
   compactions?: import('@mitzo/protocol').ContextCompaction[];
   compactionError?: string;
@@ -243,6 +246,7 @@ function ChatInputContent({
   recipientRecovery = false,
   steeringTargetCommandId,
   replyTarget,
+  replyAuthor,
   onClearReply,
   responders,
   textOnly = false,
@@ -283,6 +287,7 @@ function ChatInputContent({
   onExternalContextBlockToggle,
   tokenState,
   tokenOwnerName,
+  tokenParticipants,
   collaboration,
   compactions,
   compactionError,
@@ -1533,6 +1538,11 @@ function ChatInputContent({
         running={running}
         scope={composerScope}
         awaitingApproval={awaitingApproval}
+        recipients={
+          responders
+            ? `To ${selectedResponderIds.map((id) => responders.members.find((m) => m.id === id)?.name ?? 'Unavailable agent').join(', ') || 'no agents'}`
+            : undefined
+        }
       />
       {currentSave && (currentSave.failed || chatStorage.failed) && (
         <ChatStatusMessage error="Couldn’t save this draft on this device. Keep it open and free some storage before leaving." />
@@ -1682,7 +1692,7 @@ function ChatInputContent({
       <div className="chat-input-row">
         {replyTarget && (
           <div className="chat-reply-draft">
-            <ReplyQuote reply={replyTarget} sessionId={sessionId} />
+            <ReplyQuote reply={replyTarget} author={replyAuthor} sessionId={sessionId} />
             <button
               type="button"
               className="chat-input-btn"
@@ -1830,13 +1840,17 @@ function ChatInputContent({
                 <UiIcon name="stop" />
               </button>
             )}
-            {tokenState && (
-              <TokenBar
-                tokenState={tokenState}
-                ownerName={tokenOwnerName}
-                alwaysVisible
-                userTurns={messages.filter((message) => message.role === 'user').length}
-              />
+            {tokenParticipants && tokenParticipants.length > 1 ? (
+              <ConversationContextUsage participants={tokenParticipants} />
+            ) : (
+              tokenState && (
+                <TokenBar
+                  tokenState={tokenState}
+                  ownerName={tokenOwnerName}
+                  alwaysVisible
+                  userTurns={messages.filter((message) => message.role === 'user').length}
+                />
+              )
             )}
             {micProps && <MicButton {...micProps} />}
             {running ? (

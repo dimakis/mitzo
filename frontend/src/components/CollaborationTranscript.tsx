@@ -212,6 +212,10 @@ export function CollaborationTranscript({
       live,
       streams,
       liveReplies,
+      aliases: Object.fromEntries([
+        ...displayedIds,
+        ...view.messages.map((m) => [m.messageId, displayedIds.get(m.projectionId)!] as const),
+      ]),
     };
   }, [projection, sourceSessionId, sourceMessages, sourceCurrent, sourceStreams, progress]);
   // Keep the same ChatArea mounted before and after the first shared participant.
@@ -251,6 +255,17 @@ export function CollaborationTranscript({
       preserveMessageOrder
       messageSessionId={(id) => messages.get(id)?.source?.conversationId ?? ordinary?.sessionId}
       messages={integratedMessages}
+      messageAliases={composed.aliases}
+      onShareMessage={
+        chat.onShareMessage
+          ? (id, provenance) => chat.onShareMessage?.(messages.get(id)?.messageId ?? id, provenance)
+          : undefined
+      }
+      canShareMessage={(message) =>
+        chat.canShareMessage
+          ? chat.canShareMessage(message)
+          : !!messages.get(message.messageId)?.text.trim()
+      }
       current={null}
       currentByMessage={streams}
       running={running}

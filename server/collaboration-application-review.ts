@@ -29,6 +29,7 @@ import {
 import { assertOrdinarySilentPreparationAuthority } from './ordinary-repository-preparation-authority.js';
 import { OrdinaryCollaborationReview } from './collaboration-review-owner.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
+import { createSharedConversationContextSource } from './collaboration-shared-context-source.js';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
@@ -108,6 +109,10 @@ export class CollaborationApplicationReview {
     signal: AbortSignal,
   ) {
     const input = CollaborationPromptReviewInputSchema.parse(raw);
+    const sharedSource =
+      input.selection.sourceConversationId === group &&
+      input.selection.mode === 'selected' &&
+      !input.selection.artifacts.length;
     const inputSha = createHash('sha256').update(JSON.stringify(input)).digest('hex');
     const operator = captureAgentLibraryAuthorization(operatorConnectionId);
     const assertObservation = () => {
@@ -118,13 +123,15 @@ export class CollaborationApplicationReview {
         !isAuthSessionCurrent(auth) ||
         operator.auth.id !== auth.id ||
         !this.operatorCurrent(auth, operatorConnectionId) ||
-        !source ||
-        source.isHidden ||
-        source.sessionType === 'symposium' ||
-        source.symposiumConfig ||
-        !this.owners.store
-          .getSessionCollaboration(group)
-          ?.participantSessionIds.includes(source.sessionId)
+        (!sharedSource &&
+          (!source ||
+            source.isHidden ||
+            source.sessionType === 'symposium' ||
+            source.symposiumConfig ||
+            !this.owners.store
+              .getSessionCollaboration(group)
+              ?.participantSessionIds.includes(source.sessionId))) ||
+        (sharedSource && !this.owners.store.getSessionCollaboration(group))
       )
         throw unavailable();
     };
@@ -216,11 +223,13 @@ export class CollaborationApplicationReview {
       return result(snapshot);
     }
     assertCurrent();
-    const source = createCollaborationContextSource({
-      store: this.owners.store,
-      authorizeConversation: async () => assertCurrent(),
-      assertConversationCurrent: assertCurrent,
-    });
+    const source = sharedSource
+      ? createSharedConversationContextSource(this.owners.store, group, assertCurrent)
+      : createCollaborationContextSource({
+          store: this.owners.store,
+          authorizeConversation: async () => assertCurrent(),
+          assertConversationCurrent: assertCurrent,
+        });
     const review = new OrdinaryCollaborationReview({
       store: this.owners.store,
       source: () => source,

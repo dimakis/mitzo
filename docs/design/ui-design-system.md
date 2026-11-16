@@ -28,6 +28,25 @@ on phone/desktop, both themes and alternate appearance; see
 
 # Mitzo UI design contract
 
+## Shared conversation controls — approved revision 3
+
+Preserve the existing Agents menu and icon-only composer. Status and recipients
+share its mounted information line above the composer. Inline @ remains collapsible.
+With multiple participants, the rainbow context wheel opens the shared dialog with
+one ordinary recorded-usage row per agent, preserving unavailable/error states and
+Refresh. Its number is agent count; percentages belong to individual measured usage.
+Use the shared seat palette, HomeDialog, SeatLabel and SessionContextUsage.
+
+Keep recorded dates/times, Copy, Read aloud, Reply and Forward together in the
+existing message actions. Reply quotes and forwarding reviews retain exact source
+author/time/text. The server captures reply references and canonical public message
+selectors. Forward supplies context to reviewed recipients; the unchecked Ask for
+a reply choice sends a separately journaled ordinary prompt. Recovery never starts
+that follow-up. Agents read when addressed; retain honest existing automatic-reader
+policy state and allow explicit removal. Preserve Add agent, preview, Details and
+Chat settings. Approved by Dimitri on 16 November 2026 after interactive revision 3;
+see the appended Symposium approval in the ledger. Runtime adoption remains separate.
+
 ## Conversation tree navigation
 
 The existing Return to lead chat link resolves the current canonical reporting

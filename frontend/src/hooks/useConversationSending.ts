@@ -78,7 +78,9 @@ export function useConversationSending(options: {
   const stopping = useRef<{ owner: object; requestId: string } | undefined>(undefined);
   const pending = useRef<Pending | undefined>(undefined);
   const requests = useRef<Pending[]>([]);
-  const preparing = useRef<{ owner: object; cancelled: boolean } | undefined>(undefined);
+  const preparing = useRef<{ owner: object; cancelled: boolean; recipients: string[] } | undefined>(
+    undefined,
+  );
   const authGeneration = useRef(0);
   const [state, setState] = useState<{
     owner: object;
@@ -183,6 +185,7 @@ export function useConversationSending(options: {
         if (
           !receipt ||
           receipt.text !== original.input.text ||
+          receipt.replyToMessageId !== original.input.replyToMessageId ||
           JSON.stringify(receipt.images ?? []) !== JSON.stringify(original.input.images ?? []) ||
           receipt.membershipRevision !== original.input.expectedMembershipRevision ||
           receipt.policySequence !== original.input.expectedPolicySequence ||
@@ -293,36 +296,75 @@ export function useConversationSending(options: {
             visible.error ??
             (visible.ready ? undefined : (visible.reason ?? 'Checking recipient readiness…')));
   const send = useCallback(
-    async (text: string, images?: CollaborationMessageInput['images']) => {
+    async (
+      text: string,
+      images?: CollaborationMessageInput['images'],
+      replyToMessageId?: string,
+      addressedRecipients?: string[],
+    ) => {
+      const audience = addressedRecipients ? [...new Set(addressedRecipients)] : recipients;
+      const selection = addressedRecipients
+        ? { kind: 'selected' as const, sessionIds: audience }
+        : responders;
       if (
-        disabledReason ||
+        (addressedRecipients
+          ? contextDisabledReason ||
+            audience.some(
+              (id) =>
+                !view?.participantSessionIds.includes(id) ||
+                view.unavailableParticipantSessionIds.includes(id),
+            )
+          : disabledReason) ||
         !valid() ||
         busy.current === owner ||
-        requests.current.some((request) => !request.acknowledged && touches(request)) ||
+        requests.current.some(
+          (request) =>
+            !request.acknowledged &&
+            (!requestRecipients(request) ||
+              requestRecipients(request)!.some((id) => audience.includes(id))),
+        ) ||
         !view ||
-        !recipients.length ||
-        !responders ||
+        !audience.length ||
+        !selection ||
         !group ||
         !authScope
       )
         return false;
       busy.current = owner;
-      const preparation = { owner, cancelled: false };
+      const preparation = { owner, cancelled: false, recipients: audience };
       preparing.current = preparation;
       const generation = authGeneration.current;
       const fresh = () => valid() && authGeneration.current === generation;
       try {
+        if (addressedRecipients) {
+          const readiness = await Promise.all(
+            audience.map((id) => api.recipientReadiness(group, id)),
+          );
+          if (
+            !fresh() ||
+            readiness.some(
+              (r, i) =>
+                !r.ready ||
+                r.sessionId !== audience[i] ||
+                r.collaborationId !== group ||
+                r.membershipRevision !== view.membershipRevision ||
+                r.policySequence !== view.policySequence,
+            )
+          )
+            return false;
+        }
         const original: Pending = {
           collaborationId: group,
           authScope,
-          recipientSessionIds: recipients,
+          recipientSessionIds: audience,
           input: CollaborationMessageInputSchema.parse({
             requestId: createBrowserId(),
             expectedMembershipRevision: view.membershipRevision,
             expectedPolicySequence: view.policySequence,
             text,
             ...(images?.length ? { images } : {}),
-            responders,
+            ...(replyToMessageId ? { replyToMessageId } : {}),
+            responders: selection,
             snapshot: snapshot ?? null,
           }),
         };
@@ -353,11 +395,12 @@ export function useConversationSending(options: {
         if (!valid()) return false;
         if (
           receipt.text !== text ||
+          receipt.replyToMessageId !== original.input.replyToMessageId ||
           JSON.stringify(receipt.images ?? []) !== JSON.stringify(original.input.images ?? []) ||
-          receipt.responders.length !== recipients.length ||
-          !recipients.every((id) => receipt.responders.includes(id)) ||
-          receipt.deliveries.filter((d) => d.purpose === 'reply').length !== recipients.length ||
-          !recipients.every((id) =>
+          receipt.responders.length !== audience.length ||
+          !audience.every((id) => receipt.responders.includes(id)) ||
+          receipt.deliveries.filter((d) => d.purpose === 'reply').length !== audience.length ||
+          !audience.every((id) =>
             receipt.deliveries.some((d) => d.purpose === 'reply' && d.sessionId === id),
           ) ||
           receipt.membershipRevision !== original.input.expectedMembershipRevision ||
@@ -371,8 +414,12 @@ export function useConversationSending(options: {
         // The original send journal retains its snapshot for outcome recovery.
         acceptedCallback.current?.(original.input);
         await retain({ ...original, acknowledged: true });
+        // A verified durable prompt is accepted even while native delivery is
+        // pending or uncertain. Keep its independent journal for recovery;
+        // restoring its text would invite a duplicate send. A wholly refused
+        // audience still retains the editable draft.
         return receipt.deliveries.some(
-          (d) => d.purpose === 'reply' && ['queued', 'delivered'].includes(d.status),
+          (d) => d.purpose === 'reply' && !['failed', 'unavailable'].includes(d.status),
         );
       } catch (cause) {
         if (valid()) {
@@ -412,13 +459,16 @@ export function useConversationSending(options: {
       publish,
       snapshot,
       draftId,
-      touches,
+      contextDisabledReason,
     ],
   );
   const stopOne = useCallback(
     async (original: Pending, targetIds = recipients) => {
       if (!valid() || !group) return;
-      if (preparing.current?.owner === owner) {
+      if (
+        preparing.current?.owner === owner &&
+        targetIds.some((id) => preparing.current!.recipients.includes(id))
+      ) {
         preparing.current.cancelled = true;
         return;
       }
@@ -472,7 +522,10 @@ export function useConversationSending(options: {
   );
   const stop = useCallback(
     async (targetIds = recipients) => {
-      if (preparing.current?.owner === owner) {
+      if (
+        preparing.current?.owner === owner &&
+        targetIds.some((id) => preparing.current!.recipients.includes(id))
+      ) {
         preparing.current.cancelled = true;
         return;
       }

@@ -1,0 +1,42 @@
+.conversation-context-wheel {
+  position: relative;
+}
+.conversation-context-ring {
+  width: var(--space-6);
+  height: var(--space-6);
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--seat-color-5),
+    var(--seat-color-3),
+    var(--seat-color-7),
+    var(--seat-color-4),
+    var(--seat-color-8),
+    var(--seat-color-1),
+    var(--seat-color-6),
+    var(--seat-color-2),
+    var(--seat-color-5)
+  );
+  mask: radial-gradient(transparent 51%, black 54%);
+}
+.conversation-context-count {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-xxs);
+  color: var(--color-text);
+}
+.conversation-context-row {
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.conversation-context-row h3 {
+  font-size: var(--text-sm);
+  margin-block: 0 var(--space-2);
+}
+.conversation-context-row small {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}

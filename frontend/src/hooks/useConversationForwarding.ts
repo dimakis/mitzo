@@ -14,8 +14,9 @@ import { retainConversationJournal } from '../lib/conversation-journal';
 
 type Journal = NonNullable<ChatDraft['collaborationForward']>;
 
-/** Context-only forwarding reuses the inspected snapshot selectors. Neither
- * preparation, confirmation nor recovery requests an ordinary model turn. */
+/** Forwarding reuses inspected selectors and starts no turn by itself. An
+ * explicitly selected reply is a separate journaled send after confirmation;
+ * preparation, inspection and recovery never start or replay that send. */
 export function useConversationForwarding(options: {
   api: MitzoApiClient;
   clientId?: string;
@@ -25,6 +26,8 @@ export function useConversationForwarding(options: {
   view?: CollaborationView;
   review?: CollaborationPromptReviewResult;
   reviewCurrent: boolean;
+  requestReply?: boolean;
+  requestReplyTo?(ids: string[], note: string): Promise<boolean>;
   refresh(): Promise<unknown> | void;
 }) {
   const { api, clientId, draftId, authScope, getVerifiedAuthScope, view, review, refresh } =
@@ -240,6 +243,7 @@ export function useConversationForwarding(options: {
           expectedPolicySequence: review.expectedPolicySequence,
         }),
         confirmationAttempted: false,
+        requestReply: !!options.requestReply,
       };
       await persist(record, fresh);
       if (!fresh()) return;
@@ -364,6 +368,20 @@ export function useConversationForwarding(options: {
       );
       if (!fresh()) return;
       await observe({ ...journal, confirmationAttempted: true }, result, fresh);
+      // This optional ordinary turn is a separate explicit user choice. Its
+      // sender persists its own request before dispatch. Recovery only observes
+      // the original forward and never replays this follow-up.
+      if (fresh() && result.state === 'confirmed' && journal.requestReply) {
+        const accepted = await options.requestReplyTo?.(
+          journal.input.selection.target.sessionIds,
+          journal.input.note,
+        );
+        if (!accepted && fresh())
+          publish({
+            error:
+              'The message was forwarded. The reply request was not accepted; address the selected agents explicitly.',
+          });
+      }
       if (fresh()) await refresh();
     });
   const clear = () => {

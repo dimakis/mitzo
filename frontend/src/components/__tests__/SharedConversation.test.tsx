@@ -252,8 +252,8 @@ it.each([false, true])(
       'architect',
     );
     expect(readiness.ready).toBe(!running);
-    const share = await screen.findByText('Share excerpt');
-    fireEvent.click(share);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Message actions' }))[0]);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Forward to agents' }));
     const dialog = await screen.findByRole('dialog', { name: 'Send selected messages' });
     expect(await within(dialog).findByRole('checkbox', { name: /The earlier plan/ })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Reviewer' }));
@@ -333,7 +333,22 @@ it('observes remote rejoining and its reply after the last other participant lea
   await waitFor(() => expect(singletonObserved).toBe(true), { timeout: 5000 });
   expect(screen.getByRole('button', { name: 'Choose who replies' })).toBe(recipients);
   progressFailure = true;
-  await screen.findByText('Could not observe shared discussion', {}, { timeout: 5000 });
+  await waitFor(
+    () =>
+      expect(screen.getByRole('region', { name: 'Conversation status' }).textContent).toMatch(
+        /attention|observe/,
+      ),
+    { timeout: 5000 },
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
+  expect(
+    await screen.findByText('Could not observe shared discussion', {}, { timeout: 5000 }),
+  ).toBeTruthy();
+  fireEvent.click(
+    within(screen.getByRole('dialog', { name: 'Conversation status' })).getByRole('button', {
+      name: 'Close',
+    }),
+  );
   expect(screen.getByText('Ordinary discussion remains available')).toBeTruthy();
   progressFailure = false;
   view.participantSessionIds = ['architect', 'reviewer'];
@@ -423,7 +438,7 @@ it('mounts the retained shared transcript through the production wrapper while p
   expect(scrollRef.current?.contains(screen.getByTestId('ordinary-history'))).toBe(true);
   expect(fetch.mock.calls.some(([url]) => url.endsWith('/messages'))).toBe(false);
   rendered.rerender(surface(true));
-  fireEvent.click(screen.getByRole('button', { name: 'Stop original agent' }));
+  fireEvent.click(screen.getByRole('button', { name: /Stop .*architect|Stop .*Current agent/i }));
   expect(stop).toHaveBeenCalledOnce();
   expect(screen.getByText(view.messages[1].text)).toBeTruthy();
 });
@@ -606,6 +621,7 @@ it('qualifies linked participant history without showing another agent or allowi
   expect((screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled).toBe(
     true,
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
   expect(screen.getByRole('button', { name: 'Open shared conversation' })).toBeTruthy();
   expect(send).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Open shared conversation' }));
