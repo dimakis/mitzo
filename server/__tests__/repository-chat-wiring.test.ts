@@ -123,7 +123,7 @@ it('starts a native repository chat with its claimed cwd and exact repository co
         session: expect.objectContaining({ cwd: root }),
         prompt: expect.stringContaining('example/repo'),
         repositoryWorkspace: expect.objectContaining({ id: 'repository' }),
-        systemPrompt: expect.stringContaining('independent checkout'),
+        systemPrompt: expect.stringContaining('assigned repository task and branch'),
         onDemandCreate: undefined,
       }),
     );

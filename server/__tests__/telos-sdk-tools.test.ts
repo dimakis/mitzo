@@ -852,7 +852,10 @@ it.each([false, true])(
   'uses the canonical assigned-lead progress handler (explicit=%s)',
   async (explicit) => {
     const f = await fixture(explicit);
-    expect((await f.call('TelosGetItem', { itemId: 'studio' })).isError).toBe(true);
+    const unassigned = await f.call('TelosGetItem', { itemId: 'studio' });
+    expect(unassigned.isError).toBe(true);
+    expect(JSON.stringify(unassigned.content)).toContain('TelosManageItem');
+    expect(JSON.stringify(unassigned.content)).toContain('assigned lead');
     assignLead(f);
     const read = f.value(await f.call('TelosGetItem', { itemId: 'studio' }));
     expect(read, JSON.stringify(read)).toHaveProperty('item');

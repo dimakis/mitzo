@@ -208,6 +208,8 @@ function snapshotDecisionInput(input: Record<string, unknown>) {
 
 export interface PermissionHandlerOptions {
   onDemandCreate?: OnDemandCreateFn;
+  /** Guidance returned when a path maps to no session worktree. */
+  outOfRootHint?: string;
   /** Recheck the existing caller/account/workspace owner before allowing a tool
    * or retaining its approval. The adapter owns these facts, not the card. */
   assertCurrentSync?(): void;
@@ -556,6 +558,7 @@ export function buildPermissionHandler(
     const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput, {
       onDemandCreate: handlerOpts?.onDemandCreate,
       signal: opts.signal,
+      outOfRootHint: handlerOpts?.outOfRootHint,
     });
     if (worktreeViolation) {
       return { behavior: 'deny', message: worktreeViolation };

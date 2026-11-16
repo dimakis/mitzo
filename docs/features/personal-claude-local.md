@@ -51,6 +51,17 @@ number of saved accounts. Catalog responses retain the existing 1 MiB byte budge
 the earlier 64-account/128-route count limits are removed. A larger transport would
 require pagination rather than silently dropping accounts or weakening that budget.
 
+## GitHub work
+
+Personal Claude chats on Local Mac commit with native git or `TaskExecution`
+`commit`, and read CI, job logs and reviews with `TaskExecution` `github_read`.
+Pushing a committed branch and creating or updating its pull request uses the
+managed `RequestGithubPublish` tool through the managed GitHub connection, with
+the same repository-access and per-publication approvals as other routes. It covers
+the chat workspace and its attached repository tasks, and keeps working after the
+original browser tab disconnects. An explicit agent profile must select it. Ask mode
+never publishes, and a pull request never authorizes merging.
+
 ## Models and thinking
 
 Switching accounts in an unsent chat restores that account's model and thinking

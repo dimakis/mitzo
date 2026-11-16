@@ -116,9 +116,11 @@ export function agentToolAllowed(session: object, name: string): boolean {
     ? name.slice(sdkPrefix.length)
     : name === 'mcp__mitzo-web-access__RequestWebAccess'
       ? 'RequestWebAccess'
-      : telosName === 'TelosCreateSession' || telosSdkToolNames.includes(telosName)
-        ? telosName
-        : name;
+      : name === 'mcp__mitzo-web-access__RequestGithubPublish'
+        ? 'RequestGithubPublish'
+        : telosName === 'TelosCreateSession' || telosSdkToolNames.includes(telosName)
+          ? telosName
+          : name;
   const route = selectionRoutes.get(session) ?? 'local-api';
   const entry = agentToolCatalog().find(
     (tool) => tool.name === canonical && tool.routes.includes(route),

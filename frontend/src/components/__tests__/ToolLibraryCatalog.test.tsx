@@ -107,10 +107,9 @@ it('shows the authoritative Prepare write capability with its existing local rou
   expect(within(card).getByText('PrepareLocalRepository')).toBeTruthy();
   expect(within(card).getByText('Writes')).toBeTruthy();
   expect(within(card).queryByText('Read only')).toBeNull();
-  expect(
-    within(card).getByText(/Approve the displayed repository and task changes each time/),
-  ).toBeTruthy();
+  expect(within(card).getByText(/Approve the exact repository\/task changes/)).toBeTruthy();
   expect(within(card).getAllByText(/Codex.*local|local.*Codex/i).length).toBeGreaterThan(0);
+  expect(within(card).getAllByText(/Claude/).length).toBeGreaterThan(0);
   fireEvent.click(within(card).getByText('Details'));
   expect(card.querySelector('details')?.open).toBe(true);
 });

@@ -6,6 +6,7 @@ import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { sessionProfileTools, profileToolDefinitions } from '../session-profile-tools.js';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
 import { revokeAuthSession } from '../auth.js';
+import { callbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
 
 const fixture = vi.hoisted(() => ({
   approve: vi.fn(async (_display: unknown) => true),
@@ -89,7 +90,29 @@ it('exposes consultation on ordinary native, API and Claude lead routes', () => 
 it('requires exact policy approval, then invokes consultation under the verified lead authority', async () => {
   const { tool } = tools();
   expect(
-    (await tool.execute('SymposiumConsult', { operation: 'authorize' }, signal(), call))?.isError,
+    (
+      await tool.execute(
+        'SymposiumConsult',
+        {
+          operation: 'authorize',
+          requestId: randomUUID(),
+          repository: 'owner/repo',
+          connectionId: 'connection',
+          routes: [
+            {
+              role: 'planner',
+              accountId: 'account',
+              model: 'model',
+              reasoningEffort: null,
+              runOn: 'local',
+              targetId: 'target',
+            },
+          ],
+        },
+        signal(),
+        call,
+      )
+    )?.isError,
   ).toBe(false);
   expect(fixture.approve).toHaveBeenCalledOnce();
   expect(
@@ -112,6 +135,33 @@ it('requires exact policy approval, then invokes consultation under the verified
     leadSessionId: 'lead',
     operatorConnectionId: 'viewer',
   });
+});
+it('returns actionable missing authorization inputs without poisoning subsequent SDK turns', async () => {
+  const { tool } = tools();
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  const result = await callbacks.track(() =>
+    tool.execute(
+      'SymposiumConsult',
+      {
+        operation: 'authorize',
+        requestId: randomUUID(),
+      },
+      signal(),
+      call,
+    ),
+  );
+  expect(result?.isError).toBe(true);
+  expect(JSON.parse(result!.content)).toMatchObject({
+    error: 'invalid_input',
+    outcome: 'not_started',
+    missingFields: ['repository', 'connectionId', 'routes'],
+  });
+  expect(callbackOutcome(result)).toBe('settled');
+  await expect(callbacks.settle(signal())).resolves.toBeUndefined();
+  expect(fixture.approve).not.toHaveBeenCalled();
+  expect(
+    (await tool.execute('SymposiumConsult', { operation: 'catalog' }, signal(), call))?.isError,
+  ).toBe(false);
 });
 it('preserves Ask, explicit tool selection, current login and cancellation fences', async () => {
   const { tool, session, auth } = tools();

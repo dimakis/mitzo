@@ -164,7 +164,7 @@ it.each([undefined, true])(
 );
 it('keeps an excluded Google tool unavailable', async () => {
   const f = await fixture(false);
-  await expect(f.read()).rejects.toThrow(/Method not found/);
+  expect((await f.read()).isError).toBe(true);
   expect(f.google.exportCredentials).not.toHaveBeenCalled();
 });
 it.each([

@@ -22,10 +22,13 @@ export function createWebAccessSdkServer(
   publish?: (
     input: unknown,
     signal: AbortSignal,
-    call: { turnId: string; callId: string },
+    call: { turnId: string; callId: string; assertCurrentSync?(): void },
   ) => Promise<{ content: string; isError: boolean }>,
   runCallback: TurnCallbackRunner = (work) => work(),
   checkTool?: (name: string) => 'allow' | 'deny',
+  /** Ordinary routes bind a fresh fence to each publication call's own signal,
+   * so a retired query can never pass its authority to a successor's call. */
+  publishCallFence?: (signal: AbortSignal) => () => void,
 ): McpSdkServerConfigWithInstance {
   const assertCommandTool = (name: string) => {
     if (checkTool && checkTool(name) !== 'allow')
@@ -56,9 +59,13 @@ export function createWebAccessSdkServer(
       async (input, extra) => {
         const result = await runCallback(async () => {
           assertCommandTool(GITHUB_PUBLISH_SDK_TOOL);
-          const result = await publish(input, AbortSignal.any([sessionSignal, extra.signal]), {
+          const signal = AbortSignal.any([sessionSignal, extra.signal]);
+          const assertCurrentSync = publishCallFence?.(signal);
+          assertCurrentSync?.();
+          const result = await publish(input, signal, {
             turnId: `sdk:${publishingRuntimeId}`,
             callId: String(extra.requestId),
+            ...(assertCurrentSync ? { assertCurrentSync } : {}),
           });
           assertCommandTool(GITHUB_PUBLISH_SDK_TOOL);
           return result;
@@ -67,6 +74,21 @@ export function createWebAccessSdkServer(
       },
     );
   return { type: 'sdk', name: 'mitzo-web-access', instance };
+}
+
+/** The ordinary owned query's publication fence: its own retirement, its frozen
+ * command ceiling and the live SDK authority, re-read on every check and bound
+ * to one call's signal. Nothing here is captured as standing authority. */
+export function ordinarySdkPublishCallFence(
+  state: { retired: boolean; completing: boolean; checkTool(name: string): 'allow' | 'deny' },
+  assertAuthoritySync: (signal: AbortSignal) => void,
+): (signal: AbortSignal) => () => void {
+  return (signal) => () => {
+    if (state.retired || state.completing) throw Error('Completed SDK query retired');
+    if (state.checkTool(GITHUB_PUBLISH_SDK_TOOL) !== 'allow')
+      throw Error('Tool not allowed by the frozen command skill ceiling');
+    assertAuthoritySync(signal);
+  };
 }
 
 /** The inner shared executor always gates this tool, including Auto, cached grants and hooks. */

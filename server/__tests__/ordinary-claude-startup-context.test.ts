@@ -322,6 +322,18 @@ it('retains a cleanup failure without retrying it beside the first SDK input', a
   expect(JSON.stringify(x.sent.mock.calls)).not.toContain('PRIVATE_SEED_FAILURE');
 }, 20_000);
 
+it('releases the registered driver when retained repository restoration fails', async () => {
+  const x = await fixture(false);
+  const repositories = await import('../sdk-secondary-repository.js');
+  vi.spyOn(repositories, 'restoreSdkSecondaryRepositories').mockRejectedValue(
+    Error('PRIVATE_RESTORE_FAILURE'),
+  );
+  await expect(x.owner.admit(x.f.request)).rejects.toThrow();
+  expect(x.calls).toEqual([]);
+  expect(x.chat.registry.get('startup-context')).toBeUndefined();
+  expect(JSON.stringify(x.sent.mock.calls)).not.toContain('PRIVATE_RESTORE_FAILURE');
+}, 20_000);
+
 it('rechecks cancellation after source cleanup before creating the SDK', async () => {
   const x = await fixture(true, true);
   vi.spyOn(x.f.workspace, 'releaseSource').mockImplementation(async () => {
@@ -332,6 +344,33 @@ it('rechecks cancellation after source cleanup before creating the SDK', async (
   expect(x.inputs).toEqual([]);
   expect(JSON.stringify(x.sent.mock.calls)).not.toContain('PRIVATE_CANCEL_REASON');
 }, 20_000);
+
+it('protects the selected executable itself without denying its entire parent workspace', async () => {
+  const x = await fixture(true);
+  await x.owner.admit(x.f.request);
+  const boundary = await import('../credential-sdk-boundary.js');
+  const selected = vi.mocked(boundary.credentialSdkBoundary).mock.calls[0][1];
+  expect(selected).toContain(x.f.personalExecutable);
+  expect(selected).not.toContain(x.f.root);
+}, 20000);
+
+it('explains the enforced outer boundary when a Bash request asks to disable the SDK sandbox', async () => {
+  const x = await fixture(true);
+  await x.owner.admit(x.f.request);
+  const decision = await x.calls[0].canUseTool!(
+    'Bash',
+    { command: 'true', dangerouslyDisableSandbox: true },
+    {
+      signal: new AbortController().signal,
+      toolUseID: 'sandbox-override-probe',
+      requestId: 'sandbox-override-probe',
+    },
+  );
+  expect(decision).toMatchObject({
+    behavior: 'deny',
+    message: expect.stringContaining('outer host sandbox'),
+  });
+}, 20000);
 
 it('retains the explicit empty boot fallback when ContexGin is unavailable while delivering verified project/publication context', async () => {
   const x = await fixture(false);
@@ -354,6 +393,7 @@ it.each([false, true])(
     expect(append(0)).toContain('Keep the admitted branch.');
     expect(append(0)).toContain(x.first.sourceCommit);
     expect(append(0)).toContain('ReadKnowledge with action published');
+    expect(append(0)).toContain('PrepareLocalRepository');
     expect(x.calls[0].settingSources).toEqual([]);
     const session = x.chat.registry.get('startup-context')!;
     const server = x.calls[0].mcpServers!['mitzo-connections'];
@@ -363,6 +403,13 @@ it.each([false, true])(
     await server.instance.connect(a);
     await client.connect(b);
     try {
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining([
+          'DiscoverLocalRepository',
+          'InspectLocalRepository',
+          'PrepareLocalRepository',
+        ]),
+      );
       const read = await client.callTool({
         name: 'ReadKnowledge',
         arguments: { action: 'published', path: 'memory/Observations/lesson.md' },
@@ -414,6 +461,69 @@ it.each([false, true])(
       ),
     ).resolves.toMatchObject({ behavior: 'deny' });
     expect(session.abortController.signal.aborted).toBe(true);
+  },
+  20_000,
+);
+it.each([false, true])(
+  'registers managed GitHub publication on the actual ordinary SDK route, personal=%s',
+  async (personal) => {
+    const x = await fixture(personal);
+    await x.owner.admit(x.f.request);
+    const { GITHUB_PUBLISH_SDK_TOOL } = await import('../web-access-sdk.js');
+    const options = x.calls[0];
+    expect(options.allowedTools).toContain(GITHUB_PUBLISH_SDK_TOOL);
+    expect(options.disallowedTools).not.toContain(GITHUB_PUBLISH_SDK_TOOL);
+    const { GITHUB_PUBLISHING_INSTRUCTIONS, ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS } =
+      await import('../github-publishing-tool.js');
+    const append = (options.systemPrompt as { append: string }).append;
+    expect(append).toContain(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS);
+    expect(append).not.toContain(GITHUB_PUBLISHING_INSTRUCTIONS);
+    // Managed publication is presented as one route, never the only one.
+    expect(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS).toMatch(
+      /RequestGithubPublish is the managed route/,
+    );
+    expect(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS).toMatch(/TaskExecution github_read/);
+    expect(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS).toMatch(/native git or TaskExecution commit/);
+    expect(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS).not.toMatch(/only (route|way)/i);
+    // The tool owns its forced approval cards; the outer SDK prompt is not duplicated.
+    expect(
+      await options.canUseTool!(
+        GITHUB_PUBLISH_SDK_TOOL,
+        {},
+        { signal: new AbortController().signal, toolUseID: 'publish', requestId: 'publish' },
+      ),
+    ).toMatchObject({ behavior: 'allow' });
+    const server = options.mcpServers!['mitzo-web-access'];
+    if (server.type !== 'sdk') throw Error('Expected in-process SDK tools');
+    const client = new Client({ name: 'offline-publisher', version: '1' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.instance.connect(a);
+    await client.connect(b);
+    try {
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining(['RequestWebAccess', 'RequestGithubPublish']),
+      );
+      const result = await client.callTool({
+        name: 'RequestGithubPublish',
+        arguments: {
+          repositoryPath: x.f.reserved.directory!,
+          baseBranch: 'main',
+          title: 'Offline publication',
+          body: '',
+          draft: true,
+        },
+      });
+      // The per-query server carries the native call fence into owner capture.
+      // This adapter fixture's synthetic runtime owner is not its bound operator,
+      // so capture stops there; the signed-operator chain is covered in
+      // github-publishing-tool.test.ts with the same server and fence.
+      expect(result.isError).toBe(true);
+      const failure = JSON.parse((result.content as Array<{ text: string }>)[0].text);
+      expect(failure).toMatchObject({ stage: 'owner_capture', operationRecorded: false });
+      expect(failure.reason).not.toBe('native_call_required');
+    } finally {
+      await client.close();
+    }
   },
   20_000,
 );

@@ -152,6 +152,69 @@ describe('checkWorktreePolicy', () => {
       expect(result).toContain('/opt/homebrew/bin/mutate-main');
       expect(result).toContain('outside session worktrees');
     });
+
+    it('trusts fixed system gh executables while still guarding their path arguments', async () => {
+      for (const gh of ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh']) {
+        expect(
+          await checkWorktreePolicy(session, 'Bash', {
+            command: `${gh} repo clone owner/repo .claude/repository-tasks/repo`,
+          }),
+        ).toBeNull();
+        expect(
+          await checkWorktreePolicy(session, 'Bash', {
+            command: `${gh} repo clone owner/repo /Users/me/tools/mitzo/clone`,
+          }),
+        ).toContain('/Users/me/tools/mitzo/clone');
+      }
+      expect(
+        await checkWorktreePolicy(session, 'Bash', { command: '/Users/me/bin/gh pr list' }),
+      ).toContain('/Users/me/bin/gh');
+    });
+
+    it('ignores standard device streams but not other device paths', async () => {
+      expect(
+        await checkWorktreePolicy(session, 'Bash', {
+          command:
+            'git fetch > /dev/null 2> /dev/stderr && cat /dev/stdin | tee /dev/stdout "/dev/null"',
+        }),
+      ).toBeNull();
+      expect(
+        await checkWorktreePolicy(session, 'Bash', { command: 'cat /dev/null/../../etc/hosts' }),
+      ).toContain('/dev/null/../../etc/hosts');
+      expect(await checkWorktreePolicy(session, 'Bash', { command: 'dd of=/dev/disk2' })).toContain(
+        '/dev/disk2',
+      );
+    });
+  });
+
+  describe('out-of-root hint without on-demand creation', () => {
+    const hint = 'Clone it under .claude/repository-tasks/<name> instead.';
+    it('uses the hint for unmapped shell and write paths but keeps worktree redirects', async () => {
+      const shell = await checkWorktreePolicy(
+        session,
+        'Bash',
+        { command: 'ls /Users/me/projects/other/src' },
+        { outOfRootHint: hint },
+      );
+      expect(shell).toContain('/Users/me/projects/other/src is outside session worktrees');
+      expect(shell).toContain(hint);
+      expect(shell).not.toContain('MITZO_REPO_');
+      const write = await checkWorktreePolicy(
+        session,
+        'Write',
+        { file_path: '/Users/me/projects/other/file.ts' },
+        { outOfRootHint: hint },
+      );
+      expect(write).toContain(hint);
+      const mapped = await checkWorktreePolicy(
+        session,
+        'Write',
+        { file_path: '/Users/me/redhat/mgmt/some/file.ts' },
+        { outOfRootHint: hint },
+      );
+      expect(mapped).toContain('.claude/worktrees/2026-04-18-abc123/some/file.ts');
+      expect(mapped).not.toContain(hint);
+    });
   });
 
   describe('EditNotebook tool', () => {

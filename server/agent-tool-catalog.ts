@@ -1,4 +1,5 @@
 import { builtinToolBehavior } from './builtin-tool-behavior.js';
+import { localEfficiencyToolDefinitions } from './local-agent-efficiency.js';
 import { telosSdkToolNames } from './telos-sdk-definitions.js';
 import { googleWorkspaceReadDefinition } from './google-workspace-read.js';
 import { localRepositoryPreparationDefinition } from './local-repository-preparation-tool.js';
@@ -53,6 +54,10 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     { source: 'Session automation', definitions: sessionPromptDefinitions },
     { source: 'History', definitions: sessionHistoryToolDefinitions },
     {
+      source: 'Tool output',
+      definitions: localEfficiencyToolDefinitions.filter((tool) => tool.name === 'ReadToolOutput'),
+    },
+    {
       source: 'Telos',
       definitions: [
         githubMainPublicationTool,
@@ -73,7 +78,9 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       name: tool.name,
       description: tool.description,
       source,
-      required: tool.name === 'AskUserQuestion',
+      // Paging is transport for already authorized results. Its handler still
+      // rechecks the original source; it cannot make an excluded source callable.
+      required: tool.name === 'AskUserQuestion' || tool.name === 'ReadToolOutput',
       behavior: builtinToolBehavior(tool.name),
       routes: ['SymposiumConsult', 'SymposiumReadProfiles', 'SymposiumProposeProfile'].includes(
         tool.name,
@@ -83,14 +90,14 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
           ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
           : tool.name === 'TelosCreateSession'
             ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
-            : source === 'Agent communication' || source === 'History'
+            : source === 'Agent communication' || source === 'History' || source === 'Tool output'
               ? ['codex-owned-local', 'claude-sdk']
               : source === 'Session automation'
                 ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
                 : source === 'Google Workspace'
                   ? ['codex-owned-local', 'claude-sdk']
                   : source === 'Session creation' || source === 'Local repositories'
-                    ? ['codex-owned-local', ...(tool.name === 'StartSession' ? ['claude-sdk'] : [])]
+                    ? ['codex-owned-local', 'claude-sdk']
                     : source === 'Telos'
                       ? [
                           githubMainPublicationTool.name,
@@ -121,7 +128,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                               : []),
                           ]
                         : source === 'GitHub publishing'
-                          ? ['local-api', 'codex', 'codex-owned-local']
+                          ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
                           : source === 'Workspace'
                             ? [
                                 'local-api',
@@ -179,7 +186,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                         ? 'Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access.'
                         : source === 'Local repositories'
                           ? tool.name === localRepositoryPreparationDefinition.name
-                            ? 'Requires a Local Mac Codex chat with native command and file tools (Bash, Read, Write and Edit) selected. Approve the displayed repository and task changes each time, in every mode. Selecting this tool grants no access. The prepared task becomes active after the current turn finishes.'
+                            ? 'Requires a qualified Local Mac Codex or Claude SDK chat. Codex adopts the prepared primary after the turn; Claude attaches an existing local source as an isolated secondary task and preserves its SDK cwd/history. Claude clone/new use native Git setup. Approve the exact repository/task changes; selection grants no access.'
                             : 'Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access.'
                           : source === 'Repositories'
                             ? 'Requires an authorized repository connection for the selected account.'

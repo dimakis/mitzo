@@ -238,16 +238,35 @@ it
       for (const directory of [root, join(root, 'work'), join(root, 'sibling')]) {
         actual.execFileSync(gitPath, ['init', '--template=', '-b', 'main', directory]);
       }
-      const protectedConfigs = [root, join(root, 'work'), join(root, 'sibling')].map((directory) =>
+      const protectedConfigs = [root, join(root, 'sibling')].map((directory) =>
         join(directory, '.git', 'config'),
       );
       const before = protectedConfigs.map((path) => readFileSync(path, 'utf8'));
       const launchAlias = join(root, 'work-link');
       symlinkSync(join(root, 'work'), launchAlias);
-      const run = createProtectedSdkCommandRunner(credentialSdkBoundary('darwin')!);
+      // SRT's mandatory .claude/commands deny also refuses creating `.claude`
+      // itself inside the sandbox; workspaces provide it before launch.
+      mkdirSync(join(root, 'work', '.claude'));
+      // A synthetic host gh answers Git's credential protocol from the injected
+      // login; no real gh, keyring or GitHub request participates.
+      const fakeGh = join(root, 'host-bin', 'gh');
+      mkdirSync(dirname(fakeGh));
+      writeFileSync(
+        fakeGh,
+        '#!/bin/sh\n[ "$1 $2 $3" = "auth git-credential get" ] || exit 64\ncat >/dev/null\necho username=x-access-token\necho "password=$GH_TOKEN"\n',
+        { mode: 0o755 },
+      );
+      const run = createProtectedSdkCommandRunner(
+        credentialSdkBoundary('darwin', [], undefined, undefined, () => ({
+          token: 'gho_syntheticFixtureLogin',
+          gh: fakeGh,
+        }))!,
+      );
       const script = `
       const fs = require('node:fs'), cp = require('node:child_process');
       const git = (...args) => cp.execFileSync(${JSON.stringify(gitPath)}, args, { encoding: 'utf8' });
+      git('config', 'remote.origin.url', 'https://example.invalid/owned.git');
+      if(git('config', '--get', 'remote.origin.url').trim() !== 'https://example.invalid/owned.git') process.exit(78);
       git('init', '-b', 'main', 'source');
       fs.writeFileSync('source/file', 'original');
       git('-C', 'source', 'add', 'file');
@@ -271,7 +290,7 @@ it
       }, 72);
       denied(() => fs.readFileSync(${JSON.stringify(config)}), 73);
       const gitConfigPermissionDenied = ${gitConfigPermissionDenied.toString()};
-      for(const repository of ['.', '..', '../sibling']) {
+      for(const repository of ['..', '../sibling']) {
         try { git('-C', repository, 'config', 'remote.origin.url', 'https://example.invalid/denied.git'); throw Error('out-of-task git config permitted: ' + repository); }
         catch(error) {
           if(!gitConfigPermissionDenied(error, require('node:path').resolve(repository, '.git/config'))) throw error;
@@ -281,6 +300,28 @@ it
         denied(() => fs.renameSync(repository + '/.git', repository + '/.git.moved'), 76);
         denied(() => fs.unlinkSync(repository + '/.git/config'), 77);
       }
+      const credential = cp.execFileSync(${JSON.stringify(gitPath)}, ['credential', 'fill'], {
+        encoding: 'utf8', input: 'protocol=https\\nhost=github.com\\n\\n',
+      });
+      if(!credential.includes('password=gho_syntheticFixtureLogin\\n')) process.exit(79);
+      // Any repository clones into the conversation workspace and develops natively.
+      const task = '.claude/repository-tasks/x';
+      git('clone', '--no-local', 'source', task);
+      git('-C', task, 'config', 'user.name', 'Test');
+      git('-C', task, 'config', 'user.email', 'test@example.com');
+      // Injected command-scope config overrides repository signing settings.
+      git('-C', task, 'config', 'commit.gpgsign', 'true');
+      git('-C', task, 'switch', '-c', 'feature');
+      fs.writeFileSync(task + '/feature', 'feature');
+      git('-C', task, 'add', 'feature');
+      git('-C', task, 'commit', '-m', 'feature');
+      git('-C', task, 'switch', 'main');
+      fs.writeFileSync(task + '/base', 'base');
+      git('-C', task, 'add', 'base');
+      git('-C', task, 'commit', '-m', 'base');
+      git('-C', task, 'rebase', 'main', 'feature');
+      if(git('-C', task, 'log', '--format=%s', 'main..feature').trim() !== 'feature') process.exit(80);
+      if(git('-C', task, 'show', 'feature:base') !== 'base') process.exit(81);
       fs.writeFileSync('checkout/result', 'checked');
       process.stdout.write('git-sdk-ok');
     `;
@@ -297,6 +338,9 @@ it
         }),
       ).toEqual({ stdout: 'git-sdk-ok', stderr: expect.any(String) });
       expect(protectedConfigs.map((path) => readFileSync(path, 'utf8'))).toEqual(before);
+      expect(readFileSync(join(root, 'work', '.git', 'config'), 'utf8')).toContain(
+        'https://example.invalid/owned.git',
+      );
       expect(existsSync(join(root, 'work', 'checkout', '.git', 'hooks', 'pre-commit'))).toBe(false);
       expect(readFileSync(join(root, 'work', 'checkout', 'result'), 'utf8')).toBe('checked');
     } finally {
@@ -527,13 +571,27 @@ it('retains runtime-only project credentials and custom endpoint behavior while 
   };
   const payload = sdkPayload(env);
   expect(payload.filesystemOnly).toBe(true);
-  expect(payload.env).toEqual({ ...env, GIT_TEMPLATE_DIR: expect.any(String) });
+  expect(payload.env).toEqual({
+    ...env,
+    GIT_TEMPLATE_DIR: expect.any(String),
+    TMPDIR: expect.any(String),
+    XDG_CACHE_HOME: expect.any(String),
+    npm_config_cache: expect.any(String),
+    PIP_CACHE_DIR: expect.any(String),
+  });
+  expect(payload.config.filesystem.allowWrite).toContain(payload.env?.TMPDIR);
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
   expect(() => credentialSdkBoundary('darwin')).toThrow(/hostname provider endpoint/);
   vi.stubEnv('ANTHROPIC_BASE_URL', 'https://synthetic-provider.example');
   const credentialPayload = sdkPayload(env);
   expect(credentialPayload.filesystemOnly).toBeUndefined();
-  expect(credentialPayload.env).toEqual({ GIT_TEMPLATE_DIR: expect.any(String) });
+  expect(credentialPayload.env).toEqual({
+    GIT_TEMPLATE_DIR: expect.any(String),
+    TMPDIR: expect.any(String),
+    XDG_CACHE_HOME: expect.any(String),
+    npm_config_cache: expect.any(String),
+    PIP_CACHE_DIR: expect.any(String),
+  });
   expect(credentialPayload.config.network.allowedDomains).toContain('synthetic-provider.example');
 });
 

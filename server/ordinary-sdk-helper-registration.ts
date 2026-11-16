@@ -27,6 +27,10 @@ const connectionHelpers: readonly string[] = Object.freeze([
   'TelosCreateSession',
   'CaptureMemoryCandidate',
   'TaskExecution',
+  'ReadToolOutput',
+  'DiscoverLocalRepository',
+  'InspectLocalRepository',
+  'PrepareLocalRepository',
 ]);
 export const ordinarySdkConnectionHelperTools: readonly string[] = Object.freeze(
   connectionHelpers.map((name) => `${SDK_CONNECTION_PREFIX}${name}`),
@@ -35,6 +39,8 @@ export const ordinarySdkConnectionHelperTools: readonly string[] = Object.freeze
 /** The SDK wire name and the inner skill-policy identity can differ. */
 export function ordinarySdkHelperPolicyName(name: string): string | undefined {
   if (name === 'AskUserQuestion' || name === 'RequestWebAccess') return name;
+  // The SDK server checks the frozen ceiling by this wire name before any effect.
+  if (name === 'RequestGithubPublish') return 'mcp__mitzo-web-access__RequestGithubPublish';
   if (telosSdkToolNames.includes(name)) return telosSdkPrefix + name;
   return connectionHelpers.includes(name) ? `${SDK_CONNECTION_PREFIX}${name}` : undefined;
 }

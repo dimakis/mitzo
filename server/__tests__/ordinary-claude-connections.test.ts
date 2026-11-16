@@ -179,9 +179,8 @@ it.each([true, false])('respects explicit profile discovery selection=%s', async
     expect(await f.names()).toContain('ListConnections');
     expect((await f.list()).isError).not.toBe(true);
   } else {
-    // The SDK omits tools/list and tools/call entirely for an empty server.
-    await expect(f.names()).rejects.toThrow(/Method not found/);
-    await expect(f.list()).rejects.toThrow(/Method not found/);
+    expect(await f.names()).toEqual(['ReadToolOutput']);
+    expect((await f.list()).isError).toBe(true);
   }
   expect(
     credentialSdkPermission(

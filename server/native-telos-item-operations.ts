@@ -10,6 +10,10 @@ import type { TelosWorkStore } from './telos-work-store.js';
 import { TelosGetItemInput, TelosUpdateItemInput } from './telos-item-tools.js';
 import type { TelosToolResult } from './telos-tool.js';
 import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('telos-item-operation');
+class TelosItemScopeUnavailable extends Error {}
 
 type Name = 'TelosGetItem' | 'TelosUpdateItem';
 export interface NativeTelosItemOwners {
@@ -33,7 +37,7 @@ export interface NativeTelosItemOwners {
   ): Promise<PermissionResult>;
 }
 function unavailable(): never {
-  throw Error('Original Telos lead and item scope unavailable');
+  throw new TelosItemScopeUnavailable('Original Telos lead and item scope unavailable');
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -108,6 +112,20 @@ export async function executeNativeTelosItemOperation(
     // The real owner acknowledged COMMIT. Never renew authority after its effect.
     return { content: JSON.stringify({ ok: true, ...receipt }), isError: false };
   } catch (error) {
+    log[error instanceof TelosItemScopeUnavailable ? 'info' : 'warn'](
+      'Telos item operation refused or unconfirmed',
+      {
+        stage: mutationStarted ? 'item_update' : 'item_authority',
+        code:
+          error instanceof TelosItemScopeUnavailable
+            ? 'assigned_lead_required'
+            : 'telos_item_failed',
+        conversationId: owners.context.conversationId,
+        requestHash: owners.context.requestHash,
+        tool: name,
+        err: error,
+      },
+    );
     const outcome = error instanceof Error ? retainedCallbackOutcome(error) : undefined;
     const expired = expiredApprovalToolResult(error);
     if (expired)
@@ -120,9 +138,12 @@ export async function executeNativeTelosItemOperation(
     ];
     const result = {
       isError: true,
-      content: known.some((prefix) => message.startsWith(prefix))
-        ? message
-        : 'Telos item operation unavailable. Preserve the original request; a committed update is recoverable only by its exact request and input.',
+      content:
+        error instanceof TelosItemScopeUnavailable && !mutationStarted
+          ? 'This tool requires the current assigned lead and its item scope. For an ordinary chat, use TelosManageItem with operation read or update. No update was started; do not change assignments merely to use this tool.'
+          : known.some((prefix) => message.startsWith(prefix))
+            ? message
+            : 'Telos item operation unavailable. Preserve the original request; a committed update is recoverable only by its exact request and input.',
     };
     return retainCallbackOutcome(
       result,

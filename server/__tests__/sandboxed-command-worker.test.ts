@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile, readFile } from 'node:fs/promises';
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -12,10 +12,14 @@ import type { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { PassThrough } from 'node:stream';
 import { AuthoritySnapshot } from '../sandbox-authority.js';
 import {
+  admitHostGithubToken,
   runSandboxedWorker,
+  takeHostGithubTransfer,
   wrapSdkGitMetadata,
   type SandboxWorkerPayload,
 } from '../sandboxed-command-worker.js';
+import { HOST_GITHUB_TOKEN_TRANSFER } from '../host-github-credential.js';
+import { HOST_GITHUB_TOKEN_TRANSFER as WORKER_HOST_GITHUB_TOKEN_TRANSFER } from '../sandboxed-command-worker.js';
 
 let root: string;
 beforeEach(async () => {
@@ -98,7 +102,7 @@ it.each([true, false])(
       '(deny file-write* file-write-unlink file-write-create (require-all (regex ',
     );
     expect(wrapped).toContain('(require-not (subpath ' + JSON.stringify(root) + '))');
-    expect(wrapped).toContain(
+    expect(wrapped).not.toContain(
       '(deny file-write* file-write-unlink file-write-create (subpath ' +
         JSON.stringify(join(root, '.git')) +
         '))',
@@ -341,6 +345,28 @@ it.each([false, true])(
         expected,
       );
     }
+  },
+);
+
+it.each([false, true])(
+  'creates target scratch through the actual launcher with an explicit directory %s',
+  async (explicit) => {
+    const { payload, manager } = fixture();
+    const selected = join(root, 'selected');
+    const fallback = join(root, 'runtime');
+    for (const directory of [selected, fallback]) mkdirSync(directory);
+    const result = join(root, 'scratch-result');
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    const script = `const fs = require('node:fs'), path = require('node:path');
+      const scratch = fs.mkdtempSync(path.join(process.env.TMPDIR, 'child-'));
+      fs.writeFileSync(${JSON.stringify(result)}, scratch);`;
+    payload.command = [process.execPath, '-e', script].map(quote).join(' ');
+    payload.env = { PATH: '/usr/bin:/bin', ...(explicit ? { TMPDIR: selected } : {}) };
+    manager.wrapWithSandbox.mockImplementation(
+      async (command) => `TMPDIR=${quote(fallback)} ${command}`,
+    );
+    expect(await runSandboxedWorker(payload, { manager, spawn: realSpawn })).toBe(0);
+    expect(dirname(await readFile(result, 'utf8'))).toBe(explicit ? selected : fallback);
   },
 );
 
@@ -670,3 +696,30 @@ it.each(['linux', 'darwin'] as const)(
     }
   },
 );
+
+it('moves an opted-in host GitHub login from bootstrap into only the target environment', () => {
+  const bootstrap: NodeJS.ProcessEnv = {
+    PATH: '/usr/bin:/bin',
+    [HOST_GITHUB_TOKEN_TRANSFER]: 'gho_syntheticHostLogin',
+  };
+  const payload: Pick<SandboxWorkerPayload, 'env' | 'hostGithubToken'> = {
+    env: { HOME: '/home' },
+    hostGithubToken: true,
+  };
+  const transfer = takeHostGithubTransfer(bootstrap);
+  expect(bootstrap).not.toHaveProperty(HOST_GITHUB_TOKEN_TRANSFER);
+  admitHostGithubToken(payload, transfer);
+  expect(payload.env).toEqual({ HOME: '/home', GH_TOKEN: 'gho_syntheticHostLogin' });
+
+  const plain: Pick<SandboxWorkerPayload, 'env'> = { env: { HOME: '/home' } };
+  admitHostGithubToken(plain, takeHostGithubTransfer({}));
+  expect(plain.env).toEqual({ HOME: '/home' });
+  // Neither side may supply the credential alone.
+  expect(() => admitHostGithubToken(plain, 'gho_unrequested')).toThrow();
+  expect(() => admitHostGithubToken({ env: {}, hostGithubToken: true }, undefined)).toThrow();
+  expect(() => admitHostGithubToken({ hostGithubToken: true }, 'gho_x')).toThrow();
+});
+
+it('keeps the worker and controller names for the host GitHub transfer identical', () => {
+  expect(WORKER_HOST_GITHUB_TOKEN_TRANSFER).toBe(HOST_GITHUB_TOKEN_TRANSFER);
+});

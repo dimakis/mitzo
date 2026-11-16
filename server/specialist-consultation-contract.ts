@@ -112,10 +112,32 @@ export const specialistToolSchema = z.strictObject({
   maxConsultations: z.number().int().min(1).max(8).optional(),
   maxContextBytes: z.number().int().min(1).max(128000).optional(),
 });
+/** Validation precedes service entry and all approvals, allocation and dispatch.
+ * This typed refusal proves no effect started; later service errors do not. */
+export class SpecialistInputError extends Error {
+  constructor(readonly missingFields: readonly string[]) {
+    super(`Required specialist inputs: ${missingFields.join(', ')}`);
+  }
+}
+export function parseSpecialistToolInput(raw: unknown) {
+  const input = specialistToolSchema.parse(raw);
+  const required: Record<typeof input.operation, readonly (keyof typeof input)[]> = {
+    catalog: [],
+    authorize: ['requestId', 'repository', 'connectionId', 'routes'],
+    consult: ['requestId', 'policyId', 'role', 'assignment'],
+    read: ['requestId'],
+    recover: ['requestId'],
+    stop: ['requestId'],
+    revoke: ['policyId'],
+  };
+  const missing = required[input.operation].filter((key) => input[key] === undefined);
+  if (missing.length) throw new SpecialistInputError(missing);
+  return input;
+}
 export const specialistToolDefinition = {
   name: 'SymposiumConsult',
   description:
-    'Consult saved specialists in ordinary shared conversations. Catalog profiles/routes, then authorize a bounded policy for operator review. Consult by role with an assignment and selected public context. reviewOf requests independent review of a completed contribution. Read returns attributed results without model work. Stop targets original work; revoke prevents future work. Retain policyId/requestId after interruption. No tools, merge or deployment authority is inherited.',
+    'Consult saved specialists in ordinary shared conversations. Catalog profiles/routes and repository connection IDs first. Authorize requires requestId, repository, connectionId and routes for operator review. Consult requires policyId, requestId, role and assignment with selected public context. reviewOf requests independent review of a completed contribution. Read/recover/stop require the original requestId; revoke requires policyId. Read returns attributed results without model work. Retain policyId/requestId after interruption. No tools, merge or deployment authority is inherited.',
   input_schema: z.toJSONSchema(specialistToolSchema),
 };
 export const SPECIALIST_INSTRUCTIONS =

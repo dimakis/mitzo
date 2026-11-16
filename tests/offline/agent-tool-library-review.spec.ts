@@ -135,7 +135,10 @@ for (const theme of ['dark', 'light'])
     await library.getByRole('button', { name: 'Clear filters' }).click();
     await expect(library.getByRole('article')).toHaveCount(tools.length);
     await search.fill('mitzo:Read');
-    await expect(library.getByRole('article')).toHaveCount(3);
+    await expect(library.getByRole('article')).toHaveCount(4);
+    await expect(
+      library.getByRole('heading', { name: 'ReadToolOutput', exact: true }),
+    ).toBeVisible();
     await expect(read).toBeVisible();
     await expect(
       library.getByRole('heading', { name: 'ReadKnowledge', exact: true }),

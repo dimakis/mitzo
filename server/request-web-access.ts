@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { permissionRefusalContent, type ToolDefinition } from '@mitzo/harness';
 import type { ToolFailure } from '@mitzo/protocol';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 
 const reason = z.string().trim().min(1).max(1000);
 export const WebAccessToolFields = {
@@ -146,13 +147,20 @@ export async function executeWebAccess(
     }
     throw new WebAccessError('Approved read reached the redirect limit.');
   } catch (error) {
-    return {
-      content: signal.aborted
-        ? 'Web access interrupted'
-        : error instanceof WebAccessError
-          ? error.message
-          : 'Approved web access failed on this account or website. No other account was used. The provider may not support search for the selected model, or the website may refuse access.',
-      isError: true,
-    };
+    // A returned, reviewed search/read failure is a completed observation.
+    // Preserve explicit uncertainty and cancellation from the original owner.
+    return retainCallbackOutcome(
+      {
+        content: signal.aborted
+          ? 'Web access interrupted'
+          : error instanceof WebAccessError
+            ? error.message
+            : 'Approved web access failed on this account or website. No other account was used. The provider may not support search for the selected model, or the website may refuse access.',
+        isError: true,
+      },
+      !signal.aborted && error instanceof WebAccessError
+        ? (retainedCallbackOutcome(error) ?? 'settled')
+        : 'unknown',
+    );
   }
 }

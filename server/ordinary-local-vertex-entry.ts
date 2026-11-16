@@ -1,7 +1,7 @@
 import { loadAccountProfiles } from './account-profiles.js';
 import { reopenClaudeSdkCredentials } from './claude-sdk-credentials.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { SessionTransport, ManagedSession } from '@mitzo/harness';
 import { hasPersistentRevocationAuthority } from './auth.js';
@@ -203,7 +203,7 @@ export async function startOwnedLocalVertexCommand(
         else owner.assertIdleSync(owner.activeCommandId() ?? selected.commandId);
       },
       sourceWriteRoots: process.env.MITZO_ACCOUNT_PROFILES_FILE
-        ? [dirname(process.env.MITZO_ACCOUNT_PROFILES_FILE)]
+        ? [process.env.MITZO_ACCOUNT_PROFILES_FILE]
         : [],
     });
     const oldest = selected.sdkRetrySourceCommandId
