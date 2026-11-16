@@ -3,7 +3,53 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createWebAccessSdkServer, webAccessSdkPermission } from '../web-access-sdk.js';
 import { createSdkCallbackState } from '../ordinary-local-vertex-sdk-query.js';
+import { executeWebAccess, WebAccessError } from '../request-web-access.js';
+import { retainCallbackOutcome } from '../turn-callbacks.js';
 describe('Claude SDK web access surface', () => {
+  it.each(['completed failure', 'unknown failure', 'cancelled'] as const)(
+    'retains the original outcome of a %s through MCP and turn settlement',
+    async (outcome) => {
+      const state = createSdkCallbackState();
+      const abort = new AbortController();
+      const server = createWebAccessSdkServer(
+        (input, signal) =>
+          executeWebAccess(input, signal, {
+            isCurrent: () => true,
+            approve: async (request) => ({ behavior: 'allow', updatedInput: request }),
+            search: async () => {
+              if (outcome === 'cancelled') abort.abort(Error('cancelled'));
+              const error = new WebAccessError('Search failed on the selected route');
+              if (outcome === 'unknown failure') retainCallbackOutcome(error, 'unknown');
+              throw error;
+            },
+            fetchPage: async () => 'unused',
+          }),
+        abort.signal,
+        undefined,
+        state.runCallback,
+      );
+      const client = new Client({ name: 'failed-search', version: '1' });
+      const [a, b] = InMemoryTransport.createLinkedPair();
+      await server.instance.connect(a);
+      await client.connect(b);
+      try {
+        expect(
+          (
+            await client.callTool({
+              name: 'RequestWebAccess',
+              arguments: { operation: 'search', query: 'offline fixture', reason: 'regression' },
+            })
+          ).isError,
+        ).toBe(true);
+        const settling = state.callbacks.settle(new AbortController().signal);
+        if (outcome === 'completed failure') await expect(settling).resolves.toBeUndefined();
+        else await expect(settling).rejects.toMatchObject({ code: 'callbacks_failed' });
+      } finally {
+        await client.close();
+        await server.instance.close();
+      }
+    },
+  );
   it.each(
     [[], ['RequestWebAccess'], ['mcp__mitzo-web-access__RequestWebAccess']].map((ceiling) => ({
       ceiling,
