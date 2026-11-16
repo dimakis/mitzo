@@ -188,7 +188,8 @@ export async function fixture(
   });
   const verify = vi.fn(async (_record: unknown, _directory: string) => {});
   const workspaces = new RepositoryWorkspaces(join(root, 'repositories'), {
-    localRepositories: () => (options.defaultRepository ? { primary: source } : {}),
+    localRepositories: (): Readonly<Record<string, string>> =>
+      options.defaultRepository ? { primary: source } : {},
     authorize: access,
     verify,
     inspect: async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid }),

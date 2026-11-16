@@ -5,6 +5,7 @@ import { UiIcon } from './UiIcon';
 import './ComposerResponders.css';
 import { seatAccentColor } from '../lib/seat-color';
 import type { CSSProperties } from 'react';
+import { useMotionPresence } from '../hooks/useMotionPresence';
 
 export interface ComposerResponderSelection {
   members: { id: string; name: string; repliesByDefault?: boolean; unavailableReason?: string }[];
@@ -36,7 +37,12 @@ export function ComposerResponders(props: ResponderProps) {
   );
 }
 function InlineComposerResponders({ selection, text, onTextChange, input }: ResponderProps) {
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
   const mention = /(?:^|\s)@([\p{L}\p{N}_-]*)$/u.exec(text);
+  const [dismissed, setDismissed] = useState<string>();
+  const open = expanded || (!!mention && dismissed !== text);
+  const { ref: namesRef, present } = useMotionPresence(open, 'disclosure', false);
   const query = mention?.[1].toLowerCase() ?? '';
   const ids =
     selection.responders?.kind === 'all'
@@ -54,25 +60,46 @@ function InlineComposerResponders({ selection, text, onTextChange, input }: Resp
     )
       return;
     if (mention) onTextChange(text.slice(0, text.lastIndexOf('@')));
-    input.current?.focus();
+    input.current?.focus({ preventScroll: true });
   };
   return (
     <div className="composer-responders-inline" role="group" aria-label="Reply recipients">
       <button
         type="button"
-        className="chat-input-btn"
+        className="chat-input-btn composer-responder-inline-trigger"
         aria-label="Choose who replies"
         disabled={selection.disabled}
         title={`Replies: ${summary || 'No agents'} · Type @ or select agents inline`}
         data-responder-trigger="inline"
+        aria-expanded={open}
+        aria-controls={listId}
         onClick={() => {
-          if (!mention) onTextChange(text + (text && !/\s$/.test(text) ? ' @' : '@'));
-          input.current?.focus();
+          if (open) {
+            setExpanded(false);
+            setDismissed(text);
+          } else {
+            setExpanded(true);
+            setDismissed(undefined);
+            if (!mention) onTextChange(text + (text && !/\s$/.test(text) ? ' @' : '@'));
+          }
+          input.current?.focus({ preventScroll: true });
         }}
       >
         @
+        <span className="composer-responder-targets" aria-hidden="true">
+          {ids.slice(0, 4).map((id) => (
+            <i key={id} style={{ '--participant-color': seatAccentColor(id) } as CSSProperties} />
+          ))}
+        </span>
       </button>
-      <div className="composer-responder-names">
+      <div
+        id={listId}
+        ref={namesRef}
+        className="composer-responder-names motion-disclosure"
+        hidden={!present}
+        inert={!open}
+        aria-hidden={!open || undefined}
+      >
         {selection.maximum !== 1 && !query && (
           <button
             type="button"

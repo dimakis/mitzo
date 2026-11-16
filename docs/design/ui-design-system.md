@@ -1802,14 +1802,24 @@ The initial explicit recipient remains the original agent. Saved empty choices s
 empty, with Choose who replies focusing the inline recipient controls. Screenshot
 attachments retain ordinary paste, preview and delivery behavior. Refresh checks
 stale state; uncertain sends and Stop keep their original request identity.
-The ordinary shared recipient trigger displays @; names and unavailable
-selections remain visible in the shared toolbar without a popup. An uncertain
+The ordinary shared recipient trigger displays @ with stable selected-agent color
+marks. Recipient names expand and collapse inline without a popup; the default
+collapsed toolbar retains its existing icons. On narrow widths the optional names
+strip can use a second line and remains collapsible. Agent activity, sharing
+policies, preview, Details, Chat settings and Add agent stay in the top Agents
+dialog; the composer does not duplicate that activity roster. Send occupies the
+existing Stop slot while the selected agents run. Lightning steers; the existing
+Queue icon sends a follow-up through the shared delivery owner. These action
+buttons remain icon-only with explicit accessible names and tooltips. An uncertain
 request prevents conflicting delivery to its recipients while other agents remain
 selectable. Replies integrate the agent name and stable agent accent inside their
 existing bubble; timestamps use recorded source time. Keep
 the existing microphone, resources, tools and context wheel mounted. Until
 per-agent usage is available, the wheel identifies its original agent explicitly;
 changing reply recipients must never relabel that agent's usage as another's.
+Composer draft changes must not rebuild unchanged transcript inputs or trigger a
+scroll-to-bottom effect. New reply content still follows the retained reader intent;
+reading earlier replies and source navigation keep their scroll ownership.
 Active ordinary sharing also keeps participant names visible in its existing header
 action. On phone the named trigger takes the former metadata summary's space;
 settings retain those details. The bot, back, access, settings and new-chat controls

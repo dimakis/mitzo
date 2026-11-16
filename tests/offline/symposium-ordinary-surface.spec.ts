@@ -140,10 +140,18 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('@');
     const recipients = page.getByRole('group', { name: 'Reply recipients' });
+    await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    await expect(recipients.getByRole('button', { name: 'Reviewer', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Choose who replies' }).click();
     await expect(
       recipients.getByRole('button', { name: 'Architect', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true');
     await expect(recipients.getByRole('button', { name: 'Reviewer', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Choose who replies' }).click();
+    await input.fill('Draft retained through joining and resizing');
     await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
     await wheel.click();
     await expect(
@@ -184,6 +192,19 @@ for (const theme of ['dark', 'light'])
       await expect(input).toHaveAttribute('data-retained', 'original');
       await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
     }
+    await page.getByRole('button', { name: 'Load long history' }).click();
+    const transcript = page.locator('.chat-messages');
+    const readingPosition = await transcript.evaluate((node) => {
+      const range = node.scrollHeight - node.clientHeight;
+      if (range < 400) throw Error('Long-history fixture must have a real scrolling transcript');
+      node.scrollTop = Math.min(160, range / 3);
+      node.dispatchEvent(new Event('scroll'));
+      return node.scrollTop;
+    });
+    await input.fill('');
+    await input.pressSequentially('Draft retained through joining and resizing', { delay: 10 });
+    expect(await transcript.evaluate((node) => node.scrollTop)).toBeCloseTo(readingPosition, 0);
+    await expect(input).toHaveAttribute('data-retained', 'original');
     await page.getByRole('button', { name: 'Toggle source running' }).click();
     await expect(input).toHaveAttribute('data-retained', 'original');
     await expect(wheel).toHaveAttribute('data-retained', 'original');

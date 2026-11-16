@@ -1841,46 +1841,43 @@ function ChatInputContent({
             {micProps && <MicButton {...micProps} />}
             {running ? (
               <>
-                {canSend && onInterrupt && (!boundedFirstCommand || targetedSteering) && (
-                  <button
-                    type="button"
-                    className="chat-input-btn chat-input-btn--interrupt"
-                    aria-label={sharedControl ? `Steer ${sharedControl.label}` : interruptLabel}
-                    title={
-                      correctionReason ??
-                      (sharedControl
-                        ? `Steer ${sharedControl.label}`
-                        : (sendDisabledReason ?? interruptLabel))
-                    }
-                    disabled={
-                      (!targetedSteering && !!sendDisabledReason) || !!correctionReason || importing
-                    }
-                    onClick={handleInterrupt}
-                  >
-                    <UiIcon name="interrupt" />
-                  </button>
-                )}
-                {canSend && !boundedFirstCommand && (
+                {(canSend || !!sharedControl) &&
+                  onInterrupt &&
+                  (!boundedFirstCommand || targetedSteering) && (
+                    <button
+                      type="button"
+                      className="chat-input-btn chat-input-btn--interrupt"
+                      aria-label={sharedControl ? `Steer ${sharedControl.label}` : interruptLabel}
+                      title={
+                        correctionReason ??
+                        (sharedControl
+                          ? `Steer ${sharedControl.label}`
+                          : (sendDisabledReason ?? interruptLabel))
+                      }
+                      disabled={
+                        !canSend ||
+                        (!targetedSteering && !!sendDisabledReason) ||
+                        !!correctionReason ||
+                        importing
+                      }
+                      onClick={handleInterrupt}
+                    >
+                      <UiIcon name="interrupt" />
+                    </button>
+                  )}
+                {(canSend || !!sharedControl) && (!boundedFirstCommand || !!sharedControl) && (
                   <button
                     className="chat-input-btn chat-input-btn--queue"
                     aria-label="Queue message"
-                    disabled={!!sendDisabledReason || importing || queueBusy}
-                    onClick={handleQueue}
-                    title="Queue — send after current turn"
+                    disabled={!canSend || !!sendDisabledReason || importing || queueBusy}
+                    onClick={sharedControl ? handleSend : handleQueue}
+                    title={
+                      sharedControl
+                        ? `Queue for ${sharedControl.label} after the current turn`
+                        : 'Queue — send after current turn'
+                    }
                   >
                     <UiIcon name="queue" />
-                  </button>
-                )}
-                {sharedControl && (
-                  <button
-                    type="button"
-                    className="chat-input-btn chat-input-btn--send"
-                    aria-label={`Send to ${sharedControl.label}`}
-                    title={`Send to ${sharedControl.label}; busy agents queue the prompt`}
-                    disabled={!canSend || !!sendDisabledReason || importing}
-                    onClick={handleSend}
-                  >
-                    <UiIcon name="sendPrompt" />
                   </button>
                 )}
                 <button

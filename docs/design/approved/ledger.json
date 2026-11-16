@@ -972,7 +972,7 @@
     },
     {
       "id": "symposium-shared-composer",
-      "activeRevision": "shared-composer-default-repository-2026-11-16",
+      "activeRevision": "compact-shared-controls-scroll-2026-11-16",
       "revisions": [
         {
           "id": "shared-composer-default-repository-2026-11-16",
@@ -1046,6 +1046,85 @@
           ],
           "validation": "docs/evidence/symposium-shared-composer-2026-11-16.md",
           "reason": "Explicit user-directed shared-chat repair. Keep the original fresh-agent approval active and intact; this entry records the scoped inline controls, reply attribution and configured-default exception."
+        },
+        {
+          "id": "compact-shared-controls-scroll-2026-11-16",
+          "approvedBy": "Dimitri (explicit correction of shared composer and Agents layout)",
+          "approvedOn": "2026-11-16",
+          "approval": {
+            "thread": "b7a4e1b1-b452-8ed5-a280-d0b109c0e87c",
+            "quote": "We should be able to see what the agents are at in the top button but also still add new agents. I don’t like how the agents in the composer isn’t collapsible and I don’t want you to replace the existing composer icons. I also don’t want text in the composer buttons. ... The running status is known by the send button changing to a stop button.",
+            "scope": "Preserve top Agents options and add activity there; collapsible inline recipient selection, existing icon-only lightning/Queue/Send-Stop controls, one line where possible with a collapsible second line on phone. Fix shared-chat scroll jumps during composer typing. Mock revision 2 is a proposal, not additional implementation approval."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/symposium/fresh-agent-review.html",
+              "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc"
+            },
+            {
+              "path": "docs/design/approved/symposium/approved-context-review.png",
+              "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a"
+            }
+          ],
+          "invariants": [
+            "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
+            "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
+            "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
+            "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
+            "Shared tokens, components, native actions, focus restoration and motion preferences remain effective; body scrolls independently while footer stays reachable.",
+            "Fresh agent setup resolves the configured ordinary primary repository without another mandatory choice; an alternate repository remains optional and admission authority is preserved.",
+            "Ordinary shared chats expand and collapse inline recipients through @, retaining stable selected-agent colors and full accessible target names while agents run or disjoint requests are uncertain.",
+            "One Stop action targets the selected command owners. Steer retains exact command/request identity and per-agent outcomes. Restoration never automatically replays an uncertain effect.",
+            "Screenshot attachments retain ordinary preview and native delivery. Reply bubbles include agent name, stable seat accent and recorded source time. Status notices remain in the existing composer rail.",
+            "The top Agents dialog retains its sharing policies, preview, Details, Chat settings and Add agent actions with per-agent activity; do not duplicate its activity roster in the composer.",
+            "Reuse icon-only lightning, Queue and the Send/Stop slot. Prefer one toolbar line; an optional second line remains collapsible. Empty drafts must not remove shared control icons and shift the toolbar.",
+            "Composer draft changes do not force transcript scrolling. Real message growth preserves retained follow intent, historical reading position and exact-source navigation."
+          ],
+          "sources": [
+            "frontend/src/components/ConversationAgents.tsx",
+            "frontend/src/components/ConversationAgents.css",
+            "frontend/src/components/ConversationJoiningReview.tsx",
+            "frontend/src/components/SymposiumConversation.tsx",
+            "frontend/src/components/ComposerResponders.tsx",
+            "frontend/src/hooks/useConversationJoiningReview.ts",
+            "frontend/src/lib/conversation-joining-review.ts",
+            "frontend/src/lib/conversation-joining-recovery.ts",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx",
+            "frontend/src/components/SharedConversation.tsx",
+            "frontend/src/components/MessageBubble.tsx",
+            "frontend/src/hooks/useConversationSteering.ts",
+            "frontend/src/hooks/useConversationStopping.ts",
+            "frontend/src/components/ChatInput.tsx",
+            "frontend/src/components/CollaborationTranscript.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+            "frontend/src/components/__tests__/ConversationAgents.test.tsx",
+            "frontend/src/components/__tests__/ConversationJoiningReview.test.tsx",
+            "tests/offline/symposium-approved-design.spec.ts",
+            "tests/offline/symposium-joining-review.spec.ts",
+            "frontend/src/components/__tests__/OrdinarySharedConversation.test.tsx",
+            "frontend/src/components/__tests__/ComposerResponders.inline.test.tsx",
+            "frontend/src/components/__tests__/CollaborationTranscript.test.tsx",
+            "tests/offline/symposium-ordinary-surface.spec.ts",
+            "frontend/src/components/__tests__/CollaborationTranscript.scroll.test.tsx"
+          ],
+          "implementationEvidence": [],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+              "sha256": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb"
+            },
+            {
+              "path": "tests/offline/symposium-approved-design.spec.ts",
+              "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b"
+            }
+          ],
+          "validation": "docs/evidence/symposium-shared-composer-2026-11-16.md",
+          "reason": "Explicit operator correction of the earlier shared-chat presentation. Preserve the original setup approval, all earlier revisions and protected baseline checks."
         }
       ]
     }

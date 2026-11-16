@@ -8,6 +8,26 @@
   gap: var(--space-1);
   min-width: 0;
 }
+.composer-responder-names[hidden] {
+  display: none;
+}
+.composer-responder-inline-trigger {
+  position: relative;
+}
+.composer-responder-targets {
+  position: absolute;
+  inset-inline: var(--space-2);
+  bottom: var(--space-1);
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+}
+.composer-responder-targets i {
+  width: var(--space-1);
+  height: var(--space-1);
+  border-radius: 50%;
+  background: var(--participant-color);
+}
 .composer-responder-names {
   max-width: min(24rem, 50vw);
   overflow-x: auto;

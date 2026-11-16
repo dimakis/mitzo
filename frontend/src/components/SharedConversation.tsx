@@ -15,6 +15,7 @@ import { useInRouterContext, useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import {
   CollaborationBeginSchema,
+  ChatImagesSchema,
   SessionCollaborationIdSchema,
   type CollaborationMessage,
 } from '@mitzo/protocol';
@@ -507,11 +508,16 @@ function SharedConversationBodyContent({
           commands.set(delivery.sessionId, delivery.commandId);
       }
     }
-  const originalCommand =
-    originalHistory.running &&
-    originalHistory.messages.findLast(
-      (message) => message.role === 'user' && message.commandState === 'running',
-    )?.messageId;
+  let originalCommand: string | undefined;
+  if (originalHistory.running) {
+    for (let index = originalHistory.messages.length - 1; index >= 0; index--) {
+      const message = originalHistory.messages[index];
+      if (message.role === 'user' && message.commandState === 'running') {
+        originalCommand = message.messageId;
+        break;
+      }
+    }
+  }
   if (originalCommand) commands.set(sourceConversationId, originalCommand);
   const steeringTargets = selectedIds.flatMap((sessionId) => {
     const commandId = commands.get(sessionId);
@@ -646,23 +652,28 @@ function SharedConversationBodyContent({
     },
     onSend: (text, images, context, delivered) => {
       if (context?.length || sending.disabledReason) return false;
-      setSendFailure(undefined);
-      void sending
-        .send(
-          text,
-          images?.map(({ data, mediaType }) => ({ data, mediaType })),
-        )
-        .then(
-          (ok) => delivered?.(ok ? 'accepted' : 'failed'),
-          (cause) => {
-            setSendFailure(
-              cause instanceof Error
-                ? cause.message
-                : 'Could not send this prompt. Your draft is retained.',
-            );
-            delivered?.('failed');
-          },
+      const attachments = ChatImagesSchema.safeParse(
+        images?.map(({ data, mediaType }) => ({ data, mediaType })) ?? [],
+      );
+      if (!attachments.success) {
+        setSendFailure(
+          'These images could not be sent. Use supported image attachments within the size limit. Your draft is retained.',
         );
+        delivered?.('failed');
+        return false;
+      }
+      setSendFailure(undefined);
+      void sending.send(text, attachments.data.length ? attachments.data : undefined).then(
+        (ok) => delivered?.(ok ? 'accepted' : 'failed'),
+        (cause) => {
+          setSendFailure(
+            cause instanceof Error
+              ? cause.message
+              : 'Could not send this prompt. Your draft is retained.',
+          );
+          delivered?.('failed');
+        },
+      );
       return true;
     },
   };

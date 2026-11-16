@@ -148,6 +148,11 @@ it('keeps an explicit alternate repository available in the ordinary settings ed
   fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   fireEvent.click(within(dialog).getByRole('button', { name: 'Review joining brief' }));
   await waitFor(() => expect(captureReview).toHaveBeenCalledOnce());
-  expect(captureReview.mock.calls[0][0].setup.repositoryWorkspaceId).toBe('fresh-workspace');
+  expect(captureReview).toHaveBeenCalledWith(
+    expect.objectContaining({
+      setup: expect.objectContaining({ repositoryWorkspaceId: 'fresh-workspace' }),
+    }),
+    expect.any(AbortSignal),
+  );
   diagnostic.mockRestore();
 });

@@ -1,7 +1,9 @@
 import { ChatDraftSchema, getChatDraft, saveChatDraft, type ChatDraft } from './chat-drafts';
 import { chatStorage } from './large-chat-storage';
 export type RetainedConversationSend = NonNullable<ChatDraft['collaborationSend']>;
-export function conversationSendRequests(draft: ChatDraft | undefined): RetainedConversationSend[] {
+export function conversationSendRequests(
+  draft: ChatDraft | null | undefined,
+): RetainedConversationSend[] {
   return [
     ...(draft?.collaborationSends ?? []),
     ...(draft?.collaborationSend ? [draft.collaborationSend] : []),

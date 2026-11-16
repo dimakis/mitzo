@@ -223,14 +223,12 @@ it('sends first and later selected prompts from the production shared composer a
       expect(
         (
           screen.getByRole('button', {
-            name: /^(Send message|Send to Independent reviewer)$/,
+            name: /^(Send message|Queue message)$/,
           }) as HTMLButtonElement
         ).disabled,
       ).toBe(false),
     );
-    fireEvent.click(
-      screen.getByRole('button', { name: /^(Send message|Send to Independent reviewer)$/ }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /^(Send message|Queue message)$/ }));
     await waitFor(
       async () => {
         const view = await h.api.view(h.group);

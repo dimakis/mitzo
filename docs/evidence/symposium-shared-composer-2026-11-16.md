@@ -1,5 +1,39 @@
 # Shared composer and default repository repair
 
+## Operator refinement after mock revision 1
+
+Dimitri rejected changes to the existing top Agents actions, a permanent duplicate
+roster and text-labelled composer actions. Revision 2 keeps activity, sharing
+policies, preview, Details, Chat settings and Add agent in the original Agents
+dialog. Inline recipients start collapsed behind @, retaining selected-agent color
+marks. Existing lightning, Queue and the Send/Stop slot remain icon-only. Queue
+uses explicit shared delivery rather than enabling the ordinary local outbox on
+this bounded route. Steer/Queue controls retain their position while typing.
+
+A regression reproduced three scroll-to-bottom writes for three draft keystrokes
+with unchanged transcript inputs. Shared transcript composition now memoizes its
+actual projection, ordinary history and streaming inputs independently of the
+composer draft. Typing produces no scroll write; real streamed content still
+follows the reader at the bottom and preserves a reader inspecting older replies.
+Recipient focus uses preventScroll. Source identity deduplication and historical
+packet suppression remain covered by the existing transcript tests.
+
+The refinement's focused regressions cover 379 passing tests across 32 files,
+with one existing skip, including the 27-turn production-composer journey. A final
+fixture-assertion follow-up retains its exact repository and AbortSignal checks.
+The offline browser fixture now includes long history and checks the reader's
+position while typing. Revision 2's in-memory interaction checks cover
+collapsed selection, existing icon geometry, Send/Stop swapping, no typing-induced
+scroll writes, selected-agent control, the preserved Agents options and simulated
+fresh-agent joining. Browser geometry remains unverified under the retained host
+process-registration denial; no browser retry was attempted.
+
+The original draft PR is #1374 at `86364844`. Its first CI run exposed compiler
+errors in the image type boundary, nullable journal input, ES2022 findLast usage and
+test fixtures/query options. This follow-up corrects those reported errors without
+weakening runtime validation or changing target libraries. Full compiler and
+rendered CI evidence remain required for the updated head.
+
 One implementation in the existing task checkout retains the default-repository
 joining work and addresses Dimitri's 16 November shared-chat UX report. No further
 agents or model calls were started for implementation or testing.

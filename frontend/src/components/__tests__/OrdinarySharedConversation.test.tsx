@@ -268,14 +268,14 @@ it('keeps the original named agent as the explicit initial recipient', async () 
   const trigger = await screen.findByRole('button', { name: 'Choose who replies' });
   await waitFor(() => expect(trigger.title).toContain('Original architect'));
   expect(trigger.textContent).toBe('@');
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(trigger);
   expect(
-    screen
-      .getByRole('button', { name: 'Original architect', exact: true })
-      .getAttribute('aria-pressed'),
+    screen.getByRole('button', { name: 'Original architect' }).getAttribute('aria-pressed'),
   ).toBe('true');
-  expect(
-    screen.getByRole('button', { name: 'Reviewer', exact: true }).getAttribute('aria-pressed'),
-  ).toBe('false');
+  expect(screen.getByRole('button', { name: 'Reviewer' }).getAttribute('aria-pressed')).toBe(
+    'false',
+  );
   expect(screen.queryByRole('group', { name: 'Who replies to this prompt' })).toBeNull();
   expect(f.sends).toHaveLength(0);
 });
@@ -306,7 +306,8 @@ it('uses one targeted Stop and Steer for multiple running agents while keeping i
   };
   render(f.tree(source));
   await screen.findByRole('group', { name: 'Reply recipients' });
-  fireEvent.click(screen.getByRole('button', { name: 'Reviewer', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
   const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
   fireEvent.change(input, { target: { value: 'Check the UI before continuing' } });
   fireEvent.click(await screen.findByRole('button', { name: 'Steer Architect, Reviewer' }));
@@ -315,6 +316,9 @@ it('uses one targeted Stop and Steer for multiple running agents while keeping i
   expect(new Set(f.steers.map((request) => request.input.targetCommandId)).size).toBe(2);
   expect(screen.queryByRole('button', { name: 'Stop original agent' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Stop generation' })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Send to / })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Steer Architect, Reviewer' }).textContent).toBe('');
+  expect(screen.getByRole('button', { name: 'Stop Architect, Reviewer' }).textContent).toBe('');
   fireEvent.click(screen.getByRole('button', { name: 'Stop Architect, Reviewer' }));
   await waitFor(() => expect(f.agentStops).toHaveLength(2));
   expect(
@@ -335,8 +339,9 @@ it('retains the original context wheel, microphone and resource controls through
   await poll();
   const recipients = await screen.findByRole('button', { name: 'Choose who replies' });
   expect(recipients.textContent).toBe('@');
-  fireEvent.click(screen.getByRole('button', { name: 'Architect', exact: true }));
-  fireEvent.click(screen.getByRole('button', { name: 'Reviewer', exact: true }));
+  fireEvent.click(recipients);
+  fireEvent.click(screen.getByRole('button', { name: 'Architect' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
   const release = f.delayStatus();
   h.rerender(f.tree({ ...chat, running: true }, 'desktop', false));
   expect(screen.getByRole('textbox')).toBe(input);
@@ -394,15 +399,14 @@ it('retains the shared composer and transcript while a resized page requalifies 
   expect(screen.getByText('Ordinary history before joining')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Choose who replies' })).toBeTruthy();
   expect(f.sends).toHaveLength(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Current agent', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Current agent' }));
   await waitFor(() =>
-    expect(
-      screen
-        .getByRole('button', { name: 'Current agent', exact: true })
-        .getAttribute('aria-pressed'),
-    ).toBe('false'),
+    expect(screen.getByRole('button', { name: 'Current agent' }).getAttribute('aria-pressed')).toBe(
+      'false',
+    ),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Reviewer', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
   await waitFor(() =>
     expect(
       (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
@@ -448,9 +452,9 @@ it('keeps the actual ordinary transcript and composer mounted through joining an
   rerender(f.tree({ ...chat, running: true }));
   expect(screen.getByRole('textbox')).toBe(input);
   expect(screen.getByRole('button', { name: 'Choose who replies' })).toBe(recipients);
-  expect(
-    screen.getByRole('button', { name: 'Send to Current agent' }).hasAttribute('disabled'),
-  ).toBe(false);
+  expect(screen.getByRole('button', { name: 'Queue message' }).hasAttribute('disabled')).toBe(
+    false,
+  );
   expect(screen.getByText('Ordinary history before joining')).toBeTruthy();
   expect(
     f.transport.mock.calls
@@ -573,7 +577,7 @@ it.each(['selected', 'default'] as const)(
     expect(choose.length).toBeGreaterThan(1);
     fireEvent.click(choose.find((button) => button !== trigger)!);
     const picker = screen.getByRole('group', { name: 'Reply recipients' });
-    fireEvent.click(within(picker).getByRole('button', { name: 'Current agent', exact: true }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Current agent' }));
     expect(screen.queryByRole('group', { name: 'Who replies to this prompt' })).toBeNull();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
@@ -638,7 +642,8 @@ it('keeps explicit routing and retained send/Stop identity when the selected par
   h.rerender(f.tree({ ...chat, running: true }));
   expect(screen.getByRole('textbox')).toBe(input);
   expect(screen.getByRole('button', { name: 'Choose who replies' }).title).toContain('Unavailable');
-  fireEvent.click(screen.getByRole('button', { name: 'Current agent', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Current agent' }));
   await waitFor(() =>
     expect(screen.getByRole('button', { name: /Stop .*Current agent/ })).toBeTruthy(),
   );
