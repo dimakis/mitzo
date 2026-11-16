@@ -9,6 +9,10 @@ import {
   CollaborationSnapshotMessageSchema,
 } from './collaboration-conversation.js';
 import { SymposiumProvenanceSchema } from './symposium.js';
+import {
+  ordinaryRetractionEventSql as ordinary,
+  validateOrdinaryRetractions as validateRetractions,
+} from './message-retraction-store.js';
 
 type Message = z.infer<typeof CollaborationSnapshotMessageSchema>;
 type Boundary = { sequence: number; messageId: string | null };
@@ -37,20 +41,34 @@ function decodeSourceText(value: unknown): string {
     fail();
   }
 }
-// Presence, including explicit JSON null, must match the canonical renderer's attribution fence.
-const ordinary = (alias = '') => {
-  const prefix = alias ? `${alias}.` : '';
-  return `${prefix}seat_id IS NULL AND ${prefix}symposium_provenance IS NULL
-    AND json_type(${prefix}payload,'$.seatId') IS NULL
-    AND json_type(${prefix}payload,'$.symposiumProvenance') IS NULL`;
-};
 // Completed visible text only. No SDK history, tool I/O, reasoning or provider payload is read.
 const completedAnchors = `session_id=@session AND seq<=@through AND ${ordinary()} AND
  (type='user_message' OR (type='message_end' AND EXISTS (
  SELECT 1 FROM events b WHERE b.session_id=events.session_id AND b.seq<events.seq
  AND b.type='block_start' AND ${ordinary('b')}
  AND json_extract(b.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
- AND json_extract(b.payload,'$.blockType')='text')))`;
+ AND json_extract(b.payload,'$.blockType')='text') AND NOT EXISTS (
+ SELECT 1 FROM events r WHERE r.session_id=events.session_id AND r.seq<=@through
+ AND r.type='message_retracted' AND ${ordinary('r')}
+ AND json_extract(r.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
+ AND json_type(r.payload,'$.toolId') IS NULL)))`;
+
+function currentReplyRetracted(
+  db: Database.Database,
+  session: string,
+  messageId: string,
+  start: number,
+) {
+  return !!db
+    .prepare(
+      `SELECT 1 FROM events r WHERE r.session_id=@session AND r.seq>@start
+    AND r.type='message_retracted' AND ${ordinary('r')}
+    AND json_extract(r.payload,'$.sessionId')=@session
+    AND json_extract(r.payload,'$.messageId')=@messageId
+    AND json_type(r.payload,'$.toolId') IS NULL LIMIT 1`,
+    )
+    .get({ session, messageId, start });
+}
 
 /** Capture from retained events only. The highwater and completed anchor belong
  * to the same SQLite read transaction as every bounded visible-text projection.
@@ -93,6 +111,7 @@ export function captureCollaborationDurableTranscript(
       through = preceding.through;
     }
     const args = { session, through };
+    validateRetractions(db, session, through, fail);
     // Native seat rows are never ordinary context. Before excluding them,
     // validate their retained mapping like canonical replay; no payload is read.
     const attributed = `session_id=@session AND seq<=@through
@@ -214,6 +233,7 @@ export function readCollaborationFinalizedReply(
   if (!rows.some((row) => row.type === 'message_end')) return undefined;
   if (rows.length !== 2 || rows[0].type !== 'message_start' || rows[1].type !== 'message_end')
     fail();
+  if (currentReplyRetracted(db, session, messageId, rows[0].seq)) return undefined;
   const boundary = { sequence: rows[1].seq, messageId };
   try {
     const source = createVisibleSource(db, session, boundary, null, messageId);
@@ -245,6 +265,7 @@ export function readCollaborationStreamingReply(
     .all(session, messageId) as Array<{ seq: number; type: string }>;
   if (!rows.length || rows.some((r) => r.type === 'message_end')) return undefined;
   if (rows.length !== 1 || rows[0].type !== 'message_start') fail();
+  if (currentReplyRetracted(db, session, messageId, rows[0].seq)) return undefined;
   if (
     !db
       .prepare(
@@ -293,6 +314,7 @@ function createVisibleSource(
     ? `session_id=@session AND seq<=@through AND ${ordinary()} AND type='message_start'`
     : completedAnchors;
   function validateBoundary() {
+    validateRetractions(db, session, through, fail);
     if (exactReply !== undefined) {
       // Only this finalized message qualifies. Unrelated queued/active turns,
       // initial context and history size cannot suppress its retained answer.
@@ -524,14 +546,25 @@ function createVisibleSource(
     if (Buffer.byteLength(JSON.stringify(envelope)) > remainingBytes) overflow();
     return CollaborationSnapshotMessageSchema.parse(envelope);
   }
-  function pinList(after = 0, before = through): Pin[] {
+  function pinList(after = 0, before = through, artifactId: string | null = null): Pin[] {
     const rows = db
       .prepare(
-        `SELECT ${boundedId('output_id')} AS artifactId,1 AS revision,
-        CASE WHEN length(CAST(sha256 AS BLOB))=64 THEN sha256 END AS sha256 FROM session_output_references
-      WHERE session_id=? AND message_end_seq>? AND message_end_seq<=? AND provenance IS NULL ORDER BY output_id LIMIT 101`,
+        `SELECT ${boundedId('o.output_id')} AS artifactId,1 AS revision,
+        CASE WHEN length(CAST(o.sha256 AS BLOB))=64 THEN o.sha256 END AS sha256
+      FROM session_output_references o
+      WHERE o.session_id=@session AND o.message_end_seq>@after AND o.message_end_seq<=@before
+      AND o.provenance IS NULL AND (@artifactId IS NULL OR o.output_id=@artifactId)
+      AND NOT EXISTS (
+        SELECT 1 FROM events r JOIN events e
+          ON e.session_id=o.session_id AND e.seq=o.message_end_seq
+        WHERE r.session_id=o.session_id AND r.seq<=@through
+        AND r.type='message_retracted' AND ${ordinary('r')}
+        AND e.type='message_end' AND ${ordinary('e')}
+        AND json_extract(r.payload,'$.messageId')=json_extract(e.payload,'$.messageId')
+        AND json_type(r.payload,'$.toolId') IS NULL)
+      ORDER BY o.output_id LIMIT 101`,
       )
-      .all(session, after, before) as Pin[];
+      .all({ ...args, after, before, artifactId }) as Pin[];
     if (rows.length > 100) overflow();
     for (const row of rows)
       if (typeof row.artifactId !== 'string' || typeof row.sha256 !== 'string') fail();
@@ -590,6 +623,14 @@ function createVisibleSource(
     sourceIdentity,
     sourceConversationId: session,
     boundary: structuredClone(boundary),
+    /** Reuse the same prefix-qualified pin projection for explicit selections.
+     * Do not require a full transcript witness for a narrow artifact selection.
+     * Retained output bytes remain audit material even when withdrawn here. */
+    assertArtifactVisible(pin: Pin) {
+      validateBoundary();
+      const [current] = pinList(0, through, pin.artifactId);
+      if (!current || !isDeepStrictEqual(current, pin)) fail();
+    },
     readPrefixWitness() {
       const current = witness();
       if (witnessed && !isDeepStrictEqual(current, witnessed)) fail();
