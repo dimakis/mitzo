@@ -21,6 +21,20 @@ not prove that the endpoint has no side effects. Fresh native history, original
 account/workspace custody, matching request hashes, and retained results remain
 required. Recovery neither retries the operation nor changes its failed result.
 
+Native reply delivery and host execution have separate outcomes. A terminal
+native tool item can report failure after a successful host operation, or report
+success while carrying a failed host result. Reconciliation first matches the
+original call, turn, tool and request hash. A retained settled host receipt owns
+the execution outcome; a provider success flag cannot invalidate or replace it.
+Older TaskExecution callbacks that lost their settlement marker can qualify only
+against the exact original task-run result, including its failure flag. Historical
+incident exceptions still require their original native outcome. Neither path
+replays the tool, manufactures a missing result, or settles an unknown write.
+
+Recovery accepts the same optional string namespace as live host dispatch.
+Namespace text does not grant authority: the retained tool name, request and
+original execution evidence still have to match.
+
 Unknown writes, missing outcomes, cancellation, owner loss, and execution
 watchdog retirement retain their recovery fences. Do not change an uncertain
 receipt into success or replay a command to make the chat resumable. Independent
@@ -34,6 +48,13 @@ reason, phase, effect status, diagnostic reference, and next action. Logging use
 the current trace and session/call identity. Raw upstream errors and credentials
 are excluded. Returned domain-specific errors retain their existing content.
 Original outcome evidence survives adapter conversion into model tool results.
+
+Host-receipt reconciliation reports `recovery_effects_unverified` with a private
+`host_receipts` stage, fixed failed-check name, command/turn/call identity and
+observed/retained counts in logs and the active trace. Public history retains only
+the reviewed message and reference. Arguments, result bodies and upstream error
+text are excluded. A missing trace cannot prevent the saved failure or its live
+delivery.
 
 Memory exhaustion, filesystem denial, storage exhaustion, connection failure,
 and deadlines have explicit messages. Shell failures include the observed exit

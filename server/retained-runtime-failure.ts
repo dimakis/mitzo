@@ -2,6 +2,8 @@ import type { ManagedSession, SessionTransport } from '@mitzo/harness';
 import type { EventStore } from './event-store.js';
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import { createLogger } from './logger.js';
+import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { trace, type Attributes } from '@opentelemetry/api';
 
 const log = createLogger('retained-runtime-failure');
 const unclassified = new WeakMap<Error, SessionRuntimeError>();
@@ -70,11 +72,29 @@ export function reportRetainedRuntimeFailure(input: {
   } catch {
     log.warn('Runtime failure could not be retained', {
       sessionId: input.sessionId,
+      stage: 'retention',
+      code: 'runtime_failure_retention_failed',
+      ...failure.telemetry(),
+    });
+  }
+  const diagnostic = input.error instanceof Error ? codexRuntimeErrorTelemetry(input.error) : {};
+  try {
+    const attributes: Attributes = {};
+    for (const [key, value] of Object.entries({ ...diagnostic, ...failure.telemetry() }))
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+        attributes[key] = value;
+    trace.getActiveSpan()?.addEvent('runtime.failure', attributes);
+  } catch {
+    log.warn('Runtime diagnostic trace delivery failed', {
+      sessionId: input.sessionId,
+      stage: 'telemetry',
+      code: 'runtime_diagnostic_trace_failed',
       ...failure.telemetry(),
     });
   }
   log.warn('Saved runtime work requires attention', {
     sessionId: input.sessionId,
+    ...diagnostic,
     ...failure.telemetry(),
   });
   if (input.deliver) {
