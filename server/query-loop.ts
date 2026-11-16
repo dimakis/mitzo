@@ -41,6 +41,8 @@ import type { AccountUseBinding } from './account-use-store.js';
 import { providerFailureTelemetry } from './provider-failure.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
+import { ClaudeMessageRetractions } from './claude-message-retractions.js';
+import { retainRuntimeFailure } from './runtime-failure-diagnostics.js';
 const log = createLogger('query-loop');
 
 /** Truncate text for trace/log payloads, returning a truncated flag when clipped. */
@@ -403,6 +405,8 @@ async function _runQueryLoopInner(
   const toolIdToBlockId = new Map<string, string>();
   // Results may arrive after a newer assistant message has started thinking.
   const toolIdToMessageId = new Map<string, string>();
+  const nativeRetractions = new ClaudeMessageRetractions();
+  let retractionWarningSent = false;
   const parentMessageByChild = new Map<string, string>();
   const uncorrelatedChildren = new Set<string>();
   const agentToolIds = new Set<string>();
@@ -877,6 +881,8 @@ async function _runQueryLoopInner(
         }
 
         log.debug('sdk event', { clientId, type: msg.type });
+
+        const observedMessageId = messageState.messageId;
 
         if (!msg.parent_tool_use_id && currentSession.accountBinding) {
           const message =
@@ -2146,6 +2152,50 @@ async function _runQueryLoopInner(
               }
             }
           }
+        }
+
+        const nativeSessionId = resolvedSessionId ?? currentSession.sessionId;
+        if (
+          nativeSessionId &&
+          ['anthropic-claude', 'anthropic-vertex', 'anthropic-api'].includes(
+            currentSession.accountBinding?.provider ?? '',
+          )
+        ) {
+          const retraction = nativeRetractions.observe(
+            msg,
+            nativeSessionId,
+            observedMessageId,
+            toolIdToMessageId,
+          );
+          for (const target of retraction.targets) {
+            if (!target.toolId && currentSession.currentSnapshot?.messageId === target.messageId)
+              currentSession.currentSnapshot = null;
+            emit(v2('message_retracted', target), nativeSessionId);
+          }
+          if (retraction.unavailable && !retractionWarningSent) {
+            retractionWarningSent = true;
+            const correlationId = randomUUID();
+            retainRuntimeFailure(correlationId, msg, () =>
+              log.warn('Claude replacement could not be matched to observed output', {
+                code: 'claude_retraction_unavailable',
+                stage: 'provider_retraction',
+                sessionId: nativeSessionId,
+                correlationId,
+              }),
+            );
+            emit(
+              v2('error', {
+                nonfatal: true,
+                code: 'claude_retraction_unavailable',
+                stage: 'provider_retraction',
+                correlationId,
+                error:
+                  'Claude reported replaced output, but its original message could not be verified. Conversation history is retained.',
+              }),
+              nativeSessionId,
+            );
+          }
+          if (msg.type === 'result') retractionWarningSent = false;
         }
       }
     } catch (err: unknown) {

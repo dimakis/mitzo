@@ -6,6 +6,11 @@ import {
 } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  MessageRetractionSchema,
+  projectMessageRetractions,
+  type MessageRetraction,
+} from '@mitzo/protocol';
+import {
   interruptUnansweredToolBlocks,
   parseContentBlocks,
   SourceSnapshotsSchema,
@@ -72,6 +77,33 @@ export interface RestoredCurrentMessage {
   symposiumProvenance?: SymposiumProvenance;
   startedSeq?: number;
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
+}
+
+/** Only already-observed ordinary assistant/tool identities may change projection. */
+function retainedRetractions(events: StoredEvent[]): MessageRetraction[] {
+  const messages = new Set<string>();
+  const tools = new Set<string>();
+  const retractions: MessageRetraction[] = [];
+  for (const event of events) {
+    if (event.seatId !== undefined || event.symposiumProvenance !== undefined) continue;
+    const p = event.payload;
+    if ('seatId' in p || 'symposiumProvenance' in p) continue;
+    const key = JSON.stringify([event.sessionId, p.messageId]);
+    if (event.type === 'message_start') messages.add(key);
+    if (event.type === 'block_end' && p.blockType === 'tool_use' && typeof p.toolId === 'string')
+      tools.add(JSON.stringify([event.sessionId, p.messageId, p.toolId]));
+    if (event.type !== 'message_retracted') continue;
+    const target = MessageRetractionSchema.parse(p);
+    if (
+      p.sessionId !== event.sessionId ||
+      !messages.has(key) ||
+      (target.toolId &&
+        !tools.has(JSON.stringify([event.sessionId, target.messageId, target.toolId])))
+    )
+      throw Error('Stored provider retraction has no matching ordinary output identity');
+    retractions.push(target);
+  }
+  return retractions;
 }
 
 function includeAgentMessages(events: StoredEvent[], messages: RestoredMessage[]) {
@@ -647,11 +679,13 @@ function replaySingleEventsToTranscript(
   }
   if (turn) messages.splice(turn.index, 1);
   groupRetainedReplayErrors(messages, events);
+  const retractions = retainedRetractions(events);
+  const current = turn
+    ? { messageId: turn.messageId, startedSeq: turn.startedSeq, blocks: materializeBlocks(true) }
+    : null;
   return {
-    messages,
-    current: turn
-      ? { messageId: turn.messageId, startedSeq: turn.startedSeq, blocks: materializeBlocks(true) }
-      : null,
+    messages: projectMessageRetractions(messages, retractions),
+    current: current ? (projectMessageRetractions([current], retractions)[0] ?? null) : null,
   };
 }
 
@@ -1069,7 +1103,7 @@ export function replayEventsToMessages(
   groupRetainedReplayErrors(messages, events);
   attributeCommands(events, messages);
   includeAgentMessages(events, messages);
-  return messages;
+  return projectMessageRetractions(messages, retainedRetractions(events));
 }
 
 // --- Legacy SDK JSONL reconstruction (fallback for pre-migration sessions) ---
