@@ -98,6 +98,23 @@ format and whitespace checks pass. Existing full and correction review baselines
 remain applicable; exact combined-head hosted CI and trusted follow-up remain
 required. No runtime activation or live incident recovery is claimed.
 
+Accepted task-run repair #1372 at
+`f8a421b2be65341ea86de126339fb0b668aa7cbb` caused a demonstrated manifest
+conflict. Inspected and retained the complete task/run parent and cancellation
+mapping delta. Query-loop source merged without manual edits; only the runtime
+label and composed query-loop source fingerprint required manual resolution.
+The reporting adapter and persistence diagnostics remain unchanged. Combined
+task-consumer, persistence, actual SDK adapter, query-loop and canonical retention
+suites pass 164 checks across five files, one worker/1 GiB. Source fingerprints,
+formatting and whitespace checks pass; current combined CI and trusted follow-up
+remain required.
+
+The preceding hosted macOS shard 2/3 (job 133019599060, run 43781007514)
+failed before product tests when `actions/download-artifact` could not list the
+workspace artifact because its request returned `ECONNRESET`. The later missing
+test-results upload followed that setup failure. No product cause or code fix is
+claimed for it. The necessary accepted-source composition receives normal CI.
+
 ## Remaining reporting work
 
 Retry/rate-limit/refusal reporting, context-usage detail, background task progress

@@ -412,22 +412,38 @@ async function _runQueryLoopInner(
   const uncorrelatedChildren = new Set<string>();
   const agentToolIds = new Set<string>();
   const startedSubagents = new Set<string>();
-  const completedTasks = new Set<string>();
+  // SDK task_id survives resume; run_id identifies one execution. Keep native
+  // run order separate from the verified parent tool and its terminal state.
+  type TaskRun = { runId?: string; toolId: string; completed: boolean };
+  const taskRuns = new Map<string, TaskRun>();
+  const observedTaskRuns = new Map<string, Map<string | undefined, TaskRun>>();
+  const taskChildIds = new Map<string, string>();
   const terminalSubagents = new Set<string>();
   const childDiagnostics = new Map<string, SubagentDiagnostic>();
   const unavailableSubagents = new Set<string>();
+
+  function rememberTaskRun(taskId: string, run: TaskRun) {
+    let observed = observedTaskRuns.get(taskId);
+    if (!observed) observedTaskRuns.set(taskId, (observed = new Map()));
+    observed.set(run.runId, run);
+    return run;
+  }
 
   function startTaskChild(toolId: string, taskId: string) {
     const parentBlockId = toolIdToBlockId.get(toolId);
     if (!parentBlockId || !agentToolIds.has(toolId) || startedSubagents.has(toolId)) return;
     startedSubagents.add(toolId);
+    const run = taskRuns.get(taskId);
+    const childId =
+      run?.toolId === toolId && run.runId ? `task-${taskId}-run-${run.runId}` : `task-${taskId}`;
+    taskChildIds.set(toolId, childId);
     const parentMessageId = toolIdToMessageId.get(toolId);
-    if (parentMessageId) parentMessageByChild.set(`task-${taskId}`, parentMessageId);
+    if (parentMessageId) parentMessageByChild.set(childId, parentMessageId);
     emit(
       v2('subagent_start', {
         parentBlockId,
         parentToolId: toolId,
-        subagentMessageId: `task-${taskId}`,
+        subagentMessageId: childId,
       }),
     );
   }
@@ -451,7 +467,8 @@ async function _runQueryLoopInner(
         status,
         taskId,
         ...(retainedDiagnostic ? { diagnostic: retainedDiagnostic } : {}),
-        subagentMessageId: sub?.subagentMessageId ?? `task-${taskId ?? toolId}`,
+        subagentMessageId:
+          sub?.subagentMessageId ?? taskChildIds.get(toolId) ?? `task-${taskId ?? toolId}`,
         usage: sub?.usage ?? undefined,
       }),
     );
@@ -1935,19 +1952,37 @@ async function _runQueryLoopInner(
           if (subtype === 'task_started') {
             const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
             const toolUseId = (msg as Record<string, unknown>).tool_use_id as string | undefined;
+            const runId = typeof msg.run_id === 'string' && msg.run_id ? msg.run_id : undefined;
+            const previous = taskId ? taskRuns.get(taskId) : undefined;
+            const sameRun = previous?.runId === runId;
+            const newerRun =
+              !!runId &&
+              !!previous &&
+              (previous.runId ? runId > previous.runId : previous.completed) &&
+              previous.toolId !== toolUseId;
+            // Duplicate and older starts cannot reopen a completed tool. A
+            // resumed execution requires a newer native run and verified parent.
+            const admittedRun =
+              !previous ||
+              (sameRun && !previous.completed && previous.toolId === toolUseId) ||
+              newerRun;
             if (
               taskId &&
               toolUseId &&
               toolIdToBlockId.has(toolUseId) &&
-              !completedTasks.has(taskId) &&
+              admittedRun &&
               !terminalSubagents.has(toolUseId)
             ) {
+              taskRuns.set(
+                taskId,
+                rememberTaskRun(taskId, { runId, toolId: toolUseId, completed: false }),
+              );
               currentSession?.activeTaskIds.set(taskId, toolUseId);
               startTaskChild(toolUseId, taskId);
               const subagent = activeSubagents.get(toolUseId);
               if (subagent) subagent.taskId = taskId;
               log.info('subagent task started', { clientId, taskId, toolUseId });
-            } else if (taskId && !completedTasks.has(taskId)) {
+            } else if (taskId && !previous?.completed && admittedRun) {
               // Duplicate starts for a verified terminal tool carry no new uncertainty.
               if (!toolUseId || !toolIdToBlockId.has(toolUseId))
                 reportUncorrelatedChild(toolUseId ?? `task:${taskId}`, 'Background task');
@@ -1955,27 +1990,45 @@ async function _runQueryLoopInner(
           } else if (subtype === 'task_notification') {
             const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
             const status = (msg as Record<string, unknown>).status as string | undefined;
+            const runId = typeof msg.run_id === 'string' && msg.run_id ? msg.run_id : undefined;
+            const latest = taskId ? taskRuns.get(taskId) : undefined;
+            const run = taskId ? observedTaskRuns.get(taskId)?.get(runId) : undefined;
             const toolUseId = taskId
-              ? (currentSession?.activeTaskIds.get(taskId) ??
-                (typeof msg.tool_use_id === 'string' && toolIdToBlockId.has(msg.tool_use_id)
-                  ? msg.tool_use_id
+              ? (run?.toolId ??
+                (!latest
+                  ? (currentSession?.activeTaskIds.get(taskId) ??
+                    (typeof msg.tool_use_id === 'string' && toolIdToBlockId.has(msg.tool_use_id)
+                      ? msg.tool_use_id
+                      : undefined))
                   : undefined))
               : undefined;
+            // Exact native run and parent identity are required once observed.
+            // Missing, older, future and conflicting receipts cannot finish the
+            // currently displayed execution or erase its cancellation mapping.
             if (
-              taskId &&
-              toolUseId &&
-              !completedTasks.has(taskId) &&
-              ['completed', 'failed', 'stopped'].includes(status ?? '')
-            ) {
-              currentSession?.activeTaskIds.delete(taskId);
-              completedTasks.add(taskId);
+              (latest && !run) ||
+              run?.completed ||
+              (toolUseId && typeof msg.tool_use_id === 'string' && msg.tool_use_id !== toolUseId)
+            )
+              continue;
+            if (taskId && toolUseId && ['completed', 'failed', 'stopped'].includes(status ?? '')) {
+              const completed = rememberTaskRun(
+                taskId,
+                run ?? { runId, toolId: toolUseId, completed: false },
+              );
+              completed.completed = true;
+              if (!latest) taskRuns.set(taskId, completed);
+              // A verified late receipt settles only its own parent. The newest
+              // execution retains its native cancellation mapping until it ends.
+              if (currentSession?.activeTaskIds.get(taskId) === toolUseId)
+                currentSession.activeTaskIds.delete(taskId);
               finishTaskChild(
                 toolUseId,
                 status === 'stopped' ? 'cancelled' : (status as 'completed' | 'failed'),
                 taskId,
               );
               log.info('subagent task finished', { clientId, taskId, toolUseId, status });
-            } else if (taskId && !toolUseId && !completedTasks.has(taskId)) {
+            } else if (taskId && !toolUseId) {
               reportUncorrelatedChild(
                 typeof msg.tool_use_id === 'string' ? msg.tool_use_id : `task:${taskId}`,
                 'Background task',
