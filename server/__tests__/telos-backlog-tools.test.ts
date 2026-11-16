@@ -179,9 +179,8 @@ it('keeps original uncertainty blocked before backlog delegation', async () => {
   );
   expect(result.isError).toBe(true);
   expect(f.approve).not.toHaveBeenCalled();
-  await expect(callbacks.settle(new AbortController().signal)).rejects.toMatchObject({
-    code: 'callbacks_failed',
-  });
+  await expect(callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();
+  expect(callbacks.uncertainOutcomes).toBe(1);
 });
 
 it('returns the current named assignment separately from historical links, without starting work', async () => {
