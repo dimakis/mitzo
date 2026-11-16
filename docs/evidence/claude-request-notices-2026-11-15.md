@@ -68,6 +68,18 @@ source pins, formatting and whitespace checks pass. Hosted CI and trusted review
 must qualify this exact integrated head; no runtime
 activation or live incident recovery is claimed.
 
+Accepted task-run repair #1372 at
+`f8a421b2be65341ea86de126339fb0b668aa7cbb` was integrated after reproducing a
+manifest conflict. Inspected the entire native run/parent correlation and
+cancellation-mapping change. Query-loop merged without manual source edits;
+only the manifest label and composed query-loop fingerprint required manual
+resolution. The notice translator and existing notice production changes remain
+intact, alongside the accepted task tests and evidence. Combined task, notice,
+actual SDK adapter, query-loop and canonical retention suites pass 168 checks
+across six files, one worker/1 GiB; pins, formatting and whitespace pass. Prior
+whole-source and independent baselines remain; exact combined CI and trusted
+follow-up are still required. No live model/account or runtime activation occurs.
+
 Model refusal/retraction, richer context usage, background task progress and
 optional native plan-utilization displays remain separate reporting work.
 This does not fix the original iOS transcript projection failure, reconcile a
