@@ -4314,7 +4314,8 @@ async function openCodexChatBound(
               ),
             name !== 'TelosCreateChild' &&
               name !== 'TelosCreateFeature' &&
-              (name !== 'TelosManageItem' || input.operation === 'read'),
+              (name !== 'TelosManageItem' || input.operation === 'read') &&
+              (name !== 'TelosManageTeam' || input.operation === 'read'),
           );
         } finally {
           dispose();

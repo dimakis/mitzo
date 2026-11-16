@@ -69,6 +69,12 @@ import {
 } from '@mitzo/protocol';
 import type { ApiFetch } from './api-client.js';
 import { TelosRecordsInputSchema, TelosRecordsResultSchema } from '@mitzo/protocol';
+import {
+  TelosTeamCommandSchema,
+  TelosTeamViewSchema,
+  TelosTeamReceiptSchema,
+  type TelosTeamCommand,
+} from '@mitzo/protocol';
 
 export class TelosWorkApiError extends Error {
   constructor(
@@ -85,6 +91,33 @@ export class TelosWorkApiError extends Error {
  */
 export class TelosWorkApiClient {
   constructor(private readonly fetch: ApiFetch) {}
+  async readTeam(itemId: string, signal?: AbortSignal) {
+    const id = TelosWorkIdSchema.parse(itemId);
+    const team = await this.request(
+      'items/' + encodeURIComponent(id) + '/team',
+      TelosTeamViewSchema,
+      undefined,
+      signal,
+    );
+    if (team.itemId !== id)
+      throw new TelosWorkApiError(
+        502,
+        'invalid',
+        'Team item identity differs from the selected item',
+      );
+    return team;
+  }
+  async teamCommand(command: TelosTeamCommand, signal?: AbortSignal) {
+    const input = TelosTeamCommandSchema.parse(command);
+    const receipt = await this.request('team/commands', TelosTeamReceiptSchema, input, signal);
+    if (receipt.team.itemId !== input.itemId || receipt.requestId !== input.requestId)
+      throw new TelosWorkApiError(
+        502,
+        'invalid',
+        'Team receipt identity differs from the selected command',
+      );
+    return receipt;
+  }
   /** Human request/read/release only. Recipient ACK and host evidence keep
    * their existing native/internal owners; uncertain commands are not retried. */
   async control(

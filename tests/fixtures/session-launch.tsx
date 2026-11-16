@@ -44,7 +44,11 @@ const initial: SessionLaunchRecord = {
   createdAt: 1793959200000,
   updatedAt: 1793959200000,
 };
-if (new URLSearchParams(window.location.search).has('adopt') && initial.telos) {
+if (
+  (new URLSearchParams(window.location.search).has('adopt') ||
+    new URLSearchParams(window.location.search).has('replace')) &&
+  initial.telos
+) {
   initial.telos.adoption = {
     conversationId: 'child',
     title: 'Retained design discussion',
@@ -52,6 +56,11 @@ if (new URLSearchParams(window.location.search).has('adopt') && initial.telos) {
     expectedEpoch: 0,
     custodyHash: 'a'.repeat(64),
   };
+  if (new URLSearchParams(window.location.search).has('replace')) {
+    initial.telos.parentItemId = null;
+    initial.telos.parentAssignmentRevision = null;
+    initial.telos.replacement = { conversationId: 'former-lead', assignmentRevision: 3 };
+  }
 }
 if (new URLSearchParams(window.location.search).has('release')) initial.state = 'uncertain';
 function Fixture() {

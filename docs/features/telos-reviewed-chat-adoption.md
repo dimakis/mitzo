@@ -7,12 +7,46 @@ review and named related-chat navigation. **Approve & adopt** retains the exact
 ordinary chat, workspace, account, runtime selection, profile, prior history and
 drafts. It creates no replacement, command, credential or execution grant.
 
-The source caller still needs the current parent lead assignment and an exact
-direct child/work revision. The selected target must have no existing work role
+For initial child creation/adoption the source caller still needs the current
+parent lead assignment and an exact direct child/work revision. The selected target must have no existing work role
 or immutable contributor context. Supported callers remain owned Codex Local Mac
 and OpenShell, and Claude Local Mac; the target remains a compatible independent
 Local Mac Codex ordinary workspace. Repository-backed targets and broader engine
 parity are outside this delivery. A proposal is not assignment or readiness.
+
+## Reviewed owner replacement
+
+`TelosManageTeam` exposes the explicit operational roster to ordinary native and
+Claude SDK chats. Read returns the team revision and current/former memberships;
+link, replace and unlink use that revision and exact request-only approval.
+Investigators, implementers, reviewers, merge agents and contributors keep their
+independent settings. These operations use the canonical team journal and never
+change runtime role assignments or transcript/execution authority. Native and SDK
+adapters classify only its `read` operation as free of mutation.
+
+An available ordinary chat can propose replacement through `TelosCreateSession`
+with `replaceOwner: true`, the owned item's ID/current revision and the exact
+`existingConversationId`. The target may be the proposing chat. It must satisfy
+the same supported idle Local Mac Codex workspace and immutable-context checks.
+The current owner need not be warm or the proposer. The host derives the role and
+retains the previous canonical conversation and assignment revision for review.
+
+The existing transcript review shows the previous and incoming chats and an
+explicit **Approve & replace owner** action. Proposal text and roster membership
+confer no role. Interactive operator approval composes the original role journal,
+admission hold, retirement, context and release owners. The canonical replacement
+and receipt commit atomically under the reviewed work/assignment revisions. It
+preserves former links, assignment history, all prior attempts and old chat state.
+Unfinished replacement reserves the role; competing assignments cannot bypass it.
+New responsibility affects canonical role fences, with no inherited grants,
+provider admission, implicit cancellation or model execution. Initial child
+creation still requires the current canonical parent lead and its reviewed context.
+
+Lost responses and partial context recover the original operation. Cancellation,
+revocation, changed custody and unproved retirement retain visible uncertainty;
+safe release still needs the original owners and durable absence/retirement proof.
+An **Owner replaced · execution not started** receipt records assignment only.
+Source merge and runtime activation remain separate from actual operator adoption.
 
 ## Canonical transition and recovery
 

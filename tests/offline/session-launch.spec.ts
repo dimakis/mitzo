@@ -25,9 +25,10 @@ function hostInventory() {
   inventory.routes.push({ ...inventory.routes[0], targetId: 'build-mac' });
   return inventory;
 }
-for (const mode of ['start', 'create', 'adopt', 'release']) {
+for (const mode of ['start', 'create', 'adopt', 'replace', 'release']) {
   const workBound = mode !== 'start',
-    adoption = mode === 'adopt';
+    replacement = mode === 'replace',
+    adoption = mode === 'adopt' || replacement;
   for (const theme of ['dark', 'light']) {
     test(`agent ${mode} review, receipt and retained draft (${theme})`, async ({
       page,
@@ -107,20 +108,35 @@ for (const mode of ['start', 'create', 'adopt', 'release']) {
         expect(errors).toEqual([]);
         return;
       }
-      const reviewLabel = adoption ? 'Review existing chat' : 'Review new session';
+      const reviewLabel = replacement
+        ? 'Review owner replacement'
+        : adoption
+          ? 'Review existing chat'
+          : 'Review new session';
       const trigger = page.getByRole('button', { name: reviewLabel });
       await trigger.click();
       const dialog = page.getByRole('dialog', { name: reviewLabel });
       await expect(dialog).toBeVisible();
-      const approvalLabel = adoption
-        ? 'Approve & adopt'
-        : workBound
-          ? 'Approve & create'
-          : 'Approve & start';
+      const approvalLabel = replacement
+        ? 'Approve & replace owner'
+        : adoption
+          ? 'Approve & adopt'
+          : workBound
+            ? 'Approve & create'
+            : 'Approve & start';
       if (adoption)
         await expect(
           dialog.getByRole('link', { name: 'Retained design discussion' }),
         ).toHaveAttribute('href', '/chat/child');
+      if (replacement) {
+        await expect(dialog.getByRole('link', { name: 'Previous owner chat' })).toHaveAttribute(
+          'href',
+          '/chat/former-lead',
+        );
+        await expect(
+          dialog.getByText(/preserves the previous chat and its historical attribution/),
+        ).toBeVisible();
+      }
       if (workBound) {
         await expect(dialog.getByRole('link', { name: 'Capability baseline' })).toBeVisible();
         await expect(dialog.getByText('Feature lead', { exact: true })).toBeVisible();
@@ -188,7 +204,13 @@ for (const mode of ['start', 'create', 'adopt', 'release']) {
         '/chat/child',
       );
       await expect(page.getByRole('status')).toHaveText(
-        adoption ? 'Adopted & assigned' : workBound ? 'Created & assigned' : 'Started',
+        replacement
+          ? 'Owner replaced · execution not started'
+          : adoption
+            ? 'Adopted & assigned'
+            : workBound
+              ? 'Created & assigned'
+              : 'Started',
       );
       await expect(page.getByLabel('Original chat draft')).toHaveValue(
         'Keep my original chat draft',
