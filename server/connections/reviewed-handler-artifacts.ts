@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1223-claude-startup-source-cleanup.1';
+  'v1.0.1224-claude-notices-startup-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../claude-runtime-notices.ts':
+    'ed56147fe849cc3f1714a2c967a9d2e87d2fa4d2476a8ebb1c97e42e849de317',
+  '../__tests__/claude-runtime-notices.test.ts':
+    '09787813e392b6a10609f26202ecb57dde0d3dfa4db9349bd4dc74203f54bcb9',
+  '../__tests__/sdk-retry-notice-consumer.test.ts':
+    '5f7da2bd31faf14d4baf62a4f37d907ab5abe6e12d5e721dd8fe38fc34423a1e',
   '../__tests__/claude-repository-startup-revalidation.test.ts':
     'd855824df23a49a76c84187bb457ec943fc2517daf9bf219ab543a9b07cb02d8',
   '../../packages/protocol/src/message-retraction-store.ts':
@@ -4305,7 +4311,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': '451f1774f145b09ef8a5fa937ed31d3d9cdc7352bd31cec4fa1114a6f9d356e1',
+  '../query-loop.ts': '3af98b967e1eead80eecd9e8bef0e50d3b37072a329846408fb4b806afe4d5ea',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',

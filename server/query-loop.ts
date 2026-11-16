@@ -32,7 +32,8 @@ import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { tracer } from './tracing.js';
-import { recordRuntimeFailure } from './runtime-failure-diagnostics.js';
+import { recordRuntimeFailure, retainRuntimeFailure } from './runtime-failure-diagnostics.js';
+import { claudeRuntimeNotice } from './claude-runtime-notices.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
 import type { ProviderFailure, AccountBinding } from '@mitzo/protocol';
@@ -47,7 +48,6 @@ import { providerFailureTelemetry } from './provider-failure.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { ClaudeMessageRetractions } from './claude-message-retractions.js';
-import { retainRuntimeFailure } from './runtime-failure-diagnostics.js';
 const log = createLogger('query-loop');
 
 /** Truncate text for trace/log payloads, returning a truncated flag when clipped. */
@@ -840,6 +840,7 @@ async function _runQueryLoopInner(
     options?.onFirstEventOutcome?.(error);
   };
   let terminalOutcomeReported = false;
+  const runtimeNoticeIds = new Set<string>();
   const persistenceNotices = new Set<string>();
   const reportTerminalOutcome = (error?: Error) => {
     if (terminalOutcomeReported) return;
@@ -897,6 +898,29 @@ async function _runQueryLoopInner(
         }
 
         log.debug('sdk event', { clientId, type: msg.type });
+
+        const runtimeNotice = claudeRuntimeNotice(
+          msg,
+          currentSession.sessionId ?? '',
+          currentSession.accountBinding?.provider,
+        );
+        if (runtimeNotice) {
+          if (abortController.signal.aborted || runtimeNoticeIds.has(runtimeNotice.correlationId))
+            continue;
+          if (runtimeNoticeIds.size >= 256)
+            runtimeNoticeIds.delete(runtimeNoticeIds.values().next().value!);
+          runtimeNoticeIds.add(runtimeNotice.correlationId);
+          retainRuntimeFailure(runtimeNotice.correlationId, msg, () =>
+            log.warn('Claude reported a request failure', {
+              stage: runtimeNotice.stage,
+              code: runtimeNotice.code,
+              correlationId: runtimeNotice.correlationId,
+              sessionId: resolvedSessionId,
+            }),
+          );
+          emit(v2('error', runtimeNotice));
+          continue;
+        }
 
         const observedMessageId = messageState.messageId;
 
