@@ -31,7 +31,7 @@ beforeEach(() => {
   authorize = vi.fn<Authorize>(async () => {});
 });
 afterEach(() => store.close());
-function assistant(messageId: string, text = 'Visible answer') {
+function assistant(messageId: string, text = 'Visible answer', toolId?: string) {
   store.append('one', 'message_start', { messageId });
   store.append('one', 'block_start', { messageId, blockId: 'private', blockType: 'thinking' });
   store.append('one', 'block_delta', { messageId, blockId: 'private', delta: 'PRIVATE' });
@@ -43,6 +43,17 @@ function assistant(messageId: string, text = 'Visible answer') {
   });
   store.append('one', 'block_delta', { messageId, blockId: `${messageId}-text`, delta: text });
   store.append('one', 'block_end', { messageId, blockId: `${messageId}-text`, blockType: 'text' });
+  if (toolId) {
+    store.append('one', 'block_start', { messageId, blockId: toolId, blockType: 'tool_use' });
+    store.append('one', 'block_end', {
+      messageId,
+      blockId: toolId,
+      blockType: 'tool_use',
+      toolId,
+      toolName: 'Read',
+      input: {},
+    });
+  }
   return store.append('one', 'message_end', { messageId });
 }
 function selection(
@@ -63,6 +74,180 @@ function selection(
   };
 }
 const source = () => createCollaborationContextSource({ store, authorizeConversation: authorize });
+
+it('compiles current context without withdrawn output and preserves a pre-receipt compiled prefix', async () => {
+  store.append('one', 'user_message', { messageId: 'question', text: 'Question' });
+  const end = assistant('withdrawn', 'WITHDRAWN OUTPUT');
+  const frozen = await compileCollaborationContext(
+    selection(end, 'withdrawn'),
+    [settings],
+    source(),
+  );
+  store.append('one', 'message_retracted', { sessionId: 'one', messageId: 'withdrawn' });
+  const current = store.getDurableSessionTranscript('one');
+  const draft = await compileCollaborationContext(
+    selection(current.boundary.sequence, current.boundary.messageId),
+    [settings],
+    source(),
+  );
+  expect(draft.messages.map((m) => m.messageId)).toEqual(['question']);
+  expect(JSON.stringify(draft)).not.toContain('WITHDRAWN OUTPUT');
+  expect(JSON.stringify(frozen.messages)).toContain('WITHDRAWN OUTPUT');
+});
+
+it('omits withdrawn inline output pins and refuses explicit selection at the same current prefix', async () => {
+  store.append('one', 'user_message', { messageId: 'question', text: 'Question' });
+  const end = assistant('withdrawn', 'WITHDRAWN INLINE OUTPUT');
+  const output = store.registerSessionOutput('one', {
+    requestId: 'withdrawn-inline',
+    title: 'Original answer',
+    source: {
+      messageId: 'withdrawn',
+      blockId: 'withdrawn-text',
+      messageEndSeq: end,
+      sha256: hash('WITHDRAWN INLINE OUTPUT'),
+    },
+  });
+  const pin = { artifactId: output.outputId, revision: 1, sha256: output.source.sha256 };
+  store.append('one', 'message_retracted', { sessionId: 'one', messageId: 'withdrawn' });
+  const current = store.getDurableSessionTranscript('one');
+  const currentSelection = selection(current.boundary.sequence, current.boundary.messageId);
+  const draft = await compileCollaborationContext(currentSelection, [settings], source());
+  expect(draft.messages.map((message) => message.messageId)).toEqual(['question']);
+  expect(draft.artifacts).toEqual([]);
+  for (const mode of ['selected', 'conversation_so_far'] as const)
+    await expect(
+      compileCollaborationContext(
+        { ...currentSelection, mode, artifacts: [pin] },
+        [settings],
+        source(),
+      ),
+    ).rejects.toMatchObject({ code: 'snapshot_changed' });
+
+  // Retained output bytes and the explicitly older boundary remain available.
+  // Retraction changes current context eligibility, never the original audit.
+  expect(store.readSessionOutput('one', output.outputId).content).toBe('WITHDRAWN INLINE OUTPUT');
+  for (const mode of ['selected', 'conversation_so_far'] as const) {
+    const frozen = await compileCollaborationContext(
+      { ...selection(end, 'withdrawn', mode), artifacts: [pin] },
+      [settings],
+      source(),
+    );
+    expect(frozen.artifacts[0].contentBase64).toBe(
+      Buffer.from('WITHDRAWN INLINE OUTPUT').toString('base64'),
+    );
+  }
+});
+
+it('filters pins on earlier pages using the full selected receipt boundary', async () => {
+  store.append('one', 'user_message', { messageId: 'question', text: 'Question' });
+  const end = assistant('withdrawn', 'EARLY INLINE OUTPUT');
+  store.registerSessionOutput('one', {
+    requestId: 'early-inline',
+    title: 'Early answer',
+    source: {
+      messageId: 'withdrawn',
+      blockId: 'withdrawn-text',
+      messageEndSeq: end,
+      sha256: hash('EARLY INLINE OUTPUT'),
+    },
+  });
+  for (let n = 0; n < 55; n++)
+    store.append('one', 'user_message', { messageId: `later-${n}`, text: `Later ${n}` });
+  store.append('one', 'message_retracted', { sessionId: 'one', messageId: 'withdrawn' });
+  const current = store.getDurableSessionTranscript('one');
+  const draft = await compileCollaborationContext(
+    selection(current.boundary.sequence, current.boundary.messageId),
+    [settings],
+    source(),
+  );
+  expect(draft.messages).toHaveLength(56);
+  expect(draft.artifacts).toEqual([]);
+});
+
+it.each(['selected', 'conversation_so_far'] as const)(
+  'refuses an explicitly selected withdrawn inline output in %s context',
+  async (mode) => {
+    store.append('one', 'user_message', { messageId: 'question', text: 'Question' });
+    const end = assistant('withdrawn', 'WITHDRAWN EXPLICIT OUTPUT');
+    const output = store.registerSessionOutput('one', {
+      requestId: 'explicit-inline',
+      title: 'Original answer',
+      source: {
+        messageId: 'withdrawn',
+        blockId: 'withdrawn-text',
+        messageEndSeq: end,
+        sha256: hash('WITHDRAWN EXPLICIT OUTPUT'),
+      },
+    });
+    store.append('one', 'message_retracted', { sessionId: 'one', messageId: 'withdrawn' });
+    const current = store.getDurableSessionTranscript('one');
+    const read = vi.spyOn(store, 'readSessionOutput');
+    await expect(
+      compileCollaborationContext(
+        {
+          ...selection(current.boundary.sequence, current.boundary.messageId, mode),
+          artifacts: [{ artifactId: output.outputId, revision: 1, sha256: output.source.sha256 }],
+        },
+        [settings],
+        source(),
+      ),
+    ).rejects.toMatchObject({ code: 'snapshot_changed' });
+    expect(read).not.toHaveBeenCalled();
+  },
+);
+
+it('keeps narrow explicit artifact selection independent of the full-prefix message limit', async () => {
+  for (let n = 0; n < 510; n++)
+    store.append('one', 'user_message', { messageId: `prior-${n}`, text: `Prior ${n}` });
+  const end = assistant('answer');
+  const output = store.registerSessionOutput('one', {
+    requestId: 'narrow-inline',
+    title: 'Answer',
+    source: {
+      messageId: 'answer',
+      blockId: 'answer-text',
+      messageEndSeq: end,
+      sha256: hash('Visible answer'),
+    },
+  });
+  const draft = await compileCollaborationContext(
+    {
+      ...selection(end, 'answer', 'selected'),
+      artifacts: [{ artifactId: output.outputId, revision: 1, sha256: output.source.sha256 }],
+    },
+    [settings],
+    source(),
+  );
+  expect(draft.messages).toEqual([]);
+  expect(draft.artifacts[0].contentBase64).toBe(Buffer.from('Visible answer').toString('base64'));
+});
+
+it('keeps a text output pin when only its separate tool result was withdrawn', async () => {
+  const end = assistant('answer', 'Visible answer', 'read');
+  const output = store.registerSessionOutput('one', {
+    requestId: 'text-inline',
+    title: 'Text answer',
+    source: {
+      messageId: 'answer',
+      blockId: 'answer-text',
+      messageEndSeq: end,
+      sha256: hash('Visible answer'),
+    },
+  });
+  const through = store.append('one', 'message_retracted', {
+    sessionId: 'one',
+    messageId: 'answer',
+    toolId: 'read',
+  });
+  const draft = await compileCollaborationContext(
+    selection(through, 'answer'),
+    [settings],
+    source(),
+  );
+  expect(draft.artifacts[0].artifactId).toBe(output.outputId);
+  expect(draft.artifacts[0].contentBase64).toBe(Buffer.from('Visible answer').toString('base64'));
+});
 
 it('reviews a selected completed reply through the real captured prefix while a later reply streams', async () => {
   assistant('prior');

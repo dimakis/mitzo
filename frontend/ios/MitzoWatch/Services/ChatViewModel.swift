@@ -2,9 +2,11 @@
 
 import SwiftUI
 import MitzoShared
+import OSLog
 
 @MainActor
 final class ChatViewModel: ObservableObject {
+    private static let log = Logger(subsystem: "com.mitzo.watch", category: "chat-history")
     @Published var messages: [ChatMessage] = []
     @Published var currentStream: StreamingMessage?
     @Published var isStreaming = false
@@ -16,6 +18,8 @@ final class ChatViewModel: ObservableObject {
     let sessionId: String?
     private var resolvedSessionId: String?
     private var lastAcceptedCommand: (clientMsgId: String, sessionId: String)?
+    private var retractedMessages: Set<String> = []
+    private var retractedTools: [String: Set<String>] = [:]
     private(set) weak var appState: AppState?
 
     init(sessionId: String?, appState: AppState? = nil) {
@@ -42,9 +46,13 @@ final class ChatViewModel: ObservableObject {
 
         do {
             let finished = try await appState.loadMessages(sessionId: sessionId)
+            guard resolvedSessionId == sessionId else { return }
             messages = finished.map { ChatMessage(from: $0) }
+            projectRetractions()
         } catch {
-            // History load failure is non-fatal
+            guard resolvedSessionId == sessionId else { return }
+            Self.log.error("History read failed: \(String(reflecting: type(of: error)), privacy: .public)")
+            sendError = "History could not be loaded. Reopen this conversation to retry."
         }
 
         // Watch this session for live updates
@@ -94,10 +102,15 @@ final class ChatViewModel: ObservableObject {
     // MARK: - Process Server Messages
 
     func handleMessage(_ message: ServerMessage) {
+        defer { projectRetractions() }
         let receipt = sendDraft.receive(message)
         switch receipt {
         case .assigned(let sessionId):
-            if resolvedSessionId != sessionId { lastAcceptedCommand = nil }
+            if resolvedSessionId != sessionId {
+                lastAcceptedCommand = nil
+                retractedMessages.removeAll()
+                retractedTools.removeAll()
+            }
             resolvedSessionId = sessionId
         case .rejected(let clientMsgId): messages.removeAll { $0.id == clientMsgId }
         case .accepted(let clientMsgId):
@@ -130,15 +143,17 @@ final class ChatViewModel: ObservableObject {
 
         case .messageStart(let params):
             guard params.sessionId == resolvedSessionId else { return }
+            if retractedMessages.contains(params.messageId), let stream = currentStream,
+               stream.messageId != params.messageId { return }
             currentStream = StreamingMessage(messageId: params.messageId)
             isStreaming = true
             toolStatus = nil
 
         case .blockStart(let params):
             guard params.sessionId == resolvedSessionId,
-                  var stream = currentStream else { return }
+                  var stream = currentStream, stream.messageId == params.messageId else { return }
 
-            var block = StreamingBlock(
+            let block = StreamingBlock(
                 blockId: params.blockId,
                 blockType: params.blockType,
                 toolName: params.toolName
@@ -157,6 +172,7 @@ final class ChatViewModel: ObservableObject {
         case .blockDelta(let params):
             guard params.sessionId == resolvedSessionId,
                   var stream = currentStream,
+                  stream.messageId == params.messageId,
                   var block = stream.blocks[params.blockId] else { return }
 
             block.content += params.delta
@@ -166,6 +182,7 @@ final class ChatViewModel: ObservableObject {
         case .blockEnd(let params):
             guard params.sessionId == resolvedSessionId,
                   var stream = currentStream,
+                  stream.messageId == params.messageId,
                   var block = stream.blocks[params.blockId] else { return }
 
             block.done = true
@@ -176,7 +193,8 @@ final class ChatViewModel: ObservableObject {
             currentStream = stream
 
         case .messageEnd(let params):
-            guard params.sessionId == resolvedSessionId else { return }
+            guard params.sessionId == resolvedSessionId,
+                  currentStream?.messageId == params.messageId else { return }
 
             // Finalize streaming message into messages array
             if let stream = currentStream {
@@ -186,6 +204,14 @@ final class ChatViewModel: ObservableObject {
             currentStream = nil
             isStreaming = false
             toolStatus = nil
+
+        case .messageRetracted(let params):
+            guard params.sessionId == resolvedSessionId else { return }
+            if let toolId = params.toolId {
+                retractedTools[params.messageId, default: []].insert(toolId)
+            } else {
+                retractedMessages.insert(params.messageId)
+            }
 
         case .sessionControlRejected(let params):
             guard params.sessionId == resolvedSessionId else { return }
@@ -230,6 +256,7 @@ final class ChatViewModel: ObservableObject {
         case .toolResult(let params):
             // Update the block with tool result if we're tracking it
             if var stream = currentStream,
+               stream.messageId == params.messageId,
                var block = stream.blocks.values.first(where: { $0.toolId == params.toolId }) {
                 block.toolResult = params.result
                 block.toolError = params.isError
@@ -243,6 +270,36 @@ final class ChatViewModel: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    // The view model owns its existing live/history projection. Keep receipts
+    // through delayed history and late frames without changing execution state,
+    // another running response, user input, or known tool activity.
+    private func projectRetractions() {
+        guard !retractedMessages.isEmpty || !retractedTools.isEmpty else { return }
+        var changed = false
+        let projected = messages.compactMap { message -> ChatMessage? in
+            guard message.role == .assistant, retractedMessages.contains(message.id) else { return message }
+            let blocks = message.blocks.filter { $0.type == .toolUse }
+            guard blocks.count != message.blocks.count || blocks.isEmpty else { return message }
+            changed = true
+            return blocks.isEmpty ? nil : ChatMessage(projecting: message, blocks: blocks)
+        }
+        if changed { messages = projected }
+        guard var stream = currentStream,
+              retractedMessages.contains(stream.messageId) || retractedTools[stream.messageId] != nil else { return }
+        if retractedMessages.contains(stream.messageId) {
+            stream.blocks = stream.blocks.filter { $0.value.blockType == .toolUse }
+            stream.blockOrder.removeAll { stream.blocks[$0] == nil }
+        }
+        for id in stream.blockOrder {
+            guard var block = stream.blocks[id], let toolId = block.toolId,
+                  retractedTools[stream.messageId]?.contains(toolId) == true else { continue }
+            block.toolResult = "The provider retracted this result."
+            block.toolError = nil
+            stream.blocks[id] = block
+        }
+        currentStream = stream
+    }
 
     private func formatToolStatus(_ toolName: String) -> String {
         switch toolName {
@@ -296,6 +353,14 @@ struct ChatMessage: Identifiable {
         }
         self.text = blocks.first(where: { $0.type == .text })?.content ?? ""
         self.timestamp = Date()
+    }
+
+    init(projecting original: ChatMessage, blocks: [ChatBlock]) {
+        self.id = original.id
+        self.role = original.role
+        self.blocks = blocks
+        self.text = blocks.first(where: { $0.type == .text })?.content ?? ""
+        self.timestamp = original.timestamp
     }
 }
 

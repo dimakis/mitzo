@@ -41,6 +41,14 @@ interface MessageStartMsg {
   messageId: string;
 }
 
+interface MessageRetractedMsg {
+  type: 'message_retracted';
+  v: 2;
+  sessionId: string;
+  messageId: string;
+  toolId?: string;
+}
+
 interface BlockStartMsg {
   type: 'block_start';
   v: 2;
@@ -257,6 +265,7 @@ export type ServerMessage =
   | SessionInfoMsg
   | SessionIdMsg
   | MessageStartMsg
+  | MessageRetractedMsg
   | BlockStartMsg
   | BlockDeltaMsg
   | BlockEndMsg

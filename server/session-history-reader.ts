@@ -152,6 +152,7 @@ export function readHistoryMessages(options: {
       first.messageId!,
       first.seq,
       contextLimit,
+      throughSeq,
     );
     if (context.length > contextLimit) throw Error('Invalid history context bound');
     let previous = 0;

@@ -101,3 +101,18 @@ Cross-conversation search remains bounded
 and paginated, rather than an exhaustive one-call full-text index. Unknown format
 coverage, metadata cursor invalidation and single-event output overflow are
 reported explicitly. Production activation requires its separate release action.
+
+# Verified provider withdrawals
+
+Default message reads and transcript search use ordinary, identity-qualified
+whole-message retraction receipts from the selected immutable `throughSeq`.
+Receipts apply even when they are outside the returned page or query look-behind.
+The SQL projection does not load withdrawn text or arbitrary tool/provider data;
+event identities, scan/output bounds and continuation remain intact. Malformed
+ordinary receipts fail the read. Earlier frozen prefixes retain their original
+text, and tool-result-only receipts do not remove unrelated response text.
+
+Explicit `ReadPastSession(view: "events")` is the retained legacy audit-text
+view: it returns original public text events, including subsequently withdrawn
+text. It is distinct from the current message projection and does not expose
+reasoning, tool payloads or provider files. Raw EventStore evidence is preserved.

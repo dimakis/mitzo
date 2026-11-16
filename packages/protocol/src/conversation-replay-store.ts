@@ -7,6 +7,10 @@ import type {
   ExecutionToken,
 } from './types.js';
 import type { ProviderAttemptRecord } from './execution-ledger.js';
+import {
+  ordinaryRetractionEventSql,
+  validateOrdinaryRetractions,
+} from './message-retraction-store.js';
 
 interface HistoryRow {
   seq: number;
@@ -21,7 +25,7 @@ interface HistoryRow {
 }
 // The same audience/type projection serves forward, reverse and query context
 // reads. Never select arbitrary payloads into a history consumer.
-const HISTORY_COLUMNS = `seq, type, created_at,
+const HISTORY_COLUMNS = (visibleText = '1') => `seq, type, created_at,
   seat_id IS NOT NULL OR symposium_provenance IS NOT NULL
     OR CASE WHEN type IN ('user_message','block_delta','message_start','message_end','block_start','block_end')
       THEN json_extract(payload,'$.seatId') IS NOT NULL
@@ -41,6 +45,7 @@ const HISTORY_COLUMNS = `seq, type, created_at,
       THEN substr(CAST(json_extract(payload,'$.text') AS BLOB),:textStart,:textLength)
     WHEN type='block_delta' AND json_extract(payload,'$.blockType')='text'
       AND json_type(payload,'$.delta')='text'
+      AND ${visibleText}
       THEN substr(CAST(json_extract(payload,'$.delta') AS BLOB),:textStart,:textLength)
   END AS text,
   CASE
@@ -48,8 +53,18 @@ const HISTORY_COLUMNS = `seq, type, created_at,
       THEN length(CAST(json_extract(payload,'$.text') AS BLOB))>:textLength
     WHEN type='block_delta' AND json_extract(payload,'$.blockType')='text'
       AND json_type(payload,'$.delta')='text'
+      AND ${visibleText}
       THEN length(CAST(json_extract(payload,'$.delta') AS BLOB))>:textLength
   END AS text_truncated`;
+
+// Public history is a projection at the caller's immutable highwater. Keep the
+// original event rows/cursors and byte/scan bounds, but never hydrate withdrawn
+// text. A later-page receipt applies to earlier pages and query look-behind.
+const VISIBLE_HISTORY_TEXT = `NOT EXISTS (
+  SELECT 1 FROM events r WHERE r.session_id=events.session_id AND r.seq<=:historyThrough
+  AND r.type='message_retracted' AND ${ordinaryRetractionEventSql('r')}
+  AND json_extract(r.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
+  AND json_type(r.payload,'$.toolId') IS NULL)`;
 
 function historyEvent(sessionId: string, row: HistoryRow): StoredEvent {
   const text = row.text?.toString('utf8') ?? null;
@@ -146,12 +161,13 @@ export class ConversationReplayStore<Row> {
       limit > 8192
     )
       throw Error('Invalid history event page bounds');
+    validateOrdinaryRetractions(this.db!, sessionId, throughSeq);
     const rows = this.db!.prepare(
-      `SELECT ${HISTORY_COLUMNS}
+      `SELECT ${HISTORY_COLUMNS(VISIBLE_HISTORY_TEXT)}
        FROM events WHERE session_id=? AND seq>? AND seq<=?
        ORDER BY seq ${recent ? 'DESC' : 'ASC'} LIMIT ?`,
     ).iterate(
-      { textStart: 1, textLength: 32769 },
+      { textStart: 1, textLength: 32769, historyThrough: throughSeq },
       sessionId,
       afterSeq,
       Math.min(throughSeq, beforeSeq === undefined ? throughSeq : beforeSeq - 1),
@@ -177,10 +193,13 @@ export class ConversationReplayStore<Row> {
     messageId: string,
     beforeSeq: number,
     limit: number,
+    throughSeq = beforeSeq,
   ): StoredEvent[] {
     if (
       !Number.isSafeInteger(beforeSeq) ||
       beforeSeq < 0 ||
+      !Number.isSafeInteger(throughSeq) ||
+      throughSeq < beforeSeq ||
       !messageId ||
       messageId.length > 512 ||
       !Number.isSafeInteger(limit) ||
@@ -188,12 +207,13 @@ export class ConversationReplayStore<Row> {
       limit > 512
     )
       throw Error('Invalid history context bounds');
+    validateOrdinaryRetractions(this.db!, sessionId, throughSeq);
     const rows = this.db!.prepare(
-      `SELECT ${HISTORY_COLUMNS} FROM events
+      `SELECT ${HISTORY_COLUMNS(VISIBLE_HISTORY_TEXT)} FROM events
        WHERE session_id=? AND type='block_delta' AND json_extract(payload,'$.messageId')=? AND seq<?
        ORDER BY seq DESC LIMIT ?`,
     ).all(
-      { textStart: -2048, textLength: 2048 },
+      { textStart: -2048, textLength: 2048, historyThrough: throughSeq },
       sessionId,
       messageId,
       beforeSeq,
@@ -210,7 +230,7 @@ export class ConversationReplayStore<Row> {
     options: { includeRecentRequests?: boolean } = {},
   ): StoredEvent[] {
     const rows = this.db!.prepare(
-      `SELECT ${HISTORY_COLUMNS},
+      `SELECT ${HISTORY_COLUMNS()},
         CASE WHEN type='user_message' THEN json_extract(payload,'$.source')='closeout' ELSE 0 END AS closeout
        FROM events WHERE session_id=? ORDER BY seq LIMIT 256`,
     ).iterate({ textStart: 1, textLength: 32769 }, sessionId);
@@ -231,7 +251,7 @@ export class ConversationReplayStore<Row> {
       // filled the prefix. Project only complete ordinary user text in SQL;
       // neither tool payloads nor other audiences enter this bounded suffix.
       const recent = this.db!.prepare(
-        `SELECT ${HISTORY_COLUMNS} FROM events
+        `SELECT ${HISTORY_COLUMNS()} FROM events
          WHERE session_id=? AND type='user_message' AND qualified=0
            AND json_type(payload,'$.text')='text'
            AND length(CAST(json_extract(payload,'$.text') AS BLOB))<=32768
