@@ -5,6 +5,8 @@ export function compileWorkspaceContext(
     workspaceRoot?: string;
     signal?: AbortSignal;
     requirePhysicalRoot?: boolean;
+    /** Ordinary empty task roots may have no instructions; selected recipes still require them. */
+    allowMissingInstructions?: boolean;
     assertDocumentPath?: (path: string, reference: string) => void;
   },
   compiler: Pick<typeof import('contexgin'), 'compile' | 'estimateTokens' | 'parseMarkdown'>,

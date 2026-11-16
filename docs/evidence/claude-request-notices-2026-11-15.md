@@ -80,6 +80,20 @@ across six files, one worker/1 GiB; pins, formatting and whitespace pass. Prior
 whole-source and independent baselines remain; exact combined CI and trusted
 follow-up are still required. No live model/account or runtime activation occurs.
 
+Accepted startup/schema #1368 at
+`18d1d4a3e0d8bfdc654cce84d7fa828483582735` required a demonstrated manifest
+conflict resolution. All notice translator/query-loop/test bytes are identical
+to reviewed `173ea2112c18537adec6bf3018d00abf8aa2ed26`; accepted startup,
+context preparation, Google and schema sources are unchanged. Inspected authority
+checks around original process closure, context preparation and replacement query
+creation: no notice handler changes these fences. Only the runtime label required
+manual resolution; all source pins are preserved. Combined notice/SDK/startup
+qualification passes 75 checks across five suites, one worker/1 GiB, using explicit
+offline enrollment references and executable path. Source fingerprints, formatting
+and whitespace checks pass. Retain the full independent notice review and exact
+173e trusted LGTM as baselines; current combined CI and trusted verification remain
+mandatory. No fallback, account/model change or live acceptance is implied.
+
 Model refusal/retraction, richer context usage, background task progress and
 optional native plan-utilization displays remain separate reporting work.
 This does not fix the original iOS transcript projection failure, reconcile a
