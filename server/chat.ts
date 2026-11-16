@@ -143,6 +143,7 @@ import {
 } from './repository-chat-startup.js';
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import { resolveHostGithubCredential } from './host-github-credential.js';
+import { sdkWorktreePermissionOptions } from './sdk-worktree-routing.js';
 import {
   createWorkspaceRuntimeCommandRunner,
   type ProtectedSdkCommandRunner,
@@ -2934,10 +2935,12 @@ async function _startChatInner(
     } else {
       const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
-          onDemandCreate:
-            repositoryWorkspace && !options.ordinarySdkAuthority
-              ? undefined
-              : buildOnDemandCreate(wtId, clientId, options.ordinarySdkAuthority),
+          ...sdkWorktreePermissionOptions({
+            repositoryWorkspace: !!repositoryWorkspace,
+            ordinarySdk: !!options.ordinarySdkAuthority,
+            osSandboxed: !!sdkCredentialBoundary,
+            createOnDemand: () => buildOnDemandCreate(wtId, clientId, options.ordinarySdkAuthority),
+          }),
           ...(options.ordinarySdkAuthority
             ? {
                 assertCurrentSync: () =>
