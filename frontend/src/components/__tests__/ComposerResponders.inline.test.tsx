@@ -1,0 +1,50 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useRef, useState } from 'react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { ComposerResponders } from '../ComposerResponders';
+
+afterEach(cleanup);
+function Surface() {
+  const input = useRef<HTMLTextAreaElement>(null);
+  const [text, setText] = useState('Review this');
+  const [selected, setSelected] = useState(['lead']);
+  return (
+    <>
+      <textarea
+        ref={input}
+        aria-label="Draft"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <ComposerResponders
+        input={input}
+        text={text}
+        onTextChange={setText}
+        onOpenChange={vi.fn()}
+        selection={{
+          inline: true,
+          members: [
+            { id: 'lead', name: 'Mitzo' },
+            { id: 'review', name: 'Bob' },
+          ],
+          selectedIds: selected,
+          responders: { kind: 'selected', sessionIds: selected },
+          onChange: setSelected,
+        }}
+      />
+      <output aria-label="Targets">{selected.join(',')}</output>
+    </>
+  );
+}
+it('selects one or several agents inline without opening a popup or sending a request', () => {
+  render(<Surface />);
+  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+  expect((screen.getByLabelText('Draft') as HTMLTextAreaElement).value).toBe('Review this @');
+  expect(screen.queryByRole('group', { name: 'Who replies to this prompt' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Bob' }));
+  expect(screen.getByLabelText('Targets').textContent).toBe('lead,review');
+  expect((screen.getByLabelText('Draft') as HTMLTextAreaElement).value).toBe('Review this ');
+  fireEvent.click(screen.getByRole('button', { name: 'Mitzo' }));
+  expect(screen.getByLabelText('Targets').textContent).toBe('review');
+});

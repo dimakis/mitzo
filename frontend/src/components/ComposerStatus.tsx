@@ -72,8 +72,8 @@ export function ComposerStatusNotice({
   useLayoutEffect(() => {
     if (!sink) return;
     sink.report(id, { message, tone, busy, queued, action, children });
-    return () => sink.report(id, null);
   }, [sink, id, message, tone, busy, queued, action, children]);
+  useLayoutEffect(() => () => sink?.report(id, null), [sink, id]);
   if (sink && active) return null;
   return children ?? <p role={tone === 'danger' ? 'alert' : 'status'}>{message}</p>;
 }

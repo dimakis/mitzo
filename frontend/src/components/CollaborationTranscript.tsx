@@ -218,6 +218,21 @@ export function CollaborationTranscript({
       running={running}
       permission={permission}
       onPermissionRespond={onPermissionRespond}
+      messageSpeaker={(id) => {
+        const message = messages.get(id);
+        const liveReply = liveReplies.find(
+          (reply) => (displayedIds.get(reply.projectionId) ?? reply.projectionId) === id,
+        );
+        const source = ordinaryMessages.find((m) => m.messageId === id);
+        const sessionId =
+          liveReply?.sessionId ??
+          (message && message.author !== 'operator'
+            ? message.author.sessionId
+            : source?.role === 'assistant' || streams[id]
+              ? ordinary?.sessionId
+              : undefined);
+        return sessionId ? { id: sessionId, name: name(sessionId) } : undefined;
+      }}
       renderMessageAttribution={(id) => {
         const message = messages.get(id);
         const streaming = liveReplies.find(

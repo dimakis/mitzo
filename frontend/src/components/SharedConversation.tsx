@@ -29,6 +29,13 @@ import { createBrowserId } from '../lib/browser-crypto';
 import { createConversationJoiningApplicationOwner } from '../lib/conversation-joining-application-owner';
 import { useConversationPresentation } from '../hooks/useConversationPresentation';
 import { useConversationSending } from '../hooks/useConversationSending';
+import { useConversationSteering } from '../hooks/useConversationSteering';
+import {
+  useConversationStopping,
+  type ConversationStopTarget,
+} from '../hooks/useConversationStopping';
+import { ComposerStatusProvider } from './ComposerStatus';
+import { useComposerStatusSink } from '../lib/composer-status-context';
 import { useConversationProgress } from '../hooks/useConversationProgress';
 import { useConversationPromptContext } from '../hooks/useConversationPromptContext';
 import { useConversationForwarding } from '../hooks/useConversationForwarding';
@@ -339,6 +346,9 @@ function useSharedConversation({
   });
   return {
     sourceConversationId,
+    api: api.collaborations,
+    authScope,
+    getVerifiedAuthScope,
     presentSourceName,
     presentation,
     sending,
@@ -440,15 +450,7 @@ export function SharedConversationAgents(props: ComponentProps<typeof Conversati
     />
   );
 }
-export function SharedConversationBody({
-  sourceConversationId,
-  chat,
-  children,
-  ordinaryHistory,
-  ordinaryComposer,
-  beforeTranscript,
-  ordinaryTools,
-}: {
+interface SharedConversationBodyProps {
   sourceConversationId: string;
   chat: ChatAreaProps;
   children: ReactNode;
@@ -456,9 +458,81 @@ export function SharedConversationBody({
   ordinaryComposer?: ReactNode;
   beforeTranscript?: ReactNode;
   ordinaryTools?: ReactNode;
-}) {
+}
+export function SharedConversationBody(props: SharedConversationBodyProps) {
+  const sink = useComposerStatusSink();
+  return sink ? (
+    <SharedConversationBodyContent {...props} />
+  ) : (
+    <ComposerStatusProvider>
+      <SharedConversationBodyContent {...props} />
+    </ComposerStatusProvider>
+  );
+}
+function SharedConversationBodyContent({
+  sourceConversationId,
+  chat,
+  children,
+  ordinaryHistory,
+  ordinaryComposer,
+  beforeTranscript,
+  ordinaryTools,
+}: SharedConversationBodyProps) {
   const host = useContext(Context);
   const [sendFailure, setSendFailure] = useState<string>();
+  const view = host?.presentation.projection?.view;
+  const originalHistory =
+    isValidElement<ChatAreaProps>(ordinaryHistory) && ordinaryHistory.type === ChatArea
+      ? ordinaryHistory.props
+      : chat;
+  const selectedIds = host?.presentation.resolvedResponderIds ?? [];
+  const stopTargets = new Map<string, ConversationStopTarget>();
+  const commands = new Map<string, string>();
+  for (const message of view?.messages ?? [])
+    for (const delivery of message.deliveries) {
+      if (
+        delivery.purpose === 'reply' &&
+        delivery.commandId &&
+        !['completed', 'failed', 'interrupted'].includes(delivery.outcome ?? '')
+      ) {
+        if (!stopTargets.has(delivery.sessionId))
+          stopTargets.set(delivery.sessionId, {
+            messageId: message.messageId,
+            deliveryId: delivery.deliveryId,
+            sessionId: delivery.sessionId,
+            commandId: delivery.commandId,
+            name: host?.names[delivery.sessionId] ?? 'Agent',
+          });
+        if (delivery.status === 'delivered' && !commands.has(delivery.sessionId))
+          commands.set(delivery.sessionId, delivery.commandId);
+      }
+    }
+  const originalCommand =
+    originalHistory.running &&
+    originalHistory.messages.findLast(
+      (message) => message.role === 'user' && message.commandState === 'running',
+    )?.messageId;
+  if (originalCommand) commands.set(sourceConversationId, originalCommand);
+  const steeringTargets = selectedIds.flatMap((sessionId) => {
+    const commandId = commands.get(sessionId);
+    return commandId ? [{ sessionId, commandId, name: host?.names[sessionId] ?? 'Agent' }] : [];
+  });
+  const steering = useConversationSteering({
+    group: host?.active ? view?.collaborationId : undefined,
+    authScope: host?.authScope,
+    getVerifiedAuthScope: host?.getVerifiedAuthScope ?? (() => undefined),
+    memberIds: view?.participantSessionIds ?? [],
+    targets: steeringTargets,
+  });
+  const stopping = useConversationStopping({
+    api: host?.api ?? applicationApi.collaborations,
+    group: host?.active ? view?.collaborationId : undefined,
+    authScope: host?.authScope,
+    getVerifiedAuthScope: host?.getVerifiedAuthScope ?? (() => undefined),
+    membershipRevision: view?.membershipRevision,
+    memberIds: view?.participantSessionIds ?? [],
+    targets: selectedIds.flatMap((id) => (stopTargets.get(id) ? [stopTargets.get(id)!] : [])),
+  });
   if (!host || host.sourceConversationId !== sourceConversationId) return children;
   const { presentation, sending, progress, promptContext, forwarding, names } = host;
   const { draft, projection, composerResponders } = presentation;
@@ -505,27 +579,58 @@ export function SharedConversationBody({
   const composer: ComponentProps<typeof ChatInput> = {
     savedChatDraft: draft ?? undefined,
     sessionId: draft?.id,
-    textOnly: true,
+    textOnly: false,
     tokenOwnerName: names[sourceConversationId] ?? 'Original agent',
     boundedFirstCommand: true,
     guardedConversation: false,
     recipientRecovery: !sending.pending && !presentation.error,
     validateSend: undefined,
-    onInterrupt: undefined,
-    running: !!sending.pending,
-    onStop: () => void sending.stop(),
+    targetedSteering: true,
+    sharedControl: {
+      label: selectedIds.map((id) => names[id] ?? 'Agent').join(', ') || 'selected agents',
+      sourceSelected: selectedIds.includes(sourceConversationId),
+      sourceHandled:
+        !!originalCommand && stopTargets.get(sourceConversationId)?.commandId === originalCommand,
+    },
+    interruptLabel: 'Steer current turn',
+    interruptDisabledReason:
+      steering.reason ??
+      (steeringTargets.length !== selectedIds.length
+        ? 'Select agents with active turns before steering.'
+        : undefined),
+    onInterrupt: (text, images, _context, delivered) => {
+      void steering.steer(text, images).then(
+        (accepted) => delivered?.(accepted ? 'accepted' : 'failed'),
+        () => {
+          setSendFailure('Steering could not be prepared. Your draft is retained.');
+          delivered?.('failed');
+        },
+      );
+    },
+    running: selectedIds.some((id) => stopTargets.has(id)) || !!sending.pending,
+    onStop: () => {
+      void stopping
+        .stop()
+        .then(() => presentation.refresh())
+        .catch(() =>
+          setSendFailure('Stop recovery could not be checked. Keep the original request.'),
+        );
+      const unresolved = selectedIds.filter((id) => !stopTargets.has(id));
+      if (unresolved.length) void sending.stop(unresolved);
+    },
     collaboration: (
       <ConversationPromptContextButton flow={promptContext} disabled={!!sending.pending} />
     ),
     responders: composerResponders
       ? {
           ...composerResponders,
+          inline: true,
           iconOnly: true,
           members: composerResponders.members.map((member) => ({
             ...member,
             name: names[member.id] ?? member.name,
           })),
-          disabled: !!sending.pending || composerResponders.disabled,
+          disabled: composerResponders.disabled,
         }
       : undefined,
     sendDisabledReason: presentation.error ?? sending.disabledReason,
@@ -540,19 +645,24 @@ export function SharedConversationBody({
       },
     },
     onSend: (text, images, context, delivered) => {
-      if (images?.length || context?.length || sending.disabledReason) return false;
+      if (context?.length || sending.disabledReason) return false;
       setSendFailure(undefined);
-      void sending.send(text).then(
-        (ok) => delivered?.(ok ? 'accepted' : 'failed'),
-        (cause) => {
-          setSendFailure(
-            cause instanceof Error
-              ? cause.message
-              : 'Could not send this prompt. Your draft is retained.',
-          );
-          delivered?.('failed');
-        },
-      );
+      void sending
+        .send(
+          text,
+          images?.map(({ data, mediaType }) => ({ data, mediaType })),
+        )
+        .then(
+          (ok) => delivered?.(ok ? 'accepted' : 'failed'),
+          (cause) => {
+            setSendFailure(
+              cause instanceof Error
+                ? cause.message
+                : 'Could not send this prompt. Your draft is retained.',
+            );
+            delivered?.('failed');
+          },
+        );
       return true;
     },
   };
@@ -646,14 +756,78 @@ export function SharedConversationBody({
             <ChatInput {...composer} externalContextBlocks={EMPTY_CONTEXT} />
           </div>
         ))}
-      {sending.error && <p role="alert">{sending.error}</p>}
-      {host.active && progress.error && <p role="alert">{progress.error}</p>}
-      {sending.pending && (sending.stopStatus || sending.pending.stopRequested) && (
-        <p role="status">
-          {sending.stopStatus ?? 'Stop was requested. Check the original request; do not resend.'}
-        </p>
+      <ChatStatusMessage error={sending.error} />
+      {host.active && (
+        <ChatStatusMessage
+          error={progress.error}
+          action={{ label: 'Refresh conversation', onClick: () => void presentation.refresh() }}
+        />
       )}
-      {sendFailure && <p role="alert">{sendFailure}</p>}
+      {sending.pending && (sending.stopStatus || sending.pending.stopRequested) && (
+        <ChatStatusMessage
+          status={
+            sending.stopStatus ?? 'Stop was requested. Check the original request; do not resend.'
+          }
+        />
+      )}
+      <ChatStatusMessage error={sendFailure} />
+      <ChatStatusMessage
+        status={
+          steering.message ??
+          (steering.pending ? 'A correction needs its original receipt checked.' : undefined)
+        }
+        action={
+          steering.pending
+            ? {
+                label: 'Check original correction',
+                onClick: () => void steering.check(),
+                disabled: steering.busy,
+              }
+            : undefined
+        }
+      >
+        {steering.outcomes.length > 0 && (
+          <details className="conversation-delivery-details">
+            <summary>Agent correction results</summary>
+            <ul>
+              {steering.outcomes.map((target) => (
+                <li key={target.sessionId}>
+                  {target.name}:{' '}
+                  {target.status === 'stale_target' ? 'Turn finished' : target.status}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </ChatStatusMessage>
+      <ChatStatusMessage
+        status={
+          stopping.message ??
+          (stopping.pending ? 'A Stop request needs its original receipt checked.' : undefined)
+        }
+        action={
+          stopping.pending
+            ? {
+                label: 'Check original Stop',
+                onClick: () => void stopping.check(),
+                disabled: stopping.busy,
+              }
+            : undefined
+        }
+      >
+        {stopping.outcomes.length > 0 && (
+          <details className="conversation-delivery-details">
+            <summary>Agent Stop results</summary>
+            <ul>
+              {stopping.outcomes.map((record) => (
+                <li key={record.input.requestId}>
+                  {record.name}: {record.status}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </ChatStatusMessage>
     </>
   );
   return (

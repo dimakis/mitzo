@@ -74,6 +74,7 @@ export interface ChatAreaProps {
   contextItems?: SymposiumContextItem[];
   /** Presentation-only metadata keyed by the displayed message identity. */
   renderMessageAttribution?(messageId: string): ReactNode;
+  messageSpeaker?(messageId: string): { id: string; name: string } | undefined;
   renderMessageOutcome?(messageId: string): ReactNode;
   /** Source-bound previews for shared messages; ordinary callers use sessionId. */
   messageSessionId?(messageId: string): string | undefined;
@@ -215,6 +216,7 @@ export function ChatArea({
   beforeMessages,
   afterMessages,
   renderMessageAttribution,
+  messageSpeaker,
   renderMessageOutcome,
   messageSessionId,
   onShareMessage,
@@ -713,6 +715,7 @@ export function ChatArea({
             : turn.value.blocks;
         const ownerKey = `${sessionId ?? 'chat'}:${turnKey(msg.messageId, msg.symposiumProvenance)}`;
         const provenance = msg.symposiumProvenance;
+        const speaker = messageSpeaker?.(msg.messageId);
         const attribution = renderMessageAttribution ? (
           renderMessageAttribution(msg.messageId)
         ) : (
@@ -720,6 +723,7 @@ export function ChatArea({
         );
         const scope = JSON.stringify([
           sessionId ?? null,
+          speaker?.id,
           provenance?.seatId,
           provenance?.membershipGeneration,
           provenance?.configRevision,
@@ -784,6 +788,8 @@ export function ChatArea({
           } else {
             content = (
               <TextBubble
+                speaker={speaker}
+                attribution={speaker ? attribution : undefined}
                 sourceAnchor={
                   !streaming &&
                   turn.kind === 'finished' &&
@@ -811,7 +817,7 @@ export function ChatArea({
           return {
             key: `${ownerKey}:${bid}`,
             scope,
-            attribution,
+            attribution: speaker ? undefined : attribution,
             requestStatus: msg.replyToMessageId
               ? commandLabels[requests.get(msg.replyToMessageId)?.commandState ?? '']
               : undefined,
@@ -825,7 +831,10 @@ export function ChatArea({
                   tabIndex={-1}
                   className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
                 >
-                  {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
+                  {index === 0 &&
+                    !speaker &&
+                    (keepVisible || block.blockType === 'text') &&
+                    attribution}
                   {block === firstVisibleText && replyLabel(msg)}
                   {block.blockType === 'text'
                     ? withActions(actionMessage, content, !streaming)

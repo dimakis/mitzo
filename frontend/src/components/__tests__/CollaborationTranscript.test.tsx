@@ -29,6 +29,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 const names = { architect: 'Architect', reviewer: 'Reviewer', reader: 'Reader' };
+it('integrates the replying agent name and stable color into its bubble with the recorded timestamp', () => {
+  const view = sharedConversationView();
+  view.messages = [{ ...sharedReply, recordedAt: 1794814800000 }];
+  const { container } = render(
+    <MemoryRouter>
+      <CollaborationTranscript projection={createCollaborationProjection(view)} names={names} />
+    </MemoryRouter>,
+  );
+  const bubble = screen.getByText(sharedReply.text).closest('.msg-bubble')!;
+  expect(bubble.querySelector('.msg-bubble-speaker')?.textContent).toContain('Architect');
+  expect(bubble.getAttribute('data-speaker-session')).toBe('architect');
+  expect(container.querySelector('time')?.getAttribute('datetime')).toBe(
+    new Date(1794814800000).toISOString(),
+  );
+});
 const sourceChat = (
   messages: FinishedMessage[],
   current: StreamingMessage | null = null,

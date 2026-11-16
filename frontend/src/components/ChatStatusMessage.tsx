@@ -2,6 +2,7 @@ import { UiIcon } from './UiIcon';
 import { ComposerStatusNotice } from './ComposerStatus';
 import type { ComposerStatusAction } from '../lib/composer-status-context';
 import './ChatStatusMessage.css';
+import type { ReactNode } from 'react';
 
 export type ChatStatusAction = ComposerStatusAction;
 
@@ -11,11 +12,13 @@ export function ChatStatusMessage({
   error,
   busy = false,
   action,
+  children,
 }: {
   status?: string | null;
   error?: string | null;
   busy?: boolean;
   action?: ChatStatusAction;
+  children?: ReactNode;
 }) {
   const message = error || status;
   if (!message) return null;
@@ -42,6 +45,7 @@ export function ChatStatusMessage({
             {action.label}
           </button>
         )}
+        {children}
       </div>
     </ComposerStatusNotice>
   );

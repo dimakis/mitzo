@@ -11,6 +11,14 @@ import {
 } from '../transport-auth-ownership.js';
 import { EventStore } from '../event-store.js';
 import { createSessionCollaborationRouter } from '../session-collaboration-router.js';
+import { retainedRuntimeFailure } from '../runtime-failure-diagnostics.js';
+const diagnosticLog = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock('../logger.js', () => ({ createLogger: () => diagnosticLog }));
 let store: EventStore, app: express.Express, path: string;
 const navigationChanged = vi.fn();
 beforeEach(() => {
@@ -462,10 +470,19 @@ it('reports absent joining before parsing its body while validating collaboratio
 });
 it('conceals provider errors and rejects private or malformed owner results', async () => {
   const { mounted, joining, input, result } = installJoining();
-  joining.confirm.mockRejectedValueOnce(new Error('private-provider-thread-secret'));
+  const cause = new Error('private-provider-thread-secret');
+  joining.confirm.mockRejectedValueOnce(cause);
   const failed = await request(mounted).post(`${path}/joins`).set('x-operator', 'yes').send(input);
   expect(failed.status).toBe(503);
   expect(JSON.stringify(failed.body)).not.toContain('private-provider');
+  const diagnostic = diagnosticLog.error.mock.calls.at(-1)![1];
+  expect(diagnostic).toMatchObject({
+    code: 'collaboration_request_failed',
+    diagnosticId: expect.any(String),
+    causeType: 'Error',
+  });
+  expect(JSON.stringify(diagnostic)).not.toContain('private-provider');
+  expect(retainedRuntimeFailure(diagnostic.diagnosticId)?.cause).toBe(cause);
   joining.confirm.mockResolvedValueOnce({ ...result, providerThreadId: 'secret' } as typeof result);
   const invalid = await request(mounted).post(`${path}/joins`).set('x-operator', 'yes').send(input);
   expect(invalid.status).toBe(503);

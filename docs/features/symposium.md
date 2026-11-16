@@ -1,9 +1,46 @@
 # Symposium: current direction and source guide
 
-Updated 12 November 2026. Start here for Symposium product work.
+Updated 16 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
+
+## Shared composer repair — 16 November 2026
+
+Dimitri requested one cohesive repair, retaining the default-repository work.
+Ordinary shared chats use inline recipient buttons and @ without a popup.
+One Stop action targets the selected agents through their original command owners;
+Steer sends exact-command corrections and retains independent per-agent receipts.
+Uncertain sends and corrections remain recoverable without preventing work with
+unrelated selected agents. Reload never automatically replays these controls.
+Screenshot attachments use ordinary previews and the native image delivery path.
+Replies identify their agent inside the bubble with its stable accent and recorded
+timestamp. Status notices update in place in the existing composer status rail.
+
+This is source implementation, not production activation. The context inspector
+feature `05f51bcee39031b1` and UI slice `5e5b6f6cbc37df2e` remain unfinished;
+this repair preserves the existing context wheel and its explicit original-agent
+usage owner. It does not invent usage measurements for other agents. See
+[the validation record](../evidence/symposium-shared-composer-2026-11-16.md).
+
+## Configured default repository — 16 November 2026
+
+Dimitri explicitly requested that Add agent start in the configured ordinary
+default repository (mgmt on this installation), without requiring another repository
+choice. The existing compact Where it runs row keeps alternate repository selection.
+The public review intent distinguishes the default from an explicit preparation;
+an invalid or missing explicit preparation never silently becomes a default.
+The server uses ordinary account/runtime qualification and primary-repository
+selection, then freezes its concrete preparation in the review. An exact retry
+recovers that preparation, and editing the joining brief retains it. No source-chat
+directory, session or command is borrowed. Joining and review start no inference.
+The ordinary preparation/admission owners continue to govern task isolation,
+knowledge context and later repository changes; this does not expand filesystem
+permissions or qualify additional engines/environments.
+
+Focused offline regression evidence covers default selection, exact retry and brief
+edits, explicit alternate intent, missing defaults and unsupported environments.
+Source landing, rendered verification and production acceptance remain separate.
 
 ## Phone repair candidate — 13 November 2026
 

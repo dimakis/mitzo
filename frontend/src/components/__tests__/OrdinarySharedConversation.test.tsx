@@ -83,7 +83,27 @@ function fixture(
   };
   const sends: CollaborationMessageInput[] = [];
   const stops: CollaborationMessageInput[] = [];
+  const steers: { sessionId: string; input: { requestId: string; targetCommandId: string } }[] = [];
+  const agentStops: { targets: { sessionId: string; deliveryId: string; commandId: string }[] }[] =
+    [];
   const transport = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/codex-queue/steer')) {
+      const input = JSON.parse(init!.body as string);
+      steers.push({ sessionId: url.split('/')[3], input });
+      return Response.json({ requestId: input.requestId, status: 'accepted' });
+    }
+    if (url.endsWith('/agents/stop')) {
+      const input = JSON.parse(init!.body as string);
+      agentStops.push(input);
+      return Response.json({
+        requestId: input.requestId,
+        recipients: input.targets.map((target: { sessionId: string; deliveryId: string }) => ({
+          sessionId: target.sessionId,
+          deliveryId: target.deliveryId,
+          status: 'requested',
+        })),
+      });
+    }
     if (url.includes('/telos/work/links') || url.includes('/symposium/profile-proposals'))
       return Response.json([]);
     if (url.includes('/symposium/status'))
@@ -206,6 +226,8 @@ function fixture(
     tree,
     sends,
     stops,
+    steers,
+    agentStops,
     transport,
     ordinarySend,
     ordinaryStop,
@@ -245,15 +267,62 @@ it('keeps the original named agent as the explicit initial recipient', async () 
   render(f.tree());
   const trigger = await screen.findByRole('button', { name: 'Choose who replies' });
   await waitFor(() => expect(trigger.title).toContain('Original architect'));
-  expect(trigger.textContent).toBe('');
-  fireEvent.click(trigger);
+  expect(trigger.textContent).toBe('@');
   expect(
-    (screen.getByRole('checkbox', { name: 'Original architect' }) as HTMLInputElement).checked,
-  ).toBe(true);
-  expect((screen.getByRole('checkbox', { name: 'Reviewer' }) as HTMLInputElement).checked).toBe(
-    false,
-  );
+    screen
+      .getByRole('button', { name: 'Original architect', exact: true })
+      .getAttribute('aria-pressed'),
+  ).toBe('true');
+  expect(
+    screen.getByRole('button', { name: 'Reviewer', exact: true }).getAttribute('aria-pressed'),
+  ).toBe('false');
+  expect(screen.queryByRole('group', { name: 'Who replies to this prompt' })).toBeNull();
   expect(f.sends).toHaveLength(0);
+});
+
+it('uses one targeted Stop and Steer for multiple running agents while keeping inline selection and the same composer', async () => {
+  const f = fixture(false, undefined, 'Architect');
+  f.view.messages = [structuredClone(sharedConversationView().messages[0])];
+  f.view.messages[0].deliveries
+    .filter((delivery) => delivery.purpose === 'reply')
+    .forEach((delivery) => {
+      delivery.status = 'delivered';
+      delivery.reason = null;
+    });
+  const source = {
+    ...chat,
+    running: true,
+    messages: [
+      ...chat.messages,
+      {
+        messageId: 'ordinary-architect',
+        role: 'user' as const,
+        commandState: 'running' as const,
+        blocks: [
+          { blockId: 'active', blockType: 'text' as const, content: 'Original active request' },
+        ],
+      },
+    ],
+  };
+  render(f.tree(source));
+  await screen.findByRole('group', { name: 'Reply recipients' });
+  fireEvent.click(screen.getByRole('button', { name: 'Reviewer', exact: true }));
+  const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+  fireEvent.change(input, { target: { value: 'Check the UI before continuing' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Steer Architect, Reviewer' }));
+  await waitFor(() => expect(f.steers).toHaveLength(2));
+  expect(f.steers.map((request) => request.sessionId)).toEqual(['architect', 'reviewer']);
+  expect(new Set(f.steers.map((request) => request.input.targetCommandId)).size).toBe(2);
+  expect(screen.queryByRole('button', { name: 'Stop original agent' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Stop generation' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Stop Architect, Reviewer' }));
+  await waitFor(() => expect(f.agentStops).toHaveLength(2));
+  expect(
+    f.agentStops.flatMap((request) => request.targets.map((target) => target.sessionId)),
+  ).toEqual(['architect', 'reviewer']);
+  expect(f.ordinaryStop).not.toHaveBeenCalled();
+  expect(f.sends).toHaveLength(0);
+  expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
 });
 
 it('retains the original context wheel, microphone and resource controls through sharing and responsive qualification', async () => {
@@ -265,11 +334,9 @@ it('retains the original context wheel, microphone and resource controls through
   f.join();
   await poll();
   const recipients = await screen.findByRole('button', { name: 'Choose who replies' });
-  expect(recipients.textContent).toBe('');
-  fireEvent.click(recipients);
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Architect' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+  expect(recipients.textContent).toBe('@');
+  fireEvent.click(screen.getByRole('button', { name: 'Architect', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reviewer', exact: true }));
   const release = f.delayStatus();
   h.rerender(f.tree({ ...chat, running: true }, 'desktop', false));
   expect(screen.getByRole('textbox')).toBe(input);
@@ -327,15 +394,15 @@ it('retains the shared composer and transcript while a resized page requalifies 
   expect(screen.getByText('Ordinary history before joining')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Choose who replies' })).toBeTruthy();
   expect(f.sends).toHaveLength(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Current agent' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Current agent', exact: true }));
   await waitFor(() =>
     expect(
-      (screen.getByRole('checkbox', { name: 'Current agent' }) as HTMLInputElement).checked,
-    ).toBe(false),
+      screen
+        .getByRole('button', { name: 'Current agent', exact: true })
+        .getAttribute('aria-pressed'),
+    ).toBe('false'),
   );
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reviewer', exact: true }));
   await waitFor(() =>
     expect(
       (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
@@ -381,7 +448,9 @@ it('keeps the actual ordinary transcript and composer mounted through joining an
   rerender(f.tree({ ...chat, running: true }));
   expect(screen.getByRole('textbox')).toBe(input);
   expect(screen.getByRole('button', { name: 'Choose who replies' })).toBe(recipients);
-  expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(false);
+  expect(
+    screen.getByRole('button', { name: 'Send to Current agent' }).hasAttribute('disabled'),
+  ).toBe(false);
   expect(screen.getByText('Ordinary history before joining')).toBeTruthy();
   expect(
     f.transport.mock.calls
@@ -390,7 +459,7 @@ it('keeps the actual ordinary transcript and composer mounted through joining an
   ).toBe(true);
 });
 
-it('retains ordinary attachments with a precise shared-route limitation and keeps Terminal navigation', async () => {
+it('retains ordinary attachment previews and enables screenshot delivery while keeping Terminal navigation', async () => {
   const draft = {
     ...createChatDraft(),
     text: 'Draft with retained attachment',
@@ -409,8 +478,14 @@ it('retains ordinary attachments with a precise shared-route limitation and keep
   await screen.findByRole('button', { name: 'Choose who replies' });
   expect(screen.getByRole('textbox')).toBe(input);
   expect(screen.getByRole('img', { name: 'Attachment 1' })).toBe(image);
-  await screen.findByText(/This shared route supports text and reviewed prompt context/);
-  expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true);
+  expect(
+    screen.queryByText(/This shared route supports text and reviewed prompt context/),
+  ).toBeNull();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
   expect(screen.queryByRole('button', { name: 'Refresh conversation' })).toBeNull();
   expect(screen.getByRole('link', { name: 'Terminal' }).getAttribute('href')).toBe(
     '/terminal?sessionId=architect',
@@ -471,7 +546,7 @@ it('merges rich original history, source echoes and authorized live/final replie
 });
 
 it.each(['selected', 'default'] as const)(
-  'preserves saved %s empty intent and opens the picker as its recovery action',
+  'preserves saved %s empty intent and focuses inline recipients as its recovery action',
   async (kind) => {
     const f = fixture();
     saveChatDraft({
@@ -487,7 +562,7 @@ it.each(['selected', 'default'] as const)(
     });
     render(f.tree());
     const trigger = (await screen.findAllByRole('button', { name: 'Choose who replies' })).find(
-      (button) => button.classList.contains('composer-responders-trigger'),
+      (button) => button.getAttribute('data-responder-trigger') === 'inline',
     )!;
     expect(
       getChatDraft('shared:' + f.view.collaborationId)?.settings.collaborationResponders
@@ -497,9 +572,9 @@ it.each(['selected', 'default'] as const)(
     const choose = await screen.findAllByRole('button', { name: 'Choose who replies' });
     expect(choose.length).toBeGreaterThan(1);
     fireEvent.click(choose.find((button) => button !== trigger)!);
-    const picker = screen.getByRole('group', { name: 'Who replies to this prompt' });
-    fireEvent.click(within(picker).getByRole('checkbox', { name: 'Current agent' }));
-    fireEvent.click(within(picker).getByRole('button', { name: 'Done choosing replies' }));
+    const picker = screen.getByRole('group', { name: 'Reply recipients' });
+    fireEvent.click(within(picker).getByRole('button', { name: 'Current agent', exact: true }));
+    expect(screen.queryByRole('group', { name: 'Who replies to this prompt' })).toBeNull();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
         false,
@@ -512,6 +587,7 @@ it.each(['selected', 'default'] as const)(
     const identity = f.sends[0].requestId;
     f.fail();
     fireEvent.click(await screen.findByRole('button', { name: 'Check original request' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
     await waitFor(() =>
       expect(screen.getByText('Offline: retained discussion read failed')).toBeTruthy(),
     );
@@ -562,10 +638,13 @@ it('keeps explicit routing and retained send/Stop identity when the selected par
   h.rerender(f.tree({ ...chat, running: true }));
   expect(screen.getByRole('textbox')).toBe(input);
   expect(screen.getByRole('button', { name: 'Choose who replies' }).title).toContain('Unavailable');
-  fireEvent.click(screen.getByRole('button', { name: 'Stop original agent' }));
-  expect(f.ordinaryStop).toHaveBeenCalledOnce();
-  expect(f.stops).toHaveLength(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Current agent', exact: true }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /Stop .*Current agent/ })).toBeTruthy(),
+  );
+  expect(screen.queryByRole('button', { name: 'Stop original agent' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Stop generation' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Stop .*Current agent/ }));
   await waitFor(() => expect(f.stops).toEqual([original]));
   expect(f.ordinaryStop).toHaveBeenCalledOnce();
   expect(getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend).toMatchObject({

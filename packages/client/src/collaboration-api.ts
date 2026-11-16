@@ -18,6 +18,9 @@ import {
   CollaborationMessageSchema,
   CollaborationRecipientReadinessSchema,
   CollaborationStopResultSchema,
+  CollaborationStopInputSchema,
+  CollaborationAgentStopInputSchema,
+  type CollaborationAgentStopInput,
   CollaborationProgressSchema,
   CollaborationPromptReviewInputSchema,
   CollaborationPromptReviewRequestSchema,
@@ -153,7 +156,12 @@ export class CollaborationApiClient {
     );
   }
   /** Exact original command control only. A requested Stop is not terminal proof. */
-  stopSend(id: string, input: CollaborationMessageInput, signal?: AbortSignal) {
+  stopSend(
+    id: string,
+    input: CollaborationMessageInput,
+    signal?: AbortSignal,
+    recipientSessionIds?: string[],
+  ) {
     return this.request(
       this.path(id, 'messages/stop'),
       CollaborationStopResultSchema.refine(
@@ -161,7 +169,33 @@ export class CollaborationApiClient {
         'Original Stop identity changed',
       ),
       signal,
-      { method: 'POST', body: CollaborationMessageInputSchema.parse(input) },
+      {
+        method: 'POST',
+        body: CollaborationStopInputSchema.parse({
+          ...input,
+          ...(recipientSessionIds ? { stopRecipientSessionIds: recipientSessionIds } : {}),
+        }),
+      },
+    );
+  }
+  stopAgents(id: string, input: CollaborationAgentStopInput, signal?: AbortSignal) {
+    return this.request(
+      this.path(id, 'agents/stop'),
+      CollaborationStopResultSchema.refine(
+        (result) =>
+          result.requestId === input.requestId &&
+          result.recipients.length === input.targets.length &&
+          result.recipients.every((recipient) =>
+            input.targets.some(
+              (target) =>
+                target.deliveryId === recipient.deliveryId &&
+                target.sessionId === recipient.sessionId,
+            ),
+          ),
+        'Original Stop targets changed',
+      ),
+      signal,
+      { method: 'POST', body: CollaborationAgentStopInputSchema.parse(input) },
     );
   }
   /** Observational canonical fresh-flow selection, never arbitrary first-row reuse. */

@@ -307,13 +307,23 @@ it('reviews the pinned built-in Default Mitzo without requiring a saved profile'
   expect(h.fetch).toHaveBeenCalledTimes(2);
 });
 
-it.each(['repository', 'permission', 'brief', 'account', 'agent'] as const)(
+it('captures the configured-default selector without allocating a workspace or inheriting the source directory', async () => {
+  const h = await harness(),
+    request = input();
+  delete request.setup.repositoryWorkspaceId;
+  const captured = await h.owner.captureReview(request, new AbortController().signal);
+  expect(captured.target.useDefaultRepository).toBe(true);
+  expect(captured.target.repositoryWorkspaceId).toBeUndefined();
+  expect(captured.target.permissionMode).toBe('ask');
+  expect(h.fetch).toHaveBeenCalledTimes(2);
+  expect(h.fetch.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+});
+
+it.each(['permission', 'brief', 'account', 'agent'] as const)(
   'refuses missing %s before any read',
   async (missing) => {
     const h = await harness(),
       request = input();
-    if (missing === 'repository')
-      delete (request.setup as Partial<typeof request.setup>).repositoryWorkspaceId;
     if (missing === 'permission')
       delete (request.setup as Partial<typeof request.setup>).permissionMode;
     if (missing === 'brief') delete (request as Partial<typeof request>).joiningBrief;

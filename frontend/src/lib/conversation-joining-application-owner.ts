@@ -56,7 +56,9 @@ export function createConversationJoiningApplicationOwner(options: {
         model: setup.selection?.model,
         reasoningEffort: setup.selection?.reasoningEffort ?? null,
         agent: setup.agent,
-        repositoryWorkspaceId: setup.repositoryWorkspaceId,
+        ...(setup.repositoryWorkspaceId
+          ? { repositoryWorkspaceId: setup.repositoryWorkspaceId }
+          : { useDefaultRepository: true }),
         permissionMode: setup.permissionMode,
       });
       const selection = selectionIntent.parse({

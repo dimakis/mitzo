@@ -13,6 +13,10 @@ export function conversationMessages(view: CollaborationView): FinishedMessage[]
     messageId: message.projectionId,
     startedSeq: message.sequence,
     role: message.author === 'operator' ? 'user' : 'assistant',
+    ...(message.recordedAt !== undefined ? { timestamp: message.recordedAt } : {}),
+    ...(message.images?.length
+      ? { images: message.images.map((image) => `data:${image.mediaType};base64,${image.data}`) }
+      : {}),
     blocks: [{ blockId: `${message.projectionId}:text`, blockType: 'text', content: message.text }],
   }));
 }

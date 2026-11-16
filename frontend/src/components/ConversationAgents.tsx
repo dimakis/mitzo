@@ -51,6 +51,7 @@ const initial = (): ConversationAgentSetup => ({
   runOn: 'local',
   selection: null,
   agent: defaultAgent,
+  permissionMode: 'agent',
 });
 
 /** Presentation shared by ordinary and retained conversations. No allocation or dispatch.
@@ -157,16 +158,13 @@ function ConversationAgentsBody({
             ? 'Choose an account and model.'
             : profileReason
               ? profileReason
-              : joiningOwner.kind === 'application' &&
-                  (!setup.repositoryWorkspaceId || !setup.permissionMode)
-                ? 'Choose a repository in Where it runs.'
-                : undefined;
+              : undefined;
   const updateSelection = (selection: ConversationAgentSetup['selection']) =>
     setSetup((s) => ({
       ...s,
       selection,
       ...(s.selection?.accountId !== selection?.accountId || s.selection?.model !== selection?.model
-        ? { repositoryWorkspaceId: undefined, permissionMode: undefined }
+        ? { repositoryWorkspaceId: undefined, permissionMode: 'agent' as const }
         : {}),
     }));
   useLayoutEffect(() => {
@@ -531,7 +529,7 @@ function ConversationAgentsBody({
                   <QuickSettingsField
                     page="execution"
                     title="Where it runs"
-                    value={`${setup.runOn === 'local' ? 'Mac host' : 'OpenShell'}${joiningOwner?.kind === 'application' && !setup.repositoryWorkspaceId ? ' · Choose repository' : ''}`}
+                    value={`${setup.runOn === 'local' ? 'Mac host' : 'OpenShell'}${joiningOwner?.kind === 'application' && !setup.repositoryWorkspaceId ? ' · Default repository' : ''}`}
                   >
                     <fieldset className="conversation-agent-run-on">
                       <legend>Run on</legend>
@@ -547,7 +545,7 @@ function ConversationAgentsBody({
                                 ...s,
                                 runOn,
                                 repositoryWorkspaceId: undefined,
-                                permissionMode: undefined,
+                                permissionMode: 'agent',
                               }))
                             }
                           />
@@ -558,7 +556,13 @@ function ConversationAgentsBody({
                     </fieldset>
                     <div className="conversation-agent-field">
                       <span>Repository</span>
-                      <strong>{repository || 'Not selected'}</strong>
+                      <strong>
+                        {joiningOwner?.kind === 'application'
+                          ? setup.repositoryWorkspaceId
+                            ? 'Selected repository'
+                            : 'Configured default repository'
+                          : repository || 'Not selected'}
+                      </strong>
                     </div>
                     {joiningOwner?.kind === 'application' && (
                       <ConversationRepositoryPicker

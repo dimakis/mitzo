@@ -1794,14 +1794,19 @@ through status qualification; its routing updates independently of source activi
 An exact current send's correlated assignment or fork transfers the existing input,
 later edits and remaining queued prompts. Unrelated navigation retires that input's
 dispatch fence; late assignments cannot transfer it to another conversation. The
-original agent's Stop and a retained shared request's Stop keep separate owners,
-including when a reviewer request is uncertain while the original agent runs.
+original agent's Stop and a retained shared request's Stop keep separate owners
+behind one selected-agent Stop action, including when a reviewer request is
+uncertain while the original agent runs. Selected running agents can receive
+an exact-command correction through Steer; each agent retains its own receipt.
 The initial explicit recipient remains the original agent. Saved empty choices stay
-empty, with Choose who replies opening the existing picker. Unsupported shared
-attachments remain available to remove with a precise explanation. Refresh checks
+empty, with Choose who replies focusing the inline recipient controls. Screenshot
+attachments retain ordinary paste, preview and delivery behavior. Refresh checks
 stale state; uncertain sends and Stop keep their original request identity.
-The ordinary shared recipient trigger remains icon-only; names and unavailable
-selection details remain in its picker, tooltip and accessible description. Keep
+The ordinary shared recipient trigger displays @; names and unavailable
+selections remain visible in the shared toolbar without a popup. An uncertain
+request prevents conflicting delivery to its recipients while other agents remain
+selectable. Replies integrate the agent name and stable agent accent inside their
+existing bubble; timestamps use recorded source time. Keep
 the existing microphone, resources, tools and context wheel mounted. Until
 per-agent usage is available, the wheel identifies its original agent explicitly;
 changing reply recipients must never relabel that agent's usage as another's.
@@ -1823,8 +1828,11 @@ review button. The ordinary application setup now reuses the compact settings ro
 and `QuickSettingsChoices` within its own navigation scope. Name and purpose appear
 first; Agent, Account, Model, Thinking, Where it runs and Starting context open their
 existing editors on request. Back, Done and Escape return to the originating row.
-Repository preparation is required before review, with the missing choice explained
-beside the action. The built-in Default Mitzo selection is pinned explicitly before
+The configured ordinary default repository is used without a separate repository
+choice (Dimitri's explicit correction, 16 November 2026). The server resolves a
+fresh account-bound preparation before freezing the review; an alternate repository
+remains optional in Where it runs. Missing defaults or unavailable preparation keep
+the review visibly unavailable. The built-in Default Mitzo selection is pinned explicitly before
 capture; an empty library selection must never stand in for that reviewed identity.
 Legacy retained/reference surfaces preserve their existing owner and expanded fields.
 

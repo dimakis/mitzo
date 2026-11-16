@@ -18,6 +18,51 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
+it('retains an uncertain request while allowing a disjoint recipient to receive a new explicit prompt', async () => {
+  const view = sharedConversationView(),
+    draft = createChatDraft();
+  saveChatDraft({ ...draft, text: 'Keep draft' });
+  const api = new CollaborationApiClient(vi.fn());
+  vi.spyOn(api, 'recipientReadiness').mockImplementation(async (_group, sessionId) => ({
+    collaborationId: view.collaborationId,
+    sessionId,
+    membershipRevision: view.membershipRevision,
+    policySequence: view.policySequence,
+    ready: true,
+    reason: null,
+  }));
+  vi.spyOn(api, 'observeSend').mockResolvedValue({ message: null, terminal: false });
+  const send = vi.spyOn(api, 'send').mockRejectedValue(Error('Acknowledgement lost'));
+  const options = {
+    api,
+    view,
+    draftId: draft.id,
+    authScope: 'login',
+    getVerifiedAuthScope: () => 'login',
+    responders: { kind: 'selected' as const, sessionIds: ['architect'] },
+    refresh: async () => view,
+  };
+  const h = renderHook((props) => useConversationSending(props), { initialProps: options });
+  await waitFor(() => expect(h.result.current.disabledReason).toBeUndefined());
+  await act(async () => {
+    await h.result.current.send('First exact request');
+  });
+  const original = getChatDraft(draft.id)!.collaborationSend!;
+  h.rerender({ ...options, responders: { kind: 'selected', sessionIds: ['reviewer'] } });
+  await waitFor(() => expect(h.result.current.disabledReason).toBeUndefined());
+  await act(async () => {
+    await h.result.current.send('Independent reviewer request');
+  });
+  expect(send).toHaveBeenCalledTimes(2);
+  expect(getChatDraft(draft.id)!.collaborationSends).toContainEqual(original);
+  expect(getChatDraft(draft.id)!.collaborationSend!.input.text).toBe(
+    'Independent reviewer request',
+  );
+  h.rerender(options);
+  await waitFor(() => expect(h.result.current.disabledReason).toContain('original request'));
+  expect(send).toHaveBeenCalledTimes(2);
+});
+
 it('consumes an exact prompt attachment after observing a lost accepted receipt without repeating delivery', async () => {
   const view = sharedConversationView();
   const draft = createChatDraft();

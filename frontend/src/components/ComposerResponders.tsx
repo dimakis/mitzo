@@ -3,6 +3,8 @@ import type { CollaborationMessageInput } from '@mitzo/protocol';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import './ComposerResponders.css';
+import { seatAccentColor } from '../lib/seat-color';
+import type { CSSProperties } from 'react';
 
 export interface ComposerResponderSelection {
   members: { id: string; name: string; repliesByDefault?: boolean; unavailableReason?: string }[];
@@ -16,8 +18,117 @@ export interface ComposerResponderSelection {
   disabled?: boolean;
   /** Ordinary shared toolbar keeps names in the picker and accessible summary. */
   iconOnly?: boolean;
+  /** Shared conversations use direct recipient controls, without a popover. */
+  inline?: boolean;
 }
-export function ComposerResponders({
+type ResponderProps = {
+  selection: ComposerResponderSelection;
+  text: string;
+  onTextChange(text: string): void;
+  input: RefObject<HTMLTextAreaElement | null>;
+  onOpenChange(open: boolean): void;
+};
+export function ComposerResponders(props: ResponderProps) {
+  return props.selection.inline ? (
+    <InlineComposerResponders {...props} />
+  ) : (
+    <PopoverComposerResponders {...props} />
+  );
+}
+function InlineComposerResponders({ selection, text, onTextChange, input }: ResponderProps) {
+  const mention = /(?:^|\s)@([\p{L}\p{N}_-]*)$/u.exec(text);
+  const query = mention?.[1].toLowerCase() ?? '';
+  const ids =
+    selection.responders?.kind === 'all'
+      ? selection.members.map((m) => m.id)
+      : selection.responders?.kind === 'default'
+        ? selection.members.filter((m) => m.repliesByDefault).map((m) => m.id)
+        : selection.selectedIds;
+  const summary = ids
+    .map((id) => selection.members.find((member) => member.id === id)?.name ?? 'Unavailable agent')
+    .join(', ');
+  const choose = (next: string[]) => {
+    if (
+      selection.disabled ||
+      selection.onChange(next, { kind: 'selected', sessionIds: next }) === false
+    )
+      return;
+    if (mention) onTextChange(text.slice(0, text.lastIndexOf('@')));
+    input.current?.focus();
+  };
+  return (
+    <div className="composer-responders-inline" role="group" aria-label="Reply recipients">
+      <button
+        type="button"
+        className="chat-input-btn"
+        aria-label="Choose who replies"
+        disabled={selection.disabled}
+        title={`Replies: ${summary || 'No agents'} · Type @ or select agents inline`}
+        data-responder-trigger="inline"
+        onClick={() => {
+          if (!mention) onTextChange(text + (text && !/\s$/.test(text) ? ' @' : '@'));
+          input.current?.focus();
+        }}
+      >
+        @
+      </button>
+      <div className="composer-responder-names">
+        {selection.maximum !== 1 && !query && (
+          <button
+            type="button"
+            className="composer-responder-name"
+            disabled={selection.disabled}
+            aria-pressed={selection.members.length > 0 && ids.length === selection.members.length}
+            onClick={() =>
+              choose(selection.members.filter((m) => !m.unavailableReason).map((m) => m.id))
+            }
+          >
+            All
+          </button>
+        )}
+        {selection.members
+          .filter((m) => !query || m.name.toLowerCase().includes(query))
+          .map((m) => (
+            <button
+              type="button"
+              key={m.id}
+              className="composer-responder-name"
+              style={{ '--participant-color': seatAccentColor(m.id) } as CSSProperties}
+              aria-pressed={ids.includes(m.id)}
+              title={m.unavailableReason ?? m.name}
+              disabled={selection.disabled || (!!m.unavailableReason && !ids.includes(m.id))}
+              onClick={() =>
+                choose(
+                  ids.includes(m.id)
+                    ? ids.filter((id) => id !== m.id)
+                    : selection.maximum === 1
+                      ? [m.id]
+                      : [...ids, m.id],
+                )
+              }
+            >
+              {m.name}
+            </button>
+          ))}
+        {ids
+          .filter((id) => !selection.members.some((m) => m.id === id))
+          .map((id) => (
+            <button
+              type="button"
+              className="composer-responder-name"
+              key={id}
+              aria-pressed="true"
+              disabled={selection.disabled}
+              onClick={() => choose(ids.filter((other) => other !== id))}
+            >
+              Unavailable agent
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+}
+function PopoverComposerResponders({
   selection,
   text,
   onTextChange,

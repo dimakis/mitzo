@@ -138,7 +138,12 @@ for (const theme of ['dark', 'light'])
     });
     await page.getByRole('button', { name: 'Join reviewer externally' }).click();
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('');
+    await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('@');
+    const recipients = page.getByRole('group', { name: 'Reply recipients' });
+    await expect(
+      recipients.getByRole('button', { name: 'Architect', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(recipients.getByRole('button', { name: 'Reviewer', exact: true })).toBeEnabled();
     await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
     await wheel.click();
     await expect(
@@ -185,8 +190,12 @@ for (const theme of ['dark', 'light'])
     await expect(mic).toHaveAttribute('data-retained', 'original');
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
     await page.getByRole('button', { name: 'Choose who replies' }).click();
-    await page.getByRole('checkbox', { name: 'Architect', exact: true }).uncheck();
-    await page.getByRole('button', { name: 'Done choosing replies' }).click();
+    await expect(page.getByRole('group', { name: 'Who replies to this prompt' })).toHaveCount(0);
+    await expect(input).toHaveValue('Draft retained through joining and resizing @');
+    await recipients.getByRole('button', { name: 'Architect', exact: true }).click();
+    await expect(
+      recipients.getByRole('button', { name: 'Architect', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
     await page.screenshot({ path: info.outputPath(`ordinary-${theme}.png`), fullPage: true });
     expect(sends).toBe(0);

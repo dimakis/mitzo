@@ -106,6 +106,8 @@ interface Props {
   onStop: () => void;
   /** Ordinary source operation, separate from a retained shared send's Stop. */
   sourceStop?: () => void;
+  sharedControl?: { label: string; sourceSelected: boolean; sourceHandled: boolean };
+  targetedSteering?: boolean;
   onInterrupt?: (
     text: string,
     images?: ImageAttachment[],
@@ -205,7 +207,27 @@ function ChatInputOwner(props: Props) {
           ...shared.props,
           // These are independent operation owners. A retained shared request
           // (for example Reviewer's uncertain send) cannot hide source control.
-          sourceStop: props.running ? props.onStop : undefined,
+          sourceStop: shared.props.sharedControl
+            ? undefined
+            : props.running
+              ? props.onStop
+              : undefined,
+          ...(shared.props.sharedControl
+            ? {
+                running:
+                  shared.props.running ||
+                  (shared.props.sharedControl.sourceSelected && props.running),
+                onStop: () => {
+                  shared.props.onStop?.();
+                  if (
+                    shared.props.sharedControl?.sourceSelected &&
+                    !shared.props.sharedControl.sourceHandled &&
+                    props.running
+                  )
+                    props.onStop();
+                },
+              }
+            : {}),
         }
       : props;
   return sink ? (
@@ -231,6 +253,8 @@ function ChatInputContent({
   onSend,
   onStop,
   sourceStop,
+  sharedControl,
+  targetedSteering = false,
   onInterrupt,
   running,
   awaitingApproval,
@@ -1443,13 +1467,13 @@ function ChatInputContent({
   function handleInterrupt() {
     if (importPending.current?.scope === composerScope) return;
     if (
-      boundedFirstCommand ||
+      (boundedFirstCommand && !targetedSteering) ||
       previewOpen ||
       queueOperation.current ||
       sendGuard.current ||
       sendPending.current ||
       interruptPending.current ||
-      sendDisabledReason ||
+      (!targetedSteering && sendDisabledReason) ||
       !onInterrupt ||
       correctionReason
     )
@@ -1817,13 +1841,20 @@ function ChatInputContent({
             {micProps && <MicButton {...micProps} />}
             {running ? (
               <>
-                {canSend && onInterrupt && !boundedFirstCommand && (
+                {canSend && onInterrupt && (!boundedFirstCommand || targetedSteering) && (
                   <button
                     type="button"
                     className="chat-input-btn chat-input-btn--interrupt"
-                    aria-label={interruptLabel}
-                    title={sendDisabledReason ?? correctionReason ?? interruptLabel}
-                    disabled={!!sendDisabledReason || !!correctionReason || importing}
+                    aria-label={sharedControl ? `Steer ${sharedControl.label}` : interruptLabel}
+                    title={
+                      correctionReason ??
+                      (sharedControl
+                        ? `Steer ${sharedControl.label}`
+                        : (sendDisabledReason ?? interruptLabel))
+                    }
+                    disabled={
+                      (!targetedSteering && !!sendDisabledReason) || !!correctionReason || importing
+                    }
                     onClick={handleInterrupt}
                   >
                     <UiIcon name="interrupt" />
@@ -1840,14 +1871,26 @@ function ChatInputContent({
                     <UiIcon name="queue" />
                   </button>
                 )}
+                {sharedControl && (
+                  <button
+                    type="button"
+                    className="chat-input-btn chat-input-btn--send"
+                    aria-label={`Send to ${sharedControl.label}`}
+                    title={`Send to ${sharedControl.label}; busy agents queue the prompt`}
+                    disabled={!canSend || !!sendDisabledReason || importing}
+                    onClick={handleSend}
+                  >
+                    <UiIcon name="sendPrompt" />
+                  </button>
+                )}
                 <button
                   className="chat-input-btn chat-input-btn--stop"
                   onClick={() => {
                     setQueuePaused(true);
                     onStop();
                   }}
-                  aria-label="Stop generation"
-                  title="Stop generation"
+                  aria-label={sharedControl ? `Stop ${sharedControl.label}` : 'Stop generation'}
+                  title={sharedControl ? `Stop ${sharedControl.label}` : 'Stop generation'}
                 >
                   <UiIcon name="stop" />
                 </button>

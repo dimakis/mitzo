@@ -6,6 +6,7 @@ import {
 import { SessionRuntimeBindingV2Schema } from './session-runtime-binding.js';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
 import { AgentProfileSelectionSchema } from './agent-library.js';
+import { ChatImagesSchema } from './chat-input-limits.js';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 const sequence = z
@@ -120,15 +121,21 @@ export const CollaborationSnapshotSelectionSchema = z.strictObject({
  * and the unused prepared workspace; these selectors confer no capacity or send right. */
 export const CollaborationApplicationReviewInputSchema = z.strictObject({
   selection: CollaborationSnapshotSelectionSchema,
-  target: z.strictObject({
-    runOn: z.enum(['local', 'openshell']),
-    accountId: id,
-    model: id,
-    reasoningEffort: id.nullable(),
-    agent: AgentProfileSelectionSchema.nullable(),
-    repositoryWorkspaceId: id,
-    permissionMode: OrdinaryLocalCommandSelectionSchema.shape.permission.shape.mode,
-  }),
+  target: z
+    .strictObject({
+      runOn: z.enum(['local', 'openshell']),
+      accountId: id,
+      model: id,
+      reasoningEffort: id.nullable(),
+      agent: AgentProfileSelectionSchema.nullable(),
+      repositoryWorkspaceId: id.optional(),
+      useDefaultRepository: z.literal(true).optional(),
+      permissionMode: OrdinaryLocalCommandSelectionSchema.shape.permission.shape.mode,
+    })
+    .refine(
+      (target) => Boolean(target.repositoryWorkspaceId) !== Boolean(target.useDefaultRepository),
+      'Choose the ordinary default or one prepared repository',
+    ),
   previousSnapshot: CollaborationSnapshotReferenceSchema.optional(),
 });
 export type CollaborationApplicationReviewInput = z.infer<
@@ -151,6 +158,7 @@ export const CollaborationMessageInputSchema = z.strictObject({
   ...request,
   expectedPolicySequence: sequence,
   text: z.string().min(1).max(100_000),
+  images: ChatImagesSchema.optional(),
   responders: z.discriminatedUnion('kind', [
     z.strictObject({ kind: z.literal('default') }),
     z.strictObject({ kind: z.literal('all') }),
@@ -158,6 +166,30 @@ export const CollaborationMessageInputSchema = z.strictObject({
   ]),
   snapshot: CollaborationSnapshotReferenceSchema.nullable(),
 });
+/** Selection narrows control of the original receipt; it cannot change its audience. */
+export const CollaborationStopInputSchema = CollaborationMessageInputSchema.extend({
+  stopRecipientSessionIds: ids.optional(),
+});
+export const CollaborationAgentStopInputSchema = z.strictObject({
+  requestId: z.uuid(),
+  expectedMembershipRevision: sequence,
+  targets: z
+    .array(
+      z.strictObject({
+        messageId: z.uuid(),
+        deliveryId: z.uuid(),
+        sessionId: id,
+        commandId: id,
+      }),
+    )
+    .min(1)
+    .max(16)
+    .refine(
+      (targets) => new Set(targets.map((target) => target.sessionId)).size === targets.length,
+      'Choose each agent once',
+    ),
+});
+export type CollaborationAgentStopInput = z.infer<typeof CollaborationAgentStopInputSchema>;
 /** Sanitized control observations; requested never means terminal or safe to replay. */
 export const CollaborationStopResultSchema = z.strictObject({
   requestId: z.uuid(),
@@ -214,6 +246,9 @@ export const CollaborationMessageSchema = z
     sequence,
     author,
     text: z.string().max(100_000),
+    images: ChatImagesSchema.optional(),
+    /** Time recorded by the shared store; absent on older retained records. */
+    recordedAt: sequence.optional(),
     forward: CollaborationForwardReferenceSchema.optional(),
     // Replies must originate in an explicitly mapped ordinary command, never all session activity.
     source: CollaborationMessageSourceSchema.nullable(),

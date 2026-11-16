@@ -92,7 +92,7 @@ it('represents unknown sharing as unknown instead of two apparently off checkbox
   expect(screen.getByText(/You can still send selected earlier messages/)).toBeTruthy();
 });
 
-it('explains missing setup and submits the pinned Default Mitzo after repository preparation', async () => {
+it('submits the pinned Default Mitzo using the configured default without opening repository settings', async () => {
   const captureReview = mount();
   const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
   fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
@@ -104,19 +104,16 @@ it('explains missing setup and submits the pinned Default Mitzo after repository
     target: { value: 'Review the plan' },
   });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Choose account and model' }));
-  expect(within(dialog).getByText('Choose a repository in Where it runs.')).toBeTruthy();
+  expect(within(dialog).getByText('Mac host · Default repository')).toBeTruthy();
   expect(
     (within(dialog).getByRole('button', { name: 'Review joining brief' }) as HTMLButtonElement)
       .disabled,
-  ).toBe(true);
+  ).toBe(false);
   const purpose = within(dialog).getByRole('textbox', { name: 'Purpose' });
   expect(
     purpose.compareDocumentPosition(within(dialog).getByText('Default Mitzo')) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  fireEvent.click(within(dialog).getByRole('button', { name: /Where it runs,/ }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Use current repository' }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   expect(
     (within(dialog).getByRole('button', { name: 'Review joining brief' }) as HTMLButtonElement)
       .disabled,
@@ -131,5 +128,26 @@ it('explains missing setup and submits the pinned Default Mitzo after repository
     }),
     expect.any(AbortSignal),
   );
+  diagnostic.mockRestore();
+});
+
+it('keeps an explicit alternate repository available in the ordinary settings editor', async () => {
+  const captureReview = mount();
+  const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  const dialog = screen.getByRole('dialog', { name: 'Add agent' });
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name in this chat' }), {
+    target: { value: 'Bob' },
+  });
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Purpose' }), {
+    target: { value: 'Review' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Choose account and model' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: /Where it runs,/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Use current repository' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Review joining brief' }));
+  await waitFor(() => expect(captureReview).toHaveBeenCalledOnce());
+  expect(captureReview.mock.calls[0][0].setup.repositoryWorkspaceId).toBe('fresh-workspace');
   diagnostic.mockRestore();
 });
