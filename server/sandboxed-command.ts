@@ -750,7 +750,8 @@ async function runSandboxedCommand(
   try {
     const home = join(temporary, 'home');
     const scratch = join(temporary, 'tmp');
-    await Promise.all([mkdir(home), mkdir(scratch)]);
+    const gitTemplate = join(temporary, 'git-template');
+    await Promise.all([mkdir(home), mkdir(scratch), mkdir(gitTemplate, { mode: 0o500 })]);
     const settings = join(temporary, 'policy.json');
     const payload: SandboxWorkerPayload = {
       cwd: options.cwd,
@@ -766,8 +767,13 @@ async function runSandboxedCommand(
       config: {
         filesystem: {
           denyRead: options.readableRoots ? ['/', ...options.deniedRoots] : options.deniedRoots,
-          allowRead: options.readableRoots ? [...options.readableRoots, home, scratch] : [],
+          allowRead: options.readableRoots
+            ? [...options.readableRoots, home, scratch, gitTemplate]
+            : [],
           allowWrite: [...options.writableRoots, ...metadataRoots, home, scratch],
+          // In-root child repositories may be initialized/cloned. Existing
+          // workspace Git authority remains fenced by protectedMetadata above.
+          ...(!privateHelper ? { allowGitConfig: true } : {}),
           // Override SRT's shared default scratch grants; each call has its own scratch.
           denyWrite: [
             ...options.deniedRoots,
@@ -817,7 +823,13 @@ async function runSandboxedCommand(
       )
         env[name] = value;
     }
-    Object.assign(env, { HOME: home, TMPDIR: scratch, CLAUDE_CODE_TMPDIR: scratch });
+    Object.assign(env, {
+      HOME: home,
+      TMPDIR: scratch,
+      CLAUDE_CODE_TMPDIR: scratch,
+      // Keep SRT's mandatory hook deny; avoid copying Git's sample hooks.
+      ...(!privateHelper ? { GIT_TEMPLATE_DIR: gitTemplate } : {}),
+    });
     let repositoryCommand: string | undefined;
     if (privateHelper?.repositoryReadJson) {
       if (options.command !== privateRepositoryObservationCommand(privateHelper.repositoryReadJson))
