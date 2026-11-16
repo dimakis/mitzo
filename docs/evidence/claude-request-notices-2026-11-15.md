@@ -98,3 +98,17 @@ Model refusal/retraction, richer context usage, background task progress and
 optional native plan-utilization displays remain separate reporting work.
 This does not fix the original iOS transcript projection failure, reconcile a
 stuck command, enable background tasks or establish full Claude parity.
+
+Accepted persistence reporting at `6d320beb1ba543773db7ca16e5825fd25c29cb6d`
+required query-loop and manifest composition. The sole production conflict was
+the two per-query deduplication sets; both remain, with the notice handler's
+existing early return limited to translated retry/rate-limit events and the
+accepted persistence handler retaining its own bounded diagnostic path. Exact
+added/removed query patches match both parents in both directions. The registry
+retains the exact 2,520-key union and all unrelated parent hashes, with one
+composed query hash. Notice translator and fixture bytes remain unchanged.
+The combined notice, persistence, query, native SDK and task consumer run passes
+194 checks across seven suites, zero failures/skips, one worker/1 GiB. Scoped
+lint, formatting, whitespace and full source fingerprints pass. This local
+composition still requires independent continuity verification and current-head
+hosted CI/trusted review; it establishes no live account or activation result.
