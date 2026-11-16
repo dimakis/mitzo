@@ -51,6 +51,18 @@ GitHub confirmed an actual conflict after accepted lifecycle commit
 integrated with only the manifest revision manually resolved; accepted recovery
 and diagnostic source and pins remain intact.
 
+Accepted transcript repair #1370 at
+`16e74da83fe6e18e3a027ea4e562cdf0afddddb6` was integrated after reproducing
+another manifest conflict. Inspected its entire original-cause retention, safe
+HTTP response and test delta. It consumes the unchanged canonical diagnostic
+owner, and changes no task receipt, query, input or cancellation contract. The
+accepted handler/tests and this PR's task-run production source remain
+byte-identical to their respective parents; only the manifest label required
+manual resolution. Existing full and correction review baselines remain intact;
+the composed transcript, retention and task consumer suites pass 18 checks
+across three files, with source pins, formatting and whitespace checks passing.
+The exact composed head still requires hosted CI and trusted follow-up.
+
 This bounded repair does not complete native task progress/update/snapshot
 reporting, resume without a verified parent, model refusal/retraction, richer
 context usage, shared auto-memory, affected-chat recovery, or live acceptance.

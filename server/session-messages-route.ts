@@ -4,6 +4,7 @@ import { beginTranscriptObservation, observeTranscriptAsync } from './transcript
 import { sendTranscriptResponse } from './transcript-response.js';
 import { TranscriptReadFailure } from './transcript-read-failure.js';
 import { createLogger } from './logger.js';
+import { retainRuntimeFailure } from './runtime-failure-diagnostics.js';
 
 const log = createLogger('session-transcript');
 
@@ -96,9 +97,11 @@ export function createSessionMessagesHandler(read: {
         await respond('messages', () => read.getMessages(sessionId));
       } catch (cause) {
         const failure = new TranscriptReadFailure(cause, variant);
-        log.warn('Session transcript unavailable', {
-          sessionId: req.params.id,
-          ...failure.telemetry(),
+        retainRuntimeFailure(failure.diagnosticId, cause, () => {
+          log.warn('Session transcript unavailable', {
+            sessionId: req.params.id,
+            ...failure.telemetry(),
+          });
         });
         res.setHeader?.('X-Mitzo-Diagnostic-Id', failure.diagnosticId);
         observation.end(true);

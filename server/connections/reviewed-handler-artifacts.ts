@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1209-claude-observed-task-runs';
+  'v1.0.1210-claude-task-transcript-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4381,7 +4381,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-local-service-tools.ts':
     'ca62e5f6d16122403aaaec4cb441bb7e22a42da5ac8181e7472899bdcdfdcc9b',
   '../session-messages-route.ts':
-    'cbfdabeca4028d1c94c825b2136bec913c07068c15b5e7129d333640c423fa74',
+    'dfacf1aad293c4f48dd7f618df653f400f3114d4be2008175b767809c6d38456',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
   '../session-model-settings.ts':
