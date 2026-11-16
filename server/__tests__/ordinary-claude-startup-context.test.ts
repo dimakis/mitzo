@@ -322,6 +322,18 @@ it('retains a cleanup failure without retrying it beside the first SDK input', a
   expect(JSON.stringify(x.sent.mock.calls)).not.toContain('PRIVATE_SEED_FAILURE');
 }, 20_000);
 
+it('releases the registered driver when retained repository restoration fails', async () => {
+  const x = await fixture(false);
+  const repositories = await import('../sdk-secondary-repository.js');
+  vi.spyOn(repositories, 'restoreSdkSecondaryRepositories').mockRejectedValue(
+    Error('PRIVATE_RESTORE_FAILURE'),
+  );
+  await expect(x.owner.admit(x.f.request)).rejects.toThrow();
+  expect(x.calls).toEqual([]);
+  expect(x.chat.registry.get('startup-context')).toBeUndefined();
+  expect(JSON.stringify(x.sent.mock.calls)).not.toContain('PRIVATE_RESTORE_FAILURE');
+}, 20_000);
+
 it('rechecks cancellation after source cleanup before creating the SDK', async () => {
   const x = await fixture(true, true);
   vi.spyOn(x.f.workspace, 'releaseSource').mockImplementation(async () => {

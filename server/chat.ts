@@ -2309,18 +2309,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
-  if (options.ordinarySdkAuthority && session.sessionId) {
-    const reopened = await restoreSdkSecondaryRepositories(
-      eventStore,
-      session.sessionId,
-      abortController.signal,
-      () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal),
-    );
-    for (const [name, entry] of reopened) {
-      session.worktreePaths.set(name, entry);
-      await retainSdkSecondaryRepositoryTask(session, eventStore, session.sessionId, entry.path);
-    }
-  }
+  // Guard the registered driver before any further await can fail.
   startupGuard.session = session;
   bindAgentToolSelection(session, agentProfile?.definition, toolRoute);
   if (options.contributorGuidance !== undefined && session.sessionId)
@@ -2368,6 +2357,21 @@ async function _startChatInner(
     if (registry.get(clientId) !== session) throw Error('Original startup owner changed');
   };
   try {
+    // Reopening retained tasks can fail on a missing or changed checkout; the
+    // startup cleanup below must then release this registered driver.
+    if (options.ordinarySdkAuthority && session.sessionId) {
+      const reopened = await restoreSdkSecondaryRepositories(
+        eventStore,
+        session.sessionId,
+        abortController.signal,
+        () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal),
+      );
+      assertStartupCurrent();
+      for (const [name, entry] of reopened) {
+        session.worktreePaths.set(name, entry);
+        await retainSdkSecondaryRepositoryTask(session, eventStore, session.sessionId, entry.path);
+      }
+    }
     const branch =
       repositoryWorkspace?.featureBranch ??
       (await readWorkspaceBranch(cwd, session.abortController.signal));
