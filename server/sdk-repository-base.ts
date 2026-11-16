@@ -9,8 +9,9 @@ import { executeSandboxedCommand } from './sandboxed-command.js';
 import { isGitBranchName } from './git-branch.js';
 import { readOnlyGitExecutable } from './read-only-git.js';
 import { joinRetainedFinalizers } from './retained-finalization.js';
-import { retainedCallbackOutcome } from './turn-callbacks.js';
+import { copyCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 import { createLogger } from './logger.js';
+import { CodexToolFailure } from './codex-tool-failure.js';
 
 const execute = promisify(execFile);
 const log = createLogger('sdk-repository-base');
@@ -65,7 +66,7 @@ export async function captureSdkRepositoryDefaultBase(
         String(source.commonRoot.ino),
       ]),
     ],
-    { signal, timeout: 5000, maxBuffer: 65536, env: { PATH: '/usr/bin:/bin' } },
+    { encoding: 'buffer', signal, timeout: 5000, maxBuffer: 65536, env: { PATH: '/usr/bin:/bin' } },
   );
   const remote = await localRepositoryRemote(config);
   const scratch = await realpath(await mkdtemp(join(tmpdir(), 'sdk-base-')));
@@ -137,11 +138,23 @@ export async function captureSdkRepositoryDefaultBase(
         { preserveScratch: true },
       );
     }
-    if (result.isError || typeof result.stdout !== 'string')
-      throw Error(
-        'Default-base acquisition failed. Use native git fetch in the admitted checkout and explicitly select the fetched ref.',
-        { cause: Error(result.stderr || result.content) },
+    if (result.isError || typeof result.stdout !== 'string') {
+      const error = Object.assign(
+        new CodexToolFailure('internal_failure', {
+          stage: 'repository_preparation',
+          reason: 'connection_unavailable',
+          effectStatus: 'completed',
+        }),
+        {
+          cause: Error(
+            'Default-base acquisition failed. Use native git fetch in the admitted checkout and explicitly select the fetched ref.',
+            { cause: Error(result.stderr || result.content) },
+          ),
+        },
       );
+      if (!signal.aborted) copyCallbackOutcome(result, error);
+      throw error;
+    }
     await assertCurrent();
     signal.throwIfAborted();
     return result.stdout.trim();

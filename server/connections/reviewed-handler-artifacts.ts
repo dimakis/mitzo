@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1238-claude-confined-default-base';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1239-claude-base-settlement';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,8 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sdk-repository-base.test.ts':
-    'a53c927151cc5401c7fced21b00f8715658ee80e05f1991e67a458218540a47a',
-  '../sdk-repository-base.ts': 'fbe212ae12fcb49580b05e75746447c9f0865f4b8c46165457e5dd10c45108a6',
+    '8e9924196da2a387446da3a44ebc6c45d7d24e94fb72765ed77aca71706d5067',
+  '../sdk-repository-base.ts': '31dead013b75c84f332dbecff869ac26890dc6f3ed66da4f5f221261741f6748',
   '../__tests__/sdk-repository-directory.test.ts':
     'c134587f0be0f5841c0d81d786d5ff4bc9b0d1c933da6e62a637c13e0a7a8e1d',
   '../sdk-repository-directory.ts':
@@ -4411,7 +4410,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../responses-input.ts': 'b4be57d3535660a31597f07b075070a90b49b2e62239916937e9316e78cc4b05',
   '../retained-application-effects.ts':
     '057755c678c291c21b0d62451152841ef0ce3ec23705792991a51c2eeb294cb0',
-  '../retained-finalization.ts': 'feb60ca4108148ada5fa687eca4d5505469a0932fbe9f9f609ff2f5f9032bde1',
+  '../retained-finalization.ts': '7a02d1828e432b48584ab95bee18a2320cd76c5dfba1a727020213c2bbd89ae6',
   '../retained-local-codex-effects.ts':
     'b62fb69e210fa76907b6801ad49ff71c7b73eb60b26f8d2670cf8f0e5cd2384d',
   '../retained-local-codex-recovery.ts':

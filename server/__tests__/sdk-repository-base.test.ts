@@ -8,7 +8,8 @@ const run = vi.hoisted(() => vi.fn());
 vi.mock('../sandboxed-command.js', () => ({ executeSandboxedCommand: run }));
 import { captureLocalRepository } from '../local-repository-worktree.js';
 import { captureSdkRepositoryDefaultBase } from '../sdk-repository-base.js';
-import { retainCallbackOutcome } from '../turn-callbacks.js';
+import { retainCallbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
+import { reportToolFailure } from '../tool-failure-reporting.js';
 const roots: string[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
@@ -84,6 +85,35 @@ it('preserves the acquisition scratch when command termination is uncertain', as
   roots.push(scratch); // No real subprocess was started by this mock.
   await expect(access(scratch)).resolves.toBeUndefined();
   expect(run).toHaveBeenCalledOnce();
+});
+it('settles a confirmed acquisition refusal through tool reporting without bricking the turn', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  run.mockResolvedValue(
+    retainCallbackOutcome(
+      { isError: true, content: '', stderr: 'remote access refused', stdout: '' },
+      'settled',
+    ),
+  );
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
+  const result = await callbacks.track(async () => {
+    try {
+      await captureSdkRepositoryDefaultBase(f.localSource, signal, async () => {});
+      throw Error('Expected acquisition refusal');
+    } catch (cause) {
+      return reportToolFailure(cause, {
+        sessionId: 'default-base',
+        tool: 'PrepareLocalRepository',
+        signal,
+      });
+    }
+  });
+  expect(result.isError).toBe(true);
+  expect(JSON.parse(result.content).diagnostic).toMatchObject({
+    stage: 'repository_preparation',
+    effectStatus: 'completed',
+  });
+  await expect(callbacks.settle(signal)).resolves.toBeUndefined();
 });
 it('fetches a new remote commit into the source object store without executing source configuration or changing source HEAD', async () => {
   const f = await fixture();
