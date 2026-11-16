@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1222-claude-retraction-consumers.5';
+  'v1.0.1223-claude-startup-source-cleanup.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/claude-repository-startup-revalidation.test.ts':
+    'd855824df23a49a76c84187bb457ec943fc2517daf9bf219ab543a9b07cb02d8',
   '../../packages/protocol/src/message-retraction-store.ts':
     '97ebfcfc83398727a4b8691fe79e181fa457e99f80b48ba6d19be9ffe1c6f7a5',
   '../__tests__/claude-retraction-public-consumers.test.ts':
@@ -70,7 +72,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-startup-context.test.ts':
     'ef9a5ed33d3f8a814bcad92e55d7681c0dbfdeca61eb9df7f5d59960bac5a5f6',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    '446353d9717465e85294c97b6f5e530ee0508b4411a6525495964dcf1d196b37',
+    '756071190463a425f42956ad53dbcaa1750b8cddb7cdb76a03672b1cd1836563',
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../frontend/src/components/LocalCommandRecovery.tsx':
@@ -2719,7 +2721,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/owned-local-codex-runtime.ts':
     '53a953645aa809bc39e37fa0e07c94fc8d82a5dc6acbf890af5afe041d2c18b8',
   '../__tests__/fixtures/owned-local-vertex-runtime.ts':
-    'cf87d8460a34cda4395ed032f493fb49e38782ee1d584971524b66abec3cad1f',
+    '07e53c7a4a10cd5fe201278f27979c7c68d7d9c75fce762e8355d3f7782ac80f',
   '../__tests__/fixtures/owned-openshell-runtime.ts':
     '035e22c156c0286f1878ad879d0cd999425d39fda675958fe162d5934cefcfec',
   '../__tests__/fixtures/owned-ordinary-workspace-runtime.ts':
@@ -3685,7 +3687,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '78029c55085f9498fbe5f7e71689f6195a81c37d9903547cd2d41bc56f376b81',
+  '../chat.ts': 'd52fdc33867ff118df530c205907a8fa6dd8978cb574d83c40cf559b3e47467e',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',

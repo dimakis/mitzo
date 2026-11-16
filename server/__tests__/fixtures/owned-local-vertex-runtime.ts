@@ -26,6 +26,7 @@ export async function ownedVertexRuntimeFixture(
     chatRoute?: boolean;
     dual?: boolean;
     ordinaryPreparation?: boolean;
+    localRepository?: boolean;
     personal?: boolean;
     anthropicApi?: boolean;
     modelIds?: readonly [string, string];
@@ -54,6 +55,10 @@ export async function ownedVertexRuntimeFixture(
     runtimeContractRevision: ordinaryLocalVertexContractRevision(),
   };
   await writeFile(targetPath, JSON.stringify(target), { mode: 0o600 });
+  if (options.localRepository) {
+    vi.stubEnv('MITZO_ORDINARY_LOCAL_VERTEX_ENABLED', '1');
+    vi.stubEnv('MITZO_ORDINARY_LOCAL_VERTEX_TARGET_FILE', targetPath);
+  }
   const configPath = join(privateRoot, 'profiles.json');
   const personalConfig = join(root, 'personal-claude');
   const personalExecutable = join(root, 'claude-fixture');
@@ -217,6 +222,7 @@ export async function ownedVertexRuntimeFixture(
     ? await import('../../ordinary-repository-preparation-authority.js')
     : undefined;
   const workspace = new RepositoryWorkspaces(join(root, 'repositories'), {
+    localRepositories: () => ({ primary: source }),
     ...(ordinaryAuthority
       ? {
           ordinaryPreparation: {
@@ -239,8 +245,36 @@ export async function ownedVertexRuntimeFixture(
   });
   cleanups.push(() => workspace.close());
   const signal = new AbortController();
-  const preview = await workspace.preview(binding, 'fixture-github', 'example/repo', signal.signal);
-  const prepared = await workspace.prepare(preview.id, binding, signal.signal);
+  const prepared = options.localRepository
+    ? await workspace.selectLocalRepository(
+        binding,
+        'primary',
+        {
+          runOn: 'local',
+          runtime: {
+            account: {
+              accountId: binding.accountId,
+              provider: options.anthropicApi
+                ? 'anthropic-api'
+                : options.personal
+                  ? 'anthropic-claude'
+                  : 'anthropic-vertex',
+              profileRevision: binding.profileRevision,
+            },
+            harness: 'claude-sdk',
+            targetId: 'local-mac',
+          },
+        },
+        signal.signal,
+        randomUUID(),
+        'HEAD',
+      )
+    : await workspace.prepare(
+        (await workspace.preview(binding, 'fixture-github', 'example/repo', signal.signal)).id,
+        binding,
+        signal.signal,
+      );
+  const proof = workspace.get(prepared.id).ordinaryPreparation;
   const reservation = {
     id: prepared.id,
     binding,
@@ -248,6 +282,7 @@ export async function ownedVertexRuntimeFixture(
       ? nativeStartupSessionId(`repository:${prepared.id}`)
       : randomUUID(),
     taskRoot,
+    ...(proof ? { runtimeBinding: proof.runtimeBinding, commandFingerprint: 'a'.repeat(64) } : {}),
     ...(options.preparationFingerprint
       ? { commandFingerprint: options.preparationFingerprint }
       : {}),

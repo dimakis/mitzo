@@ -1,4 +1,4 @@
-import './fixtures/offline-user-home.js';
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -39,7 +39,10 @@ vi.mock('../hook-bridge.js', async (original) => ({
 }));
 
 const cleanups: Array<() => void | Promise<void>> = [];
-beforeEach(() => vi.resetModules());
+beforeEach(() => {
+  resetOfflineUserEnvironment();
+  vi.resetModules();
+});
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.restoreAllMocks();
@@ -47,7 +50,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function fixture(personal: boolean) {
+async function fixture(personal: boolean, consumeInput = false) {
   const { ownedVertexRuntimeFixture } = await import('./fixtures/owned-local-vertex-runtime.js');
   const { OrdinaryLocalVertexOwnedRuntime } =
     await import('../ordinary-local-vertex-owned-runtime.js');
@@ -83,7 +86,11 @@ async function fixture(personal: boolean) {
   const library = await import('../agent-library-runtime.js');
   vi.spyOn(library, 'getAgentLibrary').mockReturnValue(f.library);
   const boundary = await import('../credential-sdk-boundary.js');
-  vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue(sdkFixtureBoundary() as never);
+  vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue({
+    ...sdkFixtureBoundary(),
+    // The protocol peer never executes project commands or inspects host roots.
+    credentialIsolation: true,
+  } as never);
   const knowledge = await import('../published-host-knowledge.js');
   const first = hostKnowledgePublication(f.root, 'a', 'Accepted shared memory');
   const second = hostKnowledgePublication(f.root, 'b', 'Next accepted shared memory');
@@ -93,6 +100,8 @@ async function fixture(personal: boolean) {
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const calls: Options[] = [];
   const streams: AsyncQueue<Record<string, unknown>>[] = [];
+  const inputs: unknown[] = [];
+  const inputFailures: unknown[] = [];
   vi.mocked(query).mockImplementation((request) => {
     calls.push(request.options!);
     const events = new AsyncQueue<Record<string, unknown>>();
@@ -108,6 +117,25 @@ async function fixture(personal: boolean) {
       events.close();
       close();
     };
+    peer.accountInfo = async () => ({
+      apiProvider: 'firstParty',
+      email: 'person@example.test',
+      subscriptionType: 'Claude Max',
+    });
+    if (consumeInput) {
+      if (typeof request.prompt === 'string') throw Error('Expected guarded SDK input');
+      void request.prompt[Symbol.asyncIterator]()
+        .next()
+        .then(
+          (result) => {
+            if (!result.done) inputs.push(result.value);
+          },
+          (error: unknown) => {
+            inputFailures.push(error);
+            events.close();
+          },
+        );
+    }
     return peer;
   });
   const chat = await import('../chat.js');
@@ -186,6 +214,10 @@ async function fixture(personal: boolean) {
               );
             },
             inputObserved: () => {},
+            assertInputCurrent: (id: string) => {
+              owner.assertStart(id);
+              return true;
+            },
             messageStarted: () => {},
             resultObserved: async () => {},
             activeCommandId: () => currentCommand,
@@ -219,7 +251,20 @@ async function fixture(personal: boolean) {
     await Promise.allSettled(tasks);
     chat.eventStore.close();
   });
-  return { f, calls, streams, owner, chat, sent, first, second, reconcile, restorePublication };
+  return {
+    f,
+    calls,
+    streams,
+    inputs,
+    inputFailures,
+    owner,
+    chat,
+    sent,
+    first,
+    second,
+    reconcile,
+    restorePublication,
+  };
 }
 it.each(['unavailable', 'invalid'] as const)(
   'reports an enrolled publication %s through actual startup without creating a provider',
@@ -239,6 +284,54 @@ it.each(['unavailable', 'invalid'] as const)(
   },
   20_000,
 );
+
+it.each([false, true])(
+  'settles source cleanup before creating the SDK that can consume its first input, personal=%s',
+  async (personal) => {
+    const x = await fixture(personal, true);
+    const release = x.f.workspace.releaseSource.bind(x.f.workspace);
+    const providerCounts: number[] = [];
+    vi.spyOn(x.f.workspace, 'releaseSource').mockImplementation(async (...args) => {
+      providerCounts.push(x.calls.length);
+      await release(...args);
+    });
+    await x.owner.admit(x.f.request);
+    expect(providerCounts).toEqual([0]);
+    expect(x.f.workspace.get(x.f.reservation.id).sourceReleased).toBe(true);
+    expect(x.calls).toHaveLength(1);
+    await vi.waitFor(() =>
+      expect({ inputs: x.inputs.length, failures: x.inputFailures }).toEqual({
+        inputs: 1,
+        failures: [],
+      }),
+    );
+  },
+  20_000,
+);
+
+it('retains a cleanup failure without retrying it beside the first SDK input', async () => {
+  const x = await fixture(true, true);
+  const release = vi
+    .spyOn(x.f.workspace, 'releaseSource')
+    .mockRejectedValue(Error('PRIVATE_SEED_FAILURE'));
+  await x.owner.admit(x.f.request);
+  await vi.waitFor(() => expect(x.inputs).toHaveLength(1));
+  expect(x.inputFailures).toEqual([]);
+  expect(release).toHaveBeenCalledOnce();
+  expect(x.f.workspace.get(x.f.reservation.id).sourceReleased).not.toBe(true);
+  expect(JSON.stringify(x.sent.mock.calls)).not.toContain('PRIVATE_SEED_FAILURE');
+}, 20_000);
+
+it('rechecks cancellation after source cleanup before creating the SDK', async () => {
+  const x = await fixture(true, true);
+  vi.spyOn(x.f.workspace, 'releaseSource').mockImplementation(async () => {
+    x.f.signal.abort(Error('PRIVATE_CANCEL_REASON'));
+  });
+  await expect(x.owner.admit(x.f.request)).rejects.toThrow();
+  expect(x.calls).toEqual([]);
+  expect(x.inputs).toEqual([]);
+  expect(JSON.stringify(x.sent.mock.calls)).not.toContain('PRIVATE_CANCEL_REASON');
+}, 20_000);
 
 it('retains the explicit empty boot fallback when ContexGin is unavailable while delivering verified project/publication context', async () => {
   const x = await fixture(false);
