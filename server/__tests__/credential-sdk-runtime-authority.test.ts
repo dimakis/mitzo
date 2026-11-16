@@ -97,13 +97,13 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function sdkPayload(env: NodeJS.ProcessEnv = {}) {
+function sdkPayload(env: NodeJS.ProcessEnv = {}, cwd = join(root, 'work')) {
   const boundary = credentialSdkBoundary('darwin');
   expect(boundary).toBeDefined();
   boundary!.spawnClaudeCodeProcess({
     command: process.execPath,
     args: ['-e', "throw new Error('fixture must never execute')"],
-    cwd: join(root, 'work'),
+    cwd,
     env,
     signal: new AbortController().signal,
   });
@@ -134,6 +134,21 @@ it.each(['0', '1'])(
     expect(template).not.toBe('/untrusted/template');
     expect(payload.config.filesystem.allowRead).toContain(template);
     expect(payload.config.filesystem.denyWrite).toContain(dirname(template));
+  },
+);
+
+it.each(['0', '1'])(
+  'canonicalizes an actual symlink cwd for both worker handoffs (Keychain %s)',
+  (enabled) => {
+    vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', enabled);
+    const alias = join(root, 'work-link');
+    symlinkSync(join(root, 'work'), alias);
+    const payload = sdkPayload({}, alias);
+    const captured = realpathSync(alias);
+    expect(payload.cwd).toBe(captured);
+    expect(payload.sdkGitWorkRoot).toBe(captured);
+    expect(payload.authority).toContainEqual(expect.objectContaining({ path: captured }));
+    expect(vi.mocked(spawn).mock.calls.at(-1)![2]?.cwd).toBe(captured);
   },
 );
 
@@ -176,6 +191,8 @@ it
         join(directory, '.git', 'config'),
       );
       const before = protectedConfigs.map((path) => readFileSync(path, 'utf8'));
+      const launchAlias = join(root, 'work-link');
+      symlinkSync(join(root, 'work'), launchAlias);
       const run = createProtectedSdkCommandRunner(credentialSdkBoundary('darwin')!);
       const script = `
       const fs = require('node:fs'), cp = require('node:child_process');
@@ -208,7 +225,7 @@ it
     `;
       expect(
         await run(process.execPath, ['-e', script], {
-          cwd: join(root, 'work'),
+          cwd: launchAlias,
           env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: join(root, 'work') },
           timeout: 20000,
         }).catch((cause: Error & { stderr?: string; code?: unknown }) => {

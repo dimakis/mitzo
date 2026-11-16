@@ -230,7 +230,7 @@ function createSdkBoundary(
           if (/^MITZO_.*(?:TOKEN|SECRET|CAPABILITY|PASSPHRASE)$/.test(name)) delete targetEnv[name];
       }
       const payload: SandboxWorkerPayload = {
-        cwd: options.cwd ?? process.cwd(),
+        cwd: gitWorkRoot,
         command: [options.command, ...options.args].map(quote).join(' '),
         authority: authority.serialize(),
         sdkGitWorkRoot: gitWorkRoot,
@@ -299,7 +299,7 @@ function createSdkBoundary(
       try {
         authority.verify();
         child = spawn(process.execPath, [...workerArgs, policy], {
-          cwd: options.cwd,
+          cwd: gitWorkRoot,
           env: {
             PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
             HOME: homedir(),
