@@ -1074,7 +1074,20 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             const structuralActions = liveActions.filter(
               (action) => action.type !== 'MESSAGE_RETRACTED',
             );
+            // A completed canonical row seeds later incremental events even
+            // when the view still has an older streaming copy of that owner.
+            const hasCanonicalCurrent =
+              !!s.messages.current &&
+              msgs.some(
+                (message) =>
+                  messageIdentity(message.messageId, message.symposiumProvenance) ===
+                  messageIdentity(
+                    s.messages.current!.messageId,
+                    s.messages.current!.symposiumProvenance,
+                  ),
+              );
             const liveCurrentChanged =
+              !hasCanonicalCurrent &&
               s.messages.current !== initialCurrent &&
               (liveActions.length === 0 ||
                 sequencedCurrentChanged ||
@@ -1145,12 +1158,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               : restoredContent;
             if (appliedCursor === undefined) return { messages: restored };
             const preserveLiveCurrent = liveCurrentChanged && !sequencedCurrentChanged;
-            // Rebuild live completed turns from the captured suffix so their
-            // order and blocks are applied once after the durable prefix.
+            // Only a full-row constructor can replace its canonical seed.
+            // Tool/block/end deltas must update the known row, never erase it
+            // before an incremental action that cannot reconstruct its parent.
             const replayedIds = new Set(
               structuralActions.flatMap((action) => {
                 if (
-                  !['COMMAND_STATE', 'REPLY_SOURCE', 'MESSAGE_REPLY'].includes(action.type) &&
+                  ['MESSAGE_START', 'MESSAGE_SNAPSHOT', 'USER_MESSAGE_RECEIVED'].includes(
+                    action.type,
+                  ) &&
                   'messageId' in action &&
                   typeof action.messageId === 'string'
                 )

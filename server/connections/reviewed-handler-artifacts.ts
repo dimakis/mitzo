@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1217-claude-retraction-metadata-recovery';
+  'v1.0.1218-claude-retraction-incremental-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-conversation-source.test.ts':
     'aac21cf810a4d873dbef041c84f2ad2c92686c664f6d6e9e2ccd0cd64b88865c',
   '../__tests__/retraction-refresh-consumer.test.ts':
-    '0be7ebeda9b4a97d8e2207965a129f73fe619eee285db27931b9ea313b14aa64',
+    'c1e54e783321436429ed41c1df71adb20e680680b50d22a07df4e3dddaca0a3f',
   '../../packages/protocol/src/message-retraction.ts':
     '1a20295dd6b3348d5a2f30a01ec5db1b9c62f36d5ffa479d326560e7bbf11450',
   '../__tests__/claude-message-retractions.test.ts':
@@ -1364,7 +1364,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
-    '2bc54441b1b430ad7ccfa897708d9b8449c76013cd7a782ea4a8d9978321023a',
+    'c9395e3d2dd772d69288097d0bb8f3bc305f7b3a03157a5b8a59794e1663e551',
   '../../packages/client/src/telos-work-api.ts':
     '59f80b2ef68f2c1cac294f6d9f5d29e89ffc062025a3aa40e98c0da8136d048a',
   '../../packages/harness/__tests__/approval-expiry.test.ts':

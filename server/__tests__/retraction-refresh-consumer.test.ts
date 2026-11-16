@@ -259,9 +259,14 @@ it('does not preserve a stale streaming copy merely because its blocks were retr
   expect(JSON.stringify(store.getState().messages.messages)).toContain('Read');
 });
 
-it.each([false, true])(
-  'retains tool activity across metadata and preserves a newer unsequenced owner=%s',
-  async (newOutput) => {
+it.each([
+  { newOutput: false, lateAction: 'none' },
+  { newOutput: true, lateAction: 'none' },
+  { newOutput: false, lateAction: 'tool_result' },
+  { newOutput: false, lateAction: 'block_delta' },
+])(
+  'retains canonical activity through incremental replay %j',
+  async ({ newOutput, lateAction }) => {
     const { sessionId, append, reader, responseOwner, store } = await fixture(true);
     store.setState((s) => ({
       messages: {
@@ -295,6 +300,18 @@ it.each([false, true])(
     const metadataSeq = append('ordinary_command_state', metadata);
     expect(metadataSeq).toBe(receiptSeq + 1);
     channel.listener({ type: 'ordinary_command_state', sessionId, ...metadata, seq: metadataSeq });
+    if (lateAction !== 'none') {
+      const payload =
+        lateAction === 'tool_result'
+          ? { messageId: 'old', toolId: 'read', result: 'NEW_RESULT' }
+          : { messageId: 'old', blockId: 'text', blockType: 'text', delta: 'STALE_RETRACTED_TEXT' };
+      const seq = append(lateAction, payload);
+      channel.listener({ type: lateAction, sessionId, ...payload, seq });
+      if (lateAction === 'tool_result')
+        expect(JSON.stringify([...store.getState().messages.current!.blocks.values()])).toContain(
+          'NEW_RESULT',
+        );
+    }
     if (newOutput) {
       channel.listener({ type: 'message_start', sessionId, messageId: 'new-output' });
       channel.listener({
@@ -324,6 +341,11 @@ it.each([false, true])(
     } else expect(store.getState().messages.current).toBeNull();
     expect(store.getState().messages.messages.filter((m) => m.messageId === 'old')).toHaveLength(1);
     expect(JSON.stringify(store.getState().messages.messages)).toContain('Read');
+    if (lateAction === 'tool_result')
+      expect(JSON.stringify(store.getState().messages.messages)).toContain('NEW_RESULT');
+    expect(JSON.stringify(store.getState().messages.messages)).not.toContain(
+      'STALE_RETRACTED_TEXT',
+    );
     expect(store.getState().messages.commandStates?.input).toBe('completed');
   },
 );

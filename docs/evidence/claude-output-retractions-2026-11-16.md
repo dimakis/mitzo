@@ -132,6 +132,23 @@ is not counted as acceptance. Final classification requires actual output action
 and reducer content change. Bounded independent correction verification and new
 current-head CI/trusted final approval remain required.
 
+The next bounded pass at `b52` verified that metadata-only correction and the
+newer unsequenced-owner control, but retained the same P1 when a valid correlated
+tool result or ignored stale text delta follows the receipt. The canonical tool
+row was still filtered out as a changed current, and a delta cannot reconstruct
+its parent. Both actual-store cases fail locally before the additional correction.
+The final rule treats a completed canonical row as the seed for later incremental
+events, even if the view retains its old streaming copy. Only a full-row
+constructor (start, snapshot or user row) can discard its prior row before replay;
+block/tool/end deltas update known activity. The original identity, selected-chat,
+cursor, attribution and newer-output fences remain.
+
+Both incremental witnesses now pass alongside the metadata-only and newer-owner
+controls. Final affected qualification is 206 checks across five suites, zero
+failures/skips, overlapping the previous baselines. This is source correction;
+independent verification and exact-current-head hosted/trusted approval remain
+pending, and no prior failed pass is relabelled as acceptance.
+
 The exact-head trusted review of the original `490d` candidate additionally
 identified CEN-4207B76DD69C (sequenced receipt drops known tool activity, covered
 by the local recovery correction above) and CEN-7557F1774253 (shared visible
