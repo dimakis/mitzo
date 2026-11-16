@@ -1931,7 +1931,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-library-builder.tsx':
     '3182f33a70edf28862c55c5dc5462ecf3618351f179cfed4f7b7cf85ddd07d82',
   '../../tests/fixtures/agent-tool-catalog.json':
-    'eac8aa25561467620ee1a7dffe4161e6e1e27a640ade18e36ddf7ad1b0b4cc30',
+    '7d0b55d2bf764b57cd61f0f8cfaa8cc267ccccbaa4fb16a01eef65e45c5b7251',
   '../../tests/fixtures/anthropic-account-enrollment.tsx':
     '31331fa4a056600c2e3bba9a7c0ee28f8b1c0616eb81f0954de68424741033e0',
   '../../tests/fixtures/chat-model-settings.tsx':
@@ -2474,7 +2474,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/agent-message-transcript.test.ts':
     'dacd88b27a761804c80b143f67b0f4a76df6f2786c64cbe9812349204bd0788c',
   '../__tests__/agent-tool-catalog.test.ts':
-    '9197b122d0108eb9ca9a4904bee05b50461f32b60e24143bd734d11b522518c9',
+    'af0a35fdceec1c45288158ee9faecf6b9237c162d9eb0ac7adf40a2bdd61da2d',
   '../__tests__/agent-tool-selection.test.ts':
     'b16ecb8093c4929d319994864bc0ab8958c03fd1bff9c6486cdf2a1e596db53a',
   '../__tests__/anthropic-api-account.test.ts':
@@ -3704,8 +3704,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-task-runtime.ts': '3cb0fcf9ba3f11a69b6ea0897d2c6d6c3a834038ea4a1ebb3dfead933a36350c',
   '../agent-task-service.ts': '226f42689d54ad511770c22cc62cfdfcad65673e7f5d2850793a043c73f69dc7',
   '../agent-task-store.ts': '8cc853ff5e8de8bb8149f966bd6d5f2f55032b16365e9f52f5436e9f36a2bcbe',
-  '../agent-tool-catalog.ts': 'd232411453a19272bcda6f9ac70488e2b3aafa24cb4e36282182b9721aa6c6c0',
-  '../agent-tool-selection.ts': '2a093c17133a82030c468fb6660ecc3baf5938abfbf7ab2adea366bd4249cbfe',
+  '../agent-tool-catalog.ts': 'ce10cda56b8b184e9e88db82b358f4c85a0f70e82ef7dd6b5bad80c505f37066',
+  '../agent-tool-selection.ts': '5bdc35ddfdff5258c81101c56dd503c8c7f59582488aba949b29613c0771eae5',
   '../anthropic-api-connection.ts':
     '0d28e1cccf86680c56196be272422a35be34ee809e83dcb57713dc41a14da731',
   '../anthropic-api-custody.ts': '6a3cab1b144c88a54a63340e898074e1cdac2506dc97f4a2d943d0190591f468',
@@ -4282,7 +4282,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-scoped-command.ts':
     '0336ccbf382e810670173dfd417b16baacf511d7379315df073fc662074b32e4',
   '../ordinary-sdk-helper-registration.ts':
-    '2aff20d2f3c619b7db226f84d31531a3a88c1f3b93ce6d9a1e7457b1fbbab80c',
+    '3594bc528f6b55b9b0ec68828629b3d7f1e96054fd863bd75be27ec48487924b',
   '../ordinary-sdk-turn-evidence.ts':
     '400bb721a03aab99ddcc0d014c67eba1d301f8b6d87f724b5fdb5e6dbebe3190',
   '../ordinary-session-runtime.ts':

@@ -233,6 +233,31 @@ it('registers task proposals separately from execution with explicit selection c
   expect(agentToolAllowed(session, 'AgentProposeTask')).toBe(false);
 });
 
+it('qualifies managed GitHub publication for ordinary Claude SDK profiles by its exact wire name', async () => {
+  const { GITHUB_PUBLISH_SDK_TOOL } = await import('../web-access-sdk.js');
+  const { ordinarySdkHelperPolicyName } = await import('../ordinary-sdk-helper-registration.js');
+  expect(agentToolCatalog().find((tool) => tool.name === 'RequestGithubPublish')).toMatchObject({
+    source: 'GitHub publishing',
+    routes: ['local-api', 'codex', 'codex-owned-local', 'claude-sdk'],
+  });
+  const ref = { id: 'mitzo:RequestGithubPublish', version: 1 };
+  expect(() => assertAgentToolRoute({ tools: [ref] } as never, 'claude-sdk')).not.toThrow();
+  // Frozen skill ceilings see the same identity the SDK server checks.
+  expect(ordinarySdkHelperPolicyName('RequestGithubPublish')).toBe(GITHUB_PUBLISH_SDK_TOOL);
+  const selected = {};
+  bindAgentToolSelection(selected, { tools: [ref] } as never, 'claude-sdk');
+  expect(agentToolAllowed(selected, 'RequestGithubPublish')).toBe(true);
+  expect(agentToolAllowed(selected, GITHUB_PUBLISH_SDK_TOOL)).toBe(true);
+  expect(agentToolAllowed(selected, 'mcp__other__RequestGithubPublish')).toBe(false);
+  expect(agentToolAllowed(selected, 'mcp__mitzo-web-access__RequestWebAccess')).toBe(false);
+  const excluded = {};
+  bindAgentToolSelection(excluded, { tools: [] } as never, 'claude-sdk');
+  expect(agentToolAllowed(excluded, GITHUB_PUBLISH_SDK_TOOL)).toBe(false);
+  const legacy = {};
+  bindAgentToolSelection(legacy, undefined, 'claude-sdk');
+  expect(agentToolAllowed(legacy, GITHUB_PUBLISH_SDK_TOOL)).toBe(true);
+});
+
 it('does not qualify selected task tools on legacy host Codex or OpenShell', () => {
   const definition = { tools: [{ id: 'mitzo:AgentProposeTask', version: 1 }] } as never;
   expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
