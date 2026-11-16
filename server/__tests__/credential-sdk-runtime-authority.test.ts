@@ -527,13 +527,27 @@ it('retains runtime-only project credentials and custom endpoint behavior while 
   };
   const payload = sdkPayload(env);
   expect(payload.filesystemOnly).toBe(true);
-  expect(payload.env).toEqual({ ...env, GIT_TEMPLATE_DIR: expect.any(String) });
+  expect(payload.env).toEqual({
+    ...env,
+    GIT_TEMPLATE_DIR: expect.any(String),
+    TMPDIR: expect.any(String),
+    XDG_CACHE_HOME: expect.any(String),
+    npm_config_cache: expect.any(String),
+    PIP_CACHE_DIR: expect.any(String),
+  });
+  expect(payload.config.filesystem.allowWrite).toContain(payload.env?.TMPDIR);
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
   expect(() => credentialSdkBoundary('darwin')).toThrow(/hostname provider endpoint/);
   vi.stubEnv('ANTHROPIC_BASE_URL', 'https://synthetic-provider.example');
   const credentialPayload = sdkPayload(env);
   expect(credentialPayload.filesystemOnly).toBeUndefined();
-  expect(credentialPayload.env).toEqual({ GIT_TEMPLATE_DIR: expect.any(String) });
+  expect(credentialPayload.env).toEqual({
+    GIT_TEMPLATE_DIR: expect.any(String),
+    TMPDIR: expect.any(String),
+    XDG_CACHE_HOME: expect.any(String),
+    npm_config_cache: expect.any(String),
+    PIP_CACHE_DIR: expect.any(String),
+  });
   expect(credentialPayload.config.network.allowedDomains).toContain('synthetic-provider.example');
 });
 

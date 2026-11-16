@@ -281,12 +281,13 @@ it.each(['DiscoverLocalRepository', 'InspectLocalRepository'])(
     expect(agentToolCatalog().find((tool) => tool.name === name)).toMatchObject({
       source: 'Local repositories',
       behavior: 'read',
-      routes: ['codex-owned-local'],
+      routes: ['codex-owned-local', 'claude-sdk'],
       required: false,
     });
     const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
     expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
-    for (const route of ['codex', 'local-api', 'openshell', 'claude-sdk'])
+    expect(() => assertAgentToolRoute(definition, 'claude-sdk')).not.toThrow();
+    for (const route of ['codex', 'local-api', 'openshell'])
       expect(() => assertAgentToolRoute(definition, route)).toThrow();
     const session = {} as never;
     bindAgentToolSelection(session, definition, 'codex-owned-local');

@@ -10,6 +10,45 @@ import {
   type RepositoryTaskCheckout,
 } from './repository-task-checkout.js';
 import type { RepositoryBaseIntent } from './local-repository-base.js';
+import type { ManagedSession } from '@mitzo/harness';
+
+const activeTasks = new WeakMap<
+  ManagedSession,
+  { conversationId: string; tasks: Map<string, RepositoryTaskCheckout> }
+>();
+export async function retainSdkSecondaryRepositoryTask(
+  session: ManagedSession,
+  events: Events,
+  conversationId: string,
+  directory: string,
+) {
+  if (session.sessionId !== conversationId) throw Error('Original Claude task session changed');
+  const task = await sdkSecondaryRepositoryTask(events, conversationId, directory);
+  if (!task || session.sessionId !== conversationId)
+    throw Error('Completed Claude repository task is unavailable');
+  let active = activeTasks.get(session);
+  if (active && active.conversationId !== conversationId)
+    throw Error('Original Claude task session changed');
+  if (!active) {
+    active = { conversationId, tasks: new Map() };
+    activeTasks.set(session, active);
+  }
+  active.tasks.set(directory, task);
+}
+export async function currentSdkSecondaryRepositoryTask(
+  session: ManagedSession,
+  directory: string,
+) {
+  const active = activeTasks.get(session);
+  const task = active?.tasks.get(directory);
+  if (!task) return undefined;
+  if (
+    session.sessionId !== active!.conversationId ||
+    ![...session.worktreePaths.values()].some((entry) => entry.path === directory)
+  )
+    throw Error('Original Claude repository task is no longer attached');
+  return validateRepositoryTaskCheckout(directory, task);
+}
 
 type Events = Pick<EventStore, 'getSessionWorktreeRecords' | 'append'>;
 function retained(record: Record<string, unknown>): RepositoryTaskCheckout | undefined {

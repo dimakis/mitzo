@@ -5,12 +5,15 @@ import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
+import { SessionRegistry, resolvePending } from '@mitzo/harness';
+import { executeTaskOperation } from '../task-execution-operation.js';
+import { TaskExecutionStore } from '../task-execution-store.js';
 import {
   prepareSdkSecondaryRepository,
   restoreSdkSecondaryRepositories,
   sdkSecondaryRepositoryTask,
+  retainSdkSecondaryRepositoryTask,
 } from '../sdk-secondary-repository.js';
-import { executeTrustedGitCommit } from '../trusted-native-operation.js';
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -65,16 +68,59 @@ it('prepares, edits, commits and reopens an isolated repository without changing
   await writeFile(join(task.directory, 'code.txt'), 'implemented');
   const claim = await sdkSecondaryRepositoryTask(f.store, 'conversation', task.directory);
   expect(claim).toBeDefined();
-  await executeTrustedGitCommit(
-    task.directory,
-    ['code.txt'],
-    'test: implementation',
-    f.signal,
-    30000,
-    65536,
-    undefined,
-    claim,
-  );
+  // Exercise the actual TaskExecution -> native executor -> retained SDK task
+  // claim -> trusted Git path advertised to Claude for linked-worktree commits.
+  const registry = new SessionRegistry();
+  cleanups.push(() => registry.dispose());
+  registry.register('sdk', {
+    sessionId: 'conversation',
+    cwd: f.options.workspaceDirectory,
+    mode: 'auto',
+    abortController: new AbortController(),
+    sessionAllowList: new Set(),
+    transport: {
+      isOpen: () => true,
+      send: (event) => {
+        if (event.type === 'permission_request' && typeof event.permId === 'string') {
+          const permId = event.permId;
+          queueMicrotask(() => resolvePending(permId, 'once'));
+        }
+      },
+    },
+  });
+  const session = registry.get('sdk')!;
+  session.worktreePaths.set(task.repoName, { path: task.directory, wtId: 'sdk-session' });
+  await retainSdkSecondaryRepositoryTask(session, f.store, 'conversation', task.directory);
+  const executions = new TaskExecutionStore(':memory:');
+  cleanups.push(() => executions.close());
+  const grant = executions.approve('offline', 'conversation', 'authorization', {
+    title: 'Offline code work',
+    network: 'none',
+    repositories: [],
+    expiresAt: Date.now() + 60000,
+    members: [{ sessionId: 'conversation', fingerprint: 'offline', roots: [session.cwd!] }],
+  });
+  const result = await executeTaskOperation({
+    input: {
+      operation: 'commit',
+      grantId: grant.id,
+      requestId: 'offline-commit',
+      cwd: task.directory,
+      files: ['code.txt'],
+      message: 'test: implementation',
+    },
+    grant,
+    sessionId: 'conversation',
+    session,
+    registry,
+    clientId: 'sdk',
+    call: { turnId: 'offline-turn', callId: 'offline-call' },
+    store: executions,
+    signal: f.signal,
+    assertGrant: () => grant,
+    assertRuntimeCurrent: async () => {},
+  });
+  expect(result.isError, result.content).toBe(false);
   const committed = git(task.directory, 'rev-parse', 'HEAD');
   expect(committed).not.toBe(sourceHead);
   expect(git(f.source, 'rev-parse', 'HEAD')).toBe(sourceHead);

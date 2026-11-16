@@ -9,6 +9,8 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import type { SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { Readable } from 'node:stream';
+import { createLogger } from './logger.js';
+const log = createLogger('credential-sdk-boundary');
 export type ProtectedSdkProcess = SpawnedProcess & {
   stderr: Readable;
   once(
@@ -224,6 +226,34 @@ function createSdkBoundary(
       selectedWriteRoots.forEach((root) => authority.capture(root));
       runtime.selectors.forEach((entry) => authority.capture(dirname(entry)));
       const temporary = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-sdk-sandbox-')));
+      // Keep provider/command scratch separate from the unreadable policy and
+      // other sessions' temporary files. Children inherit this exact directory.
+      const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-sdk-scratch-')));
+      // Vertex retains the SDK's default history directory when no explicit
+      // account directory was selected. Do not grant its entire home directory.
+      const accountDirectory = canonical(
+        options.env?.CLAUDE_CONFIG_DIR ?? join(options.env?.HOME ?? homedir(), '.claude'),
+      );
+      const writableRoots = runtimeOnly
+        ? ['/']
+        : [...new Set([gitWorkRoot, scratch, accountDirectory])];
+      for (const root of writableRoots) if (root !== '/') validatePath(root);
+      for (const root of writableRoots)
+        if (root !== '/' && (root !== accountDirectory || existsSync(root)))
+          authority.capture(root);
+      const cleanup = () => {
+        for (const path of [temporary, scratch]) {
+          try {
+            rmSync(path, { recursive: true, force: true });
+          } catch (cause) {
+            log.warn('SDK temporary cleanup failed', {
+              stage: 'sdk_cleanup',
+              code: 'sdk_temporary_cleanup_failed',
+              err: cause,
+            });
+          }
+        }
+      };
       // SRT keeps hooks read-only. Git's stock template copies sample hooks on
       // init/clone, so give setup an empty, immutable template instead.
       const gitTemplate = join(temporary, 'git-template');
@@ -258,7 +288,18 @@ function createSdkBoundary(
         ? ['--import', require.resolve('tsx/esm'), worker]
         : [worker];
       const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
-      const targetEnv: NodeJS.ProcessEnv = { ...options.env, GIT_TEMPLATE_DIR: gitTemplate };
+      const targetEnv: NodeJS.ProcessEnv = {
+        ...options.env,
+        GIT_TEMPLATE_DIR: gitTemplate,
+        ...(!runtimeOnly
+          ? {
+              TMPDIR: scratch,
+              XDG_CACHE_HOME: join(scratch, 'cache'),
+              npm_config_cache: join(scratch, 'npm'),
+              PIP_CACHE_DIR: join(scratch, 'pip'),
+            }
+          : {}),
+      };
       // Source-import authority belongs to the controller in every SDK mode.
       delete targetEnv.MITZO_TELOS_IMPORT_TOKEN;
       if (credentialIsolation || selectedWriteRoots.length > 0) {
@@ -284,9 +325,9 @@ function createSdkBoundary(
           filesystem: {
             denyRead: [...launchDeniedRoots, ...privateEnvironmentPatterns, temporary],
             allowRead: [gitTemplate],
-            allowWrite: ['/'],
+            allowWrite: writableRoots,
             // The worker adds an immutable OS fence around Git metadata:
-            // only new repositories below this launch's workspace may change.
+            // only repositories inside this launch's workspace may change.
             allowGitConfig: true,
             denyWrite: [
               ...launchDeniedRoots,
@@ -386,7 +427,7 @@ function createSdkBoundary(
         if (repositoryOwner) repositoryReadOwners.set(snapshot, repositoryOwner);
         readProjection = snapshot;
       } catch (error) {
-        rmSync(temporary, { recursive: true, force: true });
+        cleanup();
         throw error;
       }
       let killed = false;
@@ -396,7 +437,14 @@ function createSdkBoundary(
         try {
           process.kill(-child.pid, signal);
           return true;
-        } catch {
+        } catch (cause) {
+          if (!(cause instanceof Error && 'code' in cause && cause.code === 'ESRCH'))
+            log.warn('SDK process group termination failed', {
+              stage: 'sdk_stop',
+              code: 'sdk_process_termination_failed',
+              pid: child.pid,
+              err: cause,
+            });
           return false;
         }
       };
@@ -407,7 +455,7 @@ function createSdkBoundary(
       child.once('close', () => {
         kill('SIGKILL');
         options.signal.removeEventListener('abort', abort);
-        rmSync(temporary, { recursive: true, force: true });
+        cleanup();
       });
       // SDK protocol is confined to stdout; startup failures go to stderr.
       // Consume stderr to avoid backpressure while exposing actionable sandbox failures.

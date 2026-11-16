@@ -1,5 +1,6 @@
 import type { AccountBinding } from '@mitzo/protocol';
 import type { RepositoryMaterializationReceipt } from './repository-materialization.js';
+import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 export interface RepositoryChatWorkspace {
   connectionId?: string;
   id: string;
@@ -12,6 +13,7 @@ export interface RepositoryChatWorkspace {
   sandbox?: boolean;
   binding?: AccountBinding;
   sandboxMaterialization?: RepositoryMaterializationReceipt;
+  taskIdentity?: RepositoryTaskCheckout;
 }
 export async function selectRepositoryChatWorkspace(
   options: {

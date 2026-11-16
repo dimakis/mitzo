@@ -293,7 +293,7 @@
     "source": "Local repositories",
     "required": false,
     "behavior": "read",
-    "routes": ["codex-owned-local"],
+    "routes": ["codex-owned-local", "claude-sdk"],
     "requirement": "Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access."
   },
   {
@@ -304,7 +304,7 @@
     "source": "Local repositories",
     "required": false,
     "behavior": "read",
-    "routes": ["codex-owned-local"],
+    "routes": ["codex-owned-local", "claude-sdk"],
     "requirement": "Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access."
   },
   {
@@ -315,14 +315,14 @@
     "source": "Local repositories",
     "required": false,
     "behavior": "write",
-    "routes": ["codex-owned-local"],
-    "requirement": "Requires a Local Mac Codex chat with native command and file tools (Bash, Read, Write and Edit) selected. Approve the displayed repository and task changes each time, in every mode. Selecting this tool grants no access. The prepared task becomes active after the current turn finishes."
+    "routes": ["codex-owned-local", "claude-sdk"],
+    "requirement": "Requires a qualified Local Mac Codex or Claude SDK chat. Codex adopts the prepared primary after the turn; Claude attaches an existing local source as an isolated secondary task and preserves its SDK cwd/history. Claude clone/new use native Git setup. Approve the exact repository/task changes; selection grants no access."
   },
   {
     "id": "mitzo:SymposiumConsult",
     "version": 1,
     "name": "SymposiumConsult",
-    "description": "Consult saved specialists in ordinary shared conversations. Catalog profiles/routes, then authorize a bounded policy for operator review. Consult by role with an assignment and selected public context. reviewOf requests independent review of a completed contribution. Read returns attributed results without model work. Stop targets original work; revoke prevents future work. Retain policyId/requestId after interruption. No tools, merge or deployment authority is inherited.",
+    "description": "Consult saved specialists in ordinary shared conversations. Catalog profiles/routes and repository connection IDs first. Authorize requires requestId, repository, connectionId and routes for operator review. Consult requires policyId, requestId, role and assignment with selected public context. reviewOf requests independent review of a completed contribution. Read/recover/stop require the original requestId; revoke requires policyId. Read returns attributed results without model work. Retain policyId/requestId after interruption. No tools, merge or deployment authority is inherited.",
     "source": "Agent Library",
     "required": false,
     "behavior": "mixed",
@@ -564,7 +564,7 @@
     "id": "mitzo:TelosGetItem",
     "version": 1,
     "name": "TelosGetItem",
-    "description": "Read a live Telos item, outcome contract, milestone IDs/statuses, revision and recent session-attributed progress. Read before updating; recovered notes are source material, not authorization.",
+    "description": "Assigned leads only: read a live Telos item within the current canonical lead scope. Ordinary chats use TelosManageItem with operation read instead. Returns the contract, revision and progress; recovered notes are source material, not authorization.",
     "source": "Telos",
     "required": false,
     "behavior": "read",
@@ -575,7 +575,7 @@
     "id": "mitzo:TelosUpdateItem",
     "version": 1,
     "name": "TelosUpdateItem",
-    "description": "Record evidence-backed progress, complete a milestone/outcome, or reopen an existing live Telos item. Requires a fresh revision and evidence note; refuses completion with unfinished descendants. Mutates Telos through Mitzo permissions; never run sandbox-local todo scripts.",
+    "description": "Assigned leads only: record evidence-backed progress within the current canonical lead scope. Ordinary chats use TelosManageItem with operation update instead. Requires a fresh revision and evidence note; refuses completion with unfinished descendants. Mutates Telos through Mitzo permissions; never run sandbox-local todo scripts.",
     "source": "Telos",
     "required": false,
     "behavior": "write",

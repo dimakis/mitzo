@@ -28,6 +28,12 @@ import { createSdkTurnQuery } from './sdk-turn-query.js';
 import { reportClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { claudePersonalToolPermission } from './claude-personal-policy.js';
 import { createClaudeStartupContext } from './claude-startup-context.js';
+import { repositoryWorkspacePrompt } from './repository-workspace-prompt.js';
+import { SDK_REPOSITORY_INSTRUCTIONS } from './sdk-local-repository-tools.js';
+import {
+  restoreSdkSecondaryRepositories,
+  retainSdkSecondaryRepositoryTask,
+} from './sdk-secondary-repository.js';
 import { readClaudeAccountHistory } from './claude-account-history.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
@@ -2303,6 +2309,18 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  if (options.ordinarySdkAuthority && session.sessionId) {
+    const reopened = await restoreSdkSecondaryRepositories(
+      eventStore,
+      session.sessionId,
+      abortController.signal,
+      () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal),
+    );
+    for (const [name, entry] of reopened) {
+      session.worktreePaths.set(name, entry);
+      await retainSdkSecondaryRepositoryTask(session, eventStore, session.sessionId, entry.path);
+    }
+  }
   startupGuard.session = session;
   bindAgentToolSelection(session, agentProfile?.definition, toolRoute);
   if (options.contributorGuidance !== undefined && session.sessionId)
@@ -2607,9 +2625,7 @@ async function _startChatInner(
 
     // Build the system prompt append string (used by both query and comparison)
     const workspacePrompt = repositoryWorkspace
-      ? `# Repository task workspace
-This is an independent checkout with its own Git storage, not a linked worktree. Work inside ${cwd} for code edits, dependency setup and tests. Use the dedicated Mitzo integrations for network access and publication. Do not switch to the configured default repository.
-`
+      ? repositoryWorkspacePrompt(cwd, repositoryWorkspace)
       : openShellWorkdir
         ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
         : buildWorktreeSystemPrompt(repoWorktrees);
@@ -2635,6 +2651,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
           buildClientCapabilitiesPrompt() +
           workspacePrompt +
+          (options.ordinarySdkAuthority ? SDK_REPOSITORY_INSTRUCTIONS : '') +
           (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
           (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
           (options.contributorGuidance
@@ -3054,6 +3071,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
         if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        if (sdkCredentialBoundary && name === 'Bash' && input.dangerouslyDisableSandbox === true)
+          return {
+            behavior: 'deny',
+            message:
+              'The outer host sandbox remains enforced for this chat. Disabling the SDK sandbox cannot expand task or credential access. Retry without dangerouslyDisableSandbox inside the admitted task directory.',
+          };
         if (!agentToolAllowed(session, name))
           return {
             behavior: 'deny',
@@ -3401,6 +3424,18 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 agentCommunication: sdkAgentCommunication,
                 historyEvents: eventStore,
                 runCallback: state.runCallback,
+                repositoryTools: {
+                  events: eventStore,
+                  runCallback: state.runCallback,
+                  captureRepositoryReadOwner: (name, input, requestId, signal) => {
+                    if (!sdkCredentialBoundary)
+                      throw Error('Original SDK filesystem boundary is unavailable');
+                    return options.ordinarySdkAuthority!.captureRepositoryReadOwner(
+                      state.repositoryCallbacks.capture(name, input, requestId, signal),
+                      sdkCredentialBoundary.captureRepositoryReadProjection(),
+                    );
+                  },
+                },
                 checkTool: (name) => state.checkTool(name),
                 assertCurrentSync: (signal) => {
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');

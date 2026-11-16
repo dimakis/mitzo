@@ -16,7 +16,11 @@ import { agentToolAllowed } from './agent-tool-selection.js';
 import type { KnowledgeLibraryRuntime } from './knowledge-library-runtime.js';
 import { KnowledgeDraftConflict } from './knowledge-draft-store.js';
 import { safeKnowledgePath } from './knowledge-library-source.js';
-import { readHostKnowledge, publishedKnowledgeFailureReason } from './published-host-knowledge.js';
+import {
+  readHostKnowledge,
+  publishedKnowledgeFailureReason,
+  hasHostKnowledgeStore,
+} from './published-host-knowledge.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
 import { createLogger } from './logger.js';
 import { retainToolResultAuthority } from './codex-tool-result.js';
@@ -140,10 +144,28 @@ export function sessionKnowledgeTools(
             request.offset,
           );
           await assertAsync();
-          if (!result)
-            throw new KnowledgeToolProblem(
-              'No accepted host memory view was selected for this turn. No checkout fallback was used.',
-            );
+          if (!result) {
+            const configured = hasHostKnowledgeStore();
+            const code = configured
+              ? 'published_turn_view_unavailable'
+              : 'published_host_store_unavailable';
+            log.warn('Published memory selection unavailable', {
+              stage: 'published_selection',
+              code,
+              sessionId,
+              tool: name,
+            });
+            return {
+              content: JSON.stringify({
+                status: 'unavailable',
+                code,
+                message: configured
+                  ? 'The host publication store is enrolled, but no accepted memory view was selected for this turn. Check the turn context selection before retrying. No checkout fallback was used.'
+                  : 'No host publication store is enabled for Local Mac turns. Knowledge Library listing uses a separate source and does not select shared memory. The operator must enable the existing Local Mac knowledge enrollment on the host; agent documents cannot enroll it. No checkout fallback was used.',
+              }),
+              isError: true,
+            };
+          }
           return retainToolResultAuthority(
             { content: JSON.stringify(result), isError: false },
             assert,

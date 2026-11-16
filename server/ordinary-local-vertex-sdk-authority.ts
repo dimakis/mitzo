@@ -86,7 +86,7 @@ export class OrdinaryLocalVertexSdkAuthority {
       ...(!('kind' in credential)
         ? [dirname(credential.adc.path)]
         : credential.kind === 'claude-host-login'
-          ? [dirname(credential.executable.path)]
+          ? [credential.executable.path]
           : []),
       ...this.owners.sourceWriteRoots,
     ];

@@ -90,7 +90,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                 : source === 'Google Workspace'
                   ? ['codex-owned-local', 'claude-sdk']
                   : source === 'Session creation' || source === 'Local repositories'
-                    ? ['codex-owned-local', ...(tool.name === 'StartSession' ? ['claude-sdk'] : [])]
+                    ? ['codex-owned-local', 'claude-sdk']
                     : source === 'Telos'
                       ? [
                           githubMainPublicationTool.name,
@@ -179,7 +179,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                         ? 'Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access.'
                         : source === 'Local repositories'
                           ? tool.name === localRepositoryPreparationDefinition.name
-                            ? 'Requires a Local Mac Codex chat with native command and file tools (Bash, Read, Write and Edit) selected. Approve the displayed repository and task changes each time, in every mode. Selecting this tool grants no access. The prepared task becomes active after the current turn finishes.'
+                            ? 'Requires a qualified Local Mac Codex or Claude SDK chat. Codex adopts the prepared primary after the turn; Claude attaches an existing local source as an isolated secondary task and preserves its SDK cwd/history. Claude clone/new use native Git setup. Approve the exact repository/task changes; selection grants no access.'
                             : 'Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access.'
                           : source === 'Repositories'
                             ? 'Requires an authorized repository connection for the selected account.'

@@ -1103,6 +1103,9 @@ it('retains project hooks, settings, configured MCPs and legacy boot context und
   const child = sdkFixtureBoundary().spawnClaudeCodeProcess();
   const outerSpawn = vi.fn(() => child);
   const fence = vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue({
+    captureRepositoryReadProjection: () => {
+      throw Error('Offline fixture has no repository read projection');
+    },
     credentialIsolation: false,
     deniedRoots: [],
     spawnClaudeCodeProcess: outerSpawn,

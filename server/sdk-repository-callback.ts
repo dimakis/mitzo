@@ -3,6 +3,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { localRepositoryToolSchemas } from './session-local-repository-tools.js';
 import { inputSchema } from './local-repository-preparation-input.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
+import { createLogger } from './logger.js';
+const log = createLogger('sdk-repository-callback');
 
 const prefix = 'mcp__mitzo-connections__';
 const schemas = { ...localRepositoryToolSchemas, PrepareLocalRepository: inputSchema };
@@ -66,7 +68,14 @@ export function createSdkRepositoryCallbacks(owner: {
       throw Error('Original SDK callback owner changed');
     const result: unknown = originalCurrent.call(owner);
     if (result !== undefined) {
-      void Promise.resolve(result).catch(() => {});
+      void Promise.resolve(result).catch((cause) =>
+        log.warn('Unexpected asynchronous SDK repository authority failed', {
+          stage: 'repository_callback_authority',
+          code: 'sdk_repository_authority_async',
+          queryId,
+          err: cause,
+        }),
+      );
       throw Error('Synchronous original SDK callback owner required');
     }
     const commandId = originalCommand.call(owner);

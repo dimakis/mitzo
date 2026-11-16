@@ -98,7 +98,7 @@ it.each([true, false])(
       '(deny file-write* file-write-unlink file-write-create (require-all (regex ',
     );
     expect(wrapped).toContain('(require-not (subpath ' + JSON.stringify(root) + '))');
-    expect(wrapped).toContain(
+    expect(wrapped).not.toContain(
       '(deny file-write* file-write-unlink file-write-create (subpath ' +
         JSON.stringify(join(root, '.git')) +
         '))',

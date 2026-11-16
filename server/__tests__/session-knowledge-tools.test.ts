@@ -155,6 +155,34 @@ it('reads the enrolled accepted document, independently of the writable task cop
   expect(store.list()).toEqual([]);
 });
 
+it('distinguishes missing host publication enrollment from a missing selected turn', async () => {
+  const result = await tools().execute(
+    'ReadKnowledge',
+    { action: 'published' },
+    new AbortController().signal,
+    identity,
+  );
+  expect(result?.isError).toBe(true);
+  expect(JSON.parse(result!.content)).toMatchObject({ code: 'published_host_store_unavailable' });
+  expect(result!.content).toContain('Library');
+  expect(refresh).not.toHaveBeenCalled();
+  const publication = hostKnowledgePublication(realpathSync(root), 'a', 'Accepted turn memory');
+  const restore = installHostKnowledgeStore({ id: 'mgmt', reconcile: async () => publication });
+  try {
+    const unselected = await tools().execute(
+      'ReadKnowledge',
+      { action: 'published' },
+      new AbortController().signal,
+      identity,
+    );
+    expect(JSON.parse(unselected!.content)).toMatchObject({
+      code: 'published_turn_view_unavailable',
+    });
+  } finally {
+    restore();
+  }
+});
+
 it('reads the selected published turn through ordinary dispatch and rejects revoked operator authority', async () => {
   const publication = hostKnowledgePublication(realpathSync(root), 'a', 'Accepted turn memory');
   const reconcile = vi.fn().mockResolvedValue(publication);

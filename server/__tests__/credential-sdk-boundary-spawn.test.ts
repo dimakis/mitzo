@@ -1,5 +1,5 @@
 import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import type { SandboxWorkerPayload } from '../sandboxed-command-worker.js';
+import { canonical } from '../sandbox-authority.js';
 import { claudeLoginSdkBoundary, credentialSdkBoundary } from '../credential-sdk-boundary.js';
 const mocked = vi.hoisted(() => ({ spawn: vi.fn(), dependencies: vi.fn() }));
 vi.mock('node:child_process', async (original) => ({
@@ -42,6 +43,27 @@ function child() {
     stderr: new PassThrough(),
   });
 }
+it('limits ordinary SDK writes to its launch workspace, selected account and private scratch', () => {
+  const handle = child();
+  mocked.spawn.mockReturnValue(handle);
+  vi.spyOn(process, 'kill').mockReturnValue(true);
+  const boundary = credentialSdkBoundary('darwin')!;
+  boundary.spawnClaudeCodeProcess({
+    command: '/usr/bin/true',
+    args: [],
+    env: {},
+    signal: new AbortController().signal,
+  });
+  const payload = JSON.parse(
+    readFileSync(mocked.spawn.mock.calls[0][1].at(-1), 'utf8'),
+  ) as SandboxWorkerPayload;
+  expect(payload.config.filesystem.allowWrite).not.toContain('/');
+  expect(payload.config.filesystem.allowWrite).toContain(payload.cwd);
+  expect(payload.env?.TMPDIR).toBeDefined();
+  expect(payload.config.filesystem.allowWrite).toContain(payload.env?.TMPDIR);
+  expect(payload.config.filesystem.allowWrite).toContain(canonical(join(homedir(), '.claude')));
+  handle.emit('close', 0, null);
+});
 it('captures the complete actual SDK read projection only after its owned launch, including private patterns', () => {
   const handle = child();
   mocked.spawn.mockReturnValue(handle);

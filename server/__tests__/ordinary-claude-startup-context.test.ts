@@ -333,6 +333,33 @@ it('rechecks cancellation after source cleanup before creating the SDK', async (
   expect(JSON.stringify(x.sent.mock.calls)).not.toContain('PRIVATE_CANCEL_REASON');
 }, 20_000);
 
+it('protects the selected executable itself without denying its entire parent workspace', async () => {
+  const x = await fixture(true);
+  await x.owner.admit(x.f.request);
+  const boundary = await import('../credential-sdk-boundary.js');
+  const selected = vi.mocked(boundary.credentialSdkBoundary).mock.calls[0][1];
+  expect(selected).toContain(x.f.personalExecutable);
+  expect(selected).not.toContain(x.f.root);
+}, 20000);
+
+it('explains the enforced outer boundary when a Bash request asks to disable the SDK sandbox', async () => {
+  const x = await fixture(true);
+  await x.owner.admit(x.f.request);
+  const decision = await x.calls[0].canUseTool!(
+    'Bash',
+    { command: 'true', dangerouslyDisableSandbox: true },
+    {
+      signal: new AbortController().signal,
+      toolUseID: 'sandbox-override-probe',
+      requestId: 'sandbox-override-probe',
+    },
+  );
+  expect(decision).toMatchObject({
+    behavior: 'deny',
+    message: expect.stringContaining('outer host sandbox'),
+  });
+}, 20000);
+
 it('retains the explicit empty boot fallback when ContexGin is unavailable while delivering verified project/publication context', async () => {
   const x = await fixture(false);
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(Error('offline boot service')));
@@ -354,6 +381,7 @@ it.each([false, true])(
     expect(append(0)).toContain('Keep the admitted branch.');
     expect(append(0)).toContain(x.first.sourceCommit);
     expect(append(0)).toContain('ReadKnowledge with action published');
+    expect(append(0)).toContain('PrepareLocalRepository');
     expect(x.calls[0].settingSources).toEqual([]);
     const session = x.chat.registry.get('startup-context')!;
     const server = x.calls[0].mcpServers!['mitzo-connections'];
@@ -363,6 +391,13 @@ it.each([false, true])(
     await server.instance.connect(a);
     await client.connect(b);
     try {
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining([
+          'DiscoverLocalRepository',
+          'InspectLocalRepository',
+          'PrepareLocalRepository',
+        ]),
+      );
       const read = await client.callTool({
         name: 'ReadKnowledge',
         arguments: { action: 'published', path: 'memory/Observations/lesson.md' },

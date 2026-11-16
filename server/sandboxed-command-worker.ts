@@ -102,7 +102,8 @@ export function wrapSdkGitMetadata(command: string, root: string): string {
     // specific-operation allows beat a file-write* deny, so re-deny moves and
     // deletion explicitly as well as content/metadata writes.
     `(deny file-write* file-write-unlink file-write-create (require-all (regex ${string('.*/\\.git(/.*)?$')}) (require-not (subpath ${string(root)}))))`,
-    `(deny file-write* file-write-unlink file-write-create (subpath ${string(join(root, '.git'))}))`,
+    // A standalone task owns its Git storage. Linked worktrees keep their
+    // external administration denied and use the trusted commit integration.
     // Pin the selected workspace and its ancestors against replacement.
     ...(() => {
       const paths = [];
