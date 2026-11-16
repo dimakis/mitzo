@@ -64,6 +64,44 @@ it('fails closed when a sandbox dependency would degrade isolation', async () =>
 
 // Real OS boundary tests: enable on a host that permits nested sandbox creation.
 describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('OS sandbox', () => {
+  it('creates and develops a nested repository without granting its parent Git metadata', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const gitPath =
+      process.platform === 'darwin'
+        ? execFileSync('/usr/bin/xcrun', ['--find', 'git'], { encoding: 'utf8' }).trim()
+        : 'git';
+    const git = "'" + gitPath.replaceAll("'", "'\\''") + "'";
+    execFileSync(gitPath, ['init', '--template=', '-b', 'main', cwd]);
+    const parentConfig = await readFile(join(cwd, '.git', 'config'), 'utf8');
+    const setup = await run(`${git} init -b main source`);
+    expect(setup.isError, setup.content).toBe(false);
+    const develop = await run(`
+      printf original > source/file &&
+      ${git} -C source add file &&
+      ${git} -C source -c user.name=Test -c user.email=test@example.com -c commit.gpgsign=false commit -m initial &&
+      ${git} clone --no-local source checkout &&
+      ${git} -C checkout switch -c fix/test &&
+      ${git} -C checkout remote set-url origin https://example.invalid/repo.git &&
+      printf changed > checkout/file &&
+      ${git} -C checkout add file &&
+      ${git} -C checkout -c user.name=Test -c user.email=test@example.com -c commit.gpgsign=false commit -m changed
+    `);
+    expect(develop.isError, develop.content).toBe(false);
+    expect((await run(`${git} -C checkout show HEAD:file`)).content).toBe('changed');
+    expect((await run(`${git} -C source show HEAD:file`)).content).toBe('original');
+    // Empty hook directories are harmless; actual hook contents stay denied.
+    const hookWrite = await run(
+      'mkdir -p checkout/.git/hooks && printf synthetic > checkout/.git/hooks/pre-commit',
+    );
+    expect(hookWrite.isError, hookWrite.content).toBe(true);
+    await expect(
+      readFile(join(cwd, 'checkout', '.git', 'hooks', 'pre-commit')),
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    expect((await run('git config local.test denied')).isError).toBe(true);
+    expect(await readFile(join(cwd, '.git', 'config'), 'utf8')).toBe(parentConfig);
+  }, 30000);
   it('runs a disposable local HTTP test server after network command approval', async () => {
     const script = `const http = require('node:http'); const server = http.createServer((_, res) => res.end('local-test-ok')); server.listen(0, '127.0.0.1', () => { http.get({host:'127.0.0.1',port:server.address().port}, res => {res.pipe(process.stdout);res.on('end',()=>server.close());}).on('error',e=>{console.error(e.message);server.close();process.exitCode=1;});});`;
     const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
