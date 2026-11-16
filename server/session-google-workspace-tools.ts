@@ -18,6 +18,7 @@ import {
 } from './google-workspace-read.js';
 import { captureSessionCapability } from './session-capability-grants.js';
 import { reportToolFailure } from './tool-failure-reporting.js';
+import { CodexToolFailure } from './codex-tool-failure.js';
 import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 
 /** The admitted Local Mac owner supplies both fences; no shell credential access is granted. */
@@ -89,8 +90,15 @@ export function sessionGoogleWorkspaceTools(options: {
         }
       };
       try {
-        const request = GoogleWorkspaceReadSchema.parse(input);
         combined.throwIfAborted();
+        const parsed = GoogleWorkspaceReadSchema.safeParse(input);
+        if (!parsed.success)
+          throw new CodexToolFailure('invalid_input', {
+            stage: 'tool_execution',
+            reason: 'invalid_input',
+            effectStatus: 'not_started',
+          });
+        const request = parsed.data;
         await guard();
         const prepared = await observeRead(() => service!.prepareRead(request, combined), guard);
         await guard();
