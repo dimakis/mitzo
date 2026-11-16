@@ -1107,6 +1107,7 @@ it('retains project hooks, settings, configured MCPs and legacy boot context und
       throw Error('Offline fixture has no repository read projection');
     },
     credentialIsolation: false,
+    confinesWorkspaceWrites: false,
     deniedRoots: [],
     spawnClaudeCodeProcess: outerSpawn,
   });

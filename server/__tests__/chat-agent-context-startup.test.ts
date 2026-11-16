@@ -555,6 +555,7 @@ it.each([false, true])(
           throw Error('Offline fixture has no repository read projection');
         },
         credentialIsolation: false,
+        confinesWorkspaceWrites: false,
         deniedRoots: [],
         spawnClaudeCodeProcess: outerSpawn,
       });
@@ -945,6 +946,7 @@ it.each([
           throw Error('Offline fixture has no repository read projection');
         },
         credentialIsolation: false,
+        confinesWorkspaceWrites: false,
         deniedRoots: [],
         spawnClaudeCodeProcess: outerSpawn,
       });

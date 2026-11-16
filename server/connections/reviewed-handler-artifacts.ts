@@ -2501,9 +2501,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/centaur-merge-status.test.ts':
     '7ed6ce87f0c8f7bf8bebca3e8c6b40039ca7a3223f40f11774bac1e8c86eed7f',
   '../__tests__/chat-account-startup.test.ts':
-    '597f170f0162b18f86cab6e9cc4553da0bb9a0080b351e5511df3716ebec8c86',
+    'cf29e2544af5d255a9e142b1094e4c6f306ab538ed325582409fe1ae14686901',
   '../__tests__/chat-agent-context-startup.test.ts':
-    'ac3d91017078d4ca7c9df1103851b67c07370e236f5fff23750735ef97f87752',
+    '8dceb77955aac1d2ba1b1e676e81804983be2619b40fafa2bf31cf67fa8ff71e',
   '../__tests__/chat-command-json.test.ts':
     '568924d45734f15e499a6f22e86921c05d596edfd62e32bafbd2fd51c3b36b81',
   '../__tests__/chat-contributor-route-admission.test.ts':
