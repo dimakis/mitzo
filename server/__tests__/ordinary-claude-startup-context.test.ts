@@ -473,6 +473,18 @@ it.each([false, true])(
     const options = x.calls[0];
     expect(options.allowedTools).toContain(GITHUB_PUBLISH_SDK_TOOL);
     expect(options.disallowedTools).not.toContain(GITHUB_PUBLISH_SDK_TOOL);
+    const { GITHUB_PUBLISHING_INSTRUCTIONS, ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS } =
+      await import('../github-publishing-tool.js');
+    const append = (options.systemPrompt as { append: string }).append;
+    expect(append).toContain(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS);
+    expect(append).not.toContain(GITHUB_PUBLISHING_INSTRUCTIONS);
+    // Managed publication is presented as one route, never the only one.
+    expect(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS).toMatch(
+      /RequestGithubPublish is the managed route/,
+    );
+    expect(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS).toMatch(/TaskExecution github_read/);
+    expect(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS).toMatch(/native git or TaskExecution commit/);
+    expect(ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS).not.toMatch(/only (route|way)/i);
     // The tool owns its forced approval cards; the outer SDK prompt is not duplicated.
     expect(
       await options.canUseTool!(

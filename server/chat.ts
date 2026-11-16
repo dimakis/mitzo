@@ -159,6 +159,7 @@ import { retainCodexPreparationFailure } from './codex-preparation-failure.js';
 import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
+  ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS,
   hostGithubPublishingSource,
   githubPublishingGitStorageRoots,
 } from './github-publishing-tool.js';
@@ -3326,6 +3327,9 @@ async function _startChatInner(
                     : '') +
                   (agentToolAllowed(session, 'GoogleWorkspaceRead')
                     ? '\nUse GoogleWorkspaceRead for Drive, Docs, Sheets, Slides and Calendar reads through the existing Google sign-in.\n'
+                    : '') +
+                  (agentToolAllowed(session, GITHUB_PUBLISH_SDK_TOOL)
+                    ? ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS
                     : '')
                 : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
           };

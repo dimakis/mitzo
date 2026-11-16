@@ -124,7 +124,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-startup-context.test.ts':
     'ef9a5ed33d3f8a814bcad92e55d7681c0dbfdeca61eb9df7f5d59960bac5a5f6',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    '174406f17952e3eae3e0f718d9d59fd049a4284667c45e04f2cc384abb9e5ed6',
+    '77a3ba6fdb370e5127b562b09d15b862b0fdf38bfaec6694d26f87762a7cf306',
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../frontend/src/components/LocalCommandRecovery.tsx':
@@ -215,7 +215,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/ios-notification-approval-recovery.md':
     '25c69af97177d864958bff98a953bd9cb0e12aa67f09bf45349b5e4f67757671',
   '../../docs/features/personal-claude-local.md':
-    '9556692d4823d54cb7fc7be37dd9bbfb8961234939fcf79c16a64b2b07819bda',
+    '874a513f4b8d71c61ddafab7d878c79786538c52aee5e6cca205585304c7d58d',
   '../../docs/features/session-resource-removal.md':
     'd4cc0ee7798066e6f2742a0d577ced6e3fe181706c506db1b152a34e18898c59',
   '../../docs/features/session-timers.md':
@@ -2482,7 +2482,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/anthropic-api-child-env.test.ts':
     '0363c54f2f36e12904a0bee594e6f59ea57ec320d62cc0dd5696bd7abd47f1f9',
   '../__tests__/anthropic-api-sdk-model.test.ts':
-    '5465a9658a8aa8c685f7cb0dc1828ca3a95197570c7204bbef769b8284338237',
+    'b48bed79da40c2fa6fad2be04d8c7fdf5c6fdcdf4794f93a21aa49c629eb2d22',
   '../__tests__/anthropic-api-sdk-permissions.test.ts':
     '4857534dacb114910f5e833c83e055c410abdf6d9c0ab4b584680a7e75af70f5',
   '../__tests__/approval-expiry-projection.test.ts':
@@ -3739,7 +3739,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '64f5592b2181b78b360fd3f987a9c5f55e9944546095ea54da92fb14d6529873',
+  '../chat.ts': '03f80b539ab7cf32772b6f23114d1293e9ddb3ce837130ad46c37287c84b9d4b',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
@@ -3954,7 +3954,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-publishing-source.ts':
     'cf5fbec25e1b9bfcfab723c404d69f7b30aa01e6277cb17159a26d9b568b4754',
   '../github-publishing-tool.ts':
-    '2c5e4cfd958813df677f1d98b8b1fe3ee5d216c627d6b8acb15d498b6c25d29d',
+    '9617c48ed19e3eaacbd7db2457db5ceba0f53cf53be139ad501f4a2e6cb4d222',
   '../github-read-approval.ts': '8c8acaae340e7dec7dcf801e429ee0a9733ddd7ff43807784feb08885aa06a1d',
   '../github-read-summary.ts': 'acdcb1802b529f2468e566635bf1aa736a0610893447b84b7e71fe51fcb7a0b5',
   '../github-repository-connections.ts':

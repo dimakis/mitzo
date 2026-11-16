@@ -299,6 +299,12 @@ it.each([true, false])(
       // Managed publication follows the explicit profile on this API-key route.
       const { GITHUB_PUBLISH_SDK_TOOL } = await import('../web-access-sdk.js');
       expect(options.allowedTools!.includes(GITHUB_PUBLISH_SDK_TOOL)).toBe(taskSelected);
+      const { ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS } = await import('../github-publishing-tool.js');
+      expect(
+        (options.systemPrompt as { append: string }).append.includes(
+          ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS,
+        ),
+      ).toBe(taskSelected);
       expect(options.disallowedTools).not.toContain(GITHUB_PUBLISH_SDK_TOOL);
       if (!taskSelected)
         expect(
