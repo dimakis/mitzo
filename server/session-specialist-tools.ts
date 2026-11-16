@@ -12,7 +12,11 @@ import {
 import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
 import { buildPermissionHandler } from './permission-handler.js';
-import { specialistToolSchema } from './specialist-consultation-contract.js';
+import {
+  parseSpecialistToolInput,
+  SpecialistInputError,
+} from './specialist-consultation-contract.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { getSpecialistConsultations } from './specialist-consultation-runtime.js';
 import { createLogger } from './logger.js';
 import { specialistDiagnostic } from './specialist-consultation-diagnostics.js';
@@ -35,7 +39,7 @@ export function sessionSpecialistTools(
       try {
         if (!assertRuntimeCurrent || !assertRuntimeCurrentSync)
           throw Error('Specialist consultation requires a verified ordinary runtime');
-        const input = specialistToolSchema.parse(raw);
+        const input = parseSpecialistToolInput(raw);
         requestId = input.requestId;
         const owner = () => {
           externalSignal.throwIfAborted();
@@ -141,6 +145,25 @@ export function sessionSpecialistTools(
           ['uncertain', 'failed'].includes(String(value.status));
         return { content: JSON.stringify(value), isError: !!failed };
       } catch (cause) {
+        if (
+          cause instanceof SpecialistInputError &&
+          !externalSignal.aborted &&
+          !session.abortController.signal.aborted
+        ) {
+          return retainCallbackOutcome(
+            {
+              content: JSON.stringify({
+                error: 'invalid_input',
+                outcome: 'not_started',
+                stage: 'validation',
+                missingFields: cause.missingFields,
+                message: cause.message,
+              }),
+              isError: true,
+            },
+            'settled',
+          );
+        }
         const diagnostic = specialistDiagnostic(cause);
         const cancelled =
           externalSignal.aborted ||
