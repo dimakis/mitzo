@@ -5,7 +5,8 @@ import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
-import { SessionRegistry, resolvePending } from '@mitzo/harness';
+import { SessionRegistry, buildPermissionHandler, resolvePending } from '@mitzo/harness';
+import { sdkRepositoryPreparationApproval } from '../sdk-local-repository-tools.js';
 import { executeTaskOperation } from '../task-execution-operation.js';
 import { TaskExecutionStore } from '../task-execution-store.js';
 import {
@@ -157,4 +158,44 @@ it('refuses revoked owners before allocation and changed or missing retained tas
   git(task.directory, 'switch', task.branch);
   await rm(task.directory, { recursive: true });
   await expect(prepareSdkSecondaryRepository(f.options)).rejects.toThrow();
+});
+it('requires a fresh approval for every source repository even after an Always answer', async () => {
+  const registry = new SessionRegistry();
+  cleanups.push(() => registry.dispose());
+  const prompts: unknown[] = [];
+  registry.register('approvals', {
+    sessionId: 'conversation',
+    cwd: '/offline/original',
+    mode: 'auto',
+    abortController: new AbortController(),
+    sessionAllowList: new Set(),
+    transport: {
+      isOpen: () => true,
+      send: (event) => {
+        if (event.type === 'permission_request' && typeof event.permId === 'string') {
+          prompts.push(event.toolInput);
+          const permId = event.permId;
+          queueMicrotask(() => resolvePending(permId, 'always'));
+        }
+      },
+    },
+  });
+  const approve = (path: string, toolUseID: string) =>
+    buildPermissionHandler('approvals', registry)(
+      'mcp__mitzo-connections__PrepareLocalRepository',
+      { path },
+      sdkRepositoryPreparationApproval({
+        path,
+        cwd: '/offline/original',
+        signal: new AbortController().signal,
+        toolUseID,
+      }),
+    );
+  expect(await approve('/offline/repository-a', 'prepare-a')).toMatchObject({ behavior: 'allow' });
+  expect(await approve('/offline/repository-b', 'prepare-b')).toMatchObject({ behavior: 'allow' });
+  expect(prompts.map((input) => JSON.parse(String(input)))).toEqual([
+    { path: '/offline/repository-a' },
+    { path: '/offline/repository-b' },
+  ]);
+  expect(registry.get('approvals')!.sessionAllowList.size).toBe(0);
 });

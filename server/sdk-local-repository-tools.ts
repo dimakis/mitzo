@@ -44,6 +44,24 @@ const prepareDefinition = {
   description:
     'Prepare an isolated task from an existing Mac repository in this Claude chat. Supply path or source {kind:"existing",path:"..."}. Omit base for the refreshed default branch, or use base {kind:"ref",ref:"HEAD"} for an unremoted repository. Returns the directory for subsequent code operations; preserves the primary SDK cwd/history. Clone/new use native Git setup in an admitted directory. Explicit approval is required.',
 };
+/** Each source repository is a distinct host effect: the prompt names one path. */
+export function sdkRepositoryPreparationApproval(request: {
+  path: string;
+  cwd: string;
+  signal: AbortSignal;
+  toolUseID: string;
+}) {
+  return {
+    signal: request.signal,
+    toolUseID: request.toolUseID,
+    forcePrompt: true,
+    // An Always answer for one repository (or any mitzo-connections tool) must
+    // never approve preparing another source; keep every approval request-scoped.
+    allowSessionGrant: false,
+    title: 'Prepare this repository for Claude development?',
+    description: `Create an isolated worktree from ${request.path} inside ${request.cwd}. Continue in this chat with its returned task directory.`,
+  };
+}
 export interface SdkRepositoryToolsBoundary {
   events: EventStore;
   runCallback?: TurnCallbackRunner;
@@ -163,13 +181,12 @@ export function registerSdkLocalRepositoryTools(
                   const decision = await buildPermissionHandler(live.clientId, registry)(
                     wire,
                     input as Record<string, unknown>,
-                    {
+                    sdkRepositoryPreparationApproval({
+                      path,
+                      cwd: owner.cwd,
                       signal,
                       toolUseID: owner.callback.toolUseId,
-                      forcePrompt: true,
-                      title: 'Prepare this repository for Claude development?',
-                      description: `Create an isolated worktree from ${path} inside ${owner.cwd}. Continue in this chat with its returned task directory.`,
-                    },
+                    }),
                   );
                   await current();
                   throwIfApprovalExpired(decision);
