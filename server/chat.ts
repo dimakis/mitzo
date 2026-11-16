@@ -2938,7 +2938,7 @@ async function _startChatInner(
           ...sdkWorktreePermissionOptions({
             repositoryWorkspace: !!repositoryWorkspace,
             ordinarySdk: !!options.ordinarySdkAuthority,
-            osSandboxed: !!sdkCredentialBoundary,
+            osSandboxed: sdkCredentialBoundary?.confinesWorkspaceWrites === true,
             createOnDemand: () => buildOnDemandCreate(wtId, clientId, options.ordinarySdkAuthority),
           }),
           ...(options.ordinarySdkAuthority

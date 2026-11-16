@@ -12,7 +12,6 @@ import {
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
 import { AuthoritySnapshot, validatePath, type SerializedAuthority } from './sandbox-authority.js';
-import { HOST_GITHUB_TOKEN_TRANSFER } from './host-github-credential.js';
 import {
   privateNativeFileHelperCommand,
   privateNativeFileProgramCommand,
@@ -41,6 +40,11 @@ export interface SandboxWorkerPayload {
    * transfer variable, never from this on-disk payload. */
   hostGithubToken?: true;
 }
+
+/** Bootstrap-only variable carrying the host GitHub login to this worker. Declared
+ * here so the worker's compiled module closure gains no controller-side import;
+ * host-github-credential.ts mirrors it and a test pins the two together. */
+export const HOST_GITHUB_TOKEN_TRANSFER = 'MITZO_SDK_HOST_GITHUB_TOKEN_TRANSFER';
 
 /** Remove the host GitHub transfer from the worker's own environment before
  * anything else runs, so neither the bootstrap shell nor SRT ever sees it. */

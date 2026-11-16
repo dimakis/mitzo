@@ -19,6 +19,7 @@ import {
   type SandboxWorkerPayload,
 } from '../sandboxed-command-worker.js';
 import { HOST_GITHUB_TOKEN_TRANSFER } from '../host-github-credential.js';
+import { HOST_GITHUB_TOKEN_TRANSFER as WORKER_HOST_GITHUB_TOKEN_TRANSFER } from '../sandboxed-command-worker.js';
 
 let root: string;
 beforeEach(async () => {
@@ -717,4 +718,8 @@ it('moves an opted-in host GitHub login from bootstrap into only the target envi
   expect(() => admitHostGithubToken(plain, 'gho_unrequested')).toThrow();
   expect(() => admitHostGithubToken({ env: {}, hostGithubToken: true }, undefined)).toThrow();
   expect(() => admitHostGithubToken({ hostGithubToken: true }, 'gho_x')).toThrow();
+});
+
+it('keeps the worker and controller names for the host GitHub transfer identical', () => {
+  expect(WORKER_HOST_GITHUB_TOKEN_TRANSFER).toBe(HOST_GITHUB_TOKEN_TRANSFER);
 });

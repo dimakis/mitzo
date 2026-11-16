@@ -202,6 +202,9 @@ function createSdkBoundary(
   return {
     credentialIsolation,
     deniedRoots,
+    /** This launch freezes writes to its workspace, scratch and account roots,
+     * so a worktree created elsewhere after spawn is not writable by the provider. */
+    confinesWorkspaceWrites: !runtimeOnly,
     /** Original OS-policy producer only. A current SDK callback/barrier must add
      * its own operator/account/root/query fence. Presence grants no source read.
      * Do not replace private patterns with a guessed literal-root projection. */
