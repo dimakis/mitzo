@@ -3,7 +3,10 @@ import type { EventStore } from './event-store.js';
 import type { AuthSession } from './auth.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { observedOrdinarySdkOutcome } from './ordinary-sdk-turn-evidence.js';
+import {
+  observedOrdinarySdkOutcome,
+  readOrdinarySdkTurnDiagnostic,
+} from './ordinary-sdk-turn-evidence.js';
 import type { OrdinarySessionPromptPort } from './session-prompt-dispatch.js';
 
 /** One explicit retry intent per immutable source. The existing send ledger
@@ -169,6 +172,43 @@ export function readOwnedVertexQueueOverview(events: EventStore, sessionId: stri
       .map((id) => ({ id, preview: events.ordinaryCommandPreview(id, sessionId) ?? '' })),
     cancelledIds: events.getCancelledOrdinaryLocalVertexCommandIds(sessionId),
     hasMore: false,
+  };
+}
+
+/** Supported read-only inspection of the original SDK command after a cold
+ * reconnect. This cannot settle an execution or reconstruct dispatch consent. */
+export function readOwnedVertexRecovery(
+  events: EventStore,
+  sessionId: string,
+  authorization?: AuthSession,
+) {
+  assertOwnedVertexQueueControl(events, sessionId, authorization);
+  const custody = events.getOrdinaryLocalVertexCustody(sessionId);
+  if (!custody) throw Error('Original SDK custody unavailable');
+  const commandId = events.getCurrentExecutionCommandId(sessionId) ?? custody.initialCommandId;
+  const admission = events.getOrdinaryLocalVertexCommandAdmission(commandId);
+  const command = events.getSendCommand(commandId);
+  if (!admission || command?.sessionId !== sessionId)
+    throw Error('Original SDK command receipt unavailable');
+  const execution = events.getExecutionAdmission(sessionId, commandId);
+  const evidence = readOrdinarySdkTurnDiagnostic(events, sessionId, commandId);
+  if (evidence.inputAcknowledged && evidence.providerThreadId !== custody.sdkSessionId)
+    throw Error('Original SDK provider thread identity changed');
+  return {
+    version: 1,
+    sessionId,
+    sdkSessionId: custody.sdkSessionId,
+    commandId,
+    admissionState: admission.state,
+    executionTerminalReason: execution && events.getExecutionTerminalReason(execution.token),
+    ...evidence,
+    status: evidence.inputCancellation
+      ? 'cancelled_before_dispatch'
+      : evidence.sdkOutcome && evidence.sdkOutcome !== 'uncertain'
+        ? 'settled'
+        : 'unconfirmed',
+    mayReplay: false,
+    nextAction: 'inspect_original_owner',
   };
 }
 export function cancelOwnedVertexQueuedCommand(

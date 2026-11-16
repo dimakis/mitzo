@@ -50,6 +50,12 @@ Existing design checks: 109 passed and one existing conditional skip. Runs used
 one worker and a 1 GiB Node heap. Scoped lint and standalone strict translator
 typing passed; hosted full typing/CI and exact-head Centaur review remain gates.
 
+The accepted lifecycle commit `f7bab377d071e8cf15ac4eaf4e7e59fa687ec087`
+was integrated on 16 November after GitHub confirmed a merge conflict. The
+canonical diagnostic utility now has zero delta against accepted main. Only the
+runtime revision label required manual resolution; all accepted source pins and
+existing request-notice changes remain intact.
+
 Model refusal/retraction, richer context usage, background task progress and
 optional native plan-utilization displays remain separate reporting work.
 This does not fix the original iOS transcript projection failure, reconcile a
