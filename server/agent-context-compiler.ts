@@ -23,6 +23,20 @@ export const AGENT_PACK_CONTEXT_COMPILER_REVISION =
   'mitzo-context-packs-v1:contexgin-683f9007db686e710ed9a5410468fe33df1c5382';
 export const contextDigest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** Ordinary SDK tasks load instruction text through the same bounded compiler,
+ * without enabling project settings, hooks, MCP discovery or native user memory. */
+export async function compileProjectInstructions(workspaceRoot: string, signal: AbortSignal) {
+  return compileWorkspaceContext(
+    { version: 1, source: 'workspace', files: [], required: [], excluded: [], tokenBudget: 32000 },
+    {
+      workspaceRoot,
+      signal,
+      allowMissingInstructions: true,
+      assertDocumentPath: assertAllowedPath,
+    },
+    contexgin,
+  );
+}
 export type AgentContextCompileOptions = {
   packs?: AuthorizedContextPacks;
   workspaceRoot?: string;

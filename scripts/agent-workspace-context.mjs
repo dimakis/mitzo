@@ -89,7 +89,8 @@ export async function compileWorkspaceContext(recipe, options, compiler) {
         break;
       }
     }
-    if (!canonical) throw Error('Required canonical workspace instructions are unavailable');
+    if (!canonical && !options.allowMissingInstructions)
+      throw Error('Required canonical workspace instructions are unavailable');
     for (const file of recipe.files) {
       if (file === canonical || (file === 'CLAUDE.md' && canonical === 'AGENTS.md')) continue;
       const content = await document(root, file, options.signal);

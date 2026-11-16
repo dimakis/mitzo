@@ -684,6 +684,10 @@ it.each(
     const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
     vi.resetModules();
+    const contextOrigin = 'http://offline-contexgin.test';
+    const bootContextUrl = `${contextOrigin}/api/agents/mitzo-conversational/context`;
+    const bootContextText = 'Offline ordinary SDK boot instructions';
+    vi.stubEnv('CONTEXGIN_URL', contextOrigin);
     // Use the real Pino builder/serializer with an isolated in-memory destination.
     // The mock factory retains its production singleton across resetModules;
     // changing LOG_FILE_PATH between cases would still reuse the first file.
@@ -1140,7 +1144,11 @@ it.each(
     services.authId = f.auth.id;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => {
+      vi.fn(async (url) => {
+        if (String(url) === bootContextUrl)
+          return new Response(JSON.stringify({ boot: { content: bootContextText, tokens: 8 } }), {
+            status: 200,
+          });
         throw Error('Offline test has no network');
       }),
     );
@@ -2279,9 +2287,13 @@ it.each(
       selection: { model: nextModel, thinking: nextThinking },
     });
 
-    expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith('/health'))).toBe(
+    const allowedContextReads = new Set([`${contextOrigin}/health`, bootContextUrl]);
+    expect(vi.mocked(fetch).mock.calls.every(([url]) => allowedContextReads.has(String(url)))).toBe(
       true,
     );
+    expect(fetch).toHaveBeenCalledWith(bootContextUrl, { signal: expect.any(AbortSignal) });
+    for (const request of services.requests)
+      expect(JSON.stringify(request.options.systemPrompt)).toContain(bootContextText);
   },
   // This journey starts five SDK commands and exercises four real MCP
   // surfaces. Hosted runs spend about five seconds in each information turn;

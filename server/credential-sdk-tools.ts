@@ -136,7 +136,9 @@ export function credentialSdkPermission(
   const short = name.slice(prefix.length) as keyof typeof schemas;
   if (
     !Object.hasOwn(schemas, short) ||
-    !schemas[short].safeParse(input).success ||
+    // Google owns strict operation validation before any preparation. Invalid
+    // arguments must reach that diagnostic, rather than masquerade as denial.
+    (short !== 'GoogleWorkspaceRead' && !schemas[short].safeParse(input).success) ||
     !agentToolAllowed(session, name) ||
     registry.get(clientId) !== session ||
     session.abortController.signal.aborted ||

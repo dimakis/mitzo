@@ -200,6 +200,9 @@ export function createOrdinaryLocalVertexSdkQuery<
   /** Invoke an input's refusal reporter before retiring the owning query. */
   authorize(signal: AbortSignal, beforeRefusal?: (cause: unknown) => never): Promise<void>;
   authorizeSync(signal: AbortSignal): void;
+  /** Initial context is prepared by chat startup. Refresh only after the
+   * original process closes, before capturing a replacement's system prompt. */
+  prepareContext?(signal: AbortSignal): Promise<void>;
   /** Trusted ordinary command/source fence, after every awaited SDK account
    * check and immediately before yielding that exact frozen user input. */
   beforeInput?(commandId: string): boolean | void;
@@ -551,6 +554,8 @@ export function createOrdinaryLocalVertexSdkQuery<
         if (!state.processClose) throw Error('Original SDK process closure unavailable');
         await state.processClose.wait(owners.controller.signal);
       }
+      await owners.authorize(owners.controller.signal);
+      await owners.prepareContext?.(owners.controller.signal);
       await owners.authorize(owners.controller.signal);
       owners.authorizeSync(owners.controller.signal);
       input = new AsyncQueue<SDKUserMessage>();
