@@ -192,3 +192,29 @@ the receipt-security cases additionally fence login loss, conversation changes
 and unmount after recipient changes. Shared-package compilation, changed-source
 lint and formatting pass. This is a correction delta for review; fresh combined
 CI and trusted current-head verification remain mandatory.
+
+### Revision-3 fixture reconciliation
+
+Centaur follow-up `5921395086` approved production head `b9d32eef` with
+recommendation `merge`, zero new/unresolved blockers and three verified fixes.
+Its dedicated App status `59032660571` succeeded. CI unit shard 1 then exposed
+another obsolete recipient-checkbox assumption in the complete fresh-agent UI
+journey. The subsequent bounded scan distinguishes the revision-3 ordinary
+composer from the retained protected popover/design surfaces.
+
+The fresh-agent journey now uses inline pressed-state toggles and selected-agent
+Stop names, restores the existing Defaults protocol intent through the real draft
+owner, and inspects multiple retained controls in the existing status dialog.
+Settled commands are checked through their canonical outcomes and journal cleanup;
+uncertain requests still require exact retained identities through remount.
+The seven synthetic turns, privacy, reply attribution, partial failure, native
+interrupt, no-resend and full request-equality assertions remain. Its accepted
+receipt is observed before asserting that the unresolved native result survives.
+
+The browser composer fixture uses the same controls, focus behavior and saved
+Defaults restoration, and models both original-request Stop and targeted agent
+Stop with exact audiences. Its finalized reply carries a completed native outcome.
+The three focused application/composer files pass 20 tests; browser discovery lists
+20 cases across the selected/imported suites. Browser execution remains for CI.
+Production sources are unchanged from the approved `b9d32eef`; only these fixtures,
+their registered fingerprints and this evidence change.
