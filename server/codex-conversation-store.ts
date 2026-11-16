@@ -6,6 +6,10 @@ import type {
 } from './retained-native-effect-evidence.js';
 import { codexStoredAccountKey, readCodexStoredAccountKey } from './codex-stored-account.js';
 import { hasRetainedTaskExecutionResult } from './retained-task-execution-result.js';
+import {
+  CodexRecoveryEffectsError,
+  type RecoveryReceiptCheck,
+} from './codex-recovery-effects-error.js';
 import { ToolFailureSchema, type ToolFailure } from '@mitzo/protocol';
 import { reauthorizeHostLoginStore } from './host-codex-login-reauthorization-store.js';
 import type { HostCodexLoginReauthorization } from './host-codex-login-reauthorization.js';
@@ -3728,54 +3732,68 @@ export class CodexConversationStore {
     }
     if (childCalls.some((call) => !ownedExecution || !call.intrinsicRead))
       throw Error('Terminal child host effects require original owned read authority');
-    if (
-      calls.length !== receipts.length ||
-      calls.some((call) => {
-        const receipt = byId.get(call.callId);
-        const evidence = (): RetainedNativeEffectEvidence => ({
-          target,
-          execution: originalExecution!,
-          custody: originalCustody!,
-          diagnostic: this.commandLifecycle(id, binding, target.commandId).diagnostic,
-          callId: call.callId,
-          requestHash: call.requestHash,
-          effectOutcome: receipt!.result_effect_outcome,
-          contentItems: receipt!.result_content_items,
-        });
-        return (
-          !receipt ||
-          receipt.turn_id !== target.turnId ||
-          receipt.tool_name !== call.toolName ||
-          receipt.request_hash !== call.requestHash ||
-          receipt.result_content === null ||
-          receipt.result_is_error !== Number(call.isError) ||
-          !(
-            receipt.result_effect_outcome === 'settled' ||
-            (receipt.result_effect_outcome === null && !call.isError) ||
-            (call.readOnly &&
-              ownedExecution &&
-              (receipt.result_effect_outcome === null || call.intrinsicRead)) ||
-            (call.toolName === 'TaskExecution' &&
-              ownedExecution &&
-              hasRetainedTaskExecutionResult(
-                id,
-                binding,
-                this.read(id, binding).cwd,
-                call.arguments,
-                { content: receipt.result_content, isError: call.isError },
-                evidence,
-              )) ||
-            (ownedExecution &&
-              observeHostResult?.(
-                call,
-                { content: receipt.result_content, isError: call.isError },
-                evidence,
-              ) === true)
-          )
-        );
-      })
-    )
-      throw Error('Native terminal host effects lack matching settled receipts');
+    const reject = (check: RecoveryReceiptCheck, callId?: string): never => {
+      throw new CodexRecoveryEffectsError(check, {
+        commandId: target.commandId,
+        turnId: target.turnId,
+        callId,
+        observedCalls: calls.length,
+        retainedReceipts: receipts.length,
+      });
+    };
+    if (calls.length !== receipts.length) reject('call_count_mismatch');
+    for (const call of calls) {
+      const receipt = byId.get(call.callId);
+      if (!receipt) reject('receipt_missing', call.callId);
+      if (receipt.turn_id !== target.turnId) reject('turn_mismatch', call.callId);
+      if (receipt.tool_name !== call.toolName) reject('tool_mismatch', call.callId);
+      if (receipt.request_hash !== call.requestHash) reject('request_mismatch', call.callId);
+      if (receipt.result_content === null) reject('result_missing', call.callId);
+      if (receipt.result_is_error !== 0 && receipt.result_is_error !== 1)
+        reject('result_mismatch', call.callId);
+      // A provider-side failure can describe interrupted reply delivery, not
+      // the host execution. The original settled receipt owns its outcome.
+      // Preserve it byte-for-byte; this never replays the call or settles an
+      // unknown callback. Legacy evidence still requires the original result
+      // to match its operation-specific receipt, including its failure flag.
+      if (receipt.result_effect_outcome === 'settled') continue;
+      const evidence = (): RetainedNativeEffectEvidence => ({
+        target,
+        execution: originalExecution!,
+        custody: originalCustody!,
+        diagnostic: this.commandLifecycle(id, binding, target.commandId).diagnostic,
+        callId: call.callId,
+        requestHash: call.requestHash,
+        effectOutcome: receipt!.result_effect_outcome,
+        contentItems: receipt!.result_content_items,
+      });
+      if (!(
+        (receipt.result_effect_outcome === null &&
+          receipt.result_is_error === 0 &&
+          !call.isError) ||
+        (call.readOnly &&
+          ownedExecution &&
+          (receipt.result_effect_outcome === null || call.intrinsicRead)) ||
+        (call.toolName === 'TaskExecution' &&
+          ownedExecution &&
+          hasRetainedTaskExecutionResult(
+            id,
+            binding,
+            this.read(id, binding).cwd,
+            call.arguments,
+            { content: receipt.result_content, isError: receipt.result_is_error === 1 },
+            receipt.result_is_error === Number(call.isError) ? evidence : undefined,
+          )) ||
+        (ownedExecution &&
+          receipt.result_is_error === Number(call.isError) &&
+          observeHostResult?.(
+            call,
+            { content: receipt.result_content, isError: receipt.result_is_error === 1 },
+            evidence,
+          ) === true)
+      ))
+        reject('effect_unsettled', call.callId);
+    }
     return createHash('sha256').update(JSON.stringify(receipts)).digest('hex');
   }
 

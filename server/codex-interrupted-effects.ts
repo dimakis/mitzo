@@ -182,8 +182,10 @@ export async function observeNativeRecoveryTurn(
             break;
           }
           case 'dynamicToolCall': {
+            // Match the live ToolCall namespace contract. Namespace text is
+            // descriptive; exact host name/request/receipt owns settlement.
             if (
-              item.namespace != null ||
+              !(item.namespace == null || typeof item.namespace === 'string') ||
               !(
                 (item.status === 'completed' && item.success === true) ||
                 (item.status === 'failed' && item.success === false)

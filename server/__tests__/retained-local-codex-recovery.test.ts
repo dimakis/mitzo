@@ -472,6 +472,7 @@ async function reconcileRetainedColdTurn(
   completionPhase = true,
   uncertainGithubRead = false,
   heldContext = false,
+  reply: 'matching' | 'stopped-success' | 'stopped-failure' | 'namespaced' = 'matching',
 ) {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
@@ -548,7 +549,13 @@ async function reconcileRetainedColdTurn(
           url: 'http://localhost:16686/api/v3/traces',
           reason: 'inspect',
         };
-  const retainedResult = { content: 'Original operation failed.', isError: true };
+  const retainedResult = {
+    content: 'Original operation result.',
+    isError: reply !== 'stopped-success',
+  };
+  // Older adapters lost the private settlement marker. The original task-run
+  // receipt must still qualify the exact result after interrupted delivery.
+  if (reply.startsWith('stopped-')) retainCallbackOutcome(retainedResult, 'unknown');
   const runFingerprint = createHash('sha256')
     .update(
       JSON.stringify([
@@ -804,8 +811,9 @@ async function reconcileRetainedColdTurn(
               type: 'dynamicToolCall',
               tool: identity.toolName,
               arguments: arguments_,
-              status: 'failed',
-              success: false,
+              ...(reply === 'namespaced' ? { namespace: 'functions' } : {}),
+              status: reply === 'stopped-failure' ? 'completed' : 'failed',
+              success: reply === 'stopped-failure',
             },
           },
         ],
@@ -1058,6 +1066,12 @@ it.each([false, true])(
 it('recovers an interrupted TaskExecution GitHub read with an uncertain receipt without replay', () =>
   reconcileRetainedColdTurn('interrupted', false, false, true));
 
+it.each(['stopped-success', 'stopped-failure', 'namespaced'] as const)(
+  'recovers cold interrupted tool work with %s native delivery without replay or receipt rewriting',
+  (reply) => reconcileRetainedColdTurn('interrupted', false, false, false, false, reply),
+  coldRecoveryTimeoutMs,
+);
+
 it.each(
   (['warm', 'cold'] as const).flatMap((retirement) =>
     (['settled-capacity', 'unknown-write', 'context-limit'] as const).map((failure) => ({
@@ -1199,7 +1213,9 @@ it.each(
       return;
     }
     if (unknownWrite) {
-      await expect(runtime.resumeAfterExplicitSend()).rejects.toThrow('matching settled receipts');
+      await expect(runtime.resumeAfterExplicitSend()).rejects.toMatchObject({
+        code: 'recovery_effects_unverified',
+      });
       expect(store.commandStatus(id, binding, original.commandId)).toBe('failed');
       expect(store.commandStatus(id, binding, 'saved-capacity-follow-up')).toBe('queued');
       expect(store.read(id, binding).recovery).toBe(1);

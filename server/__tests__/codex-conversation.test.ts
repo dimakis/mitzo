@@ -10481,9 +10481,17 @@ function nativeDevelopmentItems() {
 
 it.each(
   (['stop', 'transport'] as const).flatMap((retirement) =>
-    (['none', 'native-command', 'host-tool', 'failed-read', 'settled-refusal'] as const).map(
-      (effects) => ({ retirement, effects }),
-    ),
+    (
+      [
+        'none',
+        'native-command',
+        'host-tool',
+        'failed-read',
+        'settled-refusal',
+        'delivery-failure',
+        'delivery-success',
+      ] as const
+    ).map((effects) => ({ retirement, effects })),
   ),
 )(
   'reconciles an interrupted turn with full settled items after $retirement ($effects)',
@@ -10498,7 +10506,11 @@ it.each(
       retirement,
       !['none', 'native-command'].includes(effects),
       undefined,
-      effects === 'failed-read' || effects === 'settled-refusal' ? effects : undefined,
+      effects === 'delivery-success'
+        ? 'settled-refusal'
+        : effects === 'failed-read' || effects === 'settled-refusal'
+          ? effects
+          : undefined,
     );
     f.rpc.request.mockImplementation(async (method, params) =>
       method === 'thread/turns/list' || method === 'thread/items/list'
@@ -10517,8 +10529,11 @@ it.each(
                         id: 'settled-read',
                         tool: toolName,
                         arguments: arguments_,
-                        status: effects === 'host-tool' ? 'completed' : 'failed',
-                        success: effects === 'host-tool',
+                        status:
+                          effects === 'host-tool' || effects === 'delivery-success'
+                            ? 'completed'
+                            : 'failed',
+                        success: effects === 'host-tool' || effects === 'delivery-success',
                       },
                     ]
                   : [],
@@ -10540,7 +10555,7 @@ it.each(
       !['none', 'native-command'].includes(effects) ? 1 : 0,
     );
     expect(f.execute).not.toHaveBeenCalled();
-    if (['failed-read', 'settled-refusal'].includes(effects))
+    if (['failed-read', 'settled-refusal', 'delivery-success'].includes(effects))
       expect(
         f.store.replayToolResult('app', f.getBinding(), 'uncertain-native', 'settled-read', {
           turnId: 'turn-1',
@@ -10603,7 +10618,7 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
       { ...tool, tool: 'Write' },
       { ...tool, arguments: { changed: true } },
       { ...tool, id: 'foreign' },
-      { ...tool, namespace: 'foreign' },
+      { ...tool, namespace: 42 },
       { ...tool, success: false },
       { ...tool, status: 'inProgress' },
       { type: 'commandExecution', id: 'pending', status: 'inProgress', exitCode: null },
