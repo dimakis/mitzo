@@ -1,15 +1,18 @@
 // @vitest-environment node-compatible-dom
 import { expect, it, vi } from 'vitest';
 import { createElement } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { journey, sdkApplicationState } from './fixtures/symposium-claude-application.js';
+import { installDialogStub } from '../../frontend/src/components/__tests__/dialog-stub.js';
 
 const observed = sdkApplicationState();
 
 it('recovers the exact pre-input SDK Stop through the production composer Check action without provider acceptance or replay', async () => {
   if (journey.state.root !== undefined) await journey.restartApplication();
   const h = await journey.getApplicationUiJourney();
+  vi.stubGlobal('HTMLDialogElement', window.HTMLDialogElement);
+  installDialogStub();
   (await import('../auth.js')).setAuthRevocationStore(h.events);
   const participant = await journey.joinReviewedParticipant({
     accountId: 'offline-claude',
@@ -114,7 +117,7 @@ it('recovers the exact pre-input SDK Stop through the production composer Check 
     await vi.waitFor(() => expect(observed.releaseInput).toBeTypeOf('function'), {
       timeout: 10000,
     });
-    await screen.findByRole('button', { name: 'Stop generation' });
+    await screen.findByRole('button', { name: /^Stop / });
     const accepted = (await h.api.view(h.group)).messages.find(
       (message) => message.text === 'Cancel before the SDK receives this prompt',
     )!;
@@ -123,7 +126,7 @@ it('recovers the exact pre-input SDK Stop through the production composer Check 
     )!.commandId!;
     const original = getChatDraft('shared:' + h.group)!.collaborationSend!.input;
     expect(commandId).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Stop / }));
     await vi.waitFor(() =>
       expect(h.events.getSession(participant)?.executionPhase).toBe('STOPPING'),
     );
@@ -133,12 +136,19 @@ it('recovers the exact pre-input SDK Stop through the production composer Check 
     await vi.waitFor(() =>
       expect(h.events.getSendCommand(commandId)?.error).toBe('Cancelled before SDK dispatch'),
     );
-    if (!screen.queryByRole('button', { name: 'Check original request' }))
+    const check = screen.queryByRole('button', { name: 'Check original Stop' });
+    if (check) fireEvent.click(check);
+    else {
       fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Check original request' }));
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Stop generation' })).toBeNull(),
-    );
+      const status = screen.getByRole('dialog', { name: 'Conversation status' });
+      fireEvent.click(within(status).getByRole('button', { name: 'Check original Stop' }));
+      fireEvent.click(within(status).getByRole('button', { name: 'Close', exact: true }));
+    }
+    // The new independent Stop owner settles before the ordinary two-second
+    // transcript observer refreshes this composer. Keep its UI assertion bounded.
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Stop / })).toBeNull(), {
+      timeout: 5000,
+    });
     expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
     expect((input as HTMLTextAreaElement).value).toBe('Keep the draft after pre-input Stop');
     expect((await h.api.observeSend(h.group, original)).terminal).toBe(true);

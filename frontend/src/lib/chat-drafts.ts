@@ -31,6 +31,14 @@ export function chatDraftIdFromKey(key: string): string | null {
   return key.startsWith(PREFIX) ? key.slice(PREFIX.length) : null;
 }
 export const CHAT_DRAFTS_CHANGED = 'mitzo-chat-drafts-changed';
+const collaborationSend = z.object({
+  collaborationId: SessionCollaborationIdSchema,
+  authScope: z.string().min(1),
+  input: CollaborationMessageInputSchema,
+  stopRequested: z.boolean().optional(),
+  acknowledged: z.boolean().optional(),
+  recipientSessionIds: z.array(z.string().min(1)).max(16).optional(),
+});
 export const ChatDraftSchema = z.object({
   version: z.literal(1),
   id: z.string().min(1),
@@ -46,14 +54,9 @@ export const ChatDraftSchema = z.object({
   contextBlocks: z.array(z.string()),
   updatedAt: z.number(),
   // Receipt metadata must not change the editable composer's acceptance proof.
-  collaborationSend: z
-    .object({
-      collaborationId: SessionCollaborationIdSchema,
-      authScope: z.string().min(1),
-      input: CollaborationMessageInputSchema,
-      stopRequested: z.boolean().optional(),
-    })
-    .optional(),
+  collaborationSend: collaborationSend.optional(),
+  /** Earlier in-flight requests retain independent recovery and control owners. */
+  collaborationSends: z.array(collaborationSend).max(100).optional(),
   collaborationForward: z
     .object({
       collaborationId: SessionCollaborationIdSchema,
@@ -62,6 +65,7 @@ export const ChatDraftSchema = z.object({
       reviewInput: CollaborationPromptReviewInputSchema.optional(),
       confirmation: CollaborationForwardConfirmInputSchema.optional(),
       confirmationAttempted: z.boolean(),
+      requestReply: z.boolean().optional(),
     })
     .optional(),
   collaborationContext: z
@@ -75,6 +79,8 @@ export const ChatDraftSchema = z.object({
         messageIds: z.array(z.string().min(1)).max(500),
         // Explicit context-only recipients; automatic reader policies do not widen this audience.
         shareRecipientIds: z.array(z.string().min(1)).max(16).optional(),
+        sourceConversationId: z.string().min(1).optional(),
+        requestReply: z.boolean().optional(),
         artifacts: CollaborationPromptReviewInputSchema.shape.selection.shape.artifacts.optional(),
       }),
       input: CollaborationPromptReviewInputSchema.optional(),
@@ -240,6 +246,7 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.settings.retainRuntimeIntent &&
       !draft.settings.collaborationResponders &&
       !draft.collaborationSend &&
+      !draft.collaborationSends?.length &&
       !draft.collaborationContext &&
       !draft.collaborationForward
     )
@@ -256,7 +263,12 @@ export function deleteChatDraft(id: string, options: { preserveText?: boolean } 
   try {
     // A collection discard cannot erase an unresolved delivery observation.
     const retained = getChatDraft(id);
-    if (retained?.collaborationSend || retained?.collaborationForward) return false;
+    if (
+      retained?.collaborationSend ||
+      retained?.collaborationSends?.length ||
+      retained?.collaborationForward
+    )
+      return false;
     if (!allowComposerDraftPersistence(chatDraftStorageKey(id))) return false;
     chatStorage.removeItem(PREFIX + id);
     if (!options.preserveText) chatStorage.removeItem(chatDraftTextKey(id));

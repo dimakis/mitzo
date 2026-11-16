@@ -3,7 +3,7 @@ import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
-import { readChatStorage } from '../support/persisted-chat-storage';
+import { readChatStorage, writeChatStorage } from '../support/persisted-chat-storage';
 import {
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
@@ -13,6 +13,7 @@ import {
   CollaborationForwardPrepareRequestSchema,
   CollaborationForwardConfirmRequestSchema,
   CollaborationForwardReadSchema,
+  CollaborationAgentStopInputSchema,
 } from '../../packages/protocol/src/index';
 import {
   sharedConversationView,
@@ -358,7 +359,9 @@ for (const theme of ['dark', 'light'])
             readers: ['reviewer'],
             settings: { reviewer: settings },
             policyRevisions: { reviewer: 0 },
-            deliveries: [{ ...sharedPrompt.deliveries[1], status: 'delivered' }],
+            deliveries: [
+              { ...sharedPrompt.deliveries[1], status: 'delivered', outcome: 'completed' },
+            ],
           });
           view.messages = [
             CollaborationMessageSchema.parse(original),
@@ -401,20 +404,22 @@ for (const theme of ['dark', 'light'])
       const input = page.getByRole('textbox', { name: 'Message Mitzo' });
       await input.fill('Review this exact discussion.');
       await page.getByRole('button', { name: 'Choose who replies' }).click();
-      await page.getByRole('checkbox', { name: 'Architect', exact: true }).uncheck();
-      await page.getByRole('checkbox', { name: 'Reviewer', exact: true }).click();
-      await page.getByRole('button', { name: 'Done choosing replies', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeFocused();
-      await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('');
+      await page.getByRole('button', { name: 'Architect', exact: true }).click();
+      const reviewer = page.getByRole('button', { name: 'Reviewer', exact: true });
+      await reviewer.click();
+      await expect(reviewer).toHaveAttribute('aria-pressed', 'true');
+      await page.getByRole('button', { name: 'Choose who replies' }).click();
+      await expect(input).toBeFocused();
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('@');
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveAttribute(
         'title',
-        'Replies: Reviewer',
+        'Replies: Reviewer · Type @ or select agents inline',
       );
       await expect(
         page.getByText('Participant paused. Open it before sending.').first(),
       ).toBeVisible();
       await expect(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
-      await expect(input).toHaveValue('Review this exact discussion.');
+      await expect(input).toHaveValue('Review this exact discussion. ');
       expect(sends).toBe(0);
       ready = true;
       await page.getByRole('button', { name: 'Refresh conversation', exact: true }).click();
@@ -491,7 +496,7 @@ for (const theme of ['dark', 'light'])
       expect(forward!.selection.messages[0].blocks[0].sha256).toBe(
         source.messages[0].blocks[0].sha256,
       );
-      await expect(input).toHaveValue('Review this exact discussion.');
+      await expect(input).toHaveValue('Review this exact discussion. ');
       expect(await context.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
       if (isMobile) expect((await attach.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       await page.screenshot({
@@ -516,14 +521,17 @@ for (const theme of ['dark', 'light'])
       await expect(page.getByRole('button', { name: 'Remove prompt context' })).toHaveCount(0);
       await input.fill('Keep this draft while checking another recipient.');
       await page.getByRole('button', { name: 'Choose who replies' }).click();
-      await page.getByRole('checkbox', { name: /reader/i }).click();
-      await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('');
+      await page
+        .getByRole('group', { name: 'Reply recipients' })
+        .getByRole('button', { name: 'Agent · reader', exact: true })
+        .click();
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('@');
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveAttribute(
         'title',
         /reader/i,
       );
       await expect(send).toBeDisabled();
-      await expect(input).toHaveValue('Keep this draft while checking another recipient.');
+      await expect(input).toHaveValue('Keep this draft while checking another recipient. ');
       expect(await page.locator('main').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
         true,
       );
@@ -597,23 +605,47 @@ for (const theme of ['dark', 'light'])
               sessionId: decodeURIComponent(path.split('/').at(-1)!),
               membershipRevision: view.membershipRevision,
               policySequence: view.policySequence,
-              ready: true,
-              reason: null,
+              ready: !(original && !settled && path.endsWith('/reviewer')),
+              reason:
+                original && !settled && path.endsWith('/reviewer')
+                  ? 'The original reply still needs its outcome checked.'
+                  : null,
             },
           });
         if (path.endsWith('/messages/stop')) {
-          expect(route.request().postDataJSON()).toEqual(input);
+          expect(route.request().postDataJSON()).toEqual({
+            ...input,
+            stopRecipientSessionIds: ['architect'],
+          });
           stops++;
           return route.fulfill({
             json: {
               requestId: input!.requestId,
               recipients: original!.deliveries
-                .filter((d) => d.purpose === 'reply')
+                .filter((d) => d.purpose === 'reply' && d.sessionId === 'architect')
                 .map((d) => ({
                   sessionId: d.sessionId,
                   deliveryId: d.deliveryId,
                   status: d.sessionId === 'architect' ? 'settled' : 'uncertain',
                 })),
+            },
+          });
+        }
+        if (path.endsWith('/agents/stop')) {
+          const control = CollaborationAgentStopInputSchema.parse(route.request().postDataJSON());
+          expect(control.targets).toEqual([
+            {
+              messageId: original!.messageId,
+              deliveryId: uuid(5),
+              sessionId: 'reviewer',
+              commandId: 'ordinary-reviewer',
+            },
+          ]);
+          stops++;
+          return route.fulfill({
+            json: {
+              requestId: control.requestId,
+              recipients: [{ sessionId: 'reviewer', deliveryId: uuid(5), status: 'uncertain' }],
             },
           });
         }
@@ -678,14 +710,51 @@ for (const theme of ['dark', 'light'])
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto('/');
       const picker = page.getByRole('button', { name: 'Choose who replies' });
-      await picker.focus();
-      await picker.press('Enter');
-      await page.getByRole('button', { name: 'Defaults', exact: true }).click();
-      await expect(page.getByRole('checkbox', { name: 'Architect', exact: true })).toBeChecked();
-      await expect(page.getByRole('checkbox', { name: 'Reviewer', exact: true })).toBeChecked();
-      await page.getByRole('button', { name: 'Done choosing replies' }).click();
-      await expect(picker).toBeFocused();
+      await expect(picker).toBeVisible();
+      const draftId = 'shared:' + view.collaborationId;
+      await expect
+        .poll(() =>
+          readChatStorage(
+            page,
+            (storage, id) => JSON.parse(storage.getItem('mitzo-chat-draft:' + id) ?? 'null'),
+            draftId,
+          ),
+        )
+        .toMatchObject({ id: draftId });
+      const draft = await readChatStorage(
+        page,
+        (storage, id) => JSON.parse(storage.getItem('mitzo-chat-draft:' + id)!),
+        draftId,
+      );
+      // Exercise the retained Defaults protocol intent through actual durable
+      // restoration, while revision 3 uses named inline recipient toggles.
+      await writeChatStorage(
+        page,
+        'mitzo-chat-draft:' + draftId,
+        JSON.stringify({
+          ...draft,
+          settings: {
+            ...draft.settings,
+            collaborationResponders: {
+              collaborationId: view.collaborationId,
+              responders: { kind: 'default' },
+            },
+          },
+        }),
+      );
+      await page.reload();
+      await picker.click();
+      await expect(page.getByRole('button', { name: 'Architect', exact: true })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      await expect(page.getByRole('button', { name: 'Reviewer', exact: true })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      await picker.click();
       const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+      await expect(composer).toBeFocused();
       await composer.fill('Both agents: review independently.');
       const send = page.getByRole('button', { name: 'Send message' });
       await expect(send).toBeEnabled();
@@ -698,11 +767,18 @@ for (const theme of ['dark', 'light'])
         path: info.outputPath('multiple-responders-live-' + theme + '.png'),
         fullPage: true,
       });
-      const stop = page.getByRole('button', { name: 'Stop generation' });
+      const stop = page.getByRole('button', { name: 'Stop Architect, Reviewer' });
       await expect(stop).toBeVisible();
       if (isMobile) expect((await stop.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       await stop.click();
-      await expect(page.getByText(/Stop could not be confirmed for every recipient/)).toBeVisible();
+      await page.getByRole('button', { name: 'Conversation status details' }).click();
+      const status = page.getByRole('dialog', { name: 'Conversation status', exact: true });
+      await expect(
+        page.getByText(
+          'Stop could not be confirmed for every selected agent. Check the original Stop.',
+        ),
+      ).toBeVisible();
+      await status.getByRole('button', { name: 'Close', exact: true }).click();
       await composer.fill('Keep the next draft while the other agent is uncertain.');
       // Recovery requires a committed next draft and the original uncertain request.
       // Edit-time save initiation alone does not prove IndexedDB committed either.
@@ -721,16 +797,24 @@ for (const theme of ['dark', 'light'])
         });
       await page.reload();
       await expect(composer).toHaveValue('Keep the next draft while the other agent is uncertain.');
-      await expect(picker).toBeDisabled();
+      await expect(picker).toBeEnabled();
+      await page.getByRole('button', { name: 'Conversation status details' }).click();
       await expect(page.getByText(/Stop was requested/)).toBeVisible();
+      await status.getByRole('button', { name: 'Close', exact: true }).click();
       await expect(page.getByText('Reviewer is answering this exact prompt.')).toBeVisible();
-      expect(stops).toBe(1);
-      await page.getByRole('button', { name: 'Check original request' }).click();
+      expect(stops).toBe(2);
+      const checkOriginal = async () => {
+        await page.getByRole('button', { name: 'Conversation status details' }).click();
+        await status.getByRole('button', { name: 'Check original request', exact: true }).click();
+        await status.getByRole('button', { name: 'Close', exact: true }).click();
+      };
+      await checkOriginal();
       expect(sends).toBe(1);
       expect(observations).not.toHaveLength(0);
       for (const observation of observations) expect(observation).toEqual(input);
+      const beforeSettlement = observations.length;
       settled = true;
-      await page.getByRole('button', { name: 'Check original request' }).click();
+      await expect.poll(() => observations.length).toBeGreaterThan(beforeSettlement);
       await expect(picker).toBeEnabled();
       const receipt = page.getByText(/1 recipient needs attention/);
       await expect(receipt).toBeVisible();
@@ -741,6 +825,7 @@ for (const theme of ['dark', 'light'])
       await expect(page.getByText(sharedReply.text)).toBeVisible();
       await expect(composer).toHaveValue('Keep the next draft while the other agent is uncertain.');
       expect(sends).toBe(1);
+      await expect(send).toBeEnabled();
       if (isMobile) expect((await send.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       expect(
         await page

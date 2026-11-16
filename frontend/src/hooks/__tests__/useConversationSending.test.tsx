@@ -17,6 +17,170 @@ afterEach(() => {
   localStorage.clear();
   sessionStorage.clear();
 });
+it('qualifies an explicitly forwarded audience independently and retains its own uncertain request', async () => {
+  const view = sharedConversationView(),
+    draft = createChatDraft();
+  saveChatDraft({ ...draft, text: 'Keep ordinary draft' });
+  const api = new CollaborationApiClient(vi.fn());
+  const readiness = vi
+    .spyOn(api, 'recipientReadiness')
+    .mockImplementation(async (_group, sessionId) => ({
+      collaborationId: view.collaborationId,
+      sessionId,
+      membershipRevision: view.membershipRevision,
+      policySequence: view.policySequence,
+      ready: true,
+      reason: null,
+    }));
+  vi.spyOn(api, 'observeSend').mockResolvedValue({ message: null, terminal: false });
+  const send = vi.spyOn(api, 'send').mockRejectedValue(Error('Acknowledgement lost'));
+  const options = {
+    api,
+    view,
+    draftId: draft.id,
+    authScope: 'login',
+    getVerifiedAuthScope: () => 'login',
+    responders: { kind: 'selected' as const, sessionIds: ['architect'] },
+    refresh: async () => view,
+  };
+  const h = renderHook(() => useConversationSending(options));
+  await waitFor(() => expect(h.result.current.disabledReason).toBeUndefined());
+  await act(async () => {
+    expect(
+      await h.result.current.send('Reply to this forwarded message', undefined, undefined, [
+        'reviewer',
+      ]),
+    ).toBe(false);
+  });
+  expect(readiness).toHaveBeenCalledWith(view.collaborationId, 'reviewer');
+  expect(send.mock.calls[0][1].responders).toEqual({ kind: 'selected', sessionIds: ['reviewer'] });
+  expect(getChatDraft(draft.id)?.collaborationSend?.recipientSessionIds).toEqual(['reviewer']);
+  expect(getChatDraft(draft.id)?.text).toBe('Keep ordinary draft');
+  await act(async () => {
+    expect(await h.result.current.send('Invalid target', undefined, undefined, ['outsider'])).toBe(
+      false,
+    );
+  });
+  expect(send).toHaveBeenCalledOnce();
+});
+
+it('retains an uncertain request while allowing a disjoint recipient to receive a new explicit prompt', async () => {
+  const view = sharedConversationView(),
+    draft = createChatDraft();
+  saveChatDraft({ ...draft, text: 'Keep draft' });
+  const api = new CollaborationApiClient(vi.fn());
+  vi.spyOn(api, 'recipientReadiness').mockImplementation(async (_group, sessionId) => ({
+    collaborationId: view.collaborationId,
+    sessionId,
+    membershipRevision: view.membershipRevision,
+    policySequence: view.policySequence,
+    ready: true,
+    reason: null,
+  }));
+  vi.spyOn(api, 'observeSend').mockResolvedValue({ message: null, terminal: false });
+  const send = vi.spyOn(api, 'send').mockRejectedValue(Error('Acknowledgement lost'));
+  const options = {
+    api,
+    view,
+    draftId: draft.id,
+    authScope: 'login',
+    getVerifiedAuthScope: () => 'login',
+    responders: { kind: 'selected' as const, sessionIds: ['architect'] },
+    refresh: async () => view,
+  };
+  const h = renderHook((props) => useConversationSending(props), { initialProps: options });
+  await waitFor(() => expect(h.result.current.disabledReason).toBeUndefined());
+  await act(async () => {
+    await h.result.current.send('First exact request');
+  });
+  const original = getChatDraft(draft.id)!.collaborationSend!;
+  h.rerender({ ...options, responders: { kind: 'selected', sessionIds: ['reviewer'] } });
+  await waitFor(() => expect(h.result.current.disabledReason).toBeUndefined());
+  await act(async () => {
+    await h.result.current.send('Independent reviewer request');
+  });
+  expect(send).toHaveBeenCalledTimes(2);
+  expect(getChatDraft(draft.id)!.collaborationSends).toContainEqual(original);
+  expect(getChatDraft(draft.id)!.collaborationSend!.input.text).toBe(
+    'Independent reviewer request',
+  );
+  h.rerender(options);
+  await waitFor(() => expect(h.result.current.disabledReason).toContain('original request'));
+  expect(send).toHaveBeenCalledTimes(2);
+});
+
+it.each(['auth loss', 'conversation change', 'unmount'] as const)(
+  'does not transfer original send acceptance across %s after recipient selection changes',
+  async (scenario) => {
+    const view = sharedConversationView(),
+      draft = createChatDraft();
+    saveChatDraft({ ...draft, text: 'Original request' });
+    const api = new CollaborationApiClient(vi.fn());
+    vi.spyOn(api, 'recipientReadiness').mockImplementation(async (collaborationId, sessionId) => ({
+      collaborationId,
+      sessionId,
+      membershipRevision: view.membershipRevision,
+      policySequence: view.policySequence,
+      ready: true,
+      reason: null,
+    }));
+    vi.spyOn(api, 'observeSend').mockResolvedValue({ message: null, terminal: false });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const send = vi.spyOn(api, 'send').mockImplementation(async (_group, input) => {
+      await gate;
+      return {
+        ...sharedPrompt,
+        text: input.text,
+        responders: ['architect'],
+        deliveries: [sharedPrompt.deliveries[0]],
+      };
+    });
+    const accepted = vi.fn();
+    let auth: string | undefined = 'login';
+    const proof = () => auth;
+    const refresh = async () => view;
+    const hook = renderHook(
+      ({ recipient, group }) =>
+        useConversationSending({
+          api,
+          view: { ...view, collaborationId: group },
+          draftId: draft.id,
+          authScope: 'login',
+          getVerifiedAuthScope: proof,
+          responders: { kind: 'selected', sessionIds: [recipient] },
+          refresh,
+          onAccepted: accepted,
+        }),
+      { initialProps: { recipient: 'architect', group: view.collaborationId } },
+    );
+    await waitFor(() => expect(hook.result.current.disabledReason).toBeUndefined());
+    let pending!: Promise<boolean>;
+    act(() => {
+      pending = hook.result.current.send('Original request');
+    });
+    await waitFor(() => expect(send).toHaveBeenCalledOnce());
+    hook.rerender({
+      recipient: 'reviewer',
+      group: scenario === 'conversation change' ? uuid(444) : view.collaborationId,
+    });
+    if (scenario === 'auth loss') {
+      auth = undefined;
+      act(() => {
+        window.dispatchEvent(new Event(AUTH_LOST_EVENT));
+      });
+    }
+    if (scenario === 'unmount') hook.unmount();
+    await act(async () => {
+      release();
+      expect(await pending).toBe(false);
+    });
+    expect(accepted).not.toHaveBeenCalled();
+    expect(getChatDraft(draft.id)?.collaborationSend?.acknowledged).not.toBe(true);
+  },
+);
 
 it('consumes an exact prompt attachment after observing a lost accepted receipt without repeating delivery', async () => {
   const view = sharedConversationView();

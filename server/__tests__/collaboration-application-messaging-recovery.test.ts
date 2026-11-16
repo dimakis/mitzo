@@ -278,6 +278,29 @@ it.each(['hidden', 'outside_audience', 'settings_changed', 'source_rejoined', 'p
   },
 );
 
+it('includes the canonical quoted reply in capacity validation before accepting or claiming a request', async () => {
+  acknowledgeRecordedPrompts();
+  const quoted = store.collaborationConversation.acceptMessage(
+    group,
+    input('one', '\u0000'.repeat(70000)),
+  );
+  const before = store.collaborationConversation.view(group);
+  const request = { ...input('two', 'y'.repeat(100000)), replyToMessageId: quoted.messageId };
+  await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toThrow(
+    'capacity_refused',
+  );
+  expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+  expect(store.collaborationConversation.view(group).cursor).toBe(before.cursor);
+  expect(prompts).toHaveLength(0);
+  await owner.send(
+    auth,
+    group,
+    input('two', 'A smaller independent request'),
+    new AbortController().signal,
+  );
+  expect(prompts).toHaveLength(1);
+});
+
 it('charges all retained per-message context bytes before acceptance or delivery claims', async () => {
   shareWithReader();
   acknowledgeRecordedPrompts();
@@ -396,7 +419,11 @@ it('stops retained reply commands independently with stable control identities a
   );
   expect(diagnostics.warn).toHaveBeenCalledWith(
     'Could not confirm the original collaboration Stop',
-    expect.objectContaining({ err: expect.any(Error), code: 'collaboration_stop_uncertain' }),
+    expect.objectContaining({
+      diagnosticId: expect.any(String),
+      causeType: 'Error',
+      code: 'collaboration_stop_uncertain',
+    }),
   );
   await expect(owner.stop(auth, group, { ...request, text: 'Changed original' })).rejects.toThrow();
   expect(prompts).toHaveLength(2);
@@ -421,6 +448,69 @@ it('keeps readiness and new explicit sends available after the display page over
   expect(prompts).toHaveLength(56);
   expect(accepted.deliveries[0].status).toBe('delivered');
   readiness.close();
+});
+
+it('stops selected canonical commands without requiring the browser that sent the prompt', async () => {
+  const ordinary = port(async (prompt) => {
+    prompts.push(prompt);
+  });
+  const stop = vi.fn(async (_auth, _session, _command, _request, current) => {
+    current();
+    return 'requested' as const;
+  });
+  ordinary.stopOrdinary = stop;
+  owner = new ApplicationCollaborationMessaging(store, ordinary);
+  const message = await owner.send(
+    auth,
+    group,
+    { ...input('one', 'Both agents'), responders: { kind: 'all' } },
+    new AbortController().signal,
+  );
+  const delivery = message.deliveries.find((d) => d.sessionId === 'two')!;
+  const request = {
+    requestId: crypto.randomUUID(),
+    expectedMembershipRevision: store.collaborationConversation.view(group).membershipRevision,
+    targets: [
+      {
+        messageId: message.messageId,
+        deliveryId: delivery.deliveryId,
+        sessionId: delivery.sessionId,
+        commandId: delivery.commandId!,
+      },
+    ],
+  };
+  const result = await owner.stopAgents(auth, group, request);
+  expect(result.recipients).toMatchObject([{ sessionId: 'two', status: 'requested' }]);
+  expect(stop).toHaveBeenCalledTimes(1);
+  await expect(
+    owner.stopAgents(auth, group, {
+      ...request,
+      targets: [{ ...request.targets[0], commandId: 'different-command' }],
+    }),
+  ).rejects.toThrow();
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(prompts).toHaveLength(2);
+  // An unrelated join must not strand recovery of this exact command. Current
+  // membership and the ordinary command owner still fence every control.
+  store.upsertSession({ sessionId: 'other', initialPrompt: 'Offline participant' });
+  store.setSessionCollaboration(group, {
+    expectedRevision: request.expectedMembershipRevision,
+    participantSessionIds: ['one', 'two', 'other'],
+  });
+  expect((await owner.stopAgents(auth, group, request)).recipients).toMatchObject([
+    { sessionId: 'two', status: 'requested' },
+  ]);
+  expect(stop).toHaveBeenCalledTimes(2);
+  expect(stop.mock.calls[1].slice(1, 4)).toEqual(stop.mock.calls[0].slice(1, 4));
+  await expect(
+    owner.stopAgents(auth, group, { ...request, expectedMembershipRevision: 999 }),
+  ).rejects.toThrow();
+  store.setSessionCollaboration(group, {
+    expectedRevision: request.expectedMembershipRevision + 1,
+    participantSessionIds: ['one', 'other'],
+  });
+  await expect(owner.stopAgents(auth, group, request)).rejects.toThrow();
+  expect(stop).toHaveBeenCalledTimes(2);
 });
 
 it('delivers every old pending reader item once across keyset pages and owner restart', async () => {
@@ -692,7 +782,8 @@ it('retains a readiness failure diagnostic while refusing delivery without expos
   expect(diagnostics.warn).toHaveBeenCalledWith(
     'Could not verify collaboration recipient readiness',
     expect.objectContaining({
-      err: cause,
+      diagnosticId: expect.any(String),
+      causeType: 'Error',
       code: 'collaboration_recipient_readiness_failed',
       stage: 'recipient_readiness',
       collaborationId: group,

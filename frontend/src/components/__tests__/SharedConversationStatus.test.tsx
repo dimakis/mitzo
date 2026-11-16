@@ -104,6 +104,15 @@ it.each(['setup', 'view'] as const)(
         });
       }
       if (url.endsWith('/conversation')) return (await confirmation).clone();
+      if (url.includes('/recipients/'))
+        return Response.json({
+          collaborationId: view.collaborationId,
+          sessionId: 'architect',
+          membershipRevision: view.membershipRevision,
+          policySequence: view.policySequence,
+          ready: true,
+          reason: null,
+        });
       throw Error('Unexpected request: ' + url);
     });
     surface(fetch);

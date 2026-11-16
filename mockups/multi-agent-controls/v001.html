@@ -1,0 +1,1689 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-accent="mint">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mitzo · Multi-agent controls</title>
+    <style>
+      /* Shared Mitzo tokens are embedded below for this standalone preview. */
+      /* Mitzo's single theme source. Change these semantic values once for web and mobile.
+   Component styles and inline React styles reference variables, never palette literals. */
+      :root {
+        color-scheme: dark;
+        --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace;
+
+        --color-bg: #131416;
+        --color-surface: #19191f;
+        --color-text: #f2f2f5;
+        --color-muted: #aaaab4;
+        --color-border: #33343d;
+        --accent-lavender: #b5a1ff;
+        --accent-teal: #78d9bf;
+        --accent-rose: #f3a6bf;
+        --accent-amber: #eac080;
+        --accent-blue: #91bfff;
+        --accent-mint: #b2dea1;
+        --accent-coral: #f6ad94;
+        --accent-plum: #d6a6eb;
+        --color-accent: var(--accent-lavender);
+        --color-on-accent: #171320;
+        --color-panel: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg));
+        --color-success: #4ade80;
+        --color-warning: #fbbf24;
+        --color-danger: #ff8585;
+        --color-info: #7dd3fc;
+        --color-on-status: #171320;
+        --color-overlay: rgb(0 0 0 / 55%);
+        --color-shadow: rgb(0 0 0 / 25%);
+        --color-code-bg: #101114;
+        --color-brand-claude: #df9b82;
+        /* Artifact HTML keeps its own styling on a neutral light canvas. */
+        --color-preview-canvas: #ffffff;
+
+        /* Stable identity colors are separate from the app's action accent. */
+        --seat-color-1: #347fb5;
+        --seat-color-2: #9a65b8;
+        --seat-color-3: #b36d30;
+        --seat-color-4: #328977;
+        --seat-color-5: #b75c69;
+        --seat-color-6: #6d7cb6;
+        --seat-color-7: #927e35;
+        --seat-color-8: #537f91;
+        --seat-color-default: #665599;
+
+        --radius-control: 10px;
+        --radius-panel: 12px;
+        --radius-feature: 16px;
+        --control-height: 44px;
+        --page-gutter: 20px;
+        --mobile-masthead-height: 64px;
+        --mobile-tabs-height: 64px;
+
+        /* Motion roles shared by CSS and Web Animations. */
+        --motion-duration-fast: 150ms;
+        --motion-duration-standard: 200ms;
+        --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+        --motion-distance-popover: 4px;
+        --motion-distance-sheet: 12px;
+        --motion-duration-spin: 800ms;
+        --motion-duration-status: 1200ms;
+        /* Optional decorative wordmark splash; input never waits for these timings. */
+        --motion-duration-liquid: 1600ms;
+        --motion-duration-quote: 2200ms;
+        --motion-duration-handoff: 450ms;
+        --motion-duration-waterfall: 3200ms;
+        --motion-duration-waterfall-pause: 2200ms;
+        --motion-duration-waterfall-return: 1900ms;
+
+        /* Compatibility names resolve to the same semantic theme. Keep these aliases
+     while existing chat, workspace and task components migrate incrementally. */
+        --ui-font: var(--font-ui);
+        --code-font: var(--font-mono);
+        --font-mono-code: var(--font-mono);
+        --bg: var(--color-bg);
+        --bg-primary: var(--color-bg);
+        --surface: var(--color-surface);
+        --bg-secondary: var(--color-surface);
+        --border: var(--color-border);
+        --border-color: var(--color-border);
+        --text: var(--color-text);
+        --text-primary: var(--color-text);
+        --text-dim: var(--color-muted);
+        --text-muted: var(--color-muted);
+        --text-secondary: var(--color-muted);
+        --accent: var(--color-accent);
+        --accent-hover: color-mix(in srgb, var(--color-accent) 85%, var(--color-text));
+        --danger: var(--color-danger);
+        --error: var(--color-danger);
+        --success: var(--color-success);
+        --warning: var(--color-warning);
+        --status-ok: var(--color-success);
+        --status-warn: var(--color-warning);
+        --shadow: var(--color-shadow);
+        --code-bg: var(--color-code-bg);
+        --hover: color-mix(in srgb, var(--color-accent) 10%, transparent);
+        --active: color-mix(in srgb, var(--color-accent) 20%, transparent);
+        --task-pending: var(--color-muted);
+        --task-active: var(--color-accent);
+        --task-done: var(--color-success);
+        --task-review: var(--color-warning);
+        --task-blocked: var(--color-danger);
+        --task-failed: var(--color-danger);
+        --task-skipped: var(--color-muted);
+        --workspace-bg: var(--color-bg);
+        --workspace-text: var(--color-text);
+        --workspace-muted: var(--color-muted);
+        --workspace-line: var(--color-border);
+        --workspace-panel: var(--color-panel);
+        --workspace-accent: var(--color-accent);
+        --workspace-radius: var(--radius-feature);
+        /* Type scale */
+        --text-2xs: 0.65rem;
+        --text-xxs: 0.7rem;
+        --text-xs: 0.75rem;
+        --text-s: 0.8rem;
+        --text-sm: 0.85rem;
+        --text-md: 0.9rem;
+        --text-base: 1rem;
+        --text-lg: 1.25rem;
+        --text-xl: 1.5rem;
+        --text-page-title: 1.75rem;
+        /* Semantic roles: collections, focused panes, sections and disclosure rows. */
+        --text-collection-title: clamp(var(--text-page-title), 3.2vw, 2rem);
+        --text-pane-title: var(--text-lg);
+        --text-section-title: 1.0625rem;
+        --text-section-label: var(--text-sm);
+        --icon-inline-size: 16px;
+        --icon-action-size: 20px;
+
+        /* Spacing scale */
+        --space-1: 0.25rem;
+        --space-1h: 0.375rem;
+        --space-2: 0.5rem;
+        --space-3: 0.75rem;
+        --space-4: 1rem;
+        --space-5: 1.5rem;
+        --space-6: 2rem;
+      }
+
+      [data-theme='light'] {
+        --color-brand-claude: #ae5c45;
+        color-scheme: light;
+        --color-bg: #faf9f6;
+        --color-surface: #ffffff;
+        --color-text: #202127;
+        --color-muted: #62636b;
+        --color-border: #dedee3;
+        --accent-lavender: #5e42b8;
+        --accent-teal: #166b58;
+        --accent-rose: #a43c65;
+        --accent-amber: #805600;
+        --accent-blue: #245db8;
+        --accent-mint: #386629;
+        --accent-coral: #a3422d;
+        --accent-plum: #80469b;
+        --color-on-accent: #ffffff;
+        --color-success: #187744;
+        --color-warning: #805600;
+        --color-danger: #b42332;
+        --color-info: #246383;
+        --color-on-status: #ffffff;
+        --color-shadow: rgb(0 0 0 / 12%);
+        --color-code-bg: #f0f0f2;
+      }
+
+      [data-accent='lavender'] {
+        --color-accent: var(--accent-lavender);
+      }
+      [data-accent='teal'] {
+        --color-accent: var(--accent-teal);
+      }
+      [data-accent='rose'] {
+        --color-accent: var(--accent-rose);
+      }
+      [data-accent='amber'] {
+        --color-accent: var(--accent-amber);
+      }
+      [data-accent='blue'] {
+        --color-accent: var(--accent-blue);
+      }
+      [data-accent='mint'] {
+        --color-accent: var(--accent-mint);
+      }
+      [data-accent='coral'] {
+        --color-accent: var(--accent-coral);
+      }
+      [data-accent='plum'] {
+        --color-accent: var(--accent-plum);
+      }
+      [data-font='arial'] {
+        --font-ui: Arial, Helvetica, sans-serif;
+      }
+      [data-font='georgia'] {
+        --font-ui: Georgia, 'Times New Roman', serif;
+      }
+
+      [data-font='verdana'] {
+        --font-ui: Verdana, Geneva, sans-serif;
+      }
+      [data-font='trebuchet'] {
+        --font-ui: 'Trebuchet MS', 'Segoe UI', sans-serif;
+      }
+      [data-font='palatino'] {
+        --font-ui: Palatino, 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+      }
+      [data-font='courier'] {
+        --font-ui: 'Courier New', Courier, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--color-bg);
+        color: var(--color-text);
+        font-family: var(--font-ui);
+        font-size: var(--text-base);
+        line-height: 1.5;
+      }
+      button,
+      textarea,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button,
+      select {
+        min-height: var(--control-height);
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button:focus-visible,
+      textarea:focus-visible,
+      select:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+      }
+      button {
+        border: 0;
+        background: transparent;
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-control);
+      }
+      button:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+      }
+      select {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-control);
+        padding: var(--space-2);
+      }
+      textarea {
+        resize: vertical;
+        width: 100%;
+        border: 0;
+        background: transparent;
+        min-height: 5.5rem;
+        padding: var(--space-3);
+        line-height: 1.5;
+      }
+      textarea::placeholder {
+        color: var(--color-muted);
+      }
+      svg {
+        width: 20px;
+        height: 20px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+      p,
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+      }
+      h1 {
+        font-size: var(--text-xl);
+        font-weight: 600;
+      }
+      h2 {
+        font-size: var(--text-lg);
+      }
+      small,
+      .muted {
+        color: var(--color-muted);
+      }
+      small {
+        font-size: var(--text-sm);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .lab {
+        max-width: 1200px;
+        margin: auto;
+        padding: var(--space-5) var(--page-gutter);
+      }
+      .lab-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        gap: var(--space-4);
+        margin-bottom: var(--space-4);
+      }
+      .eyebrow {
+        font-size: var(--text-xs);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--color-accent);
+        margin-bottom: var(--space-1);
+      }
+      .lab-controls {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+        border-block: 1px solid var(--color-border);
+        padding: var(--space-2) 0;
+        margin-bottom: var(--space-5);
+      }
+      .lab-controls label {
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+        font-size: var(--text-sm);
+      }
+      .segmented {
+        display: flex;
+        gap: var(--space-1);
+      }
+      .segmented button {
+        font-size: var(--text-sm);
+        color: var(--color-muted);
+      }
+      .segmented button[aria-pressed='true'] {
+        color: var(--color-text);
+        background: var(--color-surface);
+      }
+      .lab-controls .spacer {
+        flex: 1;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 15rem;
+        gap: var(--space-5);
+        align-items: start;
+      }
+      .explanation {
+        font-size: var(--text-sm);
+        color: var(--color-muted);
+        padding-top: var(--space-3);
+      }
+      .explanation h2 {
+        color: var(--color-text);
+        font-size: var(--text-base);
+        margin-bottom: var(--space-3);
+      }
+      .explanation p {
+        margin-bottom: var(--space-4);
+      }
+      .explanation strong {
+        color: var(--color-text);
+        font-weight: 500;
+      }
+      .app {
+        height: 790px;
+        max-height: calc(100dvh - 11rem);
+        min-height: 580px;
+        display: flex;
+        flex-direction: column;
+        background: var(--color-bg);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-panel);
+        overflow: hidden;
+        min-width: 0;
+      }
+      .app.phone {
+        width: min(390px, 100%);
+        justify-self: center;
+      }
+      .app-header {
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+        flex: none;
+        border-bottom: 1px solid var(--color-border);
+        padding: var(--space-2) var(--space-3);
+      }
+      .app-title {
+        flex: 1;
+        min-width: 0;
+      }
+      .app-title strong {
+        display: block;
+        font-size: var(--text-base);
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .app-title small {
+        font-size: var(--text-xs);
+      }
+      .icon-button {
+        width: var(--control-height);
+        height: var(--control-height);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-2);
+        flex: none;
+      }
+      .app-header .icon-button {
+        color: var(--color-accent);
+      }
+      .transcript {
+        flex: 1;
+        overflow: auto;
+        padding: var(--space-4);
+        min-height: 0;
+        scroll-behavior: auto;
+      }
+      .date {
+        text-align: center;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+        margin-bottom: var(--space-4);
+      }
+      .message {
+        margin-bottom: var(--space-4);
+        max-width: 100%;
+      }
+      .user {
+        margin-inline-start: var(--space-6);
+        padding: var(--space-3) var(--space-4);
+        background: var(--color-surface);
+        border-radius: var(--radius-panel);
+      }
+      .message-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-2);
+        font-size: var(--text-sm);
+      }
+      .message-meta time {
+        margin-left: auto;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+        font-variant-numeric: tabular-nums;
+      }
+      .assistant {
+        border-left: 2px solid var(--agent-color);
+        border-radius: var(--radius-control);
+        padding: var(--space-3) var(--space-4);
+        background: color-mix(in srgb, var(--agent-color) 7%, var(--color-surface));
+      }
+      .identity {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-weight: 600;
+      }
+      .identity .dot {
+        background: var(--agent-color);
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--color-success);
+      }
+      .message p {
+        font-size: var(--text-md);
+      }
+      .message .quote {
+        display: block;
+        text-decoration: none;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+        border-left: 2px solid var(--color-border);
+        padding-left: var(--space-2);
+        margin-bottom: var(--space-2);
+      }
+      .working-copy {
+        margin-top: var(--space-2);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+      }
+      .activity-mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        height: 12px;
+        color: var(--color-accent);
+      }
+      .activity-mark i {
+        width: 2px;
+        background: currentColor;
+        height: 8px;
+      }
+      .activity-mark i:nth-child(2) {
+        height: 12px;
+      }
+      .control-event {
+        margin: var(--space-3) 0 var(--space-4);
+        padding: var(--space-3) 0;
+        border-block: 1px solid var(--color-border);
+        font-size: var(--text-sm);
+      }
+      .control-event .event-title {
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .control-event time {
+        color: var(--color-muted);
+        margin-left: auto;
+        font-size: var(--text-xs);
+      }
+      .event-body {
+        color: var(--color-muted);
+        margin-top: var(--space-2);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .receipts {
+        display: flex;
+        gap: var(--space-2) var(--space-3);
+        flex-wrap: wrap;
+        margin-top: var(--space-2);
+        font-size: var(--text-xs);
+      }
+      .receipt {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+      }
+      .receipt .dot {
+        background: var(--color-success);
+        width: 5px;
+        height: 5px;
+      }
+      .receipt[data-state='uncertain'] {
+        color: var(--color-warning);
+      }
+      .receipt[data-state='uncertain'] .dot {
+        background: var(--color-warning);
+      }
+      .recover {
+        display: block;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        color: var(--color-warning);
+        padding: 0;
+        margin-top: var(--space-2);
+        font-size: var(--text-sm);
+      }
+      .composer-zone {
+        flex: none;
+        border-top: 1px solid var(--color-border);
+        padding: var(--space-2) var(--space-3) var(--space-3);
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        min-height: var(--control-height);
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+      }
+      .status [data-summary] {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .status .icon-button {
+        width: var(--control-height);
+      }
+      .status.warning {
+        color: var(--color-warning);
+      }
+      .selection-heading {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+        min-height: var(--control-height);
+      }
+      .selection-heading span {
+        flex: 1;
+      }
+      .selection-heading button {
+        font-size: var(--text-xs);
+        padding: var(--space-2);
+      }
+      .selection-heading .mention {
+        font-size: var(--text-lg);
+        color: var(--color-accent);
+        padding: var(--space-2);
+        width: var(--control-height);
+      }
+      .recipients {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-1);
+        margin-bottom: var(--space-2);
+      }
+      .recipient {
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+        text-align: left;
+        padding: var(--space-2);
+        min-width: 0;
+        min-height: var(--control-height);
+      }
+      .recipient[aria-pressed='true'] {
+        border-bottom-color: var(--agent-color);
+        background: color-mix(in srgb, var(--agent-color) 7%, transparent);
+      }
+      .recipient .check {
+        width: 15px;
+        height: 15px;
+        border: 1px solid var(--color-border);
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+      }
+      .recipient .check svg {
+        width: 12px;
+        height: 12px;
+      }
+      .recipient[aria-pressed='true'] .check {
+        border-color: var(--agent-color);
+        color: var(--color-text);
+      }
+      .recipient .name {
+        display: flex;
+        align-items: center;
+        gap: var(--space-1);
+        font-size: var(--text-sm);
+        font-weight: 500;
+      }
+      .recipient .detail {
+        display: block;
+        font-size: var(--text-xxs);
+        color: var(--color-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .recipient .copy {
+        min-width: 0;
+      }
+      .recipient[data-state='uncertain'] .detail,
+      .recipient[data-state='waiting'] .detail {
+        color: var(--color-warning);
+      }
+      .draft {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-panel);
+        background: var(--color-surface);
+        overflow: hidden;
+      }
+      .draft:focus-within {
+        border-color: var(--color-accent);
+      }
+      .draft-footer {
+        display: flex;
+        gap: var(--space-1);
+        align-items: center;
+        flex-wrap: wrap;
+        padding: var(--space-1) var(--space-2) var(--space-2);
+      }
+      .utilities {
+        display: flex;
+        gap: var(--space-1);
+        margin-right: auto;
+        color: var(--color-muted);
+      }
+      .wheel {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border: 3px solid var(--color-border);
+        border-top-color: var(--color-accent);
+        font-size: var(--text-xxs);
+      }
+      .draft-footer .action {
+        font-size: var(--text-sm);
+        min-height: var(--control-height);
+        padding: var(--space-2) var(--space-3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        border: 1px solid var(--color-border);
+      }
+      .draft-footer .send {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        border-color: var(--color-accent);
+      }
+      .draft-footer .send:hover:not(:disabled) {
+        background: var(--accent-hover);
+      }
+      .draft-footer .stop {
+        color: var(--color-text);
+      }
+      .draft-footer .action svg {
+        width: 16px;
+        height: 16px;
+      }
+      .intent {
+        font-size: var(--text-xxs);
+        color: var(--color-muted);
+        padding: var(--space-2) var(--space-1) 0;
+        min-height: 2.6em;
+      }
+      .sheet {
+        position: absolute;
+        inset: 0;
+        background: var(--color-overlay);
+        align-items: flex-end;
+        justify-content: center;
+        z-index: 5;
+        display: flex;
+      }
+      .app {
+        position: relative;
+      }
+      .sheet-panel {
+        width: 100%;
+        max-height: 90%;
+        overflow: auto;
+        background: var(--color-surface);
+        border-top: 1px solid var(--color-border);
+        border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+        padding: var(--space-4);
+      }
+      .sheet-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+        margin-bottom: var(--space-3);
+      }
+      .sheet-heading h2 {
+        font-size: var(--text-lg);
+      }
+      .sheet-row {
+        display: flex;
+        align-items: start;
+        gap: var(--space-3);
+        padding: var(--space-3) 0;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .sheet-row input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--color-accent);
+        margin: var(--space-2) 0;
+      }
+      .sheet-row label {
+        flex: 1;
+        cursor: pointer;
+      }
+      .sheet-row .identity {
+        font-size: var(--text-base);
+      }
+      .sheet-row small {
+        display: block;
+        margin-top: var(--space-1);
+      }
+      .sheet-row time {
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+        font-variant-numeric: tabular-nums;
+        padding-top: var(--space-1);
+      }
+      .sheet-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-3);
+        margin-top: var(--space-4);
+      }
+      .sheet-footer button {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+      }
+      .app.phone .recipients {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .app.phone .draft-footer .utilities {
+        width: 100%;
+        justify-content: flex-start;
+        margin-bottom: var(--space-1);
+      }
+      .app.phone .action {
+        flex: 1;
+      }
+      .app.phone .app-header {
+        padding-inline: var(--space-2);
+      }
+      .app.phone .transcript {
+        padding: var(--space-3);
+      }
+      .app.phone textarea {
+        min-height: 4.5rem;
+      }
+      .app.phone .composer-zone {
+        padding-inline: var(--space-2);
+      }
+      .app.phone .intent {
+        font-size: var(--text-xxs);
+      }
+      .app.phone .draft-footer {
+        gap: var(--space-2);
+      }
+      .app.phone .draft-footer .action {
+        padding-inline: var(--space-2);
+      }
+      .app.phone .draft-footer .action svg {
+        display: none;
+      }
+      @media (max-width: 760px) {
+        .lab {
+          padding: var(--space-3) var(--space-2);
+        }
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .explanation {
+          display: none;
+        }
+        .lab-heading h1 {
+          font-size: var(--text-lg);
+        }
+        .lab-heading {
+          margin-bottom: var(--space-3);
+        }
+        .lab-heading small {
+          font-size: var(--text-xs);
+        }
+        .app {
+          width: 100%;
+          min-height: 620px;
+          max-height: none;
+          height: calc(100dvh - 11rem);
+          border-radius: var(--radius-control);
+        }
+        .lab-controls {
+          margin-bottom: var(--space-3);
+          gap: var(--space-1);
+        }
+        .lab-controls label span {
+          display: none;
+        }
+        .recipients {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .draft-footer .utilities {
+          width: 100%;
+          justify-content: flex-start;
+        }
+        .draft-footer .action {
+          flex: 1;
+          padding-inline: var(--space-2);
+        }
+        .draft-footer .action svg {
+          display: none;
+        }
+        .segmented button {
+          padding-inline: var(--space-2);
+        }
+        .lab-controls select {
+          max-width: 10rem;
+          font-size: var(--text-xs);
+        }
+        .lab-controls .spacer {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="lab">
+      <header class="lab-heading">
+        <div>
+          <p class="eyebrow">Mitzo · Interactive proposal</p>
+          <h1>One conversation. Four agents working.</h1>
+          <small>Simulated controls and activity · no agents are started</small>
+        </div>
+        <button id="reset" type="button">Reset</button>
+      </header>
+      <div class="lab-controls" aria-label="Preview controls">
+        <div class="segmented" aria-label="Preview width">
+          <button id="phone" type="button" aria-pressed="true">Phone</button
+          ><button id="desktop" type="button" aria-pressed="false">Desktop</button>
+        </div>
+        <label
+          ><span>Scenario</span
+          ><select id="scenario" aria-label="Scenario">
+            <option value="working">Four working</option>
+            <option value="mixed">Three working · one needs approval</option>
+            <option value="uncertain">Three working · one uncertain</option>
+            <option value="lost-stop">Stop · one receipt lost</option>
+          </select></label
+        >
+        <span class="spacer"></span>
+        <label
+          ><span>Theme</span
+          ><select id="theme" aria-label="Theme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select></label
+        >
+        <label
+          ><span>Accent</span
+          ><select id="accent" aria-label="Accent">
+            <option value="mint">Mint</option>
+            <option value="teal">Teal</option>
+            <option value="lavender">Lavender</option>
+          </select></label
+        >
+        <label
+          ><span>Font</span
+          ><select id="font" aria-label="Font">
+            <option value="system">System</option>
+            <option value="georgia">Georgia</option>
+          </select></label
+        >
+      </div>
+      <div class="layout">
+        <section class="app phone" id="app" aria-label="Shared conversation preview">
+          <header class="app-header">
+            <button
+              class="icon-button"
+              type="button"
+              aria-label="Conversation navigation"
+              data-open-details
+            >
+              <svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></svg>
+            </button>
+            <div class="app-title">
+              <strong>Shared chat repair</strong><small>Mitzo, Bob, Ada + Quinn</small>
+            </div>
+            <button
+              class="icon-button"
+              type="button"
+              aria-label="Agents and activity"
+              data-open-details
+            >
+              <svg viewBox="0 0 24 24">
+                <rect x="4" y="7" width="16" height="13" rx="2" />
+                <path d="M12 3v4M9 12v3m6-3v3M1 12v4m22-4v4" />
+              </svg></button
+            ><button
+              class="icon-button"
+              type="button"
+              aria-label="Preview appearance settings"
+              id="appearance"
+            >
+              <svg viewBox="0 0 24 24">
+                <path d="M4 7h16M4 17h16" />
+                <circle cx="9" cy="7" r="2" />
+                <circle cx="15" cy="17" r="2" />
+              </svg>
+            </button>
+          </header>
+          <div class="transcript" id="transcript" role="log" aria-label="Conversation messages">
+            <p class="date">Today · 09:41</p>
+            <article class="message user" id="original">
+              <div class="message-meta"><strong>You</strong><time>09:41</time></div>
+              <p>
+                Keep the default repo work. Make selecting, steering and stopping several agents
+                clear while they’re running.
+              </p>
+            </article>
+            <article class="message assistant" data-speaker="mitzo">
+              <div class="message-meta">
+                <span class="identity"><span class="dot"></span>Mitzo</span><time>09:42</time>
+              </div>
+              <a class="quote" href="#original">You · 09:41 · “Keep the default repo work…”</a>
+              <p>
+                I’m keeping this as one change and checking how the controls behave while all four
+                of us work.
+              </p>
+              <div class="working-copy">
+                <span class="activity-mark" aria-hidden="true"><i></i><i></i><i></i></span
+                ><span>Reviewing shared-chat behavior</span>
+              </div>
+            </article>
+            <article class="message assistant" data-speaker="bob">
+              <div class="message-meta">
+                <span class="identity"><span class="dot"></span>Bob</span><time>09:42</time>
+              </div>
+              <p>I’m checking that Stop and Steer act on exactly the agents you select.</p>
+            </article>
+            <article class="message assistant" data-speaker="ada">
+              <div class="message-meta">
+                <span class="identity"><span class="dot"></span>Ada</span><time>09:43</time>
+              </div>
+              <p>
+                The default-repository work is preserved. I’m checking the phone composer and image
+                previews.
+              </p>
+            </article>
+          </div>
+          <section class="composer-zone" aria-label="Shared composer">
+            <div class="status" id="status">
+              <span class="activity-mark" aria-hidden="true"><i></i><i></i><i></i></span
+              ><span data-summary id="summary" role="status" aria-live="polite"></span
+              ><button
+                type="button"
+                class="icon-button"
+                aria-label="Conversation status details"
+                data-open-details
+              >
+                <svg viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M12 11v5m0-9v1" />
+                </svg>
+              </button>
+            </div>
+            <div class="selection-heading">
+              <button
+                type="button"
+                class="mention"
+                id="mention"
+                aria-label="Choose who replies with @"
+              >
+                @</button
+              ><span id="selection-label">Recipients · choose any agents</span
+              ><button type="button" id="all">All</button
+              ><button type="button" id="clear">Clear</button>
+            </div>
+            <div
+              id="recipients"
+              class="recipients"
+              role="group"
+              aria-label="Selected agents for Send, Steer and Stop"
+            ></div>
+            <div class="draft">
+              <label for="draft" class="sr-only">Message or correction</label
+              ><textarea id="draft" placeholder="Write a message or steer the selected agents…">
+Focus on the iPhone layout. Keep one Stop and one Steer, with a clear target for each.</textarea>
+              <div class="draft-footer">
+                <div class="utilities">
+                  <button
+                    type="button"
+                    class="icon-button"
+                    id="context"
+                    aria-label="Context usage for Mitzo"
+                    title="Context usage · Mitzo"
+                  >
+                    <span class="wheel">38</span></button
+                  ><button
+                    type="button"
+                    class="icon-button"
+                    id="attach"
+                    aria-label="Attach screenshot"
+                  >
+                    <svg viewBox="0 0 24 24">
+                      <path d="m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8" />
+                    </svg></button
+                  ><button type="button" class="icon-button" id="voice" aria-label="Voice input">
+                    <svg viewBox="0 0 24 24">
+                      <rect x="9" y="3" width="6" height="12" rx="3" />
+                      <path d="M5 10v2a7 7 0 0 0 14 0v-2m-7 9v3m-4 0h8" />
+                    </svg>
+                  </button>
+                </div>
+                <button type="button" class="action stop" id="stop">
+                  <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1" /></svg
+                  ><span>Stop 3</span></button
+                ><button type="button" class="action" id="steer">
+                  <svg viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 9-12h-6z" /></svg
+                  ><span>Steer 3</span></button
+                ><button type="button" class="action send" id="send">
+                  <span>Send 3</span
+                  ><svg viewBox="0 0 24 24"><path d="m4 12 16-8-5 16-4-7-7-1Zm7 1 9-9" /></svg>
+                </button>
+              </div>
+            </div>
+            <p class="intent" id="intent"></p>
+          </section>
+          <div class="sheet" id="sheet" hidden>
+            <section
+              class="sheet-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="sheet-title"
+              tabindex="-1"
+            >
+              <div class="sheet-heading">
+                <h2 id="sheet-title">Agents &amp; activity</h2>
+                <button
+                  class="icon-button"
+                  id="close-sheet"
+                  type="button"
+                  aria-label="Close agent activity"
+                >
+                  <svg viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6" /></svg>
+                </button>
+              </div>
+              <p class="muted" id="sheet-summary"></p>
+              <div id="activity-rows"></div>
+              <div class="sheet-footer">
+                <small>Selection applies to Send, Steer and Stop.</small
+                ><button type="button" id="use-selection">Use selection</button>
+              </div>
+            </section>
+          </div>
+        </section>
+        <aside class="explanation">
+          <h2>Try the controls</h2>
+          <p>
+            <strong>Four agents keep working.</strong> Each recipient shows its own state. Select
+            names directly; @ never opens a popup.
+          </p>
+          <p>
+            <strong>One target selection.</strong> The same names apply to Send, Steer and Stop.
+            Pick All, or any subset.
+          </p>
+          <p>
+            <strong>Steer changes the current work.</strong> Send queues a follow-up. Both use the
+            text in the composer.
+          </p>
+          <p>
+            <strong>Stop only affects the selection.</strong> Everyone else continues. Requested,
+            stopped and unconfirmed are distinct.
+          </p>
+          <p>
+            <strong>One stable status row.</strong> Open its details for each agent’s task and
+            elapsed time. Receipts stay with the action in the transcript.
+          </p>
+          <p>
+            <strong>Try uncertainty.</strong> Select the uncertain scenario, then check Bob’s
+            original request or deselect him and work with the others.
+          </p>
+        </aside>
+      </div>
+    </main>
+    <script>
+      (() => {
+        'use strict';
+        const $ = (id) => document.getElementById(id);
+        const esc = (text) =>
+          String(text).replace(
+            /[&<>"']/g,
+            (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+          );
+        const identityColor = (id) => {
+          let h = 2166136261;
+          for (const c of id) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+          return 'var(--seat-color-' + (((h >>> 0) % 8) + 1) + ')';
+        };
+        const seeds = [
+          { id: 'mitzo', name: 'Mitzo', task: 'Reviewing shared-chat behavior', seconds: 138 },
+          { id: 'bob', name: 'Bob', task: 'Checking Stop and Steer targeting', seconds: 112 },
+          { id: 'ada', name: 'Ada', task: 'Checking phone layout and image previews', seconds: 86 },
+          { id: 'quinn', name: 'Quinn', task: 'Running focused offline regressions', seconds: 65 },
+        ];
+        let agents = [],
+          selected = new Set(),
+          epoch = 0,
+          elapsed = 0,
+          hint = '',
+          requestNumber = 0,
+          returnFocus = null;
+        const transcript = $('transcript'),
+          initialTranscript = transcript.innerHTML;
+        const stateLabel = (a) =>
+          ({
+            working: 'Working',
+            waiting: 'Needs approval',
+            stopping: 'Stopping',
+            stopped: 'Stopped',
+            ready: 'Ready',
+            uncertain: 'Needs check',
+          })[a.state];
+        const active = (a) => ['working', 'waiting', 'stopping'].includes(a.state);
+        const chosen = () => agents.filter((a) => selected.has(a.id));
+        const clock = (a) => {
+          const n = a.seconds + elapsed;
+          return Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
+        };
+        const formatNames = (list) => list.map((a) => a.name).join(', ');
+        const setHint = (text) => {
+          hint = text;
+          render();
+        };
+        const checkmark =
+          '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7"/></svg>';
+        function render() {
+          const focused = document.activeElement,
+            focusAgent = focused?.dataset.agent,
+            focusRow = focused?.dataset.row;
+          const targets = chosen(),
+            working = agents.filter((a) => a.state === 'working').length,
+            waiting = agents.filter((a) => a.state === 'waiting').length,
+            uncertain = agents.filter((a) => a.state === 'uncertain').length,
+            stopping = agents.filter((a) => a.state === 'stopping').length,
+            stopped = agents.filter((a) => a.state === 'stopped').length;
+          const counts = [
+            working ? working + ' working' : '',
+            waiting ? waiting + ' needs approval' : '',
+            uncertain ? uncertain + ' needs check' : '',
+            stopping ? stopping + ' stopping' : '',
+            stopped ? stopped + ' stopped' : '',
+          ].filter(Boolean);
+          const summary = counts.length ? counts.join(' · ') : 'All agents ready';
+          $('summary').textContent = hint || summary;
+          $('summary').title = hint || summary;
+          $('status').classList.toggle('warning', !!uncertain || !!waiting || !!hint);
+          $('status').querySelector('.activity-mark').style.visibility =
+            working && !uncertain && !waiting && !hint ? 'visible' : 'hidden';
+          $('selection-label').textContent =
+            'Recipients · ' + targets.length + ' of ' + agents.length + ' selected';
+          const mention = /(?:^|\s)@([\p{L}\p{N}_-]*)$/u.exec($('draft').value),
+            query = mention?.[1].toLowerCase() || '';
+          $('recipients').innerHTML = agents
+            .filter((a) => !query || a.name.toLowerCase().includes(query))
+            .map(
+              (a) =>
+                '<button type="button" class="recipient" data-agent="' +
+                a.id +
+                '" data-state="' +
+                a.state +
+                '" aria-pressed="' +
+                selected.has(a.id) +
+                '" aria-label="' +
+                a.name +
+                ', ' +
+                stateLabel(a) +
+                '" style="--agent-color:' +
+                identityColor(a.id) +
+                '"><span class="check" aria-hidden="true">' +
+                (selected.has(a.id) ? checkmark : '') +
+                '</span><span class="copy"><span class="name"><span class="dot"></span>' +
+                a.name +
+                '</span><span class="detail">' +
+                stateLabel(a) +
+                (a.queued ? ' · ' + a.queued + ' queued' : '') +
+                '</span></span></button>',
+            )
+            .join('');
+          const uncertainTarget = targets.find((a) => a.state === 'uncertain'),
+            busyTarget = targets.find((a) => a.state === 'stopping'),
+            steerTargets = targets.filter((a) => a.state === 'working'),
+            stopTargets = targets.filter(active);
+          const correction = $('draft').value.trim();
+          $('stop').disabled = !stopTargets.length || !!uncertainTarget || !!busyTarget;
+          $('steer').disabled =
+            !targets.length ||
+            steerTargets.length !== targets.length ||
+            !!uncertainTarget ||
+            !correction;
+          $('send').disabled = !targets.length || !!uncertainTarget || !!busyTarget || !correction;
+          $('stop').querySelector('span').textContent = 'Stop ' + targets.length;
+          $('steer').querySelector('span').textContent = 'Steer ' + targets.length;
+          $('send').querySelector('span').textContent = 'Send ' + targets.length;
+          const names = formatNames(targets) || 'no agents';
+          for (const action of ['stop', 'steer', 'send']) {
+            $(action).setAttribute(
+              'aria-label',
+              action[0].toUpperCase() + action.slice(1) + ' ' + names,
+            );
+            $(action).title = uncertainTarget
+              ? 'Check ' + uncertainTarget.name + '’s original request, or deselect them.'
+              : action === 'steer' && targets.some((a) => a.state === 'waiting')
+                ? 'Steer requires an active turn; review the waiting agent’s approval.'
+                : (action === 'send'
+                    ? 'Queue a follow-up for '
+                    : action === 'steer'
+                      ? 'Correct the active turns of '
+                      : 'Stop the current work of ') + names;
+          }
+          $('all').setAttribute('aria-pressed', String(selected.size === agents.length));
+          $('intent').textContent = uncertainTarget
+            ? 'Check ' +
+              uncertainTarget.name +
+              '’s original request, or deselect them to continue with others.'
+            : hint
+              ? hint
+              : targets.some((a) => a.state === 'waiting')
+                ? 'Steer needs active turns. Deselect the agent awaiting approval to steer others.'
+                : targets.some((a) => a.state === 'stopped')
+                  ? 'Stopped agents can receive a new message. Select working agents to Steer.'
+                  : targets.length
+                    ? 'To ' +
+                      names +
+                      '. ' +
+                      (targets.length < agents.length
+                        ? 'Others keep working.'
+                        : 'All four selected.')
+                    : 'Choose agents above. Your draft stays here.';
+          $('sheet-summary').textContent = summary;
+          for (const bubble of transcript.querySelectorAll('[data-speaker]')) {
+            const live = bubble.querySelector('.working-copy');
+            if (live)
+              live.hidden =
+                agents.find((a) => a.id === bubble.dataset.speaker)?.state !== 'working';
+          }
+          $('activity-rows').innerHTML = agents
+            .map(
+              (a) =>
+                '<div class="sheet-row" style="--agent-color:' +
+                identityColor(a.id) +
+                '"><input type="checkbox" id="row-' +
+                a.id +
+                '" data-row="' +
+                a.id +
+                '" ' +
+                (selected.has(a.id) ? 'checked' : '') +
+                '><label for="row-' +
+                a.id +
+                '"><span class="identity"><span class="dot"></span>' +
+                a.name +
+                '</span><small>' +
+                stateLabel(a) +
+                ' · ' +
+                esc(a.task) +
+                '</small>' +
+                (a.queued ? '<small>' + a.queued + ' follow-up queued</small>' : '') +
+                '</label><time data-clock="' +
+                a.id +
+                '">' +
+                clock(a) +
+                '</time></div>',
+            )
+            .join('');
+          if (focusAgent)
+            $('recipients')
+              .querySelector('[data-agent="' + focusAgent + '"]')
+              ?.focus();
+          if (focusRow)
+            $('activity-rows')
+              .querySelector('[data-row="' + focusRow + '"]')
+              ?.focus();
+        }
+        function toggle(id) {
+          selected.has(id) ? selected.delete(id) : selected.add(id);
+          hint = '';
+          const mention = /(?:^|\s)@([\p{L}\p{N}_-]*)$/u.exec($('draft').value);
+          if (mention)
+            $('draft').value = $('draft').value.slice(0, $('draft').value.lastIndexOf('@'));
+          render();
+        }
+        function addEvent(title, body, targets) {
+          const entry = document.createElement('article');
+          entry.className = 'control-event';
+          entry.dataset.event = String(++requestNumber);
+          entry.innerHTML =
+            '<div class="event-title"><strong>' +
+            esc(title) +
+            '</strong><time>09:44</time></div>' +
+            (body ? '<p class="event-body">' + esc(body) + '</p>' : '') +
+            '<div class="receipts">' +
+            targets
+              .map(
+                (a) =>
+                  '<span class="receipt" data-receipt="' +
+                  a.id +
+                  '"><span class="dot"></span><span>' +
+                  a.name +
+                  ' · Requested</span></span>',
+              )
+              .join('') +
+            '</div>';
+          transcript.appendChild(entry);
+          transcript.scrollTop = transcript.scrollHeight;
+          return entry;
+        }
+        function receipt(entry, a, text, state = 'accepted') {
+          const node = entry.querySelector('[data-receipt="' + a.id + '"]');
+          if (node) {
+            node.dataset.state = state;
+            node.lastElementChild.textContent = a.name + ' · ' + text;
+          }
+        }
+        function recovery(entry, a, kind) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'recover';
+          b.textContent = 'Check ' + a.name + '’s original ' + kind.toLowerCase();
+          b.addEventListener('click', () => {
+            b.disabled = true;
+            b.textContent = 'Checking the original receipt…';
+            const op = epoch;
+            setTimeout(() => {
+              if (op !== epoch) return;
+              a.state = kind === 'Stop' ? 'stopped' : 'working';
+              a.task =
+                kind === 'Stop'
+                  ? 'Original command has stopped'
+                  : 'Original correction accepted; continuing work';
+              a.uncertain = null;
+              receipt(entry, a, kind === 'Stop' ? 'Stopped' : 'Accepted');
+              b.remove();
+              hint = '';
+              render();
+            }, 650);
+          });
+          entry.appendChild(b);
+          a.uncertain = { entry, kind };
+        }
+        function reset() {
+          epoch++;
+          elapsed = 0;
+          hint = '';
+          requestNumber = 0;
+          agents = seeds.map((a) => ({ ...a, state: 'working', queued: 0, uncertain: null }));
+          selected = new Set(['mitzo', 'bob', 'ada']);
+          transcript.innerHTML = initialTranscript;
+          for (const bubble of transcript.querySelectorAll('[data-speaker]'))
+            bubble.style.setProperty('--agent-color', identityColor(bubble.dataset.speaker));
+          $('draft').value =
+            'Focus on the iPhone layout. Keep one Stop and one Steer, with a clear target for each.';
+          const scenario = $('scenario').value;
+          if (scenario === 'mixed') {
+            agents[3].state = 'waiting';
+            agents[3].task = 'Waiting for your test-listener permission';
+          }
+          if (scenario === 'uncertain') {
+            const bob = agents[1];
+            bob.state = 'uncertain';
+            bob.task = 'Correction acknowledgement unavailable; work may still be running';
+            const entry = addEvent(
+              'You steered Bob',
+              'Keep the review focused on the running-agent controls.',
+              [bob],
+            );
+            receipt(entry, bob, 'Unconfirmed', 'uncertain');
+            recovery(entry, bob, 'Steer');
+          }
+          render();
+          transcript.scrollTop = transcript.scrollHeight;
+        }
+        $('recipients').addEventListener('click', (e) => {
+          const button = e.target.closest('[data-agent]');
+          if (button) toggle(button.dataset.agent);
+        });
+        $('activity-rows').addEventListener('change', (e) => {
+          if (e.target.dataset.row) toggle(e.target.dataset.row);
+        });
+        $('all').addEventListener('click', () => {
+          selected = new Set(agents.map((a) => a.id));
+          hint = '';
+          render();
+        });
+        $('clear').addEventListener('click', () => {
+          selected.clear();
+          hint = '';
+          render();
+        });
+        $('mention').addEventListener('click', () => {
+          if (!/(?:^|\s)@[\p{L}\p{N}_-]*$/u.test($('draft').value))
+            $('draft').value +=
+              ($('draft').value && !/\s$/.test($('draft').value) ? ' ' : '') + '@';
+          $('draft').focus();
+          render();
+        });
+        $('draft').addEventListener('input', () => {
+          hint = '';
+          render();
+        });
+        $('steer').addEventListener('click', () => {
+          const targets = chosen();
+          if ($('steer').disabled) return;
+          const body = $('draft').value;
+          const entry = addEvent('You steered ' + formatNames(targets), body, targets);
+          const op = epoch;
+          $('draft').value = '';
+          for (const a of targets) {
+            a.task = 'Applying your correction';
+            receipt(entry, a, 'Applying');
+          }
+          render();
+          setTimeout(() => {
+            if (op !== epoch) return;
+            for (const a of targets) {
+              a.task = 'Working with your latest correction';
+              receipt(entry, a, 'Accepted');
+            }
+            render();
+          }, 700);
+        });
+        $('stop').addEventListener('click', () => {
+          if ($('stop').disabled) return;
+          const targets = chosen().filter(active);
+          const entry = addEvent(
+            'You requested Stop for ' + formatNames(targets),
+            'Unselected agents continue their current work.',
+            targets,
+          );
+          const op = epoch;
+          for (const a of targets) {
+            a.state = 'stopping';
+            a.task = 'Stop requested; awaiting command acknowledgement';
+            receipt(entry, a, 'Stop requested');
+          }
+          hint = '';
+          render();
+          setTimeout(() => {
+            if (op !== epoch) return;
+            for (const a of targets) {
+              if ($('scenario').value === 'lost-stop' && a.id === 'bob') {
+                a.state = 'uncertain';
+                a.task = 'Stop acknowledgement unavailable; command may still be running';
+                receipt(entry, a, 'Stop unconfirmed', 'uncertain');
+                recovery(entry, a, 'Stop');
+                continue;
+              }
+              a.state = 'stopped';
+              a.task = 'Current command stopped';
+              receipt(entry, a, 'Stopped');
+            }
+            render();
+          }, 900);
+        });
+        $('send').addEventListener('click', () => {
+          if ($('send').disabled) return;
+          const targets = chosen(),
+            body = $('draft').value;
+          const entry = addEvent('You sent a follow-up to ' + formatNames(targets), body, targets);
+          for (const a of targets) {
+            if (active(a)) {
+              a.queued++;
+              receipt(entry, a, 'Queued after this turn');
+            } else {
+              a.state = 'working';
+              a.task = 'Working on your new message';
+              receipt(entry, a, 'Started');
+            }
+          }
+          $('draft').value = '';
+          hint = '';
+          render();
+        });
+        function openSheet() {
+          returnFocus = document.activeElement;
+          $('sheet').hidden = false;
+          $('transcript').inert = true;
+          document.querySelector('.composer-zone').inert = true;
+          document.querySelector('.app-header').inert = true;
+          $('close-sheet').focus();
+        }
+        function closeSheet() {
+          $('sheet').hidden = true;
+          $('transcript').inert = false;
+          document.querySelector('.composer-zone').inert = false;
+          document.querySelector('.app-header').inert = false;
+          returnFocus?.focus();
+        }
+        document
+          .querySelectorAll('[data-open-details]')
+          .forEach((b) => b.addEventListener('click', openSheet));
+        $('close-sheet').addEventListener('click', closeSheet);
+        $('use-selection').addEventListener('click', () => {
+          closeSheet();
+          $('draft').focus();
+        });
+        $('sheet').addEventListener('click', (e) => {
+          if (e.target === $('sheet')) closeSheet();
+        });
+        $('sheet').addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            closeSheet();
+            e.preventDefault();
+          }
+          if (e.key === 'Tab') {
+            const controls = [...$('sheet').querySelectorAll('button,input')].filter(
+              (x) => !x.disabled,
+            );
+            const first = controls[0],
+              last = controls.at(-1);
+            if (e.shiftKey && document.activeElement === first) {
+              last.focus();
+              e.preventDefault();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              first.focus();
+              e.preventDefault();
+            }
+          }
+        });
+        $('context').addEventListener('click', () =>
+          setHint(
+            'Context usage shown here belongs to Mitzo. Other agents keep their own context.',
+          ),
+        );
+        $('attach').addEventListener('click', () =>
+          setHint(
+            'Screenshot attachment control retained. This preview focuses on agent controls.',
+          ),
+        );
+        $('voice').addEventListener('click', () =>
+          setHint(
+            'Voice input remains in the same composer. No microphone is activated in this preview.',
+          ),
+        );
+        $('appearance').addEventListener('click', () => $('theme').focus());
+        $('scenario').addEventListener('change', reset);
+        $('reset').addEventListener('click', reset);
+        $('theme').addEventListener(
+          'change',
+          () => (document.documentElement.dataset.theme = $('theme').value),
+        );
+        $('accent').addEventListener(
+          'change',
+          () => (document.documentElement.dataset.accent = $('accent').value),
+        );
+        $('font').addEventListener('change', () =>
+          document.documentElement.style.setProperty(
+            '--font-ui',
+            $('font').value === 'georgia'
+              ? "Georgia, 'Times New Roman', serif"
+              : "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          ),
+        );
+        for (const mode of ['phone', 'desktop'])
+          $(mode).addEventListener('click', () => {
+            $('app').classList.toggle('phone', mode === 'phone');
+            $('phone').setAttribute('aria-pressed', String(mode === 'phone'));
+            $('desktop').setAttribute('aria-pressed', String(mode === 'desktop'));
+          });
+        setInterval(() => {
+          elapsed++;
+          for (const node of document.querySelectorAll('[data-clock]')) {
+            const a = agents.find((a) => a.id === node.dataset.clock);
+            if (a && active(a)) node.textContent = clock(a);
+          }
+        }, 1000);
+        reset();
+      })();
+    </script>
+  </body>
+</html>

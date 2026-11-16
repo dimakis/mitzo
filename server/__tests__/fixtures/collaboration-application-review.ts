@@ -34,7 +34,9 @@ export async function cleanupApplicationReviewFixtures() {
 export const digest = (value: string | Uint8Array) =>
   createHash('sha256').update(value).digest('hex');
 
-export async function fixture(options: { runOn?: 'local' | 'openshell' } = {}) {
+export async function fixture(
+  options: { runOn?: 'local' | 'openshell'; defaultRepository?: boolean } = {},
+) {
   const runOn = options.runOn ?? 'local';
   vi.stubGlobal(
     'fetch',
@@ -177,6 +179,7 @@ export async function fixture(options: { runOn?: 'local' | 'openshell' } = {}) {
     'source',
   );
   const baseOid = git(source, 'rev-parse', 'HEAD');
+  if (options.defaultRepository) git(source, 'remote', 'add', 'origin', source);
   // External GitHub source and account access responses; repository preparation,
   // source hashing and all ordinary preparation authority stay real.
   const access = vi.fn(async (selected: typeof binding) => {
@@ -185,6 +188,8 @@ export async function fixture(options: { runOn?: 'local' | 'openshell' } = {}) {
   });
   const verify = vi.fn(async (_record: unknown, _directory: string) => {});
   const workspaces = new RepositoryWorkspaces(join(root, 'repositories'), {
+    localRepositories: (): Readonly<Record<string, string>> =>
+      options.defaultRepository ? { primary: source } : {},
     authorize: access,
     verify,
     inspect: async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid }),

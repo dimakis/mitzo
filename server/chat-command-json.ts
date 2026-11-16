@@ -18,6 +18,11 @@ export function installChatCommandJson(
     ),
   );
   paths.push('/api/chat/send', '/api/chat/interrupt', '/api/sessions/:id/codex-queue/steer');
+  paths.push(
+    '/api/session-collaborations/:id/messages',
+    '/api/session-collaborations/:id/messages/observe',
+    '/api/session-collaborations/:id/messages/stop',
+  );
   const parse = express.json({ limit: CHAT_MAX_COMMAND_BYTES });
   app.post(paths, authenticate, ...additionalAuthentication, (req, res, next) => {
     parse(req, res, (error?: { type?: string }) => {

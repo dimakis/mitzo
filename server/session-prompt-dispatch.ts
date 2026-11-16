@@ -10,7 +10,7 @@ import {
 import { bindAgentLibraryTransport } from './agent-library-transport.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { SessionPromptError, type SessionPromptDelivery } from './session-prompt-store.js';
-import type { CollaborationSettings } from '@mitzo/protocol';
+import type { CollaborationSettings, ImageAttachment } from '@mitzo/protocol';
 import { isOrdinaryRepositoryParticipantBinding } from '@mitzo/protocol';
 import { observedOrdinarySdkOutcome } from './ordinary-sdk-turn-evidence.js';
 import type { OwnedOrdinaryDispatchInput } from './ordinary-scoped-command.js';
@@ -36,6 +36,7 @@ export interface OrdinarySessionPrompt {
   commandId: string;
   auth: AuthSession;
   text: string;
+  images?: Pick<ImageAttachment, 'data' | 'mediaType'>[];
   settings?: CollaborationSettings;
   preparationOperationId?: string;
   /** Internal explicit retry adapter; never a timer/message wire override. */
@@ -330,7 +331,7 @@ export function createSessionPromptPort(
                 delete payload.systemPrompt;
                 return payload;
               })()
-            : { text: prompt.text },
+            : { text: prompt.text, ...(prompt.images?.length ? { images: prompt.images } : {}) },
         },
         reservation: {
           id: workspace.id,

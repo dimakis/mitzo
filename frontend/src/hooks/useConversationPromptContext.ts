@@ -7,10 +7,11 @@ import {
   type CollaborationPromptReviewResult,
   type CollaborationView,
   type CollaborationSourceArtifacts,
+  type CollaborationMessage,
 } from '@mitzo/protocol';
 import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { getChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-drafts';
-import { createBrowserId } from '../lib/browser-crypto';
+import { createBrowserId, sha256Hex } from '../lib/browser-crypto';
 import { resolveConversationResponders } from '../lib/conversation-presentation';
 
 type Record = NonNullable<ChatDraft['collaborationContext']>;
@@ -24,6 +25,7 @@ const emptyForm = (): PromptContextForm => ({
 export function useConversationPromptContext(options: {
   api: MitzoApiClient;
   sourceConversationId: string;
+  sharedMessages?: CollaborationMessage[];
   clientId?: string;
   view?: CollaborationView;
   responders: CollaborationMessageInput['responders'] | null;
@@ -123,6 +125,31 @@ export function useConversationPromptContext(options: {
   const record = visible.record;
   const scoped = !!record && record.collaborationId === group && record.authScope === authScope;
   const form = scoped ? record.form : emptyForm();
+  const selectedSourceId = form.sourceConversationId ?? sourceConversationId;
+  const readSource = async (
+    signal: AbortSignal,
+    id = selectedSourceId,
+  ): Promise<CollaborationDurableTranscript> => {
+    if (id !== group) return api.getDurableSessionTranscript(id, signal);
+    // Selectors from the authorized public projection are previews only. The
+    // server re-reads these exact canonical messages before retaining a snapshot.
+    const messages = options.sharedMessages ?? [];
+    const last = messages.at(-1);
+    if (!last) throw Error('Shared source unavailable. Refresh the discussion.');
+    return {
+      sourceConversationId: id,
+      boundary: { sequence: last.sequence, messageId: last.messageId },
+      messages: messages.map((m) => ({
+        conversationId: id,
+        messageId: m.messageId,
+        sequence: m.sequence,
+        author: m.author,
+        ...(m.recordedAt !== undefined ? { recordedAt: m.recordedAt } : {}),
+        source: null,
+        blocks: [{ blockId: m.messageId + ':text', content: m.text, sha256: sha256Hex(m.text) }],
+      })),
+    };
+  };
   const recipients =
     form.shareRecipientIds !== undefined
       ? [...new Set(form.shareRecipientIds)].sort()
@@ -170,19 +197,18 @@ export function useConversationPromptContext(options: {
       }
     }
   };
-  const show = () => {
+  const show = (id = selectedSourceId) => {
     publish({ open: true });
     void perform(async (signal, fresh) => {
       if (!group || !clientId) throw Error('Context source is unavailable.');
       const [source, catalog] = await Promise.all([
-        api.getDurableSessionTranscript(sourceConversationId, signal),
-        api.collaborations.sourceArtifacts(group, sourceConversationId, clientId, signal),
+        readSource(signal, id),
+        id === group
+          ? Promise.resolve({ sourceConversationId: id, artifacts: [] })
+          : api.collaborations.sourceArtifacts(group, id, clientId, signal),
       ]);
       if (!fresh()) return;
-      if (
-        source.sourceConversationId !== sourceConversationId ||
-        catalog.sourceConversationId !== sourceConversationId
-      )
+      if (source.sourceConversationId !== id || catalog.sourceConversationId !== id)
         throw Error('The context source changed.');
       publish({ source, artifacts: catalog.artifacts });
     });
@@ -202,12 +228,12 @@ export function useConversationPromptContext(options: {
         throw Error('Choose recipients and enter a purpose before reviewing context.');
       let input = refreeze ? undefined : record.input;
       if (!input) {
-        const source = await api.getDurableSessionTranscript(sourceConversationId, signal);
+        const source = await readSource(signal);
         if (!fresh()) return;
         input = CollaborationPromptReviewInputSchema.parse({
           selection: {
             requestId: createBrowserId(),
-            sourceConversationId,
+            sourceConversationId: selectedSourceId,
             boundary: source.boundary,
             expectedMembershipRevision: view.membershipRevision,
             mode: form.mode,
@@ -227,7 +253,7 @@ export function useConversationPromptContext(options: {
       const reviewed = await api.collaborations.reviewPrompt(group, clientId, input, signal);
       if (!fresh()) return;
       if (
-        reviewed.snapshot.sourceConversationId !== sourceConversationId ||
+        reviewed.snapshot.sourceConversationId !== selectedSourceId ||
         reviewed.snapshot.purpose !== input.selection.purpose.trim() ||
         reviewed.snapshot.joiningBrief !== input.selection.joiningBrief ||
         reviewed.snapshot.mode !== input.selection.mode ||
@@ -326,6 +352,9 @@ export function useConversationPromptContext(options: {
     busy: !!visible.busy,
     form,
     source: visible.source,
+    navigationSessionId: sourceConversationId,
+    sourceMessageAnchor: (id: string) =>
+      options.sharedMessages?.find((m) => m.messageId === id)?.projectionId ?? id,
     artifacts: visible.artifacts,
     review: visible.review,
     error: visible.error,
@@ -341,7 +370,8 @@ export function useConversationPromptContext(options: {
       !group ||
       !clientId ||
       (form.shareRecipientIds === undefined && !recipients.length),
-    show,
+    show: () => show(),
+    showSource: show,
     edit,
     reviewContext: review,
     attach,

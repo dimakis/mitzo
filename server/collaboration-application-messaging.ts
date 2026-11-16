@@ -4,6 +4,10 @@ import {
   isOrdinaryRepositoryParticipantBinding,
   CollaborationContractError,
   CollaborationMessageInputSchema,
+  CollaborationStopInputSchema,
+  CollaborationAgentStopInputSchema,
+  type CollaborationDelivery,
+  ChatImagesSchema,
   CollaborationForwardPacketSchema,
   type CollaborationProgress,
   type CollaborationMessage,
@@ -24,11 +28,15 @@ import { preparePromptContext } from './collaboration-prompt-context.js';
 import { CollaborationApplicationForwarding } from './collaboration-application-forwarding.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { snapshotInputMaterial, forwardInputMaterial } from './collaboration-context-input.js';
+import { retainRuntimeFailure, runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
 
 const log = createLogger('collaboration-messaging');
 const promptByteLimit = 512 * 1024;
-type DiscussionMessage = Pick<CollaborationMessage, 'sequence' | 'author' | 'text' | 'source'> &
-  Partial<Pick<CollaborationMessage, 'snapshot' | 'forward'>>;
+type DiscussionMessage = Pick<
+  CollaborationMessage,
+  'sequence' | 'author' | 'text' | 'source' | 'inReplyTo'
+> &
+  Partial<Pick<CollaborationMessage, 'snapshot' | 'forward' | 'images'>>;
 type MessageContextReference =
   | {
       kind: 'snapshot';
@@ -49,6 +57,11 @@ type PreparedMessageContext = {
   assertRecipient(sessionId: string, settings: CollaborationSettings): void;
 };
 type PreparedMessageContexts = Map<string, PreparedMessageContext>;
+function sharedImages(messages: DiscussionMessage[]) {
+  const images = ChatImagesSchema.safeParse(messages.flatMap((message) => message.images ?? []));
+  if (!images.success) throw new CollaborationContractError('capacity_refused');
+  return images.data;
+}
 function contextReference(
   message: Pick<DiscussionMessage, 'snapshot' | 'forward'>,
 ): MessageContextReference | undefined {
@@ -85,6 +98,15 @@ function discussionMaterial(
     sequence: message.sequence,
     author: message.author,
     text: message.text,
+    ...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
+    ...(message.images?.length
+      ? {
+          attachments: message.images.map((image) => ({
+            mediaType: image.mediaType,
+            sha256: createHash('sha256').update(image.data).digest('hex'),
+          })),
+        }
+      : {}),
     source: message.source,
     ...(context && reference
       ? { [reference.kind === 'snapshot' ? 'sharedContext' : 'forwardedContext']: context.material }
@@ -194,13 +216,17 @@ export class ApplicationCollaborationMessaging {
       return result(null);
     } catch (cause) {
       this.current(auth, signal);
-      log.warn('Could not verify collaboration recipient readiness', {
-        err: cause,
-        code: 'collaboration_recipient_readiness_failed',
-        stage: 'recipient_readiness',
-        collaborationId: group,
-        sessionId,
-      });
+      const diagnosticId = randomUUID();
+      retainRuntimeFailure(diagnosticId, cause, () =>
+        log.warn('Could not verify collaboration recipient readiness', {
+          diagnosticId,
+          ...runtimeFailureDiagnostics(cause),
+          code: 'collaboration_recipient_readiness_failed',
+          stage: 'recipient_readiness',
+          collaborationId: group,
+          sessionId,
+        }),
+      );
       return result(
         'The participant needs attention. Refresh Agents and review its account, context and ordinary session.',
       );
@@ -233,13 +259,64 @@ export class ApplicationCollaborationMessaging {
 
   async stop(auth: AuthSession, group: string, raw: unknown) {
     this.current(auth);
-    const input = CollaborationMessageInputSchema.parse(raw);
+    const { stopRecipientSessionIds, ...input } = CollaborationStopInputSchema.parse(raw);
     const message = this.store.collaborationConversation.getMessageForRequest(group, input);
     if (!message) throw new CollaborationContractError('not_found');
-    const recipients = [];
-    for (const delivery of message.deliveries) {
-      if (delivery.purpose !== 'reply') continue;
+    if (stopRecipientSessionIds?.some((id) => !message.responders.includes(id)))
+      throw new CollaborationContractError('request_conflict');
+    return this.stopDeliveries(
+      auth,
+      group,
+      input.requestId,
+      message.deliveries.filter(
+        (delivery) =>
+          delivery.purpose === 'reply' &&
+          (!stopRecipientSessionIds || stopRecipientSessionIds.includes(delivery.sessionId)),
+      ),
+      () => this.current(auth),
+    );
+  }
+
+  async stopAgents(auth: AuthSession, group: string, raw: unknown) {
+    const input = CollaborationAgentStopInputSchema.parse(raw);
+    const current = () => {
       this.current(auth);
+      const view = this.store.collaborationConversation.view(group);
+      if (
+        // A later unrelated join does not replace this exact command or its
+        // retained Stop identity. Recheck current membership and native custody;
+        // a future revision or a removed target still refuses control.
+        view.membershipRevision < input.expectedMembershipRevision ||
+        input.targets.some((target) => !view.participantSessionIds.includes(target.sessionId))
+      )
+        throw new CollaborationContractError('conflict');
+    };
+    current();
+    const deliveries = input.targets.map((target) => {
+      const message = this.store.collaborationConversation.getMessage(group, target.messageId);
+      const delivery = message?.deliveries.find(
+        (delivery) =>
+          delivery.deliveryId === target.deliveryId &&
+          delivery.sessionId === target.sessionId &&
+          delivery.commandId === target.commandId &&
+          delivery.purpose === 'reply',
+      );
+      if (!delivery) throw new CollaborationContractError('request_conflict');
+      return delivery;
+    });
+    return this.stopDeliveries(auth, group, input.requestId, deliveries, current);
+  }
+
+  private async stopDeliveries(
+    auth: AuthSession,
+    group: string,
+    requestId: string,
+    deliveries: CollaborationDelivery[],
+    current: () => void,
+  ) {
+    const recipients = [];
+    for (const delivery of deliveries) {
+      current();
       let status: 'requested' | 'settled' | 'uncertain' | 'unavailable' = 'unavailable';
       if (['failed', 'unavailable'].includes(delivery.status)) status = 'settled';
       else if (delivery.commandId && this.port.stopOrdinary) {
@@ -249,25 +326,29 @@ export class ApplicationCollaborationMessaging {
             delivery.sessionId,
             delivery.commandId,
             `collaboration-stop:${delivery.deliveryId}`,
-            () => this.current(auth),
+            current,
           );
         } catch (cause) {
           this.current(auth);
-          log.warn('Could not confirm the original collaboration Stop', {
-            err: cause,
-            code: 'collaboration_stop_uncertain',
-            stage: 'ordinary_stop',
-            collaborationId: group,
-            sessionId: delivery.sessionId,
-            commandId: delivery.commandId,
-          });
+          const diagnosticId = randomUUID();
+          retainRuntimeFailure(diagnosticId, cause, () =>
+            log.warn('Could not confirm the original collaboration Stop', {
+              diagnosticId,
+              ...runtimeFailureDiagnostics(cause),
+              code: 'collaboration_stop_uncertain',
+              stage: 'ordinary_stop',
+              collaborationId: group,
+              sessionId: delivery.sessionId,
+              commandId: delivery.commandId,
+            }),
+          );
           status = 'uncertain';
         }
       }
       recipients.push({ sessionId: delivery.sessionId, deliveryId: delivery.deliveryId, status });
     }
-    this.current(auth);
-    return { requestId: input.requestId, recipients };
+    current();
+    return { requestId, recipients };
   }
 
   private async joiningContext(
@@ -452,6 +533,10 @@ export class ApplicationCollaborationMessaging {
     // Renew the pending discussion after compilation awaits, before any message
     // or command mutation. Refuse an overfull packet without retaining a send.
     const pending = this.store.collaborationConversation.view(group);
+    const reply = this.store.collaborationConversation.resolveMessageReply(
+      group,
+      input.replyToMessageId,
+    );
     for (const sessionId of responders) {
       const history = this.pendingHistory(
         group,
@@ -463,8 +548,10 @@ export class ApplicationCollaborationMessaging {
           sequence: pending.cursor + 1,
           author: 'operator',
           text: input.text,
+          images: input.images,
           source: null,
           snapshot: input.snapshot,
+          ...reply,
         },
         snapshots,
       );
@@ -541,6 +628,7 @@ export class ApplicationCollaborationMessaging {
             commandId,
             auth,
             text,
+            images: sharedImages(history),
             settings: settings.get(delivery.sessionId)!,
             turnLifecycle: {
               beforeDispatch: () => assertHistoryCurrent(true),
@@ -562,14 +650,18 @@ export class ApplicationCollaborationMessaging {
           assertCurrent,
         );
       } catch (cause) {
-        log.warn('Ordinary collaboration delivery needs reconciliation', {
-          err: cause,
-          code: 'collaboration_delivery_uncertain',
-          stage: 'ordinary_delivery',
-          collaborationId: group,
-          sessionId: delivery.sessionId,
-          commandId,
-        });
+        const diagnosticId = randomUUID();
+        retainRuntimeFailure(diagnosticId, cause, () =>
+          log.warn('Ordinary collaboration delivery needs reconciliation', {
+            diagnosticId,
+            ...runtimeFailureDiagnostics(cause),
+            code: 'collaboration_delivery_uncertain',
+            stage: 'ordinary_delivery',
+            collaborationId: group,
+            sessionId: delivery.sessionId,
+            commandId,
+          }),
+        );
         for (const shared of history) {
           const ref = this.store.collaborationConversation
             .getMessage(group, shared.messageId)!
@@ -771,7 +863,10 @@ export class ApplicationCollaborationMessaging {
         count++;
         after = message.sequence;
       }
-      if (page.length < 50) return history;
+      if (page.length < 50) {
+        sharedImages(additional ? [...history, additional] : history);
+        return history;
+      }
     }
   }
 

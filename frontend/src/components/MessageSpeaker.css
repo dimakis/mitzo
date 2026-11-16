@@ -1,0 +1,14 @@
+.msg-bubble--assistant.msg-bubble--attributed {
+  border-inline-start: 2px solid var(--message-speaker-color);
+  background: color-mix(in srgb, var(--message-speaker-color) 7%, var(--color-surface));
+}
+.msg-bubble-speaker {
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  margin-block-end: var(--space-2);
+}
+.msg-bubble-speaker .chat-seat-attribution {
+  margin: 0;
+  color: inherit;
+}
