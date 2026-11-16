@@ -33,6 +33,9 @@ export interface SandboxedCommandOptions {
   command: string;
   cwd: string;
   writableRoots: string[];
+  /** Controller-derived exact metadata paths; unlike workspace roots these may
+   * be individual files and never imply discovery of another repository. */
+  additionalWritePaths?: readonly string[];
   deniedRoots: string[];
   /** Additional original SDK private-family DENIALS only; no read re-allows. */
   deniedReadPatterns?: readonly string[];
@@ -675,11 +678,14 @@ async function runSandboxedCommand(
   options = {
     ...options,
     writableRoots: [...options.writableRoots],
+    additionalWritePaths: [...(options.additionalWritePaths ?? [])],
     deniedRoots: [...options.deniedRoots],
     deniedReadPatterns: freezeDenyOnlyReadPatterns(options.deniedReadPatterns ?? []),
     ...(options.readableRoots ? { readableRoots: [...options.readableRoots] } : {}),
     env: { ...options.env },
   };
+  if (privateHelper && options.additionalWritePaths!.length)
+    throw new Error('Private helpers cannot extend their write scope');
   const authority = privateHelper?.ownedAuthority
     ? AuthoritySnapshot.restore(privateHelper.ownedAuthority)
     : new AuthoritySnapshot();
@@ -689,6 +695,7 @@ async function runSandboxedCommand(
     : [
         options.cwd,
         ...options.writableRoots,
+        ...options.additionalWritePaths!,
         ...options.deniedRoots,
         ...(options.readableRoots ?? []),
       ]) {
@@ -772,7 +779,13 @@ async function runSandboxedCommand(
           allowRead: options.readableRoots
             ? [...options.readableRoots, home, scratch, gitTemplate]
             : [],
-          allowWrite: [...options.writableRoots, ...metadataRoots, home, scratch],
+          allowWrite: [
+            ...options.writableRoots,
+            ...options.additionalWritePaths!,
+            ...metadataRoots,
+            home,
+            scratch,
+          ],
           // In-root child repositories may be initialized/cloned. Existing
           // workspace Git authority remains fenced by protectedMetadata above.
           ...(!privateHelper ? { allowGitConfig: true } : {}),

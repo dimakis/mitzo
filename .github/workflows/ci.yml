@@ -595,6 +595,19 @@ jobs:
             throw new Error('Both SDK modes and the task runner must develop a repository through the real OS sandbox; skips are not qualification');
           }
           NODE
+      - name: Verify Claude repository allocation under ancestor swaps
+        if: ${{ !cancelled() }}
+        env:
+          MITZO_TEST_OS_SANDBOX: '1'
+        run: |
+          npx vitest run server/__tests__/sdk-secondary-repository-filesystem.native.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/claude-repository-allocation.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync('test-results/claude-repository-allocation.json', 'utf8'));
+          if (!result.success || result.numPassedTests !== 5 || result.numPendingTests !== 0) {
+            throw new Error('All five Claude repository allocation and race checks must execute through the real OS boundary');
+          }
+          NODE
       - name: Verify complete native repository workflows on both owned account routes
         if: ${{ !cancelled() }}
         env:
@@ -623,6 +636,7 @@ jobs:
           name: native-repository-workflows-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/claude-repository-setup.json
+            test-results/claude-repository-allocation.json
             test-results/standalone-task-proofs.json
             test-results/native-repository-workflows-processes/
             test-results/native-repository-workflows/

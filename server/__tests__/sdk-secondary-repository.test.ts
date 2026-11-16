@@ -1,5 +1,22 @@
 import './fixtures/offline-user-home.js';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+// Recovery/ownership fixtures do not require a nested OS sandbox. The native
+// allocation suite exercises this same consumer through the real boundary.
+vi.mock('../sdk-secondary-repository-filesystem.js', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { mkdir } = await import('node:fs/promises');
+  const run = promisify(execFile);
+  return {
+    sdkSecondaryRepositoryFilesystem: () => ({
+      mkdir: async (path: string) => {
+        await mkdir(path, { recursive: true });
+      },
+      git: (args: string[], env: Record<string, string>) =>
+        run('git', args, { env, encoding: 'utf8' }),
+    }),
+  };
+});
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import {

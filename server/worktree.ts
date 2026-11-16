@@ -160,6 +160,15 @@ export function parseWorktreeAge(entry: string): number | null {
   return age;
 }
 
+export interface SafeLocalWorktreeFilesystem {
+  mkdir(path: string): Promise<void>;
+  git(
+    args: string[],
+    environment: Record<string, string>,
+    scratch?: string,
+  ): Promise<{ stdout: string; stderr: string }>;
+}
+
 export interface CreateWorktreeOptions {
   dir?: string;
   branch?: string;
@@ -169,6 +178,8 @@ export interface CreateWorktreeOptions {
   /** Existing arbitrary repositories may supply content, never executable Git
    * configuration during allocation. Requires an explicit, already pinned ref. */
   safeLocalPreparation?: boolean;
+  /** The SDK's writable destination is adversarial throughout each subprocess. */
+  safeLocalFilesystem?: SafeLocalWorktreeFilesystem;
   /** Private current operation fence, used only by the safe arbitrary-source route. */
   safeLocalBeforeEffect?: () => Promise<void>;
   /** An initial pending owner must never reuse an unowned directory or branch. */
@@ -178,7 +189,11 @@ export interface CreateWorktreeOptions {
   abortSignal?: AbortSignal;
 }
 
-function safeLocalWorktreeGit(beforeEffect?: () => Promise<void>, signal?: AbortSignal) {
+function safeLocalWorktreeGit(
+  beforeEffect?: () => Promise<void>,
+  signal?: AbortSignal,
+  filesystem?: SafeLocalWorktreeFilesystem,
+) {
   const config = [
     '-c',
     'core.hooksPath=/dev/null',
@@ -209,15 +224,25 @@ function safeLocalWorktreeGit(beforeEffect?: () => Promise<void>, signal?: Abort
       GIT_ATTR_NOSYSTEM: '1',
     },
   };
-  return async (args: string[], environment: Readonly<Record<string, string>> = {}) => {
+  return async (
+    args: string[],
+    environment: Readonly<Record<string, string>> = {},
+    scratch?: string,
+  ) => {
     signal?.throwIfAborted();
     await beforeEffect?.();
     signal?.throwIfAborted();
-    const result = await execFileAsync('git', ['--no-replace-objects', ...config, ...args], {
-      ...options,
-      signal,
-      env: { ...options.env, ...environment },
-    });
+    const result = filesystem
+      ? await filesystem.git(
+          ['--no-replace-objects', ...config, ...args],
+          { ...options.env, ...environment },
+          scratch,
+        )
+      : await execFileAsync('git', ['--no-replace-objects', ...config, ...args], {
+          ...options,
+          signal,
+          env: { ...options.env, ...environment },
+        });
     signal?.throwIfAborted();
     await beforeEffect?.();
     return result;
@@ -250,14 +275,18 @@ async function materializeLocalWorktree(
   await beforeEffect?.();
   const scratch = await mkdtemp(join(tmpdir(), 'mitzo-worktree-materialization-'));
   try {
-    await git([
-      'init',
-      '--quiet',
-      '--template=',
-      '--initial-branch=mitzo-materialize',
-      `--object-format=${format}`,
+    await git(
+      [
+        'init',
+        '--quiet',
+        '--template=',
+        '--initial-branch=mitzo-materialize',
+        `--object-format=${format}`,
+        scratch,
+      ],
+      {},
       scratch,
-    ]);
+    );
     const environment = {
       GIT_DIR: join(scratch, '.git'),
       GIT_WORK_TREE: worktreePath,
@@ -266,8 +295,8 @@ async function materializeLocalWorktree(
     };
     // Match the existing repository-source checkout pattern: only Git-generated
     // private config is loaded; .gitattributes cannot install a filter driver.
-    await git(['read-tree', head], environment);
-    await git(['checkout-index', '--all'], environment);
+    await git(['read-tree', head], environment, scratch);
+    await git(['checkout-index', '--all'], environment, scratch);
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
@@ -372,7 +401,7 @@ export async function createWorktreeAsync(
   if (opts?.safeLocalPreparation && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(opts.startPoint ?? ''))
     throw Error('Safe local repository preparation requires a pinned source ref');
   const safeGit = opts?.safeLocalPreparation
-    ? safeLocalWorktreeGit(opts.safeLocalBeforeEffect, opts.abortSignal)
+    ? safeLocalWorktreeGit(opts.safeLocalBeforeEffect, opts.abortSignal, opts.safeLocalFilesystem)
     : undefined;
   const runGit = safeGit
     ? safeGit
@@ -385,7 +414,8 @@ export async function createWorktreeAsync(
     await opts?.safeLocalBeforeEffect?.();
   }
   opts?.abortSignal?.throwIfAborted();
-  await mkdir(dir, { recursive: true });
+  if (opts?.safeLocalFilesystem) await opts.safeLocalFilesystem.mkdir(dir);
+  else await mkdir(dir, { recursive: true });
   opts?.abortSignal?.throwIfAborted();
   if (safeGit) {
     opts?.abortSignal?.throwIfAborted();

@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EventStore } from './event-store.js';
 import { AuthoritySnapshot } from './sandbox-authority.js';
 import { captureLocalRepository, type LocalRepositorySource } from './local-repository-worktree.js';
-import { createWorktreeAsync } from './worktree.js';
+import { createWorktreeAsync, type SafeLocalWorktreeFilesystem } from './worktree.js';
+import { sdkSecondaryRepositoryFilesystem } from './sdk-secondary-repository-filesystem.js';
 import {
   snapshotRepositoryTaskCheckout,
   validateRepositoryTaskCheckout,
@@ -146,16 +147,19 @@ const unlessMissing = (error: NodeJS.ErrnoException) => {
  * controller never follows a link there. Each task-root level is adopted or
  * created one at a time without following links, then the whole ancestor chain
  * is pinned (sandbox-authority) and re-verified before every Git effect. */
-async function pinPhysicalTaskRoot(workspace: string, directory: string) {
+async function pinPhysicalTaskRoot(
+  workspace: string,
+  directory: string,
+  filesystem: SafeLocalWorktreeFilesystem,
+) {
   let path = workspace;
   for (const level of TASK_ROOT) {
     path = join(path, level);
     let info = await lstat(path).catch(unlessMissing);
     if (!info) {
-      // mkdir never follows a final-component link; EEXIST is re-inspected below.
-      await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== 'EEXIST') throw error;
-      });
+      // The kernel fence protects writes even if an earlier ancestor changes
+      // while this mkdir runs. Physical identity is still checked for adoption.
+      await filesystem.mkdir(path);
       info = await lstat(path);
     }
     if (!info.isDirectory() || (await realpath(path)) !== path)
@@ -285,7 +289,15 @@ export async function prepareSdkSecondaryRepository(options: {
     localSource,
     stage: 'allocating',
   });
-  const physical = await pinPhysicalTaskRoot(options.workspaceDirectory, directory);
+  const filesystem = sdkSecondaryRepositoryFilesystem({
+    workspaceDirectory: options.workspaceDirectory,
+    commonDirectory: localSource.commonDirectory,
+    taskName: name,
+    conversationId: options.conversationId,
+    signal: options.signal,
+    assertCurrent: current,
+  });
+  const physical = await pinPhysicalTaskRoot(options.workspaceDirectory, directory, filesystem);
   await current();
   await physical();
   await createWorktreeAsync(name, options.sourcePath, {
@@ -294,6 +306,7 @@ export async function prepareSdkSecondaryRepository(options: {
     startPoint: baseOid,
     abortSignal: options.signal,
     safeLocalPreparation: true,
+    safeLocalFilesystem: filesystem,
     safeLocalRequireNew: true,
     // Authority first, then physical identity closest to each Git effect.
     safeLocalBeforeEffect: async () => {
