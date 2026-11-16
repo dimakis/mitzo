@@ -148,6 +148,91 @@ describe('Claude SDK web access surface', () => {
       await server.instance.close();
     }
   });
+  it.each(['current', 'retired', 'completing', 'ceiling-denied', 'authority-revoked'] as const)(
+    'binds a fresh per-call publication fence for an ordinary query (%s)',
+    async (condition) => {
+      const state = createSdkCallbackState();
+      const ceiling = new Set(
+        condition === 'ceiling-denied' ? [] : ['mcp__mitzo-web-access__RequestGithubPublish'],
+      );
+      state.bindCommandToolAuthority({
+        commandId: 'original',
+        checkTool: (name) => (ceiling.has(name) ? 'allow' : 'deny'),
+      });
+      let revoked = false;
+      const authority = vi.fn((signal: AbortSignal) => {
+        signal.throwIfAborted();
+        if (revoked) throw Error('Original Claude authority revoked');
+      });
+      const fences: AbortSignal[] = [];
+      const publish = vi.fn(
+        async (
+          _input: unknown,
+          _signal: AbortSignal,
+          call: { turnId: string; callId: string; assertCurrentSync?(): void },
+        ) => {
+          call.assertCurrentSync!();
+          return { content: 'published', isError: false };
+        },
+      );
+      const server = createWebAccessSdkServer(
+        vi.fn(),
+        new AbortController().signal,
+        publish,
+        state.runCallback,
+        (name) => state.checkTool(name),
+        (signal) => {
+          fences.push(signal);
+          return () => {
+            if (state.retired || state.completing) throw Error('Completed SDK query retired');
+            if (state.checkTool('mcp__mitzo-web-access__RequestGithubPublish') !== 'allow')
+              throw Error('Tool not allowed by the frozen command skill ceiling');
+            authority(signal);
+          };
+        },
+      );
+      const client = new Client({ name: 'publish-fence', version: '1' });
+      const [a, b] = InMemoryTransport.createLinkedPair();
+      await server.instance.connect(a);
+      await client.connect(b);
+      const args = {
+        repositoryPath: '/workspace',
+        baseBranch: 'main',
+        title: 'Publish',
+        body: '',
+        draft: true,
+      };
+      try {
+        if (condition === 'retired') state.retired = true;
+        if (condition === 'completing') state.completing = true;
+        if (condition === 'authority-revoked') revoked = true;
+        const result = await client.callTool({ name: 'RequestGithubPublish', arguments: args });
+        expect(!!result.isError).toBe(condition !== 'current');
+        if (condition !== 'current') {
+          expect(publish).not.toHaveBeenCalled();
+          return;
+        }
+        expect(publish).toHaveBeenCalledOnce();
+        const call = publish.mock.calls[0][2];
+        expect(call).toMatchObject({
+          turnId: expect.stringMatching(/^sdk:/),
+          callId: expect.any(String),
+          assertCurrentSync: expect.any(Function),
+        });
+        // A second call receives its own fence bound to its own call signal.
+        await client.callTool({ name: 'RequestGithubPublish', arguments: args });
+        expect(fences).toHaveLength(2);
+        expect(fences[0]).not.toBe(fences[1]);
+        expect(publish.mock.calls[1][2].assertCurrentSync).not.toBe(call.assertCurrentSync);
+        // The earlier call's fence never outlives its query's retirement.
+        state.retired = true;
+        expect(() => call.assertCurrentSync!()).toThrow(/retired/);
+      } finally {
+        await client.close();
+        await server.instance.close();
+      }
+    },
+  );
   it('avoids a duplicate outer approval only for the exact internally gated tool', async () => {
     const decide = vi.fn().mockResolvedValue({ behavior: 'deny', message: 'deny' });
     const wrapped = webAccessSdkPermission(decide);

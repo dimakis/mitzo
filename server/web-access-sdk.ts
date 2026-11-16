@@ -22,10 +22,13 @@ export function createWebAccessSdkServer(
   publish?: (
     input: unknown,
     signal: AbortSignal,
-    call: { turnId: string; callId: string },
+    call: { turnId: string; callId: string; assertCurrentSync?(): void },
   ) => Promise<{ content: string; isError: boolean }>,
   runCallback: TurnCallbackRunner = (work) => work(),
   checkTool?: (name: string) => 'allow' | 'deny',
+  /** Ordinary routes bind a fresh fence to each publication call's own signal,
+   * so a retired query can never pass its authority to a successor's call. */
+  publishCallFence?: (signal: AbortSignal) => () => void,
 ): McpSdkServerConfigWithInstance {
   const assertCommandTool = (name: string) => {
     if (checkTool && checkTool(name) !== 'allow')
@@ -56,9 +59,13 @@ export function createWebAccessSdkServer(
       async (input, extra) => {
         const result = await runCallback(async () => {
           assertCommandTool(GITHUB_PUBLISH_SDK_TOOL);
-          const result = await publish(input, AbortSignal.any([sessionSignal, extra.signal]), {
+          const signal = AbortSignal.any([sessionSignal, extra.signal]);
+          const assertCurrentSync = publishCallFence?.(signal);
+          assertCurrentSync?.();
+          const result = await publish(input, signal, {
             turnId: `sdk:${publishingRuntimeId}`,
             callId: String(extra.requestId),
+            ...(assertCurrentSync ? { assertCurrentSync } : {}),
           });
           assertCommandTool(GITHUB_PUBLISH_SDK_TOOL);
           return result;

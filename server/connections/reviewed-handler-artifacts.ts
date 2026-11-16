@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1230-claude-preparation-fences';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1230-claude-managed-publish';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,15 +23,15 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sdk-local-repository-tools.ts':
-    'f665db70c682fda8b9e70eefed5b2538e9e3227b250243545c59e5f5a70c4412',
+    'e8f8ed6116582d2c2ed84d2f75cd9a315e7254463563da004528553de29699a2',
   '../sdk-secondary-repository.ts':
-    '9c17724b62176f929cb1e3f28a5749a185d0158d05af6a7aa62d6f671c1da3f3',
+    'be64d39583d2e100b0d914928f10529ca7390b2b02507addd9fe5207eda55ef3',
   '../sdk-repository-callback.ts':
     'ffa6bd3be475d9ce1610aa891f6ad3380399721602cb71d25c3e194847ad0adf',
   '../repository-workspace-prompt.ts':
     'ff9b2df9050f1165f287d39ddf32e5c1dec03637d31ba2e728b2d198df973b46',
   '../__tests__/sdk-secondary-repository.test.ts':
-    '41c2248cc6a522f3f5918ffeeecb27a501d2b06713a41be2f302aa8c6780361a',
+    'c6074059f764e4b3605a7daff544b1b018fb8a96a13f3b383c6e84642f60cf28',
   '../__tests__/sdk-repository-read-owner.test.ts':
     'cfa204cd32ff49683160db056e2b99ae06f132435f96fec0278aaed1811a82b1',
   '../__tests__/sdk-repository-callback.test.ts':
@@ -125,7 +124,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-startup-context.test.ts':
     'ef9a5ed33d3f8a814bcad92e55d7681c0dbfdeca61eb9df7f5d59960bac5a5f6',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    '20357a97045adde474da7fc129cdee20a3b1d63d40f997e9f7c00dd0610d84be',
+    '739909022b0b477a6f7256e070d06f5cb2bb61032eba891009a7b9e54c62f654',
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../frontend/src/components/LocalCommandRecovery.tsx':
@@ -3740,7 +3739,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': 'e542e745a411d17c0510ac37e27b2b4dcf880958a5a1bcb8e07ef047f2e9d7a7',
+  '../chat.ts': '9c130b93ff108745abacbb375cb973b9dd720c6dfa30506ea5b4368620713fe1',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
@@ -4814,7 +4813,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'aa53554be7c2dbc71044d0f8cdf461a9e4c521713142a6fae719f484c41ac7b1',
   '../url-access-tool.ts': 'd4d5414e99ed3a049b232184e540db8a023a67ac6b2a39ea0e64284556e18e9e',
   '../wait-for-change.ts': '82cfc955560c5494b9453bfc82e1a14004fc8349f2a5731583791323a03f17a0',
-  '../web-access-sdk.ts': '43874c1945ba3b6fa9853dfbf4042667af3af6a60f073d77f164c5bcffdd217a',
+  '../web-access-sdk.ts': 'b94a56937dca0b8dfed2ccee905dbbcc2bdd5d67f4a1e7bc94613125e17264a5',
   '../web-access-tool.ts': '52a50a4633cb27d21a7cae1ec295a6df264812ad507d92ad69a1a12793c7fb63',
   '../web-page-content.ts': '348452aa0875f774d67f8b3b9f65bc793683e0295123e2c63fbb6011e1fbe67c',
   '../web-search-adapters.ts': 'b7b8cdcf8c7862d1d878aaa1638225bdaf100b2f78cd464ac53f02ac68f11284',
