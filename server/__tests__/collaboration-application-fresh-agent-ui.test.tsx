@@ -9,6 +9,8 @@ import { createApplicationJourney } from './fixtures/symposium-application-journ
 import { recordApplicationMessagingRuntime } from './fixtures/symposium-recording-runtime.js';
 import { installDialogStub } from '../../frontend/src/components/__tests__/dialog-stub.js';
 import { registerSymposiumSourceOutput } from './fixtures/symposium-source-output.js';
+import { getChatDraft, saveChatDraft } from '../../frontend/src/lib/chat-drafts.js';
+import { chatStorage } from '../../frontend/src/lib/large-chat-storage.js';
 
 const journey = createApplicationJourney();
 afterAll(() => journey.close());
@@ -83,6 +85,28 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       </MemoryRouter>
     );
     let ui = render(surface);
+    // Defaults remains a supported saved protocol intent. Restore it through
+    // the actual draft owner; revision 3 exposes inline named toggles instead
+    // of the former Defaults popover action.
+    const restoreDefaults = async () => {
+      const draft = getChatDraft('shared:' + h.group)!;
+      expect(draft).toBeTruthy();
+      await act(async () => {
+        expect(
+          saveChatDraft({
+            ...draft,
+            settings: {
+              ...draft.settings,
+              collaborationResponders: {
+                collaborationId: h.group,
+                responders: { kind: 'default' },
+              },
+            },
+          }),
+        ).toBe(true);
+        await chatStorage.flush();
+      });
+    };
     fireEvent.click(await screen.findByRole('button', { name: /^Agents/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
     const dialog = screen.getByRole('dialog', { name: 'Add agent' });
@@ -165,9 +189,14 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.keyDown(before, { key: 'Escape' });
     fireEvent.click(await screen.findByRole('button', { name: 'Choose who replies' }));
     // This source is observational; the real reviewer owns this explicit turn.
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Current agent', exact: true }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'FreshReviewer' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Current agent', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'FreshReviewer', exact: true }));
+    expect(
+      screen
+        .getByRole('button', { name: 'FreshReviewer', exact: true })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Review this explicitly.' },
     });
@@ -280,11 +309,9 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       { timeout: 5000 },
     );
     fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'FreshReviewer', exact: true }));
-    fireEvent.click(screen.getByRole('checkbox', { name: reader.name, exact: true }));
-    fireEvent.keyDown(screen.getByRole('group', { name: 'Who replies to this prompt' }), {
-      key: 'Escape',
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'FreshReviewer', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: reader.name, exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Respond to the FreshReviewer answer explicitly.' },
     });
@@ -331,7 +358,12 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     expect(JSON.stringify(bothTurns[1].params)).toContain(
       'Respond to the FreshReviewer answer explicitly.',
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Check original request' }));
+    // Fully settled replies retire their journal through ordinary observation;
+    // no recovery action remains once that canonical receipt is confirmed.
+    await waitFor(
+      () => expect(getChatDraft('shared:' + h.group)?.collaborationSend).toBeUndefined(),
+      { timeout: 5000 },
+    );
     // Defaults resolves the two independent sessions on the same account.
     // Hold one native turn so the successful answer cannot settle the other.
     const defaultsView = await h.api.view(h.group);
@@ -350,11 +382,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
         (screen.getByRole('button', { name: 'Choose who replies' }) as HTMLButtonElement).disabled,
       ).toBe(false),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Defaults', exact: true }));
-    fireEvent.keyDown(screen.getByRole('group', { name: 'Who replies to this prompt' }), {
-      key: 'Escape',
-    });
+    await restoreDefaults();
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Both reviewers: answer independently using Defaults.' },
     });
@@ -430,7 +458,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
     await h.api.send(h.group, original.input);
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
-    fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Stop / }));
     await waitFor(() =>
       expect(runtime.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1),
     );
@@ -447,7 +475,8 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     expect((await h.api.observeSend(h.group, original.input)).terminal).toBe(false);
     await act(async () => runtime.finishTurn(4, 'failed', 'context'));
     expect((await h.typedApi.collaborations.progress(h.group)).replies).toHaveLength(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Check original request' }));
+    // The terminal native event may already settle both recovery owners.
+    // Verify their canonical results rather than requiring a retired action.
     await waitFor(
       async () => {
         const current = await h.api.view(h.group);
@@ -480,8 +509,8 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     );
     fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     const successfulName = failed.sessionId === joined.sessionId ? reader.name : 'FreshReviewer';
-    fireEvent.click(screen.getByRole('checkbox', { name: successfulName, exact: true }));
-    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+    fireEvent.click(screen.getByRole('button', { name: successfulName, exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Retry only the failed reviewer with this new explicit prompt.' },
     });
@@ -530,16 +559,17 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     ).toBe('failed');
     // An unclassified provider failure is terminal metadata but its effects
     // remain uncertain. A successful peer answer must not retire this request.
-    fireEvent.click(screen.getByRole('button', { name: 'Check original request' }));
+    await waitFor(
+      () => expect(getChatDraft('shared:' + h.group)?.collaborationSend).toBeUndefined(),
+      { timeout: 5000 },
+    );
     await waitFor(() =>
       expect(
         (screen.getByRole('button', { name: 'Choose who replies' }) as HTMLButtonElement).disabled,
       ).toBe(false),
     );
     runtime.holdTurn(7);
-    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Defaults', exact: true }));
-    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+    await restoreDefaults();
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Keep this original request through an uncertain recipient failure.' },
     });
@@ -556,6 +586,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
               'Keep this original request through an uncertain recipient failure.',
           )!;
         expect(uncertainRequest).toBeTruthy();
+        expect(uncertainRequest.acknowledged).toBe(true);
         expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(7);
       },
       { timeout: 10000 },
@@ -569,7 +600,17 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     });
     ui.unmount();
     ui = render(surface);
-    fireEvent.click(await screen.findByRole('button', { name: 'Check original request' }));
+    // Multiple retained controls live in the existing status-details dialog.
+    fireEvent.click(await screen.findByRole('button', { name: 'Conversation status details' }));
+    const status = await screen.findByRole('dialog', { name: 'Conversation status' });
+    fireEvent.click(
+      await within(status).findByRole(
+        'button',
+        { name: 'Check original request' },
+        { timeout: 5000 },
+      ),
+    );
+    fireEvent.click(within(status).getByRole('button', { name: 'Close', exact: true }));
     await waitFor(() => {
       const request = h.events.collaborationConversation.getMessageForRequest(
         h.group,
@@ -582,7 +623,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
         within(deliveries as HTMLElement).getAllByText('Outcome uncertain · do not resend'),
       ).toHaveLength(1);
       expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(5);
-      expect(screen.getByRole('button', { name: 'Stop generation' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^Stop / })).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull();
     });
     await h.api.send(h.group, uncertainRequest.input);

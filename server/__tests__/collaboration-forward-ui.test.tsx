@@ -66,10 +66,13 @@ it('forwards inspected context through the production UI and recovers a lost con
     fireEvent.click(await screen.findByRole('button', { name: 'Choose who replies' }));
     // This journey forwards to the reviewer only. The historical source has no
     // live ordinary owner and must not remain selected by the new-draft default.
-    const sourceReply = screen.getByRole('checkbox', { name: 'Current agent', exact: true });
-    if ((sourceReply as HTMLInputElement).checked) fireEvent.click(sourceReply);
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Independent reviewer' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+    const sourceReply = screen.getByRole('button', { name: 'Current agent', exact: true });
+    if (sourceReply.getAttribute('aria-pressed') === 'true') fireEvent.click(sourceReply);
+    const reviewerReply = screen.getByRole('button', { name: 'Independent reviewer' });
+    fireEvent.click(reviewerReply);
+    expect(sourceReply.getAttribute('aria-pressed')).toBe('false');
+    expect(reviewerReply.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Only send this after forwarding.' },
     });

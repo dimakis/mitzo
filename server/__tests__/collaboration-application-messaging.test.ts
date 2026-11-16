@@ -41,6 +41,7 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
       expectedMembershipRevision: before.membershipRevision,
       expectedPolicySequence: before.policySequence,
       text: 'Review the selected design explicitly',
+      images: [{ data: 'aGVsbG8=', mediaType: 'image/png' as const }],
       responders: { kind: 'selected' as const, sessionIds: [joinedSessionId] },
       snapshot: null,
     };
@@ -61,6 +62,8 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
     expect((await api.view(group)).messages).toEqual([]);
     expect(requests).toEqual([]);
     const accepted = await api.send(group, input);
+    expect(accepted.images).toEqual(input.images);
+    expect(accepted.recordedAt).toBeGreaterThan(0);
     expect((await api.observeSend(group, input)).message?.messageId).toBe(accepted.messageId);
     expect(accepted.deliveries).toMatchObject([{ sessionId: joinedSessionId }]);
     expect(['queued', 'delivered']).toContain(accepted.deliveries[0].status);
@@ -87,14 +90,41 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
       { timeout: 5000 },
     );
     const turn = requests.find((r) => r.method === 'turn/start')!;
+    expect(JSON.stringify(turn.params)).toContain('data:image/png;base64,aGVsbG8=');
     expect(JSON.stringify(turn.params)).toContain('Synthetic design requirement');
     expect(JSON.stringify(turn.params)).toContain('Edited brief retained exactly');
     expect(JSON.stringify(turn.params)).toContain(input.text);
     expect(JSON.stringify(turn.params)).not.toContain('DO_NOT_LEAK');
     await vi.waitFor(async () => expect((await api.observeSend(group, input)).terminal).toBe(true));
+    const stopInput = {
+      requestId: crypto.randomUUID(),
+      expectedMembershipRevision: before.membershipRevision,
+      targets: [
+        {
+          messageId: accepted.messageId,
+          deliveryId: accepted.deliveries[0].deliveryId,
+          sessionId: joinedSessionId,
+          commandId: commandId!,
+        },
+      ],
+    };
+    expect((await api.stopAgents(group, stopInput)).recipients[0]).toMatchObject({
+      sessionId: joinedSessionId,
+      status: 'settled',
+    });
+    await expect(
+      api.stopAgents(group, {
+        ...stopInput,
+        requestId: crypto.randomUUID(),
+        targets: [{ ...stopInput.targets[0], commandId: 'forged-command' }],
+      }),
+    ).rejects.toThrow();
     const retries = await Promise.all([api.send(group, input), api.send(group, input)]);
     expect(retries.map((m) => m.messageId)).toEqual([accepted.messageId, accepted.messageId]);
     await expect(api.send(group, { ...input, text: 'Changed retry' })).rejects.toThrow();
+    await expect(
+      api.send(group, { ...input, images: [{ data: 'bmV3', mediaType: 'image/png' }] }),
+    ).rejects.toThrow();
     expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
     // Revoke the shared source during actual ordinary preparation. The final
     // provider fence must refuse it even though initial group review succeeded.

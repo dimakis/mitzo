@@ -17,11 +17,15 @@ export function MessageActions({
   message,
   onReply,
   readAloud,
+  onForward,
+  authorName,
   children,
 }: {
   message: MessageReplyContext;
   onReply?: (message: MessageReplyContext) => void;
   readAloud?: ReadAloudProps;
+  onForward?: () => void;
+  authorName?: string;
   children: ReactNode;
 }) {
   const owner = useRef<HTMLDivElement>(null),
@@ -84,7 +88,7 @@ export function MessageActions({
       ref={owner}
       className={`message-actions-target${message.role === 'user' ? ' message-actions-target--user' : ''}`}
       tabIndex={onReply ? 0 : undefined}
-      aria-label={`Message from ${message.role === 'user' ? 'you' : 'Mitzo'}`}
+      aria-label={`Message from ${message.role === 'user' ? 'you' : (authorName ?? 'Mitzo')}`}
       onContextMenu={(event) => {
         // WebKit's contextmenu can precede selectionchange and lack pointerType.
         const type = (event.nativeEvent as PointerEvent).pointerType || pointerType.current;
@@ -220,6 +224,19 @@ export function MessageActions({
               <UiIcon name="back" size={16} />
               Reply
             </button>
+            {onForward && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  close(false);
+                  onForward();
+                }}
+              >
+                <UiIcon name="share" size={16} />
+                Forward to agents
+              </button>
+            )}
             <button type="button" role="menuitem" onClick={() => void copy(message.text)}>
               <UiIcon name={copied ? 'check' : 'copy'} size={16} />
               {copied ? 'Copied' : 'Copy text'}

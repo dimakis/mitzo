@@ -53,6 +53,7 @@ import {
   type CollaborationJoin,
   type CollaborationEvent,
   type CollaborationMessageSource,
+  type CollaborationMessage,
 } from './collaboration-conversation.js';
 
 /** Stable key ordering makes exact semantic retries independent of JSON object key order. */
@@ -527,6 +528,25 @@ export class CollaborationConversationStore {
       CollaborationMessageSchema.parse(JSON.parse(row.result)).messageId,
     );
   }
+  /** Resolve the same canonical quote for capacity preflight and durable acceptance. */
+  resolveMessageReply(
+    group: string,
+    messageId?: string,
+  ): Pick<CollaborationMessage, 'replyToMessageId' | 'inReplyTo'> {
+    if (!messageId) return {};
+    const original = this.getMessage(group, messageId);
+    if (!original || !original.text.trim()) throw new ContractError('snapshot_changed');
+    return {
+      replyToMessageId: original.messageId,
+      inReplyTo: {
+        messageId: original.projectionId,
+        role: original.author === 'operator' ? 'user' : 'assistant',
+        text: original.text,
+        ...(original.recordedAt !== undefined ? { timestamp: original.recordedAt } : {}),
+      },
+    };
+  }
+
   acceptMessage(group: string, raw: unknown) {
     const input = CollaborationMessageInputSchema.parse(raw);
     if (input.responders.kind === 'selected') input.responders.sessionIds.sort();
@@ -595,6 +615,9 @@ export class CollaborationConversationStore {
           source: null,
           replyToDeliveryId: null,
           text: input.text,
+          ...this.resolveMessageReply(group, input.replyToMessageId),
+          ...(input.images?.length ? { images: input.images } : {}),
+          recordedAt: Date.now(),
           membershipRevision: current.revision,
           policySequence: input.expectedPolicySequence,
           policyRevisions: Object.fromEntries(policies.map((p) => [p.sessionId, p.revision])),
@@ -1134,6 +1157,7 @@ export class CollaborationConversationStore {
           sequence: this.cursor(group) + 1,
           author: { sessionId: delivery.sessionId },
           text: verified.text,
+          recordedAt: Date.now(),
           source: input.source,
           replyToDeliveryId: delivery.deliveryId,
           membershipRevision: message.membershipRevision,
@@ -1171,7 +1195,15 @@ export class CollaborationConversationStore {
       ReviewCompilation,
       () => {
         const membership = this.membership(group, input.selection.expectedMembershipRevision);
-        if (!membership.participantSessionIds.includes(input.selection.sourceConversationId))
+        if (
+          !membership.participantSessionIds.includes(input.selection.sourceConversationId) &&
+          !(
+            input.promptAudience &&
+            input.selection.sourceConversationId === group &&
+            input.selection.mode === 'selected' &&
+            !input.selection.artifacts.length
+          )
+        )
           throw new ContractError('unknown_recipient');
         const record = ReviewCompilation.parse({
           ...input,
@@ -1675,6 +1707,14 @@ export class CollaborationConversationStore {
   assertCurrentSnapshotSource(group: string, snapshotId: string) {
     const membership = this.group(group);
     const record = this.getReviewCompilationForSnapshot(group, snapshotId);
+    if (
+      record?.promptAudience &&
+      record.selection.sourceConversationId === group &&
+      record.selection.mode === 'selected' &&
+      !record.selection.artifacts.length &&
+      membership.revision === record.selection.expectedMembershipRevision
+    )
+      return;
     if (
       !record ||
       !this.continuousMember(

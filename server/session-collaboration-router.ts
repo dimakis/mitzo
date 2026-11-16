@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import {
   SessionCollaborationIdSchema,
   SessionCollaborationUpdateSchema,
@@ -17,6 +18,8 @@ import {
   CollaborationMessageSchema,
   CollaborationRecipientReadinessSchema,
   CollaborationStopResultSchema,
+  CollaborationStopInputSchema,
+  CollaborationAgentStopInputSchema,
   CollaborationProgressSchema,
   CollaborationPromptReviewRequestSchema,
   CollaborationPromptReviewResultSchema,
@@ -42,6 +45,7 @@ import type { EventStore } from './event-store.js';
 import type { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
 import { createLogger } from './logger.js';
+import { retainRuntimeFailure, runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
 
 const log = createLogger('collaboration-router');
 
@@ -65,12 +69,16 @@ function failure(res: Response, error: unknown, dispatchNotStarted = false) {
     return res
       .status(error.code === 'not_found' ? 404 : error.code === 'conflict' ? 409 : 400)
       .json({ error: error.message });
-  log.error('Collaboration request could not be completed', {
-    err: error,
-    code: 'collaboration_request_failed',
-    stage: 'collaboration_request',
-    route: res.req.route?.path,
-  });
+  const diagnosticId = randomUUID();
+  retainRuntimeFailure(diagnosticId, error, () =>
+    log.error('Collaboration request could not be completed', {
+      diagnosticId,
+      ...runtimeFailureDiagnostics(error),
+      code: 'collaboration_request_failed',
+      stage: 'collaboration_request',
+      route: res.req.route?.path,
+    }),
+  );
   return res
     .status(503)
     .json({ error: 'Collaboration links could not be checked. Refresh before retrying.' });
@@ -242,7 +250,7 @@ export function createSessionCollaborationRouter({
   });
   router.post('/:id/messages/stop', requireSameOriginJson, async (req, res) => {
     const id = SessionCollaborationIdSchema.safeParse(req.params.id);
-    const input = CollaborationMessageInputSchema.safeParse(req.body);
+    const input = CollaborationStopInputSchema.safeParse(req.body);
     if (!id.success || !input.success)
       return res.status(400).json({ error: 'Invalid original message control' });
     try {
@@ -250,6 +258,22 @@ export function createSessionCollaborationRouter({
       return res.json(
         CollaborationStopResultSchema.parse(
           await messaging.stop(recentAuthorizationSession(res)!, id.data, input.data),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.post('/:id/agents/stop', requireSameOriginJson, async (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const input = CollaborationAgentStopInputSchema.safeParse(req.body);
+    if (!id.success || !input.success)
+      return res.status(400).json({ error: 'Select the original active agent commands' });
+    try {
+      if (!messaging) return unavailable(res);
+      return res.json(
+        CollaborationStopResultSchema.parse(
+          await messaging.stopAgents(recentAuthorizationSession(res)!, id.data, input.data),
         ),
       );
     } catch (error) {

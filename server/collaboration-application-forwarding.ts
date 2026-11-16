@@ -14,6 +14,7 @@ import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
+import { createSharedConversationContextSource } from './collaboration-shared-context-source.js';
 import { prepareCollaborationForward } from './collaboration-forwarding.js';
 import { forwardInputMaterial } from './collaboration-context-input.js';
 import type { RetainedCollaborationArtifactSource } from './collaboration-retained-artifact-source.js';
@@ -61,7 +62,13 @@ export class CollaborationApplicationForwarding {
       signal.throwIfAborted();
       this.provenance(auth, record);
       const id = record.input.selection.sourceConversationId;
-      if (id) {
+      if (id === group) {
+        if (
+          this.store.getSessionCollaboration(group)?.revision !==
+          record.input.selection.target.expectedMembershipRevision
+        )
+          throw changed();
+      } else if (id) {
         const source = this.store.getSession(id);
         if (
           !source ||
@@ -118,11 +125,13 @@ export class CollaborationApplicationForwarding {
     const source =
       record.input.selection.sourceConversationId === null
         ? undefined
-        : createCollaborationContextSource({
-            store: this.store,
-            authorizeConversation: async () => current(),
-            assertConversationCurrent: current,
-          });
+        : record.input.selection.sourceConversationId === group
+          ? createSharedConversationContextSource(this.store, group, current)
+          : createCollaborationContextSource({
+              store: this.store,
+              authorizeConversation: async () => current(),
+              assertConversationCurrent: current,
+            });
     const prepared = await prepareCollaborationForward(record.input.selection, {
       source,
       retainedArtifacts: this.retained?.source(current),

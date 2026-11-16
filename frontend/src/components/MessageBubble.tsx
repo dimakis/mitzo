@@ -31,6 +31,8 @@ import {
 import { ContextInjectionDisclosure } from './ContextInjectionDisclosure';
 import { AgentMessageCard } from './AgentMessageCard';
 import { MessageActionsContext } from '../lib/message-actions-context';
+import { seatAccentColor } from '../lib/seat-color';
+import './MessageSpeaker.css';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -120,6 +122,8 @@ export function UserBubble({
 }
 
 interface TextBubbleProps {
+  speaker?: { id: string; name: string };
+  attribution?: React.ReactNode;
   sourceAnchor?: boolean;
   content: string;
   streaming?: boolean;
@@ -129,6 +133,8 @@ interface TextBubbleProps {
 }
 
 export function TextBubble({
+  speaker,
+  attribution,
   sourceAnchor,
   content,
   streaming = false,
@@ -307,8 +313,15 @@ export function TextBubble({
   return (
     <div
       data-telos-source-anchor={sourceAnchor || undefined}
-      className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}${showCollapsed ? ' msg-bubble--collapsed' : ''}`}
+      className={`msg-bubble msg-bubble--assistant${speaker ? ' msg-bubble--attributed' : ''}${streaming ? ' msg-bubble--streaming' : ''}${showCollapsed ? ' msg-bubble--collapsed' : ''}`}
+      data-speaker-session={speaker?.id}
+      style={
+        speaker
+          ? ({ '--message-speaker-color': seatAccentColor(speaker.id) } as React.CSSProperties)
+          : undefined
+      }
     >
+      {speaker && <div className="msg-bubble-speaker">{attribution ?? speaker.name}</div>}
       <div className="msg-bubble-markdown" ref={contentRef}>
         {markdown}
       </div>

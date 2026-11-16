@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type {
   CollaborationDelivery,
   CollaborationProgress,
@@ -73,8 +74,152 @@ export function CollaborationTranscript({
   onPermissionRespond = () => {},
   ...chat
 }: Props) {
+  const sourceSessionId = ordinary?.sessionId;
+  const sourceMessages = ordinary?.messages;
+  const sourceCurrent = ordinary?.current;
+  const sourceStreams = ordinary?.currentByMessage;
+  // Draft/toolbar updates must not look like transcript updates to ChatArea's
+  // follow-scroll effects. Only actual durable or streaming inputs rebuild it.
+  const composed = useMemo(() => {
+    if (!projection) return;
+    const source = {
+      sessionId: sourceSessionId,
+      messages: sourceMessages,
+      current: sourceCurrent,
+      currentByMessage: sourceStreams,
+    };
+    const view = {
+      ...projection.view,
+      messages: [...(projection.earlierMessages ?? []), ...projection.view.messages],
+    };
+    const ordinaryMessages = source?.messages ?? [];
+    const displayedIds = new Map<string, string>();
+    const claimed = new Set<string>();
+    // A native user row is the encoded delivery packet, potentially containing
+    // several retained operator messages. Its command identifies an echo to hide;
+    // it must never replace those messages' bodies or projection identities.
+    const commandAnchors = new Map<string, number>();
+    view.messages.forEach((message, index) => {
+      if (message.author !== 'operator') return;
+      for (const delivery of message.deliveries)
+        if (delivery.sessionId === source?.sessionId && delivery.commandId)
+          commandAnchors.set(delivery.commandId, index);
+    });
+    const sourceMatches = (
+      sourceIdentity: { conversationId: string; messageId: string; commandId?: string },
+      message: { messageId: string; replyToMessageId?: string },
+    ) =>
+      sourceIdentity.conversationId === sourceSessionId &&
+      sourceIdentity.messageId === message.messageId &&
+      (!message.replyToMessageId ||
+        !sourceIdentity.commandId ||
+        sourceIdentity.commandId === message.replyToMessageId);
+    const shared = conversationMessages(view).map((projected, index) => {
+      const message = view.messages[index];
+      const source = message.source;
+      const rich = source
+        ? ordinaryMessages.find((candidate) => sourceMatches(source, candidate))
+        : undefined;
+      const id = rich?.messageId ?? projected.messageId;
+      displayedIds.set(message.projectionId, id);
+      if (rich) claimed.add(rich.messageId);
+      return rich ?? projected;
+    });
+    // Source finalization and shared reconciliation arrive independently. Place
+    // unreconciled source rows after their exact shared command (and preceding
+    // source rows), never ahead of the prompt as an assumed historical prefix.
+    const sharedPositions = new Map(shared.map((message, index) => [message.messageId, index]));
+    const sourceRows = new Map<number, typeof ordinaryMessages>();
+    let anchor = -1;
+    for (const message of ordinaryMessages) {
+      const commandAnchor = commandAnchors.get(
+        message.role === 'user' ? message.messageId : (message.replyToMessageId ?? ''),
+      );
+      if (commandAnchor !== undefined) anchor = Math.max(anchor, commandAnchor);
+      if (claimed.has(message.messageId)) {
+        anchor = Math.max(anchor, sharedPositions.get(message.messageId)!);
+      } else if (!(message.role === 'user' && commandAnchor !== undefined)) {
+        const rows = sourceRows.get(anchor) ?? [];
+        rows.push(message);
+        sourceRows.set(anchor, rows);
+      }
+    }
+    const integratedMessages = [
+      ...(sourceRows.get(-1) ?? []),
+      ...shared.flatMap((message, index) => [message, ...(sourceRows.get(index) ?? [])]),
+    ];
+    const messages = new Map(
+      view.messages.map((message) => [displayedIds.get(message.projectionId)!, message]),
+    );
+    const live =
+      progress?.collaborationId === view.collaborationId &&
+      progress.membershipRevision === view.membershipRevision
+        ? progress
+        : undefined;
+    const streams: Record<string, StreamingMessage> = { ...source?.currentByMessage };
+    if (source.current) streams[source.current.messageId] = source.current;
+    for (const [id, stream] of Object.entries(streams)) {
+      if (view.messages.some((message) => message.source && sourceMatches(message.source, stream)))
+        delete streams[id];
+    }
+    const liveSource = (reply: CollaborationProgress['replies'][number]) => ({
+      conversationId: reply.sessionId,
+      messageId: reply.sourceMessageId,
+      commandId:
+        view.messages
+          .flatMap((message) => message.deliveries)
+          .find(
+            (delivery) =>
+              delivery.deliveryId === reply.deliveryId && delivery.sessionId === reply.sessionId,
+          )?.commandId ?? undefined,
+    });
+    const liveReplies =
+      live?.replies.filter(
+        (reply) =>
+          view.participantSessionIds.includes(reply.sessionId) &&
+          !view.unavailableParticipantSessionIds.includes(reply.sessionId) &&
+          !ordinaryMessages.some((message) => sourceMatches(liveSource(reply), message)) &&
+          !view.messages.some(
+            (message) =>
+              message.replyToDeliveryId === reply.deliveryId &&
+              message.source?.conversationId === reply.sessionId &&
+              message.source.messageId === reply.sourceMessageId,
+          ),
+      ) ?? [];
+    for (const reply of liveReplies) {
+      const rich = Object.values(streams).find((stream) =>
+        sourceMatches(liveSource(reply), stream),
+      );
+      if (rich) {
+        displayedIds.set(reply.projectionId, rich.messageId);
+        continue;
+      }
+      const blockId = `${reply.projectionId}:text`;
+      streams[reply.projectionId] = {
+        messageId: reply.projectionId,
+        blocks: new Map([
+          [blockId, { blockId, blockType: 'text', content: reply.text, done: false }],
+        ]),
+        blockOrder: [blockId],
+      };
+    }
+    return {
+      view,
+      ordinaryMessages,
+      displayedIds,
+      integratedMessages,
+      messages,
+      live,
+      streams,
+      liveReplies,
+      aliases: Object.fromEntries([
+        ...displayedIds,
+        ...view.messages.map((m) => [m.messageId, displayedIds.get(m.projectionId)!] as const),
+      ]),
+    };
+  }, [projection, sourceSessionId, sourceMessages, sourceCurrent, sourceStreams, progress]);
   // Keep the same ChatArea mounted before and after the first shared participant.
-  if (!projection)
+  if (!projection || !composed)
     return (
       <ChatArea
         {...(ordinary ?? { ...chat, messages: [] })}
@@ -85,10 +230,16 @@ export function CollaborationTranscript({
         afterMessages={afterMessages}
       />
     );
-  const view = {
-    ...projection.view,
-    messages: [...(projection.earlierMessages ?? []), ...projection.view.messages],
-  };
+  const {
+    view,
+    ordinaryMessages,
+    displayedIds,
+    integratedMessages,
+    messages,
+    live,
+    streams,
+    liveReplies,
+  } = composed;
   const name = (id: string) => {
     const label = names[id] || `Agent · ${id}`;
     return names[id] &&
@@ -96,115 +247,6 @@ export function CollaborationTranscript({
       ? `${label} · ${id}`
       : label;
   };
-  const ordinaryMessages = ordinary?.messages ?? [];
-  const displayedIds = new Map<string, string>();
-  const claimed = new Set<string>();
-  // A native user row is the encoded delivery packet, potentially containing
-  // several retained operator messages. Its command identifies an echo to hide;
-  // it must never replace those messages' bodies or projection identities.
-  const commandAnchors = new Map<string, number>();
-  view.messages.forEach((message, index) => {
-    if (message.author !== 'operator') return;
-    for (const delivery of message.deliveries)
-      if (delivery.sessionId === ordinary?.sessionId && delivery.commandId)
-        commandAnchors.set(delivery.commandId, index);
-  });
-  const sourceMatches = (
-    source: { conversationId: string; messageId: string; commandId?: string },
-    message: { messageId: string; replyToMessageId?: string },
-  ) =>
-    source.conversationId === ordinary?.sessionId &&
-    source.messageId === message.messageId &&
-    (!message.replyToMessageId ||
-      !source.commandId ||
-      source.commandId === message.replyToMessageId);
-  const shared = conversationMessages(view).map((projected, index) => {
-    const message = view.messages[index];
-    const source = message.source;
-    const rich = source
-      ? ordinaryMessages.find((candidate) => sourceMatches(source, candidate))
-      : undefined;
-    const id = rich?.messageId ?? projected.messageId;
-    displayedIds.set(message.projectionId, id);
-    if (rich) claimed.add(rich.messageId);
-    return rich ?? projected;
-  });
-  // Source finalization and shared reconciliation arrive independently. Place
-  // unreconciled source rows after their exact shared command (and preceding
-  // source rows), never ahead of the prompt as an assumed historical prefix.
-  const sharedPositions = new Map(shared.map((message, index) => [message.messageId, index]));
-  const sourceRows = new Map<number, typeof ordinaryMessages>();
-  let anchor = -1;
-  for (const message of ordinaryMessages) {
-    const commandAnchor = commandAnchors.get(
-      message.role === 'user' ? message.messageId : (message.replyToMessageId ?? ''),
-    );
-    if (commandAnchor !== undefined) anchor = Math.max(anchor, commandAnchor);
-    if (claimed.has(message.messageId)) {
-      anchor = Math.max(anchor, sharedPositions.get(message.messageId)!);
-    } else if (!(message.role === 'user' && commandAnchor !== undefined)) {
-      const rows = sourceRows.get(anchor) ?? [];
-      rows.push(message);
-      sourceRows.set(anchor, rows);
-    }
-  }
-  const integratedMessages = [
-    ...(sourceRows.get(-1) ?? []),
-    ...shared.flatMap((message, index) => [message, ...(sourceRows.get(index) ?? [])]),
-  ];
-  const messages = new Map(
-    view.messages.map((message) => [displayedIds.get(message.projectionId)!, message]),
-  );
-  const live =
-    progress?.collaborationId === view.collaborationId &&
-    progress.membershipRevision === view.membershipRevision
-      ? progress
-      : undefined;
-  const streams: Record<string, StreamingMessage> = { ...ordinary?.currentByMessage };
-  if (ordinary?.current) streams[ordinary.current.messageId] = ordinary.current;
-  for (const [id, stream] of Object.entries(streams)) {
-    if (view.messages.some((message) => message.source && sourceMatches(message.source, stream)))
-      delete streams[id];
-  }
-  const liveSource = (reply: CollaborationProgress['replies'][number]) => ({
-    conversationId: reply.sessionId,
-    messageId: reply.sourceMessageId,
-    commandId:
-      view.messages
-        .flatMap((message) => message.deliveries)
-        .find(
-          (delivery) =>
-            delivery.deliveryId === reply.deliveryId && delivery.sessionId === reply.sessionId,
-        )?.commandId ?? undefined,
-  });
-  const liveReplies =
-    live?.replies.filter(
-      (reply) =>
-        view.participantSessionIds.includes(reply.sessionId) &&
-        !view.unavailableParticipantSessionIds.includes(reply.sessionId) &&
-        !ordinaryMessages.some((message) => sourceMatches(liveSource(reply), message)) &&
-        !view.messages.some(
-          (message) =>
-            message.replyToDeliveryId === reply.deliveryId &&
-            message.source?.conversationId === reply.sessionId &&
-            message.source.messageId === reply.sourceMessageId,
-        ),
-    ) ?? [];
-  for (const reply of liveReplies) {
-    const rich = Object.values(streams).find((stream) => sourceMatches(liveSource(reply), stream));
-    if (rich) {
-      displayedIds.set(reply.projectionId, rich.messageId);
-      continue;
-    }
-    const blockId = `${reply.projectionId}:text`;
-    streams[reply.projectionId] = {
-      messageId: reply.projectionId,
-      blocks: new Map([
-        [blockId, { blockId, blockType: 'text', content: reply.text, done: false }],
-      ]),
-      blockOrder: [blockId],
-    };
-  }
   return (
     <ChatArea
       {...chat}
@@ -213,11 +255,37 @@ export function CollaborationTranscript({
       preserveMessageOrder
       messageSessionId={(id) => messages.get(id)?.source?.conversationId ?? ordinary?.sessionId}
       messages={integratedMessages}
+      messageAliases={composed.aliases}
+      onShareMessage={
+        chat.onShareMessage
+          ? (id, provenance) => chat.onShareMessage?.(messages.get(id)?.messageId ?? id, provenance)
+          : undefined
+      }
+      canShareMessage={(message) =>
+        chat.canShareMessage
+          ? chat.canShareMessage(message)
+          : !!messages.get(message.messageId)?.text.trim()
+      }
       current={null}
       currentByMessage={streams}
       running={running}
       permission={permission}
       onPermissionRespond={onPermissionRespond}
+      messageSpeaker={(id) => {
+        const message = messages.get(id);
+        const liveReply = liveReplies.find(
+          (reply) => (displayedIds.get(reply.projectionId) ?? reply.projectionId) === id,
+        );
+        const source = ordinaryMessages.find((m) => m.messageId === id);
+        const sessionId =
+          liveReply?.sessionId ??
+          (message && message.author !== 'operator'
+            ? message.author.sessionId
+            : source?.role === 'assistant' || streams[id]
+              ? ordinary?.sessionId
+              : undefined);
+        return sessionId ? { id: sessionId, name: name(sessionId) } : undefined;
+      }}
       renderMessageAttribution={(id) => {
         const message = messages.get(id);
         const streaming = liveReplies.find(

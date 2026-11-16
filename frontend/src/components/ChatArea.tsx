@@ -74,9 +74,11 @@ export interface ChatAreaProps {
   contextItems?: SymposiumContextItem[];
   /** Presentation-only metadata keyed by the displayed message identity. */
   renderMessageAttribution?(messageId: string): ReactNode;
+  messageSpeaker?(messageId: string): { id: string; name: string } | undefined;
   renderMessageOutcome?(messageId: string): ReactNode;
   /** Source-bound previews for shared messages; ordinary callers use sessionId. */
   messageSessionId?(messageId: string): string | undefined;
+  messageAliases?: Readonly<Record<string, string>>;
   /** Additional transcript cards inside the same scroll area. */
   beforeMessages?: ReactNode;
   afterMessages?: ReactNode;
@@ -204,6 +206,7 @@ export function ChatArea({
   onLaunchUpdate,
   launchDisabled,
   onReply,
+  messageAliases,
   compactions = [],
   sessionId,
   discoverTelosOrigins = true,
@@ -215,6 +218,7 @@ export function ChatArea({
   beforeMessages,
   afterMessages,
   renderMessageAttribution,
+  messageSpeaker,
   renderMessageOutcome,
   messageSessionId,
   onShareMessage,
@@ -246,7 +250,9 @@ export function ChatArea({
     (messageId: string, opener: HTMLButtonElement) => {
       const target = Array.from(
         scrollRef.current?.querySelectorAll<HTMLElement>('[data-reply-source]') ?? [],
-      ).find((element) => element.dataset.replySource === messageId);
+      ).find(
+        (element) => element.dataset.replySource === (messageAliases?.[messageId] ?? messageId),
+      );
       if (!target) {
         setReplyNotice('Original message is not loaded in this conversation.');
         return;
@@ -256,7 +262,7 @@ export function ChatArea({
       target.scrollIntoView({ block: 'center' });
       target.focus({ preventScroll: true });
     },
-    [scrollRef, sessionId],
+    [scrollRef, sessionId, messageAliases],
   );
   useEffect(() => {
     if (!sessionId) return;
@@ -280,12 +286,15 @@ export function ChatArea({
           .filter((message) => !message.symposiumProvenance)
           .flatMap((message) => [
             [message.messageId, message] as const,
+            ...Object.entries(messageAliases ?? {})
+              .filter(([, id]) => id === message.messageId)
+              .map(([alias]) => [alias, message] as const),
             ...(message.agentMessage
               ? [[message.agentMessage.message.commandId, message] as const]
               : []),
           ]),
       ),
-    [messages],
+    [messages, messageAliases],
   );
   const requests = useMemo(
     () =>
@@ -328,6 +337,7 @@ export function ChatArea({
     if (message.symposiumProvenance || !text.trim()) return children;
     return (
       <MessageActions
+        authorName={messageSpeaker?.(message.messageId)?.name}
         message={{
           messageId: message.messageId,
           role: message.role,
@@ -335,6 +345,16 @@ export function ChatArea({
           timestamp: message.timestamp,
         }}
         onReply={complete ? onReply : undefined}
+        onForward={
+          complete &&
+          shareInActions &&
+          onShareMessage &&
+          messages.some(
+            (m) => m.messageId === message.messageId && (!canShareMessage || canShareMessage(m)),
+          )
+            ? () => onShareMessage(message.messageId, message.symposiumProvenance)
+            : undefined
+        }
         readAloud={
           complete && voice?.ttsAvailable
             ? {
@@ -374,7 +394,9 @@ export function ChatArea({
           ? { timestamp: original.agentMessage?.timestamp ?? original.timestamp }
           : {}),
       },
-      original.agentMessage?.senderName ?? (original.role === 'user' ? 'You' : 'Mitzo'),
+      original.agentMessage?.senderName ??
+        messageSpeaker?.(original.messageId)?.name ??
+        (original.role === 'user' ? 'You' : 'Mitzo'),
     );
   }
   const source = useTelosSourceNavigation();
@@ -690,12 +712,14 @@ export function ChatArea({
                     </div>
                     {createdItemCards(msg)}
                     {renderMessageOutcome?.(msg.messageId)}
-                    {onShareMessage && (!canShareMessage || canShareMessage(msg)) && (
-                      <MessageShareAction
-                        inActions={shareInActions}
-                        onShare={() => onShareMessage(msg.messageId, msg.symposiumProvenance)}
-                      />
-                    )}
+                    {onShareMessage &&
+                      (!shareInActions || !!msg.symposiumProvenance) &&
+                      (!canShareMessage || canShareMessage(msg)) && (
+                        <MessageShareAction
+                          inActions={shareInActions}
+                          onShare={() => onShareMessage(msg.messageId, msg.symposiumProvenance)}
+                        />
+                      )}
                   </>
                 ),
               },
@@ -713,6 +737,7 @@ export function ChatArea({
             : turn.value.blocks;
         const ownerKey = `${sessionId ?? 'chat'}:${turnKey(msg.messageId, msg.symposiumProvenance)}`;
         const provenance = msg.symposiumProvenance;
+        const speaker = messageSpeaker?.(msg.messageId);
         const attribution = renderMessageAttribution ? (
           renderMessageAttribution(msg.messageId)
         ) : (
@@ -720,6 +745,7 @@ export function ChatArea({
         );
         const scope = JSON.stringify([
           sessionId ?? null,
+          speaker?.id,
           provenance?.seatId,
           provenance?.membershipGeneration,
           provenance?.configRevision,
@@ -738,7 +764,10 @@ export function ChatArea({
           blocks,
         };
         const share =
-          finished && onShareMessage && (!canShareMessage || canShareMessage(finished)) ? (
+          finished &&
+          onShareMessage &&
+          (!shareInActions || !!finished.symposiumProvenance) &&
+          (!canShareMessage || canShareMessage(finished)) ? (
             <MessageShareAction
               inActions={shareInActions}
               onShare={() => onShareMessage(finished.messageId, finished.symposiumProvenance)}
@@ -784,6 +813,8 @@ export function ChatArea({
           } else {
             content = (
               <TextBubble
+                speaker={speaker}
+                attribution={speaker ? attribution : undefined}
                 sourceAnchor={
                   !streaming &&
                   turn.kind === 'finished' &&
@@ -811,7 +842,7 @@ export function ChatArea({
           return {
             key: `${ownerKey}:${bid}`,
             scope,
-            attribution,
+            attribution: speaker ? undefined : attribution,
             requestStatus: msg.replyToMessageId
               ? commandLabels[requests.get(msg.replyToMessageId)?.commandState ?? '']
               : undefined,
@@ -825,7 +856,10 @@ export function ChatArea({
                   tabIndex={-1}
                   className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
                 >
-                  {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
+                  {index === 0 &&
+                    !speaker &&
+                    (keepVisible || block.blockType === 'text') &&
+                    attribution}
                   {block === firstVisibleText && replyLabel(msg)}
                   {block.blockType === 'text'
                     ? withActions(actionMessage, content, !streaming)

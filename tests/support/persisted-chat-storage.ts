@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 
 /** Inspect durable bytes through the new record layout and retained legacy layout.
  * Existing browser assertions stay about exact saved drafts/commands, independent
@@ -63,7 +64,7 @@ export async function readChatStorage<T, A = undefined>(
 /** Explicit fixture setup in the durable layout; callers reload before adoption. */
 export async function writeChatStorage(page: Page, key: string, value: string) {
   await page.evaluate(
-    async ({ key, value }) => {
+    async ({ key, value, revision }) => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open('mitzo-chat-payloads', 1);
         request.onupgradeneeded = () => request.result.createObjectStore('payloads');
@@ -81,7 +82,7 @@ export async function writeChatStorage(page: Page, key: string, value: string) {
               {
                 key,
                 value,
-                revision: crypto.randomUUID(),
+                revision,
                 legacy: read.result ? read.result.legacy : localStorage.getItem(key),
               },
               id,
@@ -93,7 +94,8 @@ export async function writeChatStorage(page: Page, key: string, value: string) {
         db.close();
       }
     },
-    { key, value },
+    // Intercepted HTTP origins need not expose browser crypto.randomUUID.
+    { key, value, revision: randomUUID() },
   );
 }
 
