@@ -135,6 +135,14 @@ type SdkSearchOptions = {
 type SdkQuery = (
   options: Parameters<typeof query>[0],
 ) => AsyncIterable<unknown> & Partial<Pick<Query, 'accountInfo'>>;
+/** Messages thrown by this module itself; safe to log as the failure reason. */
+const SDK_SEARCH_REASONS = new Set([
+  'Explicit SDK model required',
+  'Selected Claude executable custody unavailable',
+  'Search account identity unavailable',
+  'SDK search did not complete',
+  'SDK search ended without a result',
+]);
 /** Uses the existing SDK account environment; exposes no file, shell, MCP or browser tools. */
 export async function searchSdk(
   queryText: string,
@@ -255,7 +263,8 @@ export async function searchSdk(
           session_id: z.string().optional(),
           subtype: z.string().optional(),
           is_error: z.boolean().optional(),
-          api_error_status: z.number().int().min(100).max(599).optional(),
+          // The bundled CLI reports null on success; rejecting it drops the result.
+          api_error_status: z.number().int().min(100).max(599).nullish(),
           stop_reason: z.string().nullish(),
           terminal_reason: z.string().nullish(),
           result: z.string().optional(),
@@ -328,6 +337,13 @@ export async function searchSdk(
       parentSessionId: route.parentSessionId,
       operationId: route.operationId,
       diagnosticId: randomUUID(),
+      // Code-owned reasons only; provider/SDK text may carry private content.
+      reason:
+        error instanceof Error && SDK_SEARCH_REASONS.has(error.message)
+          ? error.message
+          : error instanceof Error
+            ? error.name
+            : typeof error,
     };
     const log = createLogger('web-search');
     if (signal.aborted) log.debug('Claude SDK search cancelled', diagnostic);
