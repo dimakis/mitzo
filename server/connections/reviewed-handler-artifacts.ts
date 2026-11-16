@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1237-claude-descriptor-directory-allocation';
+  'v1.0.1238-claude-confined-default-base';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/sdk-repository-base.test.ts':
+    'a53c927151cc5401c7fced21b00f8715658ee80e05f1991e67a458218540a47a',
+  '../sdk-repository-base.ts': 'fbe212ae12fcb49580b05e75746447c9f0865f4b8c46165457e5dd10c45108a6',
   '../__tests__/sdk-repository-directory.test.ts':
     'c134587f0be0f5841c0d81d786d5ff4bc9b0d1c933da6e62a637c13e0a7a8e1d',
   '../sdk-repository-directory.ts':
@@ -34,21 +37,21 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sdk-secondary-repository-filesystem.ts':
     '90777238af5e7912eb4bc9ec93b58bfc79fed7a9e6a6f24507929762ca35507e',
   '../sdk-local-repository-tools.ts':
-    '07c18beb52b69123687eda8585b6280be195ba477b05939c4d1c9ab5f8f3f01b',
+    'f0ccbe00fd80b9323241c2876d79b99371de8af0df113429136b14405391a2d4',
   '../sdk-secondary-repository.ts':
-    'f7679aa7b92e9e863e35fa64d20db2b8dab1efd9c3210aa9403c3b017a278b7b',
+    '8bfb43b18a89e7f0b12f833b2dd17f27a0e67d428dc780ebaca0e47a30328cb0',
   '../sdk-repository-callback.ts':
     'ffa6bd3be475d9ce1610aa891f6ad3380399721602cb71d25c3e194847ad0adf',
   '../repository-workspace-prompt.ts':
     'ff9b2df9050f1165f287d39ddf32e5c1dec03637d31ba2e728b2d198df973b46',
   '../__tests__/sdk-secondary-repository.test.ts':
-    '3ef274dc02819ee52c31f759d9b0dbec62a499ae6a15eeb3d17e6fc70b9c2f31',
+    '2da87ab577c7602f9bdcc6b14695f93fc143b28076e9f19e50aef6f8ed75940b',
   '../__tests__/sdk-repository-read-owner.test.ts':
     'cfa204cd32ff49683160db056e2b99ae06f132435f96fec0278aaed1811a82b1',
   '../__tests__/sdk-repository-callback.test.ts':
     '8f9a7af399e10ae6a6798a27810fa0e1e1ed25c03f0070d1f97f7dcf6ef83bab',
   '../__tests__/sdk-development-sandbox.native.test.ts':
-    '20c21d703007cd9351a2fd0b29bf7ff05b0719578056a34e6a34507fe4635fc8',
+    '596eaf0d7df70e9c54ec2f4b3bc25c44f46d50f2c98884e7395fa01f730921bf',
   '../__tests__/repository-workspace-prompt.test.ts':
     '00f6c546426f9baa2670a75e447f92c93d242070f66654ddf47f9b53ce3e8cb4',
 
@@ -188,7 +191,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '9e237b75e1604877281973c7b228ca2c9fabf5cca2182d09f362282609aad372',
+    '94e40be496c1189fa0979cc0e6c635e4d21d455e8222283a20a68288eea16d1f',
   '../../scripts/__tests__/ci-claude-repository-setup.test.ts':
     'ca049c8e502142e304c8dcff47bd7b53861068c4fe51133f55a871871318bcac',
   '../../.github/workflows/pr-landing-reconcile.yml':
@@ -4091,7 +4094,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-skill-source.ts':
     '494e3fb159976afc6a1face61b02444b571bb86b3bedcc56ec7943639041a727',
   '../local-repository-worktree.ts':
-    '5ef3bed9d30f642cfb49744f9f2599ca822e138c4d21b3234fea8dba1f6973b6',
+    '05326dbde26bc8e04675443551613a31c283b8da136dfce5e5c924500bca33ae',
   '../local-session-removal.ts': '6ac2695a89153024b6898601d62a45731ff49993a2d0b604e1f58962388a1d16',
   '../logger-transport.ts': '835c336a641ceef7d2a5d368cd435aec33660c4b64f256055bea5dde671153d8',
   '../logger.ts': '7716ffb5d69ddf4307d7c7b45aa4fcde937f1ddb2c5af71f27f9706c54caf6c2',

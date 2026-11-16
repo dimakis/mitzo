@@ -600,7 +600,7 @@ jobs:
         env:
           MITZO_TEST_OS_SANDBOX: '1'
         run: |
-          npx vitest run server/__tests__/sdk-secondary-repository-filesystem.native.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/claude-repository-allocation.json
+          npx vitest run server/__tests__/sdk-secondary-repository-filesystem.native.test.ts --maxWorkers=1 --reporter=default --reporter=github-actions --reporter=json --outputFile=test-results/claude-repository-allocation.json
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           const result = JSON.parse(readFileSync('test-results/claude-repository-allocation.json', 'utf8'));

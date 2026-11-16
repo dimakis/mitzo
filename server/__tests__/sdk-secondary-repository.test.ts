@@ -172,6 +172,18 @@ it('prepares, edits, commits and reopens an isolated repository without changing
   expect(git(task.directory, 'status', '--porcelain')).toContain('?? dirty.txt');
   expect(await sdkSecondaryRepositoryTask(f.store, 'foreign', task.directory)).toBeUndefined();
 });
+it('never executes source Git transport configuration while acquiring the default base', async () => {
+  const f = await fixture();
+  const marker = join(f.options.workspaceDirectory, 'controller-executed.txt');
+  const helper = join(f.source, 'hostile-ssh');
+  await writeFile(helper, `#!/bin/sh\nprintf unsafe > '${marker}'\nexit 1\n`, { mode: 0o700 });
+  git(f.source, 'config', 'remote.origin.url', 'ssh://git@example.invalid/repository');
+  git(f.source, 'config', 'core.sshCommand', helper);
+  await expect(
+    prepareSdkSecondaryRepository({ ...f.options, base: { kind: 'default' } }),
+  ).rejects.toThrow();
+  expect(existsSync(marker)).toBe(false);
+});
 it('refuses revoked owners before allocation and changed or missing retained tasks without recreation', async () => {
   const f = await fixture();
   await expect(
@@ -319,7 +331,7 @@ it('requires a fresh approval for every source repository even after an Always a
 });
 
 it('guides Claude to native GitHub work in a workspace clone and keeps linked storage on the trusted commit route', () => {
-  const clone = 'gh repo clone OWNER/REPO .claude/repository-tasks/<name>';
+  const clone = 'gh repo clone OWNER/REPO .repository-tasks/<name>';
   expect(SDK_REPOSITORY_INSTRUCTIONS).toContain(clone);
   expect(REPOSITORY_TASK_CLONE_HINT).toContain(clone);
   expect(SDK_REPOSITORY_INSTRUCTIONS).toContain('TaskExecution operation commit');

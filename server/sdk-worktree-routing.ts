@@ -2,7 +2,7 @@ import type { OnDemandCreateFn } from '@mitzo/harness';
 
 export const REPOSITORY_TASK_CLONE_HINT =
   'This chat can write only inside its current workspace. To work on another repository, ' +
-  'clone it there, for example `gh repo clone OWNER/REPO .claude/repository-tasks/<name>`, ' +
+  'clone it there, for example `gh repo clone OWNER/REPO .repository-tasks/<name>`, ' +
   'and work in that clone.';
 
 /** Worktree-guard wiring for SDK chats. An OS-sandboxed ordinary SDK launch

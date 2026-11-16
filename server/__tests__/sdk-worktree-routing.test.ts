@@ -15,9 +15,7 @@ it('never redirects an OS-sandboxed ordinary SDK chat to an unwritable on-demand
     }),
   ).toEqual({ outOfRootHint: REPOSITORY_TASK_CLONE_HINT });
   expect(createOnDemand).not.toHaveBeenCalled();
-  expect(REPOSITORY_TASK_CLONE_HINT).toContain(
-    'gh repo clone OWNER/REPO .claude/repository-tasks/<name>',
-  );
+  expect(REPOSITORY_TASK_CLONE_HINT).toContain('gh repo clone OWNER/REPO .repository-tasks/<name>');
 });
 
 it('keeps on-demand creation where the launch can write it, and none for repository tasks', () => {

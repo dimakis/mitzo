@@ -84,9 +84,6 @@ it.runIf(process.env.MITZO_TEST_OS_SANDBOX === '1')(
     // The launch root is a linked worktree: its index, HEAD and refs live in the
     // source repository's shared Git storage, outside the frozen write roots.
     execFileSync(git, ['-C', source, 'worktree', 'add', '-q', '-b', 'session', linked]);
-    // SRT's mandatory .claude/commands deny refuses creating `.claude` itself
-    // from inside the sandbox; real workspaces provide it before launch.
-    await mkdir(join(linked, '.claude'));
     const commonConfig = join(source, '.git', 'config');
     const configBefore = await readFile(commonConfig);
     vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '0');
@@ -95,7 +92,7 @@ it.runIf(process.env.MITZO_TEST_OS_SANDBOX === '1')(
     const script = `
       const fs = require('node:fs'), cp = require('node:child_process');
       const git = (...args) => cp.execFileSync(${JSON.stringify(git)}, [...${JSON.stringify(identity)}, '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', stdio: 'pipe' });
-      const task = '.claude/repository-tasks/x';
+      const task = '.repository-tasks/x';
       git('clone', '-q', '--no-local', ${JSON.stringify(source)}, task);
       git('-C', task, 'switch', '-q', '-c', 'feature');
       fs.writeFileSync(task + '/feature.txt', 'feature');
@@ -133,14 +130,7 @@ it.runIf(process.env.MITZO_TEST_OS_SANDBOX === '1')(
     expect(
       execFileSync(
         git,
-        [
-          '-C',
-          join(linked, '.claude', 'repository-tasks', 'x'),
-          'log',
-          '-1',
-          '--format=%s',
-          'feature',
-        ],
+        ['-C', join(linked, '.repository-tasks', 'x'), 'log', '-1', '--format=%s', 'feature'],
         {
           encoding: 'utf8',
         },

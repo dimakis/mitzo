@@ -6,6 +6,7 @@ import { AuthoritySnapshot } from './sandbox-authority.js';
 import { captureLocalRepository, type LocalRepositorySource } from './local-repository-worktree.js';
 import { createWorktreeAsync, type SafeLocalWorktreeFilesystem } from './worktree.js';
 import { sdkSecondaryRepositoryFilesystem } from './sdk-secondary-repository-filesystem.js';
+import { captureSdkRepositoryDefaultBase } from './sdk-repository-base.js';
 import {
   snapshotRepositoryTaskCheckout,
   validateRepositoryTaskCheckout,
@@ -277,6 +278,7 @@ export async function prepareSdkSecondaryRepository(options: {
     options.sourcePath,
     options.signal,
     options.base.kind === 'ref' ? options.base.ref : undefined,
+    (source) => captureSdkRepositoryDefaultBase(source, options.signal, current),
   );
   await current();
   // Persist ownership before the first filesystem or Git effect.
