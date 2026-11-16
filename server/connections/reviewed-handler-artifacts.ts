@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1215-claude-retraction-persistence-integration';
+  'v1.0.1216-claude-retraction-fixture-typing';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-conversation-source.test.ts':
     'aac21cf810a4d873dbef041c84f2ad2c92686c664f6d6e9e2ccd0cd64b88865c',
   '../__tests__/retraction-refresh-consumer.test.ts':
-    'c4582865cd7ba2ffabb6498fafb36b4a6e6c4e1a038f08d966c6c1a7a4d20d92',
+    '6428c5dc072aa8cf5dcc9b4ef572a1202e0c359bd85257982177b7926673dcc5',
   '../../packages/protocol/src/message-retraction.ts':
     '1a20295dd6b3348d5a2f30a01ec5db1b9c62f36d5ffa479d326560e7bbf11450',
   '../__tests__/claude-message-retractions.test.ts':

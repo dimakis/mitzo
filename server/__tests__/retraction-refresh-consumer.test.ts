@@ -220,7 +220,7 @@ it('keeps known tool activity when sequenced live receipts overlap an older REST
   release(stale);
   await new Promise<void>((resolve) => setImmediate(resolve));
   await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
-  await new Promise((resolve) => queueMicrotask(resolve));
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
   expect(JSON.stringify(store.getState().messages.messages)).toContain('Read');
   expect(JSON.stringify(store.getState().messages.messages)).not.toContain('OLD_RESULT');
   expect(JSON.stringify(store.getState().messages.messages)).not.toContain('OLD_OUTPUT');
@@ -272,7 +272,7 @@ it('ignores a retraction response after the selected conversation changes', asyn
   await vi.waitFor(() => expect(release).toBeTypeOf('function'));
   await store.getState().switchSession('other-chat');
   release(prefix);
-  await new Promise((resolve) => queueMicrotask(resolve));
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
   expect(store.getState().sessions.active).toBe('other-chat');
   expect(store.getState().messages.messageRetractions).toBeUndefined();
 });
