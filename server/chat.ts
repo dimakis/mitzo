@@ -2753,6 +2753,29 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         reasoningEffort: options.reasoningEffort ?? null,
       });
     }
+    let sourceCleanupAttempted = false;
+    const releaseRepositorySource = async () => {
+      if (sourceCleanupAttempted || !repositoryWorkspace || !accountBinding || !session.sessionId)
+        return;
+      sourceCleanupAttempted = true;
+      try {
+        await getRepositoryWorkspaces(true).releaseSource(
+          repositoryWorkspace.id,
+          accountBinding,
+          session.sessionId,
+        );
+      } catch (error) {
+        // Seed reclamation is optional; preserve the claimed task and report
+        // the failed attempt without retrying it beside provider input checks.
+        log.warn('Repository preparation cleanup remains pending', {
+          code: 'repository_preparation_cleanup_failed',
+          stage: 'source_cleanup',
+          sessionId: session.sessionId,
+          repositoryWorkspaceId: repositoryWorkspace.id,
+          ...runtimeFailureDiagnostics(error),
+        });
+      }
+    };
     let q: QueryInstance;
     if (codexProfile) {
       const conversationId = options.resume ?? newSdkSessionId!;
@@ -3346,6 +3369,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           : {}),
       };
       if (options.ordinarySdkAuthority) {
+        // query() can consume its prompt immediately. Source cleanup changes
+        // the ledger row, so settle it before the first input's ownership read.
+        await releaseRepositorySource();
+        await authorizeSdkContext(abortController.signal);
         const ownedQuery = createOrdinaryLocalVertexSdkQuery({
           options: sdkOptions,
           input: inputQueue,
@@ -3573,17 +3600,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
 
     session.queryInstance = q;
     options.onQueryReady?.(q);
-    if (repositoryWorkspace && accountBinding && session.sessionId) {
-      // Provider startup has settled and the task workspace is independently retained.
-      // Failure to reclaim a controller seed must never terminate a live task.
-      await getRepositoryWorkspaces(true)
-        .releaseSource(repositoryWorkspace.id, accountBinding, session.sessionId)
-        .catch(() =>
-          log.warn('Repository preparation cleanup remains pending', {
-            repositoryWorkspaceId: repositoryWorkspace.id,
-          }),
-        );
-    }
+    await releaseRepositorySource();
 
     // Session state machine: mark STARTING (query allocated, waiting for first SDK event)
     const startingSessionId = options.resume ?? session.sessionId;
