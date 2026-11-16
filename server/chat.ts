@@ -142,6 +142,7 @@ import {
   type RepositoryChatWorkspace,
 } from './repository-chat-startup.js';
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
+import { resolveHostGithubCredential } from './host-github-credential.js';
 import {
   createWorkspaceRuntimeCommandRunner,
   type ProtectedSdkCommandRunner,
@@ -2450,6 +2451,7 @@ async function _startChatInner(
               ? sessionEnv.ANTHROPIC_BASE_URL
               : undefined,
             options.ordinarySdkAuthority,
+            options.ordinarySdkAuthority ? resolveHostGithubCredential : undefined,
           )
         : undefined;
     options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);

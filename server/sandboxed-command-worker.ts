@@ -12,6 +12,7 @@ import {
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
 import { AuthoritySnapshot, validatePath, type SerializedAuthority } from './sandbox-authority.js';
+import { HOST_GITHUB_TOKEN_TRANSFER } from './host-github-credential.js';
 import {
   privateNativeFileHelperCommand,
   privateNativeFileProgramCommand,
@@ -36,6 +37,28 @@ export interface SandboxWorkerPayload {
   privateNativeFileRequestJson?: string;
   privateNativeFileProgram?: { programPath: string; requestPath: string };
   privateRepositoryCheckoutJson?: string;
+  /** The opted-in SDK launch receives the host GitHub login over the bootstrap
+   * transfer variable, never from this on-disk payload. */
+  hostGithubToken?: true;
+}
+
+/** Remove the host GitHub transfer from the worker's own environment before
+ * anything else runs, so neither the bootstrap shell nor SRT ever sees it. */
+export function takeHostGithubTransfer(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const token = env[HOST_GITHUB_TOKEN_TRANSFER];
+  delete env[HOST_GITHUB_TOKEN_TRANSFER];
+  return token;
+}
+
+/** Deliver the transferred login only when the trusted payload requested it. */
+export function admitHostGithubToken(
+  payload: Pick<SandboxWorkerPayload, 'env' | 'hostGithubToken'>,
+  token: string | undefined,
+) {
+  if (payload.hostGithubToken === undefined && token === undefined) return;
+  if (payload.hostGithubToken !== true || !token || !payload.env)
+    throw Error('Invalid host GitHub launch transfer');
+  payload.env = { ...payload.env, GH_TOKEN: token };
 }
 
 /** Add deny-only rules to the pinned SRT Seatbelt policy. Its allowGitConfig is global; the
@@ -382,8 +405,10 @@ export async function runSandboxedWorker(
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const hostGithubToken = takeHostGithubTransfer();
   try {
     const payload = JSON.parse(readFileSync(process.argv[2], 'utf8')) as SandboxWorkerPayload;
+    admitHostGithubToken(payload, hostGithubToken);
     process.exitCode = await runSandboxedWorker(payload);
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

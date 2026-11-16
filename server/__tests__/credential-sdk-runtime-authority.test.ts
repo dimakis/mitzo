@@ -244,7 +244,24 @@ it
       const before = protectedConfigs.map((path) => readFileSync(path, 'utf8'));
       const launchAlias = join(root, 'work-link');
       symlinkSync(join(root, 'work'), launchAlias);
-      const run = createProtectedSdkCommandRunner(credentialSdkBoundary('darwin')!);
+      // SRT's mandatory .claude/commands deny also refuses creating `.claude`
+      // itself inside the sandbox; workspaces provide it before launch.
+      mkdirSync(join(root, 'work', '.claude'));
+      // A synthetic host gh answers Git's credential protocol from the injected
+      // login; no real gh, keyring or GitHub request participates.
+      const fakeGh = join(root, 'host-bin', 'gh');
+      mkdirSync(dirname(fakeGh));
+      writeFileSync(
+        fakeGh,
+        '#!/bin/sh\n[ "$1 $2 $3" = "auth git-credential get" ] || exit 64\ncat >/dev/null\necho username=x-access-token\necho "password=$GH_TOKEN"\n',
+        { mode: 0o755 },
+      );
+      const run = createProtectedSdkCommandRunner(
+        credentialSdkBoundary('darwin', [], undefined, undefined, () => ({
+          token: 'gho_syntheticFixtureLogin',
+          gh: fakeGh,
+        }))!,
+      );
       const script = `
       const fs = require('node:fs'), cp = require('node:child_process');
       const git = (...args) => cp.execFileSync(${JSON.stringify(gitPath)}, args, { encoding: 'utf8' });
@@ -283,6 +300,28 @@ it
         denied(() => fs.renameSync(repository + '/.git', repository + '/.git.moved'), 76);
         denied(() => fs.unlinkSync(repository + '/.git/config'), 77);
       }
+      const credential = cp.execFileSync(${JSON.stringify(gitPath)}, ['credential', 'fill'], {
+        encoding: 'utf8', input: 'protocol=https\\nhost=github.com\\n\\n',
+      });
+      if(!credential.includes('password=gho_syntheticFixtureLogin\\n')) process.exit(79);
+      // Any repository clones into the conversation workspace and develops natively.
+      const task = '.claude/repository-tasks/x';
+      git('clone', '--no-local', 'source', task);
+      git('-C', task, 'config', 'user.name', 'Test');
+      git('-C', task, 'config', 'user.email', 'test@example.com');
+      // Injected command-scope config overrides repository signing settings.
+      git('-C', task, 'config', 'commit.gpgsign', 'true');
+      git('-C', task, 'switch', '-c', 'feature');
+      fs.writeFileSync(task + '/feature', 'feature');
+      git('-C', task, 'add', 'feature');
+      git('-C', task, 'commit', '-m', 'feature');
+      git('-C', task, 'switch', 'main');
+      fs.writeFileSync(task + '/base', 'base');
+      git('-C', task, 'add', 'base');
+      git('-C', task, 'commit', '-m', 'base');
+      git('-C', task, 'rebase', 'main', 'feature');
+      if(git('-C', task, 'log', '--format=%s', 'main..feature').trim() !== 'feature') process.exit(80);
+      if(git('-C', task, 'show', 'feature:base') !== 'base') process.exit(81);
       fs.writeFileSync('checkout/result', 'checked');
       process.stdout.write('git-sdk-ok');
     `;

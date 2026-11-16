@@ -12,10 +12,13 @@ import type { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { PassThrough } from 'node:stream';
 import { AuthoritySnapshot } from '../sandbox-authority.js';
 import {
+  admitHostGithubToken,
   runSandboxedWorker,
+  takeHostGithubTransfer,
   wrapSdkGitMetadata,
   type SandboxWorkerPayload,
 } from '../sandboxed-command-worker.js';
+import { HOST_GITHUB_TOKEN_TRANSFER } from '../host-github-credential.js';
 
 let root: string;
 beforeEach(async () => {
@@ -692,3 +695,26 @@ it.each(['linux', 'darwin'] as const)(
     }
   },
 );
+
+it('moves an opted-in host GitHub login from bootstrap into only the target environment', () => {
+  const bootstrap: NodeJS.ProcessEnv = {
+    PATH: '/usr/bin:/bin',
+    [HOST_GITHUB_TOKEN_TRANSFER]: 'gho_syntheticHostLogin',
+  };
+  const payload: Pick<SandboxWorkerPayload, 'env' | 'hostGithubToken'> = {
+    env: { HOME: '/home' },
+    hostGithubToken: true,
+  };
+  const transfer = takeHostGithubTransfer(bootstrap);
+  expect(bootstrap).not.toHaveProperty(HOST_GITHUB_TOKEN_TRANSFER);
+  admitHostGithubToken(payload, transfer);
+  expect(payload.env).toEqual({ HOME: '/home', GH_TOKEN: 'gho_syntheticHostLogin' });
+
+  const plain: Pick<SandboxWorkerPayload, 'env'> = { env: { HOME: '/home' } };
+  admitHostGithubToken(plain, takeHostGithubTransfer({}));
+  expect(plain.env).toEqual({ HOME: '/home' });
+  // Neither side may supply the credential alone.
+  expect(() => admitHostGithubToken(plain, 'gho_unrequested')).toThrow();
+  expect(() => admitHostGithubToken({ env: {}, hostGithubToken: true }, undefined)).toThrow();
+  expect(() => admitHostGithubToken({ hostGithubToken: true }, 'gho_x')).toThrow();
+});

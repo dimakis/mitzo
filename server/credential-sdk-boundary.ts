@@ -10,6 +10,11 @@ import { fileURLToPath } from 'node:url';
 import type { SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { Readable } from 'node:stream';
 import { createLogger } from './logger.js';
+import {
+  HOST_GITHUB_TOKEN_TRANSFER,
+  hostGithubEnvironment,
+  type HostGithubCredentialResolver,
+} from './host-github-credential.js';
 const log = createLogger('credential-sdk-boundary');
 export type ProtectedSdkProcess = SpawnedProcess & {
   stderr: Readable;
@@ -89,6 +94,9 @@ export function credentialSdkBoundary(
   selectedAuthorityWriteRoots: readonly string[] = [],
   selectedProviderBaseUrl?: string,
   repositoryOwner?: object,
+  /** Explicit opt-in (ordinary SDK chats only): expose the host operator's own
+   * github.com login to native git/gh. Resolved again for every launch. */
+  hostGithubCredential?: HostGithubCredentialResolver,
 ) {
   return createSdkBoundary(
     platform,
@@ -97,6 +105,7 @@ export function credentialSdkBoundary(
     selectedProviderBaseUrl,
     false,
     repositoryOwner,
+    hostGithubCredential,
   );
 }
 
@@ -121,6 +130,7 @@ function createSdkBoundary(
   selectedProviderBaseUrl?: string,
   nativeLogin = false,
   repositoryOwner?: object,
+  hostGithubCredential?: HostGithubCredentialResolver,
 ) {
   const selectedWriteRoots = [...new Set(selectedAuthorityWriteRoots.map(canonical))];
   selectedWriteRoots.forEach(validatePath);
@@ -314,12 +324,18 @@ function createSdkBoundary(
         for (const name of Object.keys(targetEnv))
           if (/^MITZO_.*(?:TOKEN|SECRET|CAPABILITY|PASSPHRASE)$/.test(name)) delete targetEnv[name];
       }
+      // The controller's publisher token was removed above and is never reused.
+      // Only the host operator's own login is transferred, outside the policy file.
+      const hostGithub =
+        !runtimeOnly && !nativeLogin && hostGithubCredential ? hostGithubCredential() : undefined;
+      if (hostGithub) Object.assign(targetEnv, hostGithubEnvironment(hostGithub.gh, targetEnv));
       const payload: SandboxWorkerPayload = {
         cwd: gitWorkRoot,
         command: [options.command, ...options.args].map(quote).join(' '),
         authority: authority.serialize(),
         sdkGitWorkRoot: gitWorkRoot,
         ...(credentialIsolation ? {} : { filesystemOnly: true }),
+        ...(hostGithub ? { hostGithubToken: true as const } : {}),
         env: targetEnv,
         config: {
           filesystem: {
@@ -368,10 +384,14 @@ function createSdkBoundary(
               'pypi.org',
               'files.pythonhosted.org',
               ...(providerDomain ? [providerDomain] : []),
+              ...(hostGithub ? ['*.githubusercontent.com'] : []),
             ],
             deniedDomains: ['169.254.169.254', 'metadata.google.internal'],
             allowLocalBinding: false,
             allowAllUnixSockets: false,
+            // gh (Go) verifies TLS through trustd. This one service is narrower
+            // than SRT's weaker network isolation, which stays disabled.
+            ...(hostGithub ? { allowMachLookup: ['com.apple.trustd.agent'] } : {}),
           },
           enableWeakerNestedSandbox: false,
           enableWeakerNetworkIsolation: false,
@@ -391,6 +411,7 @@ function createSdkBoundary(
             TMPDIR: tmpdir(),
             TSX_TSCONFIG_PATH: bootstrapConfig,
             TSX_DISABLE_CACHE: '1',
+            ...(hostGithub ? { [HOST_GITHUB_TOKEN_TRANSFER]: hostGithub.token } : {}),
           },
           detached: true,
           stdio: ['pipe', 'pipe', 'pipe'],
