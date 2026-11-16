@@ -586,10 +586,11 @@ jobs:
             'clones and develops through the real SDK boundary (Keychain 1)',
             'OS sandbox creates and develops a nested repository without granting its parent Git metadata',
             'allows native development in the owned repository and denies writes in sibling checkouts and authority',
+            'allows native development in a linked workspace clone and keeps shared Git storage denied',
           ];
           const checks = result.testResults.flatMap(suite => suite.assertionResults)
             .filter(test => /clones and develops|creates and develops|allows native development/.test(test.fullName));
-          if (!result.success || checks.length !== 4 ||
+          if (!result.success || checks.length !== 5 ||
               required.some(name => !checks.some(test => test.fullName === name && test.status === 'passed'))) {
             throw new Error('Both SDK modes and the task runner must develop a repository through the real OS sandbox; skips are not qualification');
           }

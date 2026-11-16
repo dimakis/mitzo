@@ -37,7 +37,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sdk-repository-callback.test.ts':
     '8f9a7af399e10ae6a6798a27810fa0e1e1ed25c03f0070d1f97f7dcf6ef83bab',
   '../__tests__/sdk-development-sandbox.native.test.ts':
-    '0c3bcc94e31921b7d35a6f9e06266009e70e63ff29df59ef1eb6588ef570f524',
+    '20c21d703007cd9351a2fd0b29bf7ff05b0719578056a34e6a34507fe4635fc8',
   '../__tests__/repository-workspace-prompt.test.ts':
     '00f6c546426f9baa2670a75e447f92c93d242070f66654ddf47f9b53ce3e8cb4',
 
@@ -177,9 +177,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '451cb1c043c32c4ab0900e8d08f43ca1384b7b567e3eea2d0f5890531d74f525',
+    'f9b638619277a196ea95e4bf50017aba8eb378e59cd1714b6809eb7352b26b61',
   '../../scripts/__tests__/ci-claude-repository-setup.test.ts':
-    '3e9cb0acd1f1d934898e8617178bd0cc82d6bf18ebaa5c56c154ed7bf47e4f26',
+    'ca049c8e502142e304c8dcff47bd7b53861068c4fe51133f55a871871318bcac',
   '../../.github/workflows/pr-landing-reconcile.yml':
     'c4f43fcbd69bc4bbd657f2d89982b307c158bc7363d118f436eb2083a6daf91a',
   '../../.github/workflows/pr-landing-request.yml':
