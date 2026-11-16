@@ -1,4 +1,5 @@
 import { repositoryObservationProgram } from './native-repository-observation.js';
+import { freezeDenyOnlyReadPatterns } from './repository-read-denials.js';
 import { createLogger } from './logger.js';
 import { joinRetainedFinalizers } from './retained-finalization.js';
 import { nativePreparationPublicationWriteRoots } from './native-preparation-publication.js';
@@ -33,6 +34,8 @@ export interface SandboxedCommandOptions {
   cwd: string;
   writableRoots: string[];
   deniedRoots: string[];
+  /** Additional original SDK private-family DENIALS only; no read re-allows. */
+  deniedReadPatterns?: readonly string[];
   /** Optional deny-by-default read scope for development runners. Host-owned paths only. */
   readableRoots?: string[];
   env: Record<string, string>;
@@ -673,6 +676,7 @@ async function runSandboxedCommand(
     ...options,
     writableRoots: [...options.writableRoots],
     deniedRoots: [...options.deniedRoots],
+    deniedReadPatterns: freezeDenyOnlyReadPatterns(options.deniedReadPatterns ?? []),
     ...(options.readableRoots ? { readableRoots: [...options.readableRoots] } : {}),
     env: { ...options.env },
   };
@@ -760,7 +764,11 @@ async function runSandboxedCommand(
       authority: authority.serialize(),
       config: {
         filesystem: {
-          denyRead: options.readableRoots ? ['/', ...options.deniedRoots] : options.deniedRoots,
+          denyRead: [
+            ...(options.readableRoots ? ['/'] : []),
+            ...options.deniedRoots,
+            ...options.deniedReadPatterns!,
+          ],
           allowRead: options.readableRoots
             ? [...options.readableRoots, home, scratch, gitTemplate]
             : [],

@@ -24,6 +24,7 @@ import {
 } from './runtime-failure-diagnostics.js';
 import { sdkQueryRetiredEvent } from './sdk-query-retirement.js';
 import { sdkPersistenceDiagnostic } from './sdk-persistence-diagnostics.js';
+import { createSdkRepositoryCallbacks } from './sdk-repository-callback.js';
 const log = createLogger('owned-sdk-query');
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
@@ -45,6 +46,7 @@ export interface SdkCallbackState {
   completing: boolean;
   callbacks: TurnCallbacks;
   runCallback: TurnCallbackRunner;
+  readonly repositoryCallbacks: ReturnType<typeof createSdkRepositoryCallbacks>;
   bindCommandToolAuthority(authority: OrdinarySdkCommandToolAuthority): void;
   commandId(): string | undefined;
   /** Named managed handlers must use this same original-query ceiling. */
@@ -73,6 +75,13 @@ export function createSdkCallbackState(): SdkCallbackState {
     completing: false,
     callbacks,
     runCallback: (work) => callbacks.track(work),
+    repositoryCallbacks: createSdkRepositoryCallbacks({
+      commandId: () => authority?.commandId,
+      checkTool: (name) => state.checkTool(name),
+      assertCurrent() {
+        if (state.retired || state.completing) throw Error('Original SDK query retired');
+      },
+    }),
     bindCommandToolAuthority(next) {
       if (state.retired || state.completing || authority)
         throw Error('SDK command tool authority already bound or retired');
@@ -154,6 +163,51 @@ export function sdkCallbackOptions(
       })),
     ]),
   );
+  hooks.PreToolUse = [
+    ...(hooks.PreToolUse ?? []),
+    {
+      matcher:
+        '^mcp__mitzo-connections__(DiscoverLocalRepository|InspectLocalRepository|PrepareLocalRepository)$',
+      hooks: [
+        (async (data, _id, opts) => {
+          const state = current();
+          const signal = AbortSignal.any([opts.signal]);
+          lifetime.bind(signal, state);
+          if (state.retired || state.completing)
+            return { continue: false, stopReason: 'This completed SDK query has been retired.' };
+          return state.runCallback(async () => {
+            signal.throwIfAborted();
+            try {
+              if (
+                data.hook_event_name !== 'PreToolUse' ||
+                state.checkTool(data.tool_name) !== 'allow'
+              )
+                throw Error('Repository tool unavailable under original command ceiling');
+              state.repositoryCallbacks.observe(data);
+              signal.throwIfAborted();
+              return {};
+            } catch (cause) {
+              const failure = new SessionRuntimeError('runtime_unavailable', { cause });
+              log.warn('Original SDK repository callback refused', {
+                code: 'sdk_repository_callback_unavailable',
+                stage: 'pre_tool_identity',
+                commandId: state.commandId(),
+                ...runtimeFailureDiagnostics(failure),
+              });
+              return {
+                hookSpecificOutput: {
+                  hookEventName: 'PreToolUse' as const,
+                  permissionDecision: 'deny' as const,
+                  permissionDecisionReason:
+                    'Original SDK repository callback identity is unavailable.',
+                },
+              };
+            }
+          });
+        }) satisfies HookCallback,
+      ],
+    },
+  ];
   const canUseTool: NonNullable<Options['canUseTool']> = async (name, data, opts) => {
     const state = current();
     const signal = AbortSignal.any([opts.signal]);

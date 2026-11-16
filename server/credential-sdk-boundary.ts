@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -15,6 +16,23 @@ export type ProtectedSdkProcess = SpawnedProcess & {
     listener: (code: number | null, signal: NodeJS.Signals | null) => void,
   ): void;
 };
+
+export interface SdkRepositoryReadProjection {
+  readonly kind: 'sdk-default-read-deny-only-v1';
+  readonly readableRoots: readonly string[];
+  readonly workspaceRoots: readonly string[];
+  readonly deniedRoots: readonly string[];
+  readonly deniedReadPatterns: readonly string[];
+  readonly policySha256: string;
+  assertCurrentSync(): void;
+}
+const repositoryReadProjections = new WeakSet<object>();
+/** Factory provenance only. Every use still requires the actual current SDK
+ * callback or completed-turn owner, and enforces the complete captured policy. */
+export function assertSdkRepositoryReadProjection(value: SdkRepositoryReadProjection): void {
+  if (!repositoryReadProjections.has(value)) throw Error('Original SDK read projection required');
+  value.assertCurrentSync();
+}
 import { canonical, AuthoritySnapshot, validatePath } from './sandbox-authority.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import type { SandboxWorkerPayload } from './sandboxed-command-worker.js';
@@ -151,9 +169,18 @@ function createSdkBoundary(
   const privateEnvironmentPatterns = ['.env.before-runtime-*', '.env.runtime-*'].map((name) =>
     join(environmentRoot, name),
   );
+  let readProjection: Readonly<SdkRepositoryReadProjection> | undefined;
   return {
     credentialIsolation,
     deniedRoots,
+    /** Original OS-policy producer only. A current SDK callback/barrier must add
+     * its own operator/account/root/query fence. Presence grants no source read.
+     * Do not replace private patterns with a guessed literal-root projection. */
+    captureRepositoryReadProjection() {
+      if (!readProjection) throw Error('Original SDK read projection unavailable');
+      readProjection.assertCurrentSync();
+      return readProjection;
+    },
     spawnClaudeCodeProcess(
       options: SpawnOptions & { captureStderr?: boolean },
     ): ProtectedSdkProcess {
@@ -310,6 +337,36 @@ function createSdkBoundary(
           detached: true,
           stdio: ['pipe', 'pipe', 'pipe'],
         });
+        const literalDenials = Object.freeze([...launchDeniedRoots, temporary]);
+        const patternDenials = Object.freeze([...privateEnvironmentPatterns]);
+        const originalRuntime = JSON.stringify(runtime);
+        const snapshot = Object.freeze({
+          kind: 'sdk-default-read-deny-only-v1' as const,
+          // SRT's default-read policy, exactly as constructed above. The helper
+          // omits the provider's git-template re-allow, a stricter read ceiling.
+          readableRoots: Object.freeze(['/']),
+          workspaceRoots: Object.freeze([] as string[]),
+          deniedRoots: literalDenials,
+          deniedReadPatterns: patternDenials,
+          policySha256: createHash('sha256')
+            .update(
+              JSON.stringify({
+                defaultRead: true,
+                denyRead: payload.config.filesystem.denyRead,
+              }),
+            )
+            .digest('hex'),
+          assertCurrentSync() {
+            if (
+              readProjection !== snapshot ||
+              JSON.stringify(runtimeFilesystemProtection()) !== originalRuntime
+            )
+              throw Error('Original SDK read projection changed');
+            authority.verify();
+          },
+        });
+        repositoryReadProjections.add(snapshot);
+        readProjection = snapshot;
       } catch (error) {
         rmSync(temporary, { recursive: true, force: true });
         throw error;

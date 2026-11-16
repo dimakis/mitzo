@@ -42,6 +42,35 @@ function child() {
     stderr: new PassThrough(),
   });
 }
+it('captures the complete actual SDK read projection only after its owned launch, including private patterns', () => {
+  const handle = child();
+  mocked.spawn.mockReturnValue(handle);
+  const boundary = credentialSdkBoundary('darwin')!;
+  expect(() => boundary.captureRepositoryReadProjection()).toThrow();
+  boundary.spawnClaudeCodeProcess({
+    command: '/usr/bin/true',
+    args: [],
+    env: {},
+    signal: new AbortController().signal,
+  });
+  const payload = JSON.parse(
+    readFileSync(mocked.spawn.mock.calls[0][1].at(-1), 'utf8'),
+  ) as SandboxWorkerPayload;
+  const projection = boundary.captureRepositoryReadProjection();
+  expect(projection.readableRoots).toEqual(['/']);
+  expect([...projection.deniedRoots, ...projection.deniedReadPatterns].sort()).toEqual(
+    [...payload.config.filesystem.denyRead].sort(),
+  );
+  expect(projection.deniedReadPatterns).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining('.env.before-runtime-*'),
+      expect.stringContaining('.env.runtime-*'),
+    ]),
+  );
+  projection.assertCurrentSync();
+  expect(() => (projection.deniedRoots as string[]).splice(0)).toThrow();
+  handle.emit('close', 0, null);
+});
 it('admits only the native login terminal while keeping callback and loopback policy unchanged', () => {
   vi.spyOn(process, 'kill').mockReturnValue(true);
   for (const login of [false, true]) {
