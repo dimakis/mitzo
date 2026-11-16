@@ -146,6 +146,24 @@ authorization checks and two macOS joined shards passed at `27a25d44`; its remai
 queued native jobs are preserved as baseline evidence, not current-head approval.
 Trusted integration review and fresh combined CI remain required.
 
+## Accepted task-run reporting integration
+
+Integrated accepted PR1372 at `f8a421b2be65341ea86de126339fb0b668aa7cbb`
+after GitHub reported an actual manifest conflict. Inspected the complete accepted
+delta: task IDs retain separate observed native runs and verified parent tools;
+late predecessor receipts settle only their own rows, while the latest execution
+retains cancellation ownership. The coupled SDK/query/live/cold tests remain
+byte-identical to accepted main, as do the query consumer and its evidence note.
+No startup or replacement-context preparation changes were needed.
+
+Only the manifest revision label required manual resolution. Every entry and
+both parents' changed source fingerprints are retained. The combined tree passes
+51 focused startup, query adapter, task consumer and retirement checks across five
+files with no skips, one worker and a 1GiB heap. Exact-source fingerprints,
+formatting and whitespace checks pass. Prior full and independent review baselines
+remain intact; current combined CI and trusted integration follow-up remain
+required. This integration does not activate a runtime or establish live acceptance.
+
 ## Acceptance still open
 
 Source, landing, activation and live acceptance are distinct. This change does
