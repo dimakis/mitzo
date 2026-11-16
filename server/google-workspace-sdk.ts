@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
 import {
-  GoogleWorkspaceReadSchema,
+  GoogleWorkspaceReadSdkSchema,
   googleWorkspaceReadDefinition,
 } from './google-workspace-read.js';
 import { sessionGoogleWorkspaceTools } from './session-google-workspace-tools.js';
@@ -10,7 +10,7 @@ import { getConnectionsRuntime } from './connections-runtime.js';
 import { copyCallbackOutcome, type TurnCallbackRunner } from './turn-callbacks.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 
-/** MCP accepts the canonical union schema; the SDK tool() helper only accepts object shapes. */
+/** Advertise a complete object; canonical per-operation parsing stays in the reader. */
 export function registerGoogleWorkspaceSdkTool(
   server: McpServer,
   sessionId: () => string | undefined,
@@ -43,7 +43,7 @@ export function registerGoogleWorkspaceSdkTool(
     name,
     {
       description: googleWorkspaceReadDefinition.description,
-      inputSchema: GoogleWorkspaceReadSchema,
+      inputSchema: GoogleWorkspaceReadSdkSchema,
     },
     async (input, extra) => {
       const signal = AbortSignal.any([session.abortController.signal, extra.signal]);

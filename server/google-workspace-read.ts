@@ -38,6 +38,24 @@ export const GoogleWorkspaceReadSchema = z.discriminatedUnion('operation', [
     pageToken,
   }),
 ]);
+/** MCP SDK registration requires an object shape. Derive the advertised fields
+ * from the canonical operations, without applying another operation's defaults.
+ * The handler still parses the strict union before preparing credentials/I/O. */
+export const GoogleWorkspaceReadSdkSchema = z.strictObject({
+  ...Object.fromEntries(
+    GoogleWorkspaceReadSchema.options.flatMap((option) =>
+      Object.entries(option.shape)
+        .filter(([name]) => name !== 'operation')
+        .map(([name, field]) => [
+          name,
+          (field instanceof z.ZodDefault ? field.removeDefault() : field).optional(),
+        ]),
+    ),
+  ),
+  operation: z.enum(
+    GoogleWorkspaceReadSchema.options.map((option) => option.shape.operation.value),
+  ),
+});
 export const googleWorkspaceReadDefinition: ToolDefinition = {
   name: 'GoogleWorkspaceRead',
   description:
