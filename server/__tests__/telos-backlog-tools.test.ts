@@ -4,6 +4,7 @@ import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js'
 import { TelosItemStore } from '../telos-item-store.js';
 import {
   executeTelosBacklogOperation,
+  telosBacklogFailureCause,
   telosBacklogDefinitions,
   type TelosBacklogToolName,
 } from '../telos-backlog-tools.js';
@@ -70,6 +71,93 @@ function fixture(variant: 'fresh' | 'upgraded' = 'fresh') {
     },
   };
 }
+it('reviews explicit contributor membership without assigning a runtime role and recovers exact unlink receipts', async () => {
+  const f = fixture();
+  const name = 'TelosManageTeam' as TelosBacklogToolName;
+  const read = await f.run(name, { operation: 'read', itemId: 'studio' });
+  expect(read.isError, read.content).toBe(false);
+  const team = JSON.parse(read.content).team;
+  expect(team.members).toEqual([]);
+  expect(f.approve).not.toHaveBeenCalled();
+  const link = {
+    operation: 'link',
+    itemId: 'studio',
+    requestId: 'contributor-link',
+    expectedRevision: team.revision,
+    conversationId: 'planning',
+    displayName: 'Studio investigator',
+    role: 'investigator',
+    responsibility: 'Investigate the room acoustics',
+    reportsToMembershipId: null,
+  };
+  const linked = await f.run(name, link);
+  expect(linked.isError, linked.content).toBe(false);
+  expect(f.approve).toHaveBeenCalledWith(name, link, expect.any(AbortSignal));
+  const current = JSON.parse(linked.content).team;
+  expect(current.members).toMatchObject([
+    { conversationId: 'planning', role: 'investigator', state: 'current' },
+  ]);
+  expect(f.work.read('studio', f.actor).assignments).toEqual([]);
+  const unlink = {
+    operation: 'unlink',
+    itemId: 'studio',
+    requestId: 'contributor-unlink',
+    expectedRevision: current.revision,
+    membershipId: current.members[0].membershipId,
+  };
+  const unlinked = await f.run(name, unlink);
+  expect(unlinked.isError, unlinked.content).toBe(false);
+  expect(JSON.parse(unlinked.content).team.members[0].state).toBe('former');
+  expect(await f.run(name, unlink)).toEqual(unlinked);
+  f.approve.mockResolvedValueOnce({ behavior: 'deny' } as never);
+  expect(
+    (
+      await f.run(name, {
+        ...link,
+        requestId: 'denied-contributor',
+        expectedRevision: JSON.parse(unlinked.content).team.revision,
+      })
+    ).isError,
+  ).toBe(true);
+  expect(f.work.readTeam('studio', f.actor).members).toHaveLength(1);
+});
+
+it('retains a team read failure when diagnostic delivery also fails, without leaking private causes', async () => {
+  const f = fixture();
+  const cause = Error('private stored roster payload');
+  const diagnosticCause = Error('private diagnostic sink');
+  vi.spyOn(f.work, 'readTeam').mockImplementation(() => {
+    throw cause;
+  });
+  vi.spyOn(logging, 'createLogger').mockReturnValue({
+    warn: () => {
+      throw diagnosticCause;
+    },
+  } as never);
+  const lines: string[] = [];
+  vi.spyOn(fs, 'write').mockImplementation((...args: unknown[]) => {
+    lines.push(String(args[1]));
+    return true as never;
+  });
+  const input = { operation: 'read', itemId: 'studio' };
+  const result = await f.run('TelosManageTeam', input);
+  expect(result.isError).toBe(true);
+  expect(result.content).not.toMatch(/private/);
+  const requestHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+  expect(telosBacklogFailureCause(requestHash)?.cause).toBe(cause);
+  expect(lines).toHaveLength(1);
+  const diagnostic = JSON.parse(lines[0]);
+  expect(diagnostic).toMatchObject({
+    code: 'telos_diagnostic_sink_failed',
+    stage: 'backlog_operation',
+    operation: 'TelosManageTeam',
+    requestHash,
+  });
+  expect(telosDiagnosticFailure(diagnostic.diagnosticId)).toMatchObject({
+    operationCause: cause,
+    diagnosticCause,
+  });
+});
 it('keeps original uncertainty blocked before backlog delegation', async () => {
   const f = fixture();
   const cause = retainCallbackOutcome(Error('Original guard outcome unknown'), 'unknown');
@@ -161,6 +249,7 @@ it('discovers list, search and maintenance contracts by their exact callable ide
     'TelosListItems',
     'TelosSearchItems',
     'TelosManageItem',
+    'TelosManageTeam',
     'TelosCreateChild',
     'TelosCreateFeature',
   ]);

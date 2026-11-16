@@ -368,6 +368,46 @@ it('reviews safe release and keeps a refusal visible without claiming cancellati
   expect(screen.getByRole('status').textContent).toContain('unconfirmed');
 });
 
+it('requires explicit owner replacement review, keeps both chat links and reports assignment separately from execution', async () => {
+  const work: SessionLaunchRecord = { ...proposal, ...telosSessionLaunchFixture() };
+  work.telos = {
+    ...work.telos!,
+    parentItemId: null,
+    parentAssignmentRevision: null,
+    replacement: { conversationId: 'former-lead', assignmentRevision: 3 },
+    adoption: {
+      conversationId: 'incoming-lead',
+      title: 'New delivery orchestrator',
+      workspaceId: 'a3eb433a-acf5-45a8-a629-3c6c6c3fb439',
+      expectedEpoch: 0,
+      custodyHash: 'd'.repeat(64),
+    },
+  };
+  const view = render(<SessionLaunchCards requests={[work]} onUpdate={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review owner replacement' }));
+  expect(screen.getByRole('dialog', { name: 'Review owner replacement' })).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'Previous owner chat' }).getAttribute('href')).toBe(
+    '/chat/former-lead',
+  );
+  expect(screen.getByRole('link', { name: 'New delivery orchestrator' }).getAttribute('href')).toBe(
+    '/chat/incoming-lead',
+  );
+  expect(
+    screen.getByText(/preserves the previous chat and its historical attribution/),
+  ).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Approve & adopt' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Approve & replace owner' })).toBeTruthy();
+  expect(apiFetch).not.toHaveBeenCalled();
+  view.unmount();
+  render(
+    <SessionLaunchCards
+      requests={[{ ...work, state: 'assigned', childSessionId: 'incoming-lead' }]}
+      onUpdate={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('status').textContent).toBe('Owner replaced · execution not started');
+});
+
 it('keeps assigned readiness distinct from execution and offers recovery for uncertain work', () => {
   const work = { ...proposal, ...telosSessionLaunchFixture() };
   const view = render(

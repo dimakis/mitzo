@@ -42,6 +42,11 @@ const states = {
 
 function launchState(request: SessionLaunchRecord) {
   if (request.telos) {
+    if (request.telos.replacement) {
+      if (request.state === 'assigned') return 'Owner replaced · execution not started';
+      if (request.state === 'starting') return 'Replacing owner…';
+      if (request.state === 'failed') return 'Could not replace owner';
+    }
     if (request.telos.adoption) {
       if (request.state === 'assigned') return 'Adopted & assigned';
       if (request.state === 'starting') return 'Adopting existing chat…';
@@ -52,6 +57,14 @@ function launchState(request: SessionLaunchRecord) {
     if (request.state === 'failed') return 'Could not create work chat';
   }
   return states[request.state];
+}
+
+function reviewLabel(request: SessionLaunchRecord) {
+  return request.telos?.replacement
+    ? 'Review owner replacement'
+    : request.telos?.adoption
+      ? 'Review existing chat'
+      : 'Review new session';
 }
 
 function reviewedWorkContext(request: SessionLaunchRecord) {
@@ -280,27 +293,31 @@ export function LaunchReview({
     );
   return (
     <HomeDialog
-      title={
-        pending
-          ? request.telos?.adoption
-            ? 'Review existing chat'
-            : 'Review new session'
-          : 'Session configuration'
-      }
+      title={pending ? reviewLabel(request) : 'Session configuration'}
       onClose={onClose}
       className="session-launch-dialog"
     >
       <div className="session-launch-form">
         <p>
-          {request.telos?.adoption
-            ? 'Review this existing chat and the selected work. Adoption preserves its history, workspace, drafts and settings. It starts no command.'
-            : request.telos
-              ? 'Review the work and settings before creating its assigned chat. Creation does not start work.'
-              : 'Review the handoff before starting.'}
+          {request.telos?.replacement
+            ? 'Replacing the owner preserves the previous chat and its historical attribution. The selected chat keeps its history, workspace, drafts and settings and becomes responsible for this work. Approval starts no command and transfers no execution permissions.'
+            : request.telos?.adoption
+              ? 'Review this existing chat and the selected work. Adoption preserves its history, workspace, drafts and settings. It starts no command.'
+              : request.telos
+                ? 'Review the work and settings before creating its assigned chat. Creation does not start work.'
+                : 'Review the handoff before starting.'}
         </p>
         <div className="session-launch-fields">
           <fieldset disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}>
             <WorkReview request={request} />
+            {request.telos?.replacement && (
+              <p>
+                Previous owner:{' '}
+                <Link to={`/chat/${encodeURIComponent(request.telos.replacement.conversationId)}`}>
+                  Previous owner chat
+                </Link>
+              </p>
+            )}
             {request.telos?.adoption && (
               <p>
                 Existing chat:{' '}
@@ -389,13 +406,15 @@ export function LaunchReview({
                   }
                   onClick={() => void submit('approve')}
                 >
-                  {request.telos?.adoption
-                    ? 'Approve & adopt'
-                    : request.telos
-                      ? 'Approve & create'
-                      : frozen.current
-                        ? 'Retry start'
-                        : 'Approve & start'}
+                  {request.telos?.replacement
+                    ? 'Approve & replace owner'
+                    : request.telos?.adoption
+                      ? 'Approve & adopt'
+                      : request.telos
+                        ? 'Approve & create'
+                        : frozen.current
+                          ? 'Retry start'
+                          : 'Approve & start'}
                 </button>
                 <button
                   type="button"
@@ -476,14 +495,18 @@ export function SessionLaunchCards({
             <UiIcon name="chats" size={16} />
             <span>
               {request.state === 'assigned'
-                ? request.telos?.adoption
-                  ? 'Adopted an existing work chat'
-                  : 'Created a work chat'
+                ? request.telos?.replacement
+                  ? 'Replaced the work owner'
+                  : request.telos?.adoption
+                    ? 'Adopted an existing work chat'
+                    : 'Created a work chat'
                 : request.state === 'running'
                   ? 'Started a chat'
-                  : request.telos?.adoption
-                    ? 'Existing chat adoption request'
-                    : 'New chat request'}
+                  : request.telos?.replacement
+                    ? 'Owner replacement request'
+                    : request.telos?.adoption
+                      ? 'Existing chat adoption request'
+                      : 'New chat request'}
             </span>
             <time dateTime={new Date(request.createdAt).toISOString()}>
               {new Date(request.createdAt).toLocaleTimeString([], {
@@ -511,11 +534,7 @@ export function SessionLaunchCards({
                 className="home-secondary"
                 onClick={() => setReview(request.proposalId)}
               >
-                {request.state === 'pending'
-                  ? request.telos?.adoption
-                    ? 'Review existing chat'
-                    : 'Review new session'
-                  : 'View configuration'}
+                {request.state === 'pending' ? reviewLabel(request) : 'View configuration'}
               </button>
             )}
             {(request.state === 'uncertain' || request.state === 'starting') && (
@@ -532,11 +551,13 @@ export function SessionLaunchCards({
               >
                 {resuming === request.proposalId
                   ? 'Recovering…'
-                  : request.telos?.adoption
-                    ? 'Recover adoption'
-                    : request.telos
-                      ? 'Recover creation'
-                      : 'Resume startup'}
+                  : request.telos?.replacement
+                    ? 'Recover owner replacement'
+                    : request.telos?.adoption
+                      ? 'Recover adoption'
+                      : request.telos
+                        ? 'Recover creation'
+                        : 'Resume startup'}
               </button>
             )}
             {request.state === 'uncertain' && request.telos && (

@@ -102,6 +102,46 @@ afterEach(() => {
 });
 
 describe('Telos work-bound session adapter contract', () => {
+  it.each([true, false])(
+    'confirms only the matching explicit owner replacement response (matching: %s)',
+    async (matching) => {
+      const selection = { ...input, replaceOwner: true, existingConversationId: 'incoming' };
+      const response = {
+        ...receipt,
+        telos: {
+          ...receipt.telos,
+          parentItemId: null,
+          parentAssignmentRevision: null,
+          ...(matching ? { replacement: { conversationId: 'former', assignmentRevision: 2 } } : {}),
+          adoption: {
+            conversationId: 'incoming',
+            title: 'Incoming owner',
+            workspaceId: 'a3eb433a-acf5-45a8-a629-3c6c6c3fb439',
+            expectedEpoch: 0,
+            custodyHash: 'a'.repeat(64),
+          },
+        },
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => response })),
+      );
+      const result = await executeTelosCreateSession(
+        'http://fixture',
+        'claude-client',
+        'claude-lead',
+        'synthetic-token',
+        selection,
+      );
+      expect(result.isError).toBe(!matching);
+      if (matching)
+        expect(JSON.parse(result.content).telos.replacement).toEqual({
+          conversationId: 'former',
+          assignmentRevision: 2,
+        });
+      else expect(result.content).toMatch(/not confirmed/);
+    },
+  );
   it('retains and sanitizes an unexpected failure after the HTTP consumer disconnects', async () => {
     const cause = new Error('private provider or source payload');
     const disconnectedInput = { ...input, requestId: '2ff0e574-ea1f-47fa-82d0-4267d503eb83' };

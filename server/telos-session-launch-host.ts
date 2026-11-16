@@ -71,8 +71,9 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
     authority.signal.throwIfAborted();
     authority.assertCurrent();
   };
-  const sourceScope = (sourceSessionId: string, itemId: string) =>
+  const sourceScope = (sourceSessionId: string, itemId: string, replaceOwner = false) =>
     usingWork((work) => {
+      if (replaceOwner) return work.sessionReplacementScope(sourceSessionId, itemId);
       const scope = work.sessionCreationScope(sourceSessionId, itemId);
       const meta = deps.events.getSession(sourceSessionId);
       const context = resolveTelosWorkRoleContext(
@@ -97,7 +98,12 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
     if (retained(record, authority)?.receipt) return;
     const { sourceSnapshotIds, artifactRefs, ...expected } = record.telos;
     delete expected.adoption;
-    if (!isDeepStrictEqual(sourceScope(record.sourceSessionId, record.telos.itemId), expected))
+    if (
+      !isDeepStrictEqual(
+        sourceScope(record.sourceSessionId, record.telos.itemId, Boolean(record.telos.replacement)),
+        expected,
+      )
+    )
       throw new SessionLaunchError(
         'Work or originating lead assignment changed. Review the selected work again.',
       );
@@ -178,7 +184,7 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
       !childSessionId ||
       !preparation ||
       preparation.sessionId !== childSessionId ||
-      childSessionId === record.sourceSessionId ||
+      (childSessionId === record.sourceSessionId && !record.telos?.replacement) ||
       !deps.ordinaryConversation(childSessionId) ||
       // Adoption retains the reviewed latest admitted settings in the canonical
       // role intent. Allocation settings predate legitimate later selections.
@@ -356,8 +362,10 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
             itemId: record.telos!.itemId,
             role: record.telos!.role,
             expectedRevision: record.telos!.expectedRevision,
-            expectedAssignmentRevision: 0,
-            createOnly: true,
+            expectedAssignmentRevision: record.telos!.replacement?.assignmentRevision ?? 0,
+            ...(record.telos!.replacement
+              ? { replacement: record.telos!.replacement }
+              : { createOnly: true as const }),
             ...(record.telos?.adoption
               ? { adoption: (({ title: _title, ...selected }) => selected)(record.telos.adoption) }
               : {}),
@@ -391,7 +399,11 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
       let adoption;
       let configuration: SessionLaunchConfig | undefined;
       if (input.existingConversationId) {
-        if (input.existingConversationId === sourceSessionId || input.overrides || !deps.workspaces)
+        if (
+          (input.existingConversationId === sourceSessionId && !input.replaceOwner) ||
+          input.overrides ||
+          !deps.workspaces
+        )
           throw new SessionLaunchError(
             'Select a distinct compatible existing chat with its retained settings; adoption cannot override configuration.',
           );
@@ -437,7 +449,7 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
         }
       };
       const itemRevision = canonicalRevision();
-      const scope = sourceScope(sourceSessionId, input.itemId);
+      const scope = sourceScope(sourceSessionId, input.itemId, input.replaceOwner);
       // TelosManageItem returns the canonical brief token. Retain the separate
       // relationship token internally; older scoped callers remain valid.
       if (
@@ -451,7 +463,7 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
         current(authority);
         if (
           canonicalRevision() !== itemRevision ||
-          !isDeepStrictEqual(sourceScope(sourceSessionId, input.itemId), scope)
+          !isDeepStrictEqual(sourceScope(sourceSessionId, input.itemId, input.replaceOwner), scope)
         )
           throw new SessionLaunchError(
             'The selected work or its assigned lead changed during review.',

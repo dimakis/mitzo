@@ -27,6 +27,7 @@ const mixed = new Set([
   'SymposiumConsult',
   'TaskExecution',
   'TelosManageItem',
+  'TelosManageTeam',
   'Bash',
   'ConnectionRequest',
   'HomeAssistantDashboard',
@@ -60,7 +61,7 @@ export function isReadOnlyBuiltinToolCall(name: string, input: Record<string, un
   if (name === 'TaskExecution')
     return input.operation === 'status' || input.operation === 'github_read';
   if (name === 'ConnectionRequest') return input.method === 'GET' || input.method === 'HEAD';
-  if (name === 'TelosManageItem') return input.operation === 'read';
+  if (name === 'TelosManageItem' || name === 'TelosManageTeam') return input.operation === 'read';
   return false;
 }
 
