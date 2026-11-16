@@ -7,6 +7,7 @@ it.each([
   'TelosListItems',
   'TelosSearchItems',
   'TelosManageItem',
+  'TelosManageTeam',
   'TelosCreateChild',
   'TelosCreateFeature',
 ])(
@@ -14,8 +15,11 @@ it.each([
   (name) => {
     expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
       routes: ['codex-owned-local', 'claude-sdk'],
-      behavior:
-        name === 'TelosManageItem' ? 'mixed' : name.startsWith('TelosCreate') ? 'write' : 'read',
+      behavior: ['TelosManageItem', 'TelosManageTeam'].includes(name)
+        ? 'mixed'
+        : name.startsWith('TelosCreate')
+          ? 'write'
+          : 'read',
       requirement: expect.stringContaining('operator'),
     });
     const session = {};
@@ -325,6 +329,7 @@ it('shares reviewed read identities with recovery and qualifies mixed operations
     ['ConnectionRequest', { method: 'GET' }],
     ['ConnectionRequest', { method: 'HEAD' }],
     ['TelosManageItem', { operation: 'read' }],
+    ['TelosManageTeam', { operation: 'read' }],
   ] as const)
     expect(isReadOnlyBuiltinToolCall(name, input)).toBe(true);
   for (const [name, input] of [
@@ -334,6 +339,9 @@ it('shares reviewed read identities with recovery and qualifies mixed operations
     ['ConnectionRequest', { method: 'POST' }],
     ['ConnectionRequest', { method: 'get' }],
     ['TelosManageItem', { operation: 'update' }],
+    ['TelosManageTeam', { operation: 'link' }],
+    ['TelosManageTeam', { operation: 'replace' }],
+    ['TelosManageTeam', { operation: 'unlink' }],
     ['RequestGithubPublish', {}],
     ['PrepareLocalRepository', {}],
     ['api_unreviewed', { method: 'GET' }],
