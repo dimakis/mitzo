@@ -27,10 +27,18 @@ export interface SdkRepositoryReadProjection {
   assertCurrentSync(): void;
 }
 const repositoryReadProjections = new WeakSet<object>();
+const repositoryReadOwners = new WeakMap<object, object>();
 /** Factory provenance only. Every use still requires the actual current SDK
  * callback or completed-turn owner, and enforces the complete captured policy. */
-export function assertSdkRepositoryReadProjection(value: SdkRepositoryReadProjection): void {
-  if (!repositoryReadProjections.has(value)) throw Error('Original SDK read projection required');
+export function assertSdkRepositoryReadProjection(
+  value: SdkRepositoryReadProjection,
+  owner?: object,
+): void {
+  if (
+    !repositoryReadProjections.has(value) ||
+    (owner !== undefined && repositoryReadOwners.get(value) !== owner)
+  )
+    throw Error('Original SDK read projection required');
   value.assertCurrentSync();
 }
 import { canonical, AuthoritySnapshot, validatePath } from './sandbox-authority.js';
@@ -78,8 +86,16 @@ export function credentialSdkBoundary(
   platform: NodeJS.Platform = process.platform,
   selectedAuthorityWriteRoots: readonly string[] = [],
   selectedProviderBaseUrl?: string,
+  repositoryOwner?: object,
 ) {
-  return createSdkBoundary(platform, false, selectedAuthorityWriteRoots, selectedProviderBaseUrl);
+  return createSdkBoundary(
+    platform,
+    false,
+    selectedAuthorityWriteRoots,
+    selectedProviderBaseUrl,
+    false,
+    repositoryOwner,
+  );
 }
 
 /** Only the fixed native `auth login` supervisor may allocate a terminal.
@@ -102,6 +118,7 @@ function createSdkBoundary(
   selectedAuthorityWriteRoots: readonly string[] = [],
   selectedProviderBaseUrl?: string,
   nativeLogin = false,
+  repositoryOwner?: object,
 ) {
   const selectedWriteRoots = [...new Set(selectedAuthorityWriteRoots.map(canonical))];
   selectedWriteRoots.forEach(validatePath);
@@ -366,6 +383,7 @@ function createSdkBoundary(
           },
         });
         repositoryReadProjections.add(snapshot);
+        if (repositoryOwner) repositoryReadOwners.set(snapshot, repositoryOwner);
         readProjection = snapshot;
       } catch (error) {
         rmSync(temporary, { recursive: true, force: true });

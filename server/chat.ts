@@ -2424,6 +2424,7 @@ async function _startChatInner(
             accountBinding?.provider === 'anthropic-api'
               ? sessionEnv.ANTHROPIC_BASE_URL
               : undefined,
+            options.ordinarySdkAuthority,
           )
         : undefined;
     options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
