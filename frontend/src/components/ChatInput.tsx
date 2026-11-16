@@ -48,6 +48,7 @@ import { useComposerStatusSink } from '../lib/composer-status-context';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
+import { ConversationContextUsage } from './ConversationContextUsage';
 import { insertComposerCommand } from '../lib/composer-command';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
@@ -83,6 +84,7 @@ interface Props {
   composerCapabilities?: ChatComposerCapabilities;
   steeringTargetCommandId?: string;
   replyTarget?: MessageReplyContext;
+  replyAuthor?: string;
   onClearReply?: () => void;
   responders?: ComposerResponderSelection;
   /** This route can resolve its supplied refusal by changing recipients. */
@@ -106,6 +108,8 @@ interface Props {
   onStop: () => void;
   /** Ordinary source operation, separate from a retained shared send's Stop. */
   sourceStop?: () => void;
+  sharedControl?: { label: string; sourceSelected: boolean; sourceHandled: boolean };
+  targetedSteering?: boolean;
   onInterrupt?: (
     text: string,
     images?: ImageAttachment[],
@@ -149,6 +153,7 @@ interface Props {
   tokenState?: TokenState;
   /** Display label for this wheel's existing source usage, independent of reply recipients. */
   tokenOwnerName?: string;
+  tokenParticipants?: { id: string; name: string; unavailable?: boolean }[];
   collaboration?: ReactNode;
   compactions?: import('@mitzo/protocol').ContextCompaction[];
   compactionError?: string;
@@ -205,7 +210,27 @@ function ChatInputOwner(props: Props) {
           ...shared.props,
           // These are independent operation owners. A retained shared request
           // (for example Reviewer's uncertain send) cannot hide source control.
-          sourceStop: props.running ? props.onStop : undefined,
+          sourceStop: shared.props.sharedControl
+            ? undefined
+            : props.running
+              ? props.onStop
+              : undefined,
+          ...(shared.props.sharedControl
+            ? {
+                running:
+                  shared.props.running ||
+                  (shared.props.sharedControl.sourceSelected && props.running),
+                onStop: () => {
+                  shared.props.onStop?.();
+                  if (
+                    shared.props.sharedControl?.sourceSelected &&
+                    !shared.props.sharedControl.sourceHandled &&
+                    props.running
+                  )
+                    props.onStop();
+                },
+              }
+            : {}),
         }
       : props;
   return sink ? (
@@ -221,6 +246,7 @@ function ChatInputContent({
   recipientRecovery = false,
   steeringTargetCommandId,
   replyTarget,
+  replyAuthor,
   onClearReply,
   responders,
   textOnly = false,
@@ -231,6 +257,8 @@ function ChatInputContent({
   onSend,
   onStop,
   sourceStop,
+  sharedControl,
+  targetedSteering = false,
   onInterrupt,
   running,
   awaitingApproval,
@@ -259,6 +287,7 @@ function ChatInputContent({
   onExternalContextBlockToggle,
   tokenState,
   tokenOwnerName,
+  tokenParticipants,
   collaboration,
   compactions,
   compactionError,
@@ -1443,13 +1472,13 @@ function ChatInputContent({
   function handleInterrupt() {
     if (importPending.current?.scope === composerScope) return;
     if (
-      boundedFirstCommand ||
+      (boundedFirstCommand && !targetedSteering) ||
       previewOpen ||
       queueOperation.current ||
       sendGuard.current ||
       sendPending.current ||
       interruptPending.current ||
-      sendDisabledReason ||
+      (!targetedSteering && sendDisabledReason) ||
       !onInterrupt ||
       correctionReason
     )
@@ -1509,6 +1538,11 @@ function ChatInputContent({
         running={running}
         scope={composerScope}
         awaitingApproval={awaitingApproval}
+        recipients={
+          responders
+            ? `To ${selectedResponderIds.map((id) => responders.members.find((m) => m.id === id)?.name ?? 'Unavailable agent').join(', ') || 'no agents'}`
+            : undefined
+        }
       />
       {currentSave && (currentSave.failed || chatStorage.failed) && (
         <ChatStatusMessage error="Couldn’t save this draft on this device. Keep it open and free some storage before leaving." />
@@ -1658,7 +1692,7 @@ function ChatInputContent({
       <div className="chat-input-row">
         {replyTarget && (
           <div className="chat-reply-draft">
-            <ReplyQuote reply={replyTarget} sessionId={sessionId} />
+            <ReplyQuote reply={replyTarget} author={replyAuthor} sessionId={sessionId} />
             <button
               type="button"
               className="chat-input-btn"
@@ -1806,36 +1840,56 @@ function ChatInputContent({
                 <UiIcon name="stop" />
               </button>
             )}
-            {tokenState && (
-              <TokenBar
-                tokenState={tokenState}
-                ownerName={tokenOwnerName}
-                alwaysVisible
-                userTurns={messages.filter((message) => message.role === 'user').length}
-              />
+            {tokenParticipants && tokenParticipants.length > 1 ? (
+              <ConversationContextUsage participants={tokenParticipants} />
+            ) : (
+              tokenState && (
+                <TokenBar
+                  tokenState={tokenState}
+                  ownerName={tokenOwnerName}
+                  alwaysVisible
+                  userTurns={messages.filter((message) => message.role === 'user').length}
+                />
+              )
             )}
             {micProps && <MicButton {...micProps} />}
             {running ? (
               <>
-                {canSend && onInterrupt && !boundedFirstCommand && (
-                  <button
-                    type="button"
-                    className="chat-input-btn chat-input-btn--interrupt"
-                    aria-label={interruptLabel}
-                    title={sendDisabledReason ?? correctionReason ?? interruptLabel}
-                    disabled={!!sendDisabledReason || !!correctionReason || importing}
-                    onClick={handleInterrupt}
-                  >
-                    <UiIcon name="interrupt" />
-                  </button>
-                )}
-                {canSend && !boundedFirstCommand && (
+                {(canSend || !!sharedControl) &&
+                  onInterrupt &&
+                  (!boundedFirstCommand || targetedSteering) && (
+                    <button
+                      type="button"
+                      className="chat-input-btn chat-input-btn--interrupt"
+                      aria-label={sharedControl ? `Steer ${sharedControl.label}` : interruptLabel}
+                      title={
+                        correctionReason ??
+                        (sharedControl
+                          ? `Steer ${sharedControl.label}`
+                          : (sendDisabledReason ?? interruptLabel))
+                      }
+                      disabled={
+                        !canSend ||
+                        (!targetedSteering && !!sendDisabledReason) ||
+                        !!correctionReason ||
+                        importing
+                      }
+                      onClick={handleInterrupt}
+                    >
+                      <UiIcon name="interrupt" />
+                    </button>
+                  )}
+                {(canSend || !!sharedControl) && (!boundedFirstCommand || !!sharedControl) && (
                   <button
                     className="chat-input-btn chat-input-btn--queue"
                     aria-label="Queue message"
-                    disabled={!!sendDisabledReason || importing || queueBusy}
-                    onClick={handleQueue}
-                    title="Queue — send after current turn"
+                    disabled={!canSend || !!sendDisabledReason || importing || queueBusy}
+                    onClick={sharedControl ? handleSend : handleQueue}
+                    title={
+                      sharedControl
+                        ? `Queue for ${sharedControl.label} after the current turn`
+                        : 'Queue — send after current turn'
+                    }
                   >
                     <UiIcon name="queue" />
                   </button>
@@ -1846,8 +1900,8 @@ function ChatInputContent({
                     setQueuePaused(true);
                     onStop();
                   }}
-                  aria-label="Stop generation"
-                  title="Stop generation"
+                  aria-label={sharedControl ? `Stop ${sharedControl.label}` : 'Stop generation'}
+                  title={sharedControl ? `Stop ${sharedControl.label}` : 'Stop generation'}
                 >
                   <UiIcon name="stop" />
                 </button>

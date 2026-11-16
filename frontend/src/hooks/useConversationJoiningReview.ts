@@ -489,7 +489,8 @@ export function useConversationJoiningReview(
           result.expectedMembershipRevision !==
             applicationInput.selection.expectedMembershipRevision ||
           snapshot.joiningBrief !== applicationInput.selection.joiningBrief ||
-          settings.repositoryWorkspaceId !== applicationInput.target.repositoryWorkspaceId ||
+          (applicationInput.target.repositoryWorkspaceId !== undefined &&
+            settings.repositoryWorkspaceId !== applicationInput.target.repositoryWorkspaceId) ||
           settings.selection.permission.mode !== applicationInput.target.permissionMode
         )
           throw new Error('Application review changed');

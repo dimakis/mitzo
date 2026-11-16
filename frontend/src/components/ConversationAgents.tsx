@@ -51,6 +51,7 @@ const initial = (): ConversationAgentSetup => ({
   runOn: 'local',
   selection: null,
   agent: defaultAgent,
+  permissionMode: 'agent',
 });
 
 /** Presentation shared by ordinary and retained conversations. No allocation or dispatch.
@@ -64,6 +65,7 @@ export function ConversationAgents(props: {
   compact?: boolean;
   /** Shared ordinary discussions keep names in their existing header action. */
   showParticipantNames?: boolean;
+  addressedReadingOnly?: boolean;
   leading?: ReactNode;
   actions?: ReactNode;
   settings?: ReactNode;
@@ -97,6 +99,7 @@ function ConversationAgentsBody({
   repository,
   compact,
   showParticipantNames,
+  addressedReadingOnly,
   leading,
   actions,
   settings,
@@ -157,16 +160,13 @@ function ConversationAgentsBody({
             ? 'Choose an account and model.'
             : profileReason
               ? profileReason
-              : joiningOwner.kind === 'application' &&
-                  (!setup.repositoryWorkspaceId || !setup.permissionMode)
-                ? 'Choose a repository in Where it runs.'
-                : undefined;
+              : undefined;
   const updateSelection = (selection: ConversationAgentSetup['selection']) =>
     setSetup((s) => ({
       ...s,
       selection,
       ...(s.selection?.accountId !== selection?.accountId || s.selection?.model !== selection?.model
-        ? { repositoryWorkspaceId: undefined, permissionMode: undefined }
+        ? { repositoryWorkspaceId: undefined, permissionMode: 'agent' as const }
         : {}),
     }));
   useLayoutEffect(() => {
@@ -279,8 +279,9 @@ function ConversationAgentsBody({
             {view === 'agents' && (
               <>
                 <p className="conversation-agents-explanation">
-                  Choose who reads future discussion and who replies by default. @ changes who
-                  replies to one prompt.
+                  {addressedReadingOnly
+                    ? 'Agents read when addressed. @ chooses who replies to a message; Forward shares an earlier message with selected agents.'
+                    : 'Choose who reads future discussion and who replies by default. @ changes who replies to one prompt.'}
                 </p>
                 {policyFeedback && (
                   <div className="conversation-policy-feedback">{policyFeedback}</div>
@@ -330,22 +331,46 @@ function ConversationAgentsBody({
                     </p>
                     <fieldset className="conversation-agent-policy">
                       <legend className="sr-only">Sharing for {a.name}</legend>
-                      <label>
-                        <input
-                          type="checkbox"
-                          ref={(input) => {
-                            if (input) input.indeterminate = !a.policy;
-                          }}
-                          aria-checked={!a.policy ? 'mixed' : undefined}
-                          checked={a.policy?.reads ?? false}
-                          disabled={!a.policy || !onPolicyChange}
-                          onChange={(e) =>
-                            a.policy &&
-                            onPolicyChange?.(a.id, { ...a.policy, reads: e.target.checked })
-                          }
-                        />
-                        <span>Reads future discussion</span>
-                      </label>
+                      {addressedReadingOnly ? (
+                        <>
+                          <p>
+                            {a.policy?.reads
+                              ? 'Automatic discussion sharing is enabled.'
+                              : a.policy
+                                ? 'Reads when addressed'
+                                : 'Reading policy has not been checked.'}
+                          </p>
+                          {a.policy?.reads && (
+                            <button
+                              type="button"
+                              className="home-secondary"
+                              disabled={!onPolicyChange}
+                              onClick={() =>
+                                onPolicyChange?.(a.id, { reads: false, replies: a.policy!.replies })
+                              }
+                            >
+                              Read only when addressed
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <label>
+                          <input
+                            type="checkbox"
+                            ref={(input) => {
+                              if (input) input.indeterminate = !a.policy;
+                            }}
+                            aria-checked={!a.policy ? 'mixed' : undefined}
+                            checked={a.policy?.reads ?? false}
+                            disabled={!a.policy || !onPolicyChange}
+                            onChange={(e) =>
+                              a.policy &&
+                              onPolicyChange?.(a.id, { ...a.policy, reads: e.target.checked })
+                            }
+                          />
+                          <span>Reads future discussion</span>
+                        </label>
+                      )}
                       <label>
                         <input
                           type="checkbox"
@@ -531,7 +556,7 @@ function ConversationAgentsBody({
                   <QuickSettingsField
                     page="execution"
                     title="Where it runs"
-                    value={`${setup.runOn === 'local' ? 'Mac host' : 'OpenShell'}${joiningOwner?.kind === 'application' && !setup.repositoryWorkspaceId ? ' · Choose repository' : ''}`}
+                    value={`${setup.runOn === 'local' ? 'Mac host' : 'OpenShell'}${joiningOwner?.kind === 'application' && !setup.repositoryWorkspaceId ? ' · Default repository' : ''}`}
                   >
                     <fieldset className="conversation-agent-run-on">
                       <legend>Run on</legend>
@@ -547,7 +572,7 @@ function ConversationAgentsBody({
                                 ...s,
                                 runOn,
                                 repositoryWorkspaceId: undefined,
-                                permissionMode: undefined,
+                                permissionMode: 'agent',
                               }))
                             }
                           />
@@ -558,7 +583,13 @@ function ConversationAgentsBody({
                     </fieldset>
                     <div className="conversation-agent-field">
                       <span>Repository</span>
-                      <strong>{repository || 'Not selected'}</strong>
+                      <strong>
+                        {joiningOwner?.kind === 'application'
+                          ? setup.repositoryWorkspaceId
+                            ? 'Selected repository'
+                            : 'Configured default repository'
+                          : repository || 'Not selected'}
+                      </strong>
                     </div>
                     {joiningOwner?.kind === 'application' && (
                       <ConversationRepositoryPicker

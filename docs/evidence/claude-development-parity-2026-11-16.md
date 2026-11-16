@@ -61,6 +61,13 @@ parent is now created before exclusive temporary allocation; discovery/admission
 and restart tests retain the exact execution-ledger cwd. All 36 checks in the
 affected five suites pass. New-head CI and trusted review still remain required.
 
+The final aggregate affected-suite run passed 386 checks across 26 suites, with
+four opt-in native checks skipped. The server build and source/security checks
+also passed. Accepted main subsequently advanced to `dc122db8` with the separate
+shared-composer repair (#1374); integration preserves that work and combines
+both source-fingerprint registrations under a new runtime revision. Native CI,
+trusted review and live acceptance remain separate requirements.
+
 Keep the defect slice active until its own live criteria are fulfilled, or each
 remaining gap is explicitly retained with its owner and next action. A source
 patch, passing fixture or published PR alone does not establish working

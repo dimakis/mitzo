@@ -77,6 +77,22 @@ for (const theme of ['dark', 'light'])
           },
         });
       if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+      if (path.endsWith('/context'))
+        return route.fulfill({
+          json: {
+            sessionId: decodeURIComponent(path.split('/').at(-2)!),
+            contextUsage: {
+              used: 5000,
+              measuredAt: 1794821400000,
+              limits: {
+                model: 'offline-fixture',
+                source: 'runtime',
+                contextWindow: 200000,
+                stale: false,
+              },
+            },
+          },
+        });
       if (path.endsWith('/progress'))
         return route.fulfill({
           json: {
@@ -138,15 +154,32 @@ for (const theme of ['dark', 'light'])
     });
     await page.getByRole('button', { name: 'Join reviewer externally' }).click();
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('');
-    await expect(wheel).toHaveAttribute('title', 'Token usage — Architect');
-    await wheel.click();
+    await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('@');
+    const recipients = page.getByRole('group', { name: 'Reply recipients' });
+    await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    await expect(recipients.getByRole('button', { name: 'Reviewer', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Choose who replies' }).click();
     await expect(
-      page
-        .locator('.token-bar-detail-row')
-        .filter({ has: page.getByText('Agent', { exact: true }) }),
-    ).toHaveText('AgentArchitect');
+      recipients.getByRole('button', { name: 'Architect', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(recipients.getByRole('button', { name: 'Reviewer', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Choose who replies' }).click();
+    await input.fill('Draft retained through joining and resizing');
+    await expect(wheel).toHaveAttribute('title', 'Context usage for each agent');
+    await wheel.click();
+    const contexts = page.getByRole('dialog', { name: 'Context by agent' });
+    await expect(contexts.getByText('Architect', { exact: true })).toBeVisible();
+    await expect(contexts.getByText('Reviewer', { exact: true })).toBeVisible();
+    await expect(contexts.getByRole('meter')).toHaveCount(2);
     await page.keyboard.press('Escape');
+    // The approved per-agent wheel replaces the ordinary single-agent usage
+    // owner at joining. Its own DOM identity must survive later layout changes.
+    await wheel.evaluate((node) => {
+      (node as HTMLElement).dataset.retained = 'shared';
+    });
     await expect(input).toHaveAttribute('data-retained', 'original');
     await expect(page.locator('.chat-messages')).toHaveCount(1);
     await expect(page.getByText('Ordinary history before joining')).toHaveCount(1);
@@ -155,10 +188,10 @@ for (const theme of ['dark', 'light'])
       await page.setViewportSize({ width, height: 844 });
       await expect(input).toHaveAttribute('data-retained', 'original');
       await expect(input).toHaveValue('Draft retained through joining and resizing');
-      for (const control of [wheel, mic]) {
-        await expect(control).toBeVisible();
-        await expect(control).toHaveAttribute('data-retained', 'original');
-      }
+      await expect(wheel).toBeVisible();
+      await expect(wheel).toHaveAttribute('data-retained', 'shared');
+      await expect(mic).toBeVisible();
+      await expect(mic).toHaveAttribute('data-retained', 'original');
       await expect(page.locator('.chat-messages')).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
       await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
@@ -179,14 +212,31 @@ for (const theme of ['dark', 'light'])
       await expect(input).toHaveAttribute('data-retained', 'original');
       await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
     }
+    await page.getByRole('button', { name: 'Load long history' }).click();
+    const transcript = page.locator('.chat-messages');
+    const readingPosition = await transcript.evaluate((node) => {
+      const range = node.scrollHeight - node.clientHeight;
+      if (range < 400) throw Error('Long-history fixture must have a real scrolling transcript');
+      node.scrollTop = Math.min(160, range / 3);
+      node.dispatchEvent(new Event('scroll'));
+      return node.scrollTop;
+    });
+    await input.fill('');
+    await input.pressSequentially('Draft retained through joining and resizing', { delay: 10 });
+    expect(await transcript.evaluate((node) => node.scrollTop)).toBeCloseTo(readingPosition, 0);
+    await expect(input).toHaveAttribute('data-retained', 'original');
     await page.getByRole('button', { name: 'Toggle source running' }).click();
     await expect(input).toHaveAttribute('data-retained', 'original');
-    await expect(wheel).toHaveAttribute('data-retained', 'original');
+    await expect(wheel).toHaveAttribute('data-retained', 'shared');
     await expect(mic).toHaveAttribute('data-retained', 'original');
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
     await page.getByRole('button', { name: 'Choose who replies' }).click();
-    await page.getByRole('checkbox', { name: 'Architect', exact: true }).uncheck();
-    await page.getByRole('button', { name: 'Done choosing replies' }).click();
+    await expect(page.getByRole('group', { name: 'Who replies to this prompt' })).toHaveCount(0);
+    await expect(input).toHaveValue('Draft retained through joining and resizing @');
+    await recipients.getByRole('button', { name: 'Architect', exact: true }).click();
+    await expect(
+      recipients.getByRole('button', { name: 'Architect', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
     await page.screenshot({ path: info.outputPath(`ordinary-${theme}.png`), fullPage: true });
     expect(sends).toBe(0);

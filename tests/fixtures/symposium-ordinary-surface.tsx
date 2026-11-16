@@ -78,9 +78,26 @@ const messages = [
   },
 ];
 
+const longHistory = [
+  ...messages,
+  ...Array.from({ length: 20 }, (_, index) => ({
+    messageId: `earlier-response-${index}`,
+    role: 'assistant' as const,
+    blocks: [
+      {
+        blockId: `earlier-text-${index}`,
+        blockType: 'text' as const,
+        content: `Earlier response ${index + 1}. Keep the original repository work and preserve the reader’s place while they type a follow-up. The composer and transcript keep their existing owners.`,
+      },
+    ],
+  })),
+];
+
 function Surface() {
   const desktop = useIsDesktop();
   const [running, setRunning] = useState(false);
+  const [showLongHistory, setShowLongHistory] = useState(false);
+  const history = showLongHistory ? longHistory : messages;
   return (
     <MitzoStoreProvider value={store}>
       <MemoryRouter>
@@ -132,7 +149,7 @@ function Surface() {
                 profileToolsTarget={null}
                 chat={{
                   sessionId: 'architect',
-                  messages,
+                  messages: history,
                   current: null,
                   running,
                   permission: null,
@@ -160,6 +177,7 @@ function Surface() {
                 }
               />
               <div data-fixture-control>
+                <button onClick={() => setShowLongHistory(true)}>Load long history</button>
                 <button onClick={() => void fetch('/fixture/join', { method: 'POST' })}>
                   Join reviewer externally
                 </button>

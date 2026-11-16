@@ -6,12 +6,15 @@ import {
   type CollaborationView,
 } from '@mitzo/protocol';
 import { getChatDraft, type ChatDraft } from '../lib/chat-drafts';
-import { retainConversationJournal } from '../lib/conversation-journal';
+import { retainConversationSend, conversationSendRequests } from '../lib/conversation-journal';
 import { createBrowserId } from '../lib/browser-crypto';
 import { AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { resolveConversationResponders } from '../lib/conversation-presentation';
 
 type Pending = NonNullable<ChatDraft['collaborationSend']>;
+const requestRecipients = (request: Pending) =>
+  request.recipientSessionIds ??
+  (request.input.responders.kind === 'selected' ? request.input.responders.sessionIds : undefined);
 export function useConversationSending(options: {
   api: CollaborationApiClient;
   view?: CollaborationView;
@@ -74,13 +77,17 @@ export function useConversationSending(options: {
   const busy = useRef<object | undefined>(undefined);
   const stopping = useRef<{ owner: object; requestId: string } | undefined>(undefined);
   const pending = useRef<Pending | undefined>(undefined);
-  const preparing = useRef<{ owner: object; cancelled: boolean } | undefined>(undefined);
+  const requests = useRef<Pending[]>([]);
+  const preparing = useRef<{ owner: object; cancelled: boolean; recipients: string[] } | undefined>(
+    undefined,
+  );
   const authGeneration = useRef(0);
   const [state, setState] = useState<{
     owner: object;
     ready?: boolean;
     reason?: string;
     pending?: Pending;
+    requests?: Pending[];
     error?: string;
     stopStatus?: string;
   }>({ owner });
@@ -100,11 +107,17 @@ export function useConversationSending(options: {
     [owner],
   );
   const retain = useCallback(
-    async (value?: Pending, fresh = valid) => {
-      const retained = await retainConversationJournal(draftId, 'collaborationSend', value, fresh);
+    async (
+      value?: Pending,
+      fresh = valid,
+      requestId = value?.input.requestId ?? pending.current?.input.requestId,
+    ) => {
+      if (!requestId) return;
+      const retained = await retainConversationSend(draftId, requestId, value, fresh);
       if (!retained || !fresh()) return;
       pending.current = retained.value;
-      publish({ pending: retained.value, stopStatus: undefined });
+      requests.current = retained.requests;
+      publish({ pending: retained.value, requests: retained.requests, stopStatus: undefined });
     },
     [draftId, publish, valid],
   );
@@ -113,7 +126,9 @@ export function useConversationSending(options: {
       // This operation has not reached api.send. Cleanup owns only its exact journal,
       // even after unmount, auth loss or a different composer owner takes over.
       const ownsJournal = () => {
-        const saved = draftId ? getChatDraft(draftId)?.collaborationSend : undefined;
+        const saved = conversationSendRequests(draftId ? getChatDraft(draftId) : undefined).find(
+          (r) => r.input.requestId === original.input.requestId,
+        );
         return (
           !saved ||
           (saved.authScope === original.authScope &&
@@ -121,9 +136,9 @@ export function useConversationSending(options: {
             saved.input.requestId === original.input.requestId)
         );
       };
-      const retained = await retainConversationJournal(
+      const retained = await retainConversationSend(
         draftId,
-        'collaborationSend',
+        original.input.requestId,
         undefined,
         ownsJournal,
       );
@@ -135,11 +150,13 @@ export function useConversationSending(options: {
       )
         return;
       pending.current = undefined;
+      requests.current = retained.requests;
       const activeOwner = current.current;
       setState((s) => ({
         ...(s.owner === activeOwner ? s : { owner: activeOwner }),
         owner: activeOwner,
         pending: undefined,
+        requests: retained.requests,
         ready: false,
         error: 'The prompt was not sent. Check readiness before sending.',
         stopStatus: undefined,
@@ -151,8 +168,7 @@ export function useConversationSending(options: {
     if (!valid() || !group || busy.current === owner) return;
     busy.current = owner;
     try {
-      const original = pending.current;
-      if (original) {
+      for (const original of [...requests.current]) {
         if (original.authScope !== authScope || original.collaborationId !== group)
           throw Error('The original request belongs to another login or conversation.');
         const { terminal } = await api.observeSend(group, original.input);
@@ -161,24 +177,36 @@ export function useConversationSending(options: {
         if (!valid()) return;
         // Visible text is not proof that native effects have settled. Renew the
         // exact request after the refresh await before retiring its journal.
-        if (!terminal) return;
+        if (!terminal) continue;
         const confirmed = await api.observeSend(group, original.input);
-        if (!valid() || !confirmed.terminal) return;
+        if (!valid()) return;
+        if (!confirmed.terminal) continue;
         const receipt = confirmed.message;
         if (
           !receipt ||
           receipt.text !== original.input.text ||
+          receipt.replyToMessageId !== original.input.replyToMessageId ||
+          JSON.stringify(receipt.images ?? []) !== JSON.stringify(original.input.images ?? []) ||
           receipt.membershipRevision !== original.input.expectedMembershipRevision ||
           receipt.policySequence !== original.input.expectedPolicySequence ||
           JSON.stringify(receipt.snapshot) !== JSON.stringify(original.input.snapshot)
         )
           throw Error('The original request receipt changed. Keep its identity and inspect it.');
-        acceptedCallback.current?.(original.input);
-        await retain();
+        if (!original.acknowledged) acceptedCallback.current?.(original.input);
+        await retain(undefined, valid, original.input.requestId);
         // Callback publication can change the owning conversation. Never
         // publish readiness into a successor after the original receipt settles.
         if (!valid()) return;
       }
+      if (
+        requests.current.some(
+          (request) =>
+            !request.acknowledged &&
+            (!requestRecipients(request) ||
+              requestRecipients(request)!.some((id) => recipients.includes(id))),
+        )
+      )
+        return;
       if (!recipients.length) return;
       const results = await Promise.all(
         recipients.map((recipient) => api.recipientReadiness(group, recipient)),
@@ -222,10 +250,12 @@ export function useConversationSending(options: {
     mounted.current = true;
     const original = draftId ? getChatDraft(draftId)?.collaborationSend : undefined;
     pending.current = original;
+    requests.current = conversationSendRequests(draftId ? getChatDraft(draftId) : undefined);
     publish({
       ready: undefined,
       reason: undefined,
       pending: original,
+      requests: requests.current,
       error: undefined,
       stopStatus: undefined,
     });
@@ -241,14 +271,22 @@ export function useConversationSending(options: {
     };
   }, [owner, draftId, check, publish]);
   useEffect(() => {
-    if (!state.pending || !valid()) return;
+    if (!state.requests?.length || !valid()) return;
     const timer = window.setInterval(() => void check(), 2000);
     return () => window.clearInterval(timer);
-  }, [state.pending, check, valid]);
+  }, [state.requests, check, valid]);
   const visible = state.owner === owner ? state : { owner };
+  const touches = useCallback(
+    (request: Pending) => {
+      const selected = requestRecipients(request);
+      return !selected || selected.some((id) => recipients.includes(id));
+    },
+    [recipients],
+  );
+  const blocking = visible.requests?.find((request) => !request.acknowledged && touches(request));
   const disabledReason = !valid()
     ? 'Conversation unavailable.'
-    : visible.pending
+    : blocking
       ? 'Check the original request. Queued or uncertain work will not be resent.'
       : !recipients.length
         ? 'Choose who replies with @ or enable replies by default in Agents.'
@@ -258,34 +296,86 @@ export function useConversationSending(options: {
             visible.error ??
             (visible.ready ? undefined : (visible.reason ?? 'Checking recipient readiness…')));
   const send = useCallback(
-    async (text: string) => {
+    async (
+      text: string,
+      images?: CollaborationMessageInput['images'],
+      replyToMessageId?: string,
+      addressedRecipients?: string[],
+    ) => {
+      const audience = addressedRecipients ? [...new Set(addressedRecipients)] : recipients;
+      const selection = addressedRecipients
+        ? { kind: 'selected' as const, sessionIds: audience }
+        : responders;
       if (
-        disabledReason ||
+        (addressedRecipients
+          ? contextDisabledReason ||
+            audience.some(
+              (id) =>
+                !view?.participantSessionIds.includes(id) ||
+                view.unavailableParticipantSessionIds.includes(id),
+            )
+          : disabledReason) ||
         !valid() ||
         busy.current === owner ||
-        pending.current ||
+        requests.current.some(
+          (request) =>
+            !request.acknowledged &&
+            (!requestRecipients(request) ||
+              requestRecipients(request)!.some((id) => audience.includes(id))),
+        ) ||
         !view ||
-        !recipients.length ||
-        !responders ||
+        !audience.length ||
+        !selection ||
         !group ||
         !authScope
       )
         return false;
       busy.current = owner;
-      const preparation = { owner, cancelled: false };
+      const preparation = { owner, cancelled: false, recipients: audience };
       preparing.current = preparation;
       const generation = authGeneration.current;
       const fresh = () => valid() && authGeneration.current === generation;
+      // Selection changes replace readiness ownership, but the original caller
+      // still owns its submitted composer revision and exact durable receipt.
+      const receiptCurrent = () =>
+        mounted.current &&
+        authGeneration.current === generation &&
+        current.current.api === api &&
+        current.current.group === group &&
+        current.current.draftId === draftId &&
+        current.current.authScope === authScope &&
+        latest.current.getVerifiedAuthScope() === authScope;
+      const acceptOriginal = acceptedCallback.current;
       try {
+        if (addressedRecipients) {
+          const readiness = await Promise.all(
+            audience.map((id) => api.recipientReadiness(group, id)),
+          );
+          if (
+            !fresh() ||
+            readiness.some(
+              (r, i) =>
+                !r.ready ||
+                r.sessionId !== audience[i] ||
+                r.collaborationId !== group ||
+                r.membershipRevision !== view.membershipRevision ||
+                r.policySequence !== view.policySequence,
+            )
+          )
+            return false;
+        }
         const original: Pending = {
           collaborationId: group,
           authScope,
+          recipientSessionIds: audience,
           input: CollaborationMessageInputSchema.parse({
             requestId: createBrowserId(),
             expectedMembershipRevision: view.membershipRevision,
             expectedPolicySequence: view.policySequence,
             text,
-            responders,
+            ...(images?.length ? { images } : {}),
+            ...(replyToMessageId ? { replyToMessageId } : {}),
+            responders: selection,
             snapshot: snapshot ?? null,
           }),
         };
@@ -313,13 +403,15 @@ export function useConversationSending(options: {
         }
         preparing.current = undefined;
         const receipt = await api.send(group, original.input);
-        if (!valid()) return false;
+        if (!receiptCurrent()) return false;
         if (
           receipt.text !== text ||
-          receipt.responders.length !== recipients.length ||
-          !recipients.every((id) => receipt.responders.includes(id)) ||
-          receipt.deliveries.filter((d) => d.purpose === 'reply').length !== recipients.length ||
-          !recipients.every((id) =>
+          receipt.replyToMessageId !== original.input.replyToMessageId ||
+          JSON.stringify(receipt.images ?? []) !== JSON.stringify(original.input.images ?? []) ||
+          receipt.responders.length !== audience.length ||
+          !audience.every((id) => receipt.responders.includes(id)) ||
+          receipt.deliveries.filter((d) => d.purpose === 'reply').length !== audience.length ||
+          !audience.every((id) =>
             receipt.deliveries.some((d) => d.purpose === 'reply' && d.sessionId === id),
           ) ||
           receipt.membershipRevision !== original.input.expectedMembershipRevision ||
@@ -328,27 +420,36 @@ export function useConversationSending(options: {
         )
           throw Error('The receipt does not match the original request. Check its outcome.');
         await refresh();
-        if (!valid()) return false;
+        if (!receiptCurrent()) return false;
         // Only the validated exact receipt consumes one-prompt attachments.
         // The original send journal retains its snapshot for outcome recovery.
-        acceptedCallback.current?.(original.input);
+        acceptOriginal?.(original.input);
+        await retain({ ...original, acknowledged: true }, receiptCurrent);
+        // A verified durable prompt is accepted even while native delivery is
+        // pending or uncertain. Keep its independent journal for recovery;
+        // restoring its text would invite a duplicate send. A wholly refused
+        // audience still retains the editable draft.
         return receipt.deliveries.some(
-          (d) => d.purpose === 'reply' && ['queued', 'delivered'].includes(d.status),
+          (d) => d.purpose === 'reply' && !['failed', 'unavailable'].includes(d.status),
         );
       } catch (cause) {
         if (valid()) {
+          let cleanupFailed = false;
           if (cause instanceof CollaborationApiError && cause.dispatchNotStarted) {
             try {
               await retain();
             } catch {
-              /* The storage owner reports cleanup failure; preserve the original dispatch error. */
+              // The storage owner retains the structured cause. Keep both
+              // failures visible while preserving the original dispatch error.
+              cleanupFailed = true;
             }
           }
           publish({
             error:
-              cause instanceof Error
+              (cause instanceof Error
                 ? cause.message
-                : 'Delivery is uncertain. Check the original request.',
+                : 'Delivery is uncertain. Check the original request.') +
+              (cleanupFailed ? ' Recovery cleanup also failed. Keep this window open.' : ''),
           });
         }
         return false;
@@ -373,55 +474,90 @@ export function useConversationSending(options: {
       publish,
       snapshot,
       draftId,
+      contextDisabledReason,
     ],
   );
-  const stop = useCallback(async () => {
-    if (!valid() || !group) return;
-    if (preparing.current?.owner === owner) {
-      preparing.current.cancelled = true;
-      return;
-    }
-    const original = pending.current;
-    if (!original || original.authScope !== authScope || original.collaborationId !== group) return;
-    if (
-      stopping.current?.owner === owner &&
-      stopping.current.requestId === original.input.requestId
-    )
-      return;
-    const ownsRequest = () =>
-      valid() && pending.current?.input.requestId === original.input.requestId;
-    const operation = { owner, requestId: original.input.requestId };
-    const generation = authGeneration.current;
-    const fresh = () => ownsRequest() && authGeneration.current === generation;
-    stopping.current = operation;
-    try {
-      // Persist control intent before any request; reloading never starts a new
-      // send or automatically reissues a Stop with a different command identity.
-      await retain({ ...original, stopRequested: true }, fresh);
-      if (!fresh()) return;
-      publish({ stopStatus: 'Requesting Stop for the original prompt…' });
-      const result = await api.stopSend(group, original.input);
-      if (!ownsRequest()) return;
-      publish({
-        stopStatus: result.recipients.some((r) => ['uncertain', 'unavailable'].includes(r.status))
-          ? 'Stop could not be confirmed for every recipient. Check the original request; do not resend.'
-          : 'Stop requested. Waiting for the original commands to settle.',
-      });
-      await refresh();
-    } catch (cause) {
-      if (ownsRequest())
+  const stopOne = useCallback(
+    async (original: Pending, targetIds = recipients) => {
+      if (!valid() || !group) return;
+      if (
+        preparing.current?.owner === owner &&
+        targetIds.some((id) => preparing.current!.recipients.includes(id))
+      ) {
+        preparing.current.cancelled = true;
+        return;
+      }
+      if (original.authScope !== authScope || original.collaborationId !== group) return;
+      if (
+        stopping.current?.owner === owner &&
+        stopping.current.requestId === original.input.requestId
+      )
+        return;
+      const ownsRequest = () =>
+        valid() && requests.current.some((r) => r.input.requestId === original.input.requestId);
+      const operation = { owner, requestId: original.input.requestId };
+      const generation = authGeneration.current;
+      const fresh = () => ownsRequest() && authGeneration.current === generation;
+      stopping.current = operation;
+      try {
+        // Persist control intent before any request; reloading never starts a new
+        // send or automatically reissues a Stop with a different command identity.
+        await retain({ ...original, stopRequested: true }, fresh);
+        if (!fresh()) return;
+        publish({ stopStatus: 'Requesting Stop for the original prompt…' });
+        const allowed =
+          original.recipientSessionIds ??
+          (original.input.responders.kind === 'selected'
+            ? original.input.responders.sessionIds
+            : recipients);
+        const targets = targetIds.filter((id) => allowed.includes(id));
+        if (!targets.length) return;
+        const result =
+          allowed.length === targets.length && allowed.every((id) => targets.includes(id))
+            ? await api.stopSend(group, original.input)
+            : await api.stopSend(group, original.input, undefined, targets);
+        if (!ownsRequest()) return;
         publish({
-          stopStatus: 'Stop is uncertain. Check the original request; do not resend.',
-          error: cause instanceof Error ? cause.message : 'Could not confirm Stop.',
+          stopStatus: result.recipients.some((r) => ['uncertain', 'unavailable'].includes(r.status))
+            ? 'Stop could not be confirmed for every recipient. Check the original request; do not resend.'
+            : 'Stop requested. Waiting for the original commands to settle.',
         });
-    } finally {
-      if (stopping.current === operation) stopping.current = undefined;
-    }
-  }, [valid, group, owner, authScope, retain, publish, api, refresh]);
+        await refresh();
+      } catch (cause) {
+        if (ownsRequest())
+          publish({
+            stopStatus: 'Stop is uncertain. Check the original request; do not resend.',
+            error: cause instanceof Error ? cause.message : 'Could not confirm Stop.',
+          });
+      } finally {
+        if (stopping.current === operation) stopping.current = undefined;
+      }
+    },
+    [valid, group, owner, authScope, retain, publish, api, refresh, recipients],
+  );
+  const stop = useCallback(
+    async (targetIds = recipients) => {
+      if (
+        preparing.current?.owner === owner &&
+        targetIds.some((id) => preparing.current!.recipients.includes(id))
+      ) {
+        preparing.current.cancelled = true;
+        return;
+      }
+      const original = requests.current.filter(
+        (request) =>
+          !requestRecipients(request) ||
+          requestRecipients(request)!.some((id) => targetIds.includes(id)),
+      );
+      for (const request of original) await stopOne(request, targetIds);
+    },
+    [owner, recipients, stopOne],
+  );
   return {
     disabledReason,
     error: visible.error,
-    pending: visible.pending,
+    pending: visible.requests?.filter(touches).at(-1),
+    requests: visible.requests ?? [],
     stopStatus: visible.stopStatus,
     stop,
     check,

@@ -124,9 +124,19 @@ it('sends first and later selected prompts from the production shared composer a
     fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     // The historical source has no live send owner. Explicitly address only
     // the reviewer, preserving the new initial original-agent selection rule.
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Current agent', exact: true }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Independent reviewer' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+    expect(
+      screen
+        .getByRole('button', { name: 'Current agent', exact: true })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Current agent', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Independent reviewer', exact: true }));
+    expect(
+      screen
+        .getByRole('button', { name: 'Independent reviewer', exact: true })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(screen.queryByRole('group', { name: 'Who replies to this prompt' })).toBeNull();
     const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
     fireEvent.change(input, {
       target: { value: 'Review the selected design from the shared composer.' },
@@ -211,10 +221,14 @@ it('sends first and later selected prompts from the production shared composer a
     });
     await waitFor(() =>
       expect(
-        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+        (
+          screen.getByRole('button', {
+            name: /^(Send message|Queue message)$/,
+          }) as HTMLButtonElement
+        ).disabled,
       ).toBe(false),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    fireEvent.click(screen.getByRole('button', { name: /^(Send message|Queue message)$/ }));
     await waitFor(
       async () => {
         const view = await h.api.view(h.group);

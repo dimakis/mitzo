@@ -11,6 +11,9 @@ it.each([
   '/api/ordinary/workspaces/commands/first',
   '/api/ordinary/workspaces/commands/continue/receipt',
   '/api/sessions/offline-session/codex-queue/steer',
+  '/api/session-collaborations/offline-group/messages',
+  '/api/session-collaborations/offline-group/messages/observe',
+  '/api/session-collaborations/offline-group/messages/stop',
 ])('accepts an authenticated command above the old 10 MiB HTTP cap at %s', async (path) => {
   const app = express();
   installChatCommandJson(app, (req, res, next) => {
@@ -39,7 +42,13 @@ it.each([
   expect((await request(app).post(path).send({ images: [] })).status).toBe(401);
 });
 
-it.each(['/api/chat/runtime/send', '/api/sessions/offline-session/codex-queue/steer'])(
+it.each([
+  '/api/chat/runtime/send',
+  '/api/sessions/offline-session/codex-queue/steer',
+  '/api/session-collaborations/offline-group/messages',
+  '/api/session-collaborations/offline-group/messages/observe',
+  '/api/session-collaborations/offline-group/messages/stop',
+])(
   'keeps ordinary 401 authentication semantics and rejects internal callers before parsing at %s',
   async (path) => {
     const { authMiddleware, operatorAuthMiddleware, login, authenticateToken, revokeAuthSession } =

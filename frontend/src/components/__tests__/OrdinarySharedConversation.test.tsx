@@ -13,6 +13,7 @@ import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-dra
 import {
   sharedConversationView,
   sharedReply,
+  uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 import { installDialogStub } from './dialog-stub';
 import type { UseVoiceReturn } from '../../hooks/useVoice';
@@ -62,6 +63,7 @@ function fixture(
   originalName?: string,
 ) {
   const view = sharedConversationView();
+  const history: typeof view.messages = [];
   view.messages = [];
   view.policies.forEach((p) => {
     p.readsFutureDiscussion = false;
@@ -74,6 +76,10 @@ function fixture(
     view.policies = view.policies.slice(0, 1);
   }
   let failRead = false;
+  let acceptSends = false;
+  let deliveryStatus: 'delivered' | 'queued' | 'pending' | 'uncertain' = 'delivered';
+  let releaseSend: (() => void) | undefined;
+  let sendBarrier: Promise<void> | undefined;
   let delayedStatus: Promise<Response> | undefined;
   let progress: CollaborationProgress = {
     collaborationId: view.collaborationId,
@@ -83,7 +89,44 @@ function fixture(
   };
   const sends: CollaborationMessageInput[] = [];
   const stops: CollaborationMessageInput[] = [];
+  const steers: { sessionId: string; input: { requestId: string; targetCommandId: string } }[] = [];
+  const agentStops: { targets: { sessionId: string; deliveryId: string; commandId: string }[] }[] =
+    [];
   const transport = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes('/events') && history.length) {
+      const after = Number(new URL(url, 'http://offline').searchParams.get('after'));
+      const page = history.filter((message) => message.sequence > after).slice(0, 50);
+      const cursor = page.at(-1)?.sequence ?? after;
+      return Response.json({
+        events: page.map((message) => ({
+          version: 1,
+          collaborationId: view.collaborationId,
+          eventId: uuid(900 + message.sequence),
+          sequence: message.sequence,
+          change: { kind: 'message', message },
+        })),
+        cursor,
+        highWatermark: view.cursor,
+        hasMore: cursor < view.cursor,
+      });
+    }
+    if (url.endsWith('/codex-queue/steer')) {
+      const input = JSON.parse(init!.body as string);
+      steers.push({ sessionId: url.split('/')[3], input });
+      return Response.json({ requestId: input.requestId, status: 'accepted' });
+    }
+    if (url.endsWith('/agents/stop')) {
+      const input = JSON.parse(init!.body as string);
+      agentStops.push(input);
+      return Response.json({
+        requestId: input.requestId,
+        recipients: input.targets.map((target: { sessionId: string; deliveryId: string }) => ({
+          sessionId: target.sessionId,
+          deliveryId: target.deliveryId,
+          status: 'requested',
+        })),
+      });
+    }
     if (url.includes('/telos/work/links') || url.includes('/symposium/profile-proposals'))
       return Response.json([]);
     if (url.includes('/symposium/status'))
@@ -120,7 +163,34 @@ function fixture(
       return Response.json({ requestId: input.requestId, recipients: [] });
     }
     if (url.endsWith('/messages')) {
-      sends.push(JSON.parse(init!.body as string));
+      const input = JSON.parse(init!.body as string) as CollaborationMessageInput;
+      sends.push(input);
+      if (acceptSends) {
+        await sendBarrier;
+        const ids =
+          input.responders.kind === 'selected' ? input.responders.sessionIds : ['architect'];
+        const receipt = {
+          ...sharedConversationView().messages[0],
+          messageId: input.requestId,
+          projectionId: input.requestId,
+          text: input.text,
+          images: input.images,
+          snapshot: input.snapshot,
+          responders: ids,
+          readers: ids,
+          policySequence: input.expectedPolicySequence,
+          settings: Object.fromEntries(
+            ids.map((id) => [id, sharedConversationView().messages[0].settings[id]]),
+          ),
+          policyRevisions: Object.fromEntries(ids.map((id) => [id, 0])),
+          membershipRevision: input.expectedMembershipRevision,
+          deliveries: sharedConversationView()
+            .messages[0].deliveries.filter((d) => ids.includes(d.sessionId))
+            .map((d) => ({ ...d, status: deliveryStatus, reason: null })),
+        };
+        view.messages.push(receipt);
+        return Response.json(receipt);
+      }
       throw Error('Original send acknowledgement lost');
     }
     throw Error('Unexpected request: ' + url);
@@ -203,13 +273,24 @@ function fixture(
   );
   return {
     view,
+    history,
     tree,
     sends,
     stops,
+    steers,
+    agentStops,
     transport,
     ordinarySend,
     ordinaryStop,
     voice,
+    delaySend: (status: typeof deliveryStatus = 'delivered') => {
+      acceptSends = true;
+      deliveryStatus = status;
+      sendBarrier = new Promise<void>((resolve) => {
+        releaseSend = resolve;
+      });
+      return () => releaseSend?.();
+    },
     delayStatus: () => {
       let release!: (value: Response) => void;
       delayedStatus = new Promise<Response>((resolve) => {
@@ -240,21 +321,160 @@ function fixture(
   };
 }
 
+it.each(['delivered', 'queued', 'pending', 'uncertain'] as const)(
+  'clears an accepted shared prompt with %s delivery and retains a newer draft',
+  async (status) => {
+    for (const edited of [false, true]) {
+      const draft = { ...createChatDraft(), text: 'Original shared prompt' };
+      saveChatDraft(draft);
+      const f = fixture(false, draft, 'Architect');
+      const release = f.delaySend(status);
+      const rendered = render(f.tree());
+      await screen.findByRole('button', { name: 'Choose who replies' });
+      const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+      fireEvent.change(input, { target: { value: 'Send this prompt' } });
+      await waitFor(() =>
+        expect(
+          (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+        ).toBe(false),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+      await waitFor(() => expect(f.sends).toHaveLength(1));
+      expect(input).toHaveProperty('value', '');
+      if (edited) fireEvent.change(input, { target: { value: 'Keep this newer draft' } });
+      await act(async () => release());
+      await waitFor(() =>
+        expect(
+          getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend?.acknowledged,
+        ).toBe(true),
+      );
+      expect(input).toHaveProperty('value', edited ? 'Keep this newer draft' : '');
+      expect(getChatDraft(draft.id)?.text ?? '').toBe(edited ? 'Keep this newer draft' : '');
+      rendered.unmount();
+      localStorage.clear();
+      sessionStorage.clear();
+    }
+  },
+);
+
+it.each([false, true])(
+  'accepts the original composer revision after recipients change, with newer draft: %s',
+  async (edited) => {
+    const draft = { ...createChatDraft(), text: 'Original shared prompt' };
+    saveChatDraft(draft);
+    const f = fixture(false, draft, 'Architect');
+    const release = f.delaySend('pending');
+    render(f.tree());
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose who replies' }));
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    fireEvent.change(input, { target: { value: 'Send this prompt' } });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(f.sends).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Architect' }));
+    if (edited) fireEvent.change(input, { target: { value: 'Keep this newer draft' } });
+    await act(async () => release());
+    await waitFor(() =>
+      expect(
+        getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend?.acknowledged,
+      ).toBe(true),
+    );
+    expect(input).toHaveProperty('value', edited ? 'Keep this newer draft' : '');
+    expect(getChatDraft(draft.id)?.text ?? '').toBe(edited ? 'Keep this newer draft' : '');
+    expect(f.sends).toHaveLength(1);
+  },
+);
+
 it('keeps the original named agent as the explicit initial recipient', async () => {
   const f = fixture(false, undefined, 'Original architect');
   render(f.tree());
   const trigger = await screen.findByRole('button', { name: 'Choose who replies' });
   await waitFor(() => expect(trigger.title).toContain('Original architect'));
-  expect(trigger.textContent).toBe('');
+  expect(trigger.textContent).toBe('@');
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
   fireEvent.click(trigger);
   expect(
-    (screen.getByRole('checkbox', { name: 'Original architect' }) as HTMLInputElement).checked,
-  ).toBe(true);
-  expect((screen.getByRole('checkbox', { name: 'Reviewer' }) as HTMLInputElement).checked).toBe(
-    false,
+    screen.getByRole('button', { name: 'Original architect' }).getAttribute('aria-pressed'),
+  ).toBe('true');
+  expect(screen.getByRole('button', { name: 'Reviewer' }).getAttribute('aria-pressed')).toBe(
+    'false',
   );
+  expect(screen.queryByRole('group', { name: 'Who replies to this prompt' })).toBeNull();
   expect(f.sends).toHaveLength(0);
 });
+
+it.each([false, true])(
+  'uses targeted Stop and Steer after reopening with paged history: %s',
+  async (paged) => {
+    const f = fixture(false, undefined, 'Architect');
+    f.view.messages = [structuredClone(sharedConversationView().messages[0])];
+    f.view.messages[0].deliveries
+      .filter((delivery) => delivery.purpose === 'reply')
+      .forEach((delivery) => {
+        delivery.status = 'delivered';
+        delivery.reason = null;
+      });
+    if (paged) {
+      f.history.push(
+        f.view.messages[0],
+        ...Array.from({ length: 50 }, (_, index) => ({
+          ...structuredClone(sharedReply),
+          messageId: uuid(100 + index),
+          projectionId: uuid(200 + index),
+          sequence: index + 2,
+          text: `Later reply ${index}`,
+          deliveries: [],
+        })),
+      );
+      f.view.messages = f.history.slice(-50);
+      f.view.hasEarlierMessages = true;
+      f.view.cursor = 51;
+    }
+    const source = {
+      ...chat,
+      running: true,
+      messages: [
+        ...chat.messages,
+        {
+          messageId: 'ordinary-architect',
+          role: 'user' as const,
+          commandState: 'running' as const,
+          blocks: [
+            { blockId: 'active', blockType: 'text' as const, content: 'Original active request' },
+          ],
+        },
+      ],
+    };
+    render(f.tree(source));
+    await screen.findByRole('group', { name: 'Reply recipients' });
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    fireEvent.change(input, { target: { value: 'Check the UI before continuing' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Steer Architect, Reviewer' }));
+    await waitFor(() => expect(f.steers).toHaveLength(2));
+    expect(f.steers.map((request) => request.sessionId)).toEqual(['architect', 'reviewer']);
+    expect(new Set(f.steers.map((request) => request.input.targetCommandId)).size).toBe(2);
+    expect(screen.queryByRole('button', { name: 'Stop original agent' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Stop generation' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Send to / })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Steer Architect, Reviewer' }).textContent).toBe('');
+    expect(screen.getByRole('button', { name: 'Stop Architect, Reviewer' }).textContent).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Architect, Reviewer' }));
+    await waitFor(() => expect(f.agentStops).toHaveLength(2));
+    expect(
+      f.agentStops.flatMap((request) => request.targets.map((target) => target.sessionId)),
+    ).toEqual(['architect', 'reviewer']);
+    expect(f.ordinaryStop).not.toHaveBeenCalled();
+    expect(f.sends).toHaveLength(0);
+    expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
+  },
+);
 
 it('retains the original context wheel, microphone and resource controls through sharing and responsive qualification', async () => {
   const f = fixture(true, undefined, 'Architect');
@@ -265,21 +485,22 @@ it('retains the original context wheel, microphone and resource controls through
   f.join();
   await poll();
   const recipients = await screen.findByRole('button', { name: 'Choose who replies' });
-  expect(recipients.textContent).toBe('');
+  expect(recipients.textContent).toBe('@');
   fireEvent.click(recipients);
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Architect' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Architect' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
   const release = f.delayStatus();
   h.rerender(f.tree({ ...chat, running: true }, 'desktop', false));
   expect(screen.getByRole('textbox')).toBe(input);
-  expect(screen.getByRole('button', { name: 'Token usage' })).toBe(wheel);
+  const sharedWheel = screen.getByRole('button', { name: 'Token usage' });
+  expect(sharedWheel.classList.contains('conversation-context-wheel')).toBe(true);
+  expect(sharedWheel).not.toBe(wheel);
   expect(screen.getByRole('button', { name: 'Record voice message' })).toBe(mic);
-  fireEvent.click(wheel);
-  expect(screen.getByText('Current context')).toBeTruthy();
-  expect(within(wheel.closest('.token-wheel-control')!).getByText('Architect')).toBeTruthy();
-  expect(wheel.title).toContain('Architect');
-  fireEvent.keyDown(document, { key: 'Escape' });
+  fireEvent.click(sharedWheel);
+  const contextDialog = screen.getByRole('dialog', { name: 'Context by agent' });
+  expect(within(contextDialog).getByText('Architect')).toBeTruthy();
+  expect(within(contextDialog).getByText('Reviewer')).toBeTruthy();
+  fireEvent.click(within(contextDialog).getByRole('button', { name: 'Close' }));
   fireEvent.click(mic);
   expect(f.voice.startRecording).toHaveBeenCalledOnce();
   expect(screen.getByRole('link', { name: 'Terminal' })).toBeTruthy();
@@ -328,14 +549,13 @@ it('retains the shared composer and transcript while a resized page requalifies 
   expect(screen.getByRole('button', { name: 'Choose who replies' })).toBeTruthy();
   expect(f.sends).toHaveLength(0);
   fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Current agent' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Current agent' }));
   await waitFor(() =>
-    expect(
-      (screen.getByRole('checkbox', { name: 'Current agent' }) as HTMLInputElement).checked,
-    ).toBe(false),
+    expect(screen.getByRole('button', { name: 'Current agent' }).getAttribute('aria-pressed')).toBe(
+      'false',
+    ),
   );
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reviewer' }));
   await waitFor(() =>
     expect(
       (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
@@ -381,7 +601,9 @@ it('keeps the actual ordinary transcript and composer mounted through joining an
   rerender(f.tree({ ...chat, running: true }));
   expect(screen.getByRole('textbox')).toBe(input);
   expect(screen.getByRole('button', { name: 'Choose who replies' })).toBe(recipients);
-  expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(false);
+  expect(screen.getByRole('button', { name: 'Queue message' }).hasAttribute('disabled')).toBe(
+    false,
+  );
   expect(screen.getByText('Ordinary history before joining')).toBeTruthy();
   expect(
     f.transport.mock.calls
@@ -390,7 +612,7 @@ it('keeps the actual ordinary transcript and composer mounted through joining an
   ).toBe(true);
 });
 
-it('retains ordinary attachments with a precise shared-route limitation and keeps Terminal navigation', async () => {
+it('retains ordinary attachment previews and enables screenshot delivery while keeping Terminal navigation', async () => {
   const draft = {
     ...createChatDraft(),
     text: 'Draft with retained attachment',
@@ -409,8 +631,14 @@ it('retains ordinary attachments with a precise shared-route limitation and keep
   await screen.findByRole('button', { name: 'Choose who replies' });
   expect(screen.getByRole('textbox')).toBe(input);
   expect(screen.getByRole('img', { name: 'Attachment 1' })).toBe(image);
-  await screen.findByText(/This shared route supports text and reviewed prompt context/);
-  expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true);
+  expect(
+    screen.queryByText(/This shared route supports text and reviewed prompt context/),
+  ).toBeNull();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
   expect(screen.queryByRole('button', { name: 'Refresh conversation' })).toBeNull();
   expect(screen.getByRole('link', { name: 'Terminal' }).getAttribute('href')).toBe(
     '/terminal?sessionId=architect',
@@ -471,7 +699,7 @@ it('merges rich original history, source echoes and authorized live/final replie
 });
 
 it.each(['selected', 'default'] as const)(
-  'preserves saved %s empty intent and opens the picker as its recovery action',
+  'preserves saved %s empty intent and focuses inline recipients as its recovery action',
   async (kind) => {
     const f = fixture();
     saveChatDraft({
@@ -487,7 +715,7 @@ it.each(['selected', 'default'] as const)(
     });
     render(f.tree());
     const trigger = (await screen.findAllByRole('button', { name: 'Choose who replies' })).find(
-      (button) => button.classList.contains('composer-responders-trigger'),
+      (button) => button.getAttribute('data-responder-trigger') === 'inline',
     )!;
     expect(
       getChatDraft('shared:' + f.view.collaborationId)?.settings.collaborationResponders
@@ -497,9 +725,9 @@ it.each(['selected', 'default'] as const)(
     const choose = await screen.findAllByRole('button', { name: 'Choose who replies' });
     expect(choose.length).toBeGreaterThan(1);
     fireEvent.click(choose.find((button) => button !== trigger)!);
-    const picker = screen.getByRole('group', { name: 'Who replies to this prompt' });
-    fireEvent.click(within(picker).getByRole('checkbox', { name: 'Current agent' }));
-    fireEvent.click(within(picker).getByRole('button', { name: 'Done choosing replies' }));
+    const picker = screen.getByRole('group', { name: 'Reply recipients' });
+    fireEvent.click(within(picker).getByRole('button', { name: 'Current agent' }));
+    expect(screen.queryByRole('group', { name: 'Who replies to this prompt' })).toBeNull();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(
         false,
@@ -512,6 +740,7 @@ it.each(['selected', 'default'] as const)(
     const identity = f.sends[0].requestId;
     f.fail();
     fireEvent.click(await screen.findByRole('button', { name: 'Check original request' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
     await waitFor(() =>
       expect(screen.getByText('Offline: retained discussion read failed')).toBeTruthy(),
     );
@@ -562,10 +791,14 @@ it('keeps explicit routing and retained send/Stop identity when the selected par
   h.rerender(f.tree({ ...chat, running: true }));
   expect(screen.getByRole('textbox')).toBe(input);
   expect(screen.getByRole('button', { name: 'Choose who replies' }).title).toContain('Unavailable');
-  fireEvent.click(screen.getByRole('button', { name: 'Stop original agent' }));
-  expect(f.ordinaryStop).toHaveBeenCalledOnce();
-  expect(f.stops).toHaveLength(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Current agent' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /Stop .*Current agent/ })).toBeTruthy(),
+  );
+  expect(screen.queryByRole('button', { name: 'Stop original agent' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Stop generation' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Stop .*Current agent/ }));
   await waitFor(() => expect(f.stops).toEqual([original]));
   expect(f.ordinaryStop).toHaveBeenCalledOnce();
   expect(getChatDraft('shared:' + f.view.collaborationId)?.collaborationSend).toMatchObject({

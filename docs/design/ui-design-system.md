@@ -28,6 +28,25 @@ on phone/desktop, both themes and alternate appearance; see
 
 # Mitzo UI design contract
 
+## Shared conversation controls — approved revision 3
+
+Preserve the existing Agents menu and icon-only composer. Status and recipients
+share its mounted information line above the composer. Inline @ remains collapsible.
+With multiple participants, the rainbow context wheel opens the shared dialog with
+one ordinary recorded-usage row per agent, preserving unavailable/error states and
+Refresh. Its number is agent count; percentages belong to individual measured usage.
+Use the shared seat palette, HomeDialog, SeatLabel and SessionContextUsage.
+
+Keep recorded dates/times, Copy, Read aloud, Reply and Forward together in the
+existing message actions. Reply quotes and forwarding reviews retain exact source
+author/time/text. The server captures reply references and canonical public message
+selectors. Forward supplies context to reviewed recipients; the unchecked Ask for
+a reply choice sends a separately journaled ordinary prompt. Recovery never starts
+that follow-up. Agents read when addressed; retain honest existing automatic-reader
+policy state and allow explicit removal. Preserve Add agent, preview, Details and
+Chat settings. Approved by Dimitri on 16 November 2026 after interactive revision 3;
+see the appended Symposium approval in the ledger. Runtime adoption remains separate.
+
 ## Conversation tree navigation
 
 The existing Return to lead chat link resolves the current canonical reporting
@@ -1801,17 +1820,32 @@ through status qualification; its routing updates independently of source activi
 An exact current send's correlated assignment or fork transfers the existing input,
 later edits and remaining queued prompts. Unrelated navigation retires that input's
 dispatch fence; late assignments cannot transfer it to another conversation. The
-original agent's Stop and a retained shared request's Stop keep separate owners,
-including when a reviewer request is uncertain while the original agent runs.
+original agent's Stop and a retained shared request's Stop keep separate owners
+behind one selected-agent Stop action, including when a reviewer request is
+uncertain while the original agent runs. Selected running agents can receive
+an exact-command correction through Steer; each agent retains its own receipt.
 The initial explicit recipient remains the original agent. Saved empty choices stay
-empty, with Choose who replies opening the existing picker. Unsupported shared
-attachments remain available to remove with a precise explanation. Refresh checks
+empty, with Choose who replies focusing the inline recipient controls. Screenshot
+attachments retain ordinary paste, preview and delivery behavior. Refresh checks
 stale state; uncertain sends and Stop keep their original request identity.
-The ordinary shared recipient trigger remains icon-only; names and unavailable
-selection details remain in its picker, tooltip and accessible description. Keep
+The ordinary shared recipient trigger displays @ with stable selected-agent color
+marks. Recipient names expand and collapse inline without a popup; the default
+collapsed toolbar retains its existing icons. On narrow widths the optional names
+strip can use a second line and remains collapsible. Agent activity, sharing
+policies, preview, Details, Chat settings and Add agent stay in the top Agents
+dialog; the composer does not duplicate that activity roster. Send occupies the
+existing Stop slot while the selected agents run. Lightning steers; the existing
+Queue icon sends a follow-up through the shared delivery owner. These action
+buttons remain icon-only with explicit accessible names and tooltips. An uncertain
+request prevents conflicting delivery to its recipients while other agents remain
+selectable. Replies integrate the agent name and stable agent accent inside their
+existing bubble; timestamps use recorded source time. Keep
 the existing microphone, resources, tools and context wheel mounted. Until
 per-agent usage is available, the wheel identifies its original agent explicitly;
 changing reply recipients must never relabel that agent's usage as another's.
+Composer draft changes must not rebuild unchanged transcript inputs or trigger a
+scroll-to-bottom effect. New reply content still follows the retained reader intent;
+reading earlier replies and source navigation keep their scroll ownership.
 Active ordinary sharing also keeps participant names visible in its existing header
 action. On phone the named trigger takes the former metadata summary's space;
 settings retain those details. The bot, back, access, settings and new-chat controls
@@ -1830,8 +1864,11 @@ review button. The ordinary application setup now reuses the compact settings ro
 and `QuickSettingsChoices` within its own navigation scope. Name and purpose appear
 first; Agent, Account, Model, Thinking, Where it runs and Starting context open their
 existing editors on request. Back, Done and Escape return to the originating row.
-Repository preparation is required before review, with the missing choice explained
-beside the action. The built-in Default Mitzo selection is pinned explicitly before
+The configured ordinary default repository is used without a separate repository
+choice (Dimitri's explicit correction, 16 November 2026). The server resolves a
+fresh account-bound preparation before freezing the review; an alternate repository
+remains optional in Where it runs. Missing defaults or unavailable preparation keep
+the review visibly unavailable. The built-in Default Mitzo selection is pinned explicitly before
 capture; an empty library selection must never stand in for that reviewed identity.
 Legacy retained/reference surfaces preserve their existing owner and expanded fields.
 

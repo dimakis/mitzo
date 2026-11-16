@@ -29,12 +29,17 @@ import {
 import { assertOrdinarySilentPreparationAuthority } from './ordinary-repository-preparation-authority.js';
 import { OrdinaryCollaborationReview } from './collaboration-review-owner.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
+import { createSharedConversationContextSource } from './collaboration-shared-context-source.js';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import { contextDigest } from './agent-context-compiler.js';
 import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
+import { prepareOrdinaryDefaultRepository } from './ordinary-default-repository.js';
+import { createLogger } from './logger.js';
+import { retainRuntimeFailure, runtimeFailureDiagnostics } from './runtime-failure-diagnostics.js';
+import { randomUUID } from 'node:crypto';
 
 const unavailable = () => new CollaborationContractError('execution_unavailable');
 
@@ -104,6 +109,10 @@ export class CollaborationApplicationReview {
     signal: AbortSignal,
   ) {
     const input = CollaborationPromptReviewInputSchema.parse(raw);
+    const sharedSource =
+      input.selection.sourceConversationId === group &&
+      input.selection.mode === 'selected' &&
+      !input.selection.artifacts.length;
     const inputSha = createHash('sha256').update(JSON.stringify(input)).digest('hex');
     const operator = captureAgentLibraryAuthorization(operatorConnectionId);
     const assertObservation = () => {
@@ -114,13 +123,15 @@ export class CollaborationApplicationReview {
         !isAuthSessionCurrent(auth) ||
         operator.auth.id !== auth.id ||
         !this.operatorCurrent(auth, operatorConnectionId) ||
-        !source ||
-        source.isHidden ||
-        source.sessionType === 'symposium' ||
-        source.symposiumConfig ||
-        !this.owners.store
-          .getSessionCollaboration(group)
-          ?.participantSessionIds.includes(source.sessionId)
+        (!sharedSource &&
+          (!source ||
+            source.isHidden ||
+            source.sessionType === 'symposium' ||
+            source.symposiumConfig ||
+            !this.owners.store
+              .getSessionCollaboration(group)
+              ?.participantSessionIds.includes(source.sessionId))) ||
+        (sharedSource && !this.owners.store.getSessionCollaboration(group))
       )
         throw unavailable();
     };
@@ -212,11 +223,13 @@ export class CollaborationApplicationReview {
       return result(snapshot);
     }
     assertCurrent();
-    const source = createCollaborationContextSource({
-      store: this.owners.store,
-      authorizeConversation: async () => assertCurrent(),
-      assertConversationCurrent: assertCurrent,
-    });
+    const source = sharedSource
+      ? createSharedConversationContextSource(this.owners.store, group, assertCurrent)
+      : createCollaborationContextSource({
+          store: this.owners.store,
+          authorizeConversation: async () => assertCurrent(),
+          assertConversationCurrent: assertCurrent,
+        });
     const review = new OrdinaryCollaborationReview({
       store: this.owners.store,
       source: () => source,
@@ -347,9 +360,47 @@ export class CollaborationApplicationReview {
 
     let resolved: Awaited<ReturnType<CollaborationApplicationReview['resolveSettings']>>;
     try {
-      resolved = await this.resolveSettings(input.target, operatorConnectionId, signal);
-    } catch {
-      // Account/credential/provider diagnostics may contain private paths or text.
+      let target = input.target;
+      if (target.useDefaultRepository) {
+        if (target.runOn !== 'local') throw unavailable();
+        const prior =
+          previous &&
+          this.owners.store.collaborationConversation.getReviewCompilationForSnapshot(
+            group,
+            previous.snapshotId,
+          );
+        if (prior && (prior.operatorId !== auth.id || prior.settings.length !== 1))
+          throw unavailable();
+        const profiles = loadAccountProfiles();
+        const binding = profiles.resolve(target.accountId, target.model);
+        profiles.validateModelSelection(binding, target.model, target.reasoningEffort);
+        const repositoryWorkspaceId = prior
+          ? prior.settings[0].repositoryWorkspaceId
+          : await prepareOrdinaryDefaultRepository({
+              workspaces: this.owners.workspaces,
+              binding,
+              mode: target.permissionMode,
+              requestId: nativeStartupSessionId(
+                `collaboration-default:${auth.id}:${group}:${input.selection.requestId}`,
+              ),
+              signal,
+              assertCurrent: assertObservation,
+            });
+        target = { ...target, repositoryWorkspaceId };
+      }
+      resolved = await this.resolveSettings(target, operatorConnectionId, signal);
+    } catch (cause) {
+      const diagnosticId = randomUUID();
+      retainRuntimeFailure(diagnosticId, cause, () =>
+        createLogger('collaboration-review').error('Joining settings unavailable', {
+          code: 'collaboration_joining_settings_failed',
+          stage: 'settings',
+          diagnosticId,
+          collaborationId: group,
+          requestId: input.selection.requestId,
+          ...runtimeFailureDiagnostics(cause),
+        }),
+      );
       throw unavailable();
     }
     assertObservation();
@@ -424,6 +475,7 @@ export class CollaborationApplicationReview {
   ) {
     signal.throwIfAborted();
     if (!target.agent) throw unavailable(); // The ordinary profile resolver has no implicit default.
+    if (!target.repositoryWorkspaceId) throw unavailable();
     const record = this.owners.workspaces.get(target.repositoryWorkspaceId);
     const proof = record.ordinaryPreparation;
     const reservationSessionId = nativeStartupSessionId(`repository:${record.id}`);

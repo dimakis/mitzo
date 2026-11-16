@@ -48,6 +48,24 @@ it('keeps one mounted summary while notices change and exposes every action in d
   expect(screen.getByLabelText('Next draft')).toHaveProperty('value', 'Keep this draft');
 });
 
+it('keeps equal-priority status sources in their mounted order when their content rerenders', () => {
+  function Fixture({ count }: { count: number }) {
+    return (
+      <ComposerStatusProvider>
+        <ComposerStatusNotice message="Checking original request">
+          <span>Details {count}</span>
+        </ComposerStatusNotice>
+        <ComposerStatusNotice message="Refreshing agent activity" />
+        <ComposerStatusRail />
+      </ComposerStatusProvider>
+    );
+  }
+  const h = render(<Fixture count={1} />);
+  expect(screen.getByRole('status').textContent).toBe('Checking original request');
+  h.rerender(<Fixture count={2} />);
+  expect(screen.getByRole('status').textContent).toBe('Checking original request');
+});
+
 it('combines simultaneous problems and retains the remaining problem after one clears', () => {
   function Fixture({ first = true }: { first?: boolean }) {
     return (
