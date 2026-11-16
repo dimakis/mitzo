@@ -6,14 +6,17 @@ vi.mock('../sdk-secondary-repository-filesystem.js', async () => {
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const { mkdir } = await import('node:fs/promises');
+  const { validatePath } = await import('../sandbox-authority.js');
   const run = promisify(execFile);
   return {
     sdkSecondaryRepositoryFilesystem: () => ({
       mkdir: async (path: string) => {
         await mkdir(path, { recursive: true });
       },
-      git: (args: string[], env: Record<string, string>) =>
-        run('git', args, { env, encoding: 'utf8' }),
+      git: (args: string[], env: Record<string, string>, scratch?: string) => {
+        if (scratch) validatePath(scratch);
+        return run('git', args, { env, encoding: 'utf8' });
+      },
     }),
   };
 });
@@ -86,6 +89,22 @@ async function fixture() {
     },
   };
 }
+it('materializes through the canonical scratch root when the temporary directory is an alias', async () => {
+  const f = await fixture();
+  const physical = join(f.options.workspaceDirectory, 'physical-temp');
+  const alias = join(f.options.workspaceDirectory, 'temp-alias');
+  await mkdir(physical);
+  await symlink(physical, alias);
+  const previous = process.env.TMPDIR;
+  process.env.TMPDIR = alias;
+  try {
+    const task = await prepareSdkSecondaryRepository(f.options);
+    expect(git(task.directory, 'show', 'HEAD:code.txt')).toBe('original');
+  } finally {
+    if (previous === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previous;
+  }
+});
 it('prepares, edits, commits and reopens an isolated repository without changing the primary or source work', async () => {
   const f = await fixture();
   const sourceHead = git(f.source, 'rev-parse', 'HEAD');

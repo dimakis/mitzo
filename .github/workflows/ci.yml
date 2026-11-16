@@ -600,14 +600,26 @@ jobs:
         env:
           MITZO_TEST_OS_SANDBOX: '1'
         run: |
-          npx vitest run server/__tests__/sdk-secondary-repository-filesystem.native.test.ts --maxWorkers=1 --reporter=default --reporter=github-actions --reporter=json --outputFile=test-results/claude-repository-allocation.json
+          vitest_exit=0
+          npx vitest run server/__tests__/sdk-secondary-repository-filesystem.native.test.ts --maxWorkers=1 --reporter=default --reporter=github-actions --reporter=json --outputFile=test-results/claude-repository-allocation.json || vitest_exit=$?
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           const result = JSON.parse(readFileSync('test-results/claude-repository-allocation.json', 'utf8'));
           if (!result.success || result.numPassedTests !== 6 || result.numPendingTests !== 0) {
+            const escape = text => text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+            for (const suite of result.testResults ?? []) {
+              const failures = (suite.assertionResults ?? []).filter(test => test.status === 'failed');
+              const messages = failures.length
+                ? failures.map(test => test.fullName + ': ' + (test.failureMessages ?? []).join('\n'))
+                : [suite.message || 'Allocation suite did not qualify all six required cases'];
+              for (const message of messages.slice(0, 6)) {
+                console.error('::error file=server/__tests__/sdk-secondary-repository-filesystem.native.test.ts,line=1::' + escape(message.slice(0, 4096)));
+              }
+            }
             throw new Error('All six Claude repository allocation and race checks must execute through the real OS boundary');
           }
           NODE
+          test "$vitest_exit" -eq 0
       - name: Verify complete native repository workflows on both owned account routes
         if: ${{ !cancelled() }}
         env:

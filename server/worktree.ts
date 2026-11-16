@@ -12,7 +12,7 @@ import {
   readlinkSync,
   unlinkSync,
 } from 'fs';
-import { mkdir, mkdtemp, rm, stat as statAsync } from 'fs/promises';
+import { mkdir, mkdtemp, realpath, rm, stat as statAsync } from 'fs/promises';
 import { join, resolve, dirname } from 'path';
 import { tmpdir } from 'os';
 import { observeLocalCodexPhase, observeLocalCodexSyncPhase } from './local-codex-observation.js';
@@ -273,7 +273,7 @@ async function materializeLocalWorktree(
   const format = (await git(['-C', baseRepo, 'rev-parse', '--show-object-format'])).stdout.trim();
   if (!['sha1', 'sha256'].includes(format)) throw Error('Unsupported local Git object format');
   await beforeEffect?.();
-  const scratch = await mkdtemp(join(tmpdir(), 'mitzo-worktree-materialization-'));
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-worktree-materialization-')));
   try {
     await git(
       [

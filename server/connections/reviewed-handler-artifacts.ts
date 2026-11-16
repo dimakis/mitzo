@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1239-claude-base-settlement';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1240-claude-physical-scratch';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -44,7 +44,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-workspace-prompt.ts':
     'ff9b2df9050f1165f287d39ddf32e5c1dec03637d31ba2e728b2d198df973b46',
   '../__tests__/sdk-secondary-repository.test.ts':
-    '2da87ab577c7602f9bdcc6b14695f93fc143b28076e9f19e50aef6f8ed75940b',
+    'f9c4f72891fc2bc1eef0e5778a7b80531d5c71935841669a95cebf65396630ea',
   '../__tests__/sdk-repository-read-owner.test.ts':
     'cfa204cd32ff49683160db056e2b99ae06f132435f96fec0278aaed1811a82b1',
   '../__tests__/sdk-repository-callback.test.ts':
@@ -190,9 +190,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '94e40be496c1189fa0979cc0e6c635e4d21d455e8222283a20a68288eea16d1f',
+    '0184003dd9a626ea2bb12b0ae4ccbabdb2ce2aacfad8f61ba780fc0448620f90',
   '../../scripts/__tests__/ci-claude-repository-setup.test.ts':
-    'ca049c8e502142e304c8dcff47bd7b53861068c4fe51133f55a871871318bcac',
+    '5c9a5906e7acb482ced2e7eafda12c51b09fa16b5f62a57c2e17f0d9f019ca48',
   '../../.github/workflows/pr-landing-reconcile.yml':
     'c4f43fcbd69bc4bbd657f2d89982b307c158bc7363d118f436eb2083a6daf91a',
   '../../.github/workflows/pr-landing-request.yml':
@@ -4840,7 +4840,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../workspace-runtime-private-paths.ts':
     '0bc5efcb7aa3341ccdd237923f591ee074dbdd9631525a9c4f25b8fef2aa88e5',
-  '../worktree.ts': '1e0cebe1ddd351d11a3aad1f205a5dbf68b904a88f079151111b09ebc75cb8a9',
+  '../worktree.ts': '5e4d8290f307c8bd456db6eed717a1d531d70a11db359314daa9b36ed0f7f292',
   '../ws-handler-v2.ts': 'f75eb85f7d4ae6f1cdbf462d0643308b244f9831cfc593903f80688666a810cc',
   'capabilities/approval.ts': '23f8d2d336c01d4680c322b105f1125bc66cc4ac5c7b2a910afcba5d31f48508',
   'capabilities/github-publish-pr-transport.ts':
