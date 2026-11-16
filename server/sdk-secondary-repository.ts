@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EventStore } from './event-store.js';
+import { AuthoritySnapshot } from './sandbox-authority.js';
 import { captureLocalRepository } from './local-repository-worktree.js';
 import { createWorktreeAsync } from './worktree.js';
 import {
@@ -51,6 +52,44 @@ export async function currentSdkSecondaryRepositoryTask(
 }
 
 type Events = Pick<EventStore, 'getSessionWorktreeRecords' | 'append'>;
+
+const TASK_ROOT = ['.claude', 'repository-tasks'] as const;
+const unlessMissing = (error: NodeJS.ErrnoException) => {
+  if (error.code !== 'ENOENT') throw error;
+  return undefined;
+};
+/** The sandboxed agent can write inside its workspace, so the unsandboxed
+ * controller never follows a link there. Each task-root level is adopted or
+ * created one at a time without following links, then the whole ancestor chain
+ * is pinned (sandbox-authority) and re-verified before every Git effect. */
+async function pinPhysicalTaskRoot(workspace: string, directory: string) {
+  let path = workspace;
+  for (const level of TASK_ROOT) {
+    path = join(path, level);
+    let info = await lstat(path).catch(unlessMissing);
+    if (!info) {
+      // mkdir never follows a final-component link; EEXIST is re-inspected below.
+      await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST') throw error;
+      });
+      info = await lstat(path);
+    }
+    if (!info.isDirectory() || (await realpath(path)) !== path)
+      throw Error('Claude repository task root must be a physical workspace directory');
+  }
+  const authority = new AuthoritySnapshot();
+  authority.capture(path);
+  return async () => {
+    try {
+      authority.verify();
+    } catch {
+      throw Error('Claude repository task root is no longer the physical workspace directory');
+    }
+    const leaf = await lstat(directory).catch(unlessMissing);
+    if (leaf && (!leaf.isDirectory() || (await realpath(directory)) !== directory))
+      throw Error('Claude repository task directory must be physical');
+  };
+}
 function retained(record: Record<string, unknown>): RepositoryTaskCheckout | undefined {
   if (record.sdkSecondary !== true) return undefined;
   const task = record.task as RepositoryTaskCheckout | undefined;
@@ -114,7 +153,7 @@ export async function prepareSdkSecondaryRepository(options: {
     .slice(0, 32);
   const name = `claude-${identity}`;
   const branch = `mitzo/${name}`;
-  const taskRoot = join(options.workspaceDirectory, '.claude', 'repository-tasks');
+  const taskRoot = join(options.workspaceDirectory, ...TASK_ROOT);
   const directory = join(taskRoot, name);
   const record = options.events
     .getSessionWorktreeRecords(options.conversationId)
@@ -133,6 +172,9 @@ export async function prepareSdkSecondaryRepository(options: {
     options.base.kind === 'ref' ? options.base.ref : undefined,
   );
   await current();
+  const physical = await pinPhysicalTaskRoot(options.workspaceDirectory, directory);
+  await current();
+  await physical();
   await createWorktreeAsync(name, options.sourcePath, {
     dir: taskRoot,
     branch,
@@ -140,7 +182,11 @@ export async function prepareSdkSecondaryRepository(options: {
     abortSignal: options.signal,
     safeLocalPreparation: true,
     safeLocalRequireNew: true,
-    safeLocalBeforeEffect: current,
+    // Authority first, then physical identity closest to each Git effect.
+    safeLocalBeforeEffect: async () => {
+      await current();
+      await physical();
+    },
   });
   await current();
   const task = await snapshotRepositoryTaskCheckout(directory, branch, localSource);

@@ -1,7 +1,17 @@
 import './fixtures/offline-user-home.js';
 import { afterEach, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
@@ -159,6 +169,38 @@ it('refuses revoked owners before allocation and changed or missing retained tas
   await rm(task.directory, { recursive: true });
   await expect(prepareSdkSecondaryRepository(f.options)).rejects.toThrow();
 });
+it.each(['.claude', 'repository-tasks', 'swapped before Git'] as const)(
+  'refuses a %s link without writing outside the workspace',
+  async (link) => {
+    const f = await fixture();
+    const outside = await realpath(await mkdtemp(join(tmpdir(), 'sdk-secondary-outside-')));
+    cleanups.push(() => rm(outside, { recursive: true, force: true }));
+    const claude = join(f.options.workspaceDirectory, '.claude');
+    const taskRoot = join(claude, 'repository-tasks');
+    if (link === '.claude') await symlink(outside, claude);
+    if (link === 'repository-tasks') {
+      await mkdir(claude);
+      await symlink(outside, taskRoot);
+    }
+    let swapped = false;
+    await expect(
+      prepareSdkSecondaryRepository({
+        ...f.options,
+        // The sandboxed agent may replace a checked ancestor at any later await.
+        assertCurrent: async () => {
+          if (link !== 'swapped before Git' || swapped || !existsSync(taskRoot)) return;
+          swapped = true;
+          await rename(taskRoot, join(claude, 'checked-task-root'));
+          await symlink(outside, taskRoot);
+        },
+      }),
+    ).rejects.toThrow(/physical/);
+    expect(link !== 'swapped before Git' || swapped).toBe(true);
+    expect(await readdir(outside)).toEqual([]);
+    expect(git(f.source, 'branch', '--list', 'mitzo/*')).toBe('');
+    expect(git(f.source, 'worktree', 'list', '--porcelain')).not.toContain('claude-');
+  },
+);
 it('requires a fresh approval for every source repository even after an Always answer', async () => {
   const registry = new SessionRegistry();
   cleanups.push(() => registry.dispose());
