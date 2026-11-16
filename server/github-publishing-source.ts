@@ -47,6 +47,7 @@ export function sdkSecondaryGithubStorageRoots(
   const roots: string[] = [];
   for (const record of events.getSessionWorktreeRecords(session.sessionId)) {
     const task = record.task as Partial<RepositoryTaskCheckout> | undefined;
+    const source = task?.localSource;
     const inTaskRoot = typeof record.path === 'string' ? relative(taskRoot, record.path) : '';
     if (
       record.sdkSecondary !== true ||
@@ -57,11 +58,12 @@ export function sdkSecondaryGithubStorageRoots(
       isAbsolute(inTaskRoot) ||
       !task?.linkedGit ||
       task.directory !== record.path ||
-      task.localSource?.path !== record.sourcePath ||
-      typeof task.localSource.commonDirectory !== 'string'
+      !source ||
+      source.path !== record.sourcePath ||
+      typeof source.commonDirectory !== 'string'
     )
       continue;
-    roots.push(task.localSource.commonDirectory);
+    roots.push(source.commonDirectory);
   }
   return roots;
 }
