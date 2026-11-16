@@ -259,6 +259,75 @@ it('does not preserve a stale streaming copy merely because its blocks were retr
   expect(JSON.stringify(store.getState().messages.messages)).toContain('Read');
 });
 
+it.each([false, true])(
+  'retains tool activity across metadata and preserves a newer unsequenced owner=%s',
+  async (newOutput) => {
+    const { sessionId, append, reader, responseOwner, store } = await fixture(true);
+    store.setState((s) => ({
+      messages: {
+        ...s.messages,
+        messages: s.messages.messages.filter((m) => m.messageId !== 'old'),
+      },
+    }));
+    channel.listener({ type: 'message_start', sessionId, messageId: 'old' });
+    for (const type of ['block_start', 'block_end'])
+      channel.listener({
+        type,
+        sessionId,
+        messageId: 'old',
+        blockId: 'tool',
+        blockType: 'tool_use',
+        toolId: 'read',
+        toolName: 'Read',
+      });
+    const prefix = await reader.getSessionTranscript(sessionId);
+    let release!: (value: typeof prefix) => void;
+    responseOwner.read = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    channel.listener({ type: '_foreground' });
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const receipt = { sessionId, messageId: 'old' };
+    const receiptSeq = append('message_retracted', receipt);
+    channel.listener({ type: 'message_retracted', ...receipt, seq: receiptSeq });
+    const metadata = { messageId: 'input', commandState: 'completed' };
+    const metadataSeq = append('ordinary_command_state', metadata);
+    expect(metadataSeq).toBe(receiptSeq + 1);
+    channel.listener({ type: 'ordinary_command_state', sessionId, ...metadata, seq: metadataSeq });
+    if (newOutput) {
+      channel.listener({ type: 'message_start', sessionId, messageId: 'new-output' });
+      channel.listener({
+        type: 'block_start',
+        sessionId,
+        messageId: 'new-output',
+        blockId: 'new-text',
+        blockType: 'text',
+      });
+      channel.listener({
+        type: 'block_delta',
+        sessionId,
+        messageId: 'new-output',
+        blockId: 'new-text',
+        delta: 'NEW LIVE OUTPUT',
+      });
+    }
+    release(prefix);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().historyError).toBeNull();
+    if (newOutput) {
+      expect(store.getState().messages.current?.messageId).toBe('new-output');
+      expect(
+        JSON.stringify(Array.from(store.getState().messages.current!.blocks.values())),
+      ).toContain('NEW LIVE OUTPUT');
+    } else expect(store.getState().messages.current).toBeNull();
+    expect(store.getState().messages.messages.filter((m) => m.messageId === 'old')).toHaveLength(1);
+    expect(JSON.stringify(store.getState().messages.messages)).toContain('Read');
+    expect(store.getState().messages.commandStates?.input).toBe('completed');
+  },
+);
+
 it('ignores a retraction response after the selected conversation changes', async () => {
   const { sessionId, append, reader, responseOwner, store } = await fixture(false);
   append('message_retracted', { sessionId, messageId: 'old' });

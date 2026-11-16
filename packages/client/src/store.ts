@@ -88,6 +88,17 @@ const PREPARATION_TERMINAL_STATES = new Set([
   'failed',
   'cancelled',
 ]);
+const STREAMING_OUTPUT_ACTIONS = new Set<MessagesAction['type']>([
+  'MESSAGE_START',
+  'MESSAGE_SNAPSHOT',
+  'MESSAGE_END',
+  'BLOCK_START',
+  'BLOCK_DELTA',
+  'BLOCK_END',
+  'TOOL_RESULT',
+  'SESSION_END',
+  'ERROR',
+]);
 
 export interface SendMessageOptions {
   /** Stable local queue identity; normal edits still create a fresh command. */
@@ -988,7 +999,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessionId: string;
         throughSeq: number;
         confirmedMessageIds: Set<string>;
-        liveActions: Array<{ seq: number; action: MessagesAction }>;
+        liveActions: Array<{ seq: number; action: MessagesAction; changesCurrent: boolean }>;
+        unsequencedCurrentChanged: boolean;
       }
     | undefined;
   let openingHistory:
@@ -1025,7 +1037,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       sessionId,
       throughSeq: throughSeq ?? 0,
       confirmedMessageIds: new Set<string>(),
-      liveActions: [] as Array<{ seq: number; action: MessagesAction }>,
+      liveActions: [] as Array<{ seq: number; action: MessagesAction; changesCurrent: boolean }>,
+      unsequencedCurrentChanged: false,
     };
     boundedRestore = currentBoundedRestore;
     if (throughSeq !== undefined) {
@@ -1051,9 +1064,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (Array.isArray(msgs)) {
           const appliedCursor = cursor ?? throughSeq;
           store.setState((s) => {
-            const liveActions = currentBoundedRestore.liveActions
-              .filter((item) => appliedCursor === undefined || item.seq > appliedCursor)
-              .map((item) => item.action);
+            const liveSuffix = currentBoundedRestore.liveActions.filter(
+              (item) => appliedCursor === undefined || item.seq > appliedCursor,
+            );
+            const liveActions = liveSuffix.map((item) => item.action);
+            const sequencedCurrentChanged = liveSuffix.some((item) => item.changesCurrent);
             // A projection receipt edits an observed turn; it does not rebuild
             // that turn's tool activity or create a newer streaming owner.
             const structuralActions = liveActions.filter(
@@ -1061,7 +1076,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             );
             const liveCurrentChanged =
               s.messages.current !== initialCurrent &&
-              (liveActions.length === 0 || structuralActions.length > 0);
+              (liveActions.length === 0 ||
+                sequencedCurrentChanged ||
+                currentBoundedRestore.unsequencedCurrentChanged);
             // A live receipt may have been missed. Apply only explicit verified
             // tombstones from this request's canonical prefix before merging;
             // an empty legacy history is not authority to erase local output.
@@ -1127,7 +1144,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 )
               : restoredContent;
             if (appliedCursor === undefined) return { messages: restored };
-            const preserveLiveCurrent = liveCurrentChanged && structuralActions.length === 0;
+            const preserveLiveCurrent = liveCurrentChanged && !sequencedCurrentChanged;
             // Rebuild live completed turns from the captured suffix so their
             // order and blocks are applied once after the durable prefix.
             const replayedIds = new Set(
@@ -2852,12 +2869,30 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         typeof msg.seq === 'number' &&
         Number.isSafeInteger(msg.seq) &&
         msg.seq > boundedRestore.throughSeq;
+      const previousMessages = store.getState().messages;
+      const nextMessages = messagesReducer(previousMessages, action);
+      // A receipt or metadata edit cannot establish a newer output owner.
+      // Observe actual reducer content changes, including unsequenced legacy
+      // streams, instead of inferring ownership from an unrelated suffix event.
+      const outputAction =
+        action.symposiumProvenance === undefined &&
+        (STREAMING_OUTPUT_ACTIONS.has(action.type) || action.type.startsWith('SUBAGENT_'));
+      const changesCurrent =
+        outputAction &&
+        (nextMessages.current?.messageId !== previousMessages.current?.messageId ||
+          nextMessages.current?.blocks !== previousMessages.current?.blocks ||
+          nextMessages.current?.blockOrder !== previousMessages.current?.blockOrder);
       if (isPostCursorAction) {
-        boundedRestore!.liveActions.push({ seq: msg.seq as number, action });
+        boundedRestore!.liveActions.push({ seq: msg.seq as number, action, changesCurrent });
         if (action.type === 'USER_MESSAGE_RECEIVED')
           boundedRestore!.confirmedMessageIds.add(action.messageId);
+      } else if (
+        boundedRestore?.sessionId === eventSessionId &&
+        (typeof msg.seq !== 'number' || !Number.isSafeInteger(msg.seq)) &&
+        changesCurrent
+      ) {
+        boundedRestore.unsequencedCurrentChanged = true;
       }
-      const nextMessages = messagesReducer(store.getState().messages, action);
       if (nextMessages.resyncRequired) {
         store.setState({ messages: nextMessages });
         return false;

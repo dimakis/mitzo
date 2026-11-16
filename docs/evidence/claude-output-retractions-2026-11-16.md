@@ -111,6 +111,27 @@ and are not summed. No browser or broad hosted build result follows from this ru
 
 ## UI design and remaining gates
 
+Bounded independent verification of `99db` cleared the original three findings
+and context correction but reproduced one further P1: a sequenced retraction
+followed by command-state metadata during held foreground recovery dropped known
+tool activity from a stale streaming copy. The actual EventStore/reader/API/store
+case failed with zero retained tool rows and no visible history error. The fix
+records whether each captured ordinary output action changed current content;
+metadata and projection receipts cannot establish a newer streaming owner. It
+also tracks genuine unsequenced output changes so legacy live output survives
+while sequenced metadata replays. Neither receipt nor metadata grants execution
+authority. A shared action set avoids allocating the classification on each token.
+
+The exact reported case first failed independently and locally, then passed;
+a positive control retains a genuinely newer unsequenced reply through the same
+metadata overlap. Final affected qualification passes 204 checks across five
+suites, zero failures/skips; these overlap the retained 566-check baseline.
+An intermediate reference-only change detector still failed because retraction
+projection allocates new block maps on metadata; that failed receipt remains and
+is not counted as acceptance. Final classification requires actual output actions
+and reducer content change. Bounded independent correction verification and new
+current-head CI/trusted final approval remain required.
+
 The exact-head trusted review of the original `490d` candidate additionally
 identified CEN-4207B76DD69C (sequenced receipt drops known tool activity, covered
 by the local recovery correction above) and CEN-7557F1774253 (shared visible
