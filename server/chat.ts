@@ -28,6 +28,12 @@ import { createSdkTurnQuery } from './sdk-turn-query.js';
 import { reportClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { claudePersonalToolPermission } from './claude-personal-policy.js';
 import { createClaudeStartupContext } from './claude-startup-context.js';
+import { repositoryWorkspacePrompt } from './repository-workspace-prompt.js';
+import { SDK_REPOSITORY_INSTRUCTIONS } from './sdk-local-repository-tools.js';
+import {
+  restoreSdkSecondaryRepositories,
+  retainSdkSecondaryRepositoryTask,
+} from './sdk-secondary-repository.js';
 import { readClaudeAccountHistory } from './claude-account-history.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
@@ -136,6 +142,8 @@ import {
   type RepositoryChatWorkspace,
 } from './repository-chat-startup.js';
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
+import { resolveHostGithubCredential } from './host-github-credential.js';
+import { sdkWorktreePermissionOptions } from './sdk-worktree-routing.js';
 import {
   createWorkspaceRuntimeCommandRunner,
   type ProtectedSdkCommandRunner,
@@ -153,9 +161,11 @@ import { retainCodexPreparationFailure } from './codex-preparation-failure.js';
 import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
+  ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS,
   hostGithubPublishingSource,
   githubPublishingGitStorageRoots,
 } from './github-publishing-tool.js';
+import { sdkSecondaryGithubStorageRoots } from './github-publishing-source.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { telosArtifactInstructions } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
@@ -163,6 +173,7 @@ import { assertOrdinaryCodexContributorAccount } from './ordinary-codex-contribu
 import {
   createWebAccessSdkServer,
   webAccessSdkPermission,
+  ordinarySdkPublishCallFence,
   WEB_ACCESS_SDK_TOOL,
   GITHUB_PUBLISH_SDK_TOOL,
 } from './web-access-sdk.js';
@@ -2310,6 +2321,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  // Guard the registered driver before any further await can fail.
   startupGuard.session = session;
   bindAgentToolSelection(session, agentProfile?.definition, toolRoute);
   if (options.contributorGuidance !== undefined && session.sessionId)
@@ -2358,6 +2370,21 @@ async function _startChatInner(
     if (registry.get(clientId) !== session) throw Error('Original startup owner changed');
   };
   try {
+    // Reopening retained tasks can fail on a missing or changed checkout; the
+    // startup cleanup below must then release this registered driver.
+    if (options.ordinarySdkAuthority && session.sessionId) {
+      const reopened = await restoreSdkSecondaryRepositories(
+        eventStore,
+        session.sessionId,
+        abortController.signal,
+        () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal),
+      );
+      assertStartupCurrent();
+      for (const [name, entry] of reopened) {
+        session.worktreePaths.set(name, entry);
+        await retainSdkSecondaryRepositoryTask(session, eventStore, session.sessionId, entry.path);
+      }
+    }
     const branch =
       repositoryWorkspace?.featureBranch ??
       (await readWorkspaceBranch(cwd, session.abortController.signal));
@@ -2450,6 +2477,8 @@ async function _startChatInner(
             accountBinding?.provider === 'anthropic-api'
               ? sessionEnv.ANTHROPIC_BASE_URL
               : undefined,
+            options.ordinarySdkAuthority,
+            options.ordinarySdkAuthority ? resolveHostGithubCredential : undefined,
           )
         : undefined;
     options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
@@ -2632,9 +2661,7 @@ async function _startChatInner(
 
     // Build the system prompt append string (used by both query and comparison)
     const workspacePrompt = repositoryWorkspace
-      ? `# Repository task workspace
-This is an independent checkout with its own Git storage, not a linked worktree. Work inside ${cwd} for code edits, dependency setup and tests. Use the dedicated Mitzo integrations for network access and publication. Do not switch to the configured default repository.
-`
+      ? repositoryWorkspacePrompt(cwd, repositoryWorkspace)
       : openShellWorkdir
         ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
         : buildWorktreeSystemPrompt(repoWorktrees);
@@ -2660,6 +2687,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
           buildClientCapabilitiesPrompt() +
           workspacePrompt +
+          (options.ordinarySdkAuthority ? SDK_REPOSITORY_INSTRUCTIONS : '') +
           (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
           (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
           (options.contributorGuidance
@@ -2933,10 +2961,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     } else {
       const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
-          onDemandCreate:
-            repositoryWorkspace && !options.ordinarySdkAuthority
-              ? undefined
-              : buildOnDemandCreate(wtId, clientId, options.ordinarySdkAuthority),
+          ...sdkWorktreePermissionOptions({
+            repositoryWorkspace: !!repositoryWorkspace,
+            ordinarySdk: !!options.ordinarySdkAuthority,
+            osSandboxed: sdkCredentialBoundary?.confinesWorkspaceWrites === true,
+            createOnDemand: () => buildOnDemandCreate(wtId, clientId, options.ordinarySdkAuthority),
+          }),
           ...(options.ordinarySdkAuthority
             ? {
                 assertCurrentSync: () =>
@@ -3079,6 +3109,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
         if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        if (sdkCredentialBoundary && name === 'Bash' && input.dangerouslyDisableSandbox === true)
+          return {
+            behavior: 'deny',
+            message:
+              'The outer host sandbox remains enforced for this chat. Disabling the SDK sandbox cannot expand task or credential access. Retry without dangerouslyDisableSandbox inside the admitted task directory.',
+          };
         if (!agentToolAllowed(session, name))
           return {
             behavior: 'deny',
@@ -3190,11 +3226,23 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         () => {
           assertTurnCallbackEffects();
           options.ordinarySdkAuthority?.assertCurrentSync(abortController.signal);
+          // Match Codex: a prepared primary keeps its acquired base and linked
+          // storage; attached SDK secondaries add only their recorded storage.
           return hostGithubPublishingSource(
             session,
-            [BASE_REPO, ...Object.values(getRepoConfig().repos)]
-              .filter(Boolean)
-              .map((root) => join(root, '.git')),
+            [
+              ...githubPublishingGitStorageRoots(
+                session,
+                repositoryWorkspace,
+                [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+                  .filter(Boolean)
+                  .map((root) => join(root, '.git')),
+              ),
+              ...(options.ordinarySdkAuthority
+                ? sdkSecondaryGithubStorageRoots(eventStore, session)
+                : []),
+            ],
+            repositoryWorkspace,
           );
         },
         session,
@@ -3203,6 +3251,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
           assertTurnCallbackEffects();
         },
+        // Ordinary owned queries must present their per-call native fence.
+        !!options.ordinarySdkAuthority,
       );
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,
@@ -3255,9 +3305,21 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             assertWebCurrent,
           ),
           abortController.signal,
-          options.ordinarySdkAuthority ? undefined : githubPublishing,
+          // One publishing tool per session; each owned query exposes it only
+          // through its own server and per-call fence, when the profile selects it.
+          !options.ordinarySdkAuthority
+            ? githubPublishing
+            : state && agentToolAllowed(session, GITHUB_PUBLISH_SDK_TOOL)
+              ? githubPublishing
+              : undefined,
           state?.runCallback,
           state && ((name) => state.checkTool(name)),
+          options.ordinarySdkAuthority && state
+            ? ordinarySdkPublishCallFence(state, (signal) => {
+                assertTurnCallbackEffects();
+                options.ordinarySdkAuthority!.assertCurrentSync(signal);
+              })
+            : undefined,
         );
       };
       const webAccess = createSdkWebAccess();
@@ -3311,6 +3373,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                     : '') +
                   (agentToolAllowed(session, 'GoogleWorkspaceRead')
                     ? '\nUse GoogleWorkspaceRead for Drive, Docs, Sheets, Slides and Calendar reads through the existing Google sign-in.\n'
+                    : '') +
+                  (agentToolAllowed(session, GITHUB_PUBLISH_SDK_TOOL)
+                    ? ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS
                     : '')
                 : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
           };
@@ -3321,6 +3386,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               ...ordinarySdkConnectionHelperTools,
               ...ordinarySdkTelosTools,
               WEB_ACCESS_SDK_TOOL,
+              // Pre-approved like RequestWebAccess: the tool always raises its
+              // own forced repository and publication approval cards.
+              ...(agentToolAllowed(session, GITHUB_PUBLISH_SDK_TOOL)
+                ? [GITHUB_PUBLISH_SDK_TOOL]
+                : []),
               ...(sdkToolLibrary?.allowedTools ?? []),
             ]
           : [
@@ -3330,11 +3400,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               GITHUB_PUBLISH_SDK_TOOL,
               'mcp__mitzo-connections__*',
             ],
-        disallowedTools: [
-          'WebSearch',
-          'WebFetch',
-          ...(options.ordinarySdkAuthority ? [GITHUB_PUBLISH_SDK_TOOL] : []),
-        ],
+        disallowedTools: ['WebSearch', 'WebFetch'],
         thinking: resolveThinking(options.model, exactSdkModelId),
         effort: resolveClaudeEffort(options.model, options.reasoningEffort, exactSdkModelId),
         ...(options.model ? { model: parseModelSpec(options.model, exactSdkModelId).model } : {}),
@@ -3441,6 +3507,18 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 agentCommunication: sdkAgentCommunication,
                 historyEvents: eventStore,
                 runCallback: state.runCallback,
+                repositoryTools: {
+                  events: eventStore,
+                  runCallback: state.runCallback,
+                  captureRepositoryReadOwner: (name, input, requestId, signal) => {
+                    if (!sdkCredentialBoundary)
+                      throw Error('Original SDK filesystem boundary is unavailable');
+                    return options.ordinarySdkAuthority!.captureRepositoryReadOwner(
+                      state.repositoryCallbacks.capture(name, input, requestId, signal),
+                      sdkCredentialBoundary.captureRepositoryReadProjection(),
+                    );
+                  },
+                },
                 checkTool: (name) => state.checkTool(name),
                 assertCurrentSync: (signal) => {
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');

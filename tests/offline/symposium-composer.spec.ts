@@ -774,7 +774,7 @@ for (const theme of ['dark', 'light'])
       await page.getByRole('button', { name: 'Conversation status details' }).click();
       const status = page.getByRole('dialog', { name: 'Conversation status', exact: true });
       await expect(
-        page.getByText(
+        status.getByText(
           'Stop could not be confirmed for every selected agent. Check the original Stop.',
         ),
       ).toBeVisible();

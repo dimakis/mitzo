@@ -23,9 +23,11 @@ logs/
 .DS_Store
 .mitzo-devtools/
 test-results/
+.test-tmp/
 playwright-report/
 .claude/worktrees/
 .claude/repository-tasks/
+.repository-tasks/
 .cursor/worktrees/
 frontend/ios/App/App.xcworkspace/
 **/xcshareddata/swiftpm/Package.resolved

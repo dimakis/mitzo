@@ -14,8 +14,7 @@ import { localRepositoryReadDirectoryExclusionNames } from './local-repository-r
 import { mkdtemp, realpath, rm, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { NativeBaseReadScope } from './codex-conversation.js';
-import type { PreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
+import { freezeDenyOnlyReadPatterns } from './repository-read-denials.js';
 import type { LocalRepositoryReadAuthority } from './local-repository-read-access.js';
 import { AuthoritySnapshot } from './sandbox-authority.js';
 import {
@@ -140,7 +139,14 @@ const canonicalPath = (path: string) =>
  * readers constructed here; native context and completed-turn owners stay in
  * their original wrappers and are freshly asserted by every reader entry. */
 export async function captureLocalRepositoryReader(
-  scope: NativeBaseReadScope | PreparedRepositoryBarrierReadScope | undefined,
+  scope:
+    | Readonly<{
+        readableRoots: readonly string[];
+        workspaceRoots: readonly string[];
+        deniedRoots: readonly string[];
+        deniedReadPatterns?: readonly string[];
+      }>
+    | undefined,
   ownerSignal: AbortSignal,
   assertCurrentSync: () => void,
   revalidate: () => Promise<void>,
@@ -163,9 +169,14 @@ export async function captureLocalRepositoryReader(
   if (!Number.isSafeInteger(deadline) || deadline > Date.now() + 60000) throw unavailable();
   if (![...scope!.readableRoots, ...scope!.workspaceRoots].includes('/')) throw unavailable();
   const deniedRoots = freezeNativeReadExclusions(scope!.deniedRoots);
+  const deniedReadPatterns = freezeDenyOnlyReadPatterns(scope!.deniedReadPatterns ?? []);
   const authorize = async (path: string) => {
     current();
-    if (!canonicalPath(path) || deniedRoots.some((root) => contains(root, path)))
+    if (
+      !canonicalPath(path) ||
+      deniedRoots.some((root) => contains(root, path)) ||
+      deniedReadPatterns.some((pattern) => path.startsWith(pattern.slice(0, -1)))
+    )
       throw unavailable();
     // Logical/cached observations require the current exact policy and owner,
     // not another physical-owner wait. Every real helper independently awaits
@@ -211,6 +222,7 @@ export async function captureLocalRepositoryReader(
           cwd: directory,
           writableRoots: [directory],
           deniedRoots: observation ? [...input.repositoryPlan.deniedRoots] : [...exclusions],
+          deniedReadPatterns,
           // Omission is justified by this original immutable '/' scope ONLY.
           env: { PATH: '/usr/bin:/bin' },
           signal: request.signal,

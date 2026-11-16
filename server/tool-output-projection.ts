@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { createLogger } from './logger.js';
+const log = createLogger('tool-output-projection');
 
 export const TOOL_OUTPUT_PREVIEW_BYTES = 8192;
 export const TOOL_OUTPUT_RETAIN_BYTES = 4 * 1024 * 1024;
@@ -23,8 +25,14 @@ export function projectToolOutput(text: string, retain: (text: string) => string
   let outputId: string | undefined;
   try {
     if (retained) outputId = retain(text);
-  } catch {
-    /* An executed effect must never be replayed because retention failed. */
+  } catch (cause) {
+    // Retention failure is visible in the preview; preserve its original cause
+    // internally without copying any of the result bytes into diagnostics.
+    log.warn('Tool output retention failed', {
+      stage: 'output_retention',
+      code: 'tool_output_retention_failed',
+      err: cause,
+    });
   }
   let excerptBytes = 2800;
   const buffer = Buffer.from(text.slice(-2800));

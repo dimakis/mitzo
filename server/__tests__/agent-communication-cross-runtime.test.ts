@@ -546,6 +546,7 @@ it.each([
     try {
       expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
         'AgentCommunication',
+        'ReadToolOutput',
       ]);
       expect(
         credentialSdkPermission(

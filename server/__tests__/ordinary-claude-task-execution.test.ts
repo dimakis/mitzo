@@ -294,7 +294,9 @@ it.each(['anthropic-claude', 'anthropic-vertex', 'anthropic-api'] as const)(
   'keeps omitted tools absent and refuses a retired %s SDK owner before dispatch',
   async (provider) => {
     const omitted = await fixture(provider, false);
-    await expect(omitted.client.listTools()).rejects.toThrow(/Method not found/);
+    expect((await omitted.client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      'ReadToolOutput',
+    ]);
     expect(
       credentialSdkPermission(
         'mcp__mitzo-connections__TaskExecution',
@@ -304,7 +306,7 @@ it.each(['anthropic-claude', 'anthropic-vertex', 'anthropic-api'] as const)(
         omitted.session,
       ),
     ).toMatchObject({ behavior: 'deny' });
-    await expect(omitted.call({ operation: 'status' })).rejects.toThrow(/Method not found/);
+    expect((await omitted.call({ operation: 'status' })).isError).toBe(true);
     expect(omitted.sent).toHaveLength(0);
     const f = await fixture(provider);
     f.authority.current = false;

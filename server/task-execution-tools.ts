@@ -224,7 +224,7 @@ export function sessionTaskExecutionTools(options: {
             const display = {
               ...scope,
               permissions:
-                'Run arbitrary project commands and local commits with writes confined to these host task roots. Ordinary host reads remain available except protected storage; GitHubRead uses only the listed repositories. Shell networking uses the displayed network scope. Credentials, merges and production are excluded.',
+                'Run arbitrary project commands and local commits with writes confined to these host task roots. The repositories list grants GitHub reads only: it does not create a checkout or add a local folder. Prepare another repository before authorizing its task roots. Ordinary host reads remain available except protected storage. Shell networking uses the displayed network scope. Credentials, merges and production are excluded.',
             };
             const decision = await buildPermissionHandler(source.clientId, registry)(
               prefix + 'TaskExecution',

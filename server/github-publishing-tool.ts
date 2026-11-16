@@ -1,4 +1,5 @@
 import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { isAuthSessionCurrent } from './auth.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from './github-publication-approval.js';
@@ -264,6 +265,10 @@ export const githubPublishingDefinition: ToolDefinition = {
 };
 export const GITHUB_PUBLISHING_INSTRUCTIONS =
   '\nFor Local Mac native development, prefer native git/gh for branch and PR publication through the existing filesystem and network approvals. Honor the user-selected repository and destination; when the user requests the CLI, use it directly. RequestGithubPublish is the managed alternative, and the publication route for runtimes without authorized native GitHub tools; it requires the repository to be inside the admitted chat workspace. Choose one authorized route before mutation; do not run both or bypass a policy or authorization denial. An uncertain write requires read-only inspection of the existing branch/PR before any repeat mutation. Reuse unchanged local metadata and successful receipts; keep fresh authorization at mutation and delivery boundaries. Publish only the selected committed work and preserve staged, unstaged and untracked files. PR creation needs no AI code review or review-model selection; normal code review and CI follow publication. Prefer a draft unless requested otherwise. Opening a PR does not authorize merging or deployment. Preserve failed/pending results without claiming success.\n';
+/** Ordinary Claude SDK route. Kept route-neutral so it stays true if an
+ * authorized native GitHub CLI is later available in this sandbox. */
+export const ORDINARY_CLAUDE_GITHUB_INSTRUCTIONS =
+  '\nGitHub work in this Claude SDK chat: make local commits with native git or TaskExecution commit, and read CI status, job logs and reviews with TaskExecution github_read when TaskExecution is selected. RequestGithubPublish is the managed route to push the committed branch and create or update its pull request through the managed GitHub connection; it covers repositories inside this chat workspace and its attached repository tasks, and it raises its own repository-access and publication approvals. If another authorized GitHub route is available and the user selects it, it remains valid: choose one route per publication and never repeat a mutation through the other. Only committed work is published; staged, unstaged and untracked files stay local. Do not force-push or target protected branches. After an uncertain result, inspect the branch or pull request read-only before retrying. A pull request does not authorize merging or deployment; report pending or failed results as they are.\n';
 export type GithubPublishingSource =
   | {
       runtime: 'host';
@@ -289,6 +294,7 @@ export function createGithubPublishingTool(
     signal: AbortSignal,
     call: PublicationCall,
     assertCurrent: () => Promise<void>,
+    effects: { mayHaveDispatched: boolean },
   ) => {
     let stage = 'admission';
     const requestId = randomUUID();
@@ -520,6 +526,9 @@ export function createGithubPublishingTool(
         gatewayProviderId: connection.gatewayProviderId,
       });
       stage = 'operation_recovery';
+      // Recovery can reconcile an earlier remote effect. From this point onward
+      // a failed result must retain uncertainty rather than permit continuation.
+      effects.mayHaveDispatched = true;
       const recovered = await runtime.capabilities.recoverPendingForConversation(
         identity.accountId,
         conversationId,
@@ -630,14 +639,20 @@ export function createGithubPublishingTool(
     }
   };
   const execute = async (input: unknown, signal: AbortSignal, call: PublicationCall) => {
+    const effects = { mayHaveDispatched: false };
+    const retainOutcome = <T extends { content: string; isError: boolean }>(result: T) =>
+      retainCallbackOutcome(
+        result,
+        signal.aborted || (effects.mayHaveDispatched && result.isError) ? 'unknown' : 'settled',
+      );
     const requestId = randomUUID();
     const conversationId = typeof conversation === 'function' ? conversation() : conversation;
     if (publishingAdmissions.has(conversationId))
-      return {
+      return retainOutcome({
         content:
           'A publishing request is already in progress for this conversation. Wait for its result before retrying.',
         isError: true,
-      };
+      });
     publishingAdmissions.add(conversationId);
     registration.activeInvocation = call;
     try {
@@ -648,7 +663,7 @@ export function createGithubPublishingTool(
       )
         throw new PublicationOwnerError('native_call_required');
       const owner = captureGithubPublicationOwner(runtimeOwnerId, conversationId, call.turnId);
-      return await run(input, signal, call, owner.assertCurrent);
+      return retainOutcome(await run(input, signal, call, owner.assertCurrent, effects));
     } catch (error) {
       const reason = error instanceof PublicationOwnerError ? error.reason : 'owner_capture_failed';
       publicationLog.warn('GitHub publication owner capture failed', {
@@ -657,7 +672,7 @@ export function createGithubPublishingTool(
         reason,
         code: 'GITHUB_PUBLICATION_FAILED',
       });
-      return {
+      return retainOutcome({
         content: JSON.stringify({
           code: 'GITHUB_PUBLICATION_FAILED',
           requestId,
@@ -668,7 +683,7 @@ export function createGithubPublishingTool(
           operationRecorded: false,
         }),
         isError: true,
-      };
+      });
     } finally {
       registration.activeInvocation = undefined;
       publishingAdmissions.delete(conversationId);

@@ -1441,6 +1441,7 @@ it('composes the explicit Claude MCP sender with actual native ownership and tur
   try {
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
       'AgentCommunication',
+      'ReadToolOutput',
     ]);
     const result = await client.callTool({
       name: 'AgentCommunication',

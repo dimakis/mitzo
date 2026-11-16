@@ -71,21 +71,6 @@ it('uses the production shared SDK query with exact feature instructions and enf
   vi.mocked(query).mockClear();
   let permission: Promise<unknown> | undefined;
   vi.mocked(query).mockImplementation((args) => {
-    expect(args.options?.mcpServers).toEqual({});
-    expect(args.options?.hooks).toEqual({});
-    expect(args.options).toMatchObject({
-      systemPrompt: 'Only reviewed profile draft.',
-      tools: [],
-      allowedTools: [],
-      settingSources: [],
-      mcpServers: {},
-      hooks: {},
-      strictMcpConfig: true,
-      env: {
-        ANTHROPIC_VERTEX_PROJECT_ID: 'selected-project',
-        GOOGLE_APPLICATION_CREDENTIALS: '/synthetic/selected.json',
-      },
-    });
     permission = Promise.resolve(
       args.options!.canUseTool!(
         'Read',
@@ -111,6 +96,22 @@ it('uses the production shared SDK query with exact feature instructions and enf
       adviserScope: scope,
     });
     expect(query).toHaveBeenCalledOnce();
+    const sdkOptions = vi.mocked(query).mock.calls[0][0].options;
+    expect(sdkOptions?.mcpServers).toEqual({});
+    expect(sdkOptions?.hooks).toEqual({});
+    expect(sdkOptions).toMatchObject({
+      systemPrompt: 'Only reviewed profile draft.',
+      tools: [],
+      allowedTools: [],
+      settingSources: [],
+      mcpServers: {},
+      hooks: {},
+      strictMcpConfig: true,
+      env: {
+        ANTHROPIC_VERTEX_PROJECT_ID: 'selected-project',
+        GOOGLE_APPLICATION_CREDENTIALS: '/synthetic/selected.json',
+      },
+    });
     expect(loadProjectHooks).not.toHaveBeenCalled();
     expect(fetcher).not.toHaveBeenCalled();
     await expect(permission).resolves.toMatchObject({ behavior: 'deny' });

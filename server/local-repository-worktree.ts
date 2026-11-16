@@ -53,6 +53,9 @@ export async function captureLocalRepository(
   path: string,
   signal: AbortSignal,
   startPoint?: string,
+  resolveDefault?: (
+    source: LocalRepositorySource,
+  ) => Promise<{ baseBranch: string; baseOid: string }>,
 ) {
   signal.throwIfAborted();
   const root = directory(path);
@@ -66,6 +69,13 @@ export async function captureLocalRepository(
   if (identity.length !== 2 || identity[0] !== path) throw unavailable();
   const commonDirectory = identity[1];
   const commonRoot = directory(commonDirectory);
+  const localSource = { repositoryId, path, root, commonDirectory, commonRoot };
+  if (startPoint === undefined && resolveDefault) {
+    const selected = await resolveDefault(localSource);
+    signal.throwIfAborted();
+    if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(selected.baseOid)) throw unavailable();
+    return { localSource, ...selected };
+  }
   const selectedRef = startPoint ?? detectDefaultBranch(path);
   const baseOid =
     startPoint === undefined
@@ -79,7 +89,7 @@ export async function captureLocalRepository(
     selectedRef === 'HEAD' ? git(path, 'rev-parse', '--abbrev-ref', 'HEAD') : selectedRef;
   const baseBranch = branch === 'HEAD' ? baseOid : branch;
   return {
-    localSource: { repositoryId, path, root, commonDirectory, commonRoot },
+    localSource,
     baseBranch,
     baseOid,
   };

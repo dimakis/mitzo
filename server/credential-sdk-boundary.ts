@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -8,6 +9,13 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import type { SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { Readable } from 'node:stream';
+import { createLogger } from './logger.js';
+import {
+  HOST_GITHUB_TOKEN_TRANSFER,
+  hostGithubEnvironment,
+  type HostGithubCredentialResolver,
+} from './host-github-credential.js';
+const log = createLogger('credential-sdk-boundary');
 export type ProtectedSdkProcess = SpawnedProcess & {
   stderr: Readable;
   once(
@@ -15,6 +23,31 @@ export type ProtectedSdkProcess = SpawnedProcess & {
     listener: (code: number | null, signal: NodeJS.Signals | null) => void,
   ): void;
 };
+
+export interface SdkRepositoryReadProjection {
+  readonly kind: 'sdk-default-read-deny-only-v1';
+  readonly readableRoots: readonly string[];
+  readonly workspaceRoots: readonly string[];
+  readonly deniedRoots: readonly string[];
+  readonly deniedReadPatterns: readonly string[];
+  readonly policySha256: string;
+  assertCurrentSync(): void;
+}
+const repositoryReadProjections = new WeakSet<object>();
+const repositoryReadOwners = new WeakMap<object, object>();
+/** Factory provenance only. Every use still requires the actual current SDK
+ * callback or completed-turn owner, and enforces the complete captured policy. */
+export function assertSdkRepositoryReadProjection(
+  value: SdkRepositoryReadProjection,
+  owner?: object,
+): void {
+  if (
+    !repositoryReadProjections.has(value) ||
+    (owner !== undefined && repositoryReadOwners.get(value) !== owner)
+  )
+    throw Error('Original SDK read projection required');
+  value.assertCurrentSync();
+}
 import { canonical, AuthoritySnapshot, validatePath } from './sandbox-authority.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import type { SandboxWorkerPayload } from './sandboxed-command-worker.js';
@@ -60,8 +93,20 @@ export function credentialSdkBoundary(
   platform: NodeJS.Platform = process.platform,
   selectedAuthorityWriteRoots: readonly string[] = [],
   selectedProviderBaseUrl?: string,
+  repositoryOwner?: object,
+  /** Explicit opt-in (ordinary SDK chats only): expose the host operator's own
+   * github.com login to native git/gh. Resolved again for every launch. */
+  hostGithubCredential?: HostGithubCredentialResolver,
 ) {
-  return createSdkBoundary(platform, false, selectedAuthorityWriteRoots, selectedProviderBaseUrl);
+  return createSdkBoundary(
+    platform,
+    false,
+    selectedAuthorityWriteRoots,
+    selectedProviderBaseUrl,
+    false,
+    repositoryOwner,
+    hostGithubCredential,
+  );
 }
 
 /** Only the fixed native `auth login` supervisor may allocate a terminal.
@@ -84,6 +129,8 @@ function createSdkBoundary(
   selectedAuthorityWriteRoots: readonly string[] = [],
   selectedProviderBaseUrl?: string,
   nativeLogin = false,
+  repositoryOwner?: object,
+  hostGithubCredential?: HostGithubCredentialResolver,
 ) {
   const selectedWriteRoots = [...new Set(selectedAuthorityWriteRoots.map(canonical))];
   selectedWriteRoots.forEach(validatePath);
@@ -151,9 +198,21 @@ function createSdkBoundary(
   const privateEnvironmentPatterns = ['.env.before-runtime-*', '.env.runtime-*'].map((name) =>
     join(environmentRoot, name),
   );
+  let readProjection: Readonly<SdkRepositoryReadProjection> | undefined;
   return {
     credentialIsolation,
     deniedRoots,
+    /** This launch freezes writes to its workspace, scratch and account roots,
+     * so a worktree created elsewhere after spawn is not writable by the provider. */
+    confinesWorkspaceWrites: !runtimeOnly,
+    /** Original OS-policy producer only. A current SDK callback/barrier must add
+     * its own operator/account/root/query fence. Presence grants no source read.
+     * Do not replace private patterns with a guessed literal-root projection. */
+    captureRepositoryReadProjection() {
+      if (!readProjection) throw Error('Original SDK read projection unavailable');
+      readProjection.assertCurrentSync();
+      return readProjection;
+    },
     spawnClaudeCodeProcess(
       options: SpawnOptions & { captureStderr?: boolean },
     ): ProtectedSdkProcess {
@@ -180,6 +239,34 @@ function createSdkBoundary(
       selectedWriteRoots.forEach((root) => authority.capture(root));
       runtime.selectors.forEach((entry) => authority.capture(dirname(entry)));
       const temporary = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-sdk-sandbox-')));
+      // Keep provider/command scratch separate from the unreadable policy and
+      // other sessions' temporary files. Children inherit this exact directory.
+      const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-sdk-scratch-')));
+      // Vertex retains the SDK's default history directory when no explicit
+      // account directory was selected. Do not grant its entire home directory.
+      const accountDirectory = canonical(
+        options.env?.CLAUDE_CONFIG_DIR ?? join(options.env?.HOME ?? homedir(), '.claude'),
+      );
+      const writableRoots = runtimeOnly
+        ? ['/']
+        : [...new Set([gitWorkRoot, scratch, accountDirectory])];
+      for (const root of writableRoots) if (root !== '/') validatePath(root);
+      for (const root of writableRoots)
+        if (root !== '/' && (root !== accountDirectory || existsSync(root)))
+          authority.capture(root);
+      const cleanup = () => {
+        for (const path of [temporary, scratch]) {
+          try {
+            rmSync(path, { recursive: true, force: true });
+          } catch (cause) {
+            log.warn('SDK temporary cleanup failed', {
+              stage: 'sdk_cleanup',
+              code: 'sdk_temporary_cleanup_failed',
+              err: cause,
+            });
+          }
+        }
+      };
       // SRT keeps hooks read-only. Git's stock template copies sample hooks on
       // init/clone, so give setup an empty, immutable template instead.
       const gitTemplate = join(temporary, 'git-template');
@@ -214,7 +301,18 @@ function createSdkBoundary(
         ? ['--import', require.resolve('tsx/esm'), worker]
         : [worker];
       const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
-      const targetEnv: NodeJS.ProcessEnv = { ...options.env, GIT_TEMPLATE_DIR: gitTemplate };
+      const targetEnv: NodeJS.ProcessEnv = {
+        ...options.env,
+        GIT_TEMPLATE_DIR: gitTemplate,
+        ...(!runtimeOnly
+          ? {
+              TMPDIR: scratch,
+              XDG_CACHE_HOME: join(scratch, 'cache'),
+              npm_config_cache: join(scratch, 'npm'),
+              PIP_CACHE_DIR: join(scratch, 'pip'),
+            }
+          : {}),
+      };
       // Source-import authority belongs to the controller in every SDK mode.
       delete targetEnv.MITZO_TELOS_IMPORT_TOKEN;
       if (credentialIsolation || selectedWriteRoots.length > 0) {
@@ -229,20 +327,26 @@ function createSdkBoundary(
         for (const name of Object.keys(targetEnv))
           if (/^MITZO_.*(?:TOKEN|SECRET|CAPABILITY|PASSPHRASE)$/.test(name)) delete targetEnv[name];
       }
+      // The controller's publisher token was removed above and is never reused.
+      // Only the host operator's own login is transferred, outside the policy file.
+      const hostGithub =
+        !runtimeOnly && !nativeLogin && hostGithubCredential ? hostGithubCredential() : undefined;
+      if (hostGithub) Object.assign(targetEnv, hostGithubEnvironment(hostGithub.gh, targetEnv));
       const payload: SandboxWorkerPayload = {
         cwd: gitWorkRoot,
         command: [options.command, ...options.args].map(quote).join(' '),
         authority: authority.serialize(),
         sdkGitWorkRoot: gitWorkRoot,
         ...(credentialIsolation ? {} : { filesystemOnly: true }),
+        ...(hostGithub ? { hostGithubToken: true as const } : {}),
         env: targetEnv,
         config: {
           filesystem: {
             denyRead: [...launchDeniedRoots, ...privateEnvironmentPatterns, temporary],
             allowRead: [gitTemplate],
-            allowWrite: ['/'],
+            allowWrite: writableRoots,
             // The worker adds an immutable OS fence around Git metadata:
-            // only new repositories below this launch's workspace may change.
+            // only repositories inside this launch's workspace may change.
             allowGitConfig: true,
             denyWrite: [
               ...launchDeniedRoots,
@@ -283,10 +387,14 @@ function createSdkBoundary(
               'pypi.org',
               'files.pythonhosted.org',
               ...(providerDomain ? [providerDomain] : []),
+              ...(hostGithub ? ['*.githubusercontent.com'] : []),
             ],
             deniedDomains: ['169.254.169.254', 'metadata.google.internal'],
             allowLocalBinding: false,
             allowAllUnixSockets: false,
+            // gh (Go) verifies TLS through trustd. This one service is narrower
+            // than SRT's weaker network isolation, which stays disabled.
+            ...(hostGithub ? { allowMachLookup: ['com.apple.trustd.agent'] } : {}),
           },
           enableWeakerNestedSandbox: false,
           enableWeakerNetworkIsolation: false,
@@ -306,12 +414,44 @@ function createSdkBoundary(
             TMPDIR: tmpdir(),
             TSX_TSCONFIG_PATH: bootstrapConfig,
             TSX_DISABLE_CACHE: '1',
+            ...(hostGithub ? { [HOST_GITHUB_TOKEN_TRANSFER]: hostGithub.token } : {}),
           },
           detached: true,
           stdio: ['pipe', 'pipe', 'pipe'],
         });
+        const literalDenials = Object.freeze([...launchDeniedRoots, temporary]);
+        const patternDenials = Object.freeze([...privateEnvironmentPatterns]);
+        const originalRuntime = JSON.stringify(runtime);
+        const snapshot = Object.freeze({
+          kind: 'sdk-default-read-deny-only-v1' as const,
+          // SRT's default-read policy, exactly as constructed above. The helper
+          // omits the provider's git-template re-allow, a stricter read ceiling.
+          readableRoots: Object.freeze(['/']),
+          workspaceRoots: Object.freeze([] as string[]),
+          deniedRoots: literalDenials,
+          deniedReadPatterns: patternDenials,
+          policySha256: createHash('sha256')
+            .update(
+              JSON.stringify({
+                defaultRead: true,
+                denyRead: payload.config.filesystem.denyRead,
+              }),
+            )
+            .digest('hex'),
+          assertCurrentSync() {
+            if (
+              readProjection !== snapshot ||
+              JSON.stringify(runtimeFilesystemProtection()) !== originalRuntime
+            )
+              throw Error('Original SDK read projection changed');
+            authority.verify();
+          },
+        });
+        repositoryReadProjections.add(snapshot);
+        if (repositoryOwner) repositoryReadOwners.set(snapshot, repositoryOwner);
+        readProjection = snapshot;
       } catch (error) {
-        rmSync(temporary, { recursive: true, force: true });
+        cleanup();
         throw error;
       }
       let killed = false;
@@ -321,7 +461,14 @@ function createSdkBoundary(
         try {
           process.kill(-child.pid, signal);
           return true;
-        } catch {
+        } catch (cause) {
+          if (!(cause instanceof Error && 'code' in cause && cause.code === 'ESRCH'))
+            log.warn('SDK process group termination failed', {
+              stage: 'sdk_stop',
+              code: 'sdk_process_termination_failed',
+              pid: child.pid,
+              err: cause,
+            });
           return false;
         }
       };
@@ -332,7 +479,7 @@ function createSdkBoundary(
       child.once('close', () => {
         kill('SIGKILL');
         options.signal.removeEventListener('abort', abort);
-        rmSync(temporary, { recursive: true, force: true });
+        cleanup();
       });
       // SDK protocol is confined to stdout; startup failures go to stderr.
       // Consume stderr to avoid backpressure while exposing actionable sandbox failures.

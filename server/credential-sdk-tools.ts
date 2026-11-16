@@ -53,6 +53,14 @@ import { sessionCredentialTools } from './session-credential-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 import { assertToolResultAuthority, copyToolResultAuthority } from './codex-tool-result.js';
 import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import {
+  registerSdkLocalRepositoryTools,
+  type SdkRepositoryToolsBoundary,
+} from './sdk-local-repository-tools.js';
+import { localRepositoryToolSchemas } from './session-local-repository-tools.js';
+import { inputSchema as repositoryPreparationInput } from './local-repository-preparation-input.js';
+import { ReadToolOutputInput, localEfficiencyToolDefinitions } from './local-agent-efficiency.js';
+import { projectToolOutput, readToolOutputPage } from './tool-output-projection.js';
 
 const prefix = 'mcp__mitzo-connections__';
 /** Keep SDK auto-admission and the mandatory PreToolUse route fence aligned.
@@ -65,6 +73,9 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  ReadToolOutput: ReadToolOutputInput,
+  ...localRepositoryToolSchemas,
+  PrepareLocalRepository: repositoryPreparationInput,
   StartSession: StartSessionInputSchema,
   GoogleWorkspaceRead: GoogleWorkspaceReadSchema,
   AgentReadTasks: AgentReadTasksSchema,
@@ -180,6 +191,7 @@ export function createCredentialSdkServer(
       assertToolCurrent: () => void,
     ): Pick<ReturnType<typeof sessionAgentCommunicationTools>, 'execute'>;
     historyEvents?: EventStore;
+    repositoryTools?: SdkRepositoryToolsBoundary;
   },
 ) {
   const runtimeId = randomUUID();
@@ -200,6 +212,8 @@ export function createCredentialSdkServer(
     },
   };
   const originalCheckTool = boundary?.checkTool;
+  // Query-owned bounded storage; no provider-private spill paths are exposed.
+  const outputs = new Map<string, { text: string; created: number; assertCurrent(): void }>();
   const current = new Map<
     string,
     { id: string; tools: ReturnType<typeof sessionCredentialTools> }
@@ -223,6 +237,7 @@ export function createCredentialSdkServer(
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
       ...(boundary?.historyEvents ? sessionHistoryToolDefinitions : []),
       ...(boundary ? sessionLaunchDefinitions : []),
+      ...localEfficiencyToolDefinitions.filter((tool) => tool.name === 'ReadToolOutput'),
     ]).map((definition) =>
       tool(
         definition.name,
@@ -295,6 +310,37 @@ export function createCredentialSdkServer(
                     ],
                     isError: true,
                   };
+                if (definition.name === 'ReadToolOutput') {
+                  await toolAuthority?.assertCurrent(signal);
+                  const request = ReadToolOutputInput.parse(input);
+                  const retained = outputs.get(request.outputId);
+                  if (!retained || Date.now() - retained.created > 24 * 60 * 60 * 1000)
+                    return retainCallbackOutcome(
+                      {
+                        content: [
+                          {
+                            type: 'text' as const,
+                            text: JSON.stringify({
+                              code: 'tool_output_unavailable',
+                              stage: 'output_read',
+                              effectStatus: 'not_started',
+                              message:
+                                'Retained output expired or belongs to another SDK query. Inspect current state with a narrower read; do not rerun an effect.',
+                            }),
+                          },
+                        ],
+                        isError: true,
+                      },
+                      'settled',
+                    );
+                  retained.assertCurrent();
+                  const page = readToolOutputPage(retained.text, request);
+                  retained.assertCurrent();
+                  return {
+                    content: [{ type: 'text' as const, text: JSON.stringify(page) }],
+                    isError: false,
+                  };
+                }
                 if (
                   boundary?.historyEvents &&
                   Object.hasOwn(sessionHistoryToolSchemas, definition.name)
@@ -428,11 +474,57 @@ export function createCredentialSdkServer(
                 // Guard cleanup may await too. Recheck the canonical source and
                 // caller immediately before returning the MCP payload.
                 assertDelivery(result);
-                return result;
+                if (definition.name === 'ReadToolOutput') return result;
+                const project = (text: string) =>
+                  projectToolOutput(text, (full) => {
+                    const outputId = randomUUID();
+                    outputs.set(outputId, {
+                      text: full,
+                      created: Date.now(),
+                      assertCurrent() {
+                        if (
+                          signal.aborted ||
+                          !agentToolAllowed(session, definition.name) ||
+                          checkSkillPolicy(
+                            registry,
+                            registry.findBySessionId(sessionId()!)?.clientId ?? '',
+                            prefix + definition.name,
+                          ) === 'deny' ||
+                          originalCheckTool?.(prefix + definition.name) === 'deny'
+                        )
+                          throw Error('Original output source is no longer authorized');
+                        authority?.assertCurrentSync(signal);
+                        assertDelivery(result);
+                      },
+                    });
+                    while (outputs.size > 8) outputs.delete(outputs.keys().next().value!);
+                    return outputId;
+                  });
+                return copyToolResultAuthority(
+                  result,
+                  copyCallbackOutcome(result, {
+                    ...result,
+                    content: result.content.map((block) =>
+                      block.type === 'text' ? { ...block, text: project(block.text) } : block,
+                    ),
+                  }),
+                );
               })
               .catch((error: unknown) => {
                 const authorityFailed = error instanceof SdkAuthorityFailure;
                 const cause = authorityFailed ? error.cause : error;
+                // Looking up retained bytes has no effects to reconcile. An
+                // expired/revoked source is a completed read refusal; runtime
+                // retirement, cancellation and timeout keep their own fences.
+                if (
+                  definition.name === 'ReadToolOutput' &&
+                  cause instanceof Error &&
+                  !authorityFailed &&
+                  !signal.aborted &&
+                  !findSessionRuntimeError(cause) &&
+                  !(cause instanceof ToolGuardTimeoutError)
+                )
+                  retainCallbackOutcome(cause, 'settled');
                 const failure = reportToolFailure(cause, {
                   sessionId: sessionId() ?? runtimeId,
                   tool: definition.name,
@@ -458,6 +550,14 @@ export function createCredentialSdkServer(
       ),
     ),
   });
+  if (boundary?.repositoryTools)
+    registerSdkLocalRepositoryTools(
+      server.instance,
+      sessionId,
+      session,
+      registry,
+      boundary.repositoryTools,
+    );
   if (boundary)
     registerGoogleWorkspaceSdkTool(server.instance, sessionId, session, registry, boundary);
   return server;

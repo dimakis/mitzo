@@ -2,9 +2,27 @@ import { expect, it, vi } from 'vitest';
 import { GoogleWorkspaceManagement } from '../google-workspace-management.js';
 import { googleReadFixture } from './fixtures/google-workspace-read.js';
 import {
+  GoogleWorkspaceReadSdkSchema,
   googleWorkspaceReadTarget,
   readGoogleWorkspaceResponse,
 } from '../google-workspace-read.js';
+
+it('reads recurring Calendar instances with the same fields accepted by the SDK', () => {
+  const input = {
+    operation: 'calendar.list',
+    timeMin: '2026-11-16T00:00:00Z',
+    timeMax: '2026-11-17T00:00:00Z',
+    fields: 'nextPageToken,items(id,summary,start,end)',
+  };
+  expect(GoogleWorkspaceReadSdkSchema.safeParse(input).success).toBe(true);
+  const url = new URL(googleWorkspaceReadTarget(input).url);
+  expect(url.searchParams.get('fields')).toBe(input.fields);
+  expect(url.searchParams.get('singleEvents')).toBe('true');
+  expect(url.searchParams.get('orderBy')).toBe('startTime');
+  const series = new URL(googleWorkspaceReadTarget({ ...input, singleEvents: false }).url);
+  expect(series.searchParams.get('singleEvents')).toBe('false');
+  expect(series.searchParams.has('orderBy')).toBe(false);
+});
 
 it('keeps credentials private and binds the approved account and reviewed policy to the read', async () => {
   const f = googleReadFixture();

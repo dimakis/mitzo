@@ -14,7 +14,15 @@ const WRITE_TOOLS = new Set([
 ]);
 const SHELL_TOOLS = new Set(['Bash', 'Shell']);
 const PATH_FIELDS = ['file_path', 'path', 'target_notebook', 'notebook_path'];
-const TRUSTED_ABSOLUTE_EXECUTABLES = new Set(['/opt/homebrew/bin/gws', '/usr/bin/git']);
+const TRUSTED_ABSOLUTE_EXECUTABLES = new Set([
+  '/opt/homebrew/bin/gws',
+  '/usr/bin/git',
+  '/opt/homebrew/bin/gh',
+  '/usr/local/bin/gh',
+  '/usr/bin/gh',
+]);
+/** Standard streams are not workspace paths (`> /dev/null`, `tee /dev/stderr`). */
+const STANDARD_DEVICE_PATHS = new Set(['/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr']);
 
 const stats = { allowed: 0, denied: 0 };
 
@@ -41,6 +49,8 @@ export type OnDemandCreateFn = (
 export interface CheckWorktreePolicyOptions {
   onDemandCreate?: OnDemandCreateFn;
   signal?: AbortSignal;
+  /** Replaces the generic guidance when no session worktree maps the path. */
+  outOfRootHint?: string;
 }
 
 /**
@@ -62,11 +72,11 @@ function extractAbsolutePaths(command: string): string[] {
     .trimStart()
     .match(/^(?:["'](\/[^"']+)["']|(\/[\w/.@~-]+))(?:\s|$)/);
   const executablePath = executableMatch?.[1] ?? executableMatch?.[2];
-  if (!executablePath) return results;
-  if (!TRUSTED_ABSOLUTE_EXECUTABLES.has(executablePath)) return results;
-  const executableIndex = results.indexOf(executablePath);
-  if (executableIndex >= 0) results.splice(executableIndex, 1);
-  return results;
+  if (executablePath && TRUSTED_ABSOLUTE_EXECUTABLES.has(executablePath)) {
+    const executableIndex = results.indexOf(executablePath);
+    if (executableIndex >= 0) results.splice(executableIndex, 1);
+  }
+  return results.filter((path) => !STANDARD_DEVICE_PATHS.has(path));
 }
 
 function findAllowedWorktree(
@@ -104,10 +114,15 @@ function suggestWorktreePath(
   return null;
 }
 
-function denyMessage(prefix: string, attemptedPath: string, suggestion: string | null): string {
+function denyMessage(
+  prefix: string,
+  attemptedPath: string,
+  suggestion: string | null,
+  outOfRootHint?: string,
+): string {
   return suggestion
     ? `${prefix} ${attemptedPath} is outside session worktrees. Use ${suggestion} instead.`
-    : `${prefix} ${attemptedPath} is outside session worktrees. Check $MITZO_REPO_* env vars for correct paths.`;
+    : `${prefix} ${attemptedPath} is outside session worktrees. ${outOfRootHint ?? 'Check $MITZO_REPO_* env vars for correct paths.'}`;
 }
 
 /**
@@ -170,7 +185,7 @@ export async function checkWorktreePolicy(
         suggestedPath: suggestion,
         sessionId: session.sessionId,
       });
-      return denyMessage('Path', filePath, suggestion);
+      return denyMessage('Path', filePath, suggestion, opts?.outOfRootHint);
     }
     if (checkedAnyPath) {
       stats.allowed++;
@@ -216,7 +231,7 @@ export async function checkWorktreePolicy(
         suggestedPath: suggestion,
         sessionId: session.sessionId,
       });
-      return denyMessage('Shell command references', p, suggestion);
+      return denyMessage('Shell command references', p, suggestion, opts?.outOfRootHint);
     }
     stats.allowed++;
     log.debug('worktree policy allowed', { toolName, sessionId: session.sessionId });

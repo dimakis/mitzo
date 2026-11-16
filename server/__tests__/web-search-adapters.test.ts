@@ -2,7 +2,7 @@ import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { EventStore } from '../event-store.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, relative, isAbsolute } from 'node:path';
 import type { AccountInfo, query } from '@anthropic-ai/claude-agent-sdk';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchGemini, searchSdk } from '../web-search-adapters.js';
@@ -26,6 +26,41 @@ afterAll(() => {
   rmSync(workspaceRoot, { recursive: true, force: true });
 });
 describe('selected-account native search adapters', () => {
+  it('launches default search scratch outside the private controller directory denied by its own sandbox', async () => {
+    const withoutRoot = {
+      executionStore,
+      parentSessionId: owner.parentSessionId,
+      operationId: owner.operationId,
+    };
+    const sdk = vi.fn((request: Parameters<typeof query>[0]) => {
+      const path = relative(tmpdir(), request.options!.cwd!);
+      expect(path.startsWith('..') || isAbsolute(path)).toBe(false);
+      expect(dirname(request.options!.cwd!)).toBe(tmpdir());
+      return (async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'tool_use', name: 'WebSearch', id: 'search' }] },
+        };
+        yield {
+          type: 'user',
+          message: { content: [{ type: 'tool_result', tool_use_id: 'search' }] },
+        };
+        yield { type: 'result', subtype: 'success', result: 'Answer https://example.com' };
+      })();
+    });
+    await expect(
+      searchSdk(
+        'offline',
+        new AbortController().signal,
+        {
+          ...withoutRoot,
+          model: 'fixture',
+          env: {},
+        },
+        sdk,
+      ),
+    ).resolves.toContain('https://example.com');
+  });
   it('retains the original identity failure when the SDK translates prompt refusal into an abort', async () => {
     const original = Error('Private account initialization failure');
     const sdk = (request: Parameters<typeof query>[0]) =>

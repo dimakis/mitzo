@@ -1965,8 +1965,10 @@ it.each(
       await webClient.close();
       await web.instance.close();
     });
+    // Managed publication is listed only when the chat's tool selection admits it.
     expect((await webClient.listTools()).tools.map((tool) => tool.name)).toEqual([
       'RequestWebAccess',
+      ...(repositoryProfile === 'default' && !idleSuccess ? ['RequestGithubPublish'] : []),
     ]);
     expect(
       await webClient.callTool({

@@ -4308,6 +4308,18 @@ export class EventStore {
     return typeof row?.path === 'string' ? row.path : null;
   }
 
+  /** Bounded completed workspace records only, without loading transcript/tool payloads. */
+  getSessionWorktreeRecords(sessionId: string): Record<string, unknown>[] {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE seq IN (
+         SELECT MAX(seq) FROM events WHERE session_id=? AND type='worktree_opened'
+         GROUP BY json_extract(payload, '$.repoName')
+       ) ORDER BY seq LIMIT 101`,
+    ).all(sessionId) as Array<{ payload: string }>;
+    if (rows.length > 100) throw Error('Session workspace record bound exceeded');
+    return rows.map(({ payload }) => JSON.parse(payload) as Record<string, unknown>);
+  }
+
   /** Denial-only retirement fence over every durable peer, including hidden,
    * imported and borrowed-workspace conversations. Do not page through the UI's
    * session list: an older reference is still an owner until reconciled. */

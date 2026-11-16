@@ -36,6 +36,33 @@ export interface SandboxWorkerPayload {
   privateNativeFileRequestJson?: string;
   privateNativeFileProgram?: { programPath: string; requestPath: string };
   privateRepositoryCheckoutJson?: string;
+  /** The opted-in SDK launch receives the host GitHub login over the bootstrap
+   * transfer variable, never from this on-disk payload. */
+  hostGithubToken?: true;
+}
+
+/** Bootstrap-only variable carrying the host GitHub login to this worker. Declared
+ * here so the worker's compiled module closure gains no controller-side import;
+ * host-github-credential.ts mirrors it and a test pins the two together. */
+export const HOST_GITHUB_TOKEN_TRANSFER = 'MITZO_SDK_HOST_GITHUB_TOKEN_TRANSFER';
+
+/** Remove the host GitHub transfer from the worker's own environment before
+ * anything else runs, so neither the bootstrap shell nor SRT ever sees it. */
+export function takeHostGithubTransfer(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const token = env[HOST_GITHUB_TOKEN_TRANSFER];
+  delete env[HOST_GITHUB_TOKEN_TRANSFER];
+  return token;
+}
+
+/** Deliver the transferred login only when the trusted payload requested it. */
+export function admitHostGithubToken(
+  payload: Pick<SandboxWorkerPayload, 'env' | 'hostGithubToken'>,
+  token: string | undefined,
+) {
+  if (payload.hostGithubToken === undefined && token === undefined) return;
+  if (payload.hostGithubToken !== true || !token || !payload.env)
+    throw Error('Invalid host GitHub launch transfer');
+  payload.env = { ...payload.env, GH_TOKEN: token };
 }
 
 /** Add deny-only rules to the pinned SRT Seatbelt policy. Its allowGitConfig is global; the
@@ -102,7 +129,8 @@ export function wrapSdkGitMetadata(command: string, root: string): string {
     // specific-operation allows beat a file-write* deny, so re-deny moves and
     // deletion explicitly as well as content/metadata writes.
     `(deny file-write* file-write-unlink file-write-create (require-all (regex ${string('.*/\\.git(/.*)?$')}) (require-not (subpath ${string(root)}))))`,
-    `(deny file-write* file-write-unlink file-write-create (subpath ${string(join(root, '.git'))}))`,
+    // A standalone task owns its Git storage. Linked worktrees keep their
+    // external administration denied and use the trusted commit integration.
     // Pin the selected workspace and its ancestors against replacement.
     ...(() => {
       const paths = [];
@@ -323,8 +351,11 @@ export async function runSandboxedWorker(
             Object.values(target.env).some(value => typeof value !== 'string'))
           throw new Error('Invalid SDK launch payload');
       } catch { process.stderr.write('Invalid SDK launch payload\\n'); process.exit(1); }
+      // The controller-selected scratch directory is part of the write policy.
+      // SRT's generic TMPDIR must not replace it after that policy was frozen.
       for (const name of ${JSON.stringify(['SANDBOX_RUNTIME', 'TMPDIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'GRPC_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'grpc_proxy', 'GIT_SSH_COMMAND', 'GIT_CONFIG_PARAMETERS', 'JAVA_TOOL_OPTIONS', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'])})
-        if (process.env[name] !== undefined) target.env[name] = process.env[name];
+        if (process.env[name] !== undefined && (name !== 'TMPDIR' || target.env[name] === undefined))
+          target.env[name] = process.env[name];
       const child = cp.spawn('/bin/sh', ['-c', target.command], { env: target.env, stdio: 'inherit' });
       child.once('error', error => { process.stderr.write(error.message + '\\n'); process.exit(1); });
       // Reserve a high status for missing or signalled termination. The parent
@@ -359,7 +390,15 @@ export async function runSandboxedWorker(
       child.once('error', reject);
       if (payload.env) {
         const transfer = child.stdio[3] as Writable;
-        transfer.on('error', () => {});
+        transfer.on('error', (cause: Error) => {
+          process.stderr.write(
+            JSON.stringify({
+              stage: 'sdk_environment_transfer',
+              code: 'sdk_environment_transfer_failed',
+              message: cause.message,
+            }) + '\n',
+          );
+        });
         transfer.end(JSON.stringify({ command: payload.command, env: payload.env }));
       }
       child.once('close', (code, signal) => resolve(signal ? 255 : (code ?? 255)));
@@ -370,8 +409,10 @@ export async function runSandboxedWorker(
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const hostGithubToken = takeHostGithubTransfer();
   try {
     const payload = JSON.parse(readFileSync(process.argv[2], 'utf8')) as SandboxWorkerPayload;
+    admitHostGithubToken(payload, hostGithubToken);
     process.exitCode = await runSandboxedWorker(payload);
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

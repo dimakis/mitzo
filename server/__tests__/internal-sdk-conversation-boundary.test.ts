@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { SDKSessionInfo } from '@anthropic-ai/claude-agent-sdk';
 
@@ -109,7 +109,8 @@ it('keeps a fully persisted SDK search owned by its parent across discovery, adm
         purpose: 'web_search',
         cwd,
       });
-      expect(cwd).toBe(join(workspaceRoot, internalId));
+      expect(dirname(cwd)).toBe(workspaceRoot);
+      expect(basename(cwd)).toMatch(/^mitzo-sdk-search-/);
       expect(statSync(cwd).mode & 0o777).toBe(0o700);
       expect(request.options!.env).toEqual({
         ANTHROPIC_API_KEY: accountEnv.ANTHROPIC_API_KEY,

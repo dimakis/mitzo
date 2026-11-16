@@ -1,7 +1,7 @@
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EventStore } from './event-store.js';
 import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -149,14 +149,12 @@ export async function searchSdk(
   const searchCalls = new Set<string>();
   const successfulSearches = new Set<string>();
   const sessionId = randomUUID();
-  const cwd = join(
-    route.workspaceRoot ?? join(homedir(), '.mitzo', 'private', 'sdk-tools'),
-    sessionId,
-  );
+  let scratch: string | undefined;
   let failed = false;
   const cleanup = () => {
+    if (!scratch) return;
     try {
-      rmSync(cwd, { recursive: true, force: true });
+      rmSync(scratch, { recursive: true, force: true });
     } catch (cause) {
       createLogger('web-search').warn('Claude SDK search cleanup failed', {
         stage: 'search_cleanup',
@@ -179,7 +177,12 @@ export async function searchSdk(
       route.writeRoots,
       route.env.ANTHROPIC_BASE_URL,
     );
-    mkdirSync(cwd, { recursive: true, mode: 0o700 });
+    // The child sandbox denies the controller's private directory. A search
+    // owns only this disposable scratch, never a directory under that boundary.
+    const scratchParent = route.workspaceRoot ?? tmpdir();
+    if (route.workspaceRoot) mkdirSync(scratchParent, { recursive: true, mode: 0o700 });
+    const cwd = mkdtempSync(join(scratchParent, 'mitzo-sdk-search-'));
+    scratch = cwd;
     try {
       route.executionStore.registerInternalSdkExecution({
         sdkSessionId: sessionId,

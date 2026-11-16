@@ -1,6 +1,7 @@
 /** Reviewed built-in identities only. Configured MCP annotations and display names
  * cannot declare a call free of mutation. Keep catalog and recovery in agreement. */
 const reads = new Set([
+  'ReadToolOutput',
   'DiscoverLocalRepository',
   'InspectLocalRepository',
   'Read',

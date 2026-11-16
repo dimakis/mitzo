@@ -11,6 +11,7 @@ import { executeSandboxedCommand } from './sandboxed-command.js';
 import type { GwsBroker } from './gws-broker.js';
 import { gwsShimInvocation, gwsShimWritesFiles } from './gws-shell.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
+import { currentSdkSecondaryRepositoryTask } from './sdk-secondary-repository.js';
 import {
   executeTrustedGitCommit,
   executeTrustedGitHubRead,
@@ -404,9 +405,12 @@ export function createNativeToolExecutor(
         const repositoryTask = session.sessionId
           ? readRepositoryWorkspaceForConversation(session.sessionId)
           : undefined;
-        const task = repositoryTask
-          ? await getRepositoryWorkspaces(true).validateHostTask(session.sessionId!, root)
-          : undefined;
+        const secondaryTask = await currentSdkSecondaryRepositoryTask(session, root);
+        const task =
+          secondaryTask ??
+          (repositoryTask
+            ? await getRepositoryWorkspaces(true).validateHostTask(session.sessionId!, root)
+            : undefined);
         await options.assertRuntimeCurrentAsync?.();
         assertCurrent();
         executionStarted = true;

@@ -551,7 +551,11 @@ it.each([false, true])(
     if (runtimeOnly) {
       const boundary = await import('../credential-sdk-boundary.js');
       vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue({
+        captureRepositoryReadProjection: () => {
+          throw Error('Offline fixture has no repository read projection');
+        },
         credentialIsolation: false,
+        confinesWorkspaceWrites: false,
         deniedRoots: [],
         spawnClaudeCodeProcess: outerSpawn,
       });
@@ -938,7 +942,11 @@ it.each([
     if ('runtimeOnly' in boundary) {
       vi.stubEnv('WORKSPACE_RUNTIME_FIXTURE_ENV', 'preserved');
       vi.spyOn(sdkBoundary, 'credentialSdkBoundary').mockReturnValue({
+        captureRepositoryReadProjection: () => {
+          throw Error('Offline fixture has no repository read projection');
+        },
         credentialIsolation: false,
+        confinesWorkspaceWrites: false,
         deniedRoots: [],
         spawnClaudeCodeProcess: outerSpawn,
       });

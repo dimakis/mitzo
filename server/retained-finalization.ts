@@ -6,7 +6,12 @@ const log = createLogger('retained-finalization');
  * Causes stay internal; diagnostics contain only a fixed stage and counts.
  */
 export async function joinRetainedFinalizers(
-  stage: 'sandbox_command' | 'repository_publication' | 'repository_read' | 'repository_index',
+  stage:
+    | 'sandbox_command'
+    | 'repository_publication'
+    | 'repository_read'
+    | 'repository_index'
+    | 'sdk_repository_base',
   finalizers: readonly (() => Promise<void>)[],
   failure?: { cause: unknown },
 ): Promise<void> {
