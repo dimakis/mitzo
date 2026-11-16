@@ -199,9 +199,11 @@ for (const theme of ['dark', 'light'])
     await dialog.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(dialog.getByRole('button', { name: /^Thinking,/ })).toBeVisible();
     await expect(
-      dialog.getByText('Choose a repository in Where it runs.', { exact: true }),
+      dialog.getByRole('button', {
+        name: /^Where it runs, Mac host · Default repository$/,
+      }),
     ).toBeInViewport();
-    await expect(dialog.getByRole('button', { name: 'Review joining brief' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Review joining brief' })).toBeEnabled();
     const body = dialog.locator('.conversation-agents-body');
     expect(await body.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     const bodyBox = (await body.boundingBox())!;
@@ -217,6 +219,7 @@ for (const theme of ['dark', 'light'])
     expect(thinkingBox.width).toBe(modelBox.width);
     await page.screenshot({ path: info.outputPath(`fresh-setup-fields-${theme}.png`) });
     await dialog.getByRole('button', { name: /^Where it runs,/ }).click();
+    await expect(dialog.getByText('Configured default repository', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('radio', { name: 'Mac host' })).toBeChecked();
     const repositorySection = dialog.getByRole('region', { name: 'Repository for new chat' });
     const expectRepositoryLayout = async () => {

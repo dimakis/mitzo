@@ -521,7 +521,10 @@ for (const theme of ['dark', 'light'])
       await expect(page.getByRole('button', { name: 'Remove prompt context' })).toHaveCount(0);
       await input.fill('Keep this draft while checking another recipient.');
       await page.getByRole('button', { name: 'Choose who replies' }).click();
-      await page.getByRole('button', { name: 'reader', exact: true }).click();
+      await page
+        .getByRole('group', { name: 'Reply recipients' })
+        .getByRole('button', { name: 'Agent · reader', exact: true })
+        .click();
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveText('@');
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toHaveAttribute(
         'title',

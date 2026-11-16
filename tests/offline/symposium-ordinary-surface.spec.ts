@@ -175,6 +175,11 @@ for (const theme of ['dark', 'light'])
     await expect(contexts.getByText('Reviewer', { exact: true })).toBeVisible();
     await expect(contexts.getByRole('meter')).toHaveCount(2);
     await page.keyboard.press('Escape');
+    // The approved per-agent wheel replaces the ordinary single-agent usage
+    // owner at joining. Its own DOM identity must survive later layout changes.
+    await wheel.evaluate((node) => {
+      (node as HTMLElement).dataset.retained = 'shared';
+    });
     await expect(input).toHaveAttribute('data-retained', 'original');
     await expect(page.locator('.chat-messages')).toHaveCount(1);
     await expect(page.getByText('Ordinary history before joining')).toHaveCount(1);
@@ -183,10 +188,10 @@ for (const theme of ['dark', 'light'])
       await page.setViewportSize({ width, height: 844 });
       await expect(input).toHaveAttribute('data-retained', 'original');
       await expect(input).toHaveValue('Draft retained through joining and resizing');
-      for (const control of [wheel, mic]) {
-        await expect(control).toBeVisible();
-        await expect(control).toHaveAttribute('data-retained', 'original');
-      }
+      await expect(wheel).toBeVisible();
+      await expect(wheel).toHaveAttribute('data-retained', 'shared');
+      await expect(mic).toBeVisible();
+      await expect(mic).toHaveAttribute('data-retained', 'original');
       await expect(page.locator('.chat-messages')).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
       await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
@@ -222,7 +227,7 @@ for (const theme of ['dark', 'light'])
     await expect(input).toHaveAttribute('data-retained', 'original');
     await page.getByRole('button', { name: 'Toggle source running' }).click();
     await expect(input).toHaveAttribute('data-retained', 'original');
-    await expect(wheel).toHaveAttribute('data-retained', 'original');
+    await expect(wheel).toHaveAttribute('data-retained', 'shared');
     await expect(mic).toHaveAttribute('data-retained', 'original');
     await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeVisible();
     await page.getByRole('button', { name: 'Choose who replies' }).click();

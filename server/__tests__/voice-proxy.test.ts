@@ -79,9 +79,12 @@ it('forwards WebSocket upgrades, strips only the exact prefix and preserves fram
 it('returns a bounded 502 when the voice service is unavailable', async () => {
   const temporary = createServer();
   const closed = await listen(temporary);
-  await new Promise<void>((resolve) => temporary.close(() => resolve()));
   const proxy = createVoiceProxy(closed, '/api/yapper');
   const address = await listen(createServer(proxy.http));
+  // Reserve the upstream port until the front listener has its own address.
+  // Releasing it first lets an ephemeral-port reuse turn this into a self-proxy.
+  expect(new URL(address).port).not.toBe(new URL(closed).port);
+  await new Promise<void>((resolve) => temporary.close(() => resolve()));
   const result = await fetch(address + '/api/yapper/health');
   expect(result.status).toBe(502);
   expect(await result.text()).toBe('Voice service unavailable.');

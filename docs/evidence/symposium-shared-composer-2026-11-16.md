@@ -218,3 +218,21 @@ The three focused application/composer files pass 20 tests; browser discovery li
 20 cases across the selected/imported suites. Browser execution remains for CI.
 Production sources are unchanged from the approved `b9d32eef`; only these fixtures,
 their registered fingerprints and this evidence change.
+
+### Remaining CI fixture corrections
+
+The next CI run exposed stale SDK Stop selectors, Add-agent default-repository
+expectations, and the ordinary wheel's transition to the approved per-agent wheel.
+Those fixtures now exercise the current controls while preserving original
+operation identities, privacy, terminal outcomes and later DOM-retention checks.
+Durable browser fixture writes generate their revision in Node because intercepted
+HTTP origins do not provide browser `crypto.randomUUID`. The unavailable voice
+fixture reserves its upstream port until its front listener has another port,
+preventing self-proxy port reuse; this hazard is not a proved cause of CI's timeout.
+Its five-second deadline is unchanged.
+
+The SDK, voice and storage helper suites pass all 15 focused tests locally.
+Local browser verification is unavailable: native escalation retained the Seatbelt
+marker, and the task host executor subsequently failed Chromium's macOS Mach-port
+registration. Browser attempts stopped; fresh GitHub CI must verify these fixtures.
+Production behavior remains unchanged from the approved `b9d32eef` baseline.
