@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1235-claude-allocation-filesystem';
+  'v1.0.1236-claude-allocation-output-contract';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sdk-secondary-repository-filesystem.test.ts':
     'ffd3fef7f9bc4e3a970c3c815a85e538e78de33723daac37bc946afc9dc48ccc',
   '../sdk-secondary-repository-filesystem.ts':
-    '122beef8e355df95bc3dacbc65ea985e5ffaa8917224952d726042499460d2f9',
+    '5c81267009af4f0b1977eb7c95f51360b29193750488e8f5c6e35dc024c64a14',
   '../sdk-local-repository-tools.ts':
     '07c18beb52b69123687eda8585b6280be195ba477b05939c4d1c9ab5f8f3f01b',
   '../sdk-secondary-repository.ts':

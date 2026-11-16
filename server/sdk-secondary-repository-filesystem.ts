@@ -35,7 +35,7 @@ export function sdkSecondaryRepositoryFilesystem(options: {
     kind: 'mkdir' | 'git',
     scratch?: string,
     additionalWritePaths = metadata,
-  ) => {
+  ): Promise<{ stdout: string; stderr: string }> => {
     const fail = (cause: unknown): never => {
       const code = 'SDK_REPOSITORY_FILESYSTEM_FAILED';
       log.warn('Claude repository filesystem operation failed', {
@@ -66,7 +66,9 @@ export function sdkSecondaryRepositoryFilesystem(options: {
       beforeSpawnAsync: options.assertCurrent,
     }).catch(fail);
     if (result.isError || typeof result.stdout !== 'string' || typeof result.stderr !== 'string') {
-      fail(new Error(result.stderr || result.content || 'Sandbox returned incomplete output'));
+      return fail(
+        new Error(result.stderr || result.content || 'Sandbox returned incomplete output'),
+      );
     }
     await options.assertCurrent();
     options.signal.throwIfAborted();
