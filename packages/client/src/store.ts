@@ -2903,7 +2903,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (action.type === 'USER_MESSAGE_RECEIVED')
           boundedRestore!.confirmedMessageIds.add(action.messageId);
       } else if (
-        boundedRestore?.sessionId === eventSessionId &&
+        boundedRestore &&
+        boundedRestore.sessionId === eventSessionId &&
         (typeof msg.seq !== 'number' || !Number.isSafeInteger(msg.seq)) &&
         changesCurrent
       ) {
