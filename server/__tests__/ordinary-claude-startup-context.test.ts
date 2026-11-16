@@ -464,3 +464,54 @@ it.each([false, true])(
   },
   20_000,
 );
+it.each([false, true])(
+  'registers managed GitHub publication on the actual ordinary SDK route, personal=%s',
+  async (personal) => {
+    const x = await fixture(personal);
+    await x.owner.admit(x.f.request);
+    const { GITHUB_PUBLISH_SDK_TOOL } = await import('../web-access-sdk.js');
+    const options = x.calls[0];
+    expect(options.allowedTools).toContain(GITHUB_PUBLISH_SDK_TOOL);
+    expect(options.disallowedTools).not.toContain(GITHUB_PUBLISH_SDK_TOOL);
+    // The tool owns its forced approval cards; the outer SDK prompt is not duplicated.
+    expect(
+      await options.canUseTool!(
+        GITHUB_PUBLISH_SDK_TOOL,
+        {},
+        { signal: new AbortController().signal, toolUseID: 'publish', requestId: 'publish' },
+      ),
+    ).toMatchObject({ behavior: 'allow' });
+    const server = options.mcpServers!['mitzo-web-access'];
+    if (server.type !== 'sdk') throw Error('Expected in-process SDK tools');
+    const client = new Client({ name: 'offline-publisher', version: '1' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.instance.connect(a);
+    await client.connect(b);
+    try {
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining(['RequestWebAccess', 'RequestGithubPublish']),
+      );
+      const result = await client.callTool({
+        name: 'RequestGithubPublish',
+        arguments: {
+          repositoryPath: x.f.reserved.directory!,
+          baseBranch: 'main',
+          title: 'Offline publication',
+          body: '',
+          draft: true,
+        },
+      });
+      // The per-query server carries the native call fence into owner capture.
+      // This adapter fixture's synthetic runtime owner is not its bound operator,
+      // so capture stops there; the signed-operator chain is covered in
+      // github-publishing-tool.test.ts with the same server and fence.
+      expect(result.isError).toBe(true);
+      const failure = JSON.parse((result.content as Array<{ text: string }>)[0].text);
+      expect(failure).toMatchObject({ stage: 'owner_capture', operationRecorded: false });
+      expect(failure.reason).not.toBe('native_call_required');
+    } finally {
+      await client.close();
+    }
+  },
+  20_000,
+);

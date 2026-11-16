@@ -170,6 +170,7 @@ import { assertOrdinaryCodexContributorAccount } from './ordinary-codex-contribu
 import {
   createWebAccessSdkServer,
   webAccessSdkPermission,
+  ordinarySdkPublishCallFence,
   WEB_ACCESS_SDK_TOOL,
   GITHUB_PUBLISH_SDK_TOOL,
 } from './web-access-sdk.js';
@@ -3204,6 +3205,8 @@ async function _startChatInner(
           await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
           assertTurnCallbackEffects();
         },
+        // Ordinary owned queries must present their per-call native fence.
+        !!options.ordinarySdkAuthority,
       );
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,
@@ -3256,9 +3259,21 @@ async function _startChatInner(
             assertWebCurrent,
           ),
           abortController.signal,
-          options.ordinarySdkAuthority ? undefined : githubPublishing,
+          // One publishing tool per session; each owned query exposes it only
+          // through its own server and per-call fence, when the profile selects it.
+          !options.ordinarySdkAuthority
+            ? githubPublishing
+            : state && agentToolAllowed(session, GITHUB_PUBLISH_SDK_TOOL)
+              ? githubPublishing
+              : undefined,
           state?.runCallback,
           state && ((name) => state.checkTool(name)),
+          options.ordinarySdkAuthority && state
+            ? ordinarySdkPublishCallFence(state, (signal) => {
+                assertTurnCallbackEffects();
+                options.ordinarySdkAuthority!.assertCurrentSync(signal);
+              })
+            : undefined,
         );
       };
       const webAccess = createSdkWebAccess();
@@ -3321,6 +3336,11 @@ async function _startChatInner(
               ...ordinarySdkConnectionHelperTools,
               ...ordinarySdkTelosTools,
               WEB_ACCESS_SDK_TOOL,
+              // Pre-approved like RequestWebAccess: the tool always raises its
+              // own forced repository and publication approval cards.
+              ...(agentToolAllowed(session, GITHUB_PUBLISH_SDK_TOOL)
+                ? [GITHUB_PUBLISH_SDK_TOOL]
+                : []),
               ...(sdkToolLibrary?.allowedTools ?? []),
             ]
           : [
@@ -3330,11 +3350,7 @@ async function _startChatInner(
               GITHUB_PUBLISH_SDK_TOOL,
               'mcp__mitzo-connections__*',
             ],
-        disallowedTools: [
-          'WebSearch',
-          'WebFetch',
-          ...(options.ordinarySdkAuthority ? [GITHUB_PUBLISH_SDK_TOOL] : []),
-        ],
+        disallowedTools: ['WebSearch', 'WebFetch'],
         thinking: resolveThinking(options.model, exactSdkModelId),
         effort: resolveClaudeEffort(options.model, options.reasoningEffort, exactSdkModelId),
         ...(options.model ? { model: parseModelSpec(options.model, exactSdkModelId).model } : {}),

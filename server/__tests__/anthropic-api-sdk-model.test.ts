@@ -66,7 +66,12 @@ it.each([true, false])(
       tools: [
         { id: 'mitzo:TelosCreateSession', version: 1 },
         { id: 'mitzo:CaptureMemoryCandidate', version: 1 },
-        ...(taskSelected ? [{ id: 'mitzo:TaskExecution', version: 1 }] : []),
+        ...(taskSelected
+          ? [
+              { id: 'mitzo:TaskExecution', version: 1 },
+              { id: 'mitzo:RequestGithubPublish', version: 1 },
+            ]
+          : []),
       ],
     });
     keychain.read.mockResolvedValue({
@@ -291,6 +296,33 @@ it.each([true, false])(
           },
         ),
       ).toMatchObject({ behavior: 'deny' });
+      // Managed publication follows the explicit profile on this API-key route.
+      const { GITHUB_PUBLISH_SDK_TOOL } = await import('../web-access-sdk.js');
+      expect(options.allowedTools!.includes(GITHUB_PUBLISH_SDK_TOOL)).toBe(taskSelected);
+      expect(options.disallowedTools).not.toContain(GITHUB_PUBLISH_SDK_TOOL);
+      if (!taskSelected)
+        expect(
+          await options.canUseTool!(
+            GITHUB_PUBLISH_SDK_TOOL,
+            {},
+            { signal, toolUseID: 'excluded-publish', requestId: 'excluded-publish' },
+          ),
+        ).toMatchObject({ behavior: 'deny' });
+      const publisher = options.mcpServers!['mitzo-web-access'];
+      if (publisher.type !== 'sdk') throw Error('Protected in-process SDK server required');
+      const publisherClient = new Client({ name: 'offline-publish-discovery', version: '1' });
+      const [publisherServer, publisherTransport] = InMemoryTransport.createLinkedPair();
+      await publisher.instance.connect(publisherServer);
+      await publisherClient.connect(publisherTransport);
+      try {
+        expect(
+          (await publisherClient.listTools()).tools.some(
+            (tool) => tool.name === 'RequestGithubPublish',
+          ),
+        ).toBe(taskSelected);
+      } finally {
+        await publisherClient.close();
+      }
       const server = options.mcpServers!['mitzo-connections'];
       if (server.type !== 'sdk') throw Error('Protected in-process SDK server required');
       const client = new Client({ name: 'offline-telos-discovery', version: '1' });

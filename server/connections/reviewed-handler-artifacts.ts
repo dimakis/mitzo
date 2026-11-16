@@ -124,7 +124,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-startup-context.test.ts':
     'ef9a5ed33d3f8a814bcad92e55d7681c0dbfdeca61eb9df7f5d59960bac5a5f6',
   '../__tests__/ordinary-claude-startup-context.test.ts':
-    '739909022b0b477a6f7256e070d06f5cb2bb61032eba891009a7b9e54c62f654',
+    '174406f17952e3eae3e0f718d9d59fd049a4284667c45e04f2cc384abb9e5ed6',
   '../../packages/protocol/src/ordinary-command-withdrawals.ts':
     '37b8cf8ae06981d23d5f4c4de4a563d4228c9021e498d65e952c18050456acca',
   '../../frontend/src/components/LocalCommandRecovery.tsx':
@@ -2482,7 +2482,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/anthropic-api-child-env.test.ts':
     '0363c54f2f36e12904a0bee594e6f59ea57ec320d62cc0dd5696bd7abd47f1f9',
   '../__tests__/anthropic-api-sdk-model.test.ts':
-    '3249397f31b1dd2a7a8e915e5237f74828265c91eb4694e3b20b4f69103e354a',
+    '5465a9658a8aa8c685f7cb0dc1828ca3a95197570c7204bbef769b8284338237',
   '../__tests__/anthropic-api-sdk-permissions.test.ts':
     '4857534dacb114910f5e833c83e055c410abdf6d9c0ab4b584680a7e75af70f5',
   '../__tests__/approval-expiry-projection.test.ts':
@@ -2851,7 +2851,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/github-publication-preflight.test.ts':
     'b1419cb2f49a2b21840338cc91603222113737daa802ee207030769028b8c390',
   '../__tests__/github-publishing-tool.test.ts':
-    'de4405d937cfb53104e70eaf4f7dc4b2227b76b75b1e7bb997e39311e1314175',
+    '12ff0d908f45a9f204bcf2efb38fd8fb5ccf6b14304824ec9259cabe79808648',
   '../__tests__/google-read-consent.test.ts':
     'feaf2bad21675aee45531d319e667d1c65a369a136603f8b627dd7cc1f0f176b',
   '../__tests__/google-workspace-read.test.ts':
@@ -3739,7 +3739,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '15c377dd4f9b5dc93216e440413f8b15178228ef7fc2be60327310b160fe44ba',
+  '../chat.ts': '64f5592b2181b78b360fd3f987a9c5f55e9944546095ea54da92fb14d6529873',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
@@ -4813,7 +4813,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'aa53554be7c2dbc71044d0f8cdf461a9e4c521713142a6fae719f484c41ac7b1',
   '../url-access-tool.ts': 'd4d5414e99ed3a049b232184e540db8a023a67ac6b2a39ea0e64284556e18e9e',
   '../wait-for-change.ts': '82cfc955560c5494b9453bfc82e1a14004fc8349f2a5731583791323a03f17a0',
-  '../web-access-sdk.ts': 'b94a56937dca0b8dfed2ccee905dbbcc2bdd5d67f4a1e7bc94613125e17264a5',
+  '../web-access-sdk.ts': '84006a0dcea454027c39c5e818449c8e12e157ff31a9c3318ef3ff9fb640091e',
   '../web-access-tool.ts': '52a50a4633cb27d21a7cae1ec295a6df264812ad507d92ad69a1a12793c7fb63',
   '../web-page-content.ts': '348452aa0875f774d67f8b3b9f65bc793683e0295123e2c63fbb6011e1fbe67c',
   '../web-search-adapters.ts': 'b7b8cdcf8c7862d1d878aaa1638225bdaf100b2f78cd464ac53f02ac68f11284',

@@ -5,7 +5,8 @@ const mocks = vi.hoisted(() => ({
   approve: vi.fn(),
   captureAuthorization: vi.fn(),
 }));
-vi.mock('../agent-library-transport.js', () => ({
+vi.mock('../agent-library-transport.js', async (original) => ({
+  ...(await original<typeof import('../agent-library-transport.js')>()),
   captureAgentLibraryAuthorization: mocks.captureAuthorization,
 }));
 vi.mock('../connections-runtime.js', () => ({ getConnectionsRuntime: () => mocks.runtime }));
@@ -312,7 +313,11 @@ it('explains rejected publishing fields and accepts a corrected retry without we
     }),
   ).toMatchObject({ isError: false });
 });
-function fixture(provider: string, assertRuntimeCurrent?: () => Promise<void>) {
+function fixture(
+  provider: string,
+  assertRuntimeCurrent?: () => Promise<void>,
+  requireNativeCall = false,
+) {
   const session = {
     sessionId: 'conversation',
     ownerConnectionId: 'signed-operator',
@@ -371,6 +376,7 @@ function fixture(provider: string, assertRuntimeCurrent?: () => Promise<void>) {
       }),
       undefined,
       assertRuntimeCurrent,
+      requireNativeCall,
     ),
   };
 }
@@ -789,4 +795,144 @@ it('refuses account grant and publication after owned authority changes during a
   ).not.toHaveBeenCalled();
   expect(source.workspace).toBe(f.session.cwd);
   execute.close();
+});
+
+async function ordinaryClaudeServer(
+  f: ReturnType<typeof fixture>,
+  options: { fenced?: boolean } = {},
+) {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+  const { createWebAccessSdkServer, ordinarySdkPublishCallFence } =
+    await import('../web-access-sdk.js');
+  const { createSdkCallbackState } = await import('../ordinary-local-vertex-sdk-query.js');
+  const state = createSdkCallbackState();
+  const authority = { revoked: false };
+  const server = createWebAccessSdkServer(
+    vi.fn(),
+    new AbortController().signal,
+    f.execute,
+    state.runCallback,
+    (name) => state.checkTool(name),
+    options.fenced === false
+      ? undefined
+      : ordinarySdkPublishCallFence(state, (signal) => {
+          signal.throwIfAborted();
+          if (authority.revoked) throw Error('Original Claude authority revoked');
+        }),
+  );
+  const client = new Client({ name: 'ordinary-claude-publish', version: '1' });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.instance.connect(a);
+  await client.connect(b);
+  const publish = async () => {
+    const result = await client.callTool({ name: 'RequestGithubPublish', arguments: input });
+    const text = (result.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('');
+    return { isError: !!result.isError, text };
+  };
+  return {
+    state,
+    authority,
+    publish,
+    list: async () => (await client.listTools()).tools.map((tool) => tool.name),
+    close: async () => {
+      await client.close();
+      await server.instance.close();
+      f.execute.close();
+    },
+  };
+}
+it.each(['anthropic-vertex', 'anthropic-claude', 'anthropic-api'])(
+  'serves ordinary Claude SDK publication for %s only through the per-call native fence and forced approval',
+  async (provider) => {
+    const f = fixture(provider, undefined, true);
+    const server = await ordinaryClaudeServer(f);
+    try {
+      expect(await server.list()).toContain('RequestGithubPublish');
+      // Repository access is a forced approval card; a denial stops publication.
+      f.grant.accountIds = [];
+      mocks.approve.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied by the operator' });
+      expect(await server.publish()).toMatchObject({ isError: true });
+      expect(mocks.approve).toHaveBeenCalledOnce();
+      expect(mocks.approve.mock.calls[0][2]).toMatchObject({
+        forcePrompt: true,
+        allowSessionGrant: false,
+        rememberSessionGrant: false,
+      });
+      // Owned authority revoked while that card is open refuses grant and publication.
+      mocks.approve.mockImplementationOnce(async (_name, value) => {
+        server.authority.revoked = true;
+        return { behavior: 'allow', updatedInput: value };
+      });
+      expect(await server.publish()).toMatchObject({ isError: true });
+      expect(
+        (mocks.runtime as { capabilities: { setGrant: ReturnType<typeof vi.fn> } }).capabilities
+          .setGrant,
+      ).not.toHaveBeenCalled();
+      server.authority.revoked = false;
+      f.grant.accountIds = ['selected'];
+      // Ask mode never publishes, even with an existing grant.
+      f.session.mode = 'ask';
+      const asked = await server.publish();
+      expect(asked.isError).toBe(true);
+      expect(JSON.parse(asked.text)).toMatchObject({ reason: 'owner_changed' });
+      f.session.mode = 'agent';
+      expect(f.invoke).not.toHaveBeenCalled();
+      expect(await server.publish()).toMatchObject({ isError: false });
+      expect(f.invoke).toHaveBeenCalledOnce();
+      // A retired query cannot publish through its server again.
+      server.state.retired = true;
+      expect(await server.publish()).toMatchObject({ isError: true });
+      expect(f.invoke).toHaveBeenCalledOnce();
+    } finally {
+      await server.close();
+    }
+  },
+);
+it('refuses an ordinary Claude SDK publication without a native call fence', async () => {
+  const f = fixture('anthropic-vertex', undefined, true);
+  const server = await ordinaryClaudeServer(f, { fenced: false });
+  try {
+    const result = await server.publish();
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.text)).toMatchObject({ reason: 'native_call_required' });
+    expect(f.invoke).not.toHaveBeenCalled();
+  } finally {
+    await server.close();
+  }
+});
+it('keeps ordinary Claude SDK publication available after the original viewer disconnects', async () => {
+  const transport = await vi.importActual<typeof import('../agent-library-transport.js')>(
+    '../agent-library-transport.js',
+  );
+  mocks.captureAuthorization.mockImplementation(transport.captureAgentLibraryAuthorization);
+  const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+  if (!auth) throw Error('Offline signed operator required');
+  signedSessions.push(auth);
+  const { retainNativeHostToolOperator } = await import('../native-host-tool-operator.js');
+  const run = async (retain: boolean) => {
+    const f = fixture('anthropic-claude', undefined, true);
+    const viewer = `viewer-${retain}`;
+    Object.assign(f.session, {
+      ownerConnectionId: viewer,
+      ownedLocalAuthSessionId: auth.id,
+      abortController: new AbortController(),
+    });
+    const releaseViewer = transport.bindAgentLibraryTransport(viewer, auth);
+    // ordinary-local-vertex-entry retains the admitted operator before the SDK
+    // owner accepts input, exactly as the Codex owned route does.
+    if (retain) retainNativeHostToolOperator(f.session, viewer);
+    releaseViewer();
+    const server = await ordinaryClaudeServer(f);
+    try {
+      return await server.publish();
+    } finally {
+      await server.close();
+      f.session.abortController.abort();
+    }
+  };
+  expect(await run(true)).toMatchObject({ isError: false });
+  const detached = await run(false);
+  expect(detached.isError).toBe(true);
+  expect(JSON.parse(detached.text)).toMatchObject({ reason: 'operator_unavailable' });
 });

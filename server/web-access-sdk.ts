@@ -76,6 +76,21 @@ export function createWebAccessSdkServer(
   return { type: 'sdk', name: 'mitzo-web-access', instance };
 }
 
+/** The ordinary owned query's publication fence: its own retirement, its frozen
+ * command ceiling and the live SDK authority, re-read on every check and bound
+ * to one call's signal. Nothing here is captured as standing authority. */
+export function ordinarySdkPublishCallFence(
+  state: { retired: boolean; completing: boolean; checkTool(name: string): 'allow' | 'deny' },
+  assertAuthoritySync: (signal: AbortSignal) => void,
+): (signal: AbortSignal) => () => void {
+  return (signal) => () => {
+    if (state.retired || state.completing) throw Error('Completed SDK query retired');
+    if (state.checkTool(GITHUB_PUBLISH_SDK_TOOL) !== 'allow')
+      throw Error('Tool not allowed by the frozen command skill ceiling');
+    assertAuthoritySync(signal);
+  };
+}
+
 /** The inner shared executor always gates this tool, including Auto, cached grants and hooks. */
 export function webAccessSdkPermission(
   decide: ReturnType<typeof buildPermissionHandler>,
