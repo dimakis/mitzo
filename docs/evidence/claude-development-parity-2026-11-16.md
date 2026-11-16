@@ -54,6 +54,13 @@ saved profile or source-tool selection is changed. Missing/expired output has
 an explicit `tool_output_unavailable` / `not_started` diagnostic. All 77 checks
 in the affected catalog, SDK tool, real startup and catalog UI suites pass.
 
+CI on the first published head also exposed outdated schema/route/native-count
+fixtures and an actual missing-parent failure for an explicitly configured
+search scratch root. Those six failures were reproduced locally. The scratch
+parent is now created before exclusive temporary allocation; discovery/admission
+and restart tests retain the exact execution-ledger cwd. All 36 checks in the
+affected five suites pass. New-head CI and trusted review still remain required.
+
 Keep the defect slice active until its own live criteria are fulfilled, or each
 remaining gap is explicitly retained with its owner and next action. A source
 patch, passing fixture or published PR alone does not establish working

@@ -1,6 +1,6 @@
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EventStore } from './event-store.js';
@@ -179,7 +179,9 @@ export async function searchSdk(
     );
     // The child sandbox denies the controller's private directory. A search
     // owns only this disposable scratch, never a directory under that boundary.
-    const cwd = mkdtempSync(join(route.workspaceRoot ?? tmpdir(), 'mitzo-sdk-search-'));
+    const scratchParent = route.workspaceRoot ?? tmpdir();
+    if (route.workspaceRoot) mkdirSync(scratchParent, { recursive: true, mode: 0o700 });
+    const cwd = mkdtempSync(join(scratchParent, 'mitzo-sdk-search-'));
     scratch = cwd;
     try {
       route.executionStore.registerInternalSdkExecution({

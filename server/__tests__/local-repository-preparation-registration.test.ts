@@ -17,7 +17,7 @@ it('publishes Prepare as an optional owned-local write requiring original scoped
     version: 1,
     source: 'Local repositories',
     behavior: 'write',
-    routes: ['codex-owned-local'],
+    routes: ['codex-owned-local', 'claude-sdk'],
     required: false,
   });
   expect(tool?.requirement).toMatch(/approv/i);
@@ -106,22 +106,25 @@ it('publishes executable examples and explains that task locations are assigned'
     expect(guidance).toContain('requested directory');
   }
 });
-it('retains explicit profile exclusion and legacy admission without making Prepare available on other routes', () => {
-  const selected = { tools: [{ id: 'mitzo:PrepareLocalRepository', version: 1 }] } as never;
-  expect(() => assertAgentToolRoute(selected, 'codex-owned-local')).not.toThrow();
-  for (const route of ['local-api', 'codex', 'openshell', 'claude-sdk'])
-    expect(() => assertAgentToolRoute(selected, route)).toThrow();
-  const include = {},
-    exclude = {},
-    legacy = {};
-  bindAgentToolSelection(include, selected, 'codex-owned-local');
-  bindAgentToolSelection(
-    exclude,
-    { tools: [{ id: 'mitzo:Read', version: 1 }] } as never,
-    'codex-owned-local',
-  );
-  bindAgentToolSelection(legacy, undefined, 'codex-owned-local');
-  expect(agentToolAllowed(include, 'PrepareLocalRepository')).toBe(true);
-  expect(agentToolAllowed(exclude, 'PrepareLocalRepository')).toBe(false);
-  expect(agentToolAllowed(legacy, 'PrepareLocalRepository')).toBe(true);
-});
+it.each(['codex-owned-local', 'claude-sdk'])(
+  'retains explicit profile exclusion and legacy admission on %s',
+  (supported) => {
+    const selected = { tools: [{ id: 'mitzo:PrepareLocalRepository', version: 1 }] } as never;
+    expect(() => assertAgentToolRoute(selected, supported)).not.toThrow();
+    for (const route of ['local-api', 'codex', 'openshell'])
+      expect(() => assertAgentToolRoute(selected, route)).toThrow();
+    const include = {},
+      exclude = {},
+      legacy = {};
+    bindAgentToolSelection(include, selected, supported);
+    bindAgentToolSelection(
+      exclude,
+      { tools: [{ id: 'mitzo:Read', version: 1 }] } as never,
+      supported,
+    );
+    bindAgentToolSelection(legacy, undefined, supported);
+    expect(agentToolAllowed(include, 'PrepareLocalRepository')).toBe(true);
+    expect(agentToolAllowed(exclude, 'PrepareLocalRepository')).toBe(false);
+    expect(agentToolAllowed(legacy, 'PrepareLocalRepository')).toBe(true);
+  },
+);

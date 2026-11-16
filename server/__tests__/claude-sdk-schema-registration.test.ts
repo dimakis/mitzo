@@ -25,6 +25,9 @@ import { githubPublishingDefinition } from '../github-publishing-tool.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
 import { GoogleWorkspaceManagement } from '../google-workspace-management.js';
 import { googleReadFixture } from './fixtures/google-workspace-read.js';
+import { localEfficiencyToolDefinitions } from '../local-agent-efficiency.js';
+import { localRepositoryToolDefinitions } from '../session-local-repository-tools.js';
+import { localRepositoryPreparationDefinition } from '../local-repository-preparation-tool.js';
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -81,6 +84,12 @@ it.each([false, true])(
       ...boundary,
       profilesOnly,
       historyEvents: events,
+      repositoryTools: {
+        events,
+        captureRepositoryReadOwner: () => {
+          throw Error('Schema audit does not dispatch repository operations');
+        },
+      },
       agentCommunication: () =>
         ({
           execute: async () => {
@@ -109,6 +118,9 @@ it.each([false, true])(
       ...sessionHistoryToolDefinitions,
       ...agentTaskToolDefinitions,
       ...agentCommunicationDefinitions,
+      ...localEfficiencyToolDefinitions.filter((tool) => tool.name === 'ReadToolOutput'),
+      ...localRepositoryToolDefinitions,
+      localRepositoryPreparationDefinition,
       googleWorkspaceReadDefinition,
       ...telosSdkDefinitions,
       webAccessDefinition,

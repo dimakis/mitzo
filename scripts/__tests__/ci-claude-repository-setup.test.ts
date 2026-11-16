@@ -16,6 +16,7 @@ const names = [
   'clones and develops through the real SDK boundary (Keychain 0)',
   'clones and develops through the real SDK boundary (Keychain 1)',
   'OS sandbox creates and develops a nested repository without granting its parent Git metadata',
+  'allows native development in the owned repository and denies writes in sibling checkouts and authority',
 ];
 const fixture = () => ({
   success: true,
@@ -37,7 +38,7 @@ function validate(report: ReturnType<typeof fixture>) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
-it('qualifies only all three real Git development cases', () => {
+it('qualifies only all four real Git development and confinement cases', () => {
   expect(step.env).toEqual({ MITZO_TEST_OS_SANDBOX: '1', MITZO_SANDBOX_INTEGRATION: '1' });
   expect(validate(fixture())).toBe(0);
 });
