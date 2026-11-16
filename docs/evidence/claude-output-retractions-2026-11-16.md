@@ -23,7 +23,10 @@ oversized or partially correlated receipts produce a sanitized nonfatal diagnost
 with the original event retained under its reference; they never erase guessed
 output. Multiple native frames sharing an API message require complete observed
 coverage before removing that response. Native identity caches are bounded at
-512; a receipt batch is bounded at 256.
+512; a receipt batch is bounded at 256. Missing or invalid wire identities mark
+the whole observed aggregate incomplete. Once binding/quarantine eviction loses
+identity history, further correlation stays unavailable until the command result
+resets the lifetime; a forgotten UUID cannot be rebound to a guessed new output.
 
 Verified retractions append a durable `message_retracted` projection event.
 The live parser validates identity and rejects attributed or cross-session frames.
@@ -34,6 +37,14 @@ inputs, attributed seats, host agent messages, original EventStore bytes and too
 effects remain intact. Receipts survive stale REST restoration and late output;
 clearing the conversation clears its projection receipts. Reconnect snapshots
 cannot reintroduce a verified removed response.
+
+Canonical full and bounded transcript responses carry the verified retraction
+receipts from that exact immutable prefix. The API client validates their ordinary
+identity; the still-current history request applies them before the existing
+merge/restore owner, so a missed live event cannot retain old text or tool results.
+The existing current-session/request/cursor/live-suffix fences remain. Empty legacy
+history alone grants no deletion authority. Malformed canonical receipts retain
+known content and expose the existing history-recovery error.
 
 This does not enable model fallback, retry a provider request, change a selected
 model/account or create execution authority. Legacy SDK JSONL reconstruction is
@@ -58,6 +69,46 @@ unchanged; this qualifies canonical EventStore live and cold projections.
   has no overlap with its startup/Google changes; no pending reporting branch was
   absorbed. The SDK's optional replacement-context hook is retained.
 
+## Independent findings and correction
+
+The full independent review of exact `490d724b2570c03a454126d2290486a6593e61f3`
+inspected the entire source delta and owning consumers, retained the 313-check
+baseline plus 196 distinct owning-consumer checks, and found THREE blockers:
+missed-live-receipt REST recovery retained old output; a missing wire fragment
+did not invalidate aggregate coverage; and the conflict branch bypassed the
+quarantine bound. Passing old fixtures were not treated as acceptance of these
+findings. Independent defect probes and the original full report remain retained.
+
+The correction reproduces all three as four failing regressions before repair:
+two actual canonical-reader/API/store foreground cases, incomplete aggregate and
+1024-conflict memory bound. A further negative reproduces forgotten-UUID rebinding
+after bounded eviction. The correction preserves unknown identity instead of
+inventing a target. Final coverage includes both foreground and bounded reconnect,
+the exact prefix before/after a receipt, newer live blocks/running state, stale
+HTTP after live receipt, a conversation switch, malformed/attributed receipt
+rejection and command-result reset. The transport alone is mocked for history
+recovery; actual EventStore, transcript reader, API client and store owners run.
+
+Current correction verification is recorded in the PR and retained JSON under
+`/private/tmp/claude-1373-correction-*`. A preliminary newer-live assertion tried
+to JSON-serialize a Map; its failure is retained, and the corrected assertion
+inspects the actual streaming block values and identity. No production defect
+or fence change is inferred from that fixture mistake. Scoped lint, standalone
+new-module typing, formatting and source fingerprints remain required and checked.
+Retain the complete independent baseline; only bounded correction verification
+is pending, alongside exact-current-head CI and trusted final review.
+
+Final combined correction qualification passes 250 checks across nine suites,
+zero failures/skips. Two additional replay regressions first fail on the draft
+correction: sequenced projection receipts incorrectly rebuilt a whole turn and
+dropped known tool activity, and receipt-induced block changes preserved an old
+streaming copy after canonical message completion. Projection-only suffix actions
+now remain edits to their original row, and current-owner comparisons are made
+before applying canonical projections. Both original RED witnesses are retained;
+the final combined run includes these cases, complete native-identity overflow
+handling and the original SDK/live/cold consumers. Earlier baseline counts overlap
+and are not summed. No browser or broad hosted build result follows from this run.
+
 ## UI design and remaining gates
 
 The change reuses existing transcript rows, tool-result text and shared semantic
@@ -70,7 +121,7 @@ browser execution/screenshots remain pending hosted qualification because this
 native Seatbelt runtime cannot register browser processes. No browser guard was
 disabled and no visual pass is claimed. Design guards are included above.
 
-Independent full source/consumer review, exact-head trusted Centaur final
+Independent correction verification, exact-head trusted Centaur final
 LGTM/merge/zero blockers and combined CI remain gates. Broader S02 retry/quota
 truth, child retirement, actionable process-restart decisions, full installed
 tool/account acceptance and the original iOS/recovery incidents retain their own

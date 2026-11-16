@@ -26,6 +26,50 @@ const retract = (ids: unknown = [first]) => ({
 });
 const owners = new Map([['tool', 'old']]);
 
+it('refuses whole-response retraction after observing any frame without a wire UUID', () => {
+  const owner = new ClaudeMessageRetractions();
+  owner.observe({ ...assistant(), uuid: undefined }, 'session', 'old', owners);
+  owner.observe(assistant(), 'session', 'old', owners);
+  expect(owner.observe(retract(), 'session', 'next', owners)).toEqual({
+    targets: [],
+    unavailable: true,
+  });
+});
+
+it('keeps conflict quarantine and incomplete-message caches bounded', () => {
+  const owner = new ClaudeMessageRetractions();
+  for (let n = 0; n < 1024; n++) {
+    const id = `11111111-1111-4111-8111-${String(n).padStart(12, '0')}`;
+    owner.observe(assistant(id, `first-${n}`), 'session', `first-${n}`, owners);
+    owner.observe(assistant(id, `conflict-${n}`), 'session', `conflict-${n}`, owners);
+  }
+  const caches = owner as unknown as { retracted: Set<string>; incompleteMessages: Set<string> };
+  expect(caches.retracted.size).toBeLessThanOrEqual(512);
+  expect(caches.incompleteMessages.size).toBeLessThanOrEqual(512);
+});
+
+it.each(['binding', 'conflict'])('does not rebind a forgotten UUID after %s overflow', (kind) => {
+  const owner = new ClaudeMessageRetractions();
+  for (let n = 0; n < 513; n++) {
+    const id = `11111111-1111-4111-8111-${String(n).padStart(12, '0')}`;
+    owner.observe(assistant(id, `first-${n}`), 'session', `first-${n}`, owners);
+    if (kind === 'conflict')
+      owner.observe(assistant(id, `conflict-${n}`), 'session', `conflict-${n}`, owners);
+  }
+  const forgotten = '11111111-1111-4111-8111-000000000000';
+  owner.observe(assistant(forgotten, 'new-aggregate'), 'session', 'new-aggregate', owners);
+  expect(owner.observe(retract([forgotten]), 'session', 'next', owners)).toEqual({
+    targets: [],
+    unavailable: true,
+  });
+  owner.observe({ type: 'result', session_id: 'session' }, 'session', null, owners);
+  owner.observe(assistant(), 'session', 'old', owners);
+  expect(owner.observe(retract(), 'session', 'next', owners)).toEqual({
+    targets: [{ messageId: 'old' }],
+    unavailable: false,
+  });
+});
+
 it('maps wire UUID to the observed API message ID and deduplicates the final receipt', () => {
   const owner = new ClaudeMessageRetractions();
   owner.observe(assistant(), 'session', 'old', owners);

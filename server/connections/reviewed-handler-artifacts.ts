@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1212-claude-output-retractions';
+  'v1.0.1213-claude-retraction-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,14 +23,16 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/retraction-refresh-consumer.test.ts':
+    'c4582865cd7ba2ffabb6498fafb36b4a6e6c4e1a038f08d966c6c1a7a4d20d92',
   '../../packages/protocol/src/message-retraction.ts':
     '1a20295dd6b3348d5a2f30a01ec5db1b9c62f36d5ffa479d326560e7bbf11450',
   '../__tests__/claude-message-retractions.test.ts':
-    '5c2e83bbff589f36cdd321da1cf29d40bbcd5fe48a758c5bd086897a4df54025',
+    '8ead4ee1b0c243c55ccb0a0c320eacd4afc74e9f0eaaba10019f851c54e82b53',
   '../__tests__/sdk-retraction-consumer.test.ts':
     '3a0d6f9e045c84291cacfe2173a12e8755a39de854bd5c54c303e54ce8018b3e',
   '../claude-message-retractions.ts':
-    '5364f34bb6894db3d4e7ab2d332a20a4dabd34be54729c5228e5da0406daa0b9',
+    'a8c04776bac46819885c939e6cdc4f86a29514b5cdc4eb18860f61717d1e644c',
   '../../tests/fixtures/chat-claude-retractions.tsx':
     'eb1f1810b52c616e22b8cb8edac8df93bb4661343cf1c6ad9aefff35316bc49b',
   '../../tests/offline/chat-claude-retractions.spec.ts':
@@ -1320,7 +1322,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/__tests__/telos-work-api.test.ts':
     '909af02fc3e7fb9517cdb744b1902bf7175676eb33a68a9ce35f91f6ef95cf95',
   '../../packages/client/src/api-client.ts':
-    'e44a5b1e52150c0face6f4c2688237858459457e9ff36b7bc6f4b1038e7ee05c',
+    '700497e3f5fac1e7ff29ef01c8ecfd4e84213b524923eaebc317d7d9ca644edc',
   '../../packages/client/src/applied-delivery.ts':
     '2b882f48bb525eb3c7a0e880879efa8f4b54d5912de110c0e0d9b4984ef7997d',
   '../../packages/client/src/applied-event-acks.ts':
@@ -1348,7 +1350,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
-    'b9f0c409a9209014d730386460d19ce4f0b24596b1c783a37cfd8823fdea7931',
+    'da56108465abcc779ce212417f4da0fa001de51b38a159a64fffadf7c9b2ac3d',
   '../../packages/client/src/telos-work-api.ts':
     '59f80b2ef68f2c1cac294f6d9f5d29e89ffc062025a3aa40e98c0da8136d048a',
   '../../packages/harness/__tests__/approval-expiry.test.ts':
@@ -3785,7 +3787,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../context-pack-runtime.ts': 'b88bf80b58cdb8bf95dfd950626f75d6e055d2ee5ffb3ac3637e90f85e7bafd8',
   '../context-pack-store.ts': '7e7fce4a09496f735b3ffc9da5aaf9c841a544d1d52513203f2ccdd30e2f837f',
   '../conversation-transcript.ts':
-    'b12ac66d9157951de7448a8297afe700a6b478371068fecfca686adfdae765f8',
+    'd0fb09e7fb87626587ded87268836aa3b4d971eeea3a3b4239c360cbd1a1d391',
   '../credential-connection-schema.ts':
     '3489ff131cd0bc28de23d85e1ed7cd4749fcb12f062bdc76407bedc0efe28f47',
   '../credential-connection-tools.ts':

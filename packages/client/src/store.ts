@@ -1045,12 +1045,32 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         ? api.getSessionTranscript(sessionId)
         : api.getReconnectTranscript(sessionId, throughSeq));
     transcript
-      .then(({ messages: msgs, current, currents = [], cursor }) => {
+      .then(({ messages: msgs, current, currents = [], cursor, retractions = [] }) => {
         if (Array.isArray(msgs)) confirmPersistedDelivery(sessionId, msgs);
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           const appliedCursor = cursor ?? throughSeq;
           store.setState((s) => {
+            const liveActions = currentBoundedRestore.liveActions
+              .filter((item) => appliedCursor === undefined || item.seq > appliedCursor)
+              .map((item) => item.action);
+            // A projection receipt edits an observed turn; it does not rebuild
+            // that turn's tool activity or create a newer streaming owner.
+            const structuralActions = liveActions.filter(
+              (action) => action.type !== 'MESSAGE_RETRACTED',
+            );
+            const liveCurrentChanged =
+              s.messages.current !== initialCurrent &&
+              (liveActions.length === 0 || structuralActions.length > 0);
+            // A live receipt may have been missed. Apply only explicit verified
+            // tombstones from this request's canonical prefix before merging;
+            // an empty legacy history is not authority to erase local output.
+            for (const target of retractions)
+              s = {
+                ...s,
+                messages: messagesReducer(s.messages, { type: 'MESSAGE_RETRACTED', ...target }),
+              };
+            const mergeInitialCurrent = liveCurrentChanged ? initialCurrent : s.messages.current;
             const restoredContent = replace
               ? {
                   ...s.messages,
@@ -1076,7 +1096,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                       ...msgs
                         .filter(
                           (m) =>
-                            s.messages.current === initialCurrent ||
+                            !liveCurrentChanged ||
                             !s.messages.current ||
                             messageIdentity(m.messageId, m.symposiumProvenance) !==
                               messageIdentity(
@@ -1095,10 +1115,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                       ),
                     ];
                   })(),
-                  current: s.messages.current !== initialCurrent ? s.messages.current : null,
+                  current: liveCurrentChanged ? s.messages.current : null,
                 }
               : msgs.length > 0
-                ? mergeHistory(s.messages, msgs, initialCurrent)
+                ? mergeHistory(s.messages, msgs, mergeInitialCurrent)
                 : s.messages;
             const restored = replace
               ? messagesReducer(
@@ -1106,16 +1126,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                   { type: 'RESTORE', messages: restoredContent.messages },
                 )
               : restoredContent;
-            const liveActions = currentBoundedRestore.liveActions
-              .filter((item) => appliedCursor === undefined || item.seq > appliedCursor)
-              .map((item) => item.action);
             if (appliedCursor === undefined) return { messages: restored };
-            const preserveLiveCurrent =
-              s.messages.current !== initialCurrent && liveActions.length === 0;
+            const preserveLiveCurrent = liveCurrentChanged && structuralActions.length === 0;
             // Rebuild live completed turns from the captured suffix so their
             // order and blocks are applied once after the durable prefix.
             const replayedIds = new Set(
-              liveActions.flatMap((action) => {
+              structuralActions.flatMap((action) => {
                 if (
                   !['COMMAND_STATE', 'REPLY_SOURCE', 'MESSAGE_REPLY'].includes(action.type) &&
                   'messageId' in action &&
@@ -1186,11 +1202,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (typeof console !== 'undefined') {
           console.warn('[mitzo] message recovery fetch failed', err);
         }
-        if (
-          (replace || throughSeq !== undefined || onApplied) &&
-          request === historyRequest &&
-          store.getState().sessions.active === sessionId
-        ) {
+        if (request === historyRequest && store.getState().sessions.active === sessionId) {
           store.setState({ historyError: 'Could not restore this conversation. Please retry.' });
           // A receipt may select the chat after its background snapshot ACK was
           // sent. Recover an authoritative prefix if that receipt's history fails.

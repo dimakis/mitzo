@@ -11,6 +11,22 @@ export class ClaudeMessageRetractions {
   private readonly messages = new Set<string>();
   private readonly messageFrames = new Map<string, Set<string>>();
   private readonly incompleteMessages = new Set<string>();
+  private incompleteIdentityHistory = false;
+
+  private rememberRetracted(id: string) {
+    this.retracted.add(id);
+    while (this.retracted.size > 512) {
+      this.retracted.delete(this.retracted.values().next().value!);
+      // A forgotten native UUID could be repeated by a malformed producer.
+      // Do not guess a new binding after losing that history within this turn.
+      this.incompleteIdentityHistory = true;
+    }
+  }
+
+  private markIncomplete(messageId: string) {
+    this.messageFrames.delete(messageId);
+    if (this.messages.has(messageId)) this.incompleteMessages.add(messageId);
+  }
 
   observe(
     event: Record<string, unknown>,
@@ -27,8 +43,16 @@ export class ClaudeMessageRetractions {
       this.messages.clear();
       this.messageFrames.clear();
       this.incompleteMessages.clear();
+      this.incompleteIdentityHistory = false;
       return { targets, unavailable: false };
     }
+    const requested =
+      event.type === 'assistant'
+        ? event.supersedes
+        : event.type === 'system' && event.subtype === 'model_refusal_fallback'
+          ? event.retracted_message_uuids
+          : undefined;
+    if (this.incompleteIdentityHistory) return { targets, unavailable: requested !== undefined };
     const message = event.message as Record<string, unknown> | undefined;
     let observed: MessageRetraction[] = [];
     if (
@@ -45,7 +69,8 @@ export class ClaudeMessageRetractions {
         this.messageFrames.delete(oldest);
         this.incompleteMessages.delete(oldest);
       }
-      if (uuid(event.uuid) && !this.incompleteMessages.has(currentMessageId)) {
+      if (!uuid(event.uuid)) this.markIncomplete(currentMessageId);
+      else if (!this.incompleteMessages.has(currentMessageId)) {
         const frames = this.messageFrames.get(currentMessageId) ?? new Set<string>();
         frames.add(event.uuid);
         this.messageFrames.set(currentMessageId, frames);
@@ -67,11 +92,10 @@ export class ClaudeMessageRetractions {
       if (previous && JSON.stringify(previous) !== JSON.stringify(observed)) {
         for (const target of [...previous, ...observed]) {
           if (target.toolId) continue;
-          this.messageFrames.delete(target.messageId);
-          this.incompleteMessages.add(target.messageId);
+          this.markIncomplete(target.messageId);
         }
         this.bindings.delete(event.uuid);
-        this.retracted.add(event.uuid);
+        this.rememberRetracted(event.uuid);
         return { targets, unavailable: true };
       }
       this.bindings.set(event.uuid, observed);
@@ -79,18 +103,12 @@ export class ClaudeMessageRetractions {
         const oldest = this.bindings.keys().next().value!;
         for (const target of this.bindings.get(oldest) ?? []) {
           if (target.toolId) continue;
-          this.messageFrames.delete(target.messageId);
-          if (this.messages.has(target.messageId)) this.incompleteMessages.add(target.messageId);
+          this.markIncomplete(target.messageId);
         }
         this.bindings.delete(oldest);
+        this.incompleteIdentityHistory = true;
       }
     }
-    const requested =
-      event.type === 'assistant'
-        ? event.supersedes
-        : event.type === 'system' && event.subtype === 'model_refusal_fallback'
-          ? event.retracted_message_uuids
-          : undefined;
     if (requested === undefined) return { targets, unavailable: false };
     if (!Array.isArray(requested) || requested.length > 256) return { targets, unavailable: true };
     const requestedIds = new Set(requested.filter(uuid));
@@ -125,16 +143,13 @@ export class ClaudeMessageRetractions {
       for (const target of known) {
         if (target.toolId) continue;
         for (const frame of this.messageFrames.get(target.messageId) ?? []) {
-          this.retracted.add(frame);
+          this.rememberRetracted(frame);
           this.bindings.delete(frame);
         }
-        this.messageFrames.delete(target.messageId);
-        this.incompleteMessages.add(target.messageId);
+        this.markIncomplete(target.messageId);
       }
       this.bindings.delete(id);
-      this.retracted.add(id);
-      while (this.retracted.size > 512)
-        this.retracted.delete(this.retracted.values().next().value!);
+      this.rememberRetracted(id);
     }
     return {
       targets: targets.filter(

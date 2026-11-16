@@ -382,7 +382,11 @@ function groupRetainedReplayErrors(messages: RestoredMessage[], events: StoredEv
 function replaySingleEventsToTranscript(
   events: StoredEvent[],
   initialPrompt?: string,
-): { messages: RestoredMessage[]; current: RestoredCurrentMessage | null } {
+): {
+  messages: RestoredMessage[];
+  current: RestoredCurrentMessage | null;
+  retractions?: MessageRetraction[];
+} {
   const attachSubagent = replaySubagents(events);
   const messages: RestoredMessage[] = [];
   const interruptCompleted = terminalProjection(messages);
@@ -686,6 +690,7 @@ function replaySingleEventsToTranscript(
   return {
     messages: projectMessageRetractions(messages, retractions),
     current: current ? (projectMessageRetractions([current], retractions)[0] ?? null) : null,
+    ...(retractions.length ? { retractions } : {}),
   };
 }
 
@@ -697,6 +702,7 @@ export function replayEventsToTranscript(
   messages: RestoredMessage[];
   current: RestoredCurrentMessage | null;
   currents: RestoredCurrentMessage[];
+  retractions?: MessageRetraction[];
 } {
   const ordinary: typeof events = [];
   const bySnapshot = new Map<string, { events: typeof events; provenance: SymposiumProvenance }>();
@@ -824,7 +830,12 @@ export function replayEventsToTranscript(
   }
   attributeCommands(ordinary, messages, base.current ? [base.current] : []);
   includeAgentMessages(ordinary, messages);
-  return { messages, current: base.current, currents };
+  return {
+    messages,
+    current: base.current,
+    currents,
+    ...(base.retractions ? { retractions: base.retractions } : {}),
+  };
 }
 
 /**
