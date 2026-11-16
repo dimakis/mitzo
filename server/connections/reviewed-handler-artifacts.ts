@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1219-claude-retraction-restore-guard';
+  'v1.0.1220-claude-retraction-output-pins';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/__tests__/collaboration-visible-source.test.ts':
     '59b88651ac1be9e98c3295646c250b4e86b18fa3953446708d16222bf0656252',
   '../__tests__/collaboration-context-source.test.ts':
-    'fe975646a9442a2a6da5683eceb0cdd752ce5cb90eae3833e0b5cf8e6cc743db',
+    'd0a492673a6b4e72dd78f8bf6647d4b4977512cc49423cfca77037e0ab048c64',
   '../../packages/protocol/__tests__/collaboration-durable-transcript.test.ts':
     '184f8ee3d4abf2b0584357148f020b3f13fea74612c4e74970f43be4b000d263',
   '../__tests__/telos-conversation-source.test.ts':
@@ -1518,7 +1518,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-source-setup.ts':
     '87909fca446e5048958fdc22cb237a4258918ea7a3db749096eb58707c1158b7',
   '../../packages/protocol/src/collaboration-visible-source.ts':
-    '0ae9bd934fc2800bcde501052d5c409d55556431ebd5bb33491948a39e459cdf',
+    'a1dac476bf3cb79ffcea083be56cbf87be6e1311a4c52d56f13b37ce4e389d20',
   '../../packages/protocol/src/context-compaction.ts':
     '14ad6a62ebd1a263a9cfcd9eda141763f56e38789b353360980651a0695f8752',
   '../../packages/protocol/src/context-injection.ts':
@@ -3759,7 +3759,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-context-input.ts':
     '0292f3a66d6493337e83741b2537f79b471a468fe7a504d4ef71a74c8d30fe9e',
   '../collaboration-context-source.ts':
-    '4315a579a1741c55d7c62b9b43fdde35967ad1b6e630eb1d1b5389221cac0995',
+    '976dbe95093beb9e63d5215c7b6fdd280083121a93e5fb511a74299f1127c728',
   '../collaboration-forwarding.ts':
     '8eb6d7b32dab93b30b92241c9e83b9bd24ef644c38b0648c363847679e2ccdcb',
   '../collaboration-joining-owner.ts':

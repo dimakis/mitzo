@@ -111,6 +111,45 @@ and are not summed. No browser or broad hosted build result follows from this ru
 
 ## UI design and remaining gates
 
+The later trusted report on `99db` (`5915008332`, recommendation
+`human_decision`) also identified CEN-ABB1191CF7D3: registered inline output
+pins still carried withdrawn text in `artifacts.contentBase64`. Earlier message
+and material-reference checks did not qualify this separate output-owner path.
+The other finding, CEN-AB4EF1DC1546, is the metadata/incremental recovery path
+covered by the later corrections below. Neither is a current trusted approval.
+
+The output-pin defect reproduces on `8a4`: four real EventStore/source/compiler
+cases fail for automatic inclusion, inclusion from an earlier page, and explicit
+artifact selection in both context modes. The baseline retains 41 passing cases;
+these four failures remain in `/private/tmp/claude-1373-output-pins-complete-red.json`.
+The corrected bounded SQL pin projection excludes only ordinary whole-message
+receipts within the full selected prefix, even when reading an earlier page.
+Explicit pins pass the same original-source projection before reading output
+bytes and again at existing revalidation/save fences. Narrow artifact selection
+does not require a full-prefix witness or consume its 500-message allowance.
+
+The actual compiler now omits those artifacts from current context and refuses
+an explicit withdrawn selection before `readSessionOutput`. Positive controls
+preserve original output registration/bytes, explicitly older frozen prefixes,
+tool-result-only receipts, unrelated visible material and narrow selections over
+long histories. SessionOutputReferenceStore remains the retained audit owner;
+there is no global deletion or change to original effect/registration receipts.
+The corrected affected run passes 312 checks across eight test files, zero
+failures/skips, including source/compiler, forwarding/review consumers, durable
+prefixes and output references. These overlap prior coverage and are not summed.
+The scoped lint passes. Current-head source pins, hosted CI and bounded
+independent/trusted correction verification remain required; the old
+`human_decision` report is not treated as resolved by a push alone.
+
+The prior `8a4` hosted native job `133097518639` failed its subscription
+repository workflow: `PublishPreparedRepository` timed out with a SIGKILL child
+and an unknown effect outcome, followed by the required post-result deadline
+refusal. The separate API account workflow passed. The complete log and artifact
+`14198123121` remain retained; the inner publication slowdown cause is not yet
+established. This is not a passing native gate and the uncertain operation must
+not be replayed. The output-pin correction changes neither that helper nor its
+deadline; fresh current-head native qualification remains mandatory.
+
 Bounded independent verification of `99db` cleared the original three findings
 and context correction but reproduced one further P1: a sequenced retraction
 followed by command-state metadata during held foreground recovery dropped known
