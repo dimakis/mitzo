@@ -129,6 +129,23 @@ One worker/1 GiB, source pins, formatting and whitespace checks pass. Existing
 whole-source and independent review baselines remain; trusted integration review
 and combined current-head CI are still required.
 
+## Accepted transcript-handler integration
+
+Integrated accepted PR1370 at `16e74da83fe6e18e3a027ea4e562cdf0afddddb6`
+after GitHub reported a manifest conflict. Its only production delta retains the
+original transcript cause before optional logging, using the accepted bounded
+failure helper so logging failure cannot prevent the sanitized HTTP500 response.
+Inspected all three accepted files and affected error-consumer assumptions; startup,
+Google schemas and query preparation are unchanged.
+
+The conflict resolution changes only the manifest revision label. All entries,
+15 startup/test fingerprints and the accepted handler hash are retained. Twenty
+HTTP/diagnostic/startup checks pass across three files on the combined tree,
+one worker/1GiB; pins, formatting and whitespace pass. Prior native repository and
+authorization checks and two macOS joined shards passed at `27a25d44`; its remaining
+queued native jobs are preserved as baseline evidence, not current-head approval.
+Trusted integration review and fresh combined CI remain required.
+
 ## Acceptance still open
 
 Source, landing, activation and live acceptance are distinct. This change does
