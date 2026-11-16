@@ -137,6 +137,25 @@ Original events remain unchanged. These are offline source/consumer tests, not
 two-process restart or account/runtime acceptance. Final composed-head testing,
 bounded independent verification and trusted finding resolution remain required.
 
+Accepted persistence integration: the composed tree includes accepted main
+`6d320beb1ba543773db7ca16e5825fd25c29cb6d`. All eight incoming non-composed
+paths are byte-identical to that commit. The query-loop merge retains both the
+reviewed retraction handling and accepted bounded persistence diagnostics; only
+the manifest label, parent-key union and composed query hash needed manual
+resolution. The exact 2,528-key source registry union verifies without replacing
+either parent's unrelated hashes.
+
+Final composed-source qualification passes 566 checks across 17 distinct suites
+in two batches (378/13 and 188/4), zero failures/skips. These cover the actual
+SDK/query/EventStore retraction and persistence consumers, both context source
+owners, the context compiler, canonical transcript/API/real client refresh,
+sequenced replay, coalescing, metadata and stale/live restoration. The initial
+combined command included three nonexistent client test paths; those files were
+not counted, and the four actual client/coalescing suites ran separately.
+Scoped lint, new-module strict typing, formatting, whitespace and the complete
+source fingerprint verifier pass. Full hosted compile/CI and independent bounded
+correction verification remain separate gates.
+
 The change reuses existing transcript rows, tool-result text and shared semantic
 tokens. It adds no layout, control, palette or motion pattern. The intercepted
 `chat-claude-retractions` fixture renders the actual ChatArea/store/parser,

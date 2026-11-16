@@ -164,6 +164,16 @@ it.each([false, true])(
     view.joinedParticipants = [{ sessionId: 'reviewer', name: 'Reviewer' }];
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       expect(init?.method ?? 'GET').toBe('GET');
+      const recipient = ['architect', 'reviewer'].find((id) => url.endsWith(`/recipients/${id}`));
+      if (recipient)
+        return Response.json({
+          collaborationId: view.collaborationId,
+          sessionId: recipient,
+          membershipRevision: view.membershipRevision,
+          policySequence: view.policySequence,
+          ready: recipient !== 'architect' || !running,
+          reason: recipient === 'architect' && running ? 'Original agent is running' : null,
+        });
       if (url.includes('source-setup'))
         return Response.json({
           state: 'selected',
@@ -235,6 +245,13 @@ it.each([false, true])(
         </SharedConversationHost>
       </MemoryRouter>,
     );
+    // The sending owner may read readiness before this click on a busy runner.
+    // Qualify that legitimate observation explicitly instead of relying on timing.
+    const readiness = await new MitzoApiClient(fetch).collaborations.recipientReadiness(
+      view.collaborationId,
+      'architect',
+    );
+    expect(readiness.ready).toBe(!running);
     const share = await screen.findByText('Share excerpt');
     fireEvent.click(share);
     const dialog = await screen.findByRole('dialog', { name: 'Send selected messages' });

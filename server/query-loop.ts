@@ -2,6 +2,11 @@ import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
 import type { SubagentDiagnostic } from '@mitzo/protocol';
 import { bindClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { isSdkQueryRetiredEvent } from './sdk-query-retirement.js';
+import {
+  retainSdkPersistenceFailure,
+  sdkPersistenceDiagnostic,
+  sdkPersistenceFailure,
+} from './sdk-persistence-diagnostics.js';
 import { ToolFailureSchema, toolFailureAction } from '@mitzo/protocol';
 import { observeSessionActivity } from './session-activity-events.js';
 import { randomUUID } from 'node:crypto';
@@ -825,6 +830,7 @@ async function _runQueryLoopInner(
     options?.onFirstEventOutcome?.(error);
   };
   let terminalOutcomeReported = false;
+  const persistenceNotices = new Set<string>();
   const reportTerminalOutcome = (error?: Error) => {
     if (terminalOutcomeReported) return;
     terminalOutcomeReported = true;
@@ -1859,6 +1865,29 @@ async function _runQueryLoopInner(
           }
         } else if (msg.type === 'system') {
           const subtype = (msg as Record<string, unknown>).subtype;
+          const persistence = sdkPersistenceDiagnostic(msg, currentSession.sessionId ?? '');
+          if (persistence) {
+            if (persistenceNotices.has(persistence.correlationId)) continue;
+            if (persistenceNotices.size >= 256)
+              persistenceNotices.delete(persistenceNotices.values().next().value!);
+            persistenceNotices.add(persistence.correlationId);
+            retainSdkPersistenceFailure(persistence.correlationId, currentSession.sessionId!, msg);
+            try {
+              log.warn('Claude native persistence was not confirmed', {
+                stage: persistence.stage,
+                code: persistence.code,
+                correlationId: persistence.correlationId,
+                sessionId: resolvedSessionId,
+              });
+            } catch (cause) {
+              sdkPersistenceFailure(
+                persistence.correlationId,
+                currentSession.sessionId!,
+              )!.reportingCause = cause;
+            }
+            emit(v2('error', persistence));
+            continue;
+          }
 
           // Preserve lifecycle position durably; never infer a condensed message range.
           const compactResult = (msg as Record<string, unknown>).compact_result;
