@@ -3732,7 +3732,7 @@ export class CodexConversationStore {
     }
     if (childCalls.some((call) => !ownedExecution || !call.intrinsicRead))
       throw Error('Terminal child host effects require original owned read authority');
-    const reject = (check: RecoveryReceiptCheck, callId?: string): never => {
+    const reject: (check: RecoveryReceiptCheck, callId?: string) => never = (check, callId) => {
       throw new CodexRecoveryEffectsError(check, {
         commandId: target.commandId,
         turnId: target.turnId,

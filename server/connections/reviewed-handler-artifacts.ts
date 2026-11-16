@@ -3719,7 +3719,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-borrowed-search.ts': '9614d2109b5ee0d65d641ca6e743d3c22a3cd8d70c48178d1a0bdfefcbcf35e1',
   '../codex-chat-session.ts': '062c08911258fd36a83fbf3357c16f90843d0a368550d73f5563de283c6caab4',
   '../codex-conversation-store.ts':
-    '095b78fe1b20eaf7b5c790163fc9c34f6188dd7c7571b80f667fd1ce3075c362',
+    '5ee083f7355a295c669670b7a4a4b0b4a91a030a6745488ad737481d6a6879de',
   '../codex-conversation.ts': 'ac8f1d218b101ed7beaacec1a0e598cf3cd4fd111a7b40efdf14bad3c944e1df',
   '../codex-diagnostic-release.ts':
     '7faf950fb245060aaa22ae552480eaaee2bd80641dbf4ad738a9773a55b64c39',
