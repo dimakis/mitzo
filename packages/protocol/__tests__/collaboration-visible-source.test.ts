@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   openCollaborationVisibleSource,
   readCollaborationFinalizedReply,
+  readCollaborationStreamingReply,
 } from '../src/collaboration-visible-source.js';
 
 let db: Database.Database;
@@ -44,6 +45,21 @@ function finalizedReply() {
   }
   event(8, 'message_end', { messageId: 'answer' });
 }
+
+it('does not deliver a current finalized or streaming reply withdrawn after its text', () => {
+  finalizedReply();
+  event(9, 'message_retracted', { sessionId: 'one', messageId: 'answer' });
+  expect(readCollaborationFinalizedReply(db, 'one', 'answer')).toBeUndefined();
+  db.prepare('DELETE FROM events WHERE seq=8').run();
+  expect(readCollaborationStreamingReply(db, 'one', 'answer')).toBeUndefined();
+  // A frozen source before the receipt still represents its original prefix.
+  event(8, 'message_end', { messageId: 'answer' });
+  expect(
+    openCollaborationVisibleSource(db, 'one', { sequence: 8, messageId: 'answer' }).readSelected([
+      'answer',
+    ])[0].blocks[0].content,
+  ).toBe('Visible answer');
+});
 
 it('reads only an exact finalized ordinary answer despite unrelated incomplete history', () => {
   finalizedReply();

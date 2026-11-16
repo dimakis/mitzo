@@ -50,7 +50,56 @@ const completedAnchors = `session_id=@session AND seq<=@through AND ${ordinary()
  SELECT 1 FROM events b WHERE b.session_id=events.session_id AND b.seq<events.seq
  AND b.type='block_start' AND ${ordinary('b')}
  AND json_extract(b.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
- AND json_extract(b.payload,'$.blockType')='text')))`;
+ AND json_extract(b.payload,'$.blockType')='text') AND NOT EXISTS (
+ SELECT 1 FROM events r WHERE r.session_id=events.session_id AND r.seq<=@through
+ AND r.type='message_retracted' AND ${ordinary('r')}
+ AND json_extract(r.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
+ AND json_type(r.payload,'$.toolId') IS NULL)))`;
+
+// Qualify the receipt's original ordinary identity using SQL scalars only. A
+// display/source reader must not acquire deletion authority from foreign or
+// malformed payloads, and must not hydrate private event data to check it.
+function validateRetractions(db: Database.Database, session: string, through: number) {
+  const invalid = db
+    .prepare(
+      `SELECT 1 FROM events r
+    WHERE r.session_id=@session AND r.seq<=@through AND r.type='message_retracted'
+    AND ${ordinary('r')} AND (
+      json_extract(r.payload,'$.sessionId') IS NOT @session OR
+      json_type(r.payload,'$.messageId') IS NOT 'text' OR
+      length(json_extract(r.payload,'$.messageId')) NOT BETWEEN 1 AND 2000 OR
+      NOT EXISTS (SELECT 1 FROM events s WHERE s.session_id=r.session_id AND s.seq<r.seq
+        AND s.type='message_start' AND ${ordinary('s')}
+        AND json_extract(s.payload,'$.messageId')=json_extract(r.payload,'$.messageId')) OR
+      (json_type(r.payload,'$.toolId') IS NOT NULL AND (
+        json_type(r.payload,'$.toolId') IS NOT 'text' OR
+        length(json_extract(r.payload,'$.toolId')) NOT BETWEEN 1 AND 1000 OR
+        NOT EXISTS (SELECT 1 FROM events t WHERE t.session_id=r.session_id AND t.seq<r.seq
+          AND t.type='block_end' AND ${ordinary('t')}
+          AND json_extract(t.payload,'$.messageId')=json_extract(r.payload,'$.messageId')
+          AND json_extract(t.payload,'$.blockType')='tool_use'
+          AND json_extract(t.payload,'$.toolId')=json_extract(r.payload,'$.toolId'))))) LIMIT 1`,
+    )
+    .get({ session, through });
+  if (invalid) fail();
+}
+
+function currentReplyRetracted(
+  db: Database.Database,
+  session: string,
+  messageId: string,
+  start: number,
+) {
+  return !!db
+    .prepare(
+      `SELECT 1 FROM events r WHERE r.session_id=@session AND r.seq>@start
+    AND r.type='message_retracted' AND ${ordinary('r')}
+    AND json_extract(r.payload,'$.sessionId')=@session
+    AND json_extract(r.payload,'$.messageId')=@messageId
+    AND json_type(r.payload,'$.toolId') IS NULL LIMIT 1`,
+    )
+    .get({ session, messageId, start });
+}
 
 /** Capture from retained events only. The highwater and completed anchor belong
  * to the same SQLite read transaction as every bounded visible-text projection.
@@ -93,6 +142,7 @@ export function captureCollaborationDurableTranscript(
       through = preceding.through;
     }
     const args = { session, through };
+    validateRetractions(db, session, through);
     // Native seat rows are never ordinary context. Before excluding them,
     // validate their retained mapping like canonical replay; no payload is read.
     const attributed = `session_id=@session AND seq<=@through
@@ -214,6 +264,7 @@ export function readCollaborationFinalizedReply(
   if (!rows.some((row) => row.type === 'message_end')) return undefined;
   if (rows.length !== 2 || rows[0].type !== 'message_start' || rows[1].type !== 'message_end')
     fail();
+  if (currentReplyRetracted(db, session, messageId, rows[0].seq)) return undefined;
   const boundary = { sequence: rows[1].seq, messageId };
   try {
     const source = createVisibleSource(db, session, boundary, null, messageId);
@@ -245,6 +296,7 @@ export function readCollaborationStreamingReply(
     .all(session, messageId) as Array<{ seq: number; type: string }>;
   if (!rows.length || rows.some((r) => r.type === 'message_end')) return undefined;
   if (rows.length !== 1 || rows[0].type !== 'message_start') fail();
+  if (currentReplyRetracted(db, session, messageId, rows[0].seq)) return undefined;
   if (
     !db
       .prepare(
@@ -293,6 +345,7 @@ function createVisibleSource(
     ? `session_id=@session AND seq<=@through AND ${ordinary()} AND type='message_start'`
     : completedAnchors;
   function validateBoundary() {
+    validateRetractions(db, session, through);
     if (exactReply !== undefined) {
       // Only this finalized message qualifies. Unrelated queued/active turns,
       // initial context and history size cannot suppress its retained answer.

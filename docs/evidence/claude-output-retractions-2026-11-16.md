@@ -111,6 +111,32 @@ and are not summed. No browser or broad hosted build result follows from this ru
 
 ## UI design and remaining gates
 
+The exact-head trusted review of the original `490d` candidate additionally
+identified CEN-4207B76DD69C (sequenced receipt drops known tool activity, covered
+by the local recovery correction above) and CEN-7557F1774253 (shared visible
+context still contains withdrawn text). Neither is called verified by that
+original FIX report.
+
+The context correction updates both existing read-only source owners. The
+EventStore durable visible-text reader checks original ordinary identities using
+bounded SQL scalar projections, excludes whole-message receipts only within the
+selected prefix, and retains user rows and tool-result-only text. No private
+payload hydration is introduced. The Telos conversation source removes only
+ordinary assistant text and its material references, including a receipt before
+message completion; its existing authorization, attribution, byte/page limits and
+source witness checks remain. These are source reads, not live Telos mutations.
+Current finalized/streaming reply delivery also refuses withdrawn output; explicit
+earlier frozen sources preserve their original bytes and identities.
+
+Five actual source-reader/identity cases first failed before correction. The
+corrected combined context/retraction run passes 174 checks across eight suites;
+an additional compiler/current-reply run passes 65 checks across two suites, with
+overlap. The real EventStore, source adapters and ConversationPromptContext
+compiler qualify omission from current context and retention of earlier snapshots.
+Original events remain unchanged. These are offline source/consumer tests, not
+two-process restart or account/runtime acceptance. Final composed-head testing,
+bounded independent verification and trusted finding resolution remain required.
+
 The change reuses existing transcript rows, tool-result text and shared semantic
 tokens. It adds no layout, control, palette or motion pattern. The intercepted
 `chat-claude-retractions` fixture renders the actual ChatArea/store/parser,

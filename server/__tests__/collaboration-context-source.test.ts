@@ -64,6 +64,26 @@ function selection(
 }
 const source = () => createCollaborationContextSource({ store, authorizeConversation: authorize });
 
+it('compiles current context without withdrawn output and preserves a pre-receipt compiled prefix', async () => {
+  store.append('one', 'user_message', { messageId: 'question', text: 'Question' });
+  const end = assistant('withdrawn', 'WITHDRAWN OUTPUT');
+  const frozen = await compileCollaborationContext(
+    selection(end, 'withdrawn'),
+    [settings],
+    source(),
+  );
+  store.append('one', 'message_retracted', { sessionId: 'one', messageId: 'withdrawn' });
+  const current = store.getDurableSessionTranscript('one');
+  const draft = await compileCollaborationContext(
+    selection(current.boundary.sequence, current.boundary.messageId),
+    [settings],
+    source(),
+  );
+  expect(draft.messages.map((m) => m.messageId)).toEqual(['question']);
+  expect(JSON.stringify(draft)).not.toContain('WITHDRAWN OUTPUT');
+  expect(JSON.stringify(frozen.messages)).toContain('WITHDRAWN OUTPUT');
+});
+
 it('reviews a selected completed reply through the real captured prefix while a later reply streams', async () => {
   assistant('prior');
   store.append('one', 'message_start', { messageId: 'active' });

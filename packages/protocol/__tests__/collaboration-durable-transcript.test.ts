@@ -50,6 +50,58 @@ function refuses(code: 'snapshot_changed' | 'capacity_refused') {
   expect(() => store.getDurableSessionTranscript('one')).toThrowError(code);
 }
 
+it('withdraws current shared text while preserving the exact earlier source and original events', () => {
+  user();
+  assistant();
+  const earlier = store.getDurableSessionTranscript('one');
+  const frozen = store.openCollaborationVisibleSource('one', earlier.boundary);
+  store.append('one', 'message_retracted', { sessionId: 'one', messageId: 'answer' });
+  const current = store.getDurableSessionTranscript('one');
+  expect(current.messages.map((m) => m.messageId)).toEqual(['question']);
+  const source = store.openCollaborationVisibleSource('one', current.boundary);
+  expect(source.readPrefixWitness().messageCount).toBe(1);
+  expect(() => source.readSelected(['answer'])).toThrow('snapshot_changed');
+  expect(frozen.readSelected(['answer'])).toEqual([earlier.messages[1]]);
+  frozen.assertCurrent();
+  expect(store.getSessionEvents('one').some((e) => e.payload.delta === 'Visible answer')).toBe(
+    true,
+  );
+});
+
+it('does not withdraw assistant context for a tool-result-only receipt', () => {
+  user();
+  assistant();
+  store.append('one', 'block_end', {
+    messageId: 'answer',
+    blockId: 'tool',
+    blockType: 'tool_use',
+    toolId: 'known-tool',
+  });
+  store.append('one', 'message_retracted', {
+    sessionId: 'one',
+    messageId: 'answer',
+    toolId: 'known-tool',
+  });
+  expect(store.getDurableSessionTranscript('one').messages.map((m) => m.messageId)).toEqual([
+    'question',
+    'answer',
+  ]);
+});
+
+it.each(['foreign session', 'unknown output', 'user output'])(
+  'refuses %s retraction authority',
+  (kind) => {
+    user();
+    assistant();
+    store.append('one', 'message_retracted', {
+      sessionId: kind === 'foreign session' ? 'other' : 'one',
+      messageId:
+        kind === 'unknown output' ? 'unknown' : kind === 'user output' ? 'question' : 'answer',
+    });
+    refuses('snapshot_changed');
+  },
+);
+
 it('captures actual session highwater and completed anchor with only public visible text and no effects', () => {
   user();
   const completed = assistant();

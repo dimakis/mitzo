@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1213-claude-retraction-recovery';
+  'v1.0.1214-claude-retraction-context';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/__tests__/collaboration-visible-source.test.ts':
+    '59b88651ac1be9e98c3295646c250b4e86b18fa3953446708d16222bf0656252',
+  '../__tests__/collaboration-context-source.test.ts':
+    'fe975646a9442a2a6da5683eceb0cdd752ce5cb90eae3833e0b5cf8e6cc743db',
+  '../../packages/protocol/__tests__/collaboration-durable-transcript.test.ts':
+    '184f8ee3d4abf2b0584357148f020b3f13fea74612c4e74970f43be4b000d263',
+  '../__tests__/telos-conversation-source.test.ts':
+    'aac21cf810a4d873dbef041c84f2ad2c92686c664f6d6e9e2ccd0cd64b88865c',
   '../__tests__/retraction-refresh-consumer.test.ts':
     'c4582865cd7ba2ffabb6498fafb36b4a6e6c4e1a038f08d966c6c1a7a4d20d92',
   '../../packages/protocol/src/message-retraction.ts':
@@ -1504,7 +1512,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-source-setup.ts':
     '87909fca446e5048958fdc22cb237a4258918ea7a3db749096eb58707c1158b7',
   '../../packages/protocol/src/collaboration-visible-source.ts':
-    'adc7e78171eeca4a19feccce8823024fa5b4d58ec87d1221c90cfa29cd08c7aa',
+    '0ae9bd934fc2800bcde501052d5c409d55556431ebd5bb33491948a39e459cdf',
   '../../packages/protocol/src/context-compaction.ts':
     '14ad6a62ebd1a263a9cfcd9eda141763f56e38789b353360980651a0695f8752',
   '../../packages/protocol/src/context-injection.ts':
@@ -4584,7 +4592,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-backlog-tools.ts': 'b5ef1ff2c12bcd7b8c33feaf977eadd5e9f36c302e2eb50547afbec79a0c4274',
   '../telos-collection.ts': '5dafc82349a2f944475bca6650ade6ddfeb403355659da5c5a97f205846d21c6',
   '../telos-conversation-source.ts':
-    '306083f4ab0b812d273feb73d683a33dd12761034a65c81df392333bf9661050',
+    'dfa9fe2b16bfd55c66f4c66b896402d50eceea6b7117ad758ebd00ae8e18787e',
   '../telos-crud-routes.ts': '8334ef7587241acdb7dcf3ef223b421abd981c75fffb0c176c54df1d743ad7b5',
   '../telos-database.ts': '0f5a1a01078cbcb804fa8fce710b9f7827a680b423ba283f281cb1137f8d4c84',
   '../telos-existing-chat-adoption.ts':
