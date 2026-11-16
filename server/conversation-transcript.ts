@@ -818,12 +818,27 @@ export function replayEventsToTranscript(
   groupRetainedReplayErrors(messages, events);
   currents.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
   const ids = new Set<string>();
-  for (const message of [...messages, ...currents]) {
-    const id = JSON.stringify([
+  const identity = (message: RestoredMessage | RestoredCurrentMessage) =>
+    JSON.stringify([
       message.symposiumProvenance?.seatId ?? null,
       message.symposiumProvenance?.membershipGeneration ?? null,
       message.messageId,
     ]);
+  const completed = new Set<object>(messages);
+  for (const message of [...messages, ...currents]) {
+    if (
+      ids.has(identity(message)) &&
+      message.role === 'assistant' &&
+      !message.symposiumProvenance &&
+      completed.has(message) &&
+      message.startedSeq !== undefined
+    )
+      // Pre-#1373 query loops minted ordinary ids from Date.now(), so SDK
+      // messages emitted in one millisecond share an id. Each is a distinct
+      // stored message (own seq, blocks and tool results were already bound by
+      // block/tool id), so give the later completed one a stable unique id.
+      message.messageId = `${message.messageId}~${message.startedSeq}`;
+    const id = identity(message);
     if (ids.has(id))
       throw new Error('Ambiguous duplicate Symposium message identity in stored transcript');
     ids.add(id);

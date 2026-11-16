@@ -173,3 +173,48 @@ for (const [name, project] of [
       expect(messages.at(-1)?.blocks[0]).not.toHaveProperty('toolInterrupted');
   });
 }
+
+it('restores legacy ordinary messages whose millisecond ids collided, keeping each tool result', () => {
+  // Pre-#1373 query loops minted ordinary ids from Date.now(); parallel tool
+  // calls emitted in one millisecond were stored under one messageId.
+  const events: StoredEvent[] = [];
+  const add = (type: string, payload: Record<string, unknown>) =>
+    events.push({ type, payload, seq: events.length + 1, sessionId: 's', createdAt: 1 });
+  for (const [blockId, toolId] of [
+    ['b2', 'first'],
+    ['b3', 'second'],
+  ]) {
+    add('message_start', { messageId: 'msg-1' });
+    add('block_start', { messageId: 'msg-1', blockId, blockType: 'tool_use', toolName: 'Read' });
+    add('block_end', { messageId: 'msg-1', blockId, blockType: 'tool_use', toolId, input: '{}' });
+    add('message_end', { messageId: 'msg-1' });
+  }
+  add('tool_result', { messageId: 'msg-1', toolId: 'first', result: 'one' });
+  add('tool_result', { messageId: 'msg-1', toolId: 'second', result: 'two' });
+  const { messages } = replayEventsToTranscript(events);
+  const assistants = messages.filter((message) => message.role === 'assistant');
+  expect(assistants.map((message) => message.messageId)).toEqual(['msg-1', 'msg-1~5']);
+  expect(assistants.map((message) => message.blocks[0]?.toolResult)).toEqual(['one', 'two']);
+});
+
+it('still refuses a duplicate identity within one Symposium seat', () => {
+  const provenance = { seatId: 'seat', membershipGeneration: 1 };
+  const events: StoredEvent[] = [];
+  const add = (type: string, payload: Record<string, unknown>) =>
+    events.push({
+      type,
+      payload,
+      seq: events.length + 1,
+      sessionId: 's',
+      createdAt: 1,
+      seatId: 'seat',
+      symposiumProvenance: provenance as never,
+    });
+  for (const blockId of ['b1', 'b2']) {
+    add('message_start', { messageId: 'seat-msg' });
+    add('block_start', { messageId: 'seat-msg', blockId, blockType: 'text' });
+    add('block_end', { messageId: 'seat-msg', blockId, blockType: 'text' });
+    add('message_end', { messageId: 'seat-msg' });
+  }
+  expect(() => replayEventsToTranscript(events)).toThrow(/Ambiguous|Symposium/);
+});
