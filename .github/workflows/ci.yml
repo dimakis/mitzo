@@ -620,6 +620,7 @@ jobs:
         with:
           name: native-repository-workflows-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            test-results/claude-repository-setup.json
             test-results/standalone-task-proofs.json
             test-results/native-repository-workflows-processes/
             test-results/native-repository-workflows/
