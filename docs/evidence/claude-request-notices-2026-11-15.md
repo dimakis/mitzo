@@ -56,6 +56,18 @@ canonical diagnostic utility now has zero delta against accepted main. Only the
 runtime revision label required manual resolution; all accepted source pins and
 existing request-notice changes remain intact.
 
+Accepted transcript repair #1370 at
+`16e74da83fe6e18e3a027ea4e562cdf0afddddb6` was integrated after reproducing
+another manifest conflict. Its entire handler/test delta was inspected: original
+causes use the same unchanged canonical retention owner before sanitized logging,
+and logger failures preserve the safe HTTP response. The accepted handler/tests
+and this PR's notice production files remain byte-identical to their respective
+parents. Only the manifest label required manual resolution. Current combined
+transcript, retention and notice suites pass 41 checks across three files;
+source pins, formatting and whitespace checks pass. Hosted CI and trusted review
+must qualify this exact integrated head; no runtime
+activation or live incident recovery is claimed.
+
 Model refusal/retraction, richer context usage, background task progress and
 optional native plan-utilization displays remain separate reporting work.
 This does not fix the original iOS transcript projection failure, reconcile a
