@@ -1143,7 +1143,9 @@ function ChatInputContent({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (running && guardedConversation) handleQueue();
+      // Native steering takes Enter whenever its own button would accept it;
+      // otherwise a guarded turn keeps the message queued for after completion.
+      if (running && guardedConversation && !steerOnEnter) handleQueue();
       else if (running && onInterrupt) handleInterrupt();
       else handleSend();
     }
@@ -1468,6 +1470,12 @@ function ChatInputContent({
     (interruptLabel === 'Steer current turn' && activeContextBlocks.length
       ? 'Queue context changes as a new message. Corrections keep the active turn’s context.'
       : undefined);
+  const steerOnEnter =
+    interruptLabel === 'Steer current turn' &&
+    !!onInterrupt &&
+    !correctionReason &&
+    (!boundedFirstCommand || targetedSteering) &&
+    (targetedSteering || !sendDisabledReason);
 
   function handleInterrupt() {
     if (importPending.current?.scope === composerScope) return;
