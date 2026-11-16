@@ -68,6 +68,41 @@ shared-composer repair (#1374); integration preserves that work and combines
 both source-fingerprint registrations under a new runtime revision. Native CI,
 trusted review and live acceptance remain separate requirements.
 
+Native CI on integrated head `1b029b0b` passed protected Claude startup and the
+complete repository workflows on both owned account routes. Retained artifact
+`native-repository-workflows-43900513759-1` exposed three failures in the Git
+setup step: both SDK modes still asserted that the owned `.git/config` was
+read-only, and the new OS probe received `/tmp/claude` instead of its approved
+scratch path. The worker launcher was copying SRT's TMPDIR over the target's
+explicit directory after policy creation. It now retains explicit scratch and
+uses the runtime directory only when no target directory was supplied. Actual
+launcher/process regressions exercise directory creation in both cases; all
+71 focused checks pass (four opt-in native checks skipped locally). The native
+test now verifies owned config writes while retaining parent/sibling denials.
+Environment-transfer failures also retain structured stderr diagnostics instead
+of an empty error handler. New-head OS qualification remains required.
+
+The same CI run exposed eight unit failures, reproduced locally. The required
+output transport is now included in explicit-profile inventory assertions while
+omitted TaskExecution remains unavailable. More substantially, the repository
+callback hook had been appended to every SDK query, including reviewed-context
+advisers. It is now enabled only by the ordinary SDK query owner; the adviser
+retains empty MCP/tool/hook settings and denies tool calls. Assertions now run
+outside the mocked SDK callback so startup cleanup cannot conceal their failure.
+All 71 checks in the affected adviser, cross-runtime messaging, TaskExecution,
+repository-callback and ordinary startup suites pass.
+
+The remaining excluded-source and authority fixtures similarly assumed an empty
+MCP server rather than required output transport. Their eight failing cases now
+pass while retaining source-tool denial and post-approval authority revocation.
+The unfiltered five-suite reproduction exceeded TaskExecution's 120-second
+limit during native process fixtures; its partial result is not a full pass and
+was not replayed. The affected cases were selected explicitly for verification.
+Browser fixtures now include the output reader in Library search and scope the
+imported stop-message assertion to its status dialog. Local WebKit was installed
+in task scratch, but its startup/teardown timed out; the four selected browser
+cases did not run. Current-head CI must verify those browser assertions.
+
 Keep the defect slice active until its own live criteria are fulfilled, or each
 remaining gap is explicitly retained with its owner and next action. A source
 patch, passing fixture or published PR alone does not establish working

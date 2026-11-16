@@ -116,6 +116,7 @@ export function sdkCallbackOptions(
   options: Options,
   lifetime: SdkHookLifetime,
   current: () => SdkCallbackState,
+  repositoryTools = false,
 ): Pick<Options, 'hooks' | 'canUseTool'> {
   const hooks = Object.fromEntries(
     Object.entries(options.hooks ?? {}).map(([event, matchers]) => [
@@ -163,51 +164,52 @@ export function sdkCallbackOptions(
       })),
     ]),
   );
-  hooks.PreToolUse = [
-    ...(hooks.PreToolUse ?? []),
-    {
-      matcher:
-        '^mcp__mitzo-connections__(DiscoverLocalRepository|InspectLocalRepository|PrepareLocalRepository)$',
-      hooks: [
-        (async (data, _id, opts) => {
-          const state = current();
-          const signal = AbortSignal.any([opts.signal]);
-          lifetime.bind(signal, state);
-          if (state.retired || state.completing)
-            return { continue: false, stopReason: 'This completed SDK query has been retired.' };
-          return state.runCallback(async () => {
-            signal.throwIfAborted();
-            try {
-              if (
-                data.hook_event_name !== 'PreToolUse' ||
-                state.checkTool(data.tool_name) !== 'allow'
-              )
-                throw Error('Repository tool unavailable under original command ceiling');
-              state.repositoryCallbacks.observe(data);
+  if (repositoryTools)
+    hooks.PreToolUse = [
+      ...(hooks.PreToolUse ?? []),
+      {
+        matcher:
+          '^mcp__mitzo-connections__(DiscoverLocalRepository|InspectLocalRepository|PrepareLocalRepository)$',
+        hooks: [
+          (async (data, _id, opts) => {
+            const state = current();
+            const signal = AbortSignal.any([opts.signal]);
+            lifetime.bind(signal, state);
+            if (state.retired || state.completing)
+              return { continue: false, stopReason: 'This completed SDK query has been retired.' };
+            return state.runCallback(async () => {
               signal.throwIfAborted();
-              return {};
-            } catch (cause) {
-              const failure = new SessionRuntimeError('runtime_unavailable', { cause });
-              log.warn('Original SDK repository callback refused', {
-                code: 'sdk_repository_callback_unavailable',
-                stage: 'pre_tool_identity',
-                commandId: state.commandId(),
-                ...runtimeFailureDiagnostics(failure),
-              });
-              return {
-                hookSpecificOutput: {
-                  hookEventName: 'PreToolUse' as const,
-                  permissionDecision: 'deny' as const,
-                  permissionDecisionReason:
-                    'Original SDK repository callback identity is unavailable.',
-                },
-              };
-            }
-          });
-        }) satisfies HookCallback,
-      ],
-    },
-  ];
+              try {
+                if (
+                  data.hook_event_name !== 'PreToolUse' ||
+                  state.checkTool(data.tool_name) !== 'allow'
+                )
+                  throw Error('Repository tool unavailable under original command ceiling');
+                state.repositoryCallbacks.observe(data);
+                signal.throwIfAborted();
+                return {};
+              } catch (cause) {
+                const failure = new SessionRuntimeError('runtime_unavailable', { cause });
+                log.warn('Original SDK repository callback refused', {
+                  code: 'sdk_repository_callback_unavailable',
+                  stage: 'pre_tool_identity',
+                  commandId: state.commandId(),
+                  ...runtimeFailureDiagnostics(failure),
+                });
+                return {
+                  hookSpecificOutput: {
+                    hookEventName: 'PreToolUse' as const,
+                    permissionDecision: 'deny' as const,
+                    permissionDecisionReason:
+                      'Original SDK repository callback identity is unavailable.',
+                  },
+                };
+              }
+            });
+          }) satisfies HookCallback,
+        ],
+      },
+    ];
   const canUseTool: NonNullable<Options['canUseTool']> = async (name, data, opts) => {
     const state = current();
     const signal = AbortSignal.any([opts.signal]);
@@ -409,7 +411,12 @@ export function createOrdinaryLocalVertexSdkQuery<
   };
   const create = (selection?: OrdinaryLocalCommandAdmission['selection']) => {
     const state: State = createSdkCallbackState();
-    const { hooks, canUseTool } = sdkCallbackOptions(owners.options, owners.lifetime, () => state);
+    const { hooks, canUseTool } = sdkCallbackOptions(
+      owners.options,
+      owners.lifetime,
+      () => state,
+      true,
+    );
     const cliGuidance =
       '\nThis is the selected local Mac Claude SDK route. Native Bash, Read, Glob and Grep use the existing session permissions. For service tasks, use the selected Connections and Tool Library helpers and their existing access flow. Use GoogleWorkspaceRead when available for Google Workspace reads; it keeps authentication with the configured Google account owner. Tool or CLI presence does not establish service access. Report missing selection or configuration precisely. Do not run gws auth login or search for credentials to repair access.\n';
     const systemPrompt = owners.options.systemPrompt;

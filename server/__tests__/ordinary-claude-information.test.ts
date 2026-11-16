@@ -509,7 +509,7 @@ it('keeps excluded profiles and callback decisions closed', async () => {
     expect(
       credentialSdkPermission(prefix + name, {}, 'owner', f.registry, f.session),
     ).toMatchObject({ behavior: 'deny' });
-    await expect(f.client.callTool({ name, arguments: {} })).rejects.toThrow(/Method not found/);
+    expect((await f.client.callTool({ name, arguments: {} })).isError).toBe(true);
   }
 });
 

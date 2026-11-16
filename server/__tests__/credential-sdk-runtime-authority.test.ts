@@ -238,7 +238,7 @@ it
       for (const directory of [root, join(root, 'work'), join(root, 'sibling')]) {
         actual.execFileSync(gitPath, ['init', '--template=', '-b', 'main', directory]);
       }
-      const protectedConfigs = [root, join(root, 'work'), join(root, 'sibling')].map((directory) =>
+      const protectedConfigs = [root, join(root, 'sibling')].map((directory) =>
         join(directory, '.git', 'config'),
       );
       const before = protectedConfigs.map((path) => readFileSync(path, 'utf8'));
@@ -248,6 +248,8 @@ it
       const script = `
       const fs = require('node:fs'), cp = require('node:child_process');
       const git = (...args) => cp.execFileSync(${JSON.stringify(gitPath)}, args, { encoding: 'utf8' });
+      git('config', 'remote.origin.url', 'https://example.invalid/owned.git');
+      if(git('config', '--get', 'remote.origin.url').trim() !== 'https://example.invalid/owned.git') process.exit(78);
       git('init', '-b', 'main', 'source');
       fs.writeFileSync('source/file', 'original');
       git('-C', 'source', 'add', 'file');
@@ -271,7 +273,7 @@ it
       }, 72);
       denied(() => fs.readFileSync(${JSON.stringify(config)}), 73);
       const gitConfigPermissionDenied = ${gitConfigPermissionDenied.toString()};
-      for(const repository of ['.', '..', '../sibling']) {
+      for(const repository of ['..', '../sibling']) {
         try { git('-C', repository, 'config', 'remote.origin.url', 'https://example.invalid/denied.git'); throw Error('out-of-task git config permitted: ' + repository); }
         catch(error) {
           if(!gitConfigPermissionDenied(error, require('node:path').resolve(repository, '.git/config'))) throw error;
@@ -297,6 +299,9 @@ it
         }),
       ).toEqual({ stdout: 'git-sdk-ok', stderr: expect.any(String) });
       expect(protectedConfigs.map((path) => readFileSync(path, 'utf8'))).toEqual(before);
+      expect(readFileSync(join(root, 'work', '.git', 'config'), 'utf8')).toContain(
+        'https://example.invalid/owned.git',
+      );
       expect(existsSync(join(root, 'work', 'checkout', '.git', 'hooks', 'pre-commit'))).toBe(false);
       expect(readFileSync(join(root, 'work', 'checkout', 'result'), 'utf8')).toBe('checked');
     } finally {

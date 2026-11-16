@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile, readFile } from 'node:fs/promises';
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -341,6 +341,28 @@ it.each([false, true])(
         expected,
       );
     }
+  },
+);
+
+it.each([false, true])(
+  'creates target scratch through the actual launcher with an explicit directory %s',
+  async (explicit) => {
+    const { payload, manager } = fixture();
+    const selected = join(root, 'selected');
+    const fallback = join(root, 'runtime');
+    for (const directory of [selected, fallback]) mkdirSync(directory);
+    const result = join(root, 'scratch-result');
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    const script = `const fs = require('node:fs'), path = require('node:path');
+      const scratch = fs.mkdtempSync(path.join(process.env.TMPDIR, 'child-'));
+      fs.writeFileSync(${JSON.stringify(result)}, scratch);`;
+    payload.command = [process.execPath, '-e', script].map(quote).join(' ');
+    payload.env = { PATH: '/usr/bin:/bin', ...(explicit ? { TMPDIR: selected } : {}) };
+    manager.wrapWithSandbox.mockImplementation(
+      async (command) => `TMPDIR=${quote(fallback)} ${command}`,
+    );
+    expect(await runSandboxedWorker(payload, { manager, spawn: realSpawn })).toBe(0);
+    expect(dirname(await readFile(result, 'utf8'))).toBe(explicit ? selected : fallback);
   },
 );
 

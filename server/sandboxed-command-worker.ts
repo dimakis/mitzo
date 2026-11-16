@@ -324,8 +324,11 @@ export async function runSandboxedWorker(
             Object.values(target.env).some(value => typeof value !== 'string'))
           throw new Error('Invalid SDK launch payload');
       } catch { process.stderr.write('Invalid SDK launch payload\\n'); process.exit(1); }
+      // The controller-selected scratch directory is part of the write policy.
+      // SRT's generic TMPDIR must not replace it after that policy was frozen.
       for (const name of ${JSON.stringify(['SANDBOX_RUNTIME', 'TMPDIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'GRPC_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'grpc_proxy', 'GIT_SSH_COMMAND', 'GIT_CONFIG_PARAMETERS', 'JAVA_TOOL_OPTIONS', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'])})
-        if (process.env[name] !== undefined) target.env[name] = process.env[name];
+        if (process.env[name] !== undefined && (name !== 'TMPDIR' || target.env[name] === undefined))
+          target.env[name] = process.env[name];
       const child = cp.spawn('/bin/sh', ['-c', target.command], { env: target.env, stdio: 'inherit' });
       child.once('error', error => { process.stderr.write(error.message + '\\n'); process.exit(1); });
       // Reserve a high status for missing or signalled termination. The parent
@@ -360,7 +363,15 @@ export async function runSandboxedWorker(
       child.once('error', reject);
       if (payload.env) {
         const transfer = child.stdio[3] as Writable;
-        transfer.on('error', () => {});
+        transfer.on('error', (cause: Error) => {
+          process.stderr.write(
+            JSON.stringify({
+              stage: 'sdk_environment_transfer',
+              code: 'sdk_environment_transfer_failed',
+              message: cause.message,
+            }) + '\n',
+          );
+        });
         transfer.end(JSON.stringify({ command: payload.command, env: payload.env }));
       }
       child.once('close', (code, signal) => resolve(signal ? 255 : (code ?? 255)));

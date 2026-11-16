@@ -119,7 +119,7 @@ it('requires original factory provenance and the still-current frozen command to
 it('captures the SDK hook through the actual query callback owner and refuses its retired lifetime', async () => {
   const state = createSdkCallbackState();
   state.bindCommandToolAuthority({ commandId: 'original-command', checkTool: () => 'allow' });
-  const options = sdkCallbackOptions({}, new SdkHookLifetime(), () => state);
+  const options = sdkCallbackOptions({}, new SdkHookLifetime(), () => state, true);
   const hook = options.hooks?.PreToolUse?.flatMap((entry) => entry.hooks)[0];
   expect(hook).toBeTypeOf('function');
   const data = {
