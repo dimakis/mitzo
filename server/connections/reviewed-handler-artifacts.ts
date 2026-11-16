@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1220-claude-retraction-output-pins';
+  'v1.0.1221-claude-retraction-output-pin-fixture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/__tests__/collaboration-visible-source.test.ts':
     '59b88651ac1be9e98c3295646c250b4e86b18fa3953446708d16222bf0656252',
   '../__tests__/collaboration-context-source.test.ts':
-    'd0a492673a6b4e72dd78f8bf6647d4b4977512cc49423cfca77037e0ab048c64',
+    '45efbce04831c3a210b75ead1ebecef5cf8f77446b077e4441193a05e57c8892',
   '../../packages/protocol/__tests__/collaboration-durable-transcript.test.ts':
     '184f8ee3d4abf2b0584357148f020b3f13fea74612c4e74970f43be4b000d263',
   '../__tests__/telos-conversation-source.test.ts':

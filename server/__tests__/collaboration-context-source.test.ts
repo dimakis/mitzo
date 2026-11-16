@@ -133,8 +133,8 @@ it('omits withdrawn inline output pins and refuses explicit selection at the sam
       [settings],
       source(),
     );
-    expect(Buffer.from(frozen.artifacts[0].contentBase64, 'base64').toString()).toBe(
-      'WITHDRAWN INLINE OUTPUT',
+    expect(frozen.artifacts[0].contentBase64).toBe(
+      Buffer.from('WITHDRAWN INLINE OUTPUT').toString('base64'),
     );
   }
 });
@@ -220,7 +220,7 @@ it('keeps narrow explicit artifact selection independent of the full-prefix mess
     source(),
   );
   expect(draft.messages).toEqual([]);
-  expect(Buffer.from(draft.artifacts[0].contentBase64, 'base64').toString()).toBe('Visible answer');
+  expect(draft.artifacts[0].contentBase64).toBe(Buffer.from('Visible answer').toString('base64'));
 });
 
 it('keeps a text output pin when only its separate tool result was withdrawn', async () => {
@@ -246,7 +246,7 @@ it('keeps a text output pin when only its separate tool result was withdrawn', a
     source(),
   );
   expect(draft.artifacts[0].artifactId).toBe(output.outputId);
-  expect(Buffer.from(draft.artifacts[0].contentBase64, 'base64').toString()).toBe('Visible answer');
+  expect(draft.artifacts[0].contentBase64).toBe(Buffer.from('Visible answer').toString('base64'));
 });
 
 it('reviews a selected completed reply through the real captured prefix while a later reply streams', async () => {
