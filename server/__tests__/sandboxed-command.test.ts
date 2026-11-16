@@ -89,7 +89,16 @@ describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('OS sandbox', () =
     expect(develop.isError, develop.content).toBe(false);
     expect((await run(`${git} -C checkout show HEAD:file`)).content).toBe('changed');
     expect((await run(`${git} -C source show HEAD:file`)).content).toBe('original');
-    expect((await run('mkdir checkout/.git/hooks')).isError).toBe(true);
+    // Empty hook directories are harmless; actual hook contents stay denied.
+    const hookWrite = await run(
+      'mkdir -p checkout/.git/hooks && printf synthetic > checkout/.git/hooks/pre-commit',
+    );
+    expect(hookWrite.isError, hookWrite.content).toBe(true);
+    await expect(
+      readFile(join(cwd, 'checkout', '.git', 'hooks', 'pre-commit')),
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
     expect((await run('git config local.test denied')).isError).toBe(true);
     expect(await readFile(join(cwd, '.git', 'config'), 'utf8')).toBe(parentConfig);
   }, 30000);

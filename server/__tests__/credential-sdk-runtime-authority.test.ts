@@ -212,7 +212,12 @@ it
       const denied = (fn, code) => { try { fn(); process.exit(code); } catch(error) {
         if(!['EPERM', 'EACCES'].includes(error.code)) throw error;
       }};
-      denied(() => fs.mkdirSync('checkout/.git/hooks'), 72);
+      // SRT may allow an empty hooks directory; its mandatory deny protects
+      // actual hook files. Require the directory/create+write attempt to fail.
+      denied(() => {
+        fs.mkdirSync('checkout/.git/hooks', { recursive: true });
+        fs.writeFileSync('checkout/.git/hooks/pre-commit', 'synthetic hook');
+      }, 72);
       denied(() => fs.readFileSync(${JSON.stringify(config)}), 73);
       for(const repository of ['.', '..', '../sibling']) {
         try { git('-C', repository, 'config', 'remote.origin.url', 'https://example.invalid/denied.git'); throw Error('out-of-task git config permitted: ' + repository); }
@@ -236,6 +241,7 @@ it
         }),
       ).toEqual({ stdout: 'git-sdk-ok', stderr: expect.any(String) });
       expect(protectedConfigs.map((path) => readFileSync(path, 'utf8'))).toEqual(before);
+      expect(existsSync(join(root, 'work', 'checkout', '.git', 'hooks', 'pre-commit'))).toBe(false);
       expect(readFileSync(join(root, 'work', 'checkout', 'result'), 'utf8')).toBe('checked');
     } finally {
       vi.mocked(spawn).mockImplementation(previous);

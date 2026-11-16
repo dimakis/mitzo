@@ -74,7 +74,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '15e0ef68c0f7de857f8f0afa9258826da27e2a5ba6b953bb70b5574487170f23',
+    'cdfbb2efbc832a671e48cbe5cc16af028fcf5f96952cb642e822ac0013966d80',
   '../../scripts/__tests__/ci-claude-repository-setup.test.ts':
     'e5481381e48defc6a90d488bce712bcb69f59cec2443832484b5affbb63f8f27',
   '../../.github/workflows/pr-landing-reconcile.yml':
@@ -2594,7 +2594,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-boundary.test.ts':
     '3bac4bc0290ddc4091f3f1f9054caf2f7afe6f03752952c1cdad07baa1602961',
   '../__tests__/credential-sdk-runtime-authority.test.ts':
-    '47c1bce215c960e428a3a8295b7f2d90f52545ce26ea8bdbdd75b5fec47a3d56',
+    'ba8ba1fec7f3cb412b937b12d47cb193a51e1ad24b0b364379d747a72b095313',
   '../__tests__/credential-sdk-tools.test.ts':
     'd4d0f34b95cefb8d65c3dd8f04365725a4babaae604292e50c14d2499b81bd85',
   '../__tests__/credential-setup-application.test.ts':
@@ -3221,7 +3221,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sandboxed-command-network.test.ts':
     '0d999373d102654e6f9319caa98529c71cdc62844d368d4eb900c40bc2dd9d95',
   '../__tests__/sandboxed-command.test.ts':
-    'ea59e88f2aed0510039cbecb786a16e5932d5e21ffc875440753204f22929897',
+    'b07c2590e8bcaec4c4a17dffe17de43838cdcb89f6c328dccbccd2bce9094631',
   '../__tests__/sandboxed-command-private-output.test.ts':
     'a2169291ec705b7d15341519df8f5f1309e39d46008cbd5962e59efa1236cc6c',
   '../__tests__/sandboxed-command-worker.test.ts':
