@@ -409,11 +409,20 @@ async function _runQueryLoopInner(
   const startedSubagents = new Set<string>();
   // SDK task_id survives resume; run_id identifies one execution. Keep native
   // run order separate from the verified parent tool and its terminal state.
-  const taskRuns = new Map<string, { runId?: string; toolId: string; completed: boolean }>();
+  type TaskRun = { runId?: string; toolId: string; completed: boolean };
+  const taskRuns = new Map<string, TaskRun>();
+  const observedTaskRuns = new Map<string, Map<string | undefined, TaskRun>>();
   const taskChildIds = new Map<string, string>();
   const terminalSubagents = new Set<string>();
   const childDiagnostics = new Map<string, SubagentDiagnostic>();
   const unavailableSubagents = new Set<string>();
+
+  function rememberTaskRun(taskId: string, run: TaskRun) {
+    let observed = observedTaskRuns.get(taskId);
+    if (!observed) observedTaskRuns.set(taskId, (observed = new Map()));
+    observed.set(run.runId, run);
+    return run;
+  }
 
   function startTaskChild(toolId: string, taskId: string) {
     const parentBlockId = toolIdToBlockId.get(toolId);
@@ -1935,7 +1944,10 @@ async function _runQueryLoopInner(
               admittedRun &&
               !terminalSubagents.has(toolUseId)
             ) {
-              taskRuns.set(taskId, { runId, toolId: toolUseId, completed: false });
+              taskRuns.set(
+                taskId,
+                rememberTaskRun(taskId, { runId, toolId: toolUseId, completed: false }),
+              );
               currentSession?.activeTaskIds.set(taskId, toolUseId);
               startTaskChild(toolUseId, taskId);
               const subagent = activeSubagents.get(toolUseId);
@@ -1950,25 +1962,37 @@ async function _runQueryLoopInner(
             const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
             const status = (msg as Record<string, unknown>).status as string | undefined;
             const runId = typeof msg.run_id === 'string' && msg.run_id ? msg.run_id : undefined;
-            const run = taskId ? taskRuns.get(taskId) : undefined;
+            const latest = taskId ? taskRuns.get(taskId) : undefined;
+            const run = taskId ? observedTaskRuns.get(taskId)?.get(runId) : undefined;
             const toolUseId = taskId
               ? (run?.toolId ??
-                currentSession?.activeTaskIds.get(taskId) ??
-                (typeof msg.tool_use_id === 'string' && toolIdToBlockId.has(msg.tool_use_id)
-                  ? msg.tool_use_id
+                (!latest
+                  ? (currentSession?.activeTaskIds.get(taskId) ??
+                    (typeof msg.tool_use_id === 'string' && toolIdToBlockId.has(msg.tool_use_id)
+                      ? msg.tool_use_id
+                      : undefined))
                   : undefined))
               : undefined;
             // Exact native run and parent identity are required once observed.
             // Missing, older, future and conflicting receipts cannot finish the
             // currently displayed execution or erase its cancellation mapping.
             if (
-              (run && (run.completed || run.runId !== runId)) ||
+              (latest && !run) ||
+              run?.completed ||
               (toolUseId && typeof msg.tool_use_id === 'string' && msg.tool_use_id !== toolUseId)
             )
               continue;
             if (taskId && toolUseId && ['completed', 'failed', 'stopped'].includes(status ?? '')) {
-              currentSession?.activeTaskIds.delete(taskId);
-              taskRuns.set(taskId, { runId, toolId: toolUseId, completed: true });
+              const completed = rememberTaskRun(
+                taskId,
+                run ?? { runId, toolId: toolUseId, completed: false },
+              );
+              completed.completed = true;
+              if (!latest) taskRuns.set(taskId, completed);
+              // A verified late receipt settles only its own parent. The newest
+              // execution retains its native cancellation mapping until it ends.
+              if (currentSession?.activeTaskIds.get(taskId) === toolUseId)
+                currentSession.activeTaskIds.delete(taskId);
               finishTaskChild(
                 toolUseId,
                 status === 'stopped' ? 'cancelled' : (status as 'completed' | 'failed'),

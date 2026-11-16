@@ -159,12 +159,19 @@ it.each([
     try {
       await runQueryLoop(sdk.query, 'client', registry, controller, store, undefined, {
         onResultDelivered: async () => (sdk.query as unknown as { close(): void }).close(),
+        onEvent: (event) => {
+          if (
+            !firstCompleted &&
+            event.type === 'subagent_end' &&
+            event.parentToolId === 'spawn-first'
+          )
+            expect(session.activeTaskIds.get('same-task')).toBe('resume-second');
+        },
       });
       const children = sent.filter((event) => event.type === 'subagent_end');
-      if (firstCompleted)
-        expect(children).toContainEqual(
-          expect.objectContaining({ parentToolId: 'spawn-first', status: 'completed' }),
-        );
+      expect(children.filter((event) => event.parentToolId === 'spawn-first')).toEqual([
+        expect.objectContaining({ parentToolId: 'spawn-first', status: 'completed' }),
+      ]);
       expect(children.filter((event) => event.parentToolId === 'resume-second')).toEqual([
         expect.objectContaining({ parentToolId: 'resume-second', status: secondStatus }),
       ]);
@@ -187,12 +194,15 @@ it.each([
         .flatMap((message) => message.blocks)
         .find((block) => block.toolId === 'resume-second');
       expect(liveSecond?.subagent?.status).toBe(secondStatus);
-      if (firstCompleted) {
-        const first = restored
-          .flatMap((message) => message.blocks)
-          .find((block) => block.toolId === 'spawn-first');
-        expect(first?.subagent?.messageId).not.toBe(second?.subagent?.messageId);
-      }
+      const first = restored
+        .flatMap((message) => message.blocks)
+        .find((block) => block.toolId === 'spawn-first');
+      const liveFirst = live.messages
+        .flatMap((message) => message.blocks)
+        .find((block) => block.toolId === 'spawn-first');
+      expect(first?.subagent?.status).toBe('completed');
+      expect(liveFirst?.subagent?.status).toBe('completed');
+      expect(first?.subagent?.messageId).not.toBe(second?.subagent?.messageId);
     } finally {
       controller.abort();
       events.close();

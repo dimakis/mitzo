@@ -18,6 +18,15 @@ it or erase its existing cancellation mapping. Legacy distinct tasks without run
 IDs retain their existing behavior. No replay, tool execution or new control
 request is introduced.
 
+An independent full pass found that retaining only the latest run still lost a
+verified late predecessor completion. On 16 November, the coupled case was
+strengthened to assert both predecessor and successor live/cold outcomes and
+failed before the correction. Each observed run now retains its own verified
+parent and outcome. A matching older receipt settles that older row exactly once
+while the newest execution keeps its cancellation mapping. Unknown or conflicting
+receipts cannot settle either row. The native task ID remains the existing
+control identity; these records are ephemeral query-consumer correlation only.
+
 The final coupled cases additionally feed events through the actual live parser
 and reducer, prove both completed and failed resumed results survive cold replay,
 reject late/wrong-parent/unknown-run/ambiguous receipts, and keep duplicate
@@ -37,6 +46,10 @@ Integration: `server/query-loop.ts` also has independent reporting changes in
 PR1369 and PR1371. Preserve all three changes when actual accepted-main conflicts
 are reconciled; do not absorb pending branches speculatively. Shared source
 registry revisions and hashes require normal composition and current-head gates.
+GitHub confirmed an actual conflict after accepted lifecycle commit
+`f7bab377d071e8cf15ac4eaf4e7e59fa687ec087`. That exact accepted source was
+integrated with only the manifest revision manually resolved; accepted recovery
+and diagnostic source and pins remain intact.
 
 This bounded repair does not complete native task progress/update/snapshot
 reporting, resume without a verified parent, model refusal/retraction, richer

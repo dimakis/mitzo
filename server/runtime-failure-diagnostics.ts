@@ -6,6 +6,35 @@ import { createLogger } from './logger.js';
 // messages, paths, credentials or request payloads. Keep original Error identity
 // (especially reviewed runtime/auth failures) and retain non-Error causes too.
 const checks = new WeakMap<Error, string[]>();
+interface RetainedRuntimeFailure {
+  cause: unknown;
+  diagnosticCause?: unknown;
+}
+const retainedFailures = new Map<string, RetainedRuntimeFailure>();
+/** Host-internal bounded inspection only. Never serialize retained exceptions. */
+export function retainedRuntimeFailure(
+  diagnosticId: string,
+): Readonly<RetainedRuntimeFailure> | undefined {
+  return retainedFailures.get(diagnosticId);
+}
+/** Retain before attempting optional diagnostics so a failed sink cannot replace
+ * the operation's response or discard either original exception identity. */
+export function retainRuntimeFailure(
+  diagnosticId: string,
+  cause: unknown,
+  writeDiagnostic: () => void,
+): void {
+  const retained: RetainedRuntimeFailure = { cause };
+  retainedFailures.delete(diagnosticId);
+  retainedFailures.set(diagnosticId, retained);
+  if (retainedFailures.size > 32) retainedFailures.delete(retainedFailures.keys().next().value!);
+  try {
+    writeDiagnostic();
+  } catch (diagnosticCause) {
+    retained.diagnosticCause = diagnosticCause;
+  }
+}
+
 export function annotateAuthorityFailure(cause: unknown, check: string): Error {
   const error = cause instanceof Error ? cause : new Error('Runtime authority failed', { cause });
   const retained = checks.get(error) ?? [];
