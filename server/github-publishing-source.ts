@@ -1,5 +1,8 @@
 import { realpathSync } from 'node:fs';
+import { isAbsolute, join, relative } from 'node:path';
+import type { EventStore } from './event-store.js';
 import type { GithubPublishingSource } from './github-publishing-tool.js';
+import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 
 interface PreparedTaskStorage {
   directory?: string;
@@ -21,6 +24,46 @@ export function githubPublishingGitStorageRoots(
     ...(task?.linkedGit && task.localSource ? [task.localSource.commonDirectory] : []),
     ...configured,
   ];
+}
+
+/** An ordinary Claude SDK chat attaches existing local repositories as linked
+ * secondary tasks under `<cwd>/.claude/repository-tasks`. Their shared Git
+ * directory lives outside the workspace, so admit it only from the
+ * controller-written `worktree_opened` record (the same record shape
+ * sdk-secondary-repository.ts retains), and only while the task is attached.
+ * This read stays synchronous because the publishing source is re-captured on
+ * every currency check; the host boundary still verifies the real storage. */
+export function sdkSecondaryGithubStorageRoots(
+  events: Pick<EventStore, 'getSessionWorktreeRecords'>,
+  session: {
+    sessionId?: string;
+    cwd?: string;
+    worktreePaths: ReadonlyMap<string, { path: string }>;
+  },
+): readonly string[] {
+  if (!session.sessionId || !session.cwd) return [];
+  const taskRoot = join(session.cwd, '.claude', 'repository-tasks');
+  const attached = new Set([...session.worktreePaths.values()].map((entry) => entry.path));
+  const roots: string[] = [];
+  for (const record of events.getSessionWorktreeRecords(session.sessionId)) {
+    const task = record.task as Partial<RepositoryTaskCheckout> | undefined;
+    const inTaskRoot = typeof record.path === 'string' ? relative(taskRoot, record.path) : '';
+    if (
+      record.sdkSecondary !== true ||
+      typeof record.path !== 'string' ||
+      !attached.has(record.path) ||
+      !inTaskRoot ||
+      inTaskRoot.startsWith('..') ||
+      isAbsolute(inTaskRoot) ||
+      !task?.linkedGit ||
+      task.directory !== record.path ||
+      task.localSource?.path !== record.sourcePath ||
+      typeof task.localSource.commonDirectory !== 'string'
+    )
+      continue;
+    roots.push(task.localSource.commonDirectory);
+  }
+  return roots;
 }
 
 /** Paths come from the current controller-owned session, never tool arguments.

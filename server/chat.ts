@@ -162,6 +162,7 @@ import {
   hostGithubPublishingSource,
   githubPublishingGitStorageRoots,
 } from './github-publishing-tool.js';
+import { sdkSecondaryGithubStorageRoots } from './github-publishing-source.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { telosArtifactInstructions } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
@@ -3178,11 +3179,23 @@ async function _startChatInner(
         () => {
           assertTurnCallbackEffects();
           options.ordinarySdkAuthority?.assertCurrentSync(abortController.signal);
+          // Match Codex: a prepared primary keeps its acquired base and linked
+          // storage; attached SDK secondaries add only their recorded storage.
           return hostGithubPublishingSource(
             session,
-            [BASE_REPO, ...Object.values(getRepoConfig().repos)]
-              .filter(Boolean)
-              .map((root) => join(root, '.git')),
+            [
+              ...githubPublishingGitStorageRoots(
+                session,
+                repositoryWorkspace,
+                [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+                  .filter(Boolean)
+                  .map((root) => join(root, '.git')),
+              ),
+              ...(options.ordinarySdkAuthority
+                ? sdkSecondaryGithubStorageRoots(eventStore, session)
+                : []),
+            ],
+            repositoryWorkspace,
           );
         },
         session,

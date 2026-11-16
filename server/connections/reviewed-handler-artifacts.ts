@@ -2843,7 +2843,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/git-config-parser-cache.test.ts':
     'd5faa083006adec2affae119a1a6819761de27002122e610f704885f32e35292',
   '../__tests__/github-host-source.test.ts':
-    'dac3a1757062df7e65544d8da2216bf040a2d868e36771341533177c2550022e',
+    'b0e081ef2256587623e599c46cb132c5df33f7b7228815078274462ee2dd8ba6',
   '../__tests__/github-log-read.test.ts':
     '32d99f2715973e37bebd36b06854756daf935fe847b24bff484ae040076999a7',
   '../__tests__/github-native-read-projection.test.ts':
@@ -3739,7 +3739,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../chat-metadata.ts': 'eda5471752209730f7eda3da7f9f91dcee8d4fa7613f58e29b1b5f2cef783a43',
   '../chat-rest-handler.ts': '673d05dd343d7b1b8abc3a99666796041853ad9775665983acf7a203c46afcc7',
-  '../chat.ts': '9c130b93ff108745abacbb375cb973b9dd720c6dfa30506ea5b4368620713fe1',
+  '../chat.ts': '15c377dd4f9b5dc93216e440413f8b15178228ef7fc2be60327310b160fe44ba',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
@@ -3952,7 +3952,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-publication-review-failure.ts':
     '7ccd23acc66cc149e30a0e9879a438eb1764d678f04078c2992f83bd45faccf4',
   '../github-publishing-source.ts':
-    '97c1d2f24308e430973afdf4492a9513fda9e7eedcb80464fac71e8fcbc9ca01',
+    'cf5fbec25e1b9bfcfab723c404d69f7b30aa01e6277cb17159a26d9b568b4754',
   '../github-publishing-tool.ts':
     '2c5e4cfd958813df677f1d98b8b1fe3ee5d216c627d6b8acb15d498b6c25d29d',
   '../github-read-approval.ts': '8c8acaae340e7dec7dcf801e429ee0a9733ddd7ff43807784feb08885aa06a1d',

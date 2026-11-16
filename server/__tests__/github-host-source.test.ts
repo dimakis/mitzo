@@ -290,6 +290,68 @@ it('permits registered host worktree storage and rejects unregistered storage', 
   ).toEqual([]);
 });
 
+it('admits an attached SDK secondary task only through its controller-recorded common directory', async () => {
+  const { sdkSecondaryGithubStorageRoots } = await import('../github-publishing-source.js');
+  const source = await fixture();
+  const forged = await fixture();
+  const primary = await fixture();
+  const taskRoot = join(primary.root, '.claude', 'repository-tasks');
+  const directory = join(taskRoot, 'claude-offline');
+  source.git('worktree', 'add', '-b', 'mitzo/claude-offline', directory, 'feature');
+  const commonDirectory = join(source.root, '.git');
+  const record = {
+    sdkSecondary: true,
+    repoName: 'claude-offline',
+    path: directory,
+    sourcePath: source.root,
+    task: {
+      directory,
+      featureBranch: 'mitzo/claude-offline',
+      linkedGit: { directory: join(commonDirectory, 'worktrees', 'claude-offline') },
+      localSource: { path: source.root, commonDirectory },
+    },
+  };
+  const records = [
+    record,
+    // Records that are not controller-owned SDK secondaries, or that are not
+    // inside this workspace's task root, never widen publishing storage.
+    {
+      ...record,
+      sdkSecondary: false,
+      task: {
+        ...record.task,
+        localSource: { path: source.root, commonDirectory: join(forged.root, '.git') },
+      },
+    },
+    { ...record, path: forged.root, task: { ...record.task, directory: forged.root } },
+  ];
+  const events = { getSessionWorktreeRecords: vi.fn(() => records) };
+  const session = {
+    sessionId: 'conversation',
+    cwd: primary.root,
+    worktreePaths: new Map([['claude-offline', { path: directory, wtId: 'claude-offline' }]]),
+  };
+  const roots = sdkSecondaryGithubStorageRoots(events, session);
+  expect(events.getSessionWorktreeRecords).toHaveBeenCalledWith('conversation');
+  expect(roots).toEqual([commonDirectory]);
+  const input = { ...primary.input, repositoryPath: directory };
+  const admitted = hostGithubPublishingSource(session, roots)!;
+  expect(await inspectHostGithubRepository({ ...input, ...admitted })).toMatchObject({
+    canonicalRepositoryPath: directory,
+    sourceBranch: 'mitzo/claude-offline',
+    commitsAhead: 1,
+  });
+  const withoutRecord = hostGithubPublishingSource(session, [])!;
+  await expect(inspectHostGithubRepository({ ...input, ...withoutRecord })).rejects.toThrow(
+    'Git storage escapes approved roots',
+  );
+  // A detached secondary contributes nothing even though its record remains.
+  expect(sdkSecondaryGithubStorageRoots(events, { ...session, worktreePaths: new Map() })).toEqual(
+    [],
+  );
+  expect(sdkSecondaryGithubStorageRoots(events, { ...session, sessionId: undefined })).toEqual([]);
+});
+
 it('rejects symlinked objects and alternate object storage', async () => {
   const f = await fixture();
   const other = await fixture();
