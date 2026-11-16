@@ -7,9 +7,19 @@ import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 
 const injection = vi.hoisted(() => ({
+  beforeDirectory: undefined as undefined | ((path: string) => void),
   beforeExecute: undefined as
     undefined | ((options: import('../sandboxed-command.js').SandboxedCommandOptions) => void),
 }));
+vi.mock('../sdk-repository-directory.js', async (original) => {
+  const actual = await original<typeof import('../sdk-repository-directory.js')>();
+  return {
+    createSdkRepositoryDirectory: (root: string, path: string, signal: AbortSignal) => {
+      injection.beforeDirectory?.(path);
+      return actual.createSdkRepositoryDirectory(root, path, signal);
+    },
+  };
+});
 vi.mock('../sandboxed-command.js', async (original) => {
   const actual = await original<typeof import('../sandboxed-command.js')>();
   return {
@@ -27,6 +37,7 @@ import { prepareSdkSecondaryRepository } from '../sdk-secondary-repository.js';
 const roots: string[] = [];
 afterEach(async () => {
   injection.beforeExecute = undefined;
+  injection.beforeDirectory = undefined;
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
@@ -34,6 +45,7 @@ it
   .runIf(process.env.MITZO_TEST_OS_SANDBOX === '1')
   .each([
     'complete',
+    'workspace source',
     'mkdir race',
     'allocation race',
     'checkout race',
@@ -44,10 +56,9 @@ it
     const root = await realpath(await mkdtemp(join(tmpdir(), 'sdk-allocation-native-')));
     roots.push(root);
     const workspace = join(root, 'workspace'),
-      source = join(root, 'source'),
+      source = mode === 'workspace source' ? workspace : join(root, 'source'),
       outside = join(root, 'outside');
-    await Promise.all([mkdir(workspace), mkdir(source), mkdir(outside)]);
-    await mkdir(join(workspace, '.claude'));
+    await Promise.all([...new Set([workspace, source, outside])].map((path) => mkdir(path)));
     const git = (...args: string[]) =>
       execFileSync('git', ['-C', source, ...args], { encoding: 'utf8' }).trim();
     git('init', '-q', '--template=', '-b', 'main');
@@ -55,37 +66,38 @@ it
     git('config', 'user.email', 'offline@example.invalid');
     await writeFile(join(source, 'code.txt'), 'owned source');
     await writeFile(join(source, 'config'), 'must not overwrite shared Git config');
-    git('add', 'code.txt', 'config');
+    await writeFile(join(source, '.gitignore'), '.claude/\n');
+    git('add', 'code.txt', 'config', '.gitignore');
     git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'base');
     const originalConfig = await readFile(join(source, '.git', 'config'), 'utf8');
     const events = new EventStore(':memory:');
     events.upsertSession({ sessionId: 'native-allocation' });
     let attacked = false;
+    const marker = join(workspace, ...(mode === 'mkdir race' ? [] : ['.claude']), 'swapped.txt');
+    injection.beforeDirectory = (path) => {
+      if (mode !== 'mkdir race' || attacked || !path.endsWith('/repository-tasks')) return;
+      attacked = true;
+      const target = join(workspace, '.claude');
+      execFileSync(process.execPath, [
+        '-e',
+        `const fs=require('node:fs'); fs.renameSync(${JSON.stringify(target)},${JSON.stringify(target + '-retained')}); fs.symlinkSync(${JSON.stringify(outside)},${JSON.stringify(target)}); fs.writeFileSync(${JSON.stringify(marker)},'swapped');`,
+      ]);
+    };
     injection.beforeExecute = (options) => {
-      const target =
-        mode === 'mkdir race'
-          ? join(workspace, '.claude')
-          : join(workspace, '.claude', 'repository-tasks');
+      if (mode === 'mkdir race') return;
+      const target = join(workspace, '.claude', 'repository-tasks');
       const matches =
-        mode === 'mkdir race'
-          ? options.command.includes('mkdirSync')
-          : mode === 'allocation race'
-            ? options.command.includes("'worktree'") && options.command.includes("'add'")
-            : (mode === 'checkout race' || mode === 'source metadata race') &&
-              options.command.includes("'checkout-index'");
+        mode === 'allocation race'
+          ? options.command.includes("'worktree'") && options.command.includes("'add'")
+          : (mode === 'checkout race' || mode === 'source metadata race') &&
+            options.command.includes("'checkout-index'");
       if (attacked || !matches) return;
       attacked = true;
       const destination = mode === 'source metadata race' ? join(source, '.git') : outside;
-      const attack = `const fs=require('node:fs'); fs.renameSync(${JSON.stringify(target)},${JSON.stringify(target + '-retained')}); fs.symlinkSync(${JSON.stringify(destination)},${JSON.stringify(target)}); fs.writeFileSync(${JSON.stringify(join(workspace, 'swapped.txt'))},'swapped');`;
-      if (mode === 'mkdir race') {
-        // Swap the validated ancestor immediately before its next mkdir.
-        execFileSync(process.execPath, ['-e', attack]);
-      } else {
-        // The swap occurs after all controller checks, in the running bounded
-        // subprocess itself. The following Git must still be confined.
-        options.command =
-          [process.execPath, '-e', attack].map(quote).join(' ') + ' && ' + options.command;
-      }
+      const attack = `const fs=require('node:fs'); fs.renameSync(${JSON.stringify(target)},${JSON.stringify(target + '-retained')}); fs.symlinkSync(${JSON.stringify(destination)},${JSON.stringify(target)}); fs.writeFileSync(${JSON.stringify(marker)},'swapped');`;
+      // Swap after controller checks, inside the running bounded subprocess.
+      options.command =
+        [process.execPath, '-e', attack].map(quote).join(' ') + ' && ' + options.command;
     };
     try {
       const preparation = prepareSdkSecondaryRepository({
@@ -98,7 +110,7 @@ it
         signal: new AbortController().signal,
         assertCurrent: async () => {},
       });
-      if (mode === 'complete') {
+      if (mode === 'complete' || mode === 'workspace source') {
         const task = await preparation;
         expect(
           execFileSync('git', ['-C', task.directory, 'show', 'HEAD:code.txt'], {
@@ -109,7 +121,7 @@ it
       } else {
         await expect(preparation).rejects.toThrow();
         expect(attacked).toBe(true);
-        expect(await readFile(join(workspace, 'swapped.txt'), 'utf8')).toBe('swapped');
+        expect(await readFile(marker, 'utf8')).toBe('swapped');
         expect(await readdir(outside)).toEqual([]);
         expect(events.getSessionWorktreeRecords('native-allocation')).toHaveLength(0);
       }

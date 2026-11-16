@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1236-claude-allocation-output-contract';
+  'v1.0.1237-claude-descriptor-directory-allocation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,12 +23,16 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/sdk-repository-directory.test.ts':
+    'c134587f0be0f5841c0d81d786d5ff4bc9b0d1c933da6e62a637c13e0a7a8e1d',
+  '../sdk-repository-directory.ts':
+    '3678953a173b4f0dfd21023ddd704a1704e9aadcc507b7cd089c7f797a16ba8a',
   '../__tests__/sdk-secondary-repository-filesystem.native.test.ts':
-    'fb0f56de0ba8412842e99698aceb4d5650772e4f09b47524e0ff0076769e8237',
+    '85d840731703bdc7b5a4720706dd8077e004319b23f4f7fcad43644ad4300af2',
   '../__tests__/sdk-secondary-repository-filesystem.test.ts':
-    'ffd3fef7f9bc4e3a970c3c815a85e538e78de33723daac37bc946afc9dc48ccc',
+    'f5422c6dcf78de87a0f24bd1775b91f2082a5ab466edfb1cd70a41d79e811145',
   '../sdk-secondary-repository-filesystem.ts':
-    '5c81267009af4f0b1977eb7c95f51360b29193750488e8f5c6e35dc024c64a14',
+    '90777238af5e7912eb4bc9ec93b58bfc79fed7a9e6a6f24507929762ca35507e',
   '../sdk-local-repository-tools.ts':
     '07c18beb52b69123687eda8585b6280be195ba477b05939c4d1c9ab5f8f3f01b',
   '../sdk-secondary-repository.ts':
@@ -184,7 +188,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'eeada34803b772bece5e2b922e4038fd7292382a1c4e6a536a470d6326f935b4',
+    '9e237b75e1604877281973c7b228ca2c9fabf5cca2182d09f362282609aad372',
   '../../scripts/__tests__/ci-claude-repository-setup.test.ts':
     'ca049c8e502142e304c8dcff47bd7b53861068c4fe51133f55a871871318bcac',
   '../../.github/workflows/pr-landing-reconcile.yml':
