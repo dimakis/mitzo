@@ -8,8 +8,15 @@ final class AppState {
     enum ConnectionMode { case relay }
     var connectionMode: ConnectionMode = .relay
     var sent: [ClientMessage] = []
+    var history: [FinishedMessage] = []
+    var beforeHistoryReturn: (() -> Void)?
+    var historyFailure: Error?
     func setActiveChatVM(_ vm: ChatViewModel?) {}
-    func loadMessages(sessionId: String) async throws -> [FinishedMessage] { [] }
+    func loadMessages(sessionId: String) async throws -> [FinishedMessage] {
+        beforeHistoryReturn?()
+        if let historyFailure { throw historyFailure }
+        return history
+    }
     func sendMessage(_ message: ClientMessage) async throws { sent.append(message) }
 }
 
@@ -18,6 +25,8 @@ struct ChatViewModelReceiptTests {
     @MainActor static func main() async throws {
         guard CommandLine.arguments.count == 3 else { throw Failure.missingFixture }
         try reviewedPermissionDismissalPreservesReplacement()
+        try providerRetractionSurvivesPhoneRelayAndPreservesKnownWork()
+        try await providerRetractionSurvivesDelayedHistoryAndLateFrames()
         try relayedPermissionLifecycleClearsOnlyTheSelectedRequest()
         try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: false, newerPending: false)
         try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: false, newerPending: true)
@@ -63,6 +72,68 @@ struct ChatViewModelReceiptTests {
         let received = try JSONDecoder().decode(ServerMessage.self, from: JSONSerialization.data(withJSONObject: wire))
         // Mirror the phone relay's ServerMessage round trip.
         return try JSONDecoder().decode(ServerMessage.self, from: JSONEncoder().encode(received))
+    }
+
+    @MainActor static func providerRetractionSurvivesPhoneRelayAndPreservesKnownWork() throws {
+        let vm = ChatViewModel(sessionId: "selected")
+        vm.sendDraft.edit("Unsent Watch draft")
+        vm.handleMessage(try decode(#"{"type":"user_message","sessionId":"selected","messageId":"input","text":"Keep the request"}"#))
+        for messageId in ["withdrawn", "retained"] {
+            vm.handleMessage(try decode("{\"type\":\"message_start\",\"sessionId\":\"selected\",\"messageId\":\"\(messageId)\"}"))
+            vm.handleMessage(try decode("{\"type\":\"block_start\",\"sessionId\":\"selected\",\"messageId\":\"\(messageId)\",\"blockId\":\"text\",\"blockType\":\"text\"}"))
+            vm.handleMessage(try decode("{\"type\":\"block_delta\",\"sessionId\":\"selected\",\"messageId\":\"\(messageId)\",\"blockId\":\"text\",\"blockType\":\"text\",\"delta\":\"\(messageId) output\"}"))
+            vm.handleMessage(try decode("{\"type\":\"block_start\",\"sessionId\":\"selected\",\"messageId\":\"\(messageId)\",\"blockId\":\"tool\",\"blockType\":\"tool_use\",\"toolName\":\"Read\"}"))
+            vm.handleMessage(try decode("{\"type\":\"block_end\",\"sessionId\":\"selected\",\"messageId\":\"\(messageId)\",\"blockId\":\"tool\",\"blockType\":\"tool_use\",\"toolName\":\"Read\",\"toolId\":\"\(messageId)-tool\"}"))
+            vm.handleMessage(try decode("{\"type\":\"message_end\",\"sessionId\":\"selected\",\"messageId\":\"\(messageId)\"}"))
+        }
+        vm.handleMessage(try decode(#"{"type":"message_start","sessionId":"selected","messageId":"successor"}"#))
+        vm.handleMessage(try decode(#"{"type":"message_retracted","sessionId":"foreign","messageId":"retained"}"#))
+        vm.handleMessage(try decode(#"{"type":"message_retracted","sessionId":"selected","messageId":"withdrawn"}"#))
+        precondition(!vm.messages.contains { $0.text.contains("withdrawn output") })
+        precondition(vm.messages.first { $0.id == "withdrawn" }?.blocks.map(\.toolName) == ["Read"])
+        precondition(vm.messages.contains { $0.text == "retained output" })
+        precondition(vm.messages.contains { $0.role == .user && $0.text == "Keep the request" })
+        precondition(vm.currentStream?.messageId == "successor" && vm.isStreaming)
+        precondition(vm.sendDraft.text == "Unsent Watch draft")
+    }
+
+    @MainActor static func providerRetractionSurvivesDelayedHistoryAndLateFrames() async throws {
+        let app = AppState()
+        let vm = ChatViewModel(sessionId: "selected", appState: app)
+        vm.sendDraft.edit("Keep this draft")
+        app.history = try JSONDecoder().decode([FinishedMessage].self, from: Data(#"[{"messageId":"withdrawn","role":"assistant","blocks":[{"blockId":"text","blockType":"text","content":"STALE_WITHDRAWN"},{"blockId":"tool","blockType":"tool_use","content":"input","toolName":"Read","toolId":"known"}]},{"messageId":"input","role":"user","blocks":[{"blockId":"input","blockType":"text","content":"Keep user input"}]}]"#.utf8))
+        let withdrawal = try decode(#"{"type":"message_retracted","sessionId":"selected","messageId":"withdrawn"}"#)
+        app.beforeHistoryReturn = { vm.handleMessage(withdrawal) }
+        vm.handleMessage(try decode(#"{"type":"message_start","sessionId":"selected","messageId":"successor"}"#))
+        await vm.loadHistory()
+        precondition(!vm.messages.contains { $0.text.contains("STALE_WITHDRAWN") })
+        precondition(vm.messages.first { $0.id == "withdrawn" }?.blocks.map(\.toolName) == ["Read"])
+        precondition(vm.messages.contains { $0.text == "Keep user input" })
+        precondition(vm.currentStream?.messageId == "successor" && vm.isStreaming)
+        precondition(vm.sendDraft.text == "Keep this draft")
+        for attribution in [#""seatId":null"#, #""symposiumProvenance":{}"#] {
+            precondition((try? decode("{\"type\":\"message_retracted\",\"sessionId\":\"selected\",\"messageId\":\"input\",\(attribution)}")) == nil)
+        }
+        vm.handleMessage(try decode(#"{"type":"message_retracted","sessionId":"selected","messageId":"input"}"#))
+        precondition(vm.messages.contains { $0.role == .user && $0.text == "Keep user input" })
+        vm.handleMessage(try decode(#"{"type":"message_start","sessionId":"selected","messageId":"withdrawn"}"#))
+        vm.handleMessage(try decode(#"{"type":"block_start","sessionId":"selected","messageId":"withdrawn","blockId":"late","blockType":"text"}"#))
+        vm.handleMessage(try decode(#"{"type":"block_delta","sessionId":"selected","messageId":"withdrawn","blockId":"late","blockType":"text","delta":"LATE_WITHDRAWN"}"#))
+        vm.handleMessage(try decode(#"{"type":"message_end","sessionId":"selected","messageId":"withdrawn"}"#))
+        precondition(!vm.messages.contains { $0.text.contains("LATE_WITHDRAWN") })
+        precondition(vm.currentStream?.messageId == "successor" && vm.isStreaming)
+        vm.handleMessage(try decode(#"{"type":"message_start","sessionId":"selected","messageId":"tool-response"}"#))
+        vm.handleMessage(try decode(#"{"type":"block_start","sessionId":"selected","messageId":"tool-response","blockId":"tool","blockType":"tool_use","toolName":"Read"}"#))
+        vm.handleMessage(try decode(#"{"type":"block_end","sessionId":"selected","messageId":"tool-response","blockId":"tool","blockType":"tool_use","toolName":"Read","toolId":"known"}"#))
+        vm.handleMessage(try decode(#"{"type":"tool_result","sessionId":"selected","messageId":"tool-response","toolId":"known","result":"WITHDRAWN_RESULT","isError":true}"#))
+        vm.handleMessage(try decode(#"{"type":"message_retracted","sessionId":"selected","messageId":"tool-response","toolId":"known"}"#))
+        precondition(vm.currentStream?.blocks["tool"]?.toolResult == "The provider retracted this result.")
+        precondition(vm.currentStream?.blocks["tool"]?.toolError == nil)
+        app.historyFailure = NSError(domain: "synthetic", code: 1)
+        await vm.loadHistory()
+        precondition(vm.sendError?.contains("History could not be loaded") == true)
+        precondition(vm.sendDraft.text == "Keep this draft")
+        precondition(vm.messages.contains { $0.text == "Keep user input" })
     }
 
     @MainActor static func pendingId(_ vm: ChatViewModel) throws -> String {

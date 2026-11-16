@@ -411,6 +411,10 @@ async function _runQueryLoopInner(
   // Results may arrive after a newer assistant message has started thinking.
   const toolIdToMessageId = new Map<string, string>();
   const nativeRetractions = new ClaudeMessageRetractions();
+  // SDK 0.3.322 emits one normalized assistant envelope per content block.
+  // Rendering may finish a row between those envelopes; retain only the raw
+  // parent stream identity to qualify each envelope's actually observed row.
+  let nativeStreamMessageId: string | null = null;
   let retractionWarningSent = false;
   const parentMessageByChild = new Map<string, string>();
   const uncorrelatedChildren = new Set<string>();
@@ -1049,6 +1053,7 @@ async function _runQueryLoopInner(
             ...compactionFields(),
           });
         } else if (msg.type === 'result') {
+          nativeStreamMessageId = null;
           log.info('result received', { clientId, sessionId: msg.session_id });
           const snippet = currentSession.currentSnapshot
             ? extractSnippet(currentSession.currentSnapshot.blocks, NOTIFY_SNIPPET_MAX_CHARS)
@@ -1400,8 +1405,12 @@ async function _runQueryLoopInner(
             blockCounter = 0;
             turnBlockCount = 0;
             const apiMsg = evt.message as Record<string, unknown> | undefined;
+            nativeStreamMessageId =
+              typeof apiMsg?.id === 'string' && apiMsg.id.length > 0 && apiMsg.id.length <= 2000
+                ? apiMsg.id
+                : null;
             currentSession.currentSnapshot = messageState.begin(
-              (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`,
+              (apiMsg?.id as string | undefined) ?? `msg-${randomUUID()}`,
             );
             lastContextMessageId = messageState.messageId;
 
@@ -1568,7 +1577,9 @@ async function _runQueryLoopInner(
             // and the first content_block_start arrives before message_start.
             if (!messageState.messageId) {
               options?.onTurnStart?.(clientId);
-              currentSession.currentSnapshot = messageState.begin(`msg-${Date.now()}`);
+              // Adjacent normalized blocks can finish distinct rendered rows in
+              // one millisecond. Their public identities must remain distinct.
+              currentSession.currentSnapshot = messageState.begin(`msg-${randomUUID()}`);
               lastContextMessageId = messageState.messageId;
               emit(v2('message_start', { messageId: messageState.messageId }));
             }
@@ -2195,6 +2206,7 @@ async function _runQueryLoopInner(
             nativeSessionId,
             observedMessageId,
             toolIdToMessageId,
+            nativeStreamMessageId,
           );
           for (const target of retraction.targets) {
             if (!target.toolId && currentSession.currentSnapshot?.messageId === target.messageId)

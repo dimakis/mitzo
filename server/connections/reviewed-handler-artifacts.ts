@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1221-claude-retraction-output-pin-fixture';
+  'v1.0.1222-claude-retraction-consumers.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/message-retraction-store.ts':
+    '97ebfcfc83398727a4b8691fe79e181fa457e99f80b48ba6d19be9ffe1c6f7a5',
+  '../__tests__/claude-retraction-public-consumers.test.ts':
+    '4720f704b22bfc96a96ea8e4568116f56f2727a0693cdd1119be66d6bea47223',
   '../../packages/protocol/__tests__/collaboration-visible-source.test.ts':
     '59b88651ac1be9e98c3295646c250b4e86b18fa3953446708d16222bf0656252',
   '../__tests__/collaboration-context-source.test.ts':
@@ -40,7 +44,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/sdk-retraction-consumer.test.ts':
     '3a0d6f9e045c84291cacfe2173a12e8755a39de854bd5c54c303e54ce8018b3e',
   '../claude-message-retractions.ts':
-    'a8c04776bac46819885c939e6cdc4f86a29514b5cdc4eb18860f61717d1e644c',
+    'b914d777365e1d8f687175b270ca90906019644a60c6cbc650538531627f7b56',
   '../../tests/fixtures/chat-claude-retractions.tsx':
     'eb1f1810b52c616e22b8cb8edac8df93bb4661343cf1c6ad9aefff35316bc49b',
   '../../tests/offline/chat-claude-retractions.spec.ts':
@@ -283,7 +287,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/Notifications.swift':
     '1c45016b665fae0b1747496c348982129368a0232c565f17354bc2dceba02e9d',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/WSMessages.swift':
-    'a5f1606bf01b2648c8968c10866b2befcdccfcb274cda309d1bdf47dd5ae15e0',
+    '0da1c87cbef8ca4dfc6d0d14314679cd90ef6b4d99837bd0f127b4d818810f9e',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/WatchNotificationRouting.swift':
     '29fc9bffdd01f14dda6c395271cbfb95f472e5a10a946af07d85282546ceed52',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/WatchSourceReview.swift':
@@ -1518,13 +1522,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-source-setup.ts':
     '87909fca446e5048958fdc22cb237a4258918ea7a3db749096eb58707c1158b7',
   '../../packages/protocol/src/collaboration-visible-source.ts':
-    'a1dac476bf3cb79ffcea083be56cbf87be6e1311a4c52d56f13b37ce4e389d20',
+    '999803236d48f4b53a2014991a0cb7d2446cff083c4a6134819a0579d5006ed2',
   '../../packages/protocol/src/context-compaction.ts':
     '14ad6a62ebd1a263a9cfcd9eda141763f56e38789b353360980651a0695f8752',
   '../../packages/protocol/src/context-injection.ts':
     'f374381a452c3a5354d9b4e84b21ad3d6d40d10879e43124dec30f40118f60bb',
   '../../packages/protocol/src/conversation-replay-store.ts':
-    '25dc192d26d496f513603126bab404a1cd03b1757b6fe49986a4d4c463838248',
+    '0b01fb6359969509cc39e356d8a07e64d2b8dc3a1e5de4f754b901139e6becb8',
   '../../packages/protocol/src/default-mitzo-profile.ts':
     'b9575ab1568d635af8aa599df5bfbedc0aac348069e478d1aeeea89270fe012e',
   '../../packages/protocol/src/deployment-maintenance-store.ts':
@@ -1532,7 +1536,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/deployment-store.ts':
     '06980f353fa11edc16a5e8f75fb8de4b4679853b979d71a1e3d819f76007e04a',
   '../../packages/protocol/src/event-store.ts':
-    '47695d03974a987b3ca841ad498609aa9741cb9136db25060ec1034b72ce1848',
+    '1523577e2d19e443dad803a7a1811a68885f8a7226f0ac95ff1a6c822a002d39',
   '../../packages/protocol/src/execution-ledger.ts':
     '9306195c826ca603ee848d0532e2231a2a7299eb596b63df1c84928771391e94',
   '../../packages/protocol/src/index.ts':
@@ -3324,7 +3328,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-history-native.test.ts':
     '120c0366ea217694b305203da0e2ed78f2f343dfce8db1ffefad260a3438a4a9',
   '../__tests__/session-history-retrieval.test.ts':
-    'aaef03e75a6e6aeae076a4ad76ca93f03795da8bc6280d5a0926d9f1e38eea71',
+    '80eafaaa4dd57c579e2c4f01526ec2aea0cd895868576ca1469e29d72cf644aa',
   '../__tests__/session-history-search-batch.test.ts':
     '7d63430f25d4093b209109ac371b32c65433909e8c637d77d7e27e2916c4836f',
   '../__tests__/session-history-search-cost.test.ts':
@@ -4285,7 +4289,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1446ef68f9790d5897f4423ccc3f6b0a08244e12a01568171fb682179ea47092',
   '../qualified-prepared-repository-transition.ts':
     '841e6af662c35e4737489ecbde0f55a421ea853a7021e61f110cb2108684f983',
-  '../query-loop.ts': 'ead620774b3d25a3effc11c53ede18e015db38e2c830704ca56d7d8ca82263b1',
+  '../query-loop.ts': '67eba807df19760398d8f0391ae519b5efc65d89a7003b41326e19047bed411a',
   '../queued-message-receipt.ts':
     '1a07dced5798bc15d6532ca87d3d193e2c265721c266c82d1d25cadea1772edc',
   '../read-only-git-config.ts': 'f99273c626c434fc9c11df0ea84ef7dca53f0fbdfb7a778f215ed1ad843fd7ad',
@@ -4387,9 +4391,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-history-authorization.ts':
     '820218796b1cf3535662397de02427d1f1634a323decbe52ecce26b9923e2b12',
   '../session-history-reader.ts':
-    '7cafd13ff5dbe00946dcf83de993dfdd3dc91bc5271d77f53d4d9fe9bb4bff5b',
+    '5e6bd8afb605ec8dc6f094893c260aed9d86580b5281081d41ffbbea49d1afab',
   '../session-history-sdk.ts': 'c62546f1e2ada88a976b97a5a32354713a3a537c7871c634d42f3d62c86d455e',
-  '../session-history-tools.ts': '86ca563909974efa08a1cc0412e111b5054cbde02968f09b4d15a04068d37ec3',
+  '../session-history-tools.ts': '0243054e9dce56cf100c6d7c8a01bf517937aa28ee7994146adf21b278a08d94',
   '../session-knowledge-tools.ts':
     'a027974b43e561d595a97cacb6e00db399fa49c15c9b3aff917e0ba1f4ecdfec',
   '../session-launch-controller.ts':

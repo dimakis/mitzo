@@ -1,5 +1,52 @@
 # Claude output retraction evidence
 
+## Current independent-review correction
+
+The complete independent review of `710e2e872e87096126a79be04efd7496262a6b6e`
+against accepted `6d320beb1ba543773db7ca16e5825fd25c29cb6d` recommends KEEP:
+the projection owners form one coherent change. It requires four corrections,
+reproduced as seven failing TypeScript cases plus a failing actual Swift
+decoder/phone-relay/Watch consumer. The earlier frozen-prefix control passes.
+
+| Owner                 | Current correction and evidence                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SDK/query correlation | Retain the original parent stream ID separately from rendered row IDs. Qualify every per-block SDK envelope against that stream before binding the actually observed row. Ordinary SDK, live parser and cold replay cover both adjacent stop orderings, final notices and supersedes, with thinking/text/tool activity.                                                                                                   |
+| Public history/search | Share the existing SQL receipt/audience validator with collaboration sources. Apply selected-prefix withdrawals before text enters JavaScript, including receipts beyond the page and query look-behind. Existing indexes, scan/output bounds and cursors remain; invalid ordinary identities refuse the read. Explicit legacy `view: events` remains original audit text, documented separately.                         |
+| Native Watch          | Shared Swift decoding and phone relay retain validated message/session/tool identities. The existing Watch view model projects receipts through late frames and delayed history, preserving user input, known tool activity, another running response and the draft. Foreign/attributed receipts cannot erase output. Failed history reads preserve content and show a safe retry message with classified native logging. |
+| Fallback scope        | Explicit local/unsupported fallback scopes cannot consume ordinary mappings; absent/session scope remains compatible. Negative controls verify a later valid notice can still use the retained mapping.                                                                                                                                                                                                                   |
+
+Initial focused qualification passes **405 tests across 15 files**, zero failures
+or skips, with one worker and a 1 GiB heap. Workspace protocol/harness/client
+builds and scoped lint pass. The real Shared/Watch receipt harness executes and
+typechecks against the Watch SDK without launching a simulator or model. Its
+expanded fixture initially omitted a required tool-result message ID; that
+harness decoding failure is retained and corrected, not a product finding.
+An exploratory query-plan assertion incorrectly required a new index name;
+inspection proved the existing indexed owner already provides the required
+session/message/sequence seek. No new index or schema migration is needed.
+
+Targeted independent verification then reproduced a remaining live-consumer gap:
+adjacent normalized blocks could receive the same timestamp-based synthetic row
+ID. The live reducer deduplicated the later tool row even though cold projection
+retained known execution. With the clock pinned, the expanded consumer fixture
+retains **two failing cases and 14 passing controls** before correction. Fresh
+UUID-based synthetic row identities now preserve known tools in both live and
+cold projections; the affected query/SDK/correlator/consumer batch passes **150
+tests across four files**. Source fingerprints are renewed at
+`v1.0.1222-claude-retraction-consumers.1`. These batches overlap the initial count.
+
+Native combined CI remains unresolved: original job `133107185290` timed out a
+30-second nested PublishPreparedRepository helper with unknown effects. Its
+diagnostic/command/call identities remain in the coordinator checkpoint. A local
+reproduction stopped at a non-escalatable private-account selector fence before
+repository setup; it did not reproduce or explain the hosted timeout. No unknown
+operation was replayed and no deadline was weakened. Fresh combined CI, bounded
+independent correction verification and exact-head trusted Centaur approval are
+still required. This source candidate is not activation or live acceptance.
+
+The sections below retain historical witnesses and overlapping test counts;
+they do not supersede this current matrix or establish additional acceptance.
+
 Source candidate, 16 November 2026. This document records offline source and
 consumer evidence, not runtime activation or live model/account acceptance.
 Base: accepted `18d1d4a3e0d8bfdc654cce84d7fa828483582735`.

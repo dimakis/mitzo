@@ -33,9 +33,19 @@ export class ClaudeMessageRetractions {
     sessionId: string,
     currentMessageId: string | null,
     toolOwners: ReadonlyMap<string, string>,
+    nativeMessageId: string | null = currentMessageId,
   ): { targets: MessageRetraction[]; unavailable: boolean } {
     const targets: MessageRetraction[] = [];
     if (event.session_id !== sessionId || event.parent_tool_use_id != null)
+      return { targets, unavailable: false };
+    // Local fallback notices belong to subagents/side questions and need not
+    // carry parent_tool_use_id. They cannot consume ordinary output mappings.
+    if (
+      event.type === 'system' &&
+      event.subtype === 'model_refusal_fallback' &&
+      event.scope !== undefined &&
+      event.scope !== 'session'
+    )
       return { targets, unavailable: false };
     if (event.type === 'result') {
       this.bindings.clear();
@@ -59,7 +69,8 @@ export class ClaudeMessageRetractions {
       event.type === 'assistant' &&
       currentMessageId &&
       currentMessageId.length <= 2000 &&
-      message?.id === currentMessageId
+      nativeMessageId &&
+      message?.id === nativeMessageId
     ) {
       observed = [{ messageId: currentMessageId }];
       this.messages.add(currentMessageId);

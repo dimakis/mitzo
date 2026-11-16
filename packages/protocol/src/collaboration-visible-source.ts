@@ -9,6 +9,10 @@ import {
   CollaborationSnapshotMessageSchema,
 } from './collaboration-conversation.js';
 import { SymposiumProvenanceSchema } from './symposium.js';
+import {
+  ordinaryRetractionEventSql as ordinary,
+  validateOrdinaryRetractions as validateRetractions,
+} from './message-retraction-store.js';
 
 type Message = z.infer<typeof CollaborationSnapshotMessageSchema>;
 type Boundary = { sequence: number; messageId: string | null };
@@ -37,13 +41,6 @@ function decodeSourceText(value: unknown): string {
     fail();
   }
 }
-// Presence, including explicit JSON null, must match the canonical renderer's attribution fence.
-const ordinary = (alias = '') => {
-  const prefix = alias ? `${alias}.` : '';
-  return `${prefix}seat_id IS NULL AND ${prefix}symposium_provenance IS NULL
-    AND json_type(${prefix}payload,'$.seatId') IS NULL
-    AND json_type(${prefix}payload,'$.symposiumProvenance') IS NULL`;
-};
 // Completed visible text only. No SDK history, tool I/O, reasoning or provider payload is read.
 const completedAnchors = `session_id=@session AND seq<=@through AND ${ordinary()} AND
  (type='user_message' OR (type='message_end' AND EXISTS (
@@ -55,34 +52,6 @@ const completedAnchors = `session_id=@session AND seq<=@through AND ${ordinary()
  AND r.type='message_retracted' AND ${ordinary('r')}
  AND json_extract(r.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
  AND json_type(r.payload,'$.toolId') IS NULL)))`;
-
-// Qualify the receipt's original ordinary identity using SQL scalars only. A
-// display/source reader must not acquire deletion authority from foreign or
-// malformed payloads, and must not hydrate private event data to check it.
-function validateRetractions(db: Database.Database, session: string, through: number) {
-  const invalid = db
-    .prepare(
-      `SELECT 1 FROM events r
-    WHERE r.session_id=@session AND r.seq<=@through AND r.type='message_retracted'
-    AND ${ordinary('r')} AND (
-      json_extract(r.payload,'$.sessionId') IS NOT @session OR
-      json_type(r.payload,'$.messageId') IS NOT 'text' OR
-      length(json_extract(r.payload,'$.messageId')) NOT BETWEEN 1 AND 2000 OR
-      NOT EXISTS (SELECT 1 FROM events s WHERE s.session_id=r.session_id AND s.seq<r.seq
-        AND s.type='message_start' AND ${ordinary('s')}
-        AND json_extract(s.payload,'$.messageId')=json_extract(r.payload,'$.messageId')) OR
-      (json_type(r.payload,'$.toolId') IS NOT NULL AND (
-        json_type(r.payload,'$.toolId') IS NOT 'text' OR
-        length(json_extract(r.payload,'$.toolId')) NOT BETWEEN 1 AND 1000 OR
-        NOT EXISTS (SELECT 1 FROM events t WHERE t.session_id=r.session_id AND t.seq<r.seq
-          AND t.type='block_end' AND ${ordinary('t')}
-          AND json_extract(t.payload,'$.messageId')=json_extract(r.payload,'$.messageId')
-          AND json_extract(t.payload,'$.blockType')='tool_use'
-          AND json_extract(t.payload,'$.toolId')=json_extract(r.payload,'$.toolId'))))) LIMIT 1`,
-    )
-    .get({ session, through });
-  if (invalid) fail();
-}
 
 function currentReplyRetracted(
   db: Database.Database,
@@ -142,7 +111,7 @@ export function captureCollaborationDurableTranscript(
       through = preceding.through;
     }
     const args = { session, through };
-    validateRetractions(db, session, through);
+    validateRetractions(db, session, through, fail);
     // Native seat rows are never ordinary context. Before excluding them,
     // validate their retained mapping like canonical replay; no payload is read.
     const attributed = `session_id=@session AND seq<=@through
@@ -345,7 +314,7 @@ function createVisibleSource(
     ? `session_id=@session AND seq<=@through AND ${ordinary()} AND type='message_start'`
     : completedAnchors;
   function validateBoundary() {
-    validateRetractions(db, session, through);
+    validateRetractions(db, session, through, fail);
     if (exactReply !== undefined) {
       // Only this finalized message qualifies. Unrelated queued/active turns,
       // initial context and history size cannot suppress its retained answer.

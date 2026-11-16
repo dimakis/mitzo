@@ -526,8 +526,9 @@ describe('message-oriented session retrieval', () => {
     ).toEqual([9, 8]);
     // The actual read must place the continuation in the seek argument, not a
     // residual predicate. Assert both the planner and the bound parameter.
-    const plan = prepare('EXPLAIN QUERY PLAN ' + queries[0]).all(
-      { textStart: 1, textLength: 32769 },
+    const projection = queries.find((sql) => sql.includes('AS text_truncated'))!;
+    const plan = prepare('EXPLAIN QUERY PLAN ' + projection).all(
+      { textStart: 1, textLength: 32769, historyThrough: 100 },
       'past',
       0,
       9,
@@ -535,6 +536,9 @@ describe('message-oriented session retrieval', () => {
     ) as { detail: string }[];
     expect(plan.map((row) => row.detail).join('\n')).toMatch(
       /SEARCH events USING INDEX .*\(session_id=\? AND (?:seq|rowid)>\? AND (?:seq|rowid)<\?\)/,
+    );
+    expect(plan.map((row) => row.detail).join('\n')).toMatch(
+      /SEARCH r USING (?:COVERING )?INDEX .*\(session_id=\? AND (?:type=\? AND )?<expr>=\? AND (?:seq|rowid)<\?\)/,
     );
     expect(f.store.getHistoryEventPage('past', 0, 100, 2, 0, true).events).toEqual([]);
   });
@@ -616,8 +620,9 @@ describe('message-oriented session retrieval', () => {
     expect(f.store.getHistoryMessagePrefix('past', 'answer', seq, 16)[0].payload.delta).toBe(
       'release ',
     );
-    const plan = prepare('EXPLAIN QUERY PLAN ' + queries[0]).all(
-      { textStart: -512, textLength: 512 },
+    const projection = queries.find((sql) => sql.includes('AS text_truncated'))!;
+    const plan = prepare('EXPLAIN QUERY PLAN ' + projection).all(
+      { textStart: -512, textLength: 512, historyThrough: seq },
       'past',
       'answer',
       seq,
