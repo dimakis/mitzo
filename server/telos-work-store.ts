@@ -1,4 +1,7 @@
 import { renewDueTelosSnoozes } from './telos-snooze.js';
+import { TelosWorkTeam } from './telos-work-team.js';
+import { retainTelosDiagnosticFailure } from './telos-operation-failure.js';
+import { TelosWorkIdSchema, type TelosTeamReceipt, type TelosTeamView } from '@mitzo/protocol';
 import { publishTelosWorkUpdate } from './telos-work-updates.js';
 import type { EventStore } from './event-store.js';
 import type { TaskStore } from './task-store.js';
@@ -199,6 +202,36 @@ export class TelosWorkStore {
         !('code' in error) ||
         error.code !== 'SQLITE_ERROR' ||
         !/^no such table: telos_work_lifecycle(?:_commands|_history)?$/.test(error.message)
+      )
+        throw error;
+      return new TelosWorkStore(path, policy);
+    }
+  }
+  /** Warm roster reads never acquire a schema writer. Only a genuinely missing
+   * additive team layout initializes through the canonical schema owner. */
+  static openForTeamRead(path: string, policy: TelosWorkStorePolicy): TelosWorkStore {
+    const store = TelosWorkStore.openForRecordRead(path, policy);
+    try {
+      store.db
+        .prepare('SELECT membership_id,item_id,data,seq FROM telos_work_team_memberships LIMIT 0')
+        .all();
+      return store;
+    } catch (error) {
+      try {
+        store.close();
+      } catch (cleanupCause) {
+        retainTelosDiagnosticFailure(error, cleanupCause, {
+          stage: 'close_team_reader',
+          operation: 'team_read',
+        });
+        // A failed close cannot replace the read cause or permit a writer.
+        throw error;
+      }
+      if (
+        !(error instanceof Error) ||
+        !('code' in error) ||
+        error.code !== 'SQLITE_ERROR' ||
+        error.message !== 'no such table: telos_work_team_memberships'
       )
         throw error;
       return new TelosWorkStore(path, policy);
@@ -786,7 +819,7 @@ export class TelosWorkStore {
           !retained ||
           JSON.stringify(retained.setup) !== JSON.stringify(setup) ||
           retained.receipt ||
-          setup.input.createOnly !== true
+          (setup.input.createOnly !== true && !setup.input.replacement)
         )
           conflict('Original unfinished role reservation required');
         const proof: unknown = assertAbsent();
@@ -943,10 +976,13 @@ export class TelosWorkStore {
               `SELECT request_id FROM telos_work_role_setups WHERE receipt IS NULL
             AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
             AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
-            AND (?=1 OR json_extract(intent,'$.input.createOnly')=1) LIMIT 1`,
+            AND (?=1 OR json_extract(intent,'$.input.createOnly')=1 OR json_extract(intent,'$.input.replacement') IS NOT NULL) LIMIT 1`,
             )
-            .get(input.itemId, input.role, input.createOnly ? 1 : 0) as
-            { request_id: string } | undefined;
+            .get(
+              input.itemId,
+              input.role,
+              input.createOnly || ('replacement' in input && input.replacement) ? 1 : 0,
+            ) as { request_id: string } | undefined;
           if (pending)
             conflict(
               `This role is reserved by unfinished setup ${pending.request_id}. Recover that original request; absence of a receipt does not authorize replacement.`,
@@ -956,6 +992,17 @@ export class TelosWorkStore {
             this.snapshot(input.itemId).assignments.some((a) => a.role === input.role)
           )
             conflict('Create-only cannot replace an existing assignment');
+          if ('replacement' in input && input.replacement) {
+            const replacement = input.replacement;
+            const current = this.snapshot(input.itemId).assignments.find(
+              (a) => a.role === input.role,
+            );
+            if (
+              current?.conversation.conversationId !== replacement.conversationId ||
+              current.revision !== replacement.assignmentRevision
+            )
+              conflict('The reviewed current owner changed');
+          }
         }
         const setup = TelosWorkRoleSetupRequestIntentSchema.parse({
           actorId,
@@ -1474,6 +1521,40 @@ export class TelosWorkStore {
       };
     })();
   }
+  /** Read-only proposal scope. Only the existing interactive operator review
+   * can commit this replacement; ordinary caller text confers no assignment. */
+  sessionReplacementScope(sourceConversationId: string, itemId: string) {
+    return this.db.transaction(() => {
+      if (!this.policy.ordinaryConversation(sourceConversationId))
+        throw new TelosWorkError(
+          'unauthorized',
+          'An available ordinary originating chat is required',
+        );
+      this.assertLifecycleActive(itemId);
+      const item = this.snapshot(itemId);
+      const role =
+        item.kind === 'work_item'
+          ? ('worker' as const)
+          : item.kind === 'coordinator' || item.kind === 'outcome'
+            ? ('lead' as const)
+            : null;
+      if (!role) invalid('Classify the selected work before replacing its owner');
+      const assignment = item.assignments.find((a) => a.role === role);
+      if (!assignment) conflict('No current owner exists; use reviewed initial role setup');
+      return {
+        version: 1 as const,
+        parentItemId: null,
+        parentAssignmentRevision: null,
+        itemId,
+        expectedRevision: item.revision,
+        role,
+        replacement: {
+          conversationId: assignment.conversation.conversationId,
+          assignmentRevision: assignment.revision,
+        },
+      };
+    })();
+  }
   /** One consistent brief/relationship boundary for a source preview. */
   readSourceTarget(itemId: string, actor: TelosWorkActor) {
     this.operator(actor);
@@ -1691,6 +1772,39 @@ export class TelosWorkStore {
       itemId,
     );
   }
+  /** Explicit operational roster. Formal assignments and historical allocation
+   * evidence are independent; membership itself confers no scoped read grant. */
+  readTeam(itemId: string, actor: TelosWorkActor): TelosTeamView {
+    this.operator(actor);
+    TelosWorkIdSchema.parse(itemId);
+    return this.db.transaction(() => {
+      this.item(itemId);
+      return new TelosWorkTeam(this.db).read(itemId);
+    })();
+  }
+  executeTeam(
+    raw: unknown,
+    actor: TelosWorkActor,
+    assertBeforeApply?: () => void,
+  ): TelosTeamReceipt {
+    this.operator(actor);
+    const nested = this.db.inTransaction;
+    const result = new TelosWorkTeam(this.db).execute(raw, `operator:${actor.id}`, (input) => {
+      this.item(input.itemId);
+      this.assertLifecycleActive(input.itemId);
+      if (
+        input.operation !== 'unlink' &&
+        !this.availableConversation('origin', input.conversationId)
+      )
+        throw new TelosWorkError(
+          'invalid',
+          'An available compatible Mitzo conversation is required',
+        );
+      assertBeforeApply?.();
+    });
+    if (result.changed && !nested) publishTelosWorkUpdate();
+    return result.receipt;
+  }
   execute(
     raw: unknown,
     actor: TelosWorkActor,
@@ -1723,7 +1837,7 @@ export class TelosWorkStore {
               `SELECT intent FROM telos_work_role_setups WHERE receipt IS NULL
             AND request_id NOT IN (SELECT request_id FROM telos_work_role_setup_releases)
             AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
-            AND json_extract(intent,'$.input.createOnly')=1`,
+            AND (json_extract(intent,'$.input.createOnly')=1 OR json_extract(intent,'$.input.replacement') IS NOT NULL)`,
             )
             .all(input.itemId, input.role) as { intent: string }[];
           if (

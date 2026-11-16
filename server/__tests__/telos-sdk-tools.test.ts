@@ -29,6 +29,8 @@ import { bindAgentToolSelection, assertAgentToolRoute } from '../agent-tool-sele
 import { reviewTelosWorkRoleContext } from '../telos-work-role-review.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { retainedCallbackOutcome } from '../turn-callbacks.js';
+import { telosBacklogFailureCause } from '../telos-backlog-tools.js';
+import { createHash } from 'node:crypto';
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<typeof import('@anthropic-ai/claude-agent-sdk')>()),
   query: vi.fn(),
@@ -167,6 +169,91 @@ async function fixture(
     },
   };
 }
+
+it.each([false, true])(
+  'maintains contributor membership through the actual SDK and request-only approval (explicit: %s)',
+  async (explicit) => {
+    const f = await fixture(explicit);
+    expect((await f.client.listTools()).tools.map((tool) => tool.name)).toContain(
+      'TelosManageTeam',
+    );
+    const before = f.value(
+      await f.call('TelosManageTeam', { operation: 'read', itemId: 'studio' }),
+    ).team;
+    const input = {
+      operation: 'link',
+      itemId: 'studio',
+      requestId: 'sdk-investigator',
+      expectedRevision: before.revision,
+      conversationId: 'planning',
+      displayName: 'Studio planning',
+      role: 'investigator',
+      responsibility: 'Investigate the current plan',
+      reportsToMembershipId: null,
+    };
+    const linked = await f.call('TelosManageTeam', input);
+    expect(linked.isError, JSON.stringify(linked.content)).toBe(false);
+    const team = f.value(linked).team;
+    expect(team.members).toMatchObject([
+      { conversationId: 'planning', role: 'investigator', state: 'current' },
+    ]);
+    expect(f.work.read('studio', f.actor).assignments).toEqual([]);
+    expect(f.value(await f.call('TelosManageTeam', input))).toEqual(f.value(linked));
+    f.deny();
+    const unlink = await f.call('TelosManageTeam', {
+      operation: 'unlink',
+      itemId: 'studio',
+      requestId: 'sdk-unlink-denied',
+      expectedRevision: team.revision,
+      membershipId: team.members[0].membershipId,
+    });
+    expect(unlink.isError).toBe(true);
+    expect(f.work.readTeam('studio', f.actor).members[0].state).toBe('current');
+  },
+);
+
+it('delivers a corrupt team receipt identity as a visible SDK failure without replaying or exposing it', async () => {
+  const f = await fixture();
+  const team = f.value(
+    await f.call('TelosManageTeam', { operation: 'read', itemId: 'studio' }),
+  ).team;
+  const input = {
+    operation: 'link',
+    itemId: 'studio',
+    requestId: 'retained-team-operation',
+    expectedRevision: team.revision,
+    conversationId: 'planning',
+    displayName: 'Studio planning',
+    role: 'reviewer',
+    responsibility: 'Review the plan',
+    reportsToMembershipId: null,
+  };
+  const original = f.value(await f.call('TelosManageTeam', input));
+  const corrupt = {
+    requestId: 'private-unrelated-request',
+    actorId: 'operator:private-other-owner',
+    team: { ...original.team, itemId: 'private-unrelated-item' },
+  };
+  f.db.exec('DROP TRIGGER telos_work_team_commands_no_update');
+  f.db
+    .prepare('UPDATE telos_work_team_commands SET receipt=? WHERE request_id=?')
+    .run(JSON.stringify({ ...original, ...corrupt, ok: undefined }), input.requestId);
+  const result = await f.call('TelosManageTeam', input);
+  expect(result.isError).toBe(true);
+  expect(JSON.stringify(result.content)).not.toMatch(/private-/);
+  const requestHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+  expect(telosBacklogFailureCause(requestHash)?.cause).toBeInstanceOf(Error);
+  expect(f.work.readTeam('studio', f.actor)).toEqual(original.team);
+  expect(
+    JSON.parse(
+      (
+        f.db
+          .prepare('SELECT receipt FROM telos_work_team_commands WHERE request_id=?')
+          .get(input.requestId) as { receipt: string }
+      ).receipt,
+    ),
+  ).toMatchObject(corrupt);
+});
 
 it.each([[], ['TelosListItems'], ['mcp__telos__TelosListItems']].map((ceiling) => ({ ceiling })))(
   'enforces the original exact wire-name ceiling through the Telos MCP handler ($ceiling)',

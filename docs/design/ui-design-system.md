@@ -146,6 +146,13 @@ SDK checks and the remaining physical-device/visual verification.
 
 ## Agent-created ordinary sessions
 
+Owner replacement reuses the same transcript entry and `HomeDialog` review with
+the previous-owner link, selected existing-chat link and **Approve & replace owner**.
+Its copy explains preserved history/settings and changed current responsibility,
+with no command or execution-permission transfer. The historical receipt says
+**Owner replaced · execution not started**. Uncertainty keeps Check request and
+Recover owner replacement; appearance, layout, focus and draft ownership are unchanged.
+
 Work-bound Telos requests reuse this same originating-chat review. The exact
 named work and Feature lead / Slice worker role precede the editable session
 settings. `TelosLinkedContext` shows the retained brief, parent goal and explicitly

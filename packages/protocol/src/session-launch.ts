@@ -80,21 +80,43 @@ export const StartSessionInputSchema = z.strictObject({
 export type StartSessionInput = z.infer<typeof StartSessionInputSchema>;
 /** Host-derived canonical responsibility. This is never an approval edit or a
  * saved default; selecting a child cannot grant authority over another item. */
-export const TelosSessionLaunchScopeSchema = z.strictObject({
-  version: z.literal(1),
-  parentItemId: reference,
-  parentAssignmentRevision: z.number().int().positive().safe(),
-  itemId: reference,
-  expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
-  role: z.enum(['lead', 'worker']),
-  sourceSnapshotIds: z.array(reference).max(100),
-  artifactRefs: z.array(TelosWorkArtifactReferenceSchema).max(100),
-  adoption: TelosExistingChatAdoptionSchema.extend({
-    title: z.string().min(1).max(1000),
-  }).optional(),
-});
+export const TelosSessionLaunchScopeSchema = z
+  .strictObject({
+    version: z.literal(1),
+    parentItemId: reference.nullable(),
+    parentAssignmentRevision: z.number().int().positive().safe().nullable(),
+    itemId: reference,
+    expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    role: z.enum(['lead', 'worker']),
+    sourceSnapshotIds: z.array(reference).max(100),
+    artifactRefs: z.array(TelosWorkArtifactReferenceSchema).max(100),
+    adoption: TelosExistingChatAdoptionSchema.extend({
+      title: z.string().min(1).max(1000),
+    }).optional(),
+    replacement: z
+      .strictObject({
+        conversationId: reference,
+        assignmentRevision: z.number().int().positive().safe(),
+      })
+      .optional(),
+  })
+  .refine(
+    (value) =>
+      value.replacement
+        ? Boolean(value.adoption) &&
+          value.parentItemId === null &&
+          value.parentAssignmentRevision === null
+        : value.parentItemId !== null && value.parentAssignmentRevision !== null,
+    'Exact parent authority or explicit owner replacement required',
+  );
 export type TelosSessionLaunchScope = z.infer<typeof TelosSessionLaunchScopeSchema>;
 export const TelosCreateSessionInputSchema = StartSessionInputSchema.extend({
+  replaceOwner: z
+    .literal(true)
+    .optional()
+    .describe(
+      'Propose operator-reviewed replacement of the selected item current owner by existingConversationId. Select the item itself; no current lead role is required to propose. Approval changes canonical responsibility, retains former attribution and starts no command.',
+    ),
   existingConversationId: reference
     .optional()
     .describe(
@@ -104,7 +126,10 @@ export const TelosCreateSessionInputSchema = StartSessionInputSchema.extend({
   expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
   sourceSnapshotIds: z.array(reference).max(100).default([]),
   artifactRefs: z.array(TelosWorkArtifactReferenceSchema).max(100).default([]),
-});
+}).refine(
+  (value) => !value.replaceOwner || Boolean(value.existingConversationId),
+  'Owner replacement requires an exact existing ordinary chat',
+);
 export type TelosCreateSessionInput = z.infer<typeof TelosCreateSessionInputSchema>;
 export const SessionLaunchStateSchema = z.enum([
   'pending',
