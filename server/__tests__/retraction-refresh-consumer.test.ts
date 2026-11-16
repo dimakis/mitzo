@@ -263,6 +263,7 @@ it.each([
   { newOutput: false, lateAction: 'none' },
   { newOutput: true, lateAction: 'none' },
   { newOutput: false, lateAction: 'tool_result' },
+  { newOutput: true, lateAction: 'tool_result' },
   { newOutput: false, lateAction: 'block_delta' },
 ])(
   'retains canonical activity through incremental replay %j',

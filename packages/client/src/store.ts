@@ -999,7 +999,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessionId: string;
         throughSeq: number;
         confirmedMessageIds: Set<string>;
-        liveActions: Array<{ seq: number; action: MessagesAction; changesCurrent: boolean }>;
+        liveActions: Array<{ seq: number; action: MessagesAction; changedCurrentOwner?: string }>;
         unsequencedCurrentChanged: boolean;
       }
     | undefined;
@@ -1037,7 +1037,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       sessionId,
       throughSeq: throughSeq ?? 0,
       confirmedMessageIds: new Set<string>(),
-      liveActions: [] as Array<{ seq: number; action: MessagesAction; changesCurrent: boolean }>,
+      liveActions: [] as Array<{
+        seq: number;
+        action: MessagesAction;
+        changedCurrentOwner?: string;
+      }>,
       unsequencedCurrentChanged: false,
     };
     boundedRestore = currentBoundedRestore;
@@ -1068,7 +1072,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               (item) => appliedCursor === undefined || item.seq > appliedCursor,
             );
             const liveActions = liveSuffix.map((item) => item.action);
-            const sequencedCurrentChanged = liveSuffix.some((item) => item.changesCurrent);
+            const currentOwner = s.messages.current
+              ? messageIdentity(
+                  s.messages.current.messageId,
+                  s.messages.current.symposiumProvenance,
+                )
+              : undefined;
+            // Activity on an earlier reply cannot rebuild the actual newer
+            // streaming owner, whose unsequenced output is absent from replay.
+            const sequencedCurrentChanged =
+              currentOwner !== undefined &&
+              liveSuffix.some((item) => item.changedCurrentOwner === currentOwner);
             // A projection receipt edits an observed turn; it does not rebuild
             // that turn's tool activity or create a newer streaming owner.
             const structuralActions = liveActions.filter(
@@ -2899,7 +2913,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           nextMessages.current?.blocks !== previousMessages.current?.blocks ||
           nextMessages.current?.blockOrder !== previousMessages.current?.blockOrder);
       if (isPostCursorAction) {
-        boundedRestore!.liveActions.push({ seq: msg.seq as number, action, changesCurrent });
+        const changedCurrent = changesCurrent
+          ? (nextMessages.current ?? previousMessages.current)
+          : undefined;
+        boundedRestore!.liveActions.push({
+          seq: msg.seq as number,
+          action,
+          changedCurrentOwner: changedCurrent
+            ? messageIdentity(changedCurrent.messageId, changedCurrent.symposiumProvenance)
+            : undefined,
+        });
         if (action.type === 'USER_MESSAGE_RECEIVED')
           boundedRestore!.confirmedMessageIds.add(action.messageId);
       } else if (
