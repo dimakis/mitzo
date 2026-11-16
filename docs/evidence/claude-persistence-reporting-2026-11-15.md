@@ -85,6 +85,19 @@ known recipients, including the running original agent's unavailable reason.
 All ten UI cases pass and continue asserting GET-only behavior. No sharing or
 reporting production behavior was changed for this fixture correction.
 
+Accepted transcript repair #1370 at
+`16e74da83fe6e18e3a027ea4e562cdf0afddddb6` caused another demonstrated manifest
+conflict. Its handler retains the original cause through the unchanged canonical
+bounded diagnostic owner before attempting the sanitized logger. Inspected the
+entire accepted three-file delta and its four HTTP variants, eviction and sink
+failure coverage. Accepted handler/tests and this PR's persistence production
+files remain byte-identical to their respective parents; only the manifest
+runtime label required manual resolution. The composed transcript, canonical
+diagnostic and persistence suites pass 29 checks across three files; source pins,
+format and whitespace checks pass. Existing full and correction review baselines
+remain applicable; exact combined-head hosted CI and trusted follow-up remain
+required. No runtime activation or live incident recovery is claimed.
+
 ## Remaining reporting work
 
 Retry/rate-limit/refusal reporting, context-usage detail, background task progress
