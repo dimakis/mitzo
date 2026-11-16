@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
-import { ModelTokenLimitsSchema, type SessionContextUsage as Usage } from '@mitzo/protocol';
+import { ModelTokenLimitsSchema } from '@mitzo/protocol';
+import type { Session } from '../types/chat';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { HomeDialog } from './HomeDialog';
 import { SeatLabel } from './SeatLabel';
@@ -18,7 +19,7 @@ const responseSchema = z.object({
     .nullable()
     .optional(),
 });
-type Row = { usage?: Usage; error?: string };
+type Row = { usage?: Session['contextUsage']; error?: string };
 
 /** Read-only inspection of each ordinary session's own recorded measurements.
  * Membership labels grant no access: the ordinary context endpoint authorizes every read.

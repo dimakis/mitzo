@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1219-shared-context-telos-owner-integration';
+  'v1.0.1220-shared-context-session-type';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationContextUsage.tsx':
-    '6ae5f7b2700e2104ba84fe49d20ef3c7ff30dc6020ae8fdf669d0d960f93af1a',
+    '14a9387895751c22d68f817293fe1bd244190c184e47aa8abd4b9b8678f745dc',
   '../../frontend/src/components/ConversationContextUsage.css':
     'c45bb1a0794d533257b86aac345b6c09b66e3d64404220fdb7871e0fbde138ed',
   '../../frontend/src/components/__tests__/ConversationContextUsage.test.tsx':
