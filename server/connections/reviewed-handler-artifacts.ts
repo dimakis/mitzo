@@ -1482,7 +1482,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/permission-audit.ts':
     '6bcfffbd3bfa1711315b5ca641b144113b65ab073717ce861f4ebf175cc5387f',
   '../../packages/harness/src/permission-handler.ts':
-    '26df28ec0a0b773eeb858d1c92f02bc2806bc1f1498822455be1939db5dc503f',
+    '3c5f33dec18dbdd8d490a61e68f104e2d6d8a4e272ada3c0979d0bca4362f31a',
   '../../packages/harness/src/permission-notification-owner.ts':
     'b869a16bac88df5be85d25183d7027c70592531d8e1b87a491755791e39c8484',
   '../../packages/harness/src/permissions.ts':
@@ -1514,7 +1514,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/tool-tiers.ts':
     '82749f68a20cfbbb8dd813c1ee8fb0702dd316b924bdcdd334f7e62fc1515bb9',
   '../../packages/harness/src/worktree-guard.ts':
-    '04eb6d24fd91249df96f7fb5c386bf61106aa5376a2fd78a2013fd6c24e83d6a',
+    '8efe2bc8e1f05ca3a01d6f8e05c91f0f35226863ca059cbea8c7d3a16cb2aa58',
   '../../packages/protocol/__tests__/collaboration-conversation.test.ts':
     'c5fcb68fc501fd84a14b71a76ba1d18e8d61614e50ceb0dd30227c54937e5311',
   '../../packages/protocol/__tests__/consultation-context-boundary.test.ts':
