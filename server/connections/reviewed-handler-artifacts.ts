@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1224-claude-development-boundaries.1';
+  'v1.0.1224-claude-development-boundaries.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1898,7 +1898,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-library-builder.tsx':
     '3182f33a70edf28862c55c5dc5462ecf3618351f179cfed4f7b7cf85ddd07d82',
   '../../tests/fixtures/agent-tool-catalog.json':
-    'bdc2e32bb36f25f12e04239e3d011cc940b5526517c181064c7a36f43f624f6e',
+    'eac8aa25561467620ee1a7dffe4161e6e1e27a640ade18e36ddf7ad1b0b4cc30',
   '../../tests/fixtures/anthropic-account-enrollment.tsx':
     '31331fa4a056600c2e3bba9a7c0ee28f8b1c0616eb81f0954de68424741033e0',
   '../../tests/fixtures/chat-model-settings.tsx':
@@ -2441,7 +2441,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/agent-message-transcript.test.ts':
     'dacd88b27a761804c80b143f67b0f4a76df6f2786c64cbe9812349204bd0788c',
   '../__tests__/agent-tool-catalog.test.ts':
-    'ea54aa9b396f5abbb65059333eda48bbe825df34061758c87e90a2138b683e0c',
+    '9197b122d0108eb9ca9a4904bee05b50461f32b60e24143bd734d11b522518c9',
   '../__tests__/agent-tool-selection.test.ts':
     'b16ecb8093c4929d319994864bc0ab8958c03fd1bff9c6486cdf2a1e596db53a',
   '../__tests__/anthropic-api-account.test.ts':
@@ -2666,7 +2666,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-runtime-authority.test.ts':
     '09982bbcbc5750e5f9e6906a0eb61d794bda930c3837cac972fd13f5b5d64dea',
   '../__tests__/credential-sdk-tools.test.ts':
-    'eb69229c95ab41801a4dcd8ec6594e30fcf5a6c9fbb19093a21b4e89990a6eb8',
+    '8f436bac035e3df38b6ada818d809dcb25ff6b19996eead9417c79b3339b38be',
   '../__tests__/credential-setup-application.test.ts':
     '39683a04282c3149a17886b424218dc93bfa48bf208340f2f0a5736ad609f372',
   '../__tests__/credential-setup-continuation.test.ts':
@@ -3671,7 +3671,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-task-runtime.ts': '3cb0fcf9ba3f11a69b6ea0897d2c6d6c3a834038ea4a1ebb3dfead933a36350c',
   '../agent-task-service.ts': '226f42689d54ad511770c22cc62cfdfcad65673e7f5d2850793a043c73f69dc7',
   '../agent-task-store.ts': '8cc853ff5e8de8bb8149f966bd6d5f2f55032b16365e9f52f5436e9f36a2bcbe',
-  '../agent-tool-catalog.ts': '3f74b35986b029336258dbeb4cc176da8ecf8ad9d5908fcbef6eccee2b5cf9bd',
+  '../agent-tool-catalog.ts': 'd232411453a19272bcda6f9ac70488e2b3aafa24cb4e36282182b9721aa6c6c0',
   '../agent-tool-selection.ts': '2a093c17133a82030c468fb6660ecc3baf5938abfbf7ab2adea366bd4249cbfe',
   '../anthropic-api-connection.ts':
     '0d28e1cccf86680c56196be272422a35be34ee809e83dcb57713dc41a14da731',
@@ -3693,7 +3693,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../builtin-agent-library-profile.ts':
     '278d9a286a27cb76740ac5f821bc3bb03175471b58af371f3bd4fe9c6ad022bc',
-  '../builtin-tool-behavior.ts': '236a3e59d520751ffe3cf21f06c040e0663e8bdda151d4e48a723e429b52da15',
+  '../builtin-tool-behavior.ts': '59ce71a6541199c614ba89b99bcfa6bc89f5db450d981bbedfe27441cff53b2d',
   '../callback-incident-evidence.ts':
     'eb21882e9218cebac9ec9363b0cc82da4bf3b8d6a8c9d24c9e9c2c6c37bd11ef',
   '../callback-incident-repair.ts':
@@ -3857,7 +3857,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-boundary.ts':
     'ed72f198f6f7fb07255d0338a5d16aadc38cb40fcd902e42053eafce52c4fddf',
-  '../credential-sdk-tools.ts': '04422f955408fb83ebddde3528e107f17a1c0fcd2066b841996f3b9e5ef8226b',
+  '../credential-sdk-tools.ts': 'b8c99d8d47456f34823e9d5140d3603a5e8848843f3ffd7b1c1c35f54f562be9',
   '../credential-setup-application.ts':
     '6882cdc7036ec0c019392a5bf398aca9f196579d013c15f209815d0430cebd41',
   '../credential-setup-continuation.ts':

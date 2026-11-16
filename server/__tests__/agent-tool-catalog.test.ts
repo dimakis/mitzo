@@ -3,6 +3,19 @@ import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
 
+it('keeps retained-output transport available to explicit Claude profiles without granting a source tool', () => {
+  const entry = agentToolCatalog().find((tool) => tool.name === 'ReadToolOutput');
+  expect(entry).toMatchObject({
+    behavior: 'read',
+    required: true,
+    routes: ['codex-owned-local', 'claude-sdk'],
+  });
+  const session = {};
+  bindAgentToolSelection(session, { tools: [] } as never, 'claude-sdk');
+  expect(agentToolAllowed(session, 'ReadToolOutput')).toBe(true);
+  expect(agentToolAllowed(session, 'SessionTimers')).toBe(false);
+});
+
 it.each([
   'TelosListItems',
   'TelosSearchItems',

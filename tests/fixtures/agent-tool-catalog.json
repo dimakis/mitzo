@@ -528,6 +528,17 @@
     "requirement": "Requires the current signed operator and original owned-local native or guarded SDK call. Reads only registered visible durable history within current tool and skill scope; no provider transcript or credential discovery."
   },
   {
+    "id": "mitzo:ReadToolOutput",
+    "version": 1,
+    "name": "ReadToolOutput",
+    "description": "Read retained tool text by its outputId. UTF-16 offset pages are bounded in UTF-8 bytes; query performs literal search from offset. Output may expire after 24 hours or eight newer retained outputs. Existing source/tool authorization still applies. Never rerun an effect to recover expired output.",
+    "source": "Tool output",
+    "required": true,
+    "behavior": "read",
+    "routes": ["codex-owned-local", "claude-sdk"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
     "id": "mitzo:RequestGithubMainPublication",
     "version": 1,
     "name": "RequestGithubMainPublication",

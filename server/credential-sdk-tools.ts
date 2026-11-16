@@ -315,8 +315,23 @@ export function createCredentialSdkServer(
                   const request = ReadToolOutputInput.parse(input);
                   const retained = outputs.get(request.outputId);
                   if (!retained || Date.now() - retained.created > 24 * 60 * 60 * 1000)
-                    throw Error(
-                      'Retained output expired or belongs to another SDK query. Inspect current state with a narrower read; do not rerun an effect.',
+                    return retainCallbackOutcome(
+                      {
+                        content: [
+                          {
+                            type: 'text' as const,
+                            text: JSON.stringify({
+                              code: 'tool_output_unavailable',
+                              stage: 'output_read',
+                              effectStatus: 'not_started',
+                              message:
+                                'Retained output expired or belongs to another SDK query. Inspect current state with a narrower read; do not rerun an effect.',
+                            }),
+                          },
+                        ],
+                        isError: true,
+                      },
+                      'settled',
                     );
                   retained.assertCurrent();
                   const page = readToolOutputPage(retained.text, request);

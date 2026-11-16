@@ -46,6 +46,14 @@ permitted`; this is incomplete qualification. The existing native CI job now
   fixtures. No live model call was made. CI, Centaur review, merge, activation
   and live user acceptance are separate delivery evidence.
 
+The final profile check reproduced an additional transport gap: an explicit
+Claude profile could receive a preview while excluding ReadToolOutput. The
+reader is now a required transport helper on supported native/Claude routes;
+its original source authorization and frozen skill checks still apply, and no
+saved profile or source-tool selection is changed. Missing/expired output has
+an explicit `tool_output_unavailable` / `not_started` diagnostic. All 77 checks
+in the affected catalog, SDK tool, real startup and catalog UI suites pass.
+
 Keep the defect slice active until its own live criteria are fulfilled, or each
 remaining gap is explicitly retained with its owner and next action. A source
 patch, passing fixture or published PR alone does not establish working

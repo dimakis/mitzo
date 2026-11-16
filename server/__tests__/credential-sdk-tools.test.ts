@@ -7,6 +7,7 @@ import { SessionRegistry, ToolGuardTimeoutError, type ToolGuardPolicy } from '@m
 import { TurnCallbacks, assertTurnCallbackEffects } from '../turn-callbacks.js';
 import { AgentCommunicationError } from '../agent-message-runtime.js';
 import { createSdkCallbackState } from '../ordinary-local-vertex-sdk-query.js';
+import { bindAgentToolSelection } from '../agent-tool-selection.js';
 const mocked = vi.hoisted(() => ({
   tools: [] as Array<{
     name: string;
@@ -21,6 +22,11 @@ it('pages large SDK results without private spill files and rechecks the origina
     abortController: new AbortController(),
   } as never);
   const session = registry.get('owned')!;
+  bindAgentToolSelection(
+    session,
+    { tools: [{ id: 'mitzo:SessionTimers', version: 1 }] } as never,
+    'claude-sdk',
+  );
   let allowed = true;
   const full = 'timer entry '.repeat(8000) + 'unique-tail';
   const execute = vi.fn(async () => ({ content: full, isError: false }));
@@ -48,6 +54,14 @@ it('pages large SDK results without private spill files and rechecks the origina
       content: Array<{ text: string }>;
     };
     expect(JSON.parse(page.content[0].text).content).toBe('unique-tail');
+    const missing = (await reader!.handler({
+      outputId: '00000000-0000-4000-8000-000000000001',
+    })) as { isError: boolean; content: Array<{ text: string }> };
+    expect(missing.isError).toBe(true);
+    expect(JSON.parse(missing.content[0].text)).toMatchObject({
+      code: 'tool_output_unavailable',
+      effectStatus: 'not_started',
+    });
     allowed = false;
     expect(await reader!.handler({ outputId: preview.outputId })).toMatchObject({ isError: true });
     await expect(state.callbacks.settle(new AbortController().signal)).resolves.toBeUndefined();

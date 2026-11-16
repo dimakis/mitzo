@@ -1,4 +1,5 @@
 import { builtinToolBehavior } from './builtin-tool-behavior.js';
+import { localEfficiencyToolDefinitions } from './local-agent-efficiency.js';
 import { telosSdkToolNames } from './telos-sdk-definitions.js';
 import { googleWorkspaceReadDefinition } from './google-workspace-read.js';
 import { localRepositoryPreparationDefinition } from './local-repository-preparation-tool.js';
@@ -53,6 +54,10 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     { source: 'Session automation', definitions: sessionPromptDefinitions },
     { source: 'History', definitions: sessionHistoryToolDefinitions },
     {
+      source: 'Tool output',
+      definitions: localEfficiencyToolDefinitions.filter((tool) => tool.name === 'ReadToolOutput'),
+    },
+    {
       source: 'Telos',
       definitions: [
         githubMainPublicationTool,
@@ -73,7 +78,9 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       name: tool.name,
       description: tool.description,
       source,
-      required: tool.name === 'AskUserQuestion',
+      // Paging is transport for already authorized results. Its handler still
+      // rechecks the original source; it cannot make an excluded source callable.
+      required: tool.name === 'AskUserQuestion' || tool.name === 'ReadToolOutput',
       behavior: builtinToolBehavior(tool.name),
       routes: ['SymposiumConsult', 'SymposiumReadProfiles', 'SymposiumProposeProfile'].includes(
         tool.name,
@@ -83,7 +90,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
           ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
           : tool.name === 'TelosCreateSession'
             ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
-            : source === 'Agent communication' || source === 'History'
+            : source === 'Agent communication' || source === 'History' || source === 'Tool output'
               ? ['codex-owned-local', 'claude-sdk']
               : source === 'Session automation'
                 ? ['local-api', 'codex', 'codex-owned-local', 'claude-sdk']
