@@ -21,6 +21,67 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it.each(['allowed', 'revoked', 'cancelled'] as const)(
+  'prepares replacement context before provider creation and retains %s authority',
+  async (change) => {
+    let text = 'Initial accepted context';
+    const prompts: unknown[] = [];
+    vi.mocked(query).mockImplementation((request) => {
+      prompts.push(request.options?.systemPrompt);
+      return { close: vi.fn() } as never;
+    });
+    const controller = new AbortController();
+    let current = true;
+    const authorize = async () => {
+      controller.signal.throwIfAborted();
+      if (!current) throw Error('Original account revoked');
+    };
+    const prepareContext = vi.fn(async () => {
+      await Promise.resolve();
+      text = 'Next accepted context';
+      if (change === 'revoked') current = false;
+      if (change === 'cancelled') controller.abort();
+    });
+    const owner = createOrdinaryLocalVertexSdkQuery({
+      options: {
+        get systemPrompt() {
+          return text;
+        },
+      },
+      input: new AsyncQueue(),
+      controller,
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      authorize,
+      authorizeSync: () => {
+        controller.signal.throwIfAborted();
+        if (!current) throw Error('revoked');
+      },
+      prepareContext,
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      onUnsent: vi.fn(),
+    });
+    try {
+      await owner.apply({ model: 'first' } as never);
+      expect(prepareContext).not.toHaveBeenCalled();
+      const next = owner.apply({ model: 'next' } as never);
+      if (change === 'allowed') {
+        await next;
+        expect(prompts).toHaveLength(2);
+        expect(prompts[1]).toContain('Next accepted context');
+      } else {
+        await expect(next).rejects.toThrow();
+        expect(prompts).toHaveLength(1);
+      }
+      expect(prepareContext).toHaveBeenCalledOnce();
+    } finally {
+      controller.abort();
+    }
+  },
+);
 // Continues the prior reporting owner's unrun regression draft without changing its checkout.
 it.each(['session_writes_lost', 'mirror_error'])(
   'delivers %s after the terminal result without admitting late parent output',

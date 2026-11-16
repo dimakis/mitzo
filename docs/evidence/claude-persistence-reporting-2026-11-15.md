@@ -115,6 +115,30 @@ workspace artifact because its request returned `ECONNRESET`. The later missing
 test-results upload followed that setup failure. No product cause or code fix is
 claimed for it. The necessary accepted-source composition receives normal CI.
 
+## Accepted startup integration
+
+Accepted #1368 at `18d1d4a3e0d8bfdc654cce84d7fa828483582735`
+adds context preparation before replacement SDK creation. Its initial chat context,
+Google schema and publication consumers are retained. The optional preparation
+hook remains between original-process closure and replacement creation, bracketed
+by current authority checks. Persistence warning drain and closed-owner fences
+are unchanged. The shared SDK test conflict was two complete independent additions;
+both are preserved. The registry retains the exact 2517-entry union, with the two
+composed SDK source/test fingerprints and a new runtime revision.
+
+The combined six-suite qualification covers 177 distinct checks. An initial run
+restored host enrollment references after fixture cleanup; clearing those references
+left three startup admission failures. A separate ignored diagnostic probe identified
+the remaining cause as canonicalizing a protected host executable directory from
+PATH. With an explicit offline executable path, all five real startup-consumer
+checks pass, including the three failures. The other 172 checks passed in the
+preceding six-suite run. These overlapping results are not summed. No privacy fence
+was changed or extra access requested. Original failures and the diagnostic probe
+are retained in local test-results and `/private/tmp/claude-1369-startup-integration*`.
+Scoped lint, formatting, source fingerprints and whitespace checks pass. Earlier
+full independent review and the exact-634b trusted LGTM remain baselines; the new
+combined head still requires CI and trusted verification.
+
 ## Remaining reporting work
 
 Retry/rate-limit/refusal reporting, context-usage detail, background task progress
