@@ -6,6 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance, Options } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { agentLibrarySource } from '../../server/__tests__/fixtures/agent-library-source.js';
+import { sdkInputReplay } from '../../server/__tests__/fixtures/sdk-query-peer.js';
 import type { Attributes, Span, SpanStatus } from '@opentelemetry/api';
 vi.mock('../../server/claude-account-history.js', () => ({
   readClaudeAccountHistory: vi.fn(async (sessionId: string, cwd: string) => ({
@@ -1254,7 +1255,9 @@ it.each(
           })();
           for await (const message of sdkInputs) {
             if (closed.value) break;
-            const inputUuid = message.uuid ?? `input-${message.mitzoMessageId}`;
+            const ack = sdkInputReplay(message, id);
+            const inputUuid = ack.uuid;
+            const idlePeer = chat.eventStore.agentCommunication.forCommand(message.mitzoMessageId);
             history.push(message.mitzoMessageId);
             const content = message.message.content;
             providerInputs.push(
@@ -1262,14 +1265,13 @@ it.each(
                 ? content
                 : content.map((block: { text?: string }) => block.text ?? '').join(''),
             );
-            if (message.uuid) {
+            if (idlePeer) {
               for (const replay of [
                 { uuid: randomUUID(), content: message.message.content },
                 { uuid: message.uuid, content: 'Wrong peer acknowledgement text' },
               ]) {
                 yield {
-                  type: 'user',
-                  parent_tool_use_id: null,
+                  ...ack,
                   uuid: replay.uuid,
                   message: { role: 'user', content: replay.content },
                 };
@@ -1279,24 +1281,13 @@ it.each(
                 ).not.toBe('delivered');
               }
             }
-            yield {
-              type: 'user',
-              uuid: inputUuid,
-              parent_tool_use_id: null,
-              message: { role: 'user', content: message.message.content },
-            };
+            yield ack;
             yield {
               type: 'stream_event',
               session_id: id,
               event: { type: 'message_start', message: { id: `assistant-${inputUuid}` } },
             };
-            if (message.uuid)
-              yield {
-                type: 'user',
-                uuid: inputUuid,
-                parent_tool_use_id: null,
-                message: { role: 'user', content: message.message.content },
-              };
+            if (idlePeer) yield ack;
             await runFixturePhase(message.mitzoMessageId, 'information', () =>
               invokeInformation(request.options as Options, message.mitzoMessageId),
             );
@@ -2366,12 +2357,7 @@ it.each([
             if (closed) return;
             history.push(input.mitzoMessageId);
             if (input.mitzoMessageId === 'cold-before-first-input') acknowledgeColdInput();
-            yield {
-              type: 'user',
-              uuid: `input-${input.mitzoMessageId}`,
-              parent_tool_use_id: null,
-              message: input.message,
-            };
+            yield sdkInputReplay(input, request.options.resume ?? request.options.sessionId);
             if (holdNext)
               await new Promise<void>((resolve) => {
                 holdNext = false;
@@ -2698,12 +2684,7 @@ it.each([
             if (closed) return;
             const commandId = String(input.mitzoMessageId);
             history.push(commandId);
-            yield {
-              type: 'user',
-              uuid: `input-${commandId}`,
-              parent_tool_use_id: null,
-              message: input.message,
-            };
+            yield sdkInputReplay(input, request.options.resume ?? request.options.sessionId);
             if (commandId === f.request.clientMsgId) {
               await new Promise<void>((resolve) => {
                 finishSource = resolve;
@@ -3077,11 +3058,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       async *[Symbol.asyncIterator]() {
         for await (const message of request.prompt) {
           observedInputs.push(message.mitzoMessageId);
-          yield {
-            type: 'user',
-            uuid: `input-${message.mitzoMessageId}`,
-            message: { role: 'user', content: message.message.content },
-          };
+          yield sdkInputReplay(message, id);
           yield {
             type: 'result',
             subtype: 'success',

@@ -257,6 +257,8 @@ export interface QueryLoopOptions {
   onTurnStart?: (clientId: string) => void;
   /** Called at the provider's terminal result, after all renderer messages. */
   onTurnEnd?: (clientId: string) => void;
+  /** Owned SDK queries qualify replays against their exact submitted input. */
+  isCommandInputEcho?: (event: Readonly<Record<string, unknown>>) => boolean;
   /** Called when the SDK echoes a parent user input with its transport UUID. */
   onUserInput?: (clientId: string, inputUuid: string) => void;
   /** Settle the echoed parent input before publishing terminal success. */
@@ -2072,6 +2074,7 @@ async function _runQueryLoopInner(
             (parentToolUseId === null || parentToolUseId === undefined) &&
             msg.isSynthetic !== true &&
             typeof msg.uuid === 'string' &&
+            (options?.isCommandInputEcho?.(msg) ?? true) &&
             (typeof content === 'string' ||
               (Array.isArray(content) &&
                 content.length > 0 &&

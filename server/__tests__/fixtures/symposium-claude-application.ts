@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { createApplicationJourney } from './symposium-application-journey.js';
-import { sdkQueryPeer } from './sdk-query-peer.js';
+import { sdkInputReplay, sdkQueryPeer } from './sdk-query-peer.js';
 
 const observed = vi.hoisted(() => ({
   inputs: [] as Array<{ sessionId: string; text: string }>,
@@ -51,8 +51,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
             ? content
             : content.map((block: { text?: string }) => block.text ?? '').join('');
         observed.inputs.push({ sessionId, text });
-        const uuid = `private-claude-input-${observed.inputs.length}`;
-        yield { ...input, session_id: sessionId, uuid, parent_tool_use_id: null };
+        const uuid = input.uuid ?? `private-claude-input-${observed.inputs.length}`;
+        yield sdkInputReplay({ ...input, uuid }, sessionId);
         if (observed.holdNext) {
           observed.holdNext = false;
           await new Promise<void>((resolve) => {

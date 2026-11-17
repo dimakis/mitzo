@@ -2758,6 +2758,8 @@ async function _startChatInner(
 
     // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
     let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
+    let isCommandInputEcho:
+      ReturnType<typeof createOrdinaryLocalVertexSdkQuery>['isCommandInputEcho'] | undefined;
     let sdkPeerMessages: SdkAgentMessageRuntime | undefined;
     let resolvedResume: string | undefined;
     if (options.resume && !codexProfile && !apiKey && !gemini) {
@@ -3556,6 +3558,7 @@ async function _startChatInner(
           }),
         });
         q = ownedQuery.query;
+        isCommandInputEcho = ownedQuery.isCommandInputEcho;
         liveOrdinarySdkOwner = options.ordinarySdkCommandOwner!(
           ownedQuery.firstQuery,
           (id, _admission, payload) => {
@@ -3838,6 +3841,7 @@ async function _startChatInner(
         },
         onTurnStart: notifyTurnStart,
         onTurnEnd: notifyTurnEnd,
+        isCommandInputEcho,
         onUserInput: (cId, inputUuid) => {
           const active = registry.get(cId);
           if (active) markFallbackCloseoutInputObserved(active, inputUuid);
