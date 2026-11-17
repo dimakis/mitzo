@@ -1945,7 +1945,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-library-builder.tsx':
     '3182f33a70edf28862c55c5dc5462ecf3618351f179cfed4f7b7cf85ddd07d82',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '7d0b55d2bf764b57cd61f0f8cfaa8cc267ccccbaa4fb16a01eef65e45c5b7251',
+    'e71c21e84b62f6f7cf06baa016e88e7a7067f9993ea28a108f2f2312df6806a3',
   '../../tests/fixtures/anthropic-account-enrollment.tsx':
     '31331fa4a056600c2e3bba9a7c0ee28f8b1c0616eb81f0954de68424741033e0',
   '../../tests/fixtures/chat-model-settings.tsx':
