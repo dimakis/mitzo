@@ -480,6 +480,35 @@ it.each(['revocation', 'expiry'])(
     expect(execution.calls).toHaveLength(1);
   },
 );
+it('discloses named repositories without a local task root on the card and in results', async () => {
+  const f = fixture();
+  const parent = f.registry.findBySessionId('parent')!.session;
+  parent.worktreePaths.set('Local', { path: parent.cwd!, wtId: 'parent' });
+  const pending = f
+    .tools('parent')
+    .execute(
+      { ...f.request, repositories: ['owner/local', 'owner/remote-only'] },
+      f.signal,
+      f.call,
+    );
+  await vi.waitFor(() => expect(f.sent.some((x) => x.type === 'permission_request')).toBe(true));
+  const card = f.sent.find((x) => x.type === 'permission_request')!;
+  expect(JSON.parse(card.toolInput as string)).toMatchObject({
+    repositoriesWithoutLocalRoot: ['owner/remote-only'],
+  });
+  resolvePending(card.permId as string, 'once', undefined, 'parent');
+  const result = await pending;
+  expect(result.isError, result.content).toBe(false);
+  const grant = JSON.parse(result.content).grant;
+  expect(grant.repositoriesWithoutLocalRoot).toEqual(['owner/remote-only']);
+  expect(grant.members.flatMap((member: { roots: string[] }) => member.roots)).not.toContain(
+    'owner/remote-only',
+  );
+  const status = JSON.parse(
+    (await f.tools('parent').execute({ operation: 'status' }, f.signal)).content,
+  );
+  expect(status.grants[0].repositoriesWithoutLocalRoot).toEqual(['owner/remote-only']);
+});
 it('approves the selected task once and lets its worker run different commands', async () => {
   const f = fixture();
   const grant = await f.authorize();

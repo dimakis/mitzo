@@ -39,6 +39,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { createLogger } from './logger.js';
+import { nestedRepositoryRefusal } from './nested-repository.js';
 
 const pathEnv = '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin';
 const log = createLogger('trusted-native-operation');
@@ -386,8 +387,12 @@ async function linkedMetadata(cwd: string, task?: RepositoryTaskCheckout) {
   // Retained tasks can be standalone checkouts or registered local worktrees.
   // Validate their captured shape and identities before resolving write paths.
   if (task || markerInfo.isDirectory()) {
+    if (!task)
+      throw new Error(
+        'Standalone commits require a verified repository task; commit there with native git',
+      );
     await validateRepositoryTaskCheckout(cwd, task);
-    if (markerInfo.dev !== BigInt(task!.git.dev) || markerInfo.ino !== BigInt(task!.git.ino))
+    if (markerInfo.dev !== BigInt(task.git.dev) || markerInfo.ino !== BigInt(task.git.ino))
       throw new Error('Retained repository task metadata changed');
   }
   if (markerInfo.isDirectory()) {
@@ -640,6 +645,10 @@ export async function executeTrustedGitCommit(
     });
     if (realIndexTree !== baselineTree)
       throw new Error('Git index already contains staged changes; commit them separately');
+    const refuseNestedRepository = async (path: string) => {
+      const nested = await nestedRepositoryRefusal(cwd, path);
+      if (nested) throw new Error(nested);
+    };
     // Hash and index each approved regular file explicitly. This never asks Git
     // to traverse a directory and bypasses repository attributes and filters.
     for (const file of files) {
@@ -655,6 +664,7 @@ export async function executeTrustedGitCommit(
         if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
           if (hasApprovedIdentity && approvedIdentity !== null)
             throw new Error('Git commit path changed after approval', { cause: error });
+          await refuseNestedRepository(absolute);
           await run('git', ['update-index', '--remove', '--', file], opts);
           continue;
         }
@@ -688,6 +698,8 @@ export async function executeTrustedGitCommit(
           createHash('sha256').update(content).digest('hex') !== approvedIdentity.sha256
         )
           throw new Error('Git commit content changed after approval');
+        // Recheck at effect time: a nested repository may appear after approval.
+        await refuseNestedRepository(absolute);
         const hash = await run('git', ['hash-object', '-w', '--stdin'], {
           ...opts,
           input: content,

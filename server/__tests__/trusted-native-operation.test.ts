@@ -407,6 +407,49 @@ describe('trusted native Git operation', () => {
     ).toBe('approved');
   });
 
+  it.each(['directory', 'gitlink file'])(
+    'refuses a nested repository file (%s) at effect time and never retargets the commit',
+    async (marker) => {
+      root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-nested-')));
+      const repo = join(root, 'repo');
+      const worktree = join(root, 'worktree');
+      const clone = join(worktree, '.repository-tasks/clone');
+      const git = (cwd: string, ...args: string[]) =>
+        execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+      execFileSync('git', ['init', '-q', repo]);
+      git(repo, 'config', 'user.name', 'Mitzo Test');
+      git(repo, 'config', 'user.email', 'test@example.invalid');
+      git(repo, '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'initial');
+      git(repo, 'worktree', 'add', '-q', '-b', 'nested-parent', worktree);
+      await mkdir(clone, { recursive: true });
+      if (marker === 'directory') execFileSync('git', ['init', '-q', clone]);
+      else await writeFile(join(clone, '.git'), 'gitdir: /nonexistent\n');
+      await writeFile(join(clone, 'cloned.txt'), 'belongs to the clone');
+      const head = git(worktree, 'rev-parse', 'HEAD');
+      await expect(
+        executeTrustedGitCommit(
+          worktree,
+          ['.repository-tasks/clone/cloned.txt'],
+          'must not land in the parent',
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow(
+        'File belongs to nested repository .repository-tasks/clone; commit there with native git',
+      );
+      expect(git(worktree, 'rev-parse', 'HEAD')).toBe(head);
+      expect(git(worktree, 'diff', '--cached', '--name-only')).toBe('');
+      if (marker === 'directory')
+        await expect(
+          executeTrustedGitCommit(
+            clone,
+            ['cloned.txt'],
+            'standalone clone without custody',
+            new AbortController().signal,
+          ),
+        ).rejects.toThrow(/require a verified repository task; commit there with native git/);
+    },
+  );
+
   it('promotes loose objects in a SHA-256 repository', async () => {
     root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-sha256-'));
     const repo = join(root, 'repo');
