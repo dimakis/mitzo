@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   query,
   type Options,
@@ -1005,4 +1005,105 @@ it('preserves segmented SDK system prompts when appending local CLI guidance', (
     expect.stringContaining('GoogleWorkspaceRead when available'),
   ]);
   controller.abort();
+});
+// Bundled CLI (SDK 0.3.322, claude-haiku-5-5, 2026-11-17): resuming a session whose
+// previous process still ran a background task reports it stopped, then emits an
+// empty zero-turn result before reading the queued input. Accepting that result
+// as the active command's terminal outcome ended three live Claude chats.
+describe('zero-turn result emitted by a resumed CLI before reading input', () => {
+  const ownedStream = () => {
+    const events = new AsyncQueue<Record<string, unknown>>();
+    vi.mocked(query).mockReturnValue({
+      close: vi.fn(),
+      [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+    } as never);
+    const controller = new AbortController();
+    const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+      options: {},
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      onUnsent: vi.fn(),
+    });
+    return { events, controller, output: owner.query[Symbol.asyncIterator]() };
+  };
+  const notification = {
+    type: 'system',
+    subtype: 'task_notification',
+    session_id: 'original',
+    task_id: 'bu0wws3z4',
+    status: 'stopped',
+  };
+  const housekeeping = {
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    num_turns: 0,
+    session_id: 'original',
+    result: '',
+  };
+  const echo = {
+    type: 'user',
+    session_id: 'original',
+    uuid: 'operator-input',
+    isReplay: true,
+    parent_tool_use_id: null,
+    message: { role: 'user', content: 'Reply with exactly: pong' },
+  };
+  const reply = { type: 'assistant', session_id: 'original', uuid: 'reply' };
+  const answered = {
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    num_turns: 1,
+    session_id: 'original',
+    result: 'pong',
+  };
+
+  it('skips the housekeeping result and delivers the queued input turn and its result', async () => {
+    const { events, controller, output } = ownedStream();
+    for (const event of [notification, housekeeping, echo, reply, answered]) events.push(event);
+    try {
+      expect((await output.next()).value).toEqual(notification);
+      expect((await output.next()).value).toEqual(echo);
+      expect((await output.next()).value).toEqual(reply);
+      expect((await output.next()).value).toMatchObject({ type: 'result', result: 'pong' });
+    } finally {
+      controller.abort();
+    }
+  });
+
+  it('delivers a zero-turn result that follows an input echo', async () => {
+    const { events, controller, output } = ownedStream();
+    events.push(echo);
+    events.push(housekeeping);
+    try {
+      expect((await output.next()).value).toEqual(echo);
+      expect((await output.next()).value).toMatchObject({ type: 'result', num_turns: 0 });
+    } finally {
+      controller.abort();
+    }
+  });
+
+  it.each([
+    { subtype: 'error_during_execution', is_error: true },
+    { subtype: 'success', is_error: true },
+    { subtype: 'success', is_error: false, num_turns: 1 },
+    { subtype: 'success', is_error: false, num_turns: undefined },
+  ])('never skips a result before an echo that is not empty housekeeping: %o', async (shape) => {
+    const { events, controller, output } = ownedStream();
+    events.push({ ...housekeeping, ...shape });
+    try {
+      expect((await output.next()).value).toMatchObject({ type: 'result', ...shape });
+    } finally {
+      controller.abort();
+    }
+  });
 });
