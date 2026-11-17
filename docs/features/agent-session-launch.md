@@ -1,6 +1,6 @@
 # Reviewed agent-created sessions and complete defaults
 
-Agents on an owned ordinary Local Mac Codex route can use `StartSession` to
+Agents on an owned ordinary Local Mac Codex or Claude route can use `StartSession` to
 propose a new chat. The host resolves the saved complete default plus declared
 overrides and retains the original request identity. The tool creates a pending
 review card; it has no allocation or provider-dispatch operation.
@@ -80,8 +80,13 @@ draft ownership; approval leaves the originating chat selected.
 
 ## Supported scope and verification
 
-The first startup route supports isolated, non-Git Local Mac Codex sessions.
-OpenShell, other providers, repository launches, profile context recipes and
+The startup route supports isolated, non-Git Local Mac Codex sessions and, since
+17 November 2026, Local Mac Claude SDK sessions (personal Claude subscription,
+Anthropic Vertex or API-key accounts). A Claude child uses the same owned ordinary
+Claude SDK first-command path as New chat; it reports running only after the
+retained SDK input acknowledgement, and its resume is refused once SDK custody
+exists. Telos work sessions remain Codex-only because Telos delegation reads
+Codex-native custody. OpenShell, Gemini, repository launches, profile context recipes and
 context blocks are retained as editable preferences but refused before startup.
 Put self-contained context in Handoff prompt and clear Context for this route.
 Tools absent from an explicit published profile remain unavailable. These choices

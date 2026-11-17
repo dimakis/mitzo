@@ -193,22 +193,27 @@ describe('StartSession proposal tool', () => {
       }),
     );
   });
-  it('returns the Codex-only startupBlocker at proposal for a saved Claude account', async () => {
-    const f = fixture();
-    const claude = structuredClone(configuration);
-    claude.runtime.accountReference = {
-      accountId: 'a',
-      provider: 'anthropic-claude',
-      profileRevision: '1',
-    } as never;
-    f.defaults.get.mockReturnValue({ revision: 1, configuration: claude });
-    const result = await f.tools.execute(input, new AbortController().signal, {
-      turnId: 'turn',
-      callId: 'call',
-    });
-    expect(result).toMatchObject({
+  it('accepts a saved Claude account and blocks an unsupported engine at proposal', async () => {
+    const proposeWith = async (provider: string) => {
+      const f = fixture();
+      const selected = structuredClone(configuration);
+      selected.runtime.accountReference = {
+        accountId: 'a',
+        provider,
+        profileRevision: '1',
+      } as never;
+      f.defaults.get.mockReturnValue({ revision: 1, configuration: selected });
+      return f.tools.execute(input, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'call',
+      });
+    };
+    const claude = await proposeWith('anthropic-claude');
+    expect(claude).toMatchObject({ state: 'pending' });
+    expect(claude.startupBlocker).toBeUndefined();
+    expect(await proposeWith('google-vertex')).toMatchObject({
       state: 'pending',
-      startupBlocker: expect.stringMatching(/only on a Local Mac Codex account/),
+      startupBlocker: expect.stringMatching(/only on a Local Mac Codex or Claude account/),
     });
     expect(
       (

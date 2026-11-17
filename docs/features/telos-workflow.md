@@ -105,7 +105,8 @@ callers and Claude/OpenShell children remain unsupported dependencies. These are
 offline contracts, not live qualification. See the
 [implementation and follow-up handoff](telos-agent-session-creation-handoff.md).
 
-Ordinary `StartSession` currently supports a selected Local Mac Codex account,
+Ordinary `StartSession` currently supports a selected Local Mac Codex or Claude
+account (Telos work sessions remain Codex-only),
 model, thinking level, agent, host and permission mode in an independent workspace.
 Its runtime rejects repository-workspace reuse, disabled isolation, nonempty context
 blocks and additional tools before workspace effects. The editor fix preserves edits

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import {
+  AccountProviderSchema,
   createOrdinaryFreshPermission,
   sessionLaunchConfigurationReason,
   type SessionLaunchConfig,
@@ -8,6 +9,11 @@ import type { SessionLaunchAuthority, SessionLaunchPort } from './session-launch
 import { SessionLaunchError, type RetainedSessionLaunch } from './session-launch-store.js';
 import type { EventStore } from './event-store.js';
 import { assertSessionLaunchTools } from './session-launch-tools-selection.js';
+import { sessionHarnessForProvider } from './session-harness-routing.js';
+import { readOrdinarySdkTurnDiagnostic } from './ordinary-sdk-turn-evidence.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('session-launch');
 
 function assertLaunchChildAdmissible(events: EventStore, id: string) {
   if (events.getSession(id)?.isHidden)
@@ -17,22 +23,37 @@ function assertLaunchChildAdmissible(events: EventStore, id: string) {
   events.removals.assertAdmissible(id);
 }
 
-export const SESSION_LAUNCH_CODEX_ONLY =
-  'Agent-created sessions currently start only on a Local Mac Codex account. Choose a Codex account in review before Approve & start; Claude child sessions are not available yet.';
+export const SESSION_LAUNCH_ENGINE_UNSUPPORTED =
+  'Agent-created sessions start only on a Local Mac Codex or Claude account. Choose a Codex or Claude account in review before Approve & start.';
+export const TELOS_SESSION_CODEX_ONLY =
+  'Telos work sessions currently start only on a Local Mac Codex account. Choose a Codex account in review; ordinary StartSession also supports Claude.';
+
+export type SessionLaunchHarness = 'codex' | 'claude-sdk';
+/** Engines whose owned ordinary first-command path accepts a reviewed launch. */
+export function sessionLaunchHarness(provider: string | undefined): SessionLaunchHarness | null {
+  if (!provider) return null;
+  try {
+    const harness = sessionHarnessForProvider(provider);
+    return harness === 'codex' || harness === 'claude-sdk' ? harness : null;
+  } catch {
+    // An unknown provider is an expected unsupported selection, reported by the caller.
+    return null;
+  }
+}
 
 /** Proposal-time presentation of static startup limits, including the
- * Codex-only account route. Approve & start still requalifies everything,
+ * supported engine routes. Approve & start still requalifies everything,
  * including a missing or changed saved account reference. */
 export function sessionLaunchStartupBlocker(config: SessionLaunchConfig): string | null {
   const provider = config.runtime.accountReference?.provider;
   return (
     sessionLaunchConfigurationReason(config) ??
-    (provider && provider !== 'openai-codex' ? SESSION_LAUNCH_CODEX_ONLY : null)
+    (provider && !sessionLaunchHarness(provider) ? SESSION_LAUNCH_ENGINE_UNSUPPORTED : null)
   );
 }
 
-/** Reuse the same owned ordinary Local Mac Codex admission as New chat and
- * native advisers. No model/provider client or permission grant is created here. */
+/** Reuse the same owned ordinary Local Mac admission (Codex or Claude SDK) as
+ * New chat. No model/provider client or permission grant is created here. */
 export async function qualifySessionLaunchConfig(
   config: SessionLaunchConfig,
   authority: SessionLaunchAuthority,
@@ -56,10 +77,11 @@ export async function qualifySessionLaunchConfig(
   const { loadAccountProfiles } = await import('./account-profiles.js');
   const profiles = loadAccountProfiles();
   const binding = profiles.resolve(account.accountId, account.model);
-  if (binding.provider !== 'openai-codex') throw new SessionLaunchError(SESSION_LAUNCH_CODEX_ONLY);
+  const harness = sessionLaunchHarness(binding.provider);
+  if (!harness) throw new SessionLaunchError(SESSION_LAUNCH_ENGINE_UNSUPPORTED);
   const reference = {
     accountId: binding.accountId,
-    provider: 'openai-codex' as const,
+    provider: AccountProviderSchema.parse(binding.provider),
     profileRevision: binding.profileRevision,
   };
   if (
@@ -71,13 +93,13 @@ export async function qualifySessionLaunchConfig(
     );
   profiles.validateModelSelection(binding, account.model, account.reasoningEffort ?? undefined);
   const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
-  const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
-  const runtime = { account: reference, harness: 'codex' as const, targetId, mode: config.mode };
+  const inventory = ordinaryRepositoryRuntimeInventory('local', harness);
+  const runtime = { account: reference, harness, targetId, mode: config.mode };
   const resolution = inventory.catalog.resolve(runtime);
   const route = inventory.result.routes.find(
     (candidate) =>
       candidate.targetId === targetId &&
-      candidate.harness === 'codex' &&
+      candidate.harness === harness &&
       isDeepStrictEqual(candidate.account, reference) &&
       candidate.modes.some((mode) => mode === config.mode),
   );
@@ -108,7 +130,7 @@ export async function qualifySessionLaunchConfig(
     ordinaryCodexAgentProfileRouteProjection([profile], binding.provider, 'local', undefined, {
       contextRecipes: 'none',
       toolSelection: true,
-      toolRoute: 'codex-owned-local',
+      toolRoute: harness === 'codex' ? 'codex-owned-local' : 'claude-sdk',
     }).agentProfileRejections.length
   )
     throw new SessionLaunchError(
@@ -129,11 +151,24 @@ export async function qualifySessionLaunchConfig(
 }
 /** Preparation selects an ordinary workspace; allocation remains exclusively
  * in the canonical reviewed Telos role owner and its durable operation. */
+/** Telos role delegation and its recovery read Codex-native custody only, so
+ * Telos child sessions stay Codex until that owner gains a Claude path. */
+export async function qualifyTelosSessionLaunchConfig(
+  config: SessionLaunchConfig,
+  authority: SessionLaunchAuthority,
+) {
+  const provider = config.runtime.accountReference?.provider;
+  if (provider && sessionLaunchHarness(provider) !== 'codex')
+    throw new SessionLaunchError(TELOS_SESSION_CODEX_ONLY);
+  const selected = await qualifySessionLaunchConfig(config, authority);
+  if (selected.runtime.harness !== 'codex') throw new SessionLaunchError(TELOS_SESSION_CODEX_ONLY);
+  return selected;
+}
 export async function prepareTelosSessionSettings(
   config: SessionLaunchConfig,
   authority: SessionLaunchAuthority,
 ) {
-  const selected = await qualifySessionLaunchConfig(config, authority);
+  const selected = await qualifyTelosSessionLaunchConfig(config, authority);
   const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
   const prepared = await getOrdinaryWorkspaces().prepareOrdinaryWorkspace({
     binding: selected.binding,
@@ -141,7 +176,7 @@ export async function prepareTelosSessionSettings(
       runOn: 'local',
       runtime: {
         account: selected.runtime.account,
-        harness: 'codex',
+        harness: selected.runtime.harness,
         targetId: selected.runtime.targetId,
       },
     },
@@ -189,8 +224,12 @@ export function createSessionLaunchPort(): SessionLaunchPort {
         throw new SessionLaunchError('The child startup is still active. Open its chat.');
       const { getCodexConversationStore } = await import('./codex-chat-session.js');
       // Presence is intentionally stricter than a missing ACK: even an empty
-      // retained native conversation belongs to ordinary runtime recovery.
-      if (getCodexConversationStore().hasConversation(child))
+      // retained native conversation (Codex store or Claude SDK custody)
+      // belongs to ordinary runtime recovery.
+      if (
+        getCodexConversationStore().hasConversation(child) ||
+        eventStore.getOrdinaryLocalVertexCustody(child)
+      )
         throw new SessionLaunchError(
           'This child already has native execution history. Open its existing chat to recover it.',
         );
@@ -255,7 +294,7 @@ export function createSessionLaunchPort(): SessionLaunchPort {
           runOn: 'local',
           runtime: {
             account: selected.runtime.account,
-            harness: 'codex',
+            harness: selected.runtime.harness,
             targetId: selected.runtime.targetId,
           },
         },
@@ -374,6 +413,36 @@ export function createSessionLaunchPort(): SessionLaunchPort {
         return { accepted: false, uncertain: Boolean(reservation) || record.state === 'starting' };
       }
       const command = eventStore.getSendCommand(record.commandId);
+      if (prepared.settings.binding.harness.implementation === 'claude-sdk') {
+        // Claude SDK acceptance is the exact replayed input acknowledgement
+        // retained by the ordinary SDK owner; queue/render state proves nothing.
+        const admission = eventStore.getOrdinaryLocalVertexCommandAdmission(record.commandId);
+        let acknowledged = false;
+        try {
+          acknowledged = readOrdinarySdkTurnDiagnostic(
+            eventStore,
+            prepared.sessionId,
+            record.commandId,
+          ).inputAcknowledged;
+        } catch (cause) {
+          log.warn('Claude child startup evidence unreadable', {
+            err: cause,
+            stage: 'inspect',
+            code: 'session_launch_sdk_evidence_unreadable',
+            sessionId: prepared.sessionId,
+            commandId: record.commandId,
+          });
+        }
+        return {
+          accepted:
+            command?.sessionId === prepared.sessionId &&
+            admission?.state === 'consumed' &&
+            acknowledged,
+          uncertain: !acknowledged && !registry.findBySessionId(prepared.sessionId),
+          childSessionId: prepared.sessionId,
+          preparationId: prepared.settings.workspace.preparationId,
+        };
+      }
       const admission = eventStore.getOrdinaryCommandAdmission(record.commandId);
       const { getCodexConversationStore } = await import('./codex-chat-session.js');
       const meta = eventStore.getSession(prepared.sessionId);
