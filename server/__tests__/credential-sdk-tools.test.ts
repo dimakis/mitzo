@@ -8,6 +8,7 @@ import { TurnCallbacks, assertTurnCallbackEffects } from '../turn-callbacks.js';
 import { AgentCommunicationError } from '../agent-message-runtime.js';
 import { createSdkCallbackState } from '../ordinary-local-vertex-sdk-query.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
+import { runtimeFailureDiagnostics } from '../runtime-failure-diagnostics.js';
 const mocked = vi.hoisted(() => ({
   tools: [] as Array<{
     name: string;
@@ -83,6 +84,69 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
     return { type: 'sdk', name: 'mitzo-connections' };
   },
 }));
+it.each(['AgentCommunication', 'TaskExecution'])(
+  'keeps a failed %s command fence terminal instead of returning internal_failure',
+  async (name) => {
+    const registry = new SessionRegistry();
+    registry.register('owned', {
+      sessionId: 'sdk-owned',
+      mode: 'auto',
+      abortController: new AbortController(),
+    } as never);
+    const execute = vi.fn(async () => ({ content: '{}', isError: false }));
+    const adapter = vi.spyOn(credentialTools, 'sessionCredentialTools').mockReturnValue({
+      execute,
+    } as never);
+    const original = Error('Original SDK tool command unavailable');
+    try {
+      createCredentialSdkServer(() => 'sdk-owned', registry.get('owned')!, registry, {
+        profilesOnly: true,
+        assertCurrent: async () => {},
+        assertCurrentSync: () => {},
+        checkTool: () => {
+          throw original;
+        },
+        agentCommunication: () => ({ execute }),
+      });
+      const handler = mocked.tools.find((tool) => tool.name === name)!.handler;
+      const failure = await handler({
+        operation: name === 'TaskExecution' ? 'status' : 'list',
+      }).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(failure).toMatchObject({
+        name: 'SessionRuntimeError',
+        code: 'runtime_unavailable',
+        cause: original,
+      });
+      expect(runtimeFailureDiagnostics(failure)).toMatchObject({
+        failedCheck: 'sdk.command_tool',
+      });
+      expect(execute).not.toHaveBeenCalled();
+      // A new query's independently validated authority is usable; fixing the
+      // stale callback must not disable these tools for the whole session.
+      createCredentialSdkServer(() => 'sdk-owned', registry.get('owned')!, registry, {
+        profilesOnly: true,
+        assertCurrent: async () => {},
+        assertCurrentSync: () => {},
+        checkTool: () => 'allow',
+        agentCommunication: () => ({ execute }),
+      });
+      await expect(
+        mocked.tools
+          .find((tool) => tool.name === name)!
+          .handler({
+            operation: name === 'TaskExecution' ? 'status' : 'list',
+          }),
+      ).resolves.toMatchObject({ isError: false });
+      expect(execute).toHaveBeenCalledOnce();
+    } finally {
+      adapter.mockRestore();
+      registry.dispose();
+    }
+  },
+);
 it('routes Telos proposals through the owned callback and refuses retired query execution', async () => {
   const registry = new SessionRegistry();
   registry.register('owned', {
