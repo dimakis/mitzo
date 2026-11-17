@@ -108,11 +108,11 @@ npm network). Dependencies were installed with `npm ci --ignore-scripts`; the gi
 dependency `contexgin` (`tsup`) and the native `packages/sqlite-file-owner` addon
 (`node-gyp rebuild`) were then built by hand because install scripts were skipped.
 
-| Scope                                                                                                                                                                                                      | Result                                                     |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Slices A, B, C server and harness tests (18 files named in #1387, incl. `tool-tiers`, `task-execution-tools`, `sdk-repository-read-owner`, `session-*-tools`, `telos-sdk-tools`, `github-publishing-tool`) | 458 passed, 1 failed                                       |
-| Slice D tests (`ChatInputHost`, `HomeDialog`, `SymposiumConversation`, `local-first-command-store`)                                                                                                        | all passed (96 passed in a run with the one failure below) |
-| `sdk-user-steering`, `sdk-agent-message-runtime`, `codex-steering-routes`                                                                                                                                  | 49 passed                                                  |
+| Scope                                                                                                                                                                                                      | Result                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Slices A, B, C server and harness tests (18 files named in #1387, incl. `tool-tiers`, `task-execution-tools`, `sdk-repository-read-owner`, `session-*-tools`, `telos-sdk-tools`, `github-publishing-tool`) | 458 passed, 1 failed                                                                           |
+| Slice D tests (`ChatInputHost`, `HomeDialog`, `SymposiumConversation`, `local-first-command-store`)                                                                                                        | all passed (first three in one run; `local-first-command-store` 95 tests in `packages/client`) |
+| `sdk-user-steering`, `sdk-agent-message-runtime`, `codex-steering-routes`                                                                                                                                  | 49 passed                                                                                      |
 
 The one failure, `telos-coordinator-v2-native-journey` CT12, returns 503 "Telos artifact
 service unavailable" (artifact `save`, phase `read_workspace`, subprocess exit 71). It
