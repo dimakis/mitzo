@@ -1943,6 +1943,9 @@ function ChatViewContent() {
           ordinaryConfirmed={
             (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
           }
+          ordinaryAssigned={
+            (!sessionId || sessionId === activeSessionId) && !isSymposium && localBound
+          }
           ordinaryExcluded={isSymposium}
           ordinaryProfileProposalReview={
             localRuntime.bound &&

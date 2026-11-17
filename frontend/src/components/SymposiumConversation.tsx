@@ -147,6 +147,7 @@ export function SymposiumConversation({
   chat,
   ordinaryComposer,
   ordinaryConfirmed = false,
+  ordinaryAssigned = false,
   ordinaryProfileProposalReview = false,
   ordinaryExcluded = false,
   onContinueInNewChat,
@@ -162,6 +163,9 @@ export function SymposiumConversation({
   ordinaryComposer: ReactNode;
   /** Current-session authoritative ordinary metadata; never inferred from intent. */
   ordinaryConfirmed?: boolean;
+  /** This page's own send just assigned the ordinary conversation. Keep its live
+   * composer mounted while metadata loads; never grants profile review. */
+  ordinaryAssigned?: boolean;
   /** Platform-owned profile review only; runtime collaboration stays read-only. */
   ordinaryProfileProposalReview?: boolean;
   /** Authoritative current-session special classification excludes ordinary send. */
@@ -743,7 +747,12 @@ export function SymposiumConversation({
       />
     ) : null;
 
-  if (base && (!status || status.sessionId !== sessionId) && !ordinaryConfirmed) {
+  if (
+    base &&
+    (!status || status.sessionId !== sessionId) &&
+    !ordinaryConfirmed &&
+    !ordinaryAssigned
+  ) {
     const pendingHistory = (
       <ChatArea
         {...chat}
