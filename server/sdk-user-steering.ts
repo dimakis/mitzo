@@ -1,12 +1,14 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { CodexSteerInputSchema, type CodexSteerInput } from '@mitzo/protocol';
-import type { CodexSteerResult } from './codex-steering.js';
+import type { UserSteerResult } from './codex-steering.js';
 import type { EventStore } from './event-store.js';
 import { assembleReplyText, captureMessageReply } from './message-reply-context.js';
 import { createLogger } from './logger.js';
 const log = createLogger('sdk-user-steering');
-type Outcome = 'accepted' | 'rejected' | 'uncertain';
+type Outcome = 'accepted' | 'rejected' | 'uncertain' | 'unconfirmed';
+const settled = (status: string): status is 'accepted' | 'rejected' | 'unconfirmed' =>
+  status === 'accepted' || status === 'rejected' || status === 'unconfirmed';
 type Pending = {
   input: CodexSteerInput;
   authorize(): void;
@@ -50,19 +52,13 @@ export class SdkUserSteering {
       push(input: SDKUserMessage): void;
     },
   ) {}
-  async steer(raw: CodexSteerInput, authorize: () => void): Promise<CodexSteerResult> {
+  async steer(raw: CodexSteerInput, authorize: () => void): Promise<UserSteerResult> {
     const input = CodexSteerInputSchema.parse(raw);
     authorize();
     this.owner.assertCurrent();
     const { events, sessionId, operator } = this.owner;
     const previous = events.userSteering.read(sessionId, operator, input);
-    if (previous)
-      return {
-        status:
-          previous.status === 'accepted' || previous.status === 'rejected'
-            ? previous.status
-            : 'uncertain',
-      };
+    if (previous) return { status: this.settledStatus(input, previous) };
     if (this.owner.activeCommandId() !== input.targetCommandId) return { status: 'stale_target' };
     const reserved = events.userSteering.reserve(
       sessionId,
@@ -89,13 +85,7 @@ export class SdkUserSteering {
         !!events.agentCommunication.forCommand(input.requestId),
     );
     const retained = reserved.receipt;
-    if (!reserved.created)
-      return {
-        status:
-          retained.status === 'accepted' || retained.status === 'rejected'
-            ? retained.status
-            : 'uncertain',
-      };
+    if (!reserved.created) return { status: this.settledStatus(input, retained) };
     const pending: Pending = { input, authorize, attempted: false, waiters: new Set() };
     const message: SDKUserMessage = {
       type: 'user',
@@ -121,14 +111,40 @@ export class SdkUserSteering {
     }
     return { status: 'uncertain' };
   }
+  /** A retained receipt that no live pending entry owns can never receive its
+   * provider echo (its turn ended, its query closed, or the server restarted), so
+   * it settles to a terminal outcome instead of staying uncertain forever. This
+   * never dispatches again and never claims acceptance. */
+  private settledStatus(
+    input: CodexSteerInput,
+    receipt: { uuid: string; status: string },
+  ): 'accepted' | 'rejected' | 'unconfirmed' | 'uncertain' {
+    if (settled(receipt.status)) return receipt.status;
+    if (this.pending.has(receipt.uuid)) return 'uncertain';
+    const { events, sessionId, operator } = this.owner;
+    const status = events.userSteering.settleOrphaned(sessionId, operator, input);
+    if (status && settled(status)) {
+      log.warn('SDK correction settled without a live owner', {
+        code: 'sdk_correction_orphan_settled',
+        stage: 'receipt_settlement',
+        sessionId,
+        requestId: input.requestId,
+        outcome: status,
+      });
+      return status;
+    }
+    return 'uncertain';
+  }
+
   /** Let the initial HTTP action report a prompt native ACK. The deadline only
    * ends this wait; it never dispatches again or interprets silence as refusal. */
-  waitForReceipt(input: CodexSteerInput): Promise<CodexSteerResult> {
+  waitForReceipt(input: CodexSteerInput): Promise<UserSteerResult> {
     const { events, sessionId, operator } = this.owner;
     const receipt = events.userSteering.read(sessionId, operator, input);
-    if (receipt?.status === 'accepted' || receipt?.status === 'rejected')
-      return Promise.resolve({ status: receipt.status });
-    const pending = receipt && this.pending.get(receipt.uuid);
+    if (!receipt) return Promise.resolve({ status: 'uncertain' });
+    const status = this.settledStatus(input, receipt);
+    if (status !== 'uncertain') return Promise.resolve({ status });
+    const pending = this.pending.get(receipt.uuid);
     if (!pending) return Promise.resolve({ status: 'uncertain' });
     return new Promise((resolve) => {
       const finish = (status: Outcome) => {
@@ -193,15 +209,18 @@ export class SdkUserSteering {
         if (pending.input.targetCommandId !== target) continue;
         if (pending.attempted) {
           // Stdin release without its exact echo proves neither acceptance nor
-          // rejection. Retain the original durable identity without replay.
-          log.warn('SDK correction outcome remains unconfirmed at turn completion', {
+          // rejection, and the turn that could echo it is over. Retire the receipt
+          // to its terminal unconfirmed state (never replayed, never "accepted") so
+          // the operator can decide, instead of leaving it uncertain forever.
+          events.userSteering.transition(sessionId, operator, pending.input, 'unconfirmed');
+          log.warn('SDK correction outcome unconfirmed at turn completion', {
             code: 'sdk_correction_ack_unconfirmed',
             stage: 'turn_completion',
             sessionId,
             requestId: pending.input.requestId,
             targetCommandId: target,
           });
-          for (const finish of pending.waiters) finish('uncertain');
+          for (const finish of pending.waiters) finish('unconfirmed');
         } else {
           events.userSteering.transition(sessionId, operator, pending.input, 'rejected');
           pending.rejected = true;

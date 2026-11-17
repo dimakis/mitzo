@@ -4433,17 +4433,27 @@ mountObservedRouter(
         if (binding.version !== 2 || binding.execution.location !== 'local' || !authorization)
           throw Error('Admitted local SDK owner required');
         const previous = eventStore.userSteering.read(id, authorization.id, input);
-        if (previous)
+        if (
+          previous &&
+          (previous.status === 'accepted' ||
+            previous.status === 'rejected' ||
+            previous.status === 'unconfirmed')
+        )
+          return { status: previous.status };
+        const session = registry.findBySessionId(id)?.session;
+        const runtime = session ? agentMessageRuntime(session, authorization.id) : undefined;
+        if (!session || !runtime?.steerUser) {
+          // No live owner can ever echo a retained receipt (restart or stopped turn), so
+          // settle it rather than leaving the operator on an uncertain receipt forever.
+          const orphan =
+            previous && eventStore.userSteering.settleOrphaned(id, authorization.id, input);
           return {
             status:
-              previous.status === 'accepted' || previous.status === 'rejected'
-                ? previous.status
-                : 'uncertain',
+              orphan === 'rejected' || orphan === 'unconfirmed'
+                ? orphan
+                : ('stale_target' as const),
           };
-        const session = registry.findBySessionId(id)?.session;
-        if (!session) return { status: 'stale_target' };
-        const runtime = agentMessageRuntime(session, authorization.id);
-        if (!runtime?.steerUser) return { status: 'stale_target' };
+        }
         return runtime.steerUser(input, () => {
           authorize();
           if (

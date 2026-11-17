@@ -3,8 +3,16 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { CodexSteerInputSchema, type CodexSteerInput } from './codex-steering.js';
 
-type Status = 'claimed' | 'submitted' | 'accepted' | 'rejected';
+/** `unconfirmed` is terminal: the input reached stdin but its turn ended (or the
+ * owning runtime was lost) without the provider echo that proves acceptance. It
+ * claims neither acceptance nor refusal and is never replayed. */
+type Status = 'claimed' | 'submitted' | 'accepted' | 'rejected' | 'unconfirmed';
 type Receipt = { input: CodexSteerInput; uuid: string; content: unknown; status: Status };
+
+const TABLE = `CREATE TABLE user_turn_steering (
+      request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE, operator_id TEXT NOT NULL,
+      input TEXT NOT NULL, input_uuid TEXT NOT NULL UNIQUE, content TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('claimed','submitted','accepted','rejected','unconfirmed')));`;
 
 /** User corrections have their own durable identity. They grant no peer-message
  * consent and can never be replayed as ordinary commands after a restart. */
@@ -14,13 +22,21 @@ export class UserTurnSteeringStore {
     private readonly project: (
       sessionId: string,
       input: CodexSteerInput,
-      status: 'steering' | 'accepted' | 'rejected',
+      status: 'steering' | 'accepted' | 'rejected' | 'unconfirmed',
     ) => void,
   ) {
-    db.exec(`CREATE TABLE IF NOT EXISTS user_turn_steering (
-      request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE, operator_id TEXT NOT NULL,
-      input TEXT NOT NULL, input_uuid TEXT NOT NULL UNIQUE, content TEXT NOT NULL,
-      status TEXT NOT NULL CHECK(status IN ('claimed','submitted','accepted','rejected')));`);
+    const existing = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='user_turn_steering'")
+      .get() as { sql: string } | undefined;
+    if (!existing) db.exec(TABLE);
+    else if (!existing.sql.includes("'unconfirmed'"))
+      // SQLite cannot alter a CHECK constraint; rebuild once, keeping every receipt.
+      db.transaction(() => {
+        db.exec('ALTER TABLE user_turn_steering RENAME TO user_turn_steering_previous');
+        db.exec(TABLE);
+        db.exec('INSERT INTO user_turn_steering SELECT * FROM user_turn_steering_previous');
+        db.exec('DROP TABLE user_turn_steering_previous');
+      }).immediate();
   }
   read(session: string, operator: string, raw: CodexSteerInput): Receipt | undefined {
     const input = CodexSteerInputSchema.parse(raw);
@@ -91,6 +107,18 @@ export class UserTurnSteeringStore {
       })
       .immediate();
   }
+  /** Settle a receipt whose owning runtime no longer holds it (turn ended, query
+   * closed or server restarted), so no provider echo can ever arrive. A claim that
+   * never reached stdin is provably refused; a submitted input is unconfirmed.
+   * Callers must only invoke this when no live runtime owns the receipt. */
+  settleOrphaned(session: string, operator: string, input: CodexSteerInput): Status | undefined {
+    const receipt = this.read(session, operator, input);
+    if (!receipt) return;
+    if (receipt.status === 'claimed') this.transition(session, operator, input, 'rejected');
+    else if (receipt.status === 'submitted')
+      this.transition(session, operator, input, 'unconfirmed');
+    return this.read(session, operator, input)?.status;
+  }
   transition(
     session: string,
     operator: string,
@@ -100,7 +128,8 @@ export class UserTurnSteeringStore {
     return this.db
       .transaction(() => {
         const receipt = this.read(session, operator, input);
-        const expected = status === 'accepted' ? 'submitted' : 'claimed';
+        const expected =
+          status === 'accepted' || status === 'unconfirmed' ? 'submitted' : 'claimed';
         if (!receipt || receipt.status !== expected)
           throw Error('Original correction claim required');
         this.db

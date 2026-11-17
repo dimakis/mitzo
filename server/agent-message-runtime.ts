@@ -2,7 +2,7 @@ import type { ManagedSession } from '@mitzo/harness';
 import { agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
 import type { AuthSession } from './auth.js';
 import type { CodexConversation } from './codex-conversation.js';
-import type { CodexSteerInput, CodexSteerResult } from './codex-steering.js';
+import type { CodexSteerInput, UserSteerResult } from './codex-steering.js';
 import { ordinaryOperatorsShareIdentity } from './ordinary-operator-identity.js';
 
 /** Only an initially idle owner may use ordinary admission. A captured active
@@ -38,7 +38,7 @@ export interface AgentMessageRuntime {
   assertCurrent(operatorAuthSessionId: string): void;
   state(): 'busy' | 'idle' | 'stopped' | 'preparing';
   /** Original authenticated user input; never an AgentMessage or peer grant. */
-  steerUser?(input: CodexSteerInput, authorize: () => void): Promise<CodexSteerResult>;
+  steerUser?(input: CodexSteerInput, authorize: () => void): Promise<UserSteerResult>;
   steer(
     message: AgentMessage,
     assertCurrent: () => void,

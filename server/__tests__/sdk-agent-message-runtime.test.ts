@@ -362,7 +362,7 @@ async function composedFixture(personal = false) {
 
 it.each([
   ['unsubmitted', 'rejected', 409],
-  ['submitted', 'uncertain', 202],
+  ['submitted', 'unconfirmed', 409],
   ['acknowledged', 'accepted', 200],
 ] as const)(
   'reports a %s personal Claude correction through HTTP and the real SDK consumer',
@@ -456,7 +456,7 @@ it('consumes a user correction ACK before the ordinary owner and releases its su
   await f.finish();
 });
 
-it('keeps a submitted user correction uncertain when a successor SDK query replays its ACK', async () => {
+it('keeps an unconfirmed user correction unconfirmed when a successor SDK query replays its ACK', async () => {
   const f = await composedFixture();
   const correction = {
     requestId: randomUUID(),
@@ -493,7 +493,9 @@ it('keeps a submitted user correction uncertain when a successor SDK query repla
     message: { id: 'successor-assistant', content: [] },
   });
   await vi.waitFor(() => expect(f.afterAssistant).toHaveBeenCalledOnce());
-  expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({ status: 'uncertain' });
+  expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({
+    status: 'unconfirmed',
+  });
   expect(f.observedInputs.mock.calls).toEqual([[originalInputId]]);
   await f.finish();
 });
