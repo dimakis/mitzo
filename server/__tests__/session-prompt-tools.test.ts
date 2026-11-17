@@ -189,6 +189,10 @@ it('keeps listings read-only and makes task and session tools selectable across 
     false,
   );
   expect(f.approve).not.toHaveBeenCalled();
+  const taskExecution = agentToolCatalog().find((tool) => tool.name === 'TaskExecution');
+  expect(taskExecution?.description).toMatch(/run has no GitHub login/);
+  expect(taskExecution?.description).toMatch(/native gh.*github_read.*RequestGithubPublish/);
+  expect(taskExecution?.description).toMatch(/nested repository.*native git/);
   expect(agentToolCatalog().find((tool) => tool.name === 'TaskExecution')?.routes).toEqual([
     'local-api',
     'codex',

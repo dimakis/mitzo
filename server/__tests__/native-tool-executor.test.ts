@@ -841,6 +841,38 @@ describe('native tool execution through session permissions', () => {
           expect(git(nested, 'rev-parse', 'HEAD')).toBe(nestedHead);
           expect(git(nested, 'diff', '--cached', '--name-only')).toBe('');
         }
+        if (targetOwned) return;
+        // A parent-scoped commit naming the nested clone's file is refused before approval.
+        await writeFile(join(nested, 'change.txt'), 'nested change named from the parent');
+        const effects = vi.mocked(executeTrustedGitCommit).mock.calls.length;
+        const prompts = sent.filter((event) => event.type === 'permission_request').length;
+        const parentScoped = await executeTaskOperation({
+          input: {
+            operation: 'commit',
+            requestId: 'nested-from-parent',
+            grantId: grant.id,
+            files: [join(nested, 'change.txt')],
+            message: 'Must not land in the parent repository',
+          },
+          grant,
+          sessionId: session.sessionId!,
+          session,
+          registry,
+          clientId: 'client',
+          call: { turnId: 'turn', callId: 'parent-commit-call' },
+          store,
+          signal: abort.signal,
+          assertGrant: () => grant,
+          assertRuntimeCurrent: async () => {},
+        });
+        expect(parentScoped.isError).toBe(true);
+        expect(parentScoped.content).toContain(
+          'File belongs to nested repository nested; commit there with native git',
+        );
+        expect(vi.mocked(executeTrustedGitCommit).mock.calls).toHaveLength(effects);
+        expect(sent.filter((event) => event.type === 'permission_request')).toHaveLength(prompts);
+        expect(git(parent, 'rev-parse', 'HEAD')).toBe(parentHead);
+        expect(git(parent, 'diff', '--cached', '--name-only')).toBe('');
       } finally {
         store.close();
         vi.mocked(executeTrustedGitCommit).mockResolvedValue('[branch abc] approved');
