@@ -2488,7 +2488,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       )
         store.setState({ sendStatus: EARLY_START_STATUS[phase] });
       if (phase === 'started' || phase === 'failed')
-        void localOutbox?.reconcileLocalCommand(msg.clientMsgId);
+        void localOutbox?.reconcileLocalCommand(msg.clientMsgId, { startHint: true });
       return true;
     }
     if (

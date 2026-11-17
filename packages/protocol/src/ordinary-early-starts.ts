@@ -4,6 +4,10 @@ import { RuntimeFailureSchema, type RuntimeFailure } from './runtime-failure.js'
 export interface OrdinaryEarlyStart {
   clientMsgId: string;
   sessionId: string;
+  /** Selected repository; the session and reservation identities derive from it. */
+  workspaceId: string;
+  /** Login that created the start. A later login of the same operator recovers it. */
+  authSessionId: string;
   wireFingerprint: string;
   state: 'preparing' | 'failed';
   runtimeFailure?: RuntimeFailure;
@@ -18,6 +22,8 @@ export class OrdinaryEarlyStarts {
     database().exec(`CREATE TABLE IF NOT EXISTS ordinary_early_starts (
       client_msg_id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      auth_session_id TEXT NOT NULL,
       wire_fingerprint TEXT NOT NULL,
       state TEXT NOT NULL CHECK (state IN ('preparing', 'failed')),
       runtime_failure TEXT
@@ -27,11 +33,13 @@ export class OrdinaryEarlyStarts {
   get(clientMsgId: string): OrdinaryEarlyStart | undefined {
     const row = this.database()
       .prepare(
-        'SELECT session_id, wire_fingerprint, state, runtime_failure FROM ordinary_early_starts WHERE client_msg_id=?',
+        'SELECT session_id, workspace_id, auth_session_id, wire_fingerprint, state, runtime_failure FROM ordinary_early_starts WHERE client_msg_id=?',
       )
       .get(clientMsgId) as
       | {
           session_id: string;
+          workspace_id: string;
+          auth_session_id: string;
           wire_fingerprint: string;
           state: string;
           runtime_failure: string | null;
@@ -44,14 +52,23 @@ export class OrdinaryEarlyStarts {
     return {
       clientMsgId,
       sessionId: row.session_id,
+      workspaceId: row.workspace_id,
+      authSessionId: row.auth_session_id,
       wireFingerprint: row.wire_fingerprint,
       state: row.state === 'failed' ? 'failed' : 'preparing',
       ...(failure ? { runtimeFailure: failure } : {}),
     };
   }
 
-  /** Records a new or retried start. The identity of an existing record is fixed. */
-  begin(input: { clientMsgId: string; sessionId: string; wireFingerprint: string }): void {
+  /** Records a new or retried start. The identity of an existing record, including
+   * its creating login, is fixed; the caller qualifies the current operator. */
+  begin(input: {
+    clientMsgId: string;
+    sessionId: string;
+    workspaceId: string;
+    authSessionId: string;
+    wireFingerprint: string;
+  }): void {
     if (!/^[a-f0-9]{64}$/.test(input.wireFingerprint))
       throw Error('Original early start wire required');
     this.database()
@@ -60,16 +77,24 @@ export class OrdinaryEarlyStarts {
         if (
           previous &&
           (previous.sessionId !== input.sessionId ||
+            previous.workspaceId !== input.workspaceId ||
             previous.wireFingerprint !== input.wireFingerprint)
         )
           throw Error('Original early start identity required');
         this.database()
           .prepare(
-            `INSERT INTO ordinary_early_starts (client_msg_id, session_id, wire_fingerprint, state)
-            VALUES (?, ?, ?, 'preparing')
+            `INSERT INTO ordinary_early_starts
+              (client_msg_id, session_id, workspace_id, auth_session_id, wire_fingerprint, state)
+            VALUES (?, ?, ?, ?, ?, 'preparing')
             ON CONFLICT(client_msg_id) DO UPDATE SET state='preparing', runtime_failure=NULL`,
           )
-          .run(input.clientMsgId, input.sessionId, input.wireFingerprint);
+          .run(
+            input.clientMsgId,
+            input.sessionId,
+            input.workspaceId,
+            input.authSessionId,
+            input.wireFingerprint,
+          );
       })
       .immediate();
   }

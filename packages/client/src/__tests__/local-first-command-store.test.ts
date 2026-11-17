@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createMitzoStore } from '../store.js';
+import { PREPARING_RECHECK_MS } from '../send-outbox.js';
 import { runtimeFailureMessage } from '@mitzo/protocol';
 const channel = vi.hoisted(() => ({
   listener: (_event: Record<string, unknown>) => {},
@@ -2823,4 +2824,102 @@ it('shows a failed start after an early receipt and retries the same command', a
   );
   const sends = fetch.mock.calls.filter(([path]) => path === '/local/send');
   expect(JSON.parse(sends[1][1].body)).toEqual(JSON.parse(sends[0][1].body));
+});
+it('applies a failed-start hint that arrives before its preparing receipt', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live-sse';
+  const runtimeFailure = {
+    runtimeFailureCode: 'runtime_unavailable',
+    diagnosticId: '0b8f4f7e-2d1c-4c55-9f0a-6a3e8b1d2c44',
+  };
+  const receipt = { clientMsgId: request.clientMsgId, sessionId: 'owned-session' };
+  let acknowledge!: () => void;
+  fetch.mockImplementation((path: string) => {
+    if (path === '/local/send')
+      return new Promise((resolve) => {
+        acknowledge = () =>
+          resolve(
+            new Response(
+              JSON.stringify({ ok: true, ...receipt, dispatched: false, state: 'preparing' }),
+              { status: 202 },
+            ),
+          );
+      });
+    if (path === '/local/send/receipt')
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: false,
+            code: 'entry_unavailable',
+            error: runtimeFailureMessage(runtimeFailure as never),
+            runtimeFailure,
+            ...receipt,
+          }),
+          { status: 409 },
+        ),
+      );
+    return Promise.resolve(new Response('[]'));
+  });
+  store.getState().sendLocalFirstCommand(request);
+  await vi.waitFor(() => expect(acknowledge).toBeDefined());
+  channel.listener({
+    type: 'ordinary_start_progress',
+    ...receipt,
+    phase: 'failed',
+    runtimeFailure,
+  });
+  // Let any receipt read settle before the HTTP acknowledgement arrives.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  acknowledge();
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('retained'));
+  expect(store.getState().sendError).toBe(runtimeFailureMessage(runtimeFailure as never));
+});
+it('rechecks a preparing start whose terminal hint was missed across a reconnect', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    const { store, fetch } = setup();
+    channel.id = 'live-sse';
+    const runtimeFailure = {
+      runtimeFailureCode: 'auth_revoked',
+      diagnosticId: '7c2d9e41-5a6b-4f3e-8d21-0e9f4b3a7c55',
+    };
+    const receipt = { clientMsgId: request.clientMsgId, sessionId: 'owned-session' };
+    let failed = false;
+    fetch.mockImplementation(async (path: string) => {
+      if (path === '/local/send')
+        return new Response(
+          JSON.stringify({ ok: true, ...receipt, dispatched: false, state: 'preparing' }),
+          { status: 202 },
+        );
+      if (path === '/local/send/receipt')
+        return failed
+          ? new Response(
+              JSON.stringify({
+                ok: false,
+                code: 'entry_unavailable',
+                error: runtimeFailureMessage(runtimeFailure as never),
+                runtimeFailure,
+                ...receipt,
+              }),
+              { status: 409 },
+            )
+          : new Response(JSON.stringify({ ok: false, code: 'receipt_pending', ...receipt }), {
+              status: 409,
+            });
+      return new Response('[]');
+    });
+    store.getState().sendLocalFirstCommand(request);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('preparing'));
+    // The connection was replaced; the start then fails with no hint on this one.
+    channel.listener({ type: '_close' });
+    channel.listener({ type: '_open' });
+    await vi.advanceTimersByTimeAsync(PREPARING_RECHECK_MS);
+    expect(store.getState().localCommand?.state).toBe('preparing');
+    failed = true;
+    await vi.advanceTimersByTimeAsync(PREPARING_RECHECK_MS);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('retained'));
+    expect(store.getState().sendError).toBe(runtimeFailureMessage(runtimeFailure as never));
+  } finally {
+    vi.useRealTimers();
+  }
 });

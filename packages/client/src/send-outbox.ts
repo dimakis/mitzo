@@ -74,6 +74,10 @@ export function hasReviewedSource(body: Record<string, unknown>): boolean {
   );
 }
 
+/** Receipt re-read interval for a start acknowledged as preparing. Startup has a
+ * bounded server deadline, so these reads end with its consumed or failed receipt. */
+export const PREPARING_RECHECK_MS = 5_000;
+
 export class SendOutbox {
   private enqueueFailure:
     'storage' | 'blocked' | 'inactive' | 'pending' | 'invalid' | 'full' | null = null;
@@ -99,6 +103,10 @@ export class SendOutbox {
   private activeLocalEntry?: Entry;
   private receiptReads = new Map<Entry, AbortController>();
   private receiptRechecks = new Set<Entry>();
+  /** Start hints that arrived while the original POST was still unacknowledged. */
+  private startHints = new Set<Entry>();
+  /** Bounded receipt rechecks for starts acknowledged as preparing. */
+  private preparingRechecks = new Map<Entry, ReturnType<typeof setTimeout>>();
   private completingLocal = new Map<Entry, number>();
   private localStates = new WeakMap<Entry, string>();
   private persistenceCause: unknown;
@@ -518,6 +526,7 @@ export class SendOutbox {
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
     this.receiptRechecks.clear();
+    this.clearStartTracking();
     this.active = false;
     this.localReady = [];
     if (this.timer) clearTimeout(this.timer);
@@ -621,6 +630,7 @@ export class SendOutbox {
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
     this.receiptRechecks.clear();
+    this.clearStartTracking();
     this.active = false;
     this.generation++;
     this.localReady = [];
@@ -760,10 +770,20 @@ export class SendOutbox {
   /** A streamed/persisted reply is a hint to observe acceptance, never a grant
    * to resubmit intent. Only the server's exact consumed receipt clears input.
    */
-  async reconcileLocalCommand(commandId: string): Promise<void> {
+  async reconcileLocalCommand(
+    commandId: string,
+    options: { startHint?: boolean } = {},
+  ): Promise<void> {
     const entry = this.entries.find((item) => item.body.clientMsgId === commandId);
     if (!this.active || !this.config.localFirstCommand || !entry || this.withdrawalOwns(entry))
       return;
+    if (options.startHint && this.activeLocalEntry === entry && !entry.localReceipt) {
+      // The outcome of an early start can arrive before its own acknowledgement.
+      // Keep the hint; the preparing receipt replays it as an exact receipt read.
+      this.startHints.add(entry);
+      return;
+    }
+    this.clearPreparingRecheck(entry);
     if (this.receiptReads.has(entry)) {
       // Later output may prove that an earlier pending observation is stale.
       // Coalesce hints into one follow-up read instead of dropping the final hint.
@@ -830,6 +850,16 @@ export class SendOutbox {
         if (this.config.storage?.flush) await this.flushLocal(attempt);
         if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
         this.notifyLocal(entry, 'retained', false, failedStart.data.runtimeFailure);
+        return;
+      }
+      if (
+        response.status === 409 &&
+        raw?.code === 'receipt_pending' &&
+        entry.localReceipt?.state === 'preparing'
+      ) {
+        // Still starting. A missed outcome hint (for example across a reconnect)
+        // must not leave the command preparing, so read the receipt again later.
+        this.schedulePreparingRecheck(entry);
         return;
       }
       if (
@@ -964,6 +994,33 @@ export class SendOutbox {
     // finally block can then admit the next explicit command immediately.
     if (releaseTransport && this.activeLocalEntry === entry) this.activeAbort?.abort();
   }
+  private schedulePreparingRecheck(entry: Entry): void {
+    this.clearPreparingRecheck(entry);
+    const generation = this.generation;
+    this.preparingRechecks.set(
+      entry,
+      setTimeout(() => {
+        this.preparingRechecks.delete(entry);
+        if (
+          generation === this.generation &&
+          this.active &&
+          this.entries.includes(entry) &&
+          entry.localReceipt?.state === 'preparing'
+        )
+          void this.reconcileLocalCommand(String(entry.body.clientMsgId));
+      }, PREPARING_RECHECK_MS),
+    );
+  }
+  private clearPreparingRecheck(entry: Entry): void {
+    const timer = this.preparingRechecks.get(entry);
+    if (timer) clearTimeout(timer);
+    this.preparingRechecks.delete(entry);
+  }
+  private clearStartTracking(): void {
+    this.startHints.clear();
+    for (const timer of this.preparingRechecks.values()) clearTimeout(timer);
+    this.preparingRechecks.clear();
+  }
   private localUrl(entry: Entry): string {
     return entry.ordinaryDelivery?.version === 2
       ? '/api/ordinary/workspaces/commands/' + entry.ordinaryDelivery.phase
@@ -1063,6 +1120,11 @@ export class SendOutbox {
         if (success.data.state === 'consumed') await this.retireLocal(entry, false, attempt);
         else this.notifyLocal(entry, success.data.state, true);
         this.persist();
+        if (success.data.state === 'preparing') {
+          if (this.startHints.delete(entry))
+            queueMicrotask(() => void this.reconcileLocalCommand(String(entry.body.clientMsgId)));
+          else this.schedulePreparingRecheck(entry);
+        }
       } else if (matching && response.status === 409 && observation.success) {
         this.deliveryFailure(entry, attempt, 'runtime_failed');
         entry.runtimeFailure =

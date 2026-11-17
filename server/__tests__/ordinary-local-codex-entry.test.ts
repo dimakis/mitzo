@@ -579,6 +579,24 @@ it('passes a frozen Claude HTTP selection through unchanged model refreshes and 
   expect(fixtures.startVertex).toHaveBeenCalledOnce();
 });
 
+/** A new verified operator login on the same SSE connection. */
+async function signInAgain() {
+  const actor = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+  if (!actor) throw Error('Fixture login failed');
+  release();
+  releaseTransportConnection('entry-stream', auth.id);
+  streams.remove('entry-stream');
+  auth = actor;
+  streams.add(
+    'entry-stream',
+    { write: vi.fn(() => true), end: vi.fn(), writableEnded: false } as unknown as express.Response,
+    auth.id,
+  );
+  claimTransportConnection('entry-stream', auth.id);
+  release = bindAgentLibraryTransport('entry-stream', auth);
+  return actor;
+}
+
 /** A new Claude chat with automatic repository selection, admitted by the fake provider. */
 async function earlyClaudeStart() {
   // Model discovery is process-wide; restore support before capability discovery.
@@ -670,6 +688,31 @@ it('acknowledges a new Claude chat after repository selection and starts it behi
   expect(fixtures.reserve).toHaveBeenCalledOnce();
   expect(fixtures.startVertex).toHaveBeenCalledOnce();
   expect(store.ordinaryEarlyStarts.get(x.automatic.clientMsgId)).toBeUndefined();
+});
+
+it('recovers a failed early start for the same operator after signing in again', async () => {
+  const x = await earlyClaudeStart();
+  fixtures.reserve.mockRejectedValueOnce(Error('Offline reservation failure'));
+  expect(await send(x.automatic)).toEqual(x.preparing);
+  await vi.waitFor(() => expect(x.progress().at(-1)).toMatchObject({ phase: 'failed' }));
+  const actor = await signInAgain();
+  try {
+    // The original reservation identity survives the new login; nothing is re-derived.
+    const receipt = await invoke('POST', '/send/receipt', x.automatic);
+    expect(receipt.status).toBe(409);
+    expect(OrdinaryRuntimeEntryFailureSchema.parse(receipt.body).sessionId).toBe(x.sessionId);
+    expect(await send(x.automatic)).toEqual(x.preparing);
+    await vi.waitFor(() => expect(x.progress().at(-1)).toMatchObject({ phase: 'started' }));
+    const reservations = fixtures.reserve.mock.calls.map(([call]) => call);
+    expect(reservations).toHaveLength(2);
+    expect(reservations[1]).toMatchObject({
+      id: reservations[0].id,
+      conversationId: x.sessionId,
+      commandFingerprint: reservations[0].commandFingerprint,
+    });
+  } finally {
+    revokeAuthSession(actor);
+  }
 });
 
 it('reports a start interrupted by a restart as failed instead of preparing forever', async () => {
@@ -2503,19 +2546,7 @@ it('admits an OpenShell follow-up from a new verified login without changing the
     sessionAllowList: new Set(),
     ownedLocalAuthSessionId: originalLogin,
   });
-  const actor = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
-  if (!actor) throw Error('Fixture login failed');
-  release();
-  releaseTransportConnection('entry-stream', auth.id);
-  streams.remove('entry-stream');
-  auth = actor;
-  streams.add(
-    'entry-stream',
-    { write: vi.fn(() => true), end: vi.fn(), writableEnded: false } as unknown as express.Response,
-    auth.id,
-  );
-  claimTransportConnection('entry-stream', auth.id);
-  release = bindAgentLibraryTransport('entry-stream', auth);
+  const actor = await signInAgain();
   fixtures.continueShell.mockImplementation(async (args) => {
     store.admitOrdinaryOpenShellContinuation(
       {

@@ -529,6 +529,14 @@ function createOwnedCodexEntryRouter(
   // In-process early starts. A durable 'preparing' row without one here was
   // interrupted by a restart and is reported as a failed start.
   const earlyStarts = new Map<string, Promise<void>>();
+  /** A not-yet-admitted early start keeps its original repository across a new
+   * login of the same operator; another identity derives its own, unrelated one. */
+  const retainedEarlyStartWorkspace = (clientMsgId: string, authSessionId: string) => {
+    const retained = ctx.eventStore.ordinaryEarlyStarts.get(clientMsgId);
+    return retained && ordinaryOperatorOwnsConversation(retained.authSessionId, authSessionId)
+      ? retained.workspaceId
+      : undefined;
+  };
   const executeCommand =
     (
       continuation: boolean,
@@ -616,6 +624,7 @@ function createOwnedCodexEntryRouter(
               : undefined
             )?.originalAdmission ?? ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)
           )?.workspace.workspaceId ||
+          retainedEarlyStartWorkspace(input.clientMsgId, auth.id) ||
           nativeStartupSessionId(
             `local-repository:${auth.id}:${input.runtime.account.accountId}:${input.clientMsgId}`,
           );
@@ -1456,6 +1465,8 @@ function createOwnedCodexEntryRouter(
           const wire = {
             clientMsgId: input.clientMsgId,
             sessionId,
+            workspaceId: repositoryWorkspaceId!,
+            authSessionId: auth.id,
             wireFingerprint: ordinaryWireFingerprint(parsed.data),
           };
           ctx.eventStore.ordinaryEarlyStarts.begin(wire);
