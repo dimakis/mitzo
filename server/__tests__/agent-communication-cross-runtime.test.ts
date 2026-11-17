@@ -857,6 +857,37 @@ it.each([false, true])(
     expect(prompts).toHaveLength(expanded ? 0 : 1);
   },
 );
+it('reports a cold peer as not live instead of steerable and lists live peers first', async () => {
+  const f = fixture();
+  f.installClaude();
+  const { chats } = (await f.execute({ operation: 'list', offset: 0 })) as {
+    chats: Array<{ conversationId: string; availability: string; capability: unknown }>;
+  };
+  expect(chats.find((chat) => chat.conversationId === 'codex-worker')).toMatchObject({
+    availability: 'unavailable',
+    capability: {
+      runtime: 'codex',
+      activeDelivery: 'unsupported',
+      idleDelivery: 'unsupported',
+      state: 'unavailable',
+      reason: 'recipient_not_live',
+    },
+  });
+  const availability = chats.map((chat) => chat.availability);
+  expect(availability[0]).toBe('live');
+  expect(availability).toEqual(
+    [...availability].sort((a, b) => (a === b ? 0 : a === 'live' ? -1 : 1)),
+  );
+  await expect(
+    f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'codex-worker',
+      text: 'Do not recover a cold peer.',
+    }),
+  ).rejects.toMatchObject({ code: 'recipient_unavailable' });
+});
+
 it('keeps a known revoked runtime visible as unavailable and refuses a new send with an explicit authorization diagnostic', async () => {
   const f = fixture();
   const target = f.installClaude();
