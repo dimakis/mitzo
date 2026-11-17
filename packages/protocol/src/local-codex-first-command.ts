@@ -181,7 +181,9 @@ export const LocalCodexFirstCommandReceiptSchema = z.strictObject({
   clientMsgId: reference,
   sessionId: reference,
   dispatched: z.boolean(),
-  state: z.enum(['reserved', 'uncertain', 'consumed']),
+  // preparing: acknowledged before workspace reservation and provider startup;
+  // admission is confirmed only by a later exact consumed receipt.
+  state: z.enum(['reserved', 'uncertain', 'consumed', 'preparing']),
 });
 export type LocalCodexFirstCommandReceipt = z.infer<typeof LocalCodexFirstCommandReceiptSchema>;
 /** A retained receipt observation is not acknowledgement of this submitted request. */

@@ -1000,10 +1000,13 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   // source to the expected list; never replace the original source baseline.
   expectedSources.push(outputSource.snapshot);
   await assertOriginalSource();
-  const readOutput = await nativeCall(leadActor, leadId, 'TelosReadArtifact', {
-    id: output.id,
-    revision: output.revision,
-  });
+  const readOutput = await nativeCall(
+    leadActor,
+    leadId,
+    'TelosReadArtifact',
+    { id: output.id, revision: output.revision },
+    'uncarded-read',
+  );
   expect(readOutput.success).toBe(true);
   expect(nativeCompleteJSON(readOutput)).toMatchObject({
     artifact: { id: output.id, revision: output.revision, sha256: output.sha256, content: report },
@@ -1061,7 +1064,7 @@ it('CT06/09/17 complete non-git journey: native evidence and reviewed output, ex
   await page.goto(front.origin + '/chat/' + leadId);
   await browserExpect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   const currentChild = nativeCompleteJSON(
-    await nativeCall(leadActor, leadId, 'TelosGetItem', { itemId: childId }),
+    await nativeCall(leadActor, leadId, 'TelosGetItem', { itemId: childId }, 'uncarded-read'),
   );
   expect(currentChild).toMatchObject({ item: { id: childId, status: 'active' } });
   const verificationInput = {

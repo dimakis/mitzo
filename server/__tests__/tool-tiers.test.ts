@@ -10,6 +10,7 @@ describe('getToolTier', () => {
       'WebSearch',
       'WebFetch',
       'mcp__task-board__TaskStatus',
+      'ToolSearch',
     ]) {
       expect(getToolTier(tool)).toBe('safe');
     }

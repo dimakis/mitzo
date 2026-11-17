@@ -11,6 +11,7 @@ import { executeSandboxedCommand } from './sandboxed-command.js';
 import type { GwsBroker } from './gws-broker.js';
 import { gwsShimInvocation, gwsShimWritesFiles } from './gws-shell.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
+import { nestedRepositoryRefusal } from './nested-repository.js';
 import { currentSdkSecondaryRepositoryTask } from './sdk-secondary-repository.js';
 import {
   executeTrustedGitCommit,
@@ -359,6 +360,8 @@ export function createNativeToolExecutor(
             return refused('Private provider storage or runtime authority is unavailable');
           if (canonical === root || !canonical.startsWith(root + '/'))
             return refused('Git commit path is outside the session workspace');
+          const nested = await nestedRepositoryRefusal(root, canonical);
+          if (nested) return refused(nested);
           const info = await lstat(canonical).catch((error: NodeJS.ErrnoException) => {
             if (error.code !== 'ENOENT') throw error;
             return null;

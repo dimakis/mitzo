@@ -44,6 +44,9 @@ import {
   type TurnCallbackRunner,
 } from './turn-callbacks.js';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
+import { decideTelosApproval } from './telos-approval-policy.js';
+import { captureTelosProgressConsent } from './telos-progress-consent.js';
+import type { TelosSaveConsent } from './telos-save-consent.js';
 
 /** The registered handler owns operation approval, just as other SDK helpers do. */
 export function telosSdkPermission(
@@ -158,14 +161,25 @@ export function createTelosSdkServer(owners: {
               await owners.assertCurrent(joined);
               current();
             };
-            const approve = (exact: Record<string, unknown>) =>
-              buildPermissionHandler(owner.clientId, registry)(wireName, exact, {
-                signal: joined,
-                toolUseID: `${runtimeId}:${extra.requestId ?? randomUUID()}`,
-                forcePrompt: true,
-                allowSessionGrant: false,
-                approvalScope: 'request',
-              });
+            // Same retained progress consent as the Codex route; never general edits.
+            const progress = captureTelosProgressConsent(session, name, input);
+            const toolUseID = `${runtimeId}:${extra.requestId ?? randomUUID()}`;
+            const approve = (exact: Record<string, unknown>, save?: TelosSaveConsent) =>
+              decideTelosApproval(
+                session,
+                wireName,
+                exact,
+                (scope) =>
+                  buildPermissionHandler(owner.clientId, registry)(wireName, exact, {
+                    signal: joined,
+                    toolUseID,
+                    forcePrompt: true,
+                    allowSessionGrant: false,
+                    approvalScope: 'request',
+                    ...scope,
+                  }),
+                { progress, save },
+              );
             try {
               current();
               if (name === 'TelosSaveArtifact') {
@@ -190,7 +204,10 @@ export function createTelosSdkServer(owners: {
                   },
                   (data) =>
                     executeNativeTelosArtifactOperation(
-                      { ...data, approve: (_name, exact) => approve(exact) },
+                      {
+                        ...data,
+                        approve: (_name, exact, _signal, consent) => approve(exact, consent?.save),
+                      },
                       name,
                       input,
                     ),
@@ -236,6 +253,7 @@ export function createTelosSdkServer(owners: {
                             get work() {
                               return data.work;
                             },
+                            ...(progress ? { assertProgressConsent: progress } : {}),
                             approve: (_name, exact) => approve(exact),
                           },
                           name,

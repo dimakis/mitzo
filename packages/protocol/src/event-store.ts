@@ -1,4 +1,5 @@
 import { OrdinaryCommandWithdrawals } from './ordinary-command-withdrawals.js';
+import { OrdinaryEarlyStarts } from './ordinary-early-starts.js';
 export { DeploymentStore } from './deployment-store.js';
 export {
   maintenanceFingerprint,
@@ -625,6 +626,8 @@ export class EventStore {
   readonly collaborationConversation: CollaborationConversationStore;
   readonly agentCommunication: AgentCommunicationStore;
   readonly userSteering: UserTurnSteeringStore;
+  /** First commands acknowledged before workspace reservation and startup. */
+  readonly ordinaryEarlyStarts: OrdinaryEarlyStarts;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
   private readonly sessionLearning: SessionLearningStore;
@@ -2964,6 +2967,7 @@ export class EventStore {
         claimCommand: (id, fingerprint) => this.claimClientCommand(id, fingerprint),
       });
       this.removals = new SessionRemovalStore(db);
+      this.ordinaryEarlyStarts = new OrdinaryEarlyStarts(() => this.db!);
       this.deployment = new DeploymentStore(db);
       this.contextTransitions = new OrdinaryContextTransitionStore(db);
       db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (

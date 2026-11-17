@@ -193,6 +193,32 @@ describe('StartSession proposal tool', () => {
       }),
     );
   });
+  it('returns the Codex-only startupBlocker at proposal for a saved Claude account', async () => {
+    const f = fixture();
+    const claude = structuredClone(configuration);
+    claude.runtime.accountReference = {
+      accountId: 'a',
+      provider: 'anthropic-claude',
+      profileRevision: '1',
+    } as never;
+    f.defaults.get.mockReturnValue({ revision: 1, configuration: claude });
+    const result = await f.tools.execute(input, new AbortController().signal, {
+      turnId: 'turn',
+      callId: 'call',
+    });
+    expect(result).toMatchObject({
+      state: 'pending',
+      startupBlocker: expect.stringMatching(/only on a Local Mac Codex account/),
+    });
+    expect(
+      (
+        await fixture().tools.execute(input, new AbortController().signal, {
+          turnId: 'turn',
+          callId: 'call',
+        })
+      ).startupBlocker,
+    ).toBeUndefined();
+  });
   it('does not create proposals for a stale or unverified tool invocation', async () => {
     const f = fixture();
     await expect(f.tools.execute(input, new AbortController().signal, undefined)).rejects.toThrow();

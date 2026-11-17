@@ -44,11 +44,30 @@ export function memberScope(sessionId: string, session: ManagedSession) {
     ]),
   };
 }
-export const publicGrant = (grant: TaskExecutionGrant) => ({
+/**
+ * Named GitHub repositories with no local task root in this session. Disclosure
+ * only: it never adds roots and stays out of the member scope fingerprint.
+ */
+export function repositoriesWithoutLocalRoot(
+  repositories: readonly string[],
+  session: Pick<ManagedSession, 'worktreePaths'>,
+): string[] {
+  const local = new Set([...session.worktreePaths.keys()].map((name) => name.toLowerCase()));
+  return repositories.filter((repository) => {
+    const full = repository.toLowerCase();
+    return !local.has(full) && !local.has(full.slice(full.indexOf('/') + 1));
+  });
+}
+
+export const publicGrant = (
+  grant: TaskExecutionGrant,
+  session: Pick<ManagedSession, 'worktreePaths'>,
+) => ({
   id: grant.id,
   title: grant.title,
   network: grant.network,
   repositories: grant.repositories,
+  repositoriesWithoutLocalRoot: repositoriesWithoutLocalRoot(grant.repositories, session),
   expiresAt: grant.expiresAt,
   members: grant.members.map(({ sessionId, roots, account }) => ({ sessionId, roots, account })),
   executionLocation: 'host',

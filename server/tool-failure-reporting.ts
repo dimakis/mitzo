@@ -1,6 +1,7 @@
 import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
 import { codexToolFailureResult } from './codex-tool-failure.js';
 import type { CodexToolResult } from './codex-tool-result.js';
+import { LocalRepositoryGitInspectionError } from './local-repository-git-inspection.js';
 import { createLogger } from './logger.js';
 import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 
@@ -24,9 +25,13 @@ export function qualifyToolResult<T extends CodexToolResult>(
   return result;
 }
 
-/** Class names and errno codes only: messages may carry paths or upstream payloads. */
-function causeChain(error: unknown): Array<{ name: string; code?: string }> {
-  const chain: Array<{ name: string; code?: string }> = [];
+type CauseEntry = { name: string; code?: string; kind?: string; reason?: string };
+const codeOwnedReason = /^[a-z0-9-]{1,64}$/;
+
+/** Class names, errno codes and code-owned refusal reasons only: messages may
+ * carry paths or upstream payloads. */
+function causeChain(error: unknown): CauseEntry[] {
+  const chain: CauseEntry[] = [];
   for (let current = error, depth = 0; current !== undefined && depth < 4; depth++) {
     if (!(current instanceof Error)) {
       chain.push({ name: typeof current });
@@ -36,6 +41,10 @@ function causeChain(error: unknown): Array<{ name: string; code?: string }> {
     chain.push({
       name: current.name,
       ...(typeof code === 'string' && /^[A-Za-z_]{1,64}$/.test(code) ? { code } : {}),
+      ...(current instanceof LocalRepositoryGitInspectionError &&
+      codeOwnedReason.test(current.reason)
+        ? { kind: current.kind, reason: current.reason }
+        : {}),
     });
     current = current.cause;
   }

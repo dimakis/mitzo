@@ -5,7 +5,6 @@ import {
 } from './codex-tool-failure.js';
 import { createLogger } from './logger.js';
 import {
-  freezeNativeReadExclusions,
   type NativeAnchoredReadRequest,
   type executeNativeAnchoredReadOperation,
 } from './native-file-operation.js';
@@ -28,7 +27,10 @@ import type { LocalRepositoryReadAnchor } from './local-repository-read-access.j
 import type { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
 import { nativeRepositoryReadCleanupSettled } from './local-repository-native-reader.js';
 import { retainCallbackOutcome } from './turn-callbacks.js';
-import { LocalRepositoryGitInspectionError } from './local-repository-git-inspection.js';
+import {
+  localRepositoryReadFailure,
+  localRepositoryReadHooks,
+} from './local-repository-read-hooks.js';
 
 export const LOCAL_REPOSITORY_TOOL_INSTRUCTIONS =
   'For existing Local Mac repositories, use DiscoverLocalRepository with a name or explicit path, then InspectLocalRepository to read instructions and working-tree facts. Discovery is bounded by current read access; orientation hints are not enrollment or a filesystem boundary. Show the chosen location and allow override. Ask for a choice only for ambiguous candidates, or missing source/destination details when absent. These read tools do not materialize a workspace or grant native access.';
@@ -297,28 +299,25 @@ export function sessionLocalRepositoryTools(
           const request = {
             ...snapshot,
             signal,
-            captureReadExclusions: async () => {
-              current();
-              if (!reader) await currentAsync();
-              current();
-              const exclusions = reader
-                ? reader.deniedRoots
-                : await legacyOwner!.captureReadExclusions(context!, signal!);
-              current();
-              return freezeNativeReadExclusions(exclusions);
-            },
-            captureReadAnchor: async (path: string) => {
-              current();
-              if (!reader) {
-                await legacyOwner!.assertPathAccess(context!, path, signal!);
-                current();
-              }
-              const anchor = await (reader
-                ? reader.captureReadAnchor(path)
-                : legacyOwner!.captureReadAnchor(context!, path, signal!));
-              current();
-              return anchor;
-            },
+            ...localRepositoryReadHooks({
+              current,
+              exclusions: async () => {
+                if (!reader) {
+                  await currentAsync();
+                  current();
+                  return await legacyOwner!.captureReadExclusions(context!, signal!);
+                }
+                return reader.deniedRoots;
+              },
+              anchor: async (path) => {
+                if (!reader) {
+                  await legacyOwner!.assertPathAccess(context!, path, signal!);
+                  current();
+                  return await legacyOwner!.captureReadAnchor(context!, path, signal!);
+                }
+                return await reader.captureReadAnchor(path);
+              },
+            }),
             executeReadOperation: async (
               operation: NativeAnchoredReadRequest,
               operationSignal: AbortSignal,
@@ -385,20 +384,8 @@ export function sessionLocalRepositoryTools(
               },
             ]);
           }
-          if (error instanceof LocalRepositoryGitInspectionError)
-            return {
-              content: JSON.stringify({
-                state: error.kind === 'access' ? 'access-required' : 'inspection-unavailable',
-                reason: error.reason,
-                needed:
-                  error.kind === 'access'
-                    ? ['read-access']
-                    : error.kind === 'limit'
-                      ? ['narrower-search']
-                      : [],
-              }),
-              isError: true,
-            };
+          const refusal = localRepositoryReadFailure(error);
+          if (refusal) return { content: JSON.stringify(refusal), isError: true };
           throw error;
         }
       }; // Capture failures and read refusals return only the bounded error projection.

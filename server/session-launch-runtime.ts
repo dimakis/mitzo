@@ -17,6 +17,20 @@ function assertLaunchChildAdmissible(events: EventStore, id: string) {
   events.removals.assertAdmissible(id);
 }
 
+export const SESSION_LAUNCH_CODEX_ONLY =
+  'Agent-created sessions currently start only on a Local Mac Codex account. Choose a Codex account in review before Approve & start; Claude child sessions are not available yet.';
+
+/** Proposal-time presentation of static startup limits, including the
+ * Codex-only account route. Approve & start still requalifies everything,
+ * including a missing or changed saved account reference. */
+export function sessionLaunchStartupBlocker(config: SessionLaunchConfig): string | null {
+  const provider = config.runtime.accountReference?.provider;
+  return (
+    sessionLaunchConfigurationReason(config) ??
+    (provider && provider !== 'openai-codex' ? SESSION_LAUNCH_CODEX_ONLY : null)
+  );
+}
+
 /** Reuse the same owned ordinary Local Mac Codex admission as New chat and
  * native advisers. No model/provider client or permission grant is created here. */
 export async function qualifySessionLaunchConfig(
@@ -42,8 +56,7 @@ export async function qualifySessionLaunchConfig(
   const { loadAccountProfiles } = await import('./account-profiles.js');
   const profiles = loadAccountProfiles();
   const binding = profiles.resolve(account.accountId, account.model);
-  if (binding.provider !== 'openai-codex')
-    throw new SessionLaunchError('Choose a Local Mac Codex account.');
+  if (binding.provider !== 'openai-codex') throw new SessionLaunchError(SESSION_LAUNCH_CODEX_ONLY);
   const reference = {
     accountId: binding.accountId,
     provider: 'openai-codex' as const,

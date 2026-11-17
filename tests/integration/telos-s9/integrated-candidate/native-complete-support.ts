@@ -101,7 +101,8 @@ export function nativeCompleteCaller(
     sessionId: string,
     name: string,
     args: Record<string, unknown>,
-    decision: 'once' | 'deny' | 'exact-save-retry' | 'refuse-before-approval' = 'once',
+    decision:
+      'once' | 'deny' | 'exact-save-retry' | 'refuse-before-approval' | 'uncarded-read' = 'once',
     beforeDecision?: () => Promise<void>,
   ) => {
     const prepared = await prepareNativeProviderToolCall(actor, name, args);
@@ -132,7 +133,13 @@ export function nativeCompleteCaller(
       timeout: 10_000,
     });
     const prompt = permission();
-    if (decision === 'refuse-before-approval' || decision === 'exact-save-retry') {
+    if (decision === 'uncarded-read') {
+      // Agent/Auto reads rely on owner pin, role and hash checks, not a card.
+      expect(['TelosGetItem', 'TelosReadArtifact']).toContain(name);
+      await pending;
+      expect(permission()).toBeUndefined();
+      expect(beforeDecision).toBeUndefined();
+    } else if (decision === 'refuse-before-approval' || decision === 'exact-save-retry') {
       expect(name).toBe(
         decision === 'exact-save-retry' ? 'TelosSaveArtifact' : 'TelosReadArtifact',
       );
@@ -141,15 +148,7 @@ export function nativeCompleteCaller(
     } else {
       expect(prompt).toBeTruthy();
       expect(prompt!.toolName).toBe(name);
-      if (
-        [
-          'TelosSaveArtifact',
-          'TelosReadArtifact',
-          'TelosAdoptSource',
-          'TelosGetItem',
-          'TelosUpdateItem',
-        ].includes(name)
-      )
+      if (['TelosSaveArtifact', 'TelosAdoptSource', 'TelosUpdateItem'].includes(name))
         expect(prompt).toMatchObject({ approvalScope: 'request', allowSessionGrant: false });
       facts.push({
         stage: 'real-browser-permission',

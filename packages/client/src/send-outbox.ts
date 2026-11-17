@@ -34,7 +34,10 @@ interface Entry {
   body: Record<string, unknown>;
   scope: number;
   uncertain?: boolean;
-  localReceipt?: { sessionId: string; state: 'reserved' | 'uncertain' | 'consumed' };
+  localReceipt?: {
+    sessionId: string;
+    state: 'reserved' | 'uncertain' | 'consumed' | 'preparing';
+  };
   localDraftId?: string;
   ordinaryDelivery?: OrdinaryCommandDelivery;
   composerDraft?: ComposerDraftReceipt;
@@ -71,6 +74,12 @@ export function hasReviewedSource(body: Record<string, unknown>): boolean {
   );
 }
 
+/** Receipt re-read interval for a start acknowledged as preparing. Startup has a
+ * bounded server deadline, so these reads end with its consumed or failed receipt. */
+export const PREPARING_RECHECK_MS = 5_000;
+/** Backoff cap after failed receipt reads; observation continues until settled. */
+export const PREPARING_RECHECK_MAX_MS = 60_000;
+
 export class SendOutbox {
   private enqueueFailure:
     'storage' | 'blocked' | 'inactive' | 'pending' | 'invalid' | 'full' | null = null;
@@ -96,6 +105,11 @@ export class SendOutbox {
   private activeLocalEntry?: Entry;
   private receiptReads = new Map<Entry, AbortController>();
   private receiptRechecks = new Set<Entry>();
+  /** Start hints that arrived while the original POST was still unacknowledged. */
+  private startHints = new Set<Entry>();
+  /** Bounded receipt rechecks for starts acknowledged as preparing. */
+  private preparingRechecks = new Map<Entry, ReturnType<typeof setTimeout>>();
+  private preparingFailures = new Map<Entry, number>();
   private completingLocal = new Map<Entry, number>();
   private localStates = new WeakMap<Entry, string>();
   private persistenceCause: unknown;
@@ -162,7 +176,9 @@ export class SendOutbox {
           ).data;
           if (
             entry.localReceipt &&
-            (!['reserved', 'uncertain', 'consumed'].includes(entry.localReceipt.state) ||
+            (!['reserved', 'uncertain', 'consumed', 'preparing'].includes(
+              entry.localReceipt.state,
+            ) ||
               typeof entry.localReceipt.sessionId !== 'string' ||
               !entry.localReceipt.sessionId.length ||
               entry.localReceipt.sessionId.length > 200 ||
@@ -246,6 +262,11 @@ export class SendOutbox {
         !this.localReady.includes(entry)
       )
         void this.reconcileLocalCommand(String(entry.body.clientMsgId));
+      // Early starts are observed whether or not their chat is open: a reconnect,
+      // foreground or restored login may have missed their only outcome hint.
+      for (const item of this.entries)
+        if (item !== entry && this.awaitsPreparingObservation(item) && !this.receiptReads.has(item))
+          void this.reconcileLocalCommand(String(item.body.clientMsgId));
       return;
     }
     if (
@@ -314,7 +335,12 @@ export class SendOutbox {
         entry,
         this.activeLocalEntry === entry || this.localReady.includes(entry)
           ? 'pending'
-          : 'uncertain',
+          : entry.localReceipt?.state === 'preparing'
+            ? // An early start remains preparing until its receipt or failure.
+              entry.runtimeFailure
+              ? 'retained'
+              : 'preparing'
+            : 'uncertain',
       );
     else this.config.notify({ type: '_local_command_state', state: 'idle' });
   }
@@ -508,6 +534,7 @@ export class SendOutbox {
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
     this.receiptRechecks.clear();
+    this.clearStartTracking();
     this.active = false;
     this.localReady = [];
     if (this.timer) clearTimeout(this.timer);
@@ -611,6 +638,7 @@ export class SendOutbox {
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
     this.receiptRechecks.clear();
+    this.clearStartTracking();
     this.active = false;
     this.generation++;
     this.localReady = [];
@@ -750,10 +778,20 @@ export class SendOutbox {
   /** A streamed/persisted reply is a hint to observe acceptance, never a grant
    * to resubmit intent. Only the server's exact consumed receipt clears input.
    */
-  async reconcileLocalCommand(commandId: string): Promise<void> {
+  async reconcileLocalCommand(
+    commandId: string,
+    options: { startHint?: boolean } = {},
+  ): Promise<void> {
     const entry = this.entries.find((item) => item.body.clientMsgId === commandId);
     if (!this.active || !this.config.localFirstCommand || !entry || this.withdrawalOwns(entry))
       return;
+    if (options.startHint && this.activeLocalEntry === entry && !entry.localReceipt) {
+      // The outcome of an early start can arrive before its own acknowledgement.
+      // Keep the hint; the preparing receipt replays it as an exact receipt read.
+      this.startHints.add(entry);
+      return;
+    }
+    this.clearPreparingRecheck(entry);
     if (this.receiptReads.has(entry)) {
       // Later output may prove that an earlier pending observation is stale.
       // Coalesce hints into one follow-up read instead of dropping the final hint.
@@ -801,6 +839,37 @@ export class SendOutbox {
       if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
       if (this.withdrawalOwns(entry)) return;
       const receipt = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
+      const failedStart = OrdinaryRuntimeEntryFailureSchema.safeParse(raw);
+      if (
+        response.status === 409 &&
+        entry.localReceipt?.state === 'preparing' &&
+        failedStart.success &&
+        failedStart.data.clientMsgId === entry.body.clientMsgId &&
+        failedStart.data.sessionId === entry.localReceipt.sessionId
+      ) {
+        // A start acknowledged early failed before admission. Its exact original
+        // command stays retained for an explicit Retry; nothing is resent here.
+        entry.runtimeFailure = failedStart.data.runtimeFailure;
+        attempt.stage = 'storage';
+        if (!this.persist())
+          throw new Error('Local failed start could not be retained', {
+            cause: this.persistenceCause,
+          });
+        if (this.config.storage?.flush) await this.flushLocal(attempt);
+        if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
+        this.notifyLocal(entry, 'retained', false, failedStart.data.runtimeFailure);
+        return;
+      }
+      if (
+        response.status === 409 &&
+        raw?.code === 'receipt_pending' &&
+        entry.localReceipt?.state === 'preparing'
+      ) {
+        // Still starting. A missed outcome hint (for example across a reconnect)
+        // must not leave the command preparing, so read the receipt again later.
+        this.schedulePreparingRecheck(entry);
+        return;
+      }
       if (
         response.status !== 202 ||
         !receipt.success ||
@@ -873,6 +942,15 @@ export class SendOutbox {
         )
           void this.reconcileLocalCommand(String(entry.body.clientMsgId));
       }
+      // Every other exit (throw, timeout, abort, HTTP error, malformed body)
+      // leaves an early start unsettled: observe it again with backoff.
+      if (
+        generation === this.generation &&
+        this.awaitsPreparingObservation(entry) &&
+        !this.receiptReads.has(entry) &&
+        !this.preparingRechecks.has(entry)
+      )
+        this.schedulePreparingRecheck(entry, true);
     }
   }
   private async retireLocal(
@@ -932,6 +1010,47 @@ export class SendOutbox {
     // Exact consumed acceptance releases only this original HTTP wait. Its
     // finally block can then admit the next explicit command immediately.
     if (releaseTransport && this.activeLocalEntry === entry) this.activeAbort?.abort();
+  }
+  /** Acknowledged as preparing, not yet consumed or failed, and still owned here. */
+  private awaitsPreparingObservation(entry: Entry): boolean {
+    return (
+      this.active &&
+      this.entries.includes(entry) &&
+      entry.localReceipt?.state === 'preparing' &&
+      !entry.runtimeFailure &&
+      !this.withdrawalOwns(entry) &&
+      this.activeLocalEntry !== entry &&
+      !this.localReady.includes(entry)
+    );
+  }
+  /** Pending receipts poll at the base interval; failed reads back off to a cap. */
+  private schedulePreparingRecheck(entry: Entry, afterFailure = false): void {
+    const failures = afterFailure ? (this.preparingFailures.get(entry) ?? 0) + 1 : 0;
+    this.preparingFailures.set(entry, failures);
+    this.clearPreparingRecheck(entry);
+    const generation = this.generation;
+    this.preparingRechecks.set(
+      entry,
+      setTimeout(
+        () => {
+          this.preparingRechecks.delete(entry);
+          if (generation === this.generation && this.awaitsPreparingObservation(entry))
+            void this.reconcileLocalCommand(String(entry.body.clientMsgId));
+        },
+        Math.min(PREPARING_RECHECK_MS * 2 ** failures, PREPARING_RECHECK_MAX_MS),
+      ),
+    );
+  }
+  private clearPreparingRecheck(entry: Entry): void {
+    const timer = this.preparingRechecks.get(entry);
+    if (timer) clearTimeout(timer);
+    this.preparingRechecks.delete(entry);
+  }
+  private clearStartTracking(): void {
+    this.startHints.clear();
+    for (const timer of this.preparingRechecks.values()) clearTimeout(timer);
+    this.preparingRechecks.clear();
+    this.preparingFailures.clear();
   }
   private localUrl(entry: Entry): string {
     return entry.ordinaryDelivery?.version === 2
@@ -1032,6 +1151,11 @@ export class SendOutbox {
         if (success.data.state === 'consumed') await this.retireLocal(entry, false, attempt);
         else this.notifyLocal(entry, success.data.state, true);
         this.persist();
+        if (success.data.state === 'preparing') {
+          if (this.startHints.delete(entry))
+            queueMicrotask(() => void this.reconcileLocalCommand(String(entry.body.clientMsgId)));
+          else this.schedulePreparingRecheck(entry);
+        }
       } else if (matching && response.status === 409 && observation.success) {
         this.deliveryFailure(entry, attempt, 'runtime_failed');
         entry.runtimeFailure =

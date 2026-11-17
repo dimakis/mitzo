@@ -224,6 +224,35 @@ it('returns a useful independence refusal without exposing arbitrary upstream di
   expect(failed?.content).not.toContain('private credential payload');
 });
 
+it.each([
+  [
+    'Repository source is not configured for this specialist account',
+    'repository_source_unassigned',
+    /accountId in catalog.*Connections/,
+  ],
+  ['Specialist runtime is unavailable', 'specialist_runtime_unavailable', /Inspect catalog/],
+  ['Specialist consultation policy was not approved', 'policy_not_approved', /did not approve/],
+])('names the %s refusal with its next action', async (cause, code, next) => {
+  const { tool } = tools();
+  fixture.consult.mockRejectedValueOnce(Error(cause));
+  const refused = await tool.execute(
+    'SymposiumConsult',
+    {
+      operation: 'consult',
+      requestId: randomUUID(),
+      policyId: randomUUID(),
+      role: 'reviewer',
+      assignment: 'Review',
+    },
+    signal(),
+    call,
+  );
+  expect(refused?.isError).toBe(true);
+  const body = JSON.parse(refused!.content);
+  expect(body).toMatchObject({ error: code });
+  expect(JSON.stringify(body)).toMatch(next);
+});
+
 it('renews the original login after an awaited owner response', async () => {
   const { tool, auth } = tools();
   fixture.catalog.mockImplementationOnce(async () => {

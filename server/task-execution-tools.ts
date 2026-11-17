@@ -21,7 +21,12 @@ import { getTaskExecutionStore } from './task-execution-runtime.js';
 import type { TaskExecutionScope, TaskExecutionStore } from './task-execution-store.js';
 import { createLogger } from './logger.js';
 
-import { assertTaskOperator, memberScope, publicGrant } from './task-execution-scope.js';
+import {
+  assertTaskOperator,
+  memberScope,
+  publicGrant,
+  repositoriesWithoutLocalRoot,
+} from './task-execution-scope.js';
 import { executeTaskOperation } from './task-execution-operation.js';
 import { taskExecutionFailure, TaskExecutionRefusal } from './task-execution-failure.js';
 import { retainCallbackOutcome } from './turn-callbacks.js';
@@ -149,7 +154,7 @@ export function sessionTaskExecutionTools(options: {
           }
           return {
             content: JSON.stringify({
-              grants: grants.map(publicGrant),
+              grants: grants.map((grant) => publicGrant(grant, session)),
               executionRoute: executionRoute(grants, prefix, session),
             }),
             isError: false,
@@ -223,6 +228,10 @@ export function sessionTaskExecutionTools(options: {
           if (!previous && !inherited) {
             const display = {
               ...scope,
+              repositoriesWithoutLocalRoot: repositoriesWithoutLocalRoot(
+                scope.repositories,
+                session,
+              ),
               permissions:
                 'Run arbitrary project commands and local commits with writes confined to these host task roots. The repositories list grants GitHub reads only: it does not create a checkout or add a local folder. Prepare another repository before authorizing its task roots. Ordinary host reads remain available except protected storage. Shell networking uses the displayed network scope. Credentials, merges and production are excluded.',
             };
@@ -262,7 +271,7 @@ export function sessionTaskExecutionTools(options: {
           });
           return {
             content: JSON.stringify({
-              grant: publicGrant(grant),
+              grant: publicGrant(grant, session),
               executionRoute: executionRoute([grant], prefix, session),
             }),
             isError: false,

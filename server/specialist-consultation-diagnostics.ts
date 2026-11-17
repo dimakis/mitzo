@@ -64,6 +64,21 @@ export function specialistDiagnostic(cause: unknown) {
       'Bounded specialists cannot recruit other specialists. Return the request to the accountable lead.',
     ],
     [
+      /^Repository source is not configured for this specialist account$/,
+      'repository_source_unassigned',
+      'The selected repository and connection are not assigned to this specialist account. Pick a repository listed for that accountId in catalog, or ask the operator to assign the connection to the account in Connections.',
+    ],
+    [
+      /^Specialist runtime is unavailable$/,
+      'specialist_runtime_unavailable',
+      'The specialist account has no compatible runtime for this route now. Inspect catalog and choose an available account and route.',
+    ],
+    [
+      /^Specialist consultation policy was not approved$/,
+      'policy_not_approved',
+      'The operator did not approve this consultation policy. Nothing was authorized; review a new requestId only if the operator asks.',
+    ],
+    [
       /^Ask mode cannot/,
       'ask_mode',
       'Ask mode cannot authorize, request or recover specialist model work.',

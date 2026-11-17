@@ -1,3 +1,4 @@
+import { LocalRepositoryGitInspectionError } from '../local-repository-git-inspection.js';
 import { expect, it, vi } from 'vitest';
 
 const logged = vi.hoisted(() => [] as Array<Record<string, unknown>>);
@@ -87,4 +88,18 @@ it('logs the cause chain by class and errno only, so unknown failures stay diagn
     causes: [{ name: 'Error' }, { name: 'Error', code: 'EPERM' }],
   });
   expect(JSON.stringify(logged.at(-1))).not.toContain('/Users/private');
+});
+
+it('logs the code-owned kind and reason of a local repository read refusal', () => {
+  logged.length = 0;
+  reportToolFailure(new LocalRepositoryGitInspectionError('access', 'read-anchor-required'), {
+    sessionId: 'session',
+    tool: 'DiscoverLocalRepository',
+    signal: new AbortController().signal,
+  });
+  expect(logged.at(-1)).toMatchObject({
+    causes: [
+      { name: 'LocalRepositoryGitInspectionError', kind: 'access', reason: 'read-anchor-required' },
+    ],
+  });
 });

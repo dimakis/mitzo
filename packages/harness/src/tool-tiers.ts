@@ -10,6 +10,8 @@ const READ_ONLY_TOOLS = new Set([
   'mcp__mitzo-connections__ReadKnowledge',
   'Glob',
   'Grep',
+  // SDK built-in deferred-schema loader: returns tool definitions, no effects.
+  'ToolSearch',
   'WebSearch',
   'WebFetch',
   'GitHubRead',
@@ -48,6 +50,7 @@ const DEFAULT_TOOL_TIERS: Record<string, ToolTier> = {
   'mcp__mitzo-connections__SaveKnowledgeDraft': 'standard',
   Glob: 'safe',
   Grep: 'safe',
+  ToolSearch: 'safe',
   WebSearch: 'safe',
   WebFetch: 'safe',
   GitHubRead: 'safe',
