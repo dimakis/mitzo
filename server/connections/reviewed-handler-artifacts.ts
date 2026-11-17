@@ -2324,7 +2324,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/chat-model-settings.spec.ts':
     'd1a199def861983d7917fb348117ee7fbc5cf0cb84667f972b912c34b1446209',
   '../../tests/offline/chat-queue-steering.spec.ts':
-    '66288dbc3bf6d48ef18257e6367516f5729d0c4ae38f3bc16255ca2475904a82',
+    'b0338b22d35ddd521f9350bbd620ceae068f42eedcf62f892a86ddf09a09371b',
   '../../tests/offline/steering-failure-reference.spec.ts':
     'fe164bcb7ec8411090af9048df5e3432c077c446668e97c38e1ae4c7c065e09f',
   '../../tests/offline/chat-runtime-tools.spec.ts':
