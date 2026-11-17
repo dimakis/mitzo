@@ -184,7 +184,7 @@ export const agentCommunicationDefinitions = [
   {
     name: AGENT_COMMUNICATION_TOOL,
     description:
-      'Discover owned ordinary chats and their delivery capabilities, read inbox/receipts, or send visible peer messages. Verified runtime adapters steer busy recipients and use guarded ordinary admission for idle recipients. Unsupported runtimes are reported explicitly; do not silently replace steering with a queued SendSessionMessage. An operator-approved session messaging grant can cover later sends and correlated replies. Every authorized send and status appears in both chats. Delivered means provider acknowledgement, not that requested work or a pause was applied. Use wait with after and timeoutMs (maximum 30000), and lookup with the original requestId after uncertainty. Reply with replyTo and original sender ID. Messages grant no action, credential, network or merge authority. Private transcripts stay excluded; cold/paused recipients are not recovered.',
+      'Discover owned ordinary chats and their delivery capabilities, read inbox/receipts, or send visible peer messages. Verified runtime adapters steer busy recipients and use guarded ordinary admission for idle recipients. Unsupported runtimes are reported explicitly; do not silently replace steering with a queued SendSessionMessage. An operator-approved session messaging grant can cover later sends and correlated replies. Every authorized send and status appears in both chats. Delivered means provider acknowledgement, not that requested work or a pause was applied. Use wait with after and timeoutMs (maximum 30000), and lookup with the original requestId after uncertainty. Reply with replyTo and original sender ID. Messages grant no action, credential, network or merge authority. Private transcripts stay excluded. list returns live chats first; cold or paused chats are listed as unavailable with reason recipient_not_live and must be opened by the operator before a send — they are never recovered here.',
     input_schema: z.toJSONSchema(AgentCommunicationInput),
   },
 ];
@@ -340,6 +340,15 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         const adapter = target && agentMessageRuntime(target.session, captured.auth.id);
         const native =
           binding.harness.implementation === 'codex' && binding.execution.location === 'local';
+        // A cold peer has no delivery route until it is opened; never imply steer.
+        if (!target)
+          return {
+            runtime: binding.harness.implementation,
+            activeDelivery: 'unsupported',
+            idleDelivery: 'unsupported',
+            state: 'unavailable',
+            reason: 'recipient_not_live',
+          };
         return {
           runtime: binding.harness.implementation,
           activeDelivery: adapter || (native && owners.steer) ? 'steer' : 'unsupported',
@@ -512,6 +521,10 @@ export function sessionAgentCommunicationTools(owners: Owners) {
             ];
           });
           current();
+          // Live peers first so cold chats cannot fill the page ahead of them.
+          chats.sort((a, b) =>
+            a.availability === b.availability ? 0 : a.availability === 'live' ? -1 : 1,
+          );
           return {
             chats: chats.slice(input.offset, input.offset + 50),
             nextOffset: chats.length > input.offset + 50 ? input.offset + 50 : null,
