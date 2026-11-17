@@ -2675,7 +2675,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-review.test.ts':
     'a132e51ca35fd62ebd2da3a4f5628c6119705076dc1010fa5ecf2a7cbd5533aa',
   '../__tests__/collaboration-application-sdk-recovery.test.tsx':
-    '14b025c6919c9fc485b2c23a442a8b6b04b82e2d0f5ce69217f9721201101f4a',
+    '99e6121c4ac26ce5e235314b8e0e91082908cd8e665dc59c782001d8ea29ff2c',
   '../__tests__/collaboration-application-ui.test.tsx':
     'c9fa1855d9c946c6181a5ea34e5273d335a7a3dec40e7c395c864651f19f6154',
   '../__tests__/collaboration-context-input.test.ts':

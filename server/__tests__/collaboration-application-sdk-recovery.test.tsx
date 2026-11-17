@@ -47,11 +47,12 @@ it('recovers the exact pre-input SDK Stop through the production composer Check 
     await import('../../frontend/src/lib/chat-drafts.js');
   const { SharedConversationHost, SharedConversationBody } =
     await import('../../frontend/src/components/SharedConversation.js');
+  const draftId = 'shared:' + h.group;
   const draft = createChatDraft();
   expect(
     saveChatDraft({
       ...draft,
-      id: 'shared:' + h.group,
+      id: draftId,
       settings: {
         ...draft.settings,
         collaborationResponders: {
@@ -103,8 +104,9 @@ it('recovers the exact pre-input SDK Stop through the production composer Check 
     ),
   );
   try {
+    const prompt = 'Cancel before the SDK receives this prompt';
     const input = await screen.findByRole('textbox', { name: 'Message Mitzo' });
-    fireEvent.change(input, { target: { value: 'Cancel before the SDK receives this prompt' } });
+    fireEvent.change(input, { target: { value: prompt } });
     await waitFor(
       () =>
         expect(
@@ -117,14 +119,22 @@ it('recovers the exact pre-input SDK Stop through the production composer Check 
     await vi.waitFor(() => expect(observed.releaseInput).toBeTypeOf('function'), {
       timeout: 10000,
     });
-    await screen.findByRole('button', { name: /^Stop / });
+    // A pending send also shows Stop before the projected delivery has a command.
+    // Wait for the exact send acknowledgement and its transcript before clicking.
+    await waitFor(
+      () => {
+        expect(getChatDraft(draftId)?.collaborationSend?.acknowledged).toBe(true);
+        expect(screen.getByText(prompt)).toBeTruthy();
+      },
+      { timeout: 10000 },
+    );
     const accepted = (await h.api.view(h.group)).messages.find(
-      (message) => message.text === 'Cancel before the SDK receives this prompt',
+      (message) => message.text === prompt,
     )!;
     const commandId = accepted.deliveries.find(
       (delivery) => delivery.sessionId === participant,
     )!.commandId!;
-    const original = getChatDraft('shared:' + h.group)!.collaborationSend!.input;
+    const original = getChatDraft(draftId)!.collaborationSend!.input;
     expect(commandId).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Stop / }));
     await vi.waitFor(() =>
@@ -136,14 +146,17 @@ it('recovers the exact pre-input SDK Stop through the production composer Check 
     await vi.waitFor(() =>
       expect(h.events.getSendCommand(commandId)?.error).toBe('Cancelled before SDK dispatch'),
     );
-    const check = screen.queryByRole('button', { name: 'Check original Stop' });
-    if (check) fireEvent.click(check);
-    else {
+    const checkButton = { name: 'Check original Stop' };
+    const inline = screen.queryByRole('button', checkButton);
+    if (!inline)
       fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
-      const status = screen.getByRole('dialog', { name: 'Conversation status' });
-      fireEvent.click(within(status).getByRole('button', { name: 'Check original Stop' }));
-      fireEvent.click(within(status).getByRole('button', { name: 'Close', exact: true }));
-    }
+    const status = inline ? undefined : screen.getByRole('dialog', { name: 'Conversation status' });
+    const controls = status ? within(status) : screen;
+    await waitFor(() =>
+      expect((controls.getByRole('button', checkButton) as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(controls.getByRole('button', checkButton));
+    if (status) fireEvent.click(within(status).getByRole('button', { name: 'Close', exact: true }));
     // The new independent Stop owner settles before the ordinary two-second
     // transcript observer refreshes this composer. Keep its UI assertion bounded.
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Stop / })).toBeNull(), {
