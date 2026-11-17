@@ -37,6 +37,7 @@ import {
 } from './host-codex-custody.js';
 import { join } from 'node:path';
 import { codexPrivateDirectory } from './codex-private-path.js';
+import { resolveHostGithubCredential } from './host-github-credential.js';
 const Runtime = z.strictObject({
   hostId: z.string().min(1).max(200),
   runtimeContractRevision: z.string().min(1).max(200),
@@ -511,6 +512,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             this.owners.baseEnv,
             this.owners.lifecycle,
             selected,
+            resolveHostGithubCredential(),
           ));
       let validationLive = false;
       loginLease = await observeLocalCodexPhase('bootstrap_connect', async () =>
@@ -534,6 +536,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
                     this.owners.lifecycle,
                     executable,
                     connection,
+                    resolveHostGithubCredential(),
                   );
                 const result = await CodexAppServerClient.launchIsolatedApi({
                   privateHome: home,
@@ -543,6 +546,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
                   signal: this.owners.signal,
                   lifecycle: this.owners.lifecycle,
                   base: this.owners.baseEnv,
+                  hostGithub: resolveHostGithubCredential(),
                   resolveKey: (binding, signal) =>
                     keyAuthority!.resolveKey(binding.accountId, signal),
                   assertCurrentSync: () => this.assertSync(expected, undefined, executable),

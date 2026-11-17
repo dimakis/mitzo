@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1248-chat-status-base';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1249-native-gh-login';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2602,7 +2602,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-isolated-api-launch.test.ts':
     '66421c1977ca83a0f7f6c7f4ec9e145a0e6a673f716e3e3fd37ee6ce7a94aaf5',
   '../__tests__/codex-isolated-host-launch.test.ts':
-    '96c89c2e5ff418c70c71ca611cdfd265e7cd539e9ad57f8941a5c527ce55843a',
+    '5f18b184401597e65c6f07f0692779566abb4a4996bf4cde0aa45f6a19ebc901',
   '../__tests__/codex-live-thread-owner.test.ts':
     'a55ebab2a5dbc41133880473780dd4094d8422d00006b59331a1368dffb6676c',
   '../__tests__/codex-mcp-tools.test.ts':
@@ -3781,7 +3781,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
   '../codex-api-provider.ts': '8fd2a082930819da39fcaf2ac971f3bc315a43bd97fe84d58f88fef6015d2e91',
   '../codex-app-server-client.ts':
-    '1fcdffe7e7eacbb2d9d3c8cf5b457c48771d5f0832d93cf8d866cd71cdb0212f',
+    '6b7a03bd3056da5d44eed9ab21afc04beb695253434fba2cd282b83c964c89ee',
   '../codex-approved-search.ts': 'eaec7066315ae88f4f72e0af04f2bc1a37f916385e7eecb4abe708097b0f5a01',
   '../codex-borrowed-search.ts': '9614d2109b5ee0d65d641ca6e743d3c22a3cd8d70c48178d1a0bdfefcbcf35e1',
   '../codex-chat-session.ts': '3eb15eeab0a52126fe8ce155c54fc6a4cc4418803df200f4f2115d9348b51246',
@@ -3941,7 +3941,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-api-login.ts':
     '5352ef806b8ee28d9978ee5b7cbc13ccdf90895a68eaa661b34e1bb05c941a1e',
   '../frozen-host-codex-bootstrap.ts':
-    'ed0477cf4adc35152ce05806f3719cac833c87112e8b25c80852432fe47785a9',
+    '6f47dac6b02cb48642b1acfed563f8945b6c0d7bdc49e9f8f3962b9eeeaec385',
   '../frozen-host-codex-executable.ts':
     'ef3c54f4d877eb7fb9af2beee771f5379364c6ccb5d5656ac61d354d3fa0cfc9',
   '../frozen-host-codex-login.ts':

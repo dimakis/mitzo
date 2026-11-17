@@ -38,6 +38,7 @@ import { createLogger } from './logger.js';
 import { tracer } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { findSessionRuntimeError } from './session-runtime-error.js';
+import { hostGithubEnvironment, type HostGithubCredential } from './host-github-credential.js';
 
 export const SUPPORTED_CODEX_CLI_VERSION = readFileSync(
   new URL('../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
@@ -135,6 +136,7 @@ export interface CodexLifecycleTransport {
  * mode, so it cannot replace that owner's proof of the selected billing account.
  */
 export interface CodexApiBootstrapOptions {
+  hostGithub?: HostGithubCredential;
   connection?: ApiHarnessConnection;
   privateHome: string;
   executable: FrozenHostCodexExecutable;
@@ -634,12 +636,23 @@ export class CodexAppServerClient {
     base: NodeJS.ProcessEnv = process.env,
     lifecycle?: CodexLifecycleTransport,
     executable?: FrozenHostCodexExecutable,
+    hostGithub?: HostGithubCredential,
   ) {
     if (!(executable instanceof FrozenHostCodexExecutable))
       throw new Error('Host Codex runtime unavailable');
     executable.assertForLoginHome(privateHome);
     executable.assertLaunchCurrent();
-    return this.launchHost(privateHome, base, lifecycle, true, executable);
+    return this.launchHost(
+      privateHome,
+      base,
+      lifecycle,
+      true,
+      executable,
+      'chatgpt',
+      undefined,
+      undefined,
+      hostGithub,
+    );
   }
   /** The native owner has revalidated its retained API auth file and key controller. */
   static launchIsolatedApiResume(
@@ -648,6 +661,7 @@ export class CodexAppServerClient {
     lifecycle?: CodexLifecycleTransport,
     executable?: FrozenHostCodexExecutable,
     connection?: ApiHarnessConnection,
+    hostGithub?: HostGithubCredential,
   ) {
     if (!(executable instanceof FrozenHostCodexExecutable))
       throw new Error('Host Codex runtime unavailable');
@@ -662,6 +676,7 @@ export class CodexAppServerClient {
       'api',
       undefined,
       connection,
+      hostGithub,
     );
   }
 
@@ -735,6 +750,7 @@ export class CodexAppServerClient {
         'api',
         undefined,
         connection,
+        options.hostGithub,
       );
       signal.addEventListener('abort', onAbort, { once: true });
       signal.throwIfAborted();
@@ -774,6 +790,7 @@ export class CodexAppServerClient {
     authentication: 'chatgpt' | 'api' = 'chatgpt',
     preflightExecutable?: string,
     connection?: ApiHarnessConnection,
+    hostGithub?: HostGithubCredential,
   ) {
     const provider = authentication === 'api' ? codexApiProvider(connection) : undefined;
     const env = codexEnvironment(credentialRef, base);
@@ -782,6 +799,12 @@ export class CodexAppServerClient {
       assertHostCodexRuntimeVersion(isolated ? env : base, executablePath),
     );
     executable?.assertCurrent();
+    // This credential comes only from the controller's explicit host-login
+    // resolver, never from base (which may contain publisher/API credentials).
+    // Keep its value in memory; configuration contains environment names only.
+    if (hostGithub) {
+      Object.assign(env, hostGithubEnvironment(hostGithub.gh, env), { GH_TOKEN: hostGithub.token });
+    }
     return new CodexAppServerClient(
       spawn(
         executablePath ?? 'codex',
@@ -794,6 +817,14 @@ export class CodexAppServerClient {
             ([key, value]) => ['-c', `${key}=${JSON.stringify(value)}`],
           ),
           ...(isolated ? ['-c', 'cli_auth_credentials_store="file"'] : []),
+          ...(hostGithub
+            ? [
+                '-c',
+                'shell_environment_policy.ignore_default_excludes=true',
+                '-c',
+                `shell_environment_policy.include_only=${JSON.stringify(Object.keys(env))}`,
+              ]
+            : []),
           ...(lifecycle || authentication === 'api'
             ? Object.entries(codexRuntimeOverrides({})).flatMap(([key, value]) => [
                 '-c',

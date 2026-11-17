@@ -72,6 +72,42 @@ it('rejects unsupported executable versions before launching the private connect
   );
   expect(processCalls.spawn).not.toHaveBeenCalled();
 });
+it.each(['chatgpt', 'api'] as const)(
+  'transfers only the explicit host GitHub login on an owned %s launch',
+  (authentication) => {
+    const github = { token: 'synthetic-host-github-login', gh: '/opt/homebrew/bin/gh' };
+    const base = {
+      PATH: '/fixture/bin',
+      GH_TOKEN: 'controller-publisher-secret',
+      GITHUB_TOKEN: 'other-controller-secret',
+      GH_CONFIG_DIR: '/private/controller/gh',
+      OPENAI_API_KEY: 'ambient-api-secret',
+    };
+    const client =
+      authentication === 'chatgpt'
+        ? CodexAppServerClient.launchIsolated(privateHome, base, undefined, executable, github)
+        : CodexAppServerClient.launchIsolatedApiResume(
+            privateHome,
+            base,
+            undefined,
+            executable,
+            undefined,
+            github,
+          );
+    const [, argv, options] = processCalls.spawn.mock.calls[0];
+    expect(options.env).toMatchObject({ GH_TOKEN: github.token });
+    for (const name of ['GITHUB_TOKEN', 'GH_CONFIG_DIR', 'OPENAI_API_KEY'])
+      expect(options.env).not.toHaveProperty(name);
+    expect(argv).toContain('shell_environment_policy.ignore_default_excludes=true');
+    const include = argv.find((value: string) =>
+      value.startsWith('shell_environment_policy.include_only='),
+    );
+    expect(JSON.parse(include.split('=')[1])).toContain('GH_TOKEN');
+    expect(JSON.stringify(argv)).not.toContain(github.token);
+    expect(JSON.stringify(argv)).not.toContain('controller-publisher-secret');
+    client.close();
+  },
+);
 it.each([
   ['official API', undefined, 'openai'],
   [
