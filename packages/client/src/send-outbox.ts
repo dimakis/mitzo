@@ -77,6 +77,8 @@ export function hasReviewedSource(body: Record<string, unknown>): boolean {
 /** Receipt re-read interval for a start acknowledged as preparing. Startup has a
  * bounded server deadline, so these reads end with its consumed or failed receipt. */
 export const PREPARING_RECHECK_MS = 5_000;
+/** Backoff cap after failed receipt reads; observation continues until settled. */
+export const PREPARING_RECHECK_MAX_MS = 60_000;
 
 export class SendOutbox {
   private enqueueFailure:
@@ -107,6 +109,7 @@ export class SendOutbox {
   private startHints = new Set<Entry>();
   /** Bounded receipt rechecks for starts acknowledged as preparing. */
   private preparingRechecks = new Map<Entry, ReturnType<typeof setTimeout>>();
+  private preparingFailures = new Map<Entry, number>();
   private completingLocal = new Map<Entry, number>();
   private localStates = new WeakMap<Entry, string>();
   private persistenceCause: unknown;
@@ -259,6 +262,11 @@ export class SendOutbox {
         !this.localReady.includes(entry)
       )
         void this.reconcileLocalCommand(String(entry.body.clientMsgId));
+      // Early starts are observed whether or not their chat is open: a reconnect,
+      // foreground or restored login may have missed their only outcome hint.
+      for (const item of this.entries)
+        if (item !== entry && this.awaitsPreparingObservation(item) && !this.receiptReads.has(item))
+          void this.reconcileLocalCommand(String(item.body.clientMsgId));
       return;
     }
     if (
@@ -934,6 +942,15 @@ export class SendOutbox {
         )
           void this.reconcileLocalCommand(String(entry.body.clientMsgId));
       }
+      // Every other exit (throw, timeout, abort, HTTP error, malformed body)
+      // leaves an early start unsettled: observe it again with backoff.
+      if (
+        generation === this.generation &&
+        this.awaitsPreparingObservation(entry) &&
+        !this.receiptReads.has(entry) &&
+        !this.preparingRechecks.has(entry)
+      )
+        this.schedulePreparingRecheck(entry, true);
     }
   }
   private async retireLocal(
@@ -994,21 +1011,34 @@ export class SendOutbox {
     // finally block can then admit the next explicit command immediately.
     if (releaseTransport && this.activeLocalEntry === entry) this.activeAbort?.abort();
   }
-  private schedulePreparingRecheck(entry: Entry): void {
+  /** Acknowledged as preparing, not yet consumed or failed, and still owned here. */
+  private awaitsPreparingObservation(entry: Entry): boolean {
+    return (
+      this.active &&
+      this.entries.includes(entry) &&
+      entry.localReceipt?.state === 'preparing' &&
+      !entry.runtimeFailure &&
+      !this.withdrawalOwns(entry) &&
+      this.activeLocalEntry !== entry &&
+      !this.localReady.includes(entry)
+    );
+  }
+  /** Pending receipts poll at the base interval; failed reads back off to a cap. */
+  private schedulePreparingRecheck(entry: Entry, afterFailure = false): void {
+    const failures = afterFailure ? (this.preparingFailures.get(entry) ?? 0) + 1 : 0;
+    this.preparingFailures.set(entry, failures);
     this.clearPreparingRecheck(entry);
     const generation = this.generation;
     this.preparingRechecks.set(
       entry,
-      setTimeout(() => {
-        this.preparingRechecks.delete(entry);
-        if (
-          generation === this.generation &&
-          this.active &&
-          this.entries.includes(entry) &&
-          entry.localReceipt?.state === 'preparing'
-        )
-          void this.reconcileLocalCommand(String(entry.body.clientMsgId));
-      }, PREPARING_RECHECK_MS),
+      setTimeout(
+        () => {
+          this.preparingRechecks.delete(entry);
+          if (generation === this.generation && this.awaitsPreparingObservation(entry))
+            void this.reconcileLocalCommand(String(entry.body.clientMsgId));
+        },
+        Math.min(PREPARING_RECHECK_MS * 2 ** failures, PREPARING_RECHECK_MAX_MS),
+      ),
     );
   }
   private clearPreparingRecheck(entry: Entry): void {
@@ -1020,6 +1050,7 @@ export class SendOutbox {
     this.startHints.clear();
     for (const timer of this.preparingRechecks.values()) clearTimeout(timer);
     this.preparingRechecks.clear();
+    this.preparingFailures.clear();
   }
   private localUrl(entry: Entry): string {
     return entry.ordinaryDelivery?.version === 2
