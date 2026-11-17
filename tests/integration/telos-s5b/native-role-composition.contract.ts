@@ -178,7 +178,12 @@ it('composes native worker evidence, explicit source review and Read Once with c
     name: string,
     args: Record<string, unknown>,
     decision:
-      'once' | 'deny' | 'review-source' | 'browser-once' | 'refuse-before-approval' = 'once',
+      | 'once'
+      | 'deny'
+      | 'review-source'
+      | 'browser-once'
+      | 'refuse-before-approval'
+      | 'uncarded-read' = 'once',
     beforeDecision?: () => Promise<void>,
   ) => {
     const preparedCall = await prepareNativeProviderToolCall(actor, name, args);
@@ -201,20 +206,19 @@ it('composes native worker evidence, explicit source review and Read Once with c
     await vi.waitFor(() => expect(result || error || permission()).toBeTruthy(), {
       timeout: 10_000,
     });
+    if (decision === 'uncarded-read') {
+      // Agent/Auto reads rely on owner pin, role and hash checks, not a card.
+      expect(['TelosGetItem', 'TelosReadArtifact']).toContain(name);
+      expect(beforeDecision).toBeUndefined();
+      await pending;
+    }
     const prompt = permission();
-    if (decision === 'refuse-before-approval') {
+    if (decision === 'uncarded-read') expect(prompt).toBeUndefined();
+    else if (decision === 'refuse-before-approval') {
       expect(name).toBe('TelosReadArtifact');
       expect(prompt).toBeUndefined();
       expect(beforeDecision).toBeUndefined();
-    } else if (
-      [
-        'TelosSaveArtifact',
-        'TelosReadArtifact',
-        'TelosGetItem',
-        'TelosUpdateItem',
-        'TelosAdoptSource',
-      ].includes(name)
-    )
+    } else if (['TelosSaveArtifact', 'TelosUpdateItem', 'TelosAdoptSource'].includes(name))
       expect(prompt).toMatchObject({ approvalScope: 'request', allowSessionGrant: false });
     if (decision === 'review-source' || decision === 'browser-once' || beforeDecision)
       expect(prompt).toBeTruthy();
@@ -470,18 +474,19 @@ it('composes native worker evidence, explicit source review and Read Once with c
     leadId,
     'TelosReadArtifact',
     { id: output.id, revision: output.revision },
-    'browser-once',
-    async () => {
-      await h.page.getByRole('button', { name: 'Allow Once', exact: true }).click();
-    },
+    'uncarded-read',
   );
   expect(readOutput.success, JSON.stringify(readOutput)).toBe(true);
   expect(json(readOutput)).toMatchObject({
     artifact: { id: output.id, revision: output.revision, sha256: output.sha256, content: report },
   });
   expect(application.taskStore.get(taskId)?.status).toBe('pending_review');
-  const childRead = json(await call(leadActor, leadId, 'TelosGetItem', { itemId: 'role-slice' }));
-  const parentRead = json(await call(leadActor, leadId, 'TelosGetItem', { itemId: 'studio' }));
+  const childRead = json(
+    await call(leadActor, leadId, 'TelosGetItem', { itemId: 'role-slice' }, 'uncarded-read'),
+  );
+  const parentRead = json(
+    await call(leadActor, leadId, 'TelosGetItem', { itemId: 'studio' }, 'uncarded-read'),
+  );
   const update = {
     itemId: 'role-slice',
     requestId: 'native-verified-child',
@@ -511,7 +516,9 @@ it('composes native worker evidence, explicit source review and Read Once with c
   expect(staleParent.contentItems.map((entry) => entry.text ?? '').join('')).toContain(
     'Telos item changed',
   );
-  const freshParent = json(await call(leadActor, leadId, 'TelosGetItem', { itemId: 'studio' }));
+  const freshParent = json(
+    await call(leadActor, leadId, 'TelosGetItem', { itemId: 'studio' }, 'uncarded-read'),
+  );
   const unfinished = await call(leadActor, leadId, 'TelosUpdateItem', {
     ...parentUpdate,
     requestId: 'unfinished-native-parent',
@@ -523,7 +530,9 @@ it('composes native worker evidence, explicit source review and Read Once with c
   );
   expect((await api.readRecord('studio')).status).toBe('active');
   expect((await api.readRecord('role-sibling')).status).toBe('active');
-  const freshChild = json(await call(leadActor, leadId, 'TelosGetItem', { itemId: 'role-slice' }));
+  const freshChild = json(
+    await call(leadActor, leadId, 'TelosGetItem', { itemId: 'role-slice' }, 'uncarded-read'),
+  );
   let replacementLeadId: string | undefined;
   const retired = await call(
     leadActor,

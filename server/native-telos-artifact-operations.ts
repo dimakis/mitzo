@@ -12,6 +12,7 @@ import type { TelosWorkStore } from './telos-work-store.js';
 import type { TelosSourceCapture } from './telos-source-capture.js';
 import type { TelosSourceApprovalStore } from './telos-source-approval-store.js';
 import type { TelosToolResult } from './telos-tool.js';
+import { captureTelosSaveConsent, type TelosSaveConsent } from './telos-save-consent.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import { reportToolFailure } from './tool-failure-reporting.js';
 import { retainCallbackOutcome } from './turn-callbacks.js';
@@ -33,11 +34,13 @@ export interface NativeTelosArtifactOwners {
   work: TelosWorkStore;
   sources?: TelosSourceCapture;
   approvals?: TelosSourceApprovalStore;
-  /** The existing host permission owner must request an actual once decision. */
+  /** The existing host permission owner must request an actual once decision,
+   * or reuse the item-scoped save consent offered here for an assigned role. */
   approve(
     name: Name,
     input: Record<string, unknown>,
     signal: AbortSignal,
+    consent?: { save?: TelosSaveConsent },
   ): Promise<PermissionResult>;
 }
 const hash = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
@@ -75,9 +78,14 @@ export async function executeNativeTelosArtifactOperation(
       current();
     };
     const actor = { kind: 'operator' as const, id: ctx.operatorId };
-    const permit = async (input: Record<string, unknown>) => {
+    const permit = async (input: Record<string, unknown>, save?: TelosSaveConsent) => {
       current();
-      const permission = await owners.approve(name, structuredClone(input), ctx.signal);
+      const permission = await owners.approve(
+        name,
+        structuredClone(input),
+        ctx.signal,
+        save ? { save } : undefined,
+      );
       await renew();
       throwIfApprovalExpired(permission);
       if (permission.behavior !== 'allow' || !isDeepStrictEqual(permission.updatedInput, input))
@@ -108,7 +116,14 @@ export async function executeNativeTelosArtifactOperation(
             );
       const bytes = file?.bytes ?? Buffer.from(input.content!, 'utf8');
       if (bytes.length > MAX_TELOS_ARTIFACT_BYTES) unavailable();
-      await permit(input);
+      const consent = captureTelosSaveConsent(
+        work,
+        ctx.selectedRole,
+        ctx.conversationId,
+        input.itemId,
+        actor,
+      );
+      await permit(input, consent);
       const artifact = artifacts.saveGuarded(
         {
           itemId: input.itemId,
@@ -123,6 +138,7 @@ export async function executeNativeTelosArtifactOperation(
         () => {
           current();
           eligible();
+          consent?.assertCurrent();
           file?.assertCurrentSync();
         },
       );
