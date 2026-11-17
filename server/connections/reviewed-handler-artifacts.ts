@@ -2829,7 +2829,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/symposium-application-target.ts':
     'bc394acb1d308e61638c3187ce514123148891df49c1eef89de76da108e87df2',
   '../__tests__/fixtures/symposium-claude-application.ts':
-    '4cb3e4e829b92cfce1a57db15ffb85c8b689a6f1399173249eed367edf5b43ba',
+    '450725d3ff4f39a68982ea1a7b322871acd9da90a611c254886f42fc871e571b',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
     '562b8801ea6befdd046cde6de5d36a275e8651dd6c366991dee86abee55d268e',
   '../__tests__/fixtures/symposium-source-output.ts':
