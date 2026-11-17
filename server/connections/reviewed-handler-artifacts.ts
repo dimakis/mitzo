@@ -3886,7 +3886,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../context-pack-runtime.ts': 'b88bf80b58cdb8bf95dfd950626f75d6e055d2ee5ffb3ac3637e90f85e7bafd8',
   '../context-pack-store.ts': '7e7fce4a09496f735b3ffc9da5aaf9c841a544d1d52513203f2ccdd30e2f837f',
   '../conversation-transcript.ts':
-    'd139ff1a55a3ef3dd6f21b4dc4e08506e0e57149a1e9fb10a5c2c3fc7d7f0a51',
+    '3d68e68efabc86c8aaf0259a0ded52f57092e5745ca2010bd38724460c195ffe',
   '../credential-connection-schema.ts':
     '3489ff131cd0bc28de23d85e1ed7cd4749fcb12f062bdc76407bedc0efe28f47',
   '../credential-connection-tools.ts':

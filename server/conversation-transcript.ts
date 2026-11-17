@@ -828,6 +828,7 @@ export function replayEventsToTranscript(
   for (const message of [...messages, ...currents]) {
     if (
       ids.has(identity(message)) &&
+      'role' in message &&
       message.role === 'assistant' &&
       !message.symposiumProvenance &&
       completed.has(message) &&
